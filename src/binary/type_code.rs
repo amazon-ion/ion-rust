@@ -1,7 +1,4 @@
-use crate::result::{
-    IonResult,
-    decoding_error
-};
+use crate::result::{decoding_error, IonResult};
 use crate::types::IonType;
 
 /// Represents the type information found in the header byte of each binary Ion value.
