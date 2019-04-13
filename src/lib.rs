@@ -5,5 +5,6 @@ extern crate failure_derive;
 
 pub mod result;
 
-mod types;
 mod binary;
+mod data_source;
+mod types;
