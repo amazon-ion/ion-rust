@@ -19,15 +19,15 @@ pub(crate) struct IonValueHeader {
 impl IonValueHeader {
     /// Attempts to parse the provided byte. If the type code is unrecognized or the
     /// type code + length code combination is illegal, an error will be returned.
-    pub fn from_byte(byte: u8) -> IonResult<Option<IonValueHeader>> {
+    pub fn from_byte(byte: u8) -> IonResult<IonValueHeader> {
         let (type_code, length_code) = nibbles_from_byte(byte);
         let ion_type_code = IonTypeCode::from(type_code)?;
         let ion_type = ion_type_code.into_ion_type().ok();
-        Ok(Some(IonValueHeader {
+        Ok(IonValueHeader {
             ion_type,
             ion_type_code,
             length_code,
-        }))
+        })
     }
 }
 
@@ -45,9 +45,13 @@ impl IonValueHeader {
 // TODO: Define the jump table as a static constant at compile time to avoid recalculating it.
 // https://github.com/amzn/ion-rust/issues/4
 pub(crate) fn create_header_byte_jump_table() -> Vec<IonResult<Option<IonValueHeader>>> {
-    let mut headers = Vec::with_capacity(256);
+    let mut header_jump_table = Vec::with_capacity(256);
     for byte_value in 0..=255 {
-        headers.push(IonValueHeader::from_byte(byte_value));
+        let entry = match IonValueHeader::from_byte(byte_value) {
+            Ok(header) => Ok(Some(header)),
+            Err(error) => Err(error)
+        };
+        header_jump_table.push(entry);
     }
-    headers
+    header_jump_table
 }
