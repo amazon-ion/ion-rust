@@ -37,11 +37,11 @@ pub trait IonDataSource: BufRead {
     /// into `fallback_buffer` and that will be used instead. If `fallback_buffer` does not have
     /// enough capacity to store the requested data, it will be resized. It will never be shrunk,
     /// however--it is the caller's responsibility to manage this memory.
-    fn parse_slice<T, F>(
+    fn read_slice<T, F>(
         &mut self,
         length: usize,
         fallback_buffer: &mut Vec<u8>,
-        parser: F,
+        slice_processor: F,
     ) -> IonResult<T>
     where
         F: FnOnce(&[u8]) -> IonResult<T>;
@@ -131,11 +131,11 @@ impl<T: BufRead> IonDataSource for T {
     // Like `read_next_byte_while`, this method will prefer to process the next `number_of_bytes`
     // bytes without copying them out of the input buffer. It can be used to process any Ion value
     // of a known size.
-    fn parse_slice<V, F>(
+    fn read_slice<V, F>(
         &mut self,
         number_of_bytes: usize,
         fallback_buffer: &mut Vec<u8>,
-        parser: F,
+        slice_processor: F,
     ) -> IonResult<V>
     where
         F: FnOnce(&[u8]) -> IonResult<V>,
@@ -147,7 +147,7 @@ impl<T: BufRead> IonDataSource for T {
         // into a separate buffer. We can return a slice of the input buffer and consume() that
         // number of bytes.
         if buffer.len() >= number_of_bytes {
-            let result = parser(&buffer[..number_of_bytes]);
+            let result = slice_processor(&buffer[..number_of_bytes]);
             self.consume(number_of_bytes);
             return result;
         }
@@ -166,7 +166,7 @@ impl<T: BufRead> IonDataSource for T {
 
         // Fill the fallback buffer with bytes from the data source
         self.read_exact(buffer)?;
-        parser(buffer)
+        slice_processor(buffer)
     }
 }
 
@@ -218,7 +218,7 @@ mod tests {
         let processor = &mut |data: &[u8]| {
             Ok(data.iter().map(|byte| *byte as i32).sum())
         };
-        let sum = data_source.parse_slice(4, &mut Vec::new(), processor).unwrap();
+        let sum = data_source.read_slice(4, &mut Vec::new(), processor).unwrap();
         assert_eq!(10, sum);
     }
 
