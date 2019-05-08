@@ -3,5 +3,6 @@
 mod header;
 mod nibbles;
 mod type_code;
+mod var_uint;
 
 pub(crate) use type_code::IonTypeCode;
