@@ -5,6 +5,7 @@ use std::mem;
 // ion_rust does not currently support reading variable length integers of truly arbitrary size.
 // These type aliases will simplify the process of changing the data types used to represent each
 // VarUInt's magnitude and byte length in the future.
+// See: https://github.com/amzn/ion-rust/issues/7
 type VarUIntStorage = u64;
 type VarUIntSizeStorage = usize;
 
@@ -25,7 +26,7 @@ pub struct VarUInt {
 }
 
 impl VarUInt {
-    /// Reads a VarUInt from the provided data source
+    /// Reads a VarUInt from the provided data source.
     pub fn read<R: IonDataSource>(data_source: &mut R) -> IonResult<VarUInt> {
         let mut magnitude: VarUIntStorage = 0;
 
@@ -86,20 +87,20 @@ mod tests {
 
     #[test]
     fn test_read_var_uint() {
-        let varuint = VarUInt::read(
+        let var_uint = VarUInt::read(
                 &mut Cursor::new(&[
                     0b0111_1001,
                     0b0000_1111,
                     0b1000_0001
                 ])
             ).expect(ERROR_MESSAGE);
-        assert_eq!(3, varuint.size_in_bytes());
-        assert_eq!(1_984_385, varuint.value());
+        assert_eq!(3, var_uint.size_in_bytes());
+        assert_eq!(1_984_385, var_uint.value());
     }
 
     #[test]
     fn test_read_var_uint_small_buffer() {
-        let varuint = VarUInt::read(
+        let var_uint = VarUInt::read(
                 // Construct a BufReader whose input buffer cannot hold all of the data at once
                 // to ensure that reads that span multiple I/O operations work as expected
                 &mut BufReader::with_capacity(
@@ -111,36 +112,36 @@ mod tests {
                     ]),
                 )
             ).expect(ERROR_MESSAGE);
-        assert_eq!(varuint.size_in_bytes(), 3);
-        assert_eq!(varuint.value(), 1_984_385);
+        assert_eq!(var_uint.size_in_bytes(), 3);
+        assert_eq!(var_uint.value(), 1_984_385);
     }
 
     #[test]
     fn test_read_var_uint_zero() {
-        let varuint = VarUInt::read(
+        let var_uint = VarUInt::read(
                 &mut Cursor::new(&[
                     0b1000_0000
                 ])
             ).expect(ERROR_MESSAGE);
-        assert_eq!(varuint.size_in_bytes(), 1);
-        assert_eq!(varuint.value(), 0);
+        assert_eq!(var_uint.size_in_bytes(), 1);
+        assert_eq!(var_uint.value(), 0);
     }
 
     #[test]
     fn test_read_var_uint_two_bytes_max_value() {
-        let varuint = VarUInt::read(
+        let var_uint = VarUInt::read(
                 &mut Cursor::new(&[
                     0b0111_1111,
                     0b1111_1111
                 ])
             ).expect(ERROR_MESSAGE);
-        assert_eq!(varuint.size_in_bytes(), 2);
-        assert_eq!(varuint.value(), 16_383);
+        assert_eq!(var_uint.size_in_bytes(), 2);
+        assert_eq!(var_uint.value(), 16_383);
     }
 
     #[test]
     fn test_read_var_uint_overflow_detection() {
-        let varuint = VarUInt::read(
+        let _var_uint = VarUInt::read(
             &mut Cursor::new(&[
                 0b0111_1111,
                 0b0111_1111,
