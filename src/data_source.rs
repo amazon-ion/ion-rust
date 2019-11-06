@@ -31,7 +31,7 @@ pub trait IonDataSource: BufRead {
     where
         F: FnMut(u8) -> bool;
 
-    /// Calls `parser` on a slice containing the next `length` bytes from the
+    /// Calls `slice_processor` on a slice containing the next `length` bytes from the
     /// data source. If the required bytes are already in the input buffer, a reference to that
     /// slice of the input buffer will be used. If they are not, the required bytes will be read
     /// into `fallback_buffer` and that will be used instead. If `fallback_buffer` does not have
