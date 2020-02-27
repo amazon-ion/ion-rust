@@ -1,7 +1,7 @@
-## ion-rust
+# Amazon Ion Rust
 
-Rust implementation of Amazon Ion
+A Rust implementation of the [Amazon Ion][spec] data format.
 
-## License
+***This package is considered experimental, under active/early development, and the API is subject to change.***
 
-This library is licensed under the Apache 2.0 License. 
+[spec]: http://amzn.github.io/ion-docs/docs/spec.html
