@@ -1,7 +1,7 @@
 use std::mem;
 
 use crate::data_source::IonDataSource;
-use crate::result::{decoding_error, IonResult};
+use crate::result::{decoding_error_result, IonResult};
 
 type IntStorage = i64;
 const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<IntStorage>();
@@ -24,7 +24,7 @@ impl Int {
                 value: 0,
             });
         } else if length > MAX_INT_SIZE_IN_BYTES {
-            return decoding_error(format!(
+            return decoding_error_result(format!(
                 "Found a {}-byte Int. Max supported size is {} bytes.",
                 length, MAX_INT_SIZE_IN_BYTES
             ));

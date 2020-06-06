@@ -1,13 +1,13 @@
 use crate::data_source::IonDataSource;
-use crate::result::{decoding_error, IonResult};
+use crate::result::{decoding_error_result, IonResult};
 use std::mem;
 
 // ion_rust does not currently support reading variable length integers of truly arbitrary size.
 // These type aliases will simplify the process of changing the data types used to represent each
 // VarUInt's magnitude and byte length in the future.
 // See: https://github.com/amzn/ion-rust/issues/7
-type VarUIntStorage = u64;
-type VarUIntSizeStorage = usize;
+pub type VarUIntStorage = usize;
+pub type VarUIntSizeStorage = usize;
 
 const BITS_PER_ENCODED_BYTE: usize = 7;
 const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<VarUIntStorage>() * 8;
@@ -51,7 +51,7 @@ impl VarUInt {
         // compromise allows us to prevent overflows for the cost of a single branch per VarUInt
         // rather than performing extra bookkeeping logic on a per-byte basis.
         if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
-            return decoding_error(format!(
+            return decoding_error_result(format!(
                 "Found a {}-byte VarUInt. Max supported size is {} bytes.",
                 encoded_size_in_bytes, MAX_ENCODED_SIZE_IN_BYTES
             ));

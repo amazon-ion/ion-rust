@@ -1,4 +1,4 @@
-use crate::result::{decoding_error, IonResult};
+use crate::result::{decoding_error_result, IonResult};
 use crate::types::IonType;
 
 /// Represents the type information found in the header byte of each binary Ion value.
@@ -51,7 +51,7 @@ impl IonTypeCode {
             SExpression => IonType::SExpression,
             Struct => IonType::Struct,
             _ => {
-                return decoding_error(format!(
+                return decoding_error_result(format!(
                     "Attempted to make an IonType from an invalid type code: {:?}",
                     self
                 ));
@@ -82,7 +82,7 @@ impl IonTypeCode {
             14 => Annotation,
             15 => Reserved,
             _ => {
-                return decoding_error(format!("{:?} is not a valid header type code.", type_code));
+                return decoding_error_result(format!("{:?} is not a valid header type code.", type_code));
             }
         };
         Ok(ion_type_code)

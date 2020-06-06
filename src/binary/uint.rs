@@ -2,7 +2,7 @@ use std::io::Write;
 use std::mem;
 
 use crate::data_source::IonDataSource;
-use crate::result::{decoding_error, IonResult};
+use crate::result::{decoding_error_result, IonResult};
 
 type UIntStorage = u64;
 const MAX_UINT_SIZE_IN_BYTES: usize = mem::size_of::<UIntStorage>();
@@ -20,7 +20,7 @@ impl UInt {
     /// Reads a UInt with `length` bytes from the provided data source.
     pub fn read<R: IonDataSource>(data_source: &mut R, length: usize) -> IonResult<UInt> {
         if length > MAX_UINT_SIZE_IN_BYTES {
-            return decoding_error(format!(
+            return decoding_error_result(format!(
                 "Found a {}-byte UInt. Max supported size is {} bytes.",
                 length, MAX_UINT_SIZE_IN_BYTES
             ));
