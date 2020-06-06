@@ -173,7 +173,7 @@ impl<T: BufRead> IonDataSource for T {
 #[cfg(test)]
 mod tests {
     use super::IonDataSource;
-    use std::io::{BufReader};
+    use std::io::BufReader;
 
     fn test_data(buffer_size: usize, data: &'static [u8]) -> impl IonDataSource {
         BufReader::with_capacity(buffer_size, data)
@@ -215,12 +215,10 @@ mod tests {
     #[test]
     fn test_read_slice() {
         let mut data_source = test_data(2, &[1, 2, 3, 4, 5]);
-        let processor = &mut |data: &[u8]| {
-            Ok(data.iter().map(|byte| *byte as i32).sum())
-        };
-        let sum = data_source.read_slice(4, &mut Vec::new(), processor).unwrap();
+        let processor = &mut |data: &[u8]| Ok(data.iter().map(|byte| *byte as i32).sum());
+        let sum = data_source
+            .read_slice(4, &mut Vec::new(), processor)
+            .unwrap();
         assert_eq!(10, sum);
     }
-
 }
-
