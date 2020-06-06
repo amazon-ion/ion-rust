@@ -1,6 +1,6 @@
 use crate::data_source::IonDataSource;
-use crate::types::{IonType, SymbolId};
 use crate::result::IonResult;
+use crate::types::{IonType, SymbolId};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 

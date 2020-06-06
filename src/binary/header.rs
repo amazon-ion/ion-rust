@@ -49,7 +49,7 @@ pub(crate) fn create_header_byte_jump_table() -> Vec<IonResult<Option<IonValueHe
     for byte_value in 0..=255 {
         let entry = match IonValueHeader::from_byte(byte_value) {
             Ok(header) => Ok(Some(header)),
-            Err(error) => Err(error)
+            Err(error) => Err(error),
         };
         header_jump_table.push(entry);
     }
