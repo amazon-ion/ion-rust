@@ -16,7 +16,7 @@ pub enum IonError {
     DecodingError { description: String },
 
     /// Returned when the user has performed an illegal operation (for example: calling stepOut()
-    /// on the cursor at the top level.
+    /// on the cursor at the top level.)
     #[fail(
         display = "The user has performed an action that is not legal in the current state: {}",
         description
