@@ -23,7 +23,7 @@ use crate::{
 
 /// Information about the value over which the Cursor is currently positioned.
 #[derive(Clone, Debug)]
-struct CursorValue {
+struct EncodedValue {
     ion_type: IonType,
     header: Header,
     is_null: bool,
@@ -35,9 +35,9 @@ struct CursorValue {
     parent_index: Option<usize>,
 }
 
-impl Default for CursorValue {
-    fn default() -> CursorValue {
-        CursorValue {
+impl Default for EncodedValue {
+    fn default() -> EncodedValue {
+        EncodedValue {
             ion_type: IonType::Null,
             header: Header {
                 ion_type: None,
@@ -61,7 +61,7 @@ pub struct BinaryIonCursor<R>
 where
     R: IonDataSource,
 {
-    // The file, socket, array, or other BufRead implementor containing binary Ion bytes
+    // The file, socket, array, or other data source containing binary Ion bytes
     data_source: R,
     // Used for individual data_source.read() calls independent of input buffering
     buffer: Vec<u8>,
@@ -88,9 +88,9 @@ pub struct CursorState {
     // Whether the cursor is currently traversing a struct's fields
     is_in_struct: bool,
     // Information about the value on which the cursor is currently sitting
-    value: CursorValue,
+    value: EncodedValue,
     // All of the values into which the cursor has stepped. Empty at the top level.
-    parents: Vec<CursorValue>,
+    parents: Vec<EncodedValue>,
 }
 
 /// Verifies that the current value is of the expected type and that the bytes representing that
@@ -121,7 +121,7 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
     }
 
     fn next(&mut self) -> IonResult<Option<StreamItem>> {
-        // If the cursor is partway through reading a value, skip the rest of that value.
+        // Skip the remaining bytes of the current value, if any.
         let _ = self.skip_current_value()?;
 
         if let Some(ref parent) = self.cursor.parents.last() {
@@ -225,7 +225,7 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
         let value = match self.cursor.value.header.ion_type_code {
             PositiveInteger => magnitude as i64,
             NegativeInteger => -(magnitude as i64),
-            _ => unreachable!("The Ion Type Code must be one of the above to reach this point."),
+            itc @ _ => unreachable!("Unexpected IonTypeCode: {:?}", itc),
         };
 
         Ok(Some(value))
