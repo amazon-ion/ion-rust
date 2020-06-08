@@ -21,9 +21,10 @@ use crate::{
     types::{IonType, SymbolId},
 };
 
+/// Information about the value over which the Cursor is currently positioned.
 #[derive(Clone, Debug)]
 struct CursorValue {
-    ion_type: IonType, // TODO: Eliminate in favor of ion_type in header?
+    ion_type: IonType,
     header: Header,
     is_null: bool,
     index_at_depth: usize,
@@ -243,7 +244,7 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
 
         let number_of_bytes = self.cursor.value.length_in_bytes;
 
-        self.parse_n_bytes(number_of_bytes, |buffer: &[u8]| {
+        self.read_slice(number_of_bytes, |buffer: &[u8]| {
             let value = match number_of_bytes {
                 0 => 0f64,
                 4 => f64::from(BigEndian::read_f32(buffer)),
@@ -562,9 +563,9 @@ where
     }
 
     fn read_annotations(&mut self) -> IonResult<()> {
-        // The encoding allows us to skip over annotations, but in practice we won't know if we want
-        // to skip this value until we've read the type descriptor bit. That means we need to read
-        // the length even though we have no intent to use it.
+        // The encoding allows us to skip over the annotations list and the value, but in practice
+        // we won't know if we want to skip this value until we've read the type descriptor byte.
+        // That means we need to read the length even though we have no intent to use it.
         let _annotations_and_value_length = self.read_standard_length()?;
         let annotations_length = self.read_var_uint()?.value();
         let mut bytes_read: usize = 0;
@@ -595,28 +596,13 @@ where
         Ok(())
     }
 
-    fn parse_n_bytes<T, F>(&mut self, number_of_bytes: usize, processor: F) -> IonResult<T>
-    where
-        F: FnOnce(&[u8]) -> IonResult<T>,
+    /// See IonDataSource#read_slice.
+    fn read_slice<T, F>(&mut self, number_of_bytes: usize, slice_processor: F) -> IonResult<T>
+        where
+            F: FnOnce(&[u8]) -> IonResult<T>,
     {
-        // If the requested value is already in our input buffer, there's no need to copy it out into a
-        // separate buffer. We can return a slice of the input buffer and consume() that number of
-        // bytes.
-
-        let buffer = self.data_source.fill_buf()?;
-
-        if buffer.len() >= number_of_bytes {
-            let result = processor(&buffer[..number_of_bytes]);
-            self.data_source.consume(number_of_bytes);
-            self.cursor.bytes_read += number_of_bytes;
-            return result;
-        }
-
-        // Otherwise, read the value into self.buffer, a growable Vec, a pass the relevant
-        // immutable slice to the processor.
-        self.read_exact(number_of_bytes)?;
-        let buffer = &self.buffer.as_slice()[..number_of_bytes];
-        processor(buffer)
+        self.cursor.bytes_read += number_of_bytes;
+        self.data_source.read_slice(number_of_bytes, &mut self.buffer, slice_processor)
     }
 
     /// Runs the provided closure, passing in a reference to the value to be read and allowing a
@@ -629,7 +615,7 @@ where
         read_safety_checks!(self, IonType::Blob);
 
         let number_of_bytes = self.cursor.value.length_in_bytes;
-        self.parse_n_bytes(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
+        self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
     }
 
     /// Runs the provided closure, passing in a reference to the value to be read and allowing a
@@ -642,7 +628,7 @@ where
         read_safety_checks!(self, IonType::Clob);
 
         let number_of_bytes = self.cursor.value.length_in_bytes;
-        self.parse_n_bytes(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
+        self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
     }
 
     /// Runs the provided closure, passing in a reference to the string to be read and allowing a
@@ -657,7 +643,7 @@ where
 
         let length_in_bytes = self.cursor.value.length_in_bytes;
 
-        self.parse_n_bytes(length_in_bytes, |buffer: &[u8]| {
+        self.read_slice(length_in_bytes, |buffer: &[u8]| {
             let string_ref = match str::from_utf8(buffer) {
                 Ok(utf8_text) => utf8_text,
                 Err(utf8_error) => {

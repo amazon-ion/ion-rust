@@ -24,7 +24,7 @@ pub enum IonError {
     IllegalOperation { description: String },
 }
 
-/// AA convenience method for creating an IonResult containing an IonError::IoError with the
+/// A convenience method for creating an IonResult containing an IonError::IoError with the
 /// provided description text.
 pub fn io_error<T>(description: &str) -> IonResult<T> {
     Err(IonError::IoError {
