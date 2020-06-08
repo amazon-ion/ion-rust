@@ -598,11 +598,12 @@ where
 
     /// See IonDataSource#read_slice.
     fn read_slice<T, F>(&mut self, number_of_bytes: usize, slice_processor: F) -> IonResult<T>
-        where
-            F: FnOnce(&[u8]) -> IonResult<T>,
+    where
+        F: FnOnce(&[u8]) -> IonResult<T>,
     {
         self.cursor.bytes_read += number_of_bytes;
-        self.data_source.read_slice(number_of_bytes, &mut self.buffer, slice_processor)
+        self.data_source
+            .read_slice(number_of_bytes, &mut self.buffer, slice_processor)
     }
 
     /// Runs the provided closure, passing in a reference to the value to be read and allowing a
