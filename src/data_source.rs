@@ -66,6 +66,7 @@ impl<T: BufRead> IonDataSource for T {
 
     // Returns the next byte in the input buffer if one is available. Otherwise reads one from the
     // underlying data source.
+    #[inline(always)]
     fn next_byte(&mut self) -> IonResult<Option<u8>> {
         match self.fill_buf()?.first() {
             Some(&byte) => {

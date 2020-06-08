@@ -1,7 +1,7 @@
 //! This module provides the necessary structures and logic to read values from a binary Ion
 //! data stream.
 mod constants;
-mod cursor;
+pub(crate) mod cursor;
 mod header;
 mod int;
 mod nibbles;

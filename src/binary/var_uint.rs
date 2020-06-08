@@ -64,12 +64,14 @@ impl VarUInt {
     }
 
     /// Returns the magnitude of the unsigned integer
+    #[inline(always)]
     pub fn value(&self) -> VarUIntStorage {
         self.value
     }
 
     /// Returns the number of bytes that were read from the data source to construct this
     /// unsigned integer
+    #[inline(always)]
     pub fn size_in_bytes(&self) -> VarUIntSizeStorage {
         self.size_in_bytes
     }
