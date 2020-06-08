@@ -5,7 +5,12 @@ extern crate failure_derive;
 
 pub mod result;
 
-mod binary;
-mod cursor;
-mod data_source;
-mod types;
+pub mod binary;
+pub mod cursor;
+pub mod data_source;
+pub mod types;
+
+pub use binary::cursor::BinaryIonCursor;
+pub use cursor::Cursor;
+pub use data_source::IonDataSource;
+pub use types::IonType;
