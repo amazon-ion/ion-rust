@@ -420,11 +420,11 @@ where
         }
     }
 
-    fn depth(&self) -> usize {
+    pub fn depth(&self) -> usize {
         self.cursor.depth
     }
 
-    fn is_null(&self) -> bool {
+    pub fn is_null(&self) -> bool {
         self.cursor.value.is_null
     }
 
@@ -433,12 +433,14 @@ where
             && self.cursor.bytes_read >= self.cursor.value.last_byte
     }
 
+    #[inline(always)]
     fn read_var_uint(&mut self) -> IonResult<VarUInt> {
         let var_uint = VarUInt::read(&mut self.data_source)?;
         self.cursor.bytes_read += var_uint.size_in_bytes();
         Ok(var_uint)
     }
 
+    #[inline(always)]
     fn read_var_int(&mut self) -> IonResult<VarInt> {
         let var_int = VarInt::read(&mut self.data_source)?;
         self.cursor.bytes_read += var_int.size_in_bytes() as usize;
@@ -447,17 +449,20 @@ where
 
     // Useful when the entire value (all bytes after the type/length header) are represented by
     // a single UInt. (i.e. Integer and Symbol)
+    #[inline(always)]
     fn read_value_as_uint(&mut self) -> IonResult<UInt> {
         let number_of_bytes = self.cursor.value.length_in_bytes;
         self.read_uint(number_of_bytes)
     }
 
+    #[inline(always)]
     fn read_uint(&mut self, number_of_bytes: usize) -> IonResult<UInt> {
         let uint = UInt::read(&mut self.data_source, number_of_bytes)?;
         self.cursor.bytes_read += uint.size_in_bytes();
         Ok(uint)
     }
 
+    #[inline(always)]
     fn read_int(&mut self, number_of_bytes: usize) -> IonResult<Int> {
         let int = Int::read(&mut self.data_source, number_of_bytes)?;
         self.cursor.bytes_read += int.size_in_bytes();
@@ -521,6 +526,7 @@ where
         Ok(length)
     }
 
+    #[inline(always)]
     fn read_next_value_header(&mut self) -> IonResult<Option<Header>> {
         let next_byte: u8 = match self.next_byte() {
             Ok(Some(byte)) => byte,      // This is the one-byte header of the next value.

@@ -10,3 +10,7 @@ chrono = "~0.4"
 walkdir = "~2.3"
 failure = "~0.1"
 failure_derive = "~0.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
