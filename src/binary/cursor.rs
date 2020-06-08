@@ -4,7 +4,7 @@ use bytes::ByteOrder;
 use chrono::offset::FixedOffset;
 use chrono::prelude::*;
 
-use crate::binary::constants::v1_0::{system_symbol_ids, IVM};
+use crate::binary::constants::v1_0::IVM;
 use crate::cursor::{Cursor, StreamItem};
 use crate::{
     binary::{
@@ -170,11 +170,6 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
 
         self.cursor.index_at_depth += 1;
         self.cursor.value.index_at_depth = self.cursor.index_at_depth;
-
-        // Differentiate between a struct and a system-level struct
-        if self.value_is_symbol_table() {
-            return Ok(Some(StreamItem::SymbolTableImport));
-        }
 
         Ok(Some(StreamItem::Value(
             self.cursor.value.ion_type,
@@ -584,13 +579,6 @@ where
             self.cursor.value.annotations.push(annotation_symbol_id);
         }
         Ok(())
-    }
-
-    fn value_is_symbol_table(&self) -> bool {
-        match (self.ion_type(), self.cursor.value.annotations.as_slice()) {
-            (Some(IonType::Struct), [system_symbol_ids::ION_SYMBOL_TABLE, ..]) => true,
-            _ => false,
-        }
     }
 
     fn read_exact(&mut self, number_of_bytes: usize) -> IonResult<()> {

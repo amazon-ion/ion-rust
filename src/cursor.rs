@@ -88,8 +88,6 @@ pub enum StreamItem {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker,
-    /// An $ion_symbol_table-annotated struct containing directives
-    SymbolTableImport,
     /// A user-level Ion value (e.g. an integer, timestamp, or struct).
     /// Includes the value's IonType and whether it is null.
     Value(IonType, bool),

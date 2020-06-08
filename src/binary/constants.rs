@@ -8,8 +8,4 @@ pub(crate) mod v1_0 {
         pub const NULL: u8 = 15;
         pub const VAR_UINT: u8 = 14;
     }
-
-    pub(crate) mod system_symbol_ids {
-        pub const ION_SYMBOL_TABLE: usize = 3;
-    }
 }
