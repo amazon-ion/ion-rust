@@ -15,12 +15,11 @@ use crate::{
         var_uint::VarUInt,
     },
     data_source::IonDataSource,
-    result::{decoding_error_result, IonResult},
+    result::{decoding_error_result, illegal_operation_result, illegal_operation, IonResult},
     types::{IonType, SymbolId},
 };
 use crate::binary::constants::v1_0::{system_symbol_ids, IVM};
 use crate::cursor::{Cursor, StreamItem};
-use crate::result::illegal_operation;
 
 #[derive(Clone, Debug)]
 struct CursorValue {
@@ -61,9 +60,13 @@ pub struct BinaryIonCursor<R>
 where
     R: IonDataSource,
 {
+    // The file, socket, array, or other BufRead implementor containing binary Ion bytes
     data_source: R,
-    buffer: Vec<u8>, // Used for individual data_source.read() calls independent of input buffering
+    // Used for individual data_source.read() calls independent of input buffering
+    buffer: Vec<u8>,
+    // Tracks our position in the stream and information about the current value
     cursor: CursorState,
+    // A jump table of pre-parsed header bytes
     header_cache: Vec<IonResult<Option<Header>>>,
 }
 
@@ -102,10 +105,9 @@ macro_rules! read_safety_checks {
             return Ok(None);
         }
         // Make sure the cursor hasn't already advanced beyond the encoded bytes for this value.
-        if $binary_cursor.cursor.value.length_in_bytes > 0
-            && $binary_cursor.finished_reading_value()
+        if $binary_cursor.finished_reading_value()
         {
-            panic!(format!(
+            return illegal_operation_result(format!(
                 "You cannot read the same {:?} value more than once.",
                 $ion_type
             ));
@@ -126,7 +128,6 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
             // If the cursor is nested inside a parent object, don't attempt to read beyond the end of
             // the parent. Users can call '.step_out()' to progress beyond the container.
             if self.cursor.bytes_read >= parent.last_byte {
-                //debug!("We've run out of values in this parent.");
                 return Ok(None);
             }
         }
@@ -433,7 +434,8 @@ impl<R> BinaryIonCursor<R>
     }
 
     fn finished_reading_value(&mut self) -> bool {
-        self.cursor.bytes_read >= self.cursor.value.last_byte
+        self.cursor.value.length_in_bytes > 0 &&
+            self.cursor.bytes_read >= self.cursor.value.last_byte
     }
 
     fn read_var_uint(&mut self) -> IonResult<VarUInt> {
@@ -852,6 +854,16 @@ mod tests {
     }
 
     #[test]
+    fn test_read_string_foo_twice_fails() -> IonResult<()> {
+        let mut cursor = ion_cursor_for(&[0x83, 0x66, 0x6f, 0x6f]);
+        assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
+        assert_eq!(cursor.read_string()?, Some(String::from("foo")));
+        // We've already consumed the string from the data source, so this should fail.
+        assert!(cursor.read_string().is_err());
+        Ok(())
+    }
+
+    #[test]
     fn test_read_clob_empty() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x90]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Clob, false)));
@@ -946,8 +958,10 @@ mod tests {
 
     #[test]
     fn test_read_struct() -> IonResult<()> {
-        // TODO: This is technically not valid Ion as the symbol IDs being used have not been added to
-        //       the symbol table. The Cursor doesn't attempt to resolve them, so no error is raised.
+        // Note: technically invalid Ion because the symbol IDs referenced are never added to the
+        // symbol table.
+
+        // {$10: 1, $11: 2, $12: 3}
         let mut cursor = ion_cursor_for(&[
             0xD9, // 9-byte struct
             0x8A, // Field ID 10
@@ -961,11 +975,65 @@ mod tests {
         cursor.step_in()?;
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
         assert_eq!(cursor.field_id(), Some(10usize));
+        assert_eq!(cursor.read_i64()?, Some(1i64));
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
         assert_eq!(cursor.field_id(), Some(11usize));
+        assert_eq!(cursor.read_i64()?, Some(2i64));
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
         assert_eq!(cursor.field_id(), Some(12usize));
+        assert_eq!(cursor.read_i64()?, Some(3i64));
         cursor.step_out()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_list_in_struct() -> IonResult<()> {
+        // Note: technically invalid Ion because the symbol IDs referenced are never added to the
+        // symbol table.
+
+        // {$11: [1, 2, 3], $10: 1}
+        let mut cursor = ion_cursor_for(&[
+            0xDB, // 9-byte struct
+
+            0x8B, // Field ID 11
+            0xB6, // 6-byte List
+            0x21, 0x01, // Integer 1
+            0x21, 0x02, // Integer 2
+            0x21, 0x03, // Integer 3
+
+            0x8A, // Field ID 10
+            0x21, 0x01, // Integer 1
+        ]);
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+        cursor.step_in()?;
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::List, false)));
+        assert_eq!(cursor.field_id(), Some(11usize));
+        cursor.step_in()?;
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
+        assert_eq!(cursor.read_i64()?, Some(1i64));
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
+        assert_eq!(cursor.read_i64()?, Some(2i64));
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
+        assert_eq!(cursor.read_i64()?, Some(3i64));
+
+        assert_eq!(cursor.next()?, None); // End of the list's values
+        cursor.step_out()?; // Step out of list
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
+        assert_eq!(cursor.field_id(), Some(10usize));
+        assert_eq!(cursor.read_i64()?, Some(1i64));
+
+        assert_eq!(cursor.next()?, None); // End of the struct's values
+        cursor.step_out()?; // Step out of struct
+
+        // End of the stream
+        assert_eq!(cursor.next()?, None);
+
         Ok(())
     }
 }
