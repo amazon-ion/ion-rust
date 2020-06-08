@@ -6,5 +6,6 @@ edition = "2018"
 [dependencies]
 bigdecimal = "~0.1"
 chrono = "~0.4"
+walkdir = "~2.3"
 failure = "~0.1"
 failure_derive = "~0.1"
