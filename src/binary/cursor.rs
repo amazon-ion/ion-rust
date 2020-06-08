@@ -17,7 +17,7 @@ use crate::{
         IonTypeCode,
     },
     data_source::IonDataSource,
-    result::{decoding_error_result, illegal_operation, illegal_operation_result, IonResult},
+    result::{decoding_error, illegal_operation, illegal_operation_raw, IonResult},
     types::{IonType, SymbolId},
 };
 
@@ -106,7 +106,7 @@ macro_rules! read_safety_checks {
         }
         // Make sure the cursor hasn't already advanced beyond the encoded bytes for this value.
         if $binary_cursor.finished_reading_value() {
-            return illegal_operation_result(format!(
+            return illegal_operation(format!(
                 "You cannot read the same {:?} value more than once.",
                 $ion_type
             ));
@@ -205,7 +205,7 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
         match representation {
             0 => Ok(Some(false)),
             1 => Ok(Some(true)),
-            _ => decoding_error_result(&format!(
+            _ => decoding_error(&format!(
                 "Found a boolean value with an illegal representation: {}",
                 representation
             )),
@@ -249,7 +249,7 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
                 4 => f64::from(BigEndian::read_f32(buffer)),
                 8 => BigEndian::read_f64(buffer),
                 _ => {
-                    return decoding_error_result(&format!(
+                    return decoding_error(&format!(
                         "Encountered an illegal value for a Float length: {}",
                         number_of_bytes
                     ))
@@ -376,7 +376,7 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
             .cursor
             .parents
             .pop()
-            .ok_or_else(|| illegal_operation("You cannot step out of the root level."))?;
+            .ok_or_else(|| illegal_operation_raw("You cannot step out of the root level."))?;
 
         // We're stepping out of the container, so we need to skip to the end of it.
         bytes_to_skip = parent.last_byte - self.cursor.bytes_read;
@@ -475,12 +475,8 @@ where
             | SExpression | Clob | Blob => self.read_standard_length()?,
             Float => self.read_float_length()?,
             Struct => self.read_struct_length()?,
-            Annotation => {
-                return decoding_error_result("Found an annotation wrapping an annotation.")
-            }
-            Reserved => {
-                return decoding_error_result("Found an Ion Value with a Reserved type code.")
-            }
+            Annotation => return decoding_error("Found an annotation wrapping an annotation."),
+            Reserved => return decoding_error("Found an Ion Value with a Reserved type code."),
         };
 
         self.cursor.value.length_in_bytes = length;
@@ -505,7 +501,7 @@ where
             8 => 8,
             length_codes::NULL => 0,
             _ => {
-                return decoding_error_result(format!(
+                return decoding_error(format!(
                     "Found a Float value with an illegal length: {}",
                     self.cursor.value.header.length_code
                 ))
@@ -665,7 +661,7 @@ where
             let string_ref = match str::from_utf8(buffer) {
                 Ok(utf8_text) => utf8_text,
                 Err(utf8_error) => {
-                    return decoding_error_result(&format!(
+                    return decoding_error(&format!(
                         "The requested string was not valid UTF-8: {:?}",
                         utf8_error
                     ))

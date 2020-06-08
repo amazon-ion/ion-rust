@@ -1,5 +1,5 @@
 use crate::data_source::IonDataSource;
-use crate::result::{decoding_error_result, IonResult};
+use crate::result::{decoding_error, IonResult};
 use std::mem;
 
 // ion_rust does not currently support reading variable length integers of truly arbitrary size.
@@ -55,7 +55,7 @@ impl VarInt {
         let encoded_size_in_bytes = 1 + data_source.read_next_byte_while(&mut byte_processor)?;
 
         if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
-            return decoding_error_result(format!(
+            return decoding_error(format!(
                 "Found a {}-byte VarInt. Max supported size is {} bytes.",
                 encoded_size_in_bytes, MAX_ENCODED_SIZE_IN_BYTES
             ));

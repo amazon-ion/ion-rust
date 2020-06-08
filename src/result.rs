@@ -26,7 +26,7 @@ pub enum IonError {
 
 /// AA convenience method for creating an IonResult containing an IonError::IoError with the
 /// provided description text.
-pub fn io_error_result<T>(description: &str) -> IonResult<T> {
+pub fn io_error<T>(description: &str) -> IonResult<T> {
     Err(IonError::IoError {
         description: description.to_string(),
     })
@@ -34,7 +34,7 @@ pub fn io_error_result<T>(description: &str) -> IonResult<T> {
 
 /// A convenience method for creating an IonResult containing an IonError::DecodingError with the
 /// provided description text.
-pub fn decoding_error_result<T, S: AsRef<str>>(description: S) -> IonResult<T> {
+pub fn decoding_error<T, S: AsRef<str>>(description: S) -> IonResult<T> {
     Err(IonError::DecodingError {
         description: description.as_ref().to_string(),
     })
@@ -42,15 +42,13 @@ pub fn decoding_error_result<T, S: AsRef<str>>(description: S) -> IonResult<T> {
 
 /// A convenience method for creating an IonResult containing an IonError::IllegalOperation with the
 /// provided description text.
-pub fn illegal_operation_result<T, S: AsRef<str>>(description: S) -> IonResult<T> {
-    Err(IonError::IllegalOperation {
-        description: description.as_ref().to_string(),
-    })
+pub fn illegal_operation<T, S: AsRef<str>>(description: S) -> IonResult<T> {
+    Err(illegal_operation_raw(description))
 }
 
 /// A convenience method for creating an IonError::IllegalOperation with the provided description
 /// text. Useful for calling Option#ok_or_else.
-pub fn illegal_operation<S: AsRef<str>>(description: S) -> IonError {
+pub fn illegal_operation_raw<S: AsRef<str>>(description: S) -> IonError {
     IonError::IllegalOperation {
         description: description.as_ref().to_string(),
     }
