@@ -5,8 +5,8 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 
 /**
- * This trait captures the format-agnostic, system-level parser functionality needed to
- * navigate within an Ion stream and read the values encountered into native Rust data types.
+ * This trait captures the format-agnostic parser functionality needed to navigate within an Ion
+ * stream and read the values encountered into native Rust data types.
  *
  * Cursor implementations are not expected to interpret symbol table declarations, resolve symbol
  * IDs into text, or otherwise interpret system-level constructs for use at a user level.
@@ -83,12 +83,14 @@ pub trait Cursor<D: IonDataSource> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-/// System-level stream components that a Cursor may encounter
+/// Raw stream components that a Cursor may encounter.
 pub enum StreamItem {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker,
-    /// A user-level Ion value (e.g. an integer, timestamp, or struct).
+    /// An Ion value (e.g. an integer, timestamp, or struct).
     /// Includes the value's IonType and whether it is null.
+    /// Stream values that represent system constructs (e.g. a struct marked with a
+    /// $ion_symbol_table annotation) are still considered values.
     Value(IonType, bool),
 }
