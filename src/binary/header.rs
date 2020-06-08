@@ -10,20 +10,20 @@ use crate::{
 /// [Typed Value Formats](http://amzn.github.io/ion-docs/docs/binary.html#typed-value-formats)
 /// section of the binary Ion spec.
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct IonValueHeader {
+pub(crate) struct Header {
     pub ion_type_code: IonTypeCode,
     pub ion_type: Option<IonType>,
     pub length_code: u8,
 }
 
-impl IonValueHeader {
+impl Header {
     /// Attempts to parse the provided byte. If the type code is unrecognized or the
     /// type code + length code combination is illegal, an error will be returned.
-    pub fn from_byte(byte: u8) -> IonResult<IonValueHeader> {
+    pub fn from_byte(byte: u8) -> IonResult<Header> {
         let (type_code, length_code) = nibbles_from_byte(byte);
         let ion_type_code = IonTypeCode::from(type_code)?;
         let ion_type = ion_type_code.into_ion_type().ok();
-        Ok(IonValueHeader {
+        Ok(Header {
             ion_type,
             ion_type_code,
             length_code,
@@ -44,10 +44,10 @@ impl IonValueHeader {
 /// `Ok(Some(IonValueHeader))`.
 // TODO: Define the jump table as a static constant at compile time to avoid recalculating it.
 // https://github.com/amzn/ion-rust/issues/4
-pub(crate) fn create_header_byte_jump_table() -> Vec<IonResult<Option<IonValueHeader>>> {
+pub(crate) fn create_header_byte_jump_table() -> Vec<IonResult<Option<Header>>> {
     let mut header_jump_table = Vec::with_capacity(256);
     for byte_value in 0..=255 {
-        let entry = match IonValueHeader::from_byte(byte_value) {
+        let entry = match Header::from_byte(byte_value) {
             Ok(header) => Ok(Some(header)),
             Err(error) => Err(error),
         };

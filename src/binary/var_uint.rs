@@ -6,8 +6,8 @@ use std::mem;
 // These type aliases will simplify the process of changing the data types used to represent each
 // VarUInt's magnitude and byte length in the future.
 // See: https://github.com/amzn/ion-rust/issues/7
-type VarUIntStorage = u64;
-type VarUIntSizeStorage = usize;
+pub type VarUIntStorage = usize;
+pub type VarUIntSizeStorage = usize;
 
 const BITS_PER_ENCODED_BYTE: usize = 7;
 const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<VarUIntStorage>() * 8;
