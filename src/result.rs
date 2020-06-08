@@ -17,7 +17,10 @@ pub enum IonError {
 
     /// Returned when the user has performed an illegal operation (for example: calling stepOut()
     /// on the cursor at the top level.
-    #[fail(display = "The user has performed that is not legal in the current state: {}", description)]
+    #[fail(
+        display = "The user has performed an action that is not legal in the current state: {}",
+        description
+    )]
     IllegalOperation { description: String },
 }
 
@@ -61,4 +64,3 @@ impl From<io::Error> for IonError {
         }
     }
 }
-

@@ -82,7 +82,10 @@ impl IonTypeCode {
             14 => Annotation,
             15 => Reserved,
             _ => {
-                return decoding_error_result(format!("{:?} is not a valid header type code.", type_code));
+                return decoding_error_result(format!(
+                    "{:?} is not a valid header type code.",
+                    type_code
+                ));
             }
         };
         Ok(ion_type_code)

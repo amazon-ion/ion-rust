@@ -4,22 +4,22 @@ use bytes::ByteOrder;
 use chrono::offset::FixedOffset;
 use chrono::prelude::*;
 
+use crate::binary::constants::v1_0::{system_symbol_ids, IVM};
+use crate::cursor::{Cursor, StreamItem};
 use crate::{
     binary::{
-        constants::v1_0::{length_codes},
+        constants::v1_0::length_codes,
         header::{create_header_byte_jump_table, Header},
         int::Int,
-        IonTypeCode,
         uint::UInt,
         var_int::VarInt,
         var_uint::VarUInt,
+        IonTypeCode,
     },
     data_source::IonDataSource,
-    result::{decoding_error_result, illegal_operation_result, illegal_operation, IonResult},
+    result::{decoding_error_result, illegal_operation, illegal_operation_result, IonResult},
     types::{IonType, SymbolId},
 };
-use crate::binary::constants::v1_0::{system_symbol_ids, IVM};
-use crate::cursor::{Cursor, StreamItem};
 
 #[derive(Clone, Debug)]
 struct CursorValue {
@@ -105,8 +105,7 @@ macro_rules! read_safety_checks {
             return Ok(None);
         }
         // Make sure the cursor hasn't already advanced beyond the encoded bytes for this value.
-        if $binary_cursor.finished_reading_value()
-        {
+        if $binary_cursor.finished_reading_value() {
             return illegal_operation_result(format!(
                 "You cannot read the same {:?} value more than once.",
                 $ion_type
@@ -405,8 +404,8 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
 }
 
 impl<R> BinaryIonCursor<R>
-    where
-        R: IonDataSource,
+where
+    R: IonDataSource,
 {
     pub fn new(data_source: R) -> Self {
         BinaryIonCursor {
@@ -434,8 +433,8 @@ impl<R> BinaryIonCursor<R>
     }
 
     fn finished_reading_value(&mut self) -> bool {
-        self.cursor.value.length_in_bytes > 0 &&
-            self.cursor.bytes_read >= self.cursor.value.last_byte
+        self.cursor.value.length_in_bytes > 0
+            && self.cursor.bytes_read >= self.cursor.value.last_byte
     }
 
     fn read_var_uint(&mut self) -> IonResult<VarUInt> {
@@ -481,8 +480,12 @@ impl<R> BinaryIonCursor<R>
             | SExpression | Clob | Blob => self.read_standard_length()?,
             Float => self.read_float_length()?,
             Struct => self.read_struct_length()?,
-            Annotation => return decoding_error_result("Found an annotation wrapping an annotation."),
-            Reserved => return decoding_error_result("Found an Ion Value with a Reserved type code."),
+            Annotation => {
+                return decoding_error_result("Found an annotation wrapping an annotation.")
+            }
+            Reserved => {
+                return decoding_error_result("Found an Ion Value with a Reserved type code.")
+            }
         };
 
         self.cursor.value.length_in_bytes = length;
@@ -609,8 +612,8 @@ impl<R> BinaryIonCursor<R>
     }
 
     fn parse_n_bytes<T, F>(&mut self, number_of_bytes: usize, processor: F) -> IonResult<T>
-        where
-            F: FnOnce(&[u8]) -> IonResult<T>,
+    where
+        F: FnOnce(&[u8]) -> IonResult<T>,
     {
         // If the requested value is already in our input buffer, there's no need to copy it out into a
         // separate buffer. We can return a slice of the input buffer and consume() that number of
@@ -636,8 +639,8 @@ impl<R> BinaryIonCursor<R>
     /// calculated value of any type to be returned. When possible, blob_ref_map will pass a
     /// reference directly to the bytes in the input buffer rather than copying the blob.
     pub fn blob_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
-        where
-            F: FnOnce(&[u8]) -> T,
+    where
+        F: FnOnce(&[u8]) -> T,
     {
         read_safety_checks!(self, IonType::Blob);
 
@@ -649,8 +652,8 @@ impl<R> BinaryIonCursor<R>
     /// calculated value of any type to be returned. When possible, clob_ref_map will pass a
     /// reference directly to the bytes in the input buffer rather than copying the clob.
     pub fn clob_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
-        where
-            F: FnOnce(&[u8]) -> T,
+    where
+        F: FnOnce(&[u8]) -> T,
     {
         read_safety_checks!(self, IonType::Clob);
 
@@ -662,8 +665,8 @@ impl<R> BinaryIonCursor<R>
     /// calculated value of any type to be returned. When possible, string_ref_map will pass a
     /// reference directly to the bytes in the input buffer rather than copying the string.
     pub fn string_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
-        where
-            F: FnOnce(&str) -> T,
+    where
+        F: FnOnce(&str) -> T,
     {
         use std::str;
         read_safety_checks!(self, IonType::String);
@@ -684,7 +687,6 @@ impl<R> BinaryIonCursor<R>
         })
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -994,13 +996,11 @@ mod tests {
         // {$11: [1, 2, 3], $10: 1}
         let mut cursor = ion_cursor_for(&[
             0xDB, // 9-byte struct
-
             0x8B, // Field ID 11
             0xB6, // 6-byte List
             0x21, 0x01, // Integer 1
             0x21, 0x02, // Integer 2
             0x21, 0x03, // Integer 3
-
             0x8A, // Field ID 10
             0x21, 0x01, // Integer 1
         ]);
