@@ -20,6 +20,7 @@ use crate::{
     result::{decoding_error, illegal_operation, illegal_operation_raw, IonResult},
     types::{IonType, SymbolId},
 };
+use std::io;
 
 /// Information about the value over which the Cursor is currently positioned.
 #[derive(Clone, Debug)]
@@ -120,6 +121,7 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
         self.cursor.ion_version
     }
 
+    #[inline]
     fn next(&mut self) -> IonResult<Option<StreamItem>> {
         // Skip the remaining bytes of the current value, if any.
         let _ = self.skip_current_value()?;
@@ -153,7 +155,7 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
                 // This is actually the first byte in an Ion Version Marker
                 // TODO: actually parse the IVM instead of assuming 1.0 and skipping it
                 self.cursor.ion_version = (1, 0);
-                self.data_source.skip_bytes(IVM.len() - 1)?;
+                self.skip_bytes(IVM.len() - 1)?;
                 return Ok(Some(StreamItem::VersionMarker));
             }
             // We've found an annotated value. Read all of the annotation symbols leading
@@ -283,6 +285,40 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
         self.string_ref_map(|s: &str| s.into())
     }
 
+    fn string_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
+    where
+        F: FnOnce(&str) -> T,
+    {
+        use std::str;
+        read_safety_checks!(self, IonType::String);
+
+        let length_in_bytes = self.cursor.value.length_in_bytes;
+
+        self.read_slice(length_in_bytes, |buffer: &[u8]| {
+            let string_ref = match str::from_utf8(buffer) {
+                Ok(utf8_text) => utf8_text,
+                Err(utf8_error) => {
+                    return decoding_error(&format!(
+                        "The requested string was not valid UTF-8: {:?}",
+                        utf8_error
+                    ))
+                }
+            };
+            Ok(Some(f(string_ref)))
+        })
+    }
+
+    fn string_bytes_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
+    where
+        F: FnOnce(&[u8]) -> T,
+    {
+        read_safety_checks!(self, IonType::String);
+
+        let length_in_bytes = self.cursor.value.length_in_bytes;
+        self.read_slice(length_in_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
+    }
+
+    #[inline(always)]
     fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>> {
         read_safety_checks!(self, IonType::Symbol);
 
@@ -354,6 +390,7 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
         Ok(Some(datetime))
     }
 
+    #[inline]
     fn step_in(&mut self) -> IonResult<()> {
         use self::IonType::*;
         self.cursor.is_in_struct = match self.cursor.value.ion_type {
@@ -368,6 +405,7 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
         Ok(())
     }
 
+    #[inline]
     fn step_out(&mut self) -> IonResult<()> {
         use std::mem;
         let bytes_to_skip;
@@ -397,6 +435,29 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
         self.skip_bytes(bytes_to_skip)?;
         Ok(())
     }
+
+    fn depth(&self) -> usize {
+        self.cursor.depth
+    }
+}
+
+/// Additional functionality that's only available if the data source is in-memory, such as a
+/// Vec<u8> or &[u8]).
+impl<T> BinaryIonCursor<io::Cursor<T>>
+    where
+        T: AsRef<[u8]>,
+{
+    /// Get a slice of the current value's raw encoded bytes (not including its field ID,
+    /// annotations, or type descriptor byte) without advancing the cursor.
+    pub fn raw_value_bytes(&self) -> Option<&[u8]> {
+        if self.ion_type().is_none() {
+            return None;
+        }
+        let bytes = self.data_source.get_ref().as_ref();
+        let start = self.cursor.bytes_read;
+        let end = start + self.cursor.value.length_in_bytes;
+        Some(&bytes[start..end])
+    }
 }
 
 impl<R> BinaryIonCursor<R>
@@ -418,10 +479,6 @@ where
             },
             header_cache: create_header_byte_jump_table(),
         }
-    }
-
-    pub fn depth(&self) -> usize {
-        self.cursor.depth
     }
 
     pub fn is_null(&self) -> bool {
@@ -490,6 +547,7 @@ where
         Ok(())
     }
 
+    #[inline(always)]
     fn read_standard_length(&mut self) -> IonResult<usize> {
         let length = match self.cursor.value.header.length_code {
             length_codes::NULL => 0,
@@ -637,32 +695,6 @@ where
         let number_of_bytes = self.cursor.value.length_in_bytes;
         self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
     }
-
-    /// Runs the provided closure, passing in a reference to the string to be read and allowing a
-    /// calculated value of any type to be returned. When possible, string_ref_map will pass a
-    /// reference directly to the bytes in the input buffer rather than copying the string.
-    pub fn string_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
-    where
-        F: FnOnce(&str) -> T,
-    {
-        use std::str;
-        read_safety_checks!(self, IonType::String);
-
-        let length_in_bytes = self.cursor.value.length_in_bytes;
-
-        self.read_slice(length_in_bytes, |buffer: &[u8]| {
-            let string_ref = match str::from_utf8(buffer) {
-                Ok(utf8_text) => utf8_text,
-                Err(utf8_error) => {
-                    return decoding_error(&format!(
-                        "The requested string was not valid UTF-8: {:?}",
-                        utf8_error
-                    ))
-                }
-            };
-            Ok(Some(f(string_ref)))
-        })
-    }
 }
 
 #[cfg(test)]
@@ -674,7 +706,7 @@ mod tests {
 
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::BinaryIonCursor;
-    use crate::cursor::{Cursor, StreamItem::*};
+    use crate::cursor::{Cursor, StreamItem::*, StreamItem};
     use crate::result::IonResult;
     use crate::types::IonType;
 
@@ -972,7 +1004,7 @@ mod tests {
 
         // {$11: [1, 2, 3], $10: 1}
         let mut cursor = ion_cursor_for(&[
-            0xDB, // 9-byte struct
+            0xDB, // 11-byte struct
             0x8B, // Field ID 11
             0xB6, // 6-byte List
             0x21, 0x01, // Integer 1
@@ -1011,6 +1043,39 @@ mod tests {
         // End of the stream
         assert_eq!(cursor.next()?, None);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_raw_value_bytes() -> IonResult<()> {
+        // Note: technically invalid Ion because the symbol IDs referenced are never added to the
+        // symbol table.
+
+        // {$11: [1, 2, 3], $10: 1}
+        let ion_data = &[
+            0xDB, // 11-byte struct
+            0x8B, // Field ID 11
+            0xB6, // 6-byte List
+            0x21, 0x01, // Integer 1
+            0x21, 0x02, // Integer 2
+            0x21, 0x03, // Integer 3
+            0x8A, // Field ID 10
+            0x21, 0x01, // Integer 1
+        ];
+        let mut cursor = ion_cursor_for(ion_data);
+        assert_eq!(Some(StreamItem::Value(IonType::Struct, false)), cursor.next()?);
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[1..]));
+        cursor.step_in()?;
+        assert_eq!(Some(StreamItem::Value(IonType::List, false)), cursor.next()?);
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[3..9]));
+        cursor.step_in()?;
+        assert_eq!(Some(StreamItem::Value(IonType::Integer, false)), cursor.next()?);
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[4..=4]));
+        assert_eq!(Some(StreamItem::Value(IonType::Integer, false)), cursor.next()?);
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[6..=6]));
+        cursor.step_out()?;
+        assert_eq!(Some(StreamItem::Value(IonType::Integer, false)), cursor.next()?);
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[11..=11]));
         Ok(())
     }
 }
