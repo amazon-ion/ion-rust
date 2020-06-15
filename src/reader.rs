@@ -1,15 +1,15 @@
+use crate::constants::v1_0::system_symbol_ids;
 use crate::cursor::StreamItem::*;
 use crate::result::IonResult;
 use crate::symbol_table::SymbolTable;
 use crate::types::SymbolId;
-use crate::{Cursor, IonDataSource, IonType, SymbolTableEventHandler, BinaryIonCursor};
-use crate::constants::v1_0::system_symbol_ids;
+use crate::{BinaryIonCursor, Cursor, IonDataSource, IonType, SymbolTableEventHandler};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 use delegate::delegate;
 use std::boxed::Box;
-use std::marker::PhantomData;
 use std::io;
+use std::marker::PhantomData;
 
 /// A streaming Ion reader that resolves symbol IDs into the appropriate text.
 ///
@@ -53,7 +53,8 @@ impl<D: IonDataSource, C: Cursor<D>> Reader<D, C> {
                     self.symbol_table.reset();
                 }
                 Some(Value(IonType::Struct, false)) => {
-                    if let [system_symbol_ids::ION_SYMBOL_TABLE, ..] = self.cursor.annotation_ids() {
+                    if let [system_symbol_ids::ION_SYMBOL_TABLE, ..] = self.cursor.annotation_ids()
+                    {
                         self.read_symbol_table()?;
                     } else {
                         return Ok(Some((IonType::Struct, false)));
@@ -156,7 +157,7 @@ impl<D: IonDataSource, C: Cursor<D>> Reader<D, C> {
         None
     }
 
-    pub fn annotations(&self) -> impl Iterator<Item=&str> {
+    pub fn annotations(&self) -> impl Iterator<Item = &str> {
         self.cursor
             .annotation_ids()
             .iter()
@@ -209,15 +210,12 @@ impl<T: AsRef<[u8]>> Reader<io::Cursor<T>, BinaryIonCursor<io::Cursor<T>>> {
 mod tests {
     use std::io;
 
-    use bigdecimal::BigDecimal;
-    use chrono::{FixedOffset, NaiveDate, TimeZone};
-
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::BinaryIonCursor;
-    use crate::cursor::{Cursor, StreamItem::*, StreamItem};
+    use crate::cursor::{Cursor, StreamItem::*};
     use crate::result::IonResult;
     use crate::types::IonType;
-    use crate::{Reader, SymbolTableEventHandler, SymbolTable};
+    use crate::{Reader, SymbolTable, SymbolTableEventHandler};
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 
@@ -249,29 +247,22 @@ mod tests {
     }
 
     const EXAMPLE_STREAM: &[u8] = &[
-
         // $ion_symbol_table::{imports: $ion_symbol_table, symbols: ["foo", "bar", "baz"]}
-
         0xEE, // Var len annotations
         0x94, // Annotations + Value length: 20 bytes
         0x81, // Annotations length: 1
         0x83, // Annotation 3 ('$ion_symbol_table')
-
         0xDE, // Var len struct
         0x91, // Length: 17 bytes
-
         0x86, // Field ID 6 ('imports')
         0x71, 0x03, // Symbol 3 ('$ion_symbol_table')
-
         0x87, // Field ID 7 ('symbols')
         0xBC, // 12-byte List
         0x83, 0x66, 0x6f, 0x6f, // "foo"
         0x83, 0x62, 0x61, 0x72, // "bar"
         0x83, 0x62, 0x61, 0x7a, // "baz"
-
         // System: {$10: 1, $11: 2, $12: 3}
         // User: {foo: 1, bar: 1, baz: 1}
-
         0xD9, // 9-byte struct
         0x8A, // Field ID 10
         0x21, 0x01, // Integer 1
@@ -281,10 +272,25 @@ mod tests {
         0x21, 0x03, // Integer 3
     ];
 
+    struct Handler;
+    impl SymbolTableEventHandler for Handler {
+        fn on_append<'a>(&'a mut self, symbol_table: &'a SymbolTable, starting_id: usize) {
+            let new_symbols = symbol_table.symbols_tail(starting_id);
+            assert_eq!(3, new_symbols.len());
+            assert_eq!("foo", new_symbols[0].as_str());
+            assert_eq!("bar", new_symbols[1].as_str());
+            assert_eq!("baz", new_symbols[2].as_str());
+        }
+
+        fn on_reset<'a>(&'a mut self, _symbol_table: &'a SymbolTable) {
+            unimplemented!()
+        }
+    }
+
     #[test]
     fn test_read_struct() -> IonResult<()> {
         let mut reader = ion_reader_for(EXAMPLE_STREAM);
-        let handler = Handler {append_occurred: false};
+        let handler = Handler;
         reader.set_symtab_event_handler(handler);
 
         assert_eq!(Some((IonType::Struct, false)), reader.next()?);
@@ -298,33 +304,6 @@ mod tests {
 
         assert_eq!(reader.next()?, Some((IonType::Integer, false)));
         assert_eq!(reader.field_name(), Some("baz"));
-
-        Ok(())
-    }
-
-    struct Handler {
-        append_occurred: bool
-    }
-
-    impl SymbolTableEventHandler for Handler {
-        fn on_append<'a>(&'a mut self, symbol_table: &'a SymbolTable, starting_id: usize) {
-            let new_symbols = symbol_table.symbols_tail(starting_id);
-            assert_eq!(3, new_symbols.len());
-            assert_eq!("foo", new_symbols[0].as_str());
-            assert_eq!("bar", new_symbols[1].as_str());
-            assert_eq!("baz", new_symbols[2].as_str());
-        }
-
-        fn on_reset<'a>(&'a mut self, symbol_table: &'a SymbolTable) {
-            unimplemented!()
-        }
-    }
-
-    #[test]
-    fn test_symbol_table_on_append_event_handler() -> IonResult<()> {
-        let mut reader = ion_reader_for(EXAMPLE_STREAM);
-
-        assert_eq!(Some((IonType::Struct, false)), reader.next()?);
 
         Ok(())
     }

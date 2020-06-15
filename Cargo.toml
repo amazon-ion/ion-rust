@@ -12,11 +12,6 @@ failure = "~0.1"
 failure_derive = "~0.1"
 
 [dev-dependencies]
-# These are used by the ion_grep example
-crossbeam = "~0.7"
-memmap = "~0.7"
-num_cpus = "~1.13"
-regex = "~1"
 # Used by ion-tests integration
 walkdir = "~2.3"
 
