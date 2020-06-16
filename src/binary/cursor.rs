@@ -444,8 +444,8 @@ impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
 /// Additional functionality that's only available if the data source is in-memory, such as a
 /// Vec<u8> or &[u8]).
 impl<T> BinaryIonCursor<io::Cursor<T>>
-    where
-        T: AsRef<[u8]>,
+where
+    T: AsRef<[u8]>,
 {
     /// Get a slice of the current value's raw encoded bytes (not including its field ID,
     /// annotations, or type descriptor byte) without advancing the cursor.
@@ -706,7 +706,7 @@ mod tests {
 
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::BinaryIonCursor;
-    use crate::cursor::{Cursor, StreamItem::*, StreamItem};
+    use crate::cursor::{Cursor, StreamItem, StreamItem::*};
     use crate::result::IonResult;
     use crate::types::IonType;
 
@@ -1063,18 +1063,33 @@ mod tests {
             0x21, 0x01, // Integer 1
         ];
         let mut cursor = ion_cursor_for(ion_data);
-        assert_eq!(Some(StreamItem::Value(IonType::Struct, false)), cursor.next()?);
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Struct, false)),
+            cursor.next()?
+        );
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[1..]));
         cursor.step_in()?;
-        assert_eq!(Some(StreamItem::Value(IonType::List, false)), cursor.next()?);
+        assert_eq!(
+            Some(StreamItem::Value(IonType::List, false)),
+            cursor.next()?
+        );
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[3..9]));
         cursor.step_in()?;
-        assert_eq!(Some(StreamItem::Value(IonType::Integer, false)), cursor.next()?);
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Integer, false)),
+            cursor.next()?
+        );
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[4..=4]));
-        assert_eq!(Some(StreamItem::Value(IonType::Integer, false)), cursor.next()?);
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Integer, false)),
+            cursor.next()?
+        );
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[6..=6]));
         cursor.step_out()?;
-        assert_eq!(Some(StreamItem::Value(IonType::Integer, false)), cursor.next()?);
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Integer, false)),
+            cursor.next()?
+        );
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[11..=11]));
         Ok(())
     }
