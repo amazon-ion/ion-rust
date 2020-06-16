@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::BufReader;
@@ -8,8 +8,8 @@ use std::str::FromStr;
 
 use walkdir::WalkDir;
 
-use ion_rust::{BinaryIonCursor, IonType, Reader};
 use ion_rust::result::{decoding_error, IonResult};
+use ion_rust::{BinaryIonCursor, IonType, Reader};
 
 const GOOD_TEST_FILES_PATH: &str = "ion-tests/iontestdata/good/";
 const BAD_TEST_FILES_PATH: &str = "ion-tests/iontestdata/bad/";
@@ -30,12 +30,10 @@ const GOOD_TEST_FILES_SKIP_LIST: &[&str] = &[
     "ion-tests/iontestdata/good/valueFollowedByNopPad.10n",
     "ion-tests/iontestdata/good/valuePrecededByNopPad.10n",
     "ion-tests/iontestdata/good/valueBetweenNopPads.10n",
-
     // Timestamp support
     "ion-tests/iontestdata/good/equivs/timestampSuperfluousOffset.10n",
     "ion-tests/iontestdata/good/timestamp/timestamp2011-02.10n",
     "ion-tests/iontestdata/good/timestamp/timestamp2011.10n",
-
     // Integer representation limits
     "ion-tests/iontestdata/good/equivs/intsLargeNegative1.10n",
     "ion-tests/iontestdata/good/equivs/intsLargeNegative2.10n",
@@ -52,7 +50,6 @@ const GOOD_TEST_FILES_SKIP_LIST: &[&str] = &[
     "ion-tests/iontestdata/good/intLongMinValue.10n",
     "ion-tests/iontestdata/good/equivs/paddedInts.10n",
     "ion-tests/iontestdata/good/item1.10n",
-
     // Typecode validation
     "ion-tests/iontestdata/good/typecodes/T0.10n",
     "ion-tests/iontestdata/good/typecodes/T11.10n",
@@ -129,9 +126,7 @@ fn read_file(path: &Path) -> IonResult<()> {
 }
 
 // Recursively reads all of the values in the provided Reader, surfacing any errors.
-fn read_all_values(
-    reader: &mut Reader<BufReader<File>, BinaryIonCursor<BufReader<File>>>,
-) -> IonResult<()> {
+fn read_all_values(reader: &mut Reader<BinaryIonCursor<BufReader<File>>>) -> IonResult<()> {
     use IonType::*;
     while let Some((ion_type, is_null)) = reader.next()? {
         if is_null {
