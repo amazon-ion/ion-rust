@@ -7,9 +7,13 @@ edition = "2018"
 bigdecimal = "~0.1"
 bytes = "~0.4"
 chrono = "~0.4"
-walkdir = "~2.3"
+delegate = "0.4.2"
 failure = "~0.1"
 failure_derive = "~0.1"
+
+[dev-dependencies]
+# Used by ion-tests integration
+walkdir = "~2.3"
 
 [profile.release]
 lto = true

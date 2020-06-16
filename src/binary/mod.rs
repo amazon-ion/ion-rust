@@ -1,6 +1,6 @@
 //! This module provides the necessary structures and logic to read values from a binary Ion
 //! data stream.
-mod constants;
+pub(crate) mod constants;
 pub(crate) mod cursor;
 mod header;
 mod int;

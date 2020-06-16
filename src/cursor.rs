@@ -58,6 +58,24 @@ pub trait Cursor<D: IonDataSource> {
     /// If the current value is a string, returns its value as a String; otherwise, returns None.
     fn read_string(&mut self) -> IonResult<Option<String>>;
 
+    /// Runs the provided closure, passing in a reference to the string to be read and allowing a
+    /// calculated value of any type to be returned. When possible, string_ref_map will pass a
+    /// reference directly to the bytes in the input buffer rather than copying the string.
+    fn string_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
+    where
+        F: FnOnce(&str) -> T;
+
+    /// Runs the provided closure, passing in a reference to the unparsed, unvalidated bytes of
+    /// the string to be read and allowing a calculated value of any type to be returned. When
+    /// possible, string_bytes_map will pass a reference directly to the bytes in the input buffer
+    /// rather than copying the data.
+    ///
+    /// This function can be used to avoid the cost of utf8 validation for strings that are not
+    /// yet known to be of interest.
+    fn string_bytes_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
+    where
+        F: FnOnce(&[u8]) -> T;
+
     /// If the current value is a symbol, returns its value as a SymbolId; otherwise, returns None.
     fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>>;
 
@@ -80,6 +98,8 @@ pub trait Cursor<D: IonDataSource> {
     /// will position the cursor over the value that follows the container. If the cursor is not in
     /// a container (i.e. it is already at the top level), returns Err.
     fn step_out(&mut self) -> IonResult<()>;
+
+    fn depth(&self) -> usize;
 }
 
 #[derive(Debug, Eq, PartialEq)]
