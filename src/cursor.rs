@@ -14,7 +14,8 @@ use chrono::{DateTime, FixedOffset};
  * Once a value has successfully been read from the stream using one of the read_* functions,
  * calling that function again may return an Err. This is left to the discretion of the implementor.
  */
-pub trait Cursor<D: IonDataSource> {
+pub trait Cursor {
+    type DataSource: IonDataSource;
     /// Returns the (major, minor) version of the Ion stream being read. If ion_version is called
     /// before an Ion Version Marker has been read, the version (1, 0) will be returned.
     fn ion_version(&self) -> (u8, u8);

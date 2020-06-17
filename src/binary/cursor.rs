@@ -116,7 +116,9 @@ macro_rules! read_safety_checks {
     };
 }
 
-impl<R: IonDataSource> Cursor<R> for BinaryIonCursor<R> {
+impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
+    type DataSource = R;
+
     fn ion_version(&self) -> (u8, u8) {
         self.cursor.ion_version
     }

@@ -1,33 +1,33 @@
+use std::boxed::Box;
+use std::io;
+
+use bigdecimal::BigDecimal;
+use chrono::{DateTime, FixedOffset};
+
+use delegate::delegate;
+
 use crate::constants::v1_0::system_symbol_ids;
 use crate::cursor::StreamItem::*;
 use crate::result::IonResult;
 use crate::symbol_table::SymbolTable;
 use crate::types::SymbolId;
-use crate::{BinaryIonCursor, Cursor, IonDataSource, IonType, SymbolTableEventHandler};
-use bigdecimal::BigDecimal;
-use chrono::{DateTime, FixedOffset};
-use delegate::delegate;
-use std::boxed::Box;
-use std::io;
-use std::marker::PhantomData;
+use crate::{BinaryIonCursor, Cursor, IonType, SymbolTableEventHandler};
 
 /// A streaming Ion reader that resolves symbol IDs into the appropriate text.
 ///
 /// Reader itself is format-agnostic; all format-specific logic is handled by the
 /// wrapped Cursor implementation.
-pub struct Reader<D: IonDataSource, C: Cursor<D>> {
+pub struct Reader<C: Cursor> {
     cursor: C,
     symbol_table: SymbolTable,
-    spooky: PhantomData<D>,
     symtab_event_handler: Option<Box<dyn SymbolTableEventHandler>>,
 }
 
-impl<D: IonDataSource, C: Cursor<D>> Reader<D, C> {
-    pub fn new(cursor: C) -> Reader<D, C> {
+impl<C: Cursor> Reader<C> {
+    pub fn new(cursor: C) -> Reader<C> {
         Reader {
             cursor,
             symbol_table: SymbolTable::new(),
-            spooky: PhantomData,
             symtab_event_handler: None,
         }
     }
@@ -199,7 +199,7 @@ impl<D: IonDataSource, C: Cursor<D>> Reader<D, C> {
 
 /// Functionality that is only available if the data source we're reading from is in-memory, like
 /// a Vec<u8> or &[u8].
-impl<T: AsRef<[u8]>> Reader<io::Cursor<T>, BinaryIonCursor<io::Cursor<T>>> {
+impl<T: AsRef<[u8]>> Reader<BinaryIonCursor<io::Cursor<T>>> {
     #[inline(always)]
     pub fn raw_value_bytes(&self) -> Option<&[u8]> {
         self.cursor.raw_value_bytes()
@@ -242,7 +242,7 @@ mod tests {
         binary_cursor
     }
 
-    fn ion_reader_for(bytes: &[u8]) -> Reader<TestDataSource, BinaryIonCursor<TestDataSource>> {
+    fn ion_reader_for(bytes: &[u8]) -> Reader<BinaryIonCursor<TestDataSource>> {
         Reader::new(ion_cursor_for(bytes))
     }
 
