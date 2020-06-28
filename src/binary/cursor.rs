@@ -22,6 +22,8 @@ use crate::{
 };
 use std::io;
 
+use std::ops::Range;
+
 /// Information about the value over which the Cursor is currently positioned.
 #[derive(Clone, Debug)]
 struct EncodedValue {
@@ -29,11 +31,105 @@ struct EncodedValue {
     header: Header,
     is_null: bool,
     index_at_depth: usize,
-    length_in_bytes: usize,
-    last_byte: usize,
     field_id: Option<SymbolId>,
     annotations: Vec<SymbolId>,
     parent_index: Option<usize>,
+
+    // Each encoded value has up to four components, appearing
+    // in the following order:
+    //
+    // [ field_id? | annotations? | header | value ]
+    //
+    // The following fields store their respective byte offsets
+    // from the beginning of the data source.
+
+    // Only valid if `field_id` is defined.
+    field_id_offset: usize,
+    // Only valid if `annotations` is not empty.
+    annotations_offset: usize,
+    // Type descriptor byte location.
+    header_offset: usize,
+    // The first byte after the type descriptor and 'length' field.
+    // Only valid if `value_length` is non-zero.
+    value_offset: usize,
+    // The number of bytes used to encode the value, not including
+    // the header byte or length fields.
+    value_length: usize,
+
+    // The first offset beyond the end of this value, calculated as:
+    //     value_offset + value_length
+    // Stored here to avoid having to recalculate it.
+    value_end: usize,
+}
+
+impl EncodedValue {
+    /// Returns an offset Range containing this value's type descriptor
+    /// byte and any additional bytes used to encode the `length`.
+    fn header_range(&self) -> Range<usize> {
+        let start = self.header_offset;
+        // Range uses an exclusive `end`
+        let end = self.value_offset;
+        Range {start, end}
+    }
+
+    /// Returns the number of bytes used to encode this value's data.
+    /// If the value can fit in the type descriptor byte (e.g. `true`, `false`, `null`, `0`),
+    /// this function will return 0.
+    #[inline(always)]
+    fn value_length(&self) -> usize {
+        self.value_length
+    }
+
+    /// Returns an offset Range containing any bytes following the header.
+    fn value_range(&self) -> Range<usize> {
+        let start = self.value_offset;
+        let end = self.value_end;
+        Range {start, end}
+    }
+
+    /// Returns the number of bytes used to encode this value's field ID, if present.
+    fn field_id_length(&self) -> Option<usize> {
+        if self.field_id.is_none() {
+            return None;
+        }
+        if !self.annotations.is_empty() {
+            return Some(self.annotations_offset - self.field_id_offset);
+        }
+        Some(self.header_offset - self.field_id_offset)
+    }
+
+    /// Returns an offset Range that contains the bytes used to encode this value's field ID,
+    /// if present.
+    fn field_id_range(&self) -> Option<Range<usize>> {
+        if let Some(length) = self.field_id_length() {
+            let start = self.field_id_offset;
+            let end = start + length;
+            return Some(Range {start, end});
+        }
+        None
+    }
+
+    /// Returns the number of bytes used to encode this value's annotations, if any.
+    /// While annotations envelope the value that they modify, this function does not include
+    /// the length of the value itself.
+    fn annotations_length(&self) -> Option<usize> {
+        if self.annotations.is_empty() {
+            return None;
+        }
+        Some(self.header_offset - self.annotations_offset)
+    }
+
+    /// Returns an offset Range that includes the bytes used to encode this value's annotations,
+    /// if any. While annotations envelope the value that they modify, this function does not
+    /// include the bytes of the encoded value itself.
+    fn annotations_range(&self) -> Option<Range<usize>> {
+        if let Some(length) = self.annotations_length() {
+            let start = self.annotations_offset;
+            let end = start + length;
+            return Some(Range {start, end});
+        }
+        None
+    }
 }
 
 impl Default for EncodedValue {
@@ -49,8 +145,12 @@ impl Default for EncodedValue {
             annotations: Vec::new(),
             is_null: true,
             index_at_depth: 0,
-            length_in_bytes: 0,
-            last_byte: 0,
+            field_id_offset: 0,
+            annotations_offset: 0,
+            header_offset: 0,
+            value_offset: 0,
+            value_length: 0,
+            value_end: 0,
             parent_index: None,
         }
     }
@@ -131,7 +231,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         if let Some(ref parent) = self.cursor.parents.last() {
             // If the cursor is nested inside a parent object, don't attempt to read beyond the end of
             // the parent. Users can call '.step_out()' to progress beyond the container.
-            if self.cursor.bytes_read >= parent.last_byte {
+            if self.cursor.bytes_read >= parent.value_end {
                 return Ok(None);
             }
         }
@@ -246,7 +346,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     fn read_f64(&mut self) -> IonResult<Option<f64>> {
         read_safety_checks!(self, IonType::Float);
 
-        let number_of_bytes = self.cursor.value.length_in_bytes;
+        let number_of_bytes = self.cursor.value.value_length;
 
         self.read_slice(number_of_bytes, |buffer: &[u8]| {
             let value = match number_of_bytes {
@@ -267,13 +367,13 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>> {
         read_safety_checks!(self, IonType::Decimal);
 
-        if self.cursor.value.length_in_bytes == 0 {
+        if self.cursor.value.value_length == 0 {
             return Ok(Some(BigDecimal::new(0i64.into(), 0)));
         }
 
         let exponent_var_int = self.read_var_int()?;
         let coefficient_size_in_bytes =
-            self.cursor.value.length_in_bytes - exponent_var_int.size_in_bytes();
+            self.cursor.value.value_length - exponent_var_int.size_in_bytes();
 
         let exponent = exponent_var_int.value() as i64;
         let coefficient = self.read_int(coefficient_size_in_bytes)?.value();
@@ -294,7 +394,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         use std::str;
         read_safety_checks!(self, IonType::String);
 
-        let length_in_bytes = self.cursor.value.length_in_bytes;
+        let length_in_bytes = self.cursor.value.value_length;
 
         self.read_slice(length_in_bytes, |buffer: &[u8]| {
             let string_ref = match str::from_utf8(buffer) {
@@ -316,7 +416,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     {
         read_safety_checks!(self, IonType::String);
 
-        let length_in_bytes = self.cursor.value.length_in_bytes;
+        let length_in_bytes = self.cursor.value.value_length;
         self.read_slice(length_in_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
     }
 
@@ -420,7 +520,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
             .ok_or_else(|| illegal_operation_raw("You cannot step out of the root level."))?;
 
         // We're stepping out of the container, so we need to skip to the end of it.
-        bytes_to_skip = parent.last_byte - self.cursor.bytes_read;
+        bytes_to_skip = parent.value_end - self.cursor.bytes_read;
 
         // Set the parent as the current value
         mem::swap(&mut self.cursor.value, &mut parent);
@@ -443,22 +543,79 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     }
 }
 
+const EMPTY_SLICE: &[u8] = &[];
+
 /// Additional functionality that's only available if the data source is in-memory, such as a
 /// Vec<u8> or &[u8]).
 impl<T> BinaryIonCursor<io::Cursor<T>>
 where
     T: AsRef<[u8]>,
 {
-    /// Get a slice of the current value's raw encoded bytes (not including its field ID,
-    /// annotations, or type descriptor byte) without advancing the cursor.
-    pub fn raw_value_bytes(&self) -> Option<&[u8]> {
+    /// Returns a slice containing the entirety of this encoded value, including its field ID
+    /// (if present), its annotations (if present), its header, and the encoded value itself.
+    /// Calling this function does not advance the cursor.
+    pub fn raw_bytes(&self) -> Option<&[u8]> {
+        if self.ion_type().is_none() {
+            return None;
+        }
+        let start: usize;
+        if self.cursor.value.field_id.is_some() {
+            start = self.cursor.value.field_id_offset;
+        } else if !self.cursor.value.annotations.is_empty() {
+            start = self.cursor.value.annotations_offset;
+        } else {
+            start = self.cursor.value.header_offset;
+        }
+        let end = self.cursor.value.value_end;
+        let bytes = self.data_source.get_ref().as_ref();
+        Some(&bytes[start..end])
+    }
+
+    /// Returns a slice containing the current value's header's raw bytes without advancing the
+    /// cursor. Includes the type descriptor byte and any bytes used to represent the `length`
+    /// field.
+    pub fn raw_header_bytes(&self) -> Option<&[u8]> {
         if self.ion_type().is_none() {
             return None;
         }
         let bytes = self.data_source.get_ref().as_ref();
-        let start = self.cursor.bytes_read;
-        let end = start + self.cursor.value.length_in_bytes;
-        Some(&bytes[start..end])
+        return Some(&bytes[self.cursor.value.header_range()]);
+    }
+
+    /// Returns a slice containing the current value's raw bytes (not including its field ID,
+    /// annotations, or type descriptor byte) without advancing the cursor.
+    pub fn raw_value_bytes(&self) -> Option<&[u8]> {
+        if self.ion_type().is_none() || self.cursor.value.value_length == 0 {
+            return None;
+        }
+        let bytes = self.data_source.get_ref().as_ref();
+        return Some(&bytes[self.cursor.value.value_range()]);
+    }
+
+    /// Returns a slice containing the current value's raw field ID bytes (if present) without
+    /// advancing the cursor.
+    pub fn raw_field_id_bytes(&self) -> Option<&[u8]> {
+        if self.ion_type().is_none() {
+            return None;
+        }
+        if let Some(range) = self.cursor.value.field_id_range() {
+            let bytes = self.data_source.get_ref().as_ref();
+            return Some(&bytes[range]);
+        }
+        None
+    }
+
+    /// Returns a slice containing the current value's annotations (if any) without advancing the
+    /// cursor.
+    pub fn raw_annotations_bytes(&self) -> Option<&[u8]> {
+        if self.ion_type().is_none() {
+            return None;
+        }
+        if let Some(range) = self.cursor.value.annotations_range() {
+            let bytes = self.data_source.get_ref().as_ref();
+            return Some(&bytes[range]);
+        }
+        None
     }
 }
 
@@ -488,8 +645,8 @@ where
     }
 
     fn finished_reading_value(&mut self) -> bool {
-        self.cursor.value.length_in_bytes > 0
-            && self.cursor.bytes_read >= self.cursor.value.last_byte
+        self.cursor.value.value_length > 0
+            && self.cursor.bytes_read >= self.cursor.value.value_end
     }
 
     #[inline(always)]
@@ -510,7 +667,7 @@ where
     // a single UInt. (i.e. Integer and Symbol)
     #[inline(always)]
     fn read_value_as_uint(&mut self) -> IonResult<UInt> {
-        let number_of_bytes = self.cursor.value.length_in_bytes;
+        let number_of_bytes = self.cursor.value.value_length;
         self.read_uint(number_of_bytes)
     }
 
@@ -533,6 +690,9 @@ where
         self.cursor.value.header = header;
         self.cursor.value.is_null = header.length_code == length_codes::NULL;
 
+        // We've already read the header byte, so it's now behind the cursor.
+        self.cursor.value.header_offset = self.cursor.bytes_read - 1;
+
         use IonTypeCode::*;
         let length = match header.ion_type_code {
             NullOrWhitespace | Boolean => 0,
@@ -544,8 +704,9 @@ where
             Reserved => return decoding_error("Found an Ion Value with a Reserved type code."),
         };
 
-        self.cursor.value.length_in_bytes = length;
-        self.cursor.value.last_byte = self.cursor.bytes_read + length;
+        self.cursor.value.value_offset = self.cursor.bytes_read;
+        self.cursor.value.value_length = length;
+        self.cursor.value.value_end = self.cursor.value.value_offset + length;
         Ok(())
     }
 
@@ -617,18 +778,21 @@ where
         if self.cursor.index_at_depth == 0 {
             Ok(())
         } else {
-            let bytes_to_skip = self.cursor.value.last_byte - self.cursor.bytes_read;
+            let bytes_to_skip = self.cursor.value.value_end - self.cursor.bytes_read;
             self.skip_bytes(bytes_to_skip)
         }
     }
 
     fn read_field_id(&mut self) -> IonResult<SymbolId> {
+        self.cursor.value.field_id_offset = self.cursor.bytes_read;
         let var_uint = self.read_var_uint()?;
         let field_id = var_uint.value();
         Ok(field_id)
     }
 
     fn read_annotations(&mut self) -> IonResult<()> {
+        // The first byte of the annotations envelope is now behind the cursor
+        self.cursor.value.annotations_offset = self.cursor.bytes_read - 1;
         // The encoding allows us to skip over the annotations list and the value, but in practice
         // we won't know if we want to skip this value until we've read the type descriptor byte.
         // That means we need to read the length even though we have no intent to use it.
@@ -681,7 +845,7 @@ where
     {
         read_safety_checks!(self, IonType::Blob);
 
-        let number_of_bytes = self.cursor.value.length_in_bytes;
+        let number_of_bytes = self.cursor.value.value_length;
         self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
     }
 
@@ -694,7 +858,7 @@ where
     {
         read_safety_checks!(self, IonType::Clob);
 
-        let number_of_bytes = self.cursor.value.length_in_bytes;
+        let number_of_bytes = self.cursor.value.value_length;
         self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
     }
 }
@@ -1049,12 +1213,14 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_value_bytes() -> IonResult<()> {
+    fn test_raw_bytes() -> IonResult<()> {
         // Note: technically invalid Ion because the symbol IDs referenced are never added to the
         // symbol table.
 
         // {$11: [1, 2, 3], $10: 1}
         let ion_data = &[
+
+            // First top-level value in the stream
             0xDB, // 11-byte struct
             0x8B, // Field ID 11
             0xB6, // 6-byte List
@@ -1063,36 +1229,87 @@ mod tests {
             0x21, 0x03, // Integer 3
             0x8A, // Field ID 10
             0x21, 0x01, // Integer 1
+
+            // Second top-level value in the stream
+            0xE3, // 3-byte annotations envelope
+            0x81, // * Annotations themselves take 1 byte
+            0x8C, // * Annotation w/SID $12
+            0x10, // Boolean false
         ];
         let mut cursor = ion_cursor_for(ion_data);
         assert_eq!(
             Some(StreamItem::Value(IonType::Struct, false)),
             cursor.next()?
         );
-        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[1..]));
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[0..12]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[0..=0]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[1..12]));
         cursor.step_in()?;
         assert_eq!(
             Some(StreamItem::Value(IonType::List, false)),
             cursor.next()?
         );
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[1..9]));
+        assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[1..=1]));
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[2..=2]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[3..9]));
         cursor.step_in()?;
         assert_eq!(
             Some(StreamItem::Value(IonType::Integer, false)),
             cursor.next()?
         );
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[3..=4]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[3..=3]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[4..=4]));
         assert_eq!(
             Some(StreamItem::Value(IonType::Integer, false)),
             cursor.next()?
         );
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[5..=6]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[5..=5]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[6..=6]));
-        cursor.step_out()?;
         assert_eq!(
             Some(StreamItem::Value(IonType::Integer, false)),
             cursor.next()?
         );
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[7..=8]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[7..=7]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[8..=8]));
+
+        cursor.step_out()?; // Step out of list
+
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Integer, false)),
+            cursor.next()?
+        );
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[9..=11]));
+        assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[9..=9]));
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[10..=10]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[11..=11]));
+
+        cursor.step_out()?; // Step out of struct
+
+        // Second top-level value
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Boolean, false)),
+            cursor.next()?
+        );
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
+        assert_eq!(cursor.annotation_ids(), &[12]);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
+        assert_eq!(cursor.raw_value_bytes(), None);
         Ok(())
     }
 }
