@@ -69,7 +69,7 @@ impl EncodedValue {
         let start = self.header_offset;
         // Range uses an exclusive `end`
         let end = self.value_offset;
-        Range {start, end}
+        Range { start, end }
     }
 
     /// Returns the number of bytes used to encode this value's data.
@@ -84,7 +84,7 @@ impl EncodedValue {
     fn value_range(&self) -> Range<usize> {
         let start = self.value_offset;
         let end = self.value_end;
-        Range {start, end}
+        Range { start, end }
     }
 
     /// Returns the number of bytes used to encode this value's field ID, if present.
@@ -104,13 +104,13 @@ impl EncodedValue {
         if let Some(length) = self.field_id_length() {
             let start = self.field_id_offset;
             let end = start + length;
-            return Some(Range {start, end});
+            return Some(Range { start, end });
         }
         None
     }
 
     /// Returns the number of bytes used to encode this value's annotations, if any.
-    /// While annotations envelope the value that they modify, this function does not include
+    /// While annotations envelope the value that they decorate, this function does not include
     /// the length of the value itself.
     fn annotations_length(&self) -> Option<usize> {
         if self.annotations.is_empty() {
@@ -126,7 +126,7 @@ impl EncodedValue {
         if let Some(length) = self.annotations_length() {
             let start = self.annotations_offset;
             let end = start + length;
-            return Some(Range {start, end});
+            return Some(Range { start, end });
         }
         None
     }
@@ -645,8 +645,7 @@ where
     }
 
     fn finished_reading_value(&mut self) -> bool {
-        self.cursor.value.value_length > 0
-            && self.cursor.bytes_read >= self.cursor.value.value_end
+        self.cursor.value.value_length > 0 && self.cursor.bytes_read >= self.cursor.value.value_end
     }
 
     #[inline(always)]
@@ -1219,7 +1218,6 @@ mod tests {
 
         // {$11: [1, 2, 3], $10: 1}
         let ion_data = &[
-
             // First top-level value in the stream
             0xDB, // 11-byte struct
             0x8B, // Field ID 11
@@ -1229,7 +1227,6 @@ mod tests {
             0x21, 0x03, // Integer 3
             0x8A, // Field ID 10
             0x21, 0x01, // Integer 1
-
             // Second top-level value in the stream
             0xE3, // 3-byte annotations envelope
             0x81, // * Annotations themselves take 1 byte
