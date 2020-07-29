@@ -15,6 +15,11 @@ failure_derive = "~0.1"
 # Used by ion-tests integration
 walkdir = "~2.3"
 
+[build-dependencies]
+cmake = "0.1"
+bindgen = "0.54"
+
 [profile.release]
 lto = true
 codegen-units = 1
+
