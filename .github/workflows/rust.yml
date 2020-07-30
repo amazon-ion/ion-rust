@@ -13,5 +13,7 @@ jobs:
       uses: textbook/git-checkout-submodule-action@master
     - name: Build
       run: cargo build --verbose
-    - name: Run tests
+    - name: Run tests (ion-rust)
       run: cargo test --verbose
+    - name: Run tests (ionc-sys)
+      run: (cd ionc-sys && cargo test --verbose)
