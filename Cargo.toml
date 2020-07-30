@@ -3,6 +3,11 @@ name = "ion-rust"
 version = "0.1.0"
 edition = "2018"
 
+[workspace]
+members = [
+  "ionc-sys",
+]
+
 [dependencies]
 bigdecimal = "~0.1"
 bytes = "~0.4"
@@ -11,13 +16,14 @@ delegate = "0.4.2"
 failure = "~0.1"
 failure_derive = "~0.1"
 
+# NB: We use the tree dependency here for development and CI.
+#     When publishing, this needs to be temporarily with the
+#     current version.
+ionc-sys = { path = "./ionc-sys" }
+
 [dev-dependencies]
 # Used by ion-tests integration
 walkdir = "~2.3"
-
-[build-dependencies]
-cmake = "0.1"
-bindgen = "0.54"
 
 [profile.release]
 lto = true
