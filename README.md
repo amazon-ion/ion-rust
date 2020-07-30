@@ -28,10 +28,10 @@ Building the project:
 $ cargo build
 ```
 
-Running tests for `ion-rust` and `ionc-sys`:
+Running tests for `ion-rust` and `ion-c-sys`:
 
 ```bash
-$ (cd ionc-sys && cargo test) && cargo test
+$ (cd ion-c-sys && cargo test) && cargo test
 ```
 
 [ion-c]: https://github.com/amzn/ion-c
