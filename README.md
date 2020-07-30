@@ -19,6 +19,9 @@ You can also initialize the submodules as follows:
 $ git submodule update --init --recursive
 ```
 
+Furthermore, you will need the [pre-requisties for `bindgen`][bindgen-req] installed which is basically
+`libclang`.
+
 Building the project:
 
 ```bash
@@ -33,3 +36,4 @@ $ (cd ionc-sys && cargo test) && cargo test
 
 [ion-c]: https://github.com/amzn/ion-c
 [ion-tests]: https://github.com/amzn/ion-tests
+[bindgen-req]: https://rust-lang.github.io/rust-bindgen/requirements.html
