@@ -5,7 +5,7 @@ edition = "2018"
 
 [workspace]
 members = [
-  "ionc-sys",
+  "ion-c-sys",
 ]
 
 [dependencies]
@@ -19,7 +19,7 @@ failure_derive = "~0.1"
 # NB: We use the tree dependency here for development and CI.
 #     When publishing, this needs to be temporarily with the
 #     current version.
-ionc-sys = { path = "./ionc-sys" }
+ion-c-sys = { path = "./ion-c-sys" }
 
 [dev-dependencies]
 # Used by ion-tests integration

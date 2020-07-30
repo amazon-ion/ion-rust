@@ -2,5 +2,5 @@
 	path = ion-tests
 	url = https://github.com/amzn/ion-tests.git
 [submodule "ionc"]
-	path = ionc-sys/ion-c
+	path = ion-c-sys/ion-c
 	url = https://github.com/amzn/ion-c
