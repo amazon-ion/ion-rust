@@ -15,6 +15,8 @@ jobs:
         run: cargo build --verbose
       - name: Run tests (ion-rust)
         run: cargo test --verbose
+      - name: Run tests (ion-c-sys)
+        run: (cd ion-c-sys && cargo test --verbose)
 
   macos:
     runs-on: macos-latest
@@ -28,9 +30,14 @@ jobs:
         run: cargo build --verbose
       - name: Run tests (ion-rust)
         run: cargo test --verbose
+      - name: Run tests (ion-c-sys)
+        run: (cd ion-c-sys && cargo test --verbose)
 
   windows:
     runs-on: windows-latest
+    env:
+      # needed for bindgen
+      LIBCLANG_PATH: C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin
 
     steps:
       - name: Checkout
@@ -41,3 +48,5 @@ jobs:
         run: cargo build --verbose
       - name: Run tests (ion-rust)
         run: cargo test --verbose
+      - name: Run tests (ion-c-sys)
+        run: cd ion-c-sys; cargo test --verbose
