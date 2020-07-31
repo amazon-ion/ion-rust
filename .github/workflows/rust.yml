@@ -3,17 +3,50 @@ name: Rust
 on: [push]
 
 jobs:
-  build:
-
+  linux:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v1
-    - name: Checkout submodules
-      uses: textbook/git-checkout-submodule-action@master
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests (ion-rust)
-      run: cargo test --verbose
-    - name: Run tests (ion-c-sys)
-      run: (cd ion-c-sys && cargo test --verbose)
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests (ion-rust)
+        run: cargo test --verbose
+      - name: Run tests (ion-c-sys)
+        run: (cd ion-c-sys && cargo test --verbose)
+
+  macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests (ion-rust)
+        run: cargo test --verbose
+      - name: Run tests (ion-c-sys)
+        run: (cd ion-c-sys && cargo test --verbose)
+
+  windows:
+    runs-on: windows-latest
+    env:
+      # needed for bindgen
+      LIBCLANG_PATH: C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests (ion-rust)
+        run: cargo test --verbose
+      - name: Run tests (ion-c-sys)
+        run: cd ion-c-sys; cargo test --verbose
