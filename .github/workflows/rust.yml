@@ -3,15 +3,41 @@ name: Rust
 on: [push]
 
 jobs:
-  build:
-
+  linux:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v1
-    - name: Checkout submodules
-      uses: textbook/git-checkout-submodule-action@master
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests (ion-rust)
+        run: cargo test --verbose
+
+  macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests (ion-rust)
+        run: cargo test --verbose
+
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests (ion-rust)
+        run: cargo test --verbose
