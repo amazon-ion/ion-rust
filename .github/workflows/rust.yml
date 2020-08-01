@@ -13,10 +13,8 @@ jobs:
           submodules: recursive
       - name: Build
         run: cargo build --verbose
-      - name: Run tests (ion-rust)
-        run: cargo test --verbose
-      - name: Run tests (ion-c-sys)
-        run: (cd ion-c-sys && cargo test --verbose)
+      - name: Tests
+        run: cargo test --verbose --workspace
 
   macos:
     runs-on: macos-latest
@@ -28,10 +26,8 @@ jobs:
           submodules: recursive
       - name: Build
         run: cargo build --verbose
-      - name: Run tests (ion-rust)
-        run: cargo test --verbose
-      - name: Run tests (ion-c-sys)
-        run: (cd ion-c-sys && cargo test --verbose)
+      - name: Tests
+        run: cargo test --verbose --workspace
 
   windows:
     runs-on: windows-latest
@@ -46,7 +42,5 @@ jobs:
           submodules: recursive
       - name: Build
         run: cargo build --verbose
-      - name: Run tests (ion-rust)
-        run: cargo test --verbose
-      - name: Run tests (ion-c-sys)
-        run: cd ion-c-sys; cargo test --verbose
+      - name: Tests
+        run: cargo test --verbose --workspace
