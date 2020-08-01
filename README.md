@@ -25,7 +25,7 @@ Furthermore, you will need the [pre-requisties for `bindgen`][bindgen-req] insta
 Building the project:
 
 ```bash
-$ cargo build
+$ cargo build --workspace --all-targets
 ```
 
 Running all tests for `ion-rust` and `ion-c-sys`:
