@@ -12,9 +12,9 @@ jobs:
         with:
           submodules: recursive
       - name: Build
-        run: cargo build --verbose
-      - name: Run tests (ion-rust)
-        run: cargo test --verbose
+        run: cargo build --verbose --workspace
+      - name: Tests
+        run: cargo test --verbose --workspace
 
   macos:
     runs-on: macos-latest
@@ -25,12 +25,15 @@ jobs:
         with:
           submodules: recursive
       - name: Build
-        run: cargo build --verbose
-      - name: Run tests (ion-rust)
-        run: cargo test --verbose
+        run: cargo build --verbose --workspace
+      - name: Tests
+        run: cargo test --verbose --workspace
 
   windows:
     runs-on: windows-latest
+    env:
+      # needed for bindgen
+      LIBCLANG_PATH: C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin
 
     steps:
       - name: Checkout
@@ -38,6 +41,6 @@ jobs:
         with:
           submodules: recursive
       - name: Build
-        run: cargo build --verbose
-      - name: Run tests (ion-rust)
-        run: cargo test --verbose
+        run: cargo build --verbose --workspace
+      - name: Tests
+        run: cargo test --verbose --workspace

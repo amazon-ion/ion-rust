@@ -3,6 +3,11 @@ name = "ion-rust"
 version = "0.1.0"
 edition = "2018"
 
+[workspace]
+members = [
+  "ion-c-sys",
+]
+
 [dependencies]
 bigdecimal = "~0.1"
 bytes = "~0.4"
@@ -11,6 +16,11 @@ delegate = "0.4.2"
 failure = "~0.1"
 failure_derive = "~0.1"
 
+# NB: We use the tree dependency here for development and CI.
+#     When publishing, this needs to be temporarily with the
+#     current version.
+ion-c-sys = { path = "./ion-c-sys" }
+
 [dev-dependencies]
 # Used by ion-tests integration
 walkdir = "~2.3"
@@ -18,3 +28,4 @@ walkdir = "~2.3"
 [profile.release]
 lto = true
 codegen-units = 1
+
