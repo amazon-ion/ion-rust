@@ -27,7 +27,6 @@ mod tests {
         let mut ion_type2 = ptr::null_mut();
         let mut mybool: BOOL = 0;
 
-        // let mut ion_value = 0;
         unsafe {
             ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut());
             ion_reader_next(ion_reader, &mut ion_type);
@@ -50,7 +49,6 @@ mod tests {
         let mut ion_type2 = ptr::null_mut();
         let mut mybool: BOOL = 0;
 
-        // let mut ion_value = 0;
         unsafe {
             ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut());
             ion_reader_next(ion_reader, &mut ion_type);
