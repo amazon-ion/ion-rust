@@ -11,16 +11,6 @@ mod tests {
     use std::ffi::CString;
     use std::ptr;
 
-    fn make_ion_type() -> ION_TYPE {
-        let result = &mut ion_type { _unused: [] } as ION_TYPE;
-        result
-    }
-
-    fn make_ion_reader() -> hREADER {
-        let ion_reader: hREADER = &mut _ion_reader { _unused: [] };
-        ion_reader
-    }
-
     fn close_reader(reader: hREADER) {
         unsafe {
             ion_reader_close(reader);
@@ -32,9 +22,9 @@ mod tests {
         let input = CString::new("null").unwrap();
         let buf = input.as_ptr() as *mut u8;
         let buf_size = input.as_bytes_with_nul().len() as i32;
-        let mut ion_reader = make_ion_reader();
-        let mut ion_type = make_ion_type();
-        let mut ion_type2 = make_ion_type();
+        let mut ion_reader = ptr::null_mut();
+        let mut ion_type = ptr::null_mut();
+        let mut ion_type2 = ptr::null_mut();
         let mut mybool: BOOL = 0;
 
         // let mut ion_value = 0;
@@ -55,9 +45,9 @@ mod tests {
         let input = CString::new("null.timestamp").unwrap();
         let buf = input.as_ptr() as *mut u8;
         let buf_size = input.as_bytes_with_nul().len() as i32;
-        let mut ion_reader = make_ion_reader();
-        let mut ion_type = make_ion_type();
-        let mut ion_type2 = make_ion_type();
+        let mut ion_reader = ptr::null_mut();
+        let mut ion_type = ptr::null_mut();
+        let mut ion_type2 = ptr::null_mut();
         let mut mybool: BOOL = 0;
 
         // let mut ion_value = 0;
@@ -78,8 +68,8 @@ mod tests {
         let input = CString::new("42").unwrap();
         let buf = input.as_ptr() as *mut u8;
         let buf_size = input.as_bytes_with_nul().len() as i32;
-        let mut ion_reader = make_ion_reader();
-        let mut ion_type = make_ion_type();
+        let mut ion_reader = ptr::null_mut();
+        let mut ion_type = ptr::null_mut();
         let mut ion_value = 0;
         unsafe {
             ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut());
@@ -96,8 +86,8 @@ mod tests {
         let input = CString::new("\"this is a string\"").unwrap();
         let buf = input.as_ptr() as *mut u8;
         let buf_size = input.as_bytes_with_nul().len() as i32;
-        let mut ion_reader = make_ion_reader();
-        let mut ion_type = make_ion_type();
+        let mut ion_reader = ptr::null_mut();
+        let mut ion_type = ptr::null_mut();
         let mut ion_str_size = 0;
         let mut ion_str = _ion_string {
             length: ion_str_size,
@@ -128,8 +118,8 @@ mod tests {
         let buf = input.as_ptr() as *mut u8;
         let buf_size = input.as_bytes_with_nul().len() as i32;
 
-        let mut ion_reader = make_ion_reader();
-        let mut ion_type = make_ion_type();
+        let mut ion_reader = ptr::null_mut();
+        let mut ion_type = ptr::null_mut();
         let mut ion_str_size = 0;
 
         let mut ion_str = _ion_string {
@@ -164,8 +154,8 @@ mod tests {
 
         let buf = input.as_ptr() as *mut u8;
         let buf_size = input.as_bytes_with_nul().len() as i32;
-        let mut ion_reader = make_ion_reader();
-        let mut ion_type = make_ion_type();
+        let mut ion_reader = ptr::null_mut();
+        let mut ion_type = ptr::null_mut();
         unsafe {
             ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut());
             ion_reader_next(ion_reader, &mut ion_type);
