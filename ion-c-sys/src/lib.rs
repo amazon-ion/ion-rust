@@ -1,3 +1,183 @@
+//! Provides basic bindings for [Ion C](https://github.com/amzn/ion-c)
+//!
+//! These bindings are created with `bindgen` and are considerably low-level.
+//!
+//! ## Direct C API Examples
+//! Using `ion-c-sys` directly is a pretty verbose affair, and requires checking the
+//! error code for most calls.
+//!
+//! ### Ion Reader
+//! Here is an end-to-end example of reading some Ion data.
+//!
+//! ```
+//! use std::ptr;
+//! use std::slice;
+//! use std::str;
+//! use ion_c_sys::*;
+//!
+//! let mut input = String::from("{a:2}");
+//!
+//! let mut ion_reader: hREADER = ptr::null_mut();
+//! let mut ion_type: ION_TYPE = ptr::null_mut();
+//!
+//! // open the reader over a buffer
+//! unsafe {
+//!     let err = ion_reader_open_buffer(
+//!         &mut ion_reader,
+//!         input.as_mut_ptr(),
+//!         input.len() as i32,
+//!         ptr::null_mut() // default options
+//!     );
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//!
+//! // step to the struct
+//! unsafe {
+//!     let err = ion_reader_next(ion_reader, &mut ion_type);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//! assert_eq!(ion_type as u32, tid_STRUCT_INT);
+//!
+//! // step into the struct
+//! unsafe {
+//!     let err = ion_reader_step_in(ion_reader);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//!
+//! // step to the field
+//! unsafe {
+//!     let err = ion_reader_next(ion_reader, &mut ion_type);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//! assert_eq!(ion_type as u32, tid_INT_INT);
+//!
+//! // retrieve the field name--which is 'borrowed' while we don't move the reader
+//! let mut ion_str: ION_STRING = Default::default();
+//! unsafe {
+//!     let err = ion_reader_get_field_name(ion_reader, &mut ion_str);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//!
+//!     let field_name = str::from_utf8(
+//!         slice::from_raw_parts(ion_str.value, ion_str.length as usize)
+//!     ).unwrap();
+//!     assert_eq!(field_name, "a");
+//! }
+//!
+//! // read the integer value
+//! let mut int_value: i64 = 0;
+//! unsafe {
+//!     let err = ion_reader_read_int64(ion_reader, &mut int_value);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//! assert_eq!(int_value, 2);
+//!
+//! // step to the end of the struct
+//! unsafe {
+//!     let err = ion_reader_next(ion_reader, &mut ion_type);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//! assert_eq!(ion_type as i32, tid_EOF_INT);
+//!
+//! // step out of the struct
+//! unsafe {
+//!     let err = ion_reader_step_out(ion_reader);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//!
+//! // step to the end of the stream
+//! unsafe {
+//!     let err = ion_reader_next(ion_reader, &mut ion_type);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//! assert_eq!(ion_type as i32, tid_EOF_INT);
+//!
+//! // close the reader
+//! unsafe {
+//!     let err = ion_reader_close(ion_reader);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//! ```
+//!
+//! ### Ion Writer
+//! Here is an end-to-end example of writing some Ion data.
+//!
+//! ```
+//! use std::ptr;
+//! use ion_c_sys::*;
+//!
+//! // output buffer
+//! let mut buf: Vec<u8> = vec![0; 128];
+//!
+//! // writer options--emit binary
+//! let mut writer_options: ION_WRITER_OPTIONS = Default::default();
+//! writer_options.output_as_binary = 1;
+//!
+//! let mut ion_writer: hWRITER = ptr::null_mut();
+//!
+//! // construct a writer
+//! unsafe {
+//!     let err = ion_writer_open_buffer(
+//!         &mut ion_writer,
+//!         buf.as_mut_ptr(),
+//!         buf.len() as i32,
+//!         &mut writer_options
+//!     );
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//!
+//! // start a list
+//! unsafe {
+//!     let err = ion_writer_start_container(ion_writer, tid_LIST_INT as ION_TYPE);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//!
+//! // write some integers
+//! for n in 0..4 {
+//!     unsafe {
+//!         let err = ion_writer_write_int64(ion_writer, n * 2);
+//!         assert_eq!(err, ion_error_code_IERR_OK);
+//!     }
+//! }
+//!
+//! // end the list
+//! unsafe {
+//!     let err = ion_writer_finish_container(ion_writer);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//!
+//! // write a string--note that we have to make a ION_STRING to 'borrow' a reference to
+//! let mut value = String::from("💩");
+//! let mut ion_str = ION_STRING {
+//!     value: value.as_mut_ptr(),
+//!     length: value.len() as i32,
+//! };
+//! unsafe {
+//!     let err = ion_writer_write_string(ion_writer, &mut ion_str);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//!
+//! // finish writing
+//! let mut bytes_written = 0;
+//! unsafe {
+//!     let err = ion_writer_finish(ion_writer, &mut bytes_written);
+//!     assert_eq!(err, ion_error_code_IERR_OK);
+//! }
+//!
+//! // make sure the bytes match what we expect
+//! assert_eq!(bytes_written, 17);
+//! buf.truncate(bytes_written as usize);
+//! let expected: Vec<u8> = vec![
+//!     0xE0, 0x01, 0x00, 0xEA,         // IVM
+//!     0xB7,                           // LIST size 7
+//!     0x20,                           // INT 0
+//!     0x21, 0x02,                     // INT 2
+//!     0x21, 0x04,                     // INT 4
+//!     0x21, 0x06,                     // INT 6
+//!     0x84, 0xF0, 0x9F, 0x92, 0xA9,   // STRING 💩
+//! ];
+//! assert_eq!(&buf, &expected)
+//! ```
+
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
