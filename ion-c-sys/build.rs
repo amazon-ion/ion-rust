@@ -34,6 +34,7 @@ fn main() {
         .clang_arg("-DDECNUMDIGITS=34")
         // invalidate the build whenever underlying headers change
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .derive_default(true)
         .generate()
         .expect("Unable to generate bindings");
 
