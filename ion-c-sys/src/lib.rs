@@ -143,6 +143,8 @@
 #![allow(non_snake_case)]
 
 pub mod result;
+pub mod reader;
+pub mod writer;
 
 include!(concat!(env!("OUT_DIR"), "/ionc_bindings.rs"));
 
