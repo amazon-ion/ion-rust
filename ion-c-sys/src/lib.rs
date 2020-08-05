@@ -183,7 +183,7 @@ impl ION_STRING {
 }
 
 /// Generates easier to use constants for `ION_TYPE`
-/// These exist as CPP macros that don't get translated over from `bindgen`.
+/// These exist as C macros in `ion_types.h` that don't get translated over from `bindgen`.
 ///
 /// Using `ion_types!(NULL)` will generate a constant of the form:
 /// ```
@@ -205,6 +205,7 @@ ion_types!(
     none,
     EOF,
     NULL,
+    BOOL,
     INT,
     FLOAT,
     DECIMAL,
