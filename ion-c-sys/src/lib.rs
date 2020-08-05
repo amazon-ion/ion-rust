@@ -37,14 +37,14 @@
 //!
 //! // step to the struct
 //! ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
-//! assert_eq!(ion_type as u32, tid_STRUCT_INT);
+//! assert_eq!(ion_type, ION_TYPE_STRUCT);
 //!
 //! // step into the struct
 //! ionc!(ion_reader_step_in(ion_reader))?;
 //!
 //! // step to the field
 //! ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
-//! assert_eq!(ion_type as u32, tid_INT_INT);
+//! assert_eq!(ion_type, ION_TYPE_INT);
 //!
 //! // retrieve the field name--which is 'borrowed' while we don't move the reader
 //! let mut ion_str = ION_STRING::default();
@@ -58,14 +58,14 @@
 //!
 //! // step to the end of the struct
 //! ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
-//! assert_eq!(ion_type as i32, tid_EOF_INT);
+//! assert_eq!(ion_type, ION_TYPE_EOF);
 //!
 //! // step out of the struct
 //! ionc!(ion_reader_step_out(ion_reader))?;
 //!
 //! // step to the end of the stream
 //! ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
-//! assert_eq!(ion_type as i32, tid_EOF_INT);
+//! assert_eq!(ion_type, ION_TYPE_EOF);
 //!
 //! // close the reader
 //! ionc!(ion_reader_close(ion_reader));
@@ -102,7 +102,7 @@
 //! ))?;
 //!
 //! // start a list
-//! ionc!(ion_writer_start_container(ion_writer, tid_LIST_INT as ION_TYPE))?;
+//! ionc!(ion_writer_start_container(ion_writer, ION_TYPE_LIST))?;
 //!
 //! // write some integers
 //! for n in 0..4 {
@@ -114,10 +114,7 @@
 //!
 //! // write a string--note that we have to make a ION_STRING to 'borrow' a reference to
 //! let mut value = String::from("💩");
-//! let mut ion_str = ION_STRING {
-//!     value: value.as_mut_ptr(),
-//!     length: value.len() as i32,
-//! };
+//! let mut ion_str = ION_STRING::from(value.as_mut_str());
 //! ionc!(ion_writer_write_string(ion_writer, &mut ion_str))?;
 //!
 //! // finish writing
@@ -145,12 +142,34 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+pub mod result;
+
 include!(concat!(env!("OUT_DIR"), "/ionc_bindings.rs"));
 
 use std::{slice, str};
+use std::convert::TryInto;
 use std::str::Utf8Error;
 
+use paste::paste;
+
 impl ION_STRING {
+    /// Constructs an `ION_STRING` from a `&mut str`.
+    ///
+    /// Note that this is effectively Ion C's `str` type so lifetime is managed
+    /// manually by the caller.
+    ///
+    /// ## Usage
+    /// Generally, using a mutable owned source will be the safest option.
+    /// ```
+    /// # use ion_c_sys::ION_STRING;
+    /// let mut buf = String::from("Some data");
+    /// let mut ion_str = ION_STRING::from(buf.as_mut_str());
+    /// ```
+    #[inline]
+    pub fn from(src: &mut str) -> Self {
+        ION_STRING { value: src.as_mut_ptr(), length: src.len().try_into().unwrap() }
+    }
+
     /// Retrieves a UTF-8 slice view from an `ION_STRING`.
     #[inline]
     pub fn as_str(&self) -> Result<&str, Utf8Error> {
@@ -163,7 +182,43 @@ impl ION_STRING {
     }
 }
 
-pub mod result;
+/// Generates easier to use constants for `ION_TYPE`
+/// These exist as C macros in `ion_types.h` that don't get translated over from `bindgen`.
+///
+/// Using `ion_types!(NULL)` will generate a constant of the form:
+/// ```
+/// # use ion_c_sys::*;
+/// pub const ION_TYPE_NULL: *mut ion_type = tid_NULL_INT as *mut ion_type;
+/// ```
+macro_rules! ion_types {
+    ( $($name:ident),* ) => {
+        $(
+            paste! {
+                pub const [<ION_TYPE_ $name:upper>]: *mut ion_type =
+                    [<tid_ $name _INT>] as *mut ion_type;
+            }
+        )*
+    };
+}
+
+ion_types!(
+    none,
+    EOF,
+    NULL,
+    BOOL,
+    INT,
+    FLOAT,
+    DECIMAL,
+    TIMESTAMP,
+    SYMBOL,
+    STRING,
+    CLOB,
+    BLOB,
+    LIST,
+    SEXP,
+    STRUCT,
+    DATAGRAM
+);
 
 #[cfg(test)]
 mod tests {
@@ -191,7 +246,7 @@ mod tests {
         if mybool == 1 {
             ionc!(ion_reader_read_null(ion_reader, &mut ion_type2))?;
         }
-        assert_eq!(tid_NULL_INT, ion_type2 as u32);
+        assert_eq!(ION_TYPE_NULL, ion_type2);
 
         ionc!(ion_reader_close(ion_reader))?;
 
@@ -214,7 +269,7 @@ mod tests {
         if mybool == 1 {
             ionc!(ion_reader_read_null(ion_reader, &mut ion_type2))?;
         }
-        assert_eq!(tid_TIMESTAMP_INT, ion_type2 as u32);
+        assert_eq!(ION_TYPE_TIMESTAMP, ion_type2);
 
         ionc!(ion_reader_close(ion_reader))?;
 
@@ -233,7 +288,7 @@ mod tests {
         ionc!(ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut()))?;
         ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
         ionc!(ion_reader_read_int32(ion_reader, &mut ion_value))?;
-        assert_eq!(tid_INT_INT, ion_type as u32);
+        assert_eq!(ION_TYPE_INT, ion_type);
         assert_eq!(42, ion_value);
 
         ionc!(ion_reader_close(ion_reader))?;
@@ -297,11 +352,11 @@ mod tests {
         ionc!(ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut()))?;
         ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
         ionc!(ion_reader_step_in(ion_reader))?;
-        while ion_type as i32 != tid_EOF_INT {
+        while ion_type != ION_TYPE_EOF {
             ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
 
             let mut ion_value = 0;
-            if tid_INT_INT == ion_type as u32 {
+            if ION_TYPE_INT == ion_type {
                 ionc!(ion_reader_read_int32(ion_reader, &mut ion_value))?;
                 read_vals.push(ion_value);
             }
