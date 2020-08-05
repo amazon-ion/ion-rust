@@ -57,7 +57,7 @@ pub struct IonCWriterHandle<'a> {
 }
 
 impl<'a> IonCWriterHandle<'a> {
-    /// Construct
+    /// Construct a writer to a given mutable slice with options.
     pub fn new_buf(buf: &'a mut [u8], options: &mut ION_WRITER_OPTIONS) -> Result<Self, IonCError> {
         let mut writer = ptr::null_mut();
         ionc!(ion_writer_open_buffer(
