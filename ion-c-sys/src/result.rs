@@ -3,6 +3,7 @@ use crate::*;
 use std::ffi::CStr;
 use std::error::Error;
 use std::fmt;
+use std::num::TryFromIntError;
 
 /// IonC Error code and its associated error message.
 #[derive(Copy, Clone, Debug)]
@@ -36,6 +37,14 @@ impl fmt::Display for IonCError {
 }
 
 impl Error for IonCError {}
+
+impl From<TryFromIntError> for IonCError {
+    /// Due to the way Ion C works with sizes as i32, it is convenient to be able to coerce
+    /// a TryFromIntError to `IonCError`.
+    fn from(_: TryFromIntError) -> Self {
+        IonCError::from(ion_error_code_IERR_NUMERIC_OVERFLOW)
+    }
+}
 
 /// A type alias to results from Ion C functions, the result value is `()` to signify
 /// `ion_error_code_IERR_OK` since Ion C doesn't return results but generally takes
