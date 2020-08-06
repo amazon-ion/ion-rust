@@ -12,7 +12,6 @@ use ion_rust::result::{decoding_error, IonResult};
 use ion_rust::{BinaryIonCursor, IonType, Reader};
 
 const GOOD_TEST_FILES_PATH: &str = "ion-tests/iontestdata/good/";
-const BAD_TEST_FILES_PATH: &str = "ion-tests/iontestdata/bad/";
 
 // TODO: Populate skip list
 const GOOD_TEST_FILES_SKIP_LIST: &[&str] = &[
