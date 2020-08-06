@@ -33,7 +33,7 @@ use crate::*;
 ///         output_as_binary: 1,
 ///         .. Default::default()
 ///     };
-///     let writer = IonCWriterHandle::new_buf(buf.as_mut_slice(), &mut options)?;
+///     let writer = IonCWriterHandle::new_buf(buf.as_mut(), &mut options)?;
 ///
 ///     // write something
 ///     ionc!(ion_writer_write_int64(*writer, 4))?;
