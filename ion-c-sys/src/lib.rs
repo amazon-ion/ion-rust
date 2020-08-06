@@ -3,63 +3,62 @@
 //! These bindings are created with `bindgen` and are considerably low-level.
 //!
 //! ## Examples
-//! Using `ion-c-sys` directly is a pretty verbose affair, and requires checking the
+//! Using `ion-c-sys` directly can be a pretty verbose affair, and requires checking the
 //! error code for most calls.  This crate provides the [`result`](result/index.html)
 //! module to make it easier to integrate with `std::result::Result` with respect
-//! to the `iERR` that Ion C functions generally return.
+//! to the `iERR` that Ion C functions generally return.  Specifically, any low-level
+//! IonC function that returns `iERR` should be called with the [`ionc!`][ionc-call] macro
+//! to facilitate `Result<(), IonCError>` conversion.
+//!
+//! This library provides smart pointers over the low-level reader/writer pointers, and should
+//! generally be used, especially with `Result` handling code.  These types provide some facade
+//! over Ion C, but only for the most generally used APIs. See:
+//!
+//! * [IonCReaderHandle][reader-handle]
+//! * [IonCWriterHandle][writer-handle]
+//!
+//! [ionc-call]: macro.ionc.html
+//! [reader-handle]: reader/struct.IonCReaderHandle.html
+//! [writer-handle]: writer/struct.IonCWriterHandle.html
 //!
 //! ### Ion Reader
 //! Here is an end-to-end example of reading some Ion data.
 //!
 //! ```
-//! # use std::error::Error;
-//! use std::ptr;
-//! use std::slice;
-//! use std::str;
-//! 
-//! use std::convert::TryFrom;
-//!
-//! use ion_c_sys::*;
-//! use ion_c_sys::reader::*;
-//! use ion_c_sys::result::*;
-//! # fn main() -> Result<(), Box<dyn Error>> {
-//!
-//! let mut input = String::from("{a:2}");
-//!
-//! let reader: IonCReaderHandle = IonCReaderHandle::try_from(input.as_mut_str())?;
-//! let mut tid: ION_TYPE = ptr::null_mut();
+//! # use std::ptr;
+//! # use std::slice;
+//! # use std::str;
+//! # use std::convert::TryFrom;
+//! # use ion_c_sys::*;
+//! # use ion_c_sys::reader::*;
+//! # use ion_c_sys::result::*;
+//! # fn main() -> IonCResult<()> {
+//! let mut input = b"{a:2}".to_vec();
+//! let mut reader: IonCReaderHandle = IonCReaderHandle::try_from(input.as_mut_slice())?;
 //!
 //! // step to the struct
-//! ionc!(ion_reader_next(*reader, &mut tid))?;
-//! assert_eq!(tid, ION_TYPE_STRUCT);
+//! assert_eq!(ION_TYPE_STRUCT, reader.next()?);
 //!
 //! // step into the struct
-//! ionc!(ion_reader_step_in(*reader))?;
+//! reader.step_in()?;
 //!
 //! // step to the field
-//! ionc!(ion_reader_next(*reader, &mut tid))?;
-//! assert_eq!(tid, ION_TYPE_INT);
+//! assert_eq!(ION_TYPE_INT, reader.next()?);
 //!
-//! // retrieve the field name--which is 'borrowed' while we don't move the reader
-//! let mut ion_str = ION_STRING::default();
-//! ionc!(ion_reader_get_field_name(*reader, &mut ion_str))?;
-//! assert_eq!(ion_str.as_str()?, "a");
+//! // retrieve the field name
+//! assert_eq!("a", reader.get_field_name()?.try_as_str()?);
 //!
 //! // read the integer value
-//! let mut int_value: i64 = 0;
-//! ionc!(ion_reader_read_int64(*reader, &mut int_value))?;
-//! assert_eq!(int_value, 2);
+//! assert_eq!(2, reader.read_i64()?);
 //!
 //! // step to the end of the struct
-//! ionc!(ion_reader_next(*reader, &mut tid))?;
-//! assert_eq!(tid, ION_TYPE_EOF);
+//! assert_eq!(ION_TYPE_EOF, reader.next()?);
 //!
 //! // step out of the struct
-//! ionc!(ion_reader_step_out(*reader))?;
+//! reader.step_out()?;
 //!
 //! // step to the end of the stream
-//! ionc!(ion_reader_next(*reader, &mut tid))?;
-//! assert_eq!(tid, ION_TYPE_EOF);
+//! assert_eq!(ION_TYPE_EOF, reader.next()?);
 //!
 //! # Ok(())
 //! # }
@@ -69,14 +68,12 @@
 //! Here is an end-to-end example of writing some Ion data.
 //!
 //! ```
-//! use std::ptr;
-//! use std::convert::TryInto;
-//!
-//! use ion_c_sys::*;
-//! use ion_c_sys::result::*;
-//! use ion_c_sys::writer::*;
-//! # fn main() -> IonCResult {
-//!
+//! # use std::ptr;
+//! # use std::convert::TryInto;
+//! # use ion_c_sys::*;
+//! # use ion_c_sys::result::*;
+//! # use ion_c_sys::writer::*;
+//! # fn main() -> IonCResult<()> {
 //! // output buffer
 //! let mut buf: Vec<u8> = vec![0; 128];
 //!
@@ -103,7 +100,7 @@
 //!
 //!     // write a string--note that we have to make a ION_STRING to 'borrow' a reference to
 //!     let mut value = String::from("💩");
-//!     let mut ion_str = ION_STRING::from(value.as_mut());
+//!     let mut ion_str = ION_STRING::from_str(value.as_mut());
 //!     ionc!(ion_writer_write_string(*writer, &mut ion_str))?;
 //!
 //!     // finish writing
@@ -134,6 +131,7 @@
 pub mod result;
 pub mod reader;
 pub mod writer;
+pub mod string;
 
 include!(concat!(env!("OUT_DIR"), "/ionc_bindings.rs"));
 
@@ -143,32 +141,98 @@ use std::str::Utf8Error;
 
 use paste::paste;
 
+use crate::result::*;
+
 impl ION_STRING {
     /// Constructs an `ION_STRING` from a `&mut str`.
     ///
-    /// Note that this is effectively Ion C's `str` type so lifetime is managed
+    /// Note that this is effectively Ion C's `&mut str` type so lifetime is managed
+    /// manually by the caller.
+    ///
+    /// Also note, that it is possible to violate the UTF-8 invariant of the source
+    /// data, so care should be taken when using this API.
+    ///
+    /// ## Usage
+    /// Generally, using a mutable owned source will be the safest option.
+    /// ```
+    /// # use ion_c_sys::ION_STRING;
+    /// let mut buf = "Some data".to_string();
+    /// let mut ion_str = ION_STRING::from_str(buf.as_mut_str());
+    /// ```
+    #[inline]
+    pub fn from_str(src: &mut str) -> Self {
+        unsafe {
+            Self::from_bytes(src.as_bytes_mut())
+        }
+    }
+
+    /// Constructs an `ION_STRING` from a `&mut [u8]]`.
+    ///
+    /// Note that this is effectively Ion C's `&mut [u8]` type so lifetime is managed
     /// manually by the caller.
     ///
     /// ## Usage
     /// Generally, using a mutable owned source will be the safest option.
     /// ```
     /// # use ion_c_sys::ION_STRING;
-    /// let mut buf = String::from("Some data");
-    /// let mut ion_str = ION_STRING::from(buf.as_mut_str());
+    /// let mut buf = b"Some data".to_vec();
+    /// let mut ion_str = ION_STRING::from_bytes(buf.as_mut_slice());
     /// ```
     #[inline]
-    pub fn from(src: &mut str) -> Self {
+    pub fn from_bytes(src: &mut [u8]) -> Self {
         ION_STRING { value: src.as_mut_ptr(), length: src.len().try_into().unwrap() }
     }
 
     /// Retrieves a UTF-8 slice view from an `ION_STRING`.
+    ///
+    /// When the `value` pointer is `null`, the conversion will fail:
+    /// ```
+    /// # use ion_c_sys::*;
+    /// let ion_str = ION_STRING::default();
+    /// match ion_str.try_as_str() {
+    ///     Ok(_) => panic!("Cannot happen!"),
+    ///     Err(e) => assert_eq!(ion_error_code_IERR_NULL_VALUE, e.code),
+    /// }
+    /// ```
+    ///
+    /// When the string is not valid UTF-8, the conversion will fail:
+    /// ```
+    /// # use ion_c_sys::*;
+    /// let mut buf = b"\xFF".to_vec();
+    /// let ion_str = ION_STRING::from_bytes(buf.as_mut_slice());
+    /// match ion_str.try_as_str() {
+    ///     Ok(_) => panic!("Cannot happen!"),
+    ///     Err(e) => assert_eq!(ion_error_code_IERR_INVALID_UTF8, e.code),
+    /// }
+    /// ```
     #[inline]
-    pub fn as_str(&self) -> Result<&str, Utf8Error> {
-        unsafe {
-            let u8_slice = slice::from_raw_parts(
-                self.value, self.length as usize
-            );
-            str::from_utf8(u8_slice)
+    pub fn try_as_str(&self) -> Result<&str, IonCError> {
+        Ok(str::from_utf8(self.try_as_bytes()?)?)
+    }
+
+    /// Retrieves a slice view from an `ION_STRING`
+    ///
+    /// When the `value` pointer is `null`, the conversion will return an `IonCError`:
+    /// ```
+    /// # use ion_c_sys::*;
+    /// let ion_str = ION_STRING::default();
+    /// match ion_str.try_as_bytes() {
+    ///     Ok(_) => panic!("Cannot happen!"),
+    ///     Err(e) => assert_eq!(ion_error_code_IERR_NULL_VALUE, e.code),
+    /// }
+    /// ```
+    #[inline]
+    pub fn try_as_bytes(&self) -> Result<&[u8], IonCError> {
+        if self.value.is_null() {
+            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE))
+        } else {
+            unsafe {
+                let u8_slice = slice::from_raw_parts(
+                    // TODO determine if this is a bit harsh for >2GB buffers (should we return error?)
+                    self.value, self.length.try_into().unwrap()
+                );
+                Ok(u8_slice)
+            }
         }
     }
 }
@@ -300,7 +364,7 @@ mod tests {
 
         let mut ion_str = ION_STRING::default();
         ionc!(ion_reader_read_string(ion_reader, &mut ion_str))?;
-        assert_eq!("this is a string", ion_str.as_str()?);
+        assert_eq!("this is a string", ion_str.try_as_str()?);
 
         ionc!(ion_reader_close(ion_reader))?;
 
@@ -321,7 +385,7 @@ mod tests {
 
         let mut ion_str = ION_STRING::default();
         ionc!(ion_reader_read_string(ion_reader, &mut ion_str))?;
-        assert_eq!("this is a symbol", ion_str.as_str()?);
+        assert_eq!("this is a symbol", ion_str.try_as_str()?);
 
         ionc!(ion_reader_close(ion_reader))?;
 

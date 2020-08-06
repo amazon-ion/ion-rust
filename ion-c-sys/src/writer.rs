@@ -21,7 +21,7 @@ use crate::*;
 /// # use ion_c_sys::result::*;
 /// # use std::convert::*;
 /// # use std::ptr;
-/// # fn main() -> IonCResult {
+/// # fn main() -> IonCResult<()> {
 /// // a buffer to write to
 /// let mut buf = vec![0u8; 12usize];
 /// let mut len = 0;
