@@ -33,30 +33,22 @@
 //! # use ion_c_sys::reader::*;
 //! # use ion_c_sys::result::*;
 //! # fn main() -> IonCResult<()> {
-//! let mut input = b"{a:2}".to_vec();
-//! let mut reader: IonCReaderHandle = IonCReaderHandle::try_from(input.as_mut_slice())?;
+//! let mut reader = IonCReaderHandle::try_from("{a:2}")?;
 //!
 //! // step to the struct
 //! assert_eq!(ION_TYPE_STRUCT, reader.next()?);
-//!
 //! // step into the struct
 //! reader.step_in()?;
-//!
 //! // step to the field
 //! assert_eq!(ION_TYPE_INT, reader.next()?);
-//!
 //! // retrieve the field name
 //! assert_eq!("a", reader.get_field_name()?.try_as_str()?);
-//!
 //! // read the integer value
 //! assert_eq!(2, reader.read_i64()?);
-//!
 //! // step to the end of the struct
 //! assert_eq!(ION_TYPE_EOF, reader.next()?);
-//!
 //! // step out of the struct
 //! reader.step_out()?;
-//!
 //! // step to the end of the stream
 //! assert_eq!(ION_TYPE_EOF, reader.next()?);
 //!
@@ -76,36 +68,21 @@
 //! # fn main() -> IonCResult<()> {
 //! // output buffer
 //! let mut buf: Vec<u8> = vec![0; 128];
-//!
-//! // writer options--emit binary
-//! let mut options = ION_WRITER_OPTIONS {
-//!     output_as_binary: 1,
-//!     .. ION_WRITER_OPTIONS::default()
-//! };
-//!
-//! let mut len = 0;
-//! {
-//!     let writer = IonCWriterHandle::new_buf(buf.as_mut(), &mut options)?;
-//!
+//! let len = {
+//!     let mut writer = IonCWriterHandle::new_buf_mode(buf.as_mut(), WriterMode::Binary)?;
 //!     // start a list
-//!     ionc!(ion_writer_start_container(*writer, ION_TYPE_LIST))?;
-//!
+//!     writer.start_container(ION_TYPE_LIST)?;
 //!     // write some integers
 //!     for n in 0..4 {
-//!         ionc!(ion_writer_write_int64(*writer, n * 2))?;
+//!         writer.write_i64(n * 2)?;
 //!     }
-//!
 //!     // end the list
-//!     ionc!(ion_writer_finish_container(*writer))?;
-//!
-//!     // write a string--note that we have to make a ION_STRING to 'borrow' a reference to
-//!     let mut value = String::from("💩");
-//!     let mut ion_str = ION_STRING::from_str(value.as_mut());
-//!     ionc!(ion_writer_write_string(*writer, &mut ion_str))?;
-//!
+//!     writer.finish_container()?;
+//!     // write a string
+//!     writer.write_string("💩")?;
 //!     // finish writing
-//!     ionc!(ion_writer_finish(*writer, &mut len))?;
-//! }
+//!     writer.finish()?
+//! };
 //!
 //! // make sure the bytes match what we expect
 //! assert_eq!(len, 17);
@@ -118,7 +95,7 @@
 //!     0x21, 0x06,                     // INT 6
 //!     0x84, 0xF0, 0x9F, 0x92, 0xA9,   // STRING 💩
 //! ];
-//! assert_eq!(&buf[0..len.try_into()?], expected.as_slice());
+//! assert_eq!(expected.as_slice(), &buf[0..len]);
 //!
 //! # Ok(())
 //! # }
@@ -157,13 +134,20 @@ impl ION_STRING {
     /// ```
     /// # use ion_c_sys::ION_STRING;
     /// let mut buf = "Some data".to_string();
-    /// let mut ion_str = ION_STRING::from_str(buf.as_mut_str());
+    /// let mut ion_str = ION_STRING::from_mut_str(buf.as_mut_str());
     /// ```
     #[inline]
-    pub fn from_str(src: &mut str) -> Self {
+    pub fn from_mut_str(src: &mut str) -> Self {
         unsafe {
-            Self::from_bytes(src.as_bytes_mut())
+            Self::from_mut_bytes(src.as_bytes_mut())
         }
+    }
+
+    /// Internal function to coerce an immutable slice to an `ION_STRING`.
+    ///
+    /// Inherently unsafe and can only be used with APIs that guarantee immutability.
+    pub(crate) fn from_str(src: &str) -> Self {
+        Self { value: src.as_ptr() as *mut u8, length: src.len().try_into().unwrap() }
     }
 
     /// Constructs an `ION_STRING` from a `&mut [u8]`.
@@ -176,10 +160,10 @@ impl ION_STRING {
     /// ```
     /// # use ion_c_sys::ION_STRING;
     /// let mut buf = b"Some data".to_vec();
-    /// let mut ion_str = ION_STRING::from_bytes(buf.as_mut_slice());
+    /// let mut ion_str = ION_STRING::from_mut_bytes(buf.as_mut_slice());
     /// ```
     #[inline]
-    pub fn from_bytes(src: &mut [u8]) -> Self {
+    pub fn from_mut_bytes(src: &mut [u8]) -> Self {
         ION_STRING { value: src.as_mut_ptr(), length: src.len().try_into().unwrap() }
     }
 
@@ -199,7 +183,7 @@ impl ION_STRING {
     /// ```
     /// # use ion_c_sys::*;
     /// let mut buf = b"\xFF".to_vec();
-    /// let ion_str = ION_STRING::from_bytes(buf.as_mut_slice());
+    /// let ion_str = ION_STRING::from_mut_bytes(buf.as_mut_slice());
     /// match ion_str.try_as_str() {
     ///     Ok(_) => panic!("Cannot happen!"),
     ///     Err(e) => assert_eq!(ion_error_code_IERR_INVALID_UTF8, e.code),

@@ -23,11 +23,10 @@ use crate::string::IonCStringRef;
 /// # use std::convert::*;
 /// # use std::ptr;
 /// # fn main() -> IonCResult<()> {
-/// let mut buf = b"hello".to_vec();
-/// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+/// let mut reader = IonCReaderHandle::try_from(b"\xE0\x01\x00\xEA\x85hello".as_ref())?;
 ///
 /// let tid = reader.next()?;
-/// assert_eq!(ION_TYPE_SYMBOL, tid);
+/// assert_eq!(ION_TYPE_STRING, tid);
 ///
 /// // reader_handle implements Drop, so we're good to go!
 /// # Ok(())
@@ -37,16 +36,17 @@ pub struct IonCReaderHandle<'a> {
     reader: hREADER,
     /// Placeholder to tie our lifecycle back to the source of the data--which might not
     /// actually be a byte slice (if we constructed this from a file or Ion C stream callback)
-    referent: PhantomData<&'a mut [u8]>,
+    referent: PhantomData<&'a [u8]>,
 }
 
 impl<'a> IonCReaderHandle<'a> {
-    /// Constructs a reader handle from a mutable slice and given options.
-    pub fn new_buf(src: &'a mut [u8], options: &mut ION_READER_OPTIONS) -> Result<Self, IonCError> {
+    /// Constructs a reader handle from a byte slice and given options.
+    pub fn new_buf(src: &'a [u8], options: &mut ION_READER_OPTIONS) -> Result<Self, IonCError> {
         let mut reader = ptr::null_mut();
         ionc!(ion_reader_open_buffer(
             &mut reader,
-            src.as_mut_ptr(),
+            // Ion C promises not to mutate this buffer!
+            src.as_ptr() as *mut u8,
             src.len().try_into()?,
             options,
         ))?;
@@ -74,8 +74,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::reader::*;
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut buf = b"'''hello!'''".to_vec();
-    /// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+    /// let mut reader = IonCReaderHandle::try_from("'''hello!'''")?;
     ///
     /// assert_eq!(ION_TYPE_NONE, reader.get_type()?);
     /// assert_eq!(ION_TYPE_STRING, reader.next()?);
@@ -114,8 +113,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::reader::*;
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut buf = b"[[]]".to_vec();
-    /// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+    /// let mut reader = IonCReaderHandle::try_from("[[]]")?;
     ///
     /// assert_eq!(ION_TYPE_LIST, reader.next()?);
     /// reader.step_in()?;
@@ -143,8 +141,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::reader::*;
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut buf = b"null.int 4".to_vec();
-    /// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+    /// let mut reader = IonCReaderHandle::try_from("null.int 4")?;
     ///
     /// assert_eq!(ION_TYPE_INT, reader.next()?);
     /// assert!(reader.is_null()?);
@@ -169,8 +166,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::reader::*;
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut buf = b"{}".to_vec();
-    /// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+    /// let mut reader = IonCReaderHandle::try_from("{}")?;
     ///
     /// assert_eq!(ION_TYPE_STRUCT, reader.next()?);
     /// assert!(!reader.is_in_struct()?);
@@ -197,8 +193,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::result::*;
     /// # use ion_c_sys::string::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut buf = b"{a:5}".to_vec();
-    /// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+    /// let mut reader = IonCReaderHandle::try_from("{a:5}")?;
     ///
     /// assert_eq!(ION_TYPE_STRUCT, reader.next()?);
     /// assert!(reader.get_field_name()?.value.is_null());
@@ -228,8 +223,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::reader::*;
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut buf = b"true".to_vec();
-    /// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+    /// let mut reader = IonCReaderHandle::try_from("true")?;
     ///
     /// assert_eq!(ION_TYPE_BOOL, reader.next()?);
     /// assert!(reader.read_bool()?);
@@ -253,8 +247,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::reader::*;
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut buf = b"42".to_vec();
-    /// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+    /// let mut reader = IonCReaderHandle::try_from("42")?;
     ///
     /// assert_eq!(ION_TYPE_INT, reader.next()?);
     /// assert_eq!(42, reader.read_i64()?);
@@ -269,6 +262,8 @@ impl<'a> IonCReaderHandle<'a> {
         Ok(value)
     }
 
+    // TODO ion-rust/#50 - support ION_INT (arbitrary large integer) reads
+
     /// Reads a `float` value from the reader.
     ///
     /// ## Usage
@@ -278,8 +273,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::reader::*;
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut buf = b"3.0e0".to_vec();
-    /// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+    /// let mut reader = IonCReaderHandle::try_from("3.0e0")?;
     ///
     /// assert_eq!(ION_TYPE_FLOAT, reader.next()?);
     /// assert_eq!(3.0, reader.read_f64()?);
@@ -294,7 +288,6 @@ impl<'a> IonCReaderHandle<'a> {
         Ok(value)
     }
 
-    // TODO ion-rust/#50 - support ION_INT (arbitrary large integer) reads
     // TODO ion-rust/#42 - support decimal reads
     // TODO ion-rust/#43 - support timestamp reads
 
@@ -307,8 +300,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::reader::*;
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut buf = "\"🦄\" '✨'".as_bytes().to_vec();
-    /// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+    /// let mut reader = IonCReaderHandle::try_from("\"🦄\" '✨'")?;
     ///
     /// assert_eq!(ION_TYPE_STRING, reader.next()?);
     /// assert_eq!("🦄", reader.read_string()?.try_as_str()?);
@@ -337,8 +329,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::reader::*;
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut buf = "{{\"hello\"}} {{d29ybGQ=}}".as_bytes().to_vec();
-    /// let mut reader = IonCReaderHandle::try_from(buf.as_mut_slice())?;
+    /// let mut reader = IonCReaderHandle::try_from("{{\"hello\"}} {{d29ybGQ=}}")?;
     ///
     /// assert_eq!(ION_TYPE_CLOB, reader.next()?);
     /// assert_eq!(b"hello", reader.read_bytes()?.as_slice());
@@ -368,22 +359,22 @@ impl<'a> IonCReaderHandle<'a> {
     }
 }
 
-impl<'a> TryFrom<&'a mut [u8]> for IonCReaderHandle<'a> {
+impl<'a> TryFrom<&'a [u8]> for IonCReaderHandle<'a> {
     type Error = IonCError;
 
-    /// Constructs a reader from a mutable slice with the default options.
+    /// Constructs a reader from a byte slice with the default options.
     #[inline]
-    fn try_from(src: &'a mut [u8]) -> Result<Self, Self::Error> {
+    fn try_from(src: &'a [u8]) -> Result<Self, Self::Error> {
         Self::new_buf(src, &mut ION_READER_OPTIONS::default())
     }
 }
 
-impl<'a> TryFrom<&'a mut str> for IonCReaderHandle<'a> {
+impl<'a> TryFrom<&'a str> for IonCReaderHandle<'a> {
     type Error = IonCError;
-    /// Constructs a reader from a mutable str with the default options.
+    /// Constructs a reader from a str slice with the default options.
     #[inline]
-    fn try_from(src: &'a mut str) -> Result<Self, Self::Error> {
-        unsafe { Self::try_from(src.as_bytes_mut()) }
+    fn try_from(src: &'a str) -> Result<Self, Self::Error> {
+        Self::try_from(src.as_bytes())
     }
 }
 
