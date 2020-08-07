@@ -15,6 +15,41 @@ pub enum WriterMode {
     Binary = 1,
 }
 
+/// The API for Ion C value writing.
+pub trait IonCValueWriter {
+    /// Writes a `null` value.
+    fn write_null(&mut self, tid: ION_TYPE) -> IonCResult<()>;
+
+    /// Writes a `bool` value.
+    fn write_bool(&mut self, value: bool) -> IonCResult<()>;
+
+    /// Writes an `int` value.
+    fn write_i64(&mut self, value: i64) -> IonCResult<()>;
+
+    // TODO ion-rust/#50 - support ION_INT (arbitrary large integer) writes
+
+    /// Writes a `float` value.
+    fn write_f64(&mut self, value: f64) -> IonCResult<()>;
+
+    // TODO ion-rust/#42 - support decimal writes
+    // TODO ion-rust/#43 - support timestamp writes
+
+    /// Writes a `symbol` value.
+    fn write_symbol(&mut self, value: &str) -> IonCResult<()>;
+
+    /// Writes a `string` value.
+    fn write_string(&mut self, value: &str) -> IonCResult<()>;
+
+    /// Writes a `clob` value.
+    fn write_clob(&mut self, value: &[u8]) -> IonCResult<()>;
+
+    /// Writes a `blob` value.
+    fn write_blob(&mut self, value: &[u8]) -> IonCResult<()>;
+
+    /// Starts  a container.
+    fn start_container(&mut self, tid: ION_TYPE) -> IonCResult<()>;
+}
+
 /// Wrapper over `hWRITER` to make it easier to writers in IonC correctly.
 ///
 /// Specifically supports the `Drop` trait to make sure `ion_writer_close` is run.
@@ -53,7 +88,7 @@ pub struct IonCWriterHandle<'a> {
     writer: hWRITER,
     /// Placeholder to tie our lifecycle back to the source of the data--which might not
     /// actually be a byte slice (if we constructed this from a file or Ion C stream callback)
-    referent: PhantomData<&'a mut [u8]>,
+    referent: PhantomData<&'a mut u8>,
 }
 
 impl<'a> IonCWriterHandle<'a> {
@@ -84,11 +119,7 @@ impl<'a> IonCWriterHandle<'a> {
         Self::new_buf(buf, &mut options)
     }
 
-    // TODO ion-rust/#51 - Lifetime safety for references borrowed in fieldname/annotation APIs.
-
-    /// Writes a field name.
-    ///
-    /// Note that the reference given to this call **must** live until a value is written.
+    /// Starts a write with a field name.
     ///
     /// ## Usage
     /// ```
@@ -102,8 +133,7 @@ impl<'a> IonCWriterHandle<'a> {
     ///     let mut writer = IonCWriterHandle::new_buf_mode(buf.as_mut_slice(), WriterMode::Binary)?;
     ///     writer.start_container(ION_TYPE_STRUCT)?;
     ///     {
-    ///         writer.set_field_name("name")?;
-    ///         writer.write_string("kumo")?;
+    ///         writer.start_field("name").write_string("kumo")?;
     ///     }
     ///     writer.finish_container()?;
     ///     writer.finish()?
@@ -112,14 +142,27 @@ impl<'a> IonCWriterHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn set_field_name(&mut self, field: &str) -> IonCResult<()>{
-        // Ion C promises that it won't do mutation for this call!
-        let mut ion_field = ION_STRING::from_str(field);
-        ionc!(ion_writer_write_field_name(self.writer, &mut ion_field))
+    pub fn start_field<'b, 'c>(&'b mut self, field: &'c str) -> IonCFieldWriterContext<'a, 'b, 'c> {
+        IonCFieldWriterContext::new(self, field)
     }
 
     // TODO ion-rust/#48 - annotation support
 
+    #[inline]
+    pub fn finish_container(&mut self) -> IonCResult<()> {
+        ionc!(ion_writer_finish_container(self.writer))
+    }
+
+    #[inline]
+    pub fn finish(&mut self) -> IonCResult<usize> {
+        let mut len = 0;
+        ionc!(ion_writer_finish(self.writer, &mut len))?;
+
+        Ok(len.try_into()?)
+    }
+}
+
+impl IonCValueWriter for IonCWriterHandle<'_> {
     /// Writes a `null` value.
     ///
     /// ## Usage
@@ -140,7 +183,7 @@ impl<'a> IonCWriterHandle<'a> {
     /// # }
     /// ```
     #[inline]
-    pub fn write_null(&mut self, tid: ION_TYPE) -> IonCResult<()> {
+    fn write_null(&mut self, tid: ION_TYPE) -> IonCResult<()> {
         ionc!(ion_writer_write_typed_null(self.writer, tid))
     }
 
@@ -165,7 +208,7 @@ impl<'a> IonCWriterHandle<'a> {
     /// # }
     /// ```
     #[inline]
-    pub fn write_bool(&mut self, value: bool) -> IonCResult<()> {
+    fn write_bool(&mut self, value: bool) -> IonCResult<()> {
         ionc!(ion_writer_write_bool(self.writer, value as BOOL))
     }
 
@@ -189,7 +232,7 @@ impl<'a> IonCWriterHandle<'a> {
     /// # }
     /// ```
     #[inline]
-    pub fn write_i64(&mut self, value: i64) -> IonCResult<()> {
+    fn write_i64(&mut self, value: i64) -> IonCResult<()> {
         ionc!(ion_writer_write_int64(self.writer, value))
     }
 
@@ -215,7 +258,7 @@ impl<'a> IonCWriterHandle<'a> {
     /// # }
     /// ```
     #[inline]
-    pub fn write_f64(&mut self, value: f64) -> IonCResult<()> {
+    fn write_f64(&mut self, value: f64) -> IonCResult<()> {
         ionc!(ion_writer_write_double(self.writer, value))
     }
 
@@ -242,7 +285,7 @@ impl<'a> IonCWriterHandle<'a> {
     /// # }
     /// ```
     #[inline]
-    pub fn write_symbol(&mut self, value: &str) -> IonCResult<()> {
+    fn write_symbol(&mut self, value: &str) -> IonCResult<()> {
         // Ion C promises that it won't do mutation for this call!
         let mut ion_str = ION_STRING::from_str(value);
         ionc!(ion_writer_write_symbol(self.writer, &mut ion_str))
@@ -268,7 +311,7 @@ impl<'a> IonCWriterHandle<'a> {
     /// # }
     /// ```
     #[inline]
-    pub fn write_string(&mut self, value: &str) -> IonCResult<()> {
+    fn write_string(&mut self, value: &str) -> IonCResult<()> {
         // Ion C promises that it won't do mutation for this call!
         let mut ion_str = ION_STRING::from_str(value);
         ionc!(ion_writer_write_string(self.writer, &mut ion_str))
@@ -294,7 +337,7 @@ impl<'a> IonCWriterHandle<'a> {
     /// # }
     /// ```
     #[inline]
-    pub fn write_clob(&mut self, value: &[u8]) -> IonCResult<()> {
+    fn write_clob(&mut self, value: &[u8]) -> IonCResult<()> {
         // Ion C promises that it won't mutate the buffer for this call!
         ionc!(ion_writer_write_clob(self.writer, value.as_ptr() as *mut u8, value.len().try_into()?))
     }
@@ -319,7 +362,7 @@ impl<'a> IonCWriterHandle<'a> {
     /// # }
     /// ```
     #[inline]
-    pub fn write_blob(&mut self, value: &[u8]) -> IonCResult<()> {
+    fn write_blob(&mut self, value: &[u8]) -> IonCResult<()> {
         // Ion C promises that it won't mutate the buffer for this call!
         ionc!(ion_writer_write_blob(self.writer, value.as_ptr() as *mut u8, value.len().try_into()?))
     }
@@ -345,21 +388,8 @@ impl<'a> IonCWriterHandle<'a> {
     /// # }
     /// ```
     #[inline]
-    pub fn start_container(&mut self, tid: ION_TYPE) -> IonCResult<()> {
+    fn start_container(&mut self, tid: ION_TYPE) -> IonCResult<()> {
         ionc!(ion_writer_start_container(self.writer, tid))
-    }
-
-    #[inline]
-    pub fn finish_container(&mut self) -> IonCResult<()> {
-        ionc!(ion_writer_finish_container(self.writer))
-    }
-
-    #[inline]
-    pub fn finish(&mut self) -> IonCResult<usize> {
-        let mut len = 0;
-        ionc!(ion_writer_finish(self.writer, &mut len))?;
-
-        Ok(len.try_into()?)
     }
 }
 
@@ -382,5 +412,84 @@ impl Drop for IonCWriterHandle<'_> {
         if !self.writer.is_null() {
             ionc!(ion_writer_close(self.writer)).unwrap()
         }
+    }
+}
+
+/// Context for writing fields in with proper reference lifetimes.
+pub struct IonCFieldWriterContext<'a, 'b, 'c> {
+    handle: &'b mut IonCWriterHandle<'a>,
+    field: &'c str,
+}
+
+impl<'a, 'b, 'c> IonCFieldWriterContext<'a, 'b, 'c> {
+    fn new(handle: &'b mut IonCWriterHandle<'a>, field: &'c str) -> Self {
+        Self {
+            handle,
+            field,
+        }
+    }
+}
+
+macro_rules! write_field {
+    ($i:ident) => {
+        // Ion C promises that it won't do mutation!
+        let mut field_str = ION_STRING::from_str($i.field);
+        ionc!(ion_writer_write_field_name($i.handle.writer, &mut field_str))?;
+    }
+}
+
+impl IonCValueWriter for IonCFieldWriterContext<'_, '_, '_> {
+    #[inline]
+    fn write_null(&mut self, tid: ION_TYPE) -> IonCResult<()> {
+        write_field!(self);
+        self.handle.write_null(tid)
+    }
+
+    #[inline]
+    fn write_bool(&mut self, value: bool) -> IonCResult<()> {
+        write_field!(self);
+        self.handle.write_bool(value)
+    }
+
+    #[inline]
+    fn write_i64(&mut self, value: i64) -> IonCResult<()> {
+        write_field!(self);
+        self.handle.write_i64(value)
+    }
+
+    #[inline]
+    fn write_f64(&mut self, value: f64) -> IonCResult<()> {
+        write_field!(self);
+        self.handle.write_f64(value)
+    }
+
+    #[inline]
+    fn write_symbol(&mut self, value: &str) -> IonCResult<()> {
+        write_field!(self);
+        self.handle.write_symbol(value)
+    }
+
+    #[inline]
+    fn write_string(&mut self, value: &str) -> IonCResult<()> {
+        write_field!(self);
+        self.handle.write_string(value)
+    }
+
+    #[inline]
+    fn write_clob(&mut self, value: &[u8]) -> IonCResult<()> {
+        write_field!(self);
+        self.handle.write_clob(value)
+    }
+
+    #[inline]
+    fn write_blob(&mut self, value: &[u8]) -> IonCResult<()> {
+        write_field!(self);
+        self.handle.write_blob(value)
+    }
+
+    #[inline]
+    fn start_container(&mut self, tid: ION_TYPE) -> IonCResult<()> {
+        write_field!(self);
+        self.handle.start_container(tid)
     }
 }
