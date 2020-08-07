@@ -8,8 +8,8 @@ use std::num::TryFromIntError;
 /// IonC Error code and its associated error message.
 #[derive(Copy, Clone, Debug)]
 pub struct IonCError {
-    code: i32,
-    message:  &'static str,
+    pub code: i32,
+    pub message:  &'static str,
 }
 
 impl IonCError {
@@ -46,10 +46,18 @@ impl From<TryFromIntError> for IonCError {
     }
 }
 
-/// A type alias to results from Ion C functions, the result value is `()` to signify
+impl From<Utf8Error> for IonCError {
+    /// Due to the way Ion C works with raw UTF-8 byte sequences, it is convenient to be able
+    /// to coerce a `Utf8Error` to `IonCError`.
+    fn from(_: Utf8Error) -> Self {
+        IonCError::from(ion_error_code_IERR_INVALID_UTF8)
+    }
+}
+
+/// A type alias to results from Ion C API, the result value is generally `()` to signify
 /// `ion_error_code_IERR_OK` since Ion C doesn't return results but generally takes
 /// output parameters.
-pub type IonCResult = Result<(), IonCError>;
+pub type IonCResult<T> = Result<T, IonCError>;
 
 /// Macro to transform Ion C error code expressions into `Result<(), IonCError>`.
 /// Higher-level facades over Ion C functions could map this to `Result<T, IonCError>`
@@ -63,7 +71,7 @@ pub type IonCResult = Result<(), IonCError>;
 /// # use std::ptr;
 /// # use ion_c_sys::*;
 /// # use ion_c_sys::result::*;
-/// # fn main() -> IonCResult {
+/// # fn main() -> IonCResult<()> {
 /// let mut data = String::from("42");
 /// let mut ion_reader: hREADER = ptr::null_mut();
 /// let mut ion_type: ION_TYPE = ptr::null_mut();
