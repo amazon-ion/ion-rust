@@ -217,7 +217,7 @@ impl<'a> IonCReaderHandle<'a> {
         Ok(IonCStringRef::new(self, field))
     }
 
-    // TODO annotation support
+    // TODO ion-rust/#48 - annotation support
 
     /// Reads a `bool` value from the reader.
     ///
@@ -294,9 +294,9 @@ impl<'a> IonCReaderHandle<'a> {
         Ok(value)
     }
 
-    // TODO support ION_INT (arbitrary large integer) reads
-    // TODO support decimal reads
-    // TODO support timestamp reads
+    // TODO ion-rust/#50 - support ION_INT (arbitrary large integer) reads
+    // TODO ion-rust/#42 - support decimal reads
+    // TODO ion-rust/#43 - support timestamp reads
 
     /// Reads a `string`/`symbol` value from the reader.
     ///
