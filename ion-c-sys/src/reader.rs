@@ -134,7 +134,7 @@ impl<'a> IonCReaderHandle<'a> {
         Ok(depth)
     }
 
-    /// Returns if the reader positioned on a `null` value.
+    /// Returns if the reader is positioned on a `null` value.
     ///
     /// ## Usage
     /// ```
@@ -161,7 +161,7 @@ impl<'a> IonCReaderHandle<'a> {
         Ok(is_null != 0)
     }
 
-    /// Returns if the reader positioned within a `struct` value.
+    /// Returns if the reader is positioned within a `struct` value.
     /// ## Usage
     /// ```
     /// # use std::convert::*;
@@ -187,7 +187,7 @@ impl<'a> IonCReaderHandle<'a> {
         Ok(is_in_struct != 0)
     }
 
-    /// Returns the field name of the reader positioned within a structure.
+    /// Returns the field name if the reader positioned within a structure.
     ///
     /// ## Usage
     /// ```

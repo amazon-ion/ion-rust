@@ -166,7 +166,7 @@ impl ION_STRING {
         }
     }
 
-    /// Constructs an `ION_STRING` from a `&mut [u8]]`.
+    /// Constructs an `ION_STRING` from a `&mut [u8]`.
     ///
     /// Note that this is effectively Ion C's `&mut [u8]` type so lifetime is managed
     /// manually by the caller.
