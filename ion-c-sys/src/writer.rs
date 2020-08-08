@@ -48,12 +48,17 @@ pub trait IonCValueWriter {
 
     /// Starts  a container.
     fn start_container(&mut self, tid: ION_TYPE) -> IonCResult<()>;
+
+    /// Finishes a container.
+    fn finish_container(&mut self) -> IonCResult<()>;
 }
 
 /// Wrapper over `hWRITER` to make it easier to writers in IonC correctly.
 ///
 /// Specifically supports the `Drop` trait to make sure `ion_writer_close` is run.
 /// Access to the underlying `hWRITER` pointer is done by de-referencing the handle.
+///
+/// See also [IonCValueWriter](./trait.IonCValueWriter.html) for details
 ///
 /// ## Usage
 /// ```
@@ -119,7 +124,7 @@ impl<'a> IonCWriterHandle<'a> {
         Self::new_buf(buf, &mut options)
     }
 
-    /// Starts a write with a field name.
+    /// Returns a lifetime safe writing context for a field.
     ///
     /// ## Usage
     /// ```
@@ -133,7 +138,7 @@ impl<'a> IonCWriterHandle<'a> {
     ///     let mut writer = IonCWriterHandle::new_buf_mode(buf.as_mut_slice(), WriterMode::Binary)?;
     ///     writer.start_container(ION_TYPE_STRUCT)?;
     ///     {
-    ///         writer.start_field("name").write_string("kumo")?;
+    ///         writer.field("name").write_string("kumo")?;
     ///     }
     ///     writer.finish_container()?;
     ///     writer.finish()?
@@ -142,16 +147,11 @@ impl<'a> IonCWriterHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn start_field<'b, 'c>(&'b mut self, field: &'c str) -> IonCFieldWriterContext<'a, 'b, 'c> {
+    pub fn field<'b, 'c>(&'b mut self, field: &'c str) -> IonCFieldWriterContext<'a, 'b, 'c> {
         IonCFieldWriterContext::new(self, field)
     }
 
     // TODO ion-rust/#48 - annotation support
-
-    #[inline]
-    pub fn finish_container(&mut self) -> IonCResult<()> {
-        ionc!(ion_writer_finish_container(self.writer))
-    }
 
     #[inline]
     pub fn finish(&mut self) -> IonCResult<usize> {
@@ -367,7 +367,7 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
         ionc!(ion_writer_write_blob(self.writer, value.as_ptr() as *mut u8, value.len().try_into()?))
     }
 
-    /// Starts  a container.
+    /// Starts a container.
     ///
     /// ## Usage
     /// ```
@@ -390,6 +390,12 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
     #[inline]
     fn start_container(&mut self, tid: ION_TYPE) -> IonCResult<()> {
         ionc!(ion_writer_start_container(self.writer, tid))
+    }
+
+    /// Finishes a container.
+    #[inline]
+    fn finish_container(&mut self) -> IonCResult<()> {
+        ionc!(ion_writer_finish_container(self.writer))
     }
 }
 
@@ -416,6 +422,22 @@ impl Drop for IonCWriterHandle<'_> {
 }
 
 /// Context for writing fields in with proper reference lifetimes.
+///
+/// Specifically, writing fields with Ion C with `ion_writer_write_field`
+/// is particularly problematic because the lifetime of the `ION_STRING`
+/// passed into that function, must be valid until a corresponding
+/// `ion_writer_write_*` function is called for writing a value.
+///
+/// This context tracks the lifetime of the string slice that a user wants to
+/// write as as a field name along with a mutable borrow of the writer handle
+/// and ensures that calls to `ion_writer_write_field` happen before invoking the
+/// `ion_writer_write_*` call for the value in a lifetime correct way.
+///
+/// Note that this context can be thought of as a partial function for writing
+/// `struct` fields, so doing nothing with it is simply a no-op, and performing
+/// multiple [`IonCValueWriter`](./trait.IonCValueWriter.html) trait method invocations
+/// is the same as writing the field before invoking the value writing methods
+/// (so duplicate fields would be generated in that case).
 pub struct IonCFieldWriterContext<'a, 'b, 'c> {
     handle: &'b mut IonCWriterHandle<'a>,
     field: &'c str,
@@ -491,5 +513,11 @@ impl IonCValueWriter for IonCFieldWriterContext<'_, '_, '_> {
     fn start_container(&mut self, tid: ION_TYPE) -> IonCResult<()> {
         write_field!(self);
         self.handle.start_container(tid)
+    }
+
+    /// This API is not relevant for this context and will always return an error.
+    #[inline]
+    fn finish_container(&mut self) -> IonCResult<()> {
+        Err(IonCError::from(ion_error_code_IERR_INVALID_STATE))
     }
 }
