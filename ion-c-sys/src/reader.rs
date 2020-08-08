@@ -3,14 +3,12 @@
 use std::convert::{TryFrom, TryInto};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use std::os::raw::c_int;
 use std::ptr;
 
 use crate::result::*;
 use crate::string::*;
 use crate::*;
-
-// NB that this cannot be made generic with respect to IonCWriterHandle because
-// Rust does not support specialization of Drop.
 
 /// Wrapper over `hREADER` to make it easier to use readers in IonC correctly.
 ///
@@ -26,10 +24,8 @@ use crate::*;
 /// # use std::ptr;
 /// # fn main() -> IonCResult<()> {
 /// let mut reader = IonCReaderHandle::try_from(b"\xE0\x01\x00\xEA\x85hello".as_ref())?;
-///
 /// let tid = reader.next()?;
 /// assert_eq!(ION_TYPE_STRING, tid);
-///
 /// // reader_handle implements Drop, so we're good to go!
 /// # Ok(())
 /// # }
@@ -77,7 +73,6 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
     /// let mut reader = IonCReaderHandle::try_from("'''hello!'''")?;
-    ///
     /// assert_eq!(ION_TYPE_NONE, reader.get_type()?);
     /// assert_eq!(ION_TYPE_STRING, reader.next()?);
     /// assert_eq!(ION_TYPE_STRING, reader.get_type()?);
@@ -116,7 +111,6 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
     /// let mut reader = IonCReaderHandle::try_from("[[]]")?;
-    ///
     /// assert_eq!(ION_TYPE_LIST, reader.next()?);
     /// reader.step_in()?;
     /// assert_eq!(1, reader.depth()?);
@@ -144,7 +138,6 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
     /// let mut reader = IonCReaderHandle::try_from("null.int 4")?;
-    ///
     /// assert_eq!(ION_TYPE_INT, reader.next()?);
     /// assert!(reader.is_null()?);
     /// assert_eq!(ION_TYPE_INT, reader.next()?);
@@ -169,7 +162,6 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
     /// let mut reader = IonCReaderHandle::try_from("{}")?;
-    ///
     /// assert_eq!(ION_TYPE_STRUCT, reader.next()?);
     /// assert!(!reader.is_in_struct()?);
     /// reader.step_in()?;
@@ -196,25 +188,66 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::string::*;
     /// # fn main() -> IonCResult<()> {
     /// let mut reader = IonCReaderHandle::try_from("{a:5}")?;
-    ///
     /// assert_eq!(ION_TYPE_STRUCT, reader.next()?);
-    /// assert!(reader.get_field_name()?.value.is_null());
     /// reader.step_in()?;
-    /// assert!(reader.get_field_name()?.value.is_null());
     /// assert_eq!(ION_TYPE_INT, reader.next()?);
-    /// assert_eq!("a", reader.get_field_name()?.try_as_str()?);
+    /// assert_eq!("a", reader.get_field_name()?.as_str());
     /// # Ok(())
     /// # }
     /// ```
     #[inline]
-    pub fn get_field_name(&mut self) -> IonCResult<IonCStringRef> {
+    pub fn get_field_name(&mut self) -> IonCResult<StrSliceRef> {
         let mut field = ION_STRING::default();
         ionc!(ion_reader_get_field_name(self.reader, &mut field))?;
 
-        Ok(IonCStringRef::new(self, field))
+        // make a str slice that is tied to our lifetime
+        let field_str = field.as_str(PhantomData::<&'a u8>::default())?;
+        Ok(StrSliceRef::new(self, field_str))
     }
 
-    // TODO ion-rust/#48 - annotation support
+    /// Retrieves the annotations associated with the current value.
+    ///
+    /// Note that this allocates a vector on the heap for the `IonCStringRef` instances.
+    /// If this is not desired, use the low-level annotation functions.
+    ///
+    /// ## Usage
+    /// ```
+    /// # use std::convert::*;
+    /// # use ion_c_sys::*;
+    /// # use ion_c_sys::reader::*;
+    /// # use ion_c_sys::result::*;
+    /// # use ion_c_sys::string::*;
+    /// # fn main() -> IonCResult<()> {
+    /// let mut reader = IonCReaderHandle::try_from("ab::cde::fghi::5")?;
+    /// assert_eq!(ION_TYPE_INT, reader.next()?);
+    /// let annotations = reader.get_annotations()?;
+    /// assert_eq!(
+    ///     vec!["ab", "cde", "fghi"].as_slice(),
+    ///     annotations.as_ref()
+    /// );
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn get_annotations(&mut self) -> IonCResult<StrSlicesRef> {
+        // determine how many annotations are available
+        let mut raw_len = 0;
+        ionc!(ion_reader_get_annotation_count(self.reader, &mut raw_len))?;
+
+        let len: usize = raw_len.try_into()?;
+        let mut annotations = Vec::new();
+        let mut curr = ION_STRING::default();
+        for i in 0..len {
+            ionc!(ion_reader_get_an_annotation(
+                self.reader,
+                i as c_int,
+                &mut curr
+            ))?;
+            // make a str slice that is tied to our lifetime
+            annotations.push(curr.as_str(PhantomData::<&'a u8>::default())?);
+        }
+
+        Ok(StrSlicesRef::new(self, annotations))
+    }
 
     /// Reads a `bool` value from the reader.
     ///
@@ -226,7 +259,6 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
     /// let mut reader = IonCReaderHandle::try_from("true")?;
-    ///
     /// assert_eq!(ION_TYPE_BOOL, reader.next()?);
     /// assert!(reader.read_bool()?);
     /// # Ok(())
@@ -250,7 +282,6 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
     /// let mut reader = IonCReaderHandle::try_from("42")?;
-    ///
     /// assert_eq!(ION_TYPE_INT, reader.next()?);
     /// assert_eq!(42, reader.read_i64()?);
     /// # Ok(())
@@ -276,7 +307,6 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
     /// let mut reader = IonCReaderHandle::try_from("3.0e0")?;
-    ///
     /// assert_eq!(ION_TYPE_FLOAT, reader.next()?);
     /// assert_eq!(3.0, reader.read_f64()?);
     /// # Ok(())
@@ -303,20 +333,21 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
     /// let mut reader = IonCReaderHandle::try_from("\"🦄\" '✨'")?;
-    ///
     /// assert_eq!(ION_TYPE_STRING, reader.next()?);
-    /// assert_eq!("🦄", reader.read_string()?.try_as_str()?);
+    /// assert_eq!("🦄", reader.read_string()?.as_str());
     /// assert_eq!(ION_TYPE_SYMBOL, reader.next()?);
-    /// assert_eq!("✨", reader.read_string()?.try_as_str()?);
+    /// assert_eq!("✨", reader.read_string()?.as_str());
     /// # Ok(())
     /// # }
     /// ```
     #[inline]
-    pub fn read_string(&mut self) -> IonCResult<IonCStringRef> {
+    pub fn read_string(&mut self) -> IonCResult<StrSliceRef> {
         let mut value = ION_STRING::default();
         ionc!(ion_reader_read_string(self.reader, &mut value))?;
 
-        Ok(IonCStringRef::new(self, value))
+        // make a str slice that is tied to our lifetime
+        let str_ref = value.as_str(PhantomData::<&'a u8>::default())?;
+        Ok(StrSliceRef::new(self, str_ref))
     }
 
     /// Reads a `clob`/`blob` value from the reader.
@@ -332,7 +363,6 @@ impl<'a> IonCReaderHandle<'a> {
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
     /// let mut reader = IonCReaderHandle::try_from("{{\"hello\"}} {{d29ybGQ=}}")?;
-    ///
     /// assert_eq!(ION_TYPE_CLOB, reader.next()?);
     /// assert_eq!(b"hello", reader.read_bytes()?.as_slice());
     /// assert_eq!(ION_TYPE_BLOB, reader.next()?);

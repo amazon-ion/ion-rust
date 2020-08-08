@@ -8,9 +8,6 @@ use std::ptr;
 use crate::result::*;
 use crate::*;
 
-// NB that this cannot be made generic with respect to IonCReaderHandle because
-// Rust does not support specialization of Drop.
-
 /// Indicates at a high-level what type of writer to use.
 pub enum WriterMode {
     Text = 0,
@@ -289,7 +286,7 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
     #[inline]
     fn write_symbol(&mut self, value: &str) -> IonCResult<()> {
         // Ion C promises that it won't do mutation for this call!
-        let mut ion_str = ION_STRING::from_str(value);
+        let mut ion_str = ION_STRING::try_from_str(value)?;
         ionc!(ion_writer_write_symbol(self.writer, &mut ion_str))
     }
 
@@ -315,7 +312,7 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
     #[inline]
     fn write_string(&mut self, value: &str) -> IonCResult<()> {
         // Ion C promises that it won't do mutation for this call!
-        let mut ion_str = ION_STRING::from_str(value);
+        let mut ion_str = ION_STRING::try_from_str(value)?;
         ionc!(ion_writer_write_string(self.writer, &mut ion_str))
     }
 
@@ -462,7 +459,7 @@ impl<'a, 'b, 'c> IonCFieldWriterContext<'a, 'b, 'c> {
 macro_rules! write_field {
     ($i:ident) => {
         // Ion C promises that it won't do mutation!
-        let mut field_str = ION_STRING::from_str($i.field);
+        let mut field_str = ION_STRING::try_from_str($i.field)?;
         ionc!(ion_writer_write_field_name(
             $i.handle.writer,
             &mut field_str
