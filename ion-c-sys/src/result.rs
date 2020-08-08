@@ -1,3 +1,5 @@
+// Copyright Amazon.com, Inc. or its affiliates.
+
 use crate::*;
 
 use std::error::Error;

@@ -1,3 +1,5 @@
+// Copyright Amazon.com, Inc. or its affiliates.
+
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 

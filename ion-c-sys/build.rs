@@ -1,3 +1,5 @@
+// Copyright Amazon.com, Inc. or its affiliates.
+
 use std::env;
 use std::path::PathBuf;
 

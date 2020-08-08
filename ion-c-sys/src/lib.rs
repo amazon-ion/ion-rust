@@ -1,3 +1,5 @@
+// Copyright Amazon.com, Inc. or its affiliates.
+
 //! Provides basic bindings for [Ion C](https://github.com/amzn/ion-c)
 //!
 //! These bindings are created with `bindgen` and are considerably low-level.
