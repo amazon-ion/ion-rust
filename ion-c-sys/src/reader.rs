@@ -4,8 +4,8 @@ use std::ops::{Deref, DerefMut};
 use std::ptr;
 
 use crate::result::*;
+use crate::string::*;
 use crate::*;
-use crate::string::IonCStringRef;
 
 // NB that this cannot be made generic with respect to IonCWriterHandle because
 // Rust does not support specialization of Drop.
