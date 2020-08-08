@@ -429,7 +429,7 @@ impl Drop for IonCWriterHandle<'_> {
 /// `ion_writer_write_*` function is called for writing a value.
 ///
 /// This context tracks the lifetime of the string slice that a user wants to
-/// write as as a field name along with a mutable borrow of the writer handle
+/// write as a field name along with a mutable borrow of the writer handle
 /// and ensures that calls to `ion_writer_write_field` happen before invoking the
 /// `ion_writer_write_*` call for the value in a lifetime correct way.
 ///
