@@ -119,7 +119,7 @@ impl<'a> IonCWriterHandle<'a> {
     pub fn new_buf_mode(buf: &'a mut [u8], mode: WriterMode) -> Result<Self, IonCError> {
         let mut options = ION_WRITER_OPTIONS {
             output_as_binary: mode as i32,
-            .. Default::default()
+            ..Default::default()
         };
         Self::new_buf(buf, &mut options)
     }
@@ -339,7 +339,11 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
     #[inline]
     fn write_clob(&mut self, value: &[u8]) -> IonCResult<()> {
         // Ion C promises that it won't mutate the buffer for this call!
-        ionc!(ion_writer_write_clob(self.writer, value.as_ptr() as *mut u8, value.len().try_into()?))
+        ionc!(ion_writer_write_clob(
+            self.writer,
+            value.as_ptr() as *mut u8,
+            value.len().try_into()?
+        ))
     }
 
     /// Writes a `blob` value.
@@ -364,7 +368,11 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
     #[inline]
     fn write_blob(&mut self, value: &[u8]) -> IonCResult<()> {
         // Ion C promises that it won't mutate the buffer for this call!
-        ionc!(ion_writer_write_blob(self.writer, value.as_ptr() as *mut u8, value.len().try_into()?))
+        ionc!(ion_writer_write_blob(
+            self.writer,
+            value.as_ptr() as *mut u8,
+            value.len().try_into()?
+        ))
     }
 
     /// Starts a container.
@@ -445,10 +453,7 @@ pub struct IonCFieldWriterContext<'a, 'b, 'c> {
 
 impl<'a, 'b, 'c> IonCFieldWriterContext<'a, 'b, 'c> {
     fn new(handle: &'b mut IonCWriterHandle<'a>, field: &'c str) -> Self {
-        Self {
-            handle,
-            field,
-        }
+        Self { handle, field }
     }
 }
 
@@ -456,8 +461,11 @@ macro_rules! write_field {
     ($i:ident) => {
         // Ion C promises that it won't do mutation!
         let mut field_str = ION_STRING::from_str($i.field);
-        ionc!(ion_writer_write_field_name($i.handle.writer, &mut field_str))?;
-    }
+        ionc!(ion_writer_write_field_name(
+            $i.handle.writer,
+            &mut field_str
+        ))?;
+    };
 }
 
 impl IonCValueWriter for IonCFieldWriterContext<'_, '_, '_> {

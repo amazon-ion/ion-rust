@@ -1,7 +1,7 @@
 use crate::*;
 
-use std::ffi::CStr;
 use std::error::Error;
+use std::ffi::CStr;
 use std::fmt;
 use std::num::TryFromIntError;
 
@@ -9,7 +9,7 @@ use std::num::TryFromIntError;
 #[derive(Copy, Clone, Debug)]
 pub struct IonCError {
     pub code: i32,
-    pub message:  &'static str,
+    pub message: &'static str,
 }
 
 impl IonCError {
@@ -25,7 +25,10 @@ impl IonCError {
                     IonCError { code, message }
                 }
             }
-            _ => IonCError { code, message: "Unknown Ion C Error Code" },
+            _ => IonCError {
+                code,
+                message: "Unknown Ion C Error Code",
+            },
         }
     }
 }
@@ -64,7 +67,7 @@ pub type IonCResult<T> = Result<T, IonCError>;
 /// or the like.
 ///
 /// NB: `ionc!` implies `unsafe` code.
-/// 
+///
 /// ## Usage
 ///
 /// ```
@@ -104,5 +107,5 @@ macro_rules! ionc {
                 code => Err($crate::result::IonCError::from(code)),
             }
         }
-    }
+    };
 }

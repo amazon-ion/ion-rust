@@ -105,16 +105,16 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-pub mod result;
 pub mod reader;
-pub mod writer;
+pub mod result;
 pub mod string;
+pub mod writer;
 
 include!(concat!(env!("OUT_DIR"), "/ionc_bindings.rs"));
 
-use std::{slice, str};
 use std::convert::TryInto;
 use std::str::Utf8Error;
+use std::{slice, str};
 
 use paste::paste;
 
@@ -138,16 +138,17 @@ impl ION_STRING {
     /// ```
     #[inline]
     pub fn from_mut_str(src: &mut str) -> Self {
-        unsafe {
-            Self::from_mut_bytes(src.as_bytes_mut())
-        }
+        unsafe { Self::from_mut_bytes(src.as_bytes_mut()) }
     }
 
     /// Internal function to coerce an immutable slice to an `ION_STRING`.
     ///
     /// Inherently unsafe and can only be used with APIs that guarantee immutability.
     pub(crate) fn from_str(src: &str) -> Self {
-        Self { value: src.as_ptr() as *mut u8, length: src.len().try_into().unwrap() }
+        Self {
+            value: src.as_ptr() as *mut u8,
+            length: src.len().try_into().unwrap(),
+        }
     }
 
     /// Constructs an `ION_STRING` from a `&mut [u8]`.
@@ -164,7 +165,10 @@ impl ION_STRING {
     /// ```
     #[inline]
     pub fn from_mut_bytes(src: &mut [u8]) -> Self {
-        ION_STRING { value: src.as_mut_ptr(), length: src.len().try_into().unwrap() }
+        ION_STRING {
+            value: src.as_mut_ptr(),
+            length: src.len().try_into().unwrap(),
+        }
     }
 
     /// Retrieves a UTF-8 slice view from an `ION_STRING`.
@@ -213,7 +217,8 @@ impl ION_STRING {
             unsafe {
                 let u8_slice = slice::from_raw_parts(
                     // TODO determine if this is a bit harsh for >2GB buffers (should we return error?)
-                    self.value, self.length.try_into().unwrap()
+                    self.value,
+                    self.length.try_into().unwrap(),
                 );
                 Ok(u8_slice)
             }
@@ -241,22 +246,8 @@ macro_rules! ion_types {
 }
 
 ion_types!(
-    none,
-    EOF,
-    NULL,
-    BOOL,
-    INT,
-    FLOAT,
-    DECIMAL,
-    TIMESTAMP,
-    SYMBOL,
-    STRING,
-    CLOB,
-    BLOB,
-    LIST,
-    SEXP,
-    STRUCT,
-    DATAGRAM
+    none, EOF, NULL, BOOL, INT, FLOAT, DECIMAL, TIMESTAMP, SYMBOL, STRING, CLOB, BLOB, LIST, SEXP,
+    STRUCT, DATAGRAM
 );
 
 #[cfg(test)]
@@ -264,8 +255,8 @@ mod tests {
     use super::*;
 
     use std::error::Error;
-    use std::string::String;
     use std::ptr;
+    use std::string::String;
 
     type TestResult = Result<(), Box<dyn Error>>;
 
@@ -279,7 +270,12 @@ mod tests {
         let mut ion_type2 = ptr::null_mut();
         let mut mybool: BOOL = 0;
 
-        ionc!(ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut()))?;
+        ionc!(ion_reader_open_buffer(
+            &mut ion_reader,
+            buf,
+            buf_size,
+            ptr::null_mut()
+        ))?;
         ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
         ionc!(ion_reader_is_null(ion_reader, &mut mybool))?;
         if mybool == 1 {
@@ -302,7 +298,12 @@ mod tests {
         let mut ion_type2 = ptr::null_mut();
         let mut mybool: BOOL = 0;
 
-        ionc!(ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut()))?;
+        ionc!(ion_reader_open_buffer(
+            &mut ion_reader,
+            buf,
+            buf_size,
+            ptr::null_mut()
+        ))?;
         ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
         ionc!(ion_reader_is_null(ion_reader, &mut mybool))?;
         if mybool == 1 {
@@ -324,7 +325,12 @@ mod tests {
         let mut ion_type = ptr::null_mut();
         let mut ion_value = 0;
 
-        ionc!(ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut()))?;
+        ionc!(ion_reader_open_buffer(
+            &mut ion_reader,
+            buf,
+            buf_size,
+            ptr::null_mut()
+        ))?;
         ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
         ionc!(ion_reader_read_int32(ion_reader, &mut ion_value))?;
         assert_eq!(ION_TYPE_INT, ion_type);
@@ -343,7 +349,12 @@ mod tests {
         let mut ion_reader = ptr::null_mut();
         let mut ion_type = ptr::null_mut();
 
-        ionc!(ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut()))?;
+        ionc!(ion_reader_open_buffer(
+            &mut ion_reader,
+            buf,
+            buf_size,
+            ptr::null_mut()
+        ))?;
         ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
 
         let mut ion_str = ION_STRING::default();
@@ -364,7 +375,12 @@ mod tests {
         let mut ion_reader = ptr::null_mut();
         let mut ion_type = ptr::null_mut();
 
-        ionc!(ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut()))?;
+        ionc!(ion_reader_open_buffer(
+            &mut ion_reader,
+            buf,
+            buf_size,
+            ptr::null_mut()
+        ))?;
         ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
 
         let mut ion_str = ION_STRING::default();
@@ -376,19 +392,23 @@ mod tests {
         Ok(())
     }
 
-
     #[test]
     fn read_sexp() -> TestResult {
         let mut input = String::from("(1 2 3)");
-        let expected_vals = vec![1,2,3];
-        let mut read_vals: Vec<i32>  = Vec::new();
+        let expected_vals = vec![1, 2, 3];
+        let mut read_vals: Vec<i32> = Vec::new();
 
         let buf = input.as_mut_ptr();
         let buf_size = input.len() as i32;
         let mut ion_reader = ptr::null_mut();
         let mut ion_type = ptr::null_mut();
 
-        ionc!(ion_reader_open_buffer(&mut ion_reader, buf, buf_size, ptr::null_mut()))?;
+        ionc!(ion_reader_open_buffer(
+            &mut ion_reader,
+            buf,
+            buf_size,
+            ptr::null_mut()
+        ))?;
         ionc!(ion_reader_next(ion_reader, &mut ion_type))?;
         ionc!(ion_reader_step_in(ion_reader))?;
         while ion_type != ION_TYPE_EOF {
