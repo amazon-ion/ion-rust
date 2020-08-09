@@ -1,5 +1,7 @@
 # Amazon Ion Rust
 
+[![build](https://github.com/amzn/ion-rust/workflows/Build/badge.svg)](https://github.com/amzn/ion-rust/actions)
+
 A Rust implementation of the [Amazon Ion][spec] data format.
 
 ***This package is considered experimental, under active/early development, and the API is subject to change.***
@@ -34,6 +36,7 @@ Running all tests for `ion-rust` and `ion-c-sys`:
 $ cargo test --workspace
 ```
 
+[spec]: https://amzn.github.io/ion-docs/docs/spec.html
 [ion-c]: https://github.com/amzn/ion-c
 [ion-tests]: https://github.com/amzn/ion-tests
 [bindgen-req]: https://rust-lang.github.io/rust-bindgen/requirements.html
