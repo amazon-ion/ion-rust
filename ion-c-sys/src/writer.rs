@@ -34,7 +34,9 @@ pub trait IonCValueWriter {
     /// Writes a `float` value.
     fn write_f64(&mut self, value: f64) -> IonCResult<()>;
 
-    // TODO ion-rust/#42 - support decimal writes
+    /// Writes a `decimal` value.
+    fn write_bigdecimal(&mut self, value: &BigDecimal) -> IonCResult<()>;
+
     // TODO ion-rust/#43 - support timestamp writes
 
     /// Writes a `symbol` value.
@@ -325,7 +327,35 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
         ionc!(ion_writer_write_double(self.writer, value))
     }
 
-    // TODO ion-rust/#42 - support decimal writes
+    /// Writes an `decimal` value.
+    ///
+    /// ## Usage
+    /// ```
+    /// # use std::convert::*;
+    /// # use ion_c_sys::*;
+    /// # use ion_c_sys::writer::*;
+    /// # use ion_c_sys::result::*;
+    /// # use bigdecimal::BigDecimal;
+    /// # fn main() -> IonCResult<()> {
+    /// let mut buf = vec![0; 128];
+    /// let len = {
+    ///     let mut writer = IonCWriterHandle::new_buf_mode(buf.as_mut_slice(), WriterMode::Binary)?;
+    ///     let value = BigDecimal::parse_bytes(b"1.1", 10).unwrap();
+    ///     writer.write_bigdecimal(&value)?;
+    ///     writer.finish()?
+    /// };
+    /// assert_eq!(
+    ///     b"\xE0\x01\x00\xEA\x52\xC1\x0B",
+    ///     &buf[0..len]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[inline]
+    fn write_bigdecimal(&mut self, value: &BigDecimal) -> IonCResult<()> {
+        let mut ion_decimal = IonDecimalPtr::try_from_bigdecimal(value)?;
+        ionc!(ion_writer_write_ion_decimal(self.writer, &mut *ion_decimal))
+    }
+
     // TODO ion-rust/#43 - support timestamp writes
 
     /// Writes a `symbol` value.
@@ -602,6 +632,12 @@ impl IonCValueWriter for IonCAnnotationsFieldWriterContext<'_, '_, '_> {
     fn write_f64(&mut self, value: f64) -> IonCResult<()> {
         self.write_annotations_and_field()?;
         self.handle.write_f64(value)
+    }
+
+    #[inline]
+    fn write_bigdecimal(&mut self, value: &BigDecimal) -> IonCResult<()> {
+        self.write_annotations_and_field()?;
+        self.handle.write_bigdecimal(value)
     }
 
     #[inline]

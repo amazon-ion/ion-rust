@@ -116,6 +116,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+pub mod decimal;
 pub mod int;
 pub mod reader;
 pub mod result;
@@ -124,14 +125,18 @@ pub mod writer;
 
 include!(concat!(env!("OUT_DIR"), "/ionc_bindings.rs"));
 
+use crate::decimal::IonDecimalPtr;
+use crate::int::IonIntPtr;
 use crate::result::*;
 
 use std::cmp::min;
 use std::convert::TryInto;
 use std::marker::PhantomData;
+use std::ptr;
 use std::str::Utf8Error;
 use std::{slice, str};
 
+use bigdecimal::BigDecimal;
 use num_bigint::{BigInt, Sign};
 use paste::paste;
 
@@ -144,7 +149,7 @@ impl ION_INT {
     /// Note that since `BigInt` does not have a ***view*** into its digits,
     /// this method will make an intermediate copy as the big-endian encoded
     /// byte vector that will then be stored into this `ION_INT`
-    pub fn assign_from_bigint(&mut self, src: &BigInt) -> IonCResult<()> {
+    pub fn try_assign_bigint(&mut self, src: &BigInt) -> IonCResult<()> {
         let (sign, mut raw_mag) = src.to_bytes_be();
         let is_neg = match sign {
             Sign::Minus => 1,
@@ -221,7 +226,7 @@ impl ION_INT {
 }
 
 #[cfg(test)]
-mod test {
+mod test_bigint {
     use crate::int::*;
     use crate::result::*;
     use crate::*;
@@ -265,7 +270,7 @@ mod test {
     fn bigint(lit: &str, sign: Sign) {}
 
     #[apply(bigint)]
-    fn assign_from_bigint(lit: &str, sign: Sign) -> IonCResult<()> {
+    fn try_assign_bigint(lit: &str, sign: Sign) -> IonCResult<()> {
         let bval = BigInt::parse_bytes(lit.as_bytes(), 10).unwrap();
         let mut ival = IonIntPtr::try_from_bigint(&bval)?;
 
@@ -301,6 +306,315 @@ mod test {
         let bval = ival.try_to_bigint()?;
         assert_eq!(sign, bval.sign());
         assert_eq!(lit, bval.to_string().as_str());
+
+        Ok(())
+    }
+}
+
+/// Creates an operating context for decNum with maximum ranges primarily for conversions
+/// between `ION_DECIMAL` and `BigDecimal`.
+///
+/// This range is still below the capabilities of `BigDecimal`
+#[inline]
+fn make_context() -> decContext {
+    let mut ctx = decContext::default();
+    unsafe { decContextDefault(&mut ctx, DEC_INIT_DECQUAD as i32) };
+    ctx.digits = DEC_MAX_DIGITS as i32;
+    ctx.emax = DEC_MAX_EMAX as i32;
+    ctx.emin = DEC_MIN_EMIN as i32;
+    // make sure we don't pad decQuads
+    ctx.clamp = 0;
+
+    ctx
+}
+
+const DEC_QUAD_DIGITS: u64 = 37;
+
+impl ION_DECIMAL {
+    /// Assigns a `BigDecimal` into this `ION_DECIMAL`.
+    pub fn try_assign_bigdecimal(&mut self, value: &BigDecimal) -> IonCResult<()> {
+        let digits = value.digits();
+
+        // FIXME amzn/ion-rust#80 - this breaks encapsulation
+        ionc!(ion_decimal_free(self))?;
+        if digits > DEC_QUAD_DIGITS {
+            self.type_ = ION_DECIMAL_TYPE_ION_DECIMAL_TYPE_NUMBER;
+            // need to allocate the number field
+            ionc!(_ion_decimal_number_alloc(
+                ptr::null_mut(),
+                digits.try_into()?,
+                &mut self.value.num_value,
+            ))?;
+        } else {
+            self.type_ = ION_DECIMAL_TYPE_ION_DECIMAL_TYPE_QUAD;
+        }
+        ionc!(ion_decimal_zero(self))?;
+
+        let mut ctx = make_context();
+        let (coefficient, scale) = value.as_bigint_and_exponent();
+
+        // set the coefficient
+        let mut ion_coefficient = IonIntPtr::try_from_bigint(&coefficient)?;
+        ionc!(ion_decimal_from_ion_int(
+            self,
+            &mut ctx,
+            ion_coefficient.as_mut_ptr()
+        ))?;
+
+        // scale the value
+        let mut dec_scale = IonDecimalPtr::try_from_i32((-scale).try_into()?)?;
+        ionc!(ion_decimal_scaleb(
+            self,
+            self,
+            dec_scale.as_mut_ptr(),
+            &mut ctx
+        ))?;
+
+        match unsafe { decContextGetStatus(&mut ctx) } {
+            0 => Ok(()),
+            // FIXME amzn/ion-rust#78 - we need to be more careful around the limits of decQuad.
+            DEC_Inexact => Err(IonCError::from(ion_error_code_IERR_NUMERIC_OVERFLOW)),
+            // FIXME amzn/ion-rust#79 - we need to fix decNumber support.
+            DEC_Invalid_context => Err(IonCError::from(ion_error_code_IERR_INVALID_STATE)),
+            _ => Err(IonCError::from(ion_error_code_IERR_INTERNAL_ERROR)),
+        }
+    }
+
+    /// Converts this `ION_DECIMAL` to a `BigDecimal`.
+    ///
+    /// Special decimal values such as NaN and infinity are not supported for conversion.
+    ///
+    /// This implementation borrows mutably, to avoid a copy of the underlying
+    /// decimal implementation, but does not change the value.
+    pub fn try_to_bigdecimal(&mut self) -> IonCResult<BigDecimal> {
+        // special values are not supported
+        let special =
+            unsafe { ion_decimal_is_nan(self) } | unsafe { ion_decimal_is_infinite(self) };
+        if special != 0 {
+            return Err(IonCError::from(ion_error_code_IERR_INVALID_ARG));
+        }
+
+        // get some information about the decimal
+        let negative = unsafe { ion_decimal_is_negative(self) } != 0;
+        let exponent = unsafe { ion_decimal_get_exponent(self) };
+        let mut ctx = make_context();
+
+        // scale the value to an integer
+        let mut scale_amount = IonDecimalPtr::try_from_i32(-exponent)?;
+        ionc!(ion_decimal_scaleb(
+            self,
+            self,
+            scale_amount.as_mut_ptr(),
+            &mut ctx
+        ))?;
+        let mut ion_coefficient = IonIntPtr::try_new()?;
+        ionc!(ion_decimal_to_ion_int(
+            self,
+            &mut ctx,
+            ion_coefficient.as_mut_ptr()
+        ))?;
+
+        // scale back the value
+        ionc!(ion_decimal_from_int32(scale_amount.as_mut_ptr(), exponent))?;
+        ionc!(ion_decimal_scaleb(
+            self,
+            self,
+            scale_amount.as_mut_ptr(),
+            &mut ctx
+        ))?;
+
+        // make the decimal -- note scale is negative exponent
+        let mut coefficient = ion_coefficient.try_to_bigint()?;
+        if negative {
+            coefficient *= -1;
+        }
+        Ok(BigDecimal::new(coefficient, -exponent as i64))
+    }
+}
+
+#[cfg(test)]
+mod test_bigdecimal {
+    // because of test table re-use we sometimes end up with unused variables
+    #![allow(unused_variables)]
+
+    use crate::decimal::*;
+    use crate::result::*;
+    use crate::*;
+
+    use rstest::rstest;
+    use rstest_reuse::{self, *};
+
+    use std::ffi::CString;
+
+    use bigdecimal::BigDecimal;
+    use num_bigint::BigInt;
+
+    // TODO consider some kind of fuzz/property testing for this
+
+    #[template]
+    #[rstest(
+        d_lit, c_lit, exponent,
+        case::zero("0E0", "0", 0),
+        case::zero_p1_en8("0E-8", "0", -8),
+        case::p8_en9(
+            "0.060231219",
+            "60231219",
+            -9
+        ),
+        case::p8_e7(
+            "2.7851880E+14",
+            "27851880",
+            7
+        ),
+        case::p10_en32(
+            "8.960115983E-23",
+            "8960115983",
+            -32
+        ),
+        case::p10_e33(
+            "9.020634788E+42",
+            "9020634788",
+            33
+        ),
+        case::p28_en200(
+            "6.262354479103128947759990609E-173",
+            "6262354479103128947759990609",
+            -200
+        ),
+        case::p28_e256(
+            "9.486968202420944975464220485E+283",
+            "9486968202420944975464220485",
+            256
+        ),
+        case::p30_en80(
+            "1.95671174876514167707949046494E-51",
+            "195671174876514167707949046494",
+            -80
+        ),
+        case::p30_e85(
+            "6.50276908237082165030429776240E+114",
+            "650276908237082165030429776240",
+            85
+        ),
+        case::p32_en2500(
+            "4.1111441587902074230255158471962E-2469",
+            "41111441587902074230255158471962",
+            -2500
+        ),
+        case::p32_e2000(
+            "2.9557665423302931520009385209142E+2031",
+            "29557665423302931520009385209142",
+            2000
+        ),
+        case::p35_en5500(
+            "5.7516904150035820771702738217456585E-5466",
+            "57516904150035820771702738217456585",
+            -5500
+        ),
+        case::p35_e4500(
+            "7.7008733801862767698341856677462573E+4534",
+            "77008733801862767698341856677462573",
+            4500
+        ),
+        case::p37_en5000(
+            "4.623874712756984956766514373293465450E-4964",
+            "4623874712756984956766514373293465450",
+            -5000
+        ),
+        case::p37_e6000(
+            "9.970304500552494301196940956407522192E+6036",
+            "9970304500552494301196940956407522192",
+            6000
+        ),
+        case::p38_en110(
+            "5.9025723530133359201873978774331457987E-73",
+            "59025723530133359201873978774331457987",
+            -110
+        ),
+        case::p38_e120(
+            "1.9141033431585215614236049655094977149E+157",
+            "19141033431585215614236049655094977149",
+            120
+        ),
+        case::p80_en100(
+            "4.4818084368071883463971983799827359329516552715395136426901699171061657459862827E-21",
+            "44818084368071883463971983799827359329516552715395136426901699171061657459862827",
+            -100
+        ),
+        case::p80_e100(
+            "1.1050923646496935500303958597719760541602476378798913802309108901778807590265278E+279",
+            "11050923646496935500303958597719760541602476378798913802309108901778807590265278",
+            200
+        ),
+        case::p90_en7500(
+            "4.29926815238794553771012929776377470059985366468509955296419658127318674237363065734779169E-7411",
+            "429926815238794553771012929776377470059985366468509955296419658127318674237363065734779169",
+            -7500
+        ),
+        case::p95_e8900(
+            "7.2528362571947544011741381371920928164665526193613163529470013995124245887784236337589645597617E+8994",
+            "72528362571947544011741381371920928164665526193613163529470013995124245887784236337589645597617",
+            8900
+        ),
+    )]
+    fn bigdecimal(d_lit: &str, c_lit: &str, exponent: i32) {}
+
+    #[apply(bigdecimal)]
+    fn try_assign_bigdecimal(d_lit: &str, c_lit: &str, exponent: i32) -> IonCResult<()> {
+        let bval = BigDecimal::parse_bytes(d_lit.as_bytes(), 10).unwrap();
+        match IonDecimalPtr::try_from_bigdecimal(&bval) {
+            Ok(mut ival) => {
+                let actual_exponent = unsafe { ion_decimal_get_exponent(ival.as_mut_ptr()) };
+
+                // test the string representations--not ideal, but easier than extracting coefficient
+                let mut buf = vec![0u8; 128usize];
+                ionc!(ion_decimal_to_string(
+                    ival.as_mut_ptr(),
+                    buf.as_mut_ptr() as *mut i8
+                ))?;
+                let len = unsafe { strlen(buf.as_ptr() as *const i8) };
+                assert_eq!(
+                    d_lit.replace("E", "d"),
+                    str::from_utf8(&buf[0..len.try_into()?]).unwrap(),
+                    "Testing string serialization from ION_DECIMAL"
+                );
+                assert_eq!(exponent, actual_exponent, "Testing exponents");
+            }
+            Err(e) => match e.code {
+                ion_error_code_IERR_NUMERIC_OVERFLOW => {
+                    println!("Ignoring amzn/ion-rust#78 for {}", d_lit)
+                }
+                ion_error_code_IERR_INVALID_STATE => {
+                    println!("Ignoring amzn/ion-rust#79 for {}", d_lit)
+                }
+                _ => assert!(false, "Unexpected error: {:?}", e),
+            },
+        }
+
+        Ok(())
+    }
+
+    #[apply(bigdecimal)]
+    fn try_to_bigdecimal(d_lit: &str, c_lit: &str, exponent: i32) -> IonCResult<()> {
+        let cstring = CString::new(d_lit).unwrap();
+        let mut ctx = make_context();
+        let mut ival = IonDecimalPtr::try_from_existing(ION_DECIMAL::default())?;
+        ionc!(ion_decimal_from_string(
+            ival.as_mut_ptr(),
+            cstring.as_ptr(),
+            &mut ctx
+        ))?;
+        let bval = ival.try_to_bigdecimal()?;
+
+        // we test against the coefficient and exponent because the string representation
+        // is not stable between decNum and BigDecimal
+        let expected_coefficient = BigInt::parse_bytes(c_lit.as_bytes(), 10).unwrap();
+        let (actual_coefficient, scale) = bval.as_bigint_and_exponent();
+        assert_eq!(
+            expected_coefficient, actual_coefficient,
+            "Testing coefficents"
+        );
+        assert_eq!(exponent, (-scale).try_into()?, "Testing exponents");
 
         Ok(())
     }

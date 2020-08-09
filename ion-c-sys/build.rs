@@ -26,12 +26,14 @@ fn main() {
     println!("cargo:rustc-link-lib=static=ionc_static");
 
     let ionc_inc_path = mkpath!(&ionc_path, "include");
-    let ionc_main_header_path = mkpath!(&ionc_inc_path, "ionc", "ion.h");
+    let ionc_internal_inc_path = mkpath!("ion-c/ionc");
+    let ionc_main_header_path = mkpath!("bindings.h");
 
     let bindings = bindgen::Builder::default()
         .header(ionc_main_header_path.to_str().unwrap())
         // make sure we can find all the relevant headers
         .clang_arg(format!("-I{}", ionc_inc_path.display()))
+        .clang_arg(format!("-I{}", ionc_internal_inc_path.display()))
         // defined in IonC's CMake configuration
         .clang_arg("-DDECNUMDIGITS=34")
         // invalidate the build whenever underlying headers change
