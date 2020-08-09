@@ -44,7 +44,7 @@
 //! // step to the field
 //! assert_eq!(ION_TYPE_INT, reader.next()?);
 //! // retrieve the field name
-//! assert_eq!("a", reader.get_field_name()?.try_as_str()?);
+//! assert_eq!("a", reader.get_field_name()?.as_str());
 //! // read the integer value
 //! assert_eq!(2, reader.read_i64()?);
 //! // step to the end of the struct
@@ -115,6 +115,7 @@ pub mod writer;
 include!(concat!(env!("OUT_DIR"), "/ionc_bindings.rs"));
 
 use std::convert::TryInto;
+use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::{slice, str};
 
@@ -135,22 +136,27 @@ impl ION_STRING {
     /// Generally, using a mutable owned source will be the safest option.
     /// ```
     /// # use ion_c_sys::ION_STRING;
+    /// # use ion_c_sys::result::IonCResult;
+    /// # fn main() -> IonCResult<()> {
     /// let mut buf = "Some data".to_string();
-    /// let mut ion_str = ION_STRING::from_mut_str(buf.as_mut_str());
+    /// let mut ion_str = ION_STRING::try_from_mut_str(buf.as_mut_str())?;
+    /// # Ok(())
+    /// # }
     /// ```
     #[inline]
-    pub fn from_mut_str(src: &mut str) -> Self {
-        unsafe { Self::from_mut_bytes(src.as_bytes_mut()) }
+    pub fn try_from_mut_str(src: &mut str) -> IonCResult<Self> {
+        unsafe { Self::try_from_mut_bytes(src.as_bytes_mut()) }
     }
 
     /// Internal function to coerce an immutable slice to an `ION_STRING`.
     ///
     /// Inherently unsafe and can only be used with APIs that guarantee immutability.
-    pub(crate) fn from_str(src: &str) -> Self {
-        Self {
+    #[inline]
+    fn try_from_str(src: &str) -> IonCResult<Self> {
+        Ok(Self {
             value: src.as_ptr() as *mut u8,
-            length: src.len().try_into().unwrap(),
-        }
+            length: src.len().try_into()?,
+        })
     }
 
     /// Constructs an `ION_STRING` from a `&mut [u8]`.
@@ -162,15 +168,19 @@ impl ION_STRING {
     /// Generally, using a mutable owned source will be the safest option.
     /// ```
     /// # use ion_c_sys::ION_STRING;
+    /// # use ion_c_sys::result::IonCResult;
+    /// # fn main() -> IonCResult<()> {
     /// let mut buf = b"Some data".to_vec();
-    /// let mut ion_str = ION_STRING::from_mut_bytes(buf.as_mut_slice());
+    /// let mut ion_str = ION_STRING::try_from_mut_bytes(buf.as_mut_slice())?;
+    /// # Ok(())
+    /// # }
     /// ```
     #[inline]
-    pub fn from_mut_bytes(src: &mut [u8]) -> Self {
-        ION_STRING {
+    pub fn try_from_mut_bytes(src: &mut [u8]) -> IonCResult<Self> {
+        Ok(ION_STRING {
             value: src.as_mut_ptr(),
-            length: src.len().try_into().unwrap(),
-        }
+            length: src.len().try_into()?,
+        })
     }
 
     /// Retrieves a UTF-8 slice view from an `ION_STRING`.
@@ -189,14 +199,14 @@ impl ION_STRING {
     /// ```
     /// # use ion_c_sys::*;
     /// let mut buf = b"\xFF".to_vec();
-    /// let ion_str = ION_STRING::from_mut_bytes(buf.as_mut_slice());
+    /// let ion_str = ION_STRING::try_from_mut_bytes(buf.as_mut_slice()).unwrap();
     /// match ion_str.try_as_str() {
     ///     Ok(_) => panic!("Cannot happen!"),
     ///     Err(e) => assert_eq!(ion_error_code_IERR_INVALID_UTF8, e.code),
     /// }
     /// ```
     #[inline]
-    pub fn try_as_str(&self) -> Result<&str, IonCError> {
+    pub fn try_as_str(&self) -> IonCResult<&str> {
         Ok(str::from_utf8(self.try_as_bytes()?)?)
     }
 
@@ -212,16 +222,29 @@ impl ION_STRING {
     /// }
     /// ```
     #[inline]
-    pub fn try_as_bytes(&self) -> Result<&[u8], IonCError> {
+    pub fn try_as_bytes<'a>(&'a self) -> IonCResult<&'a [u8]> {
+        self.as_bytes(PhantomData::<&'a u8>::default())
+    }
+
+    /// Low-level conversion into an str reference tied to the given owner without UTF-8 validation
+    fn as_str<'a>(&self, life: PhantomData<&'a u8>) -> IonCResult<&'a str> {
+        unsafe {
+            let raw_slice: &'a [u8] = self.as_bytes(life)?;
+            // Better make sure this came from an Ion C call that checks this
+            let str_slice = str::from_utf8_unchecked(raw_slice);
+            Ok(str_slice)
+        }
+    }
+
+    /// Low-level conversion into a slice associated with a given owner
+    fn as_bytes<'a>(&self, _life: PhantomData<&'a u8>) -> IonCResult<&'a [u8]> {
+        // note that we need to build the str slice at a very low level
+        // to tie the lifetime to the reader
         if self.value.is_null() {
             Err(IonCError::from(ion_error_code_IERR_NULL_VALUE))
         } else {
             unsafe {
-                let u8_slice = slice::from_raw_parts(
-                    // TODO determine if this is a bit harsh for >2GB buffers (should we return error?)
-                    self.value,
-                    self.length.try_into().unwrap(),
-                );
+                let u8_slice = slice::from_raw_parts(self.value, self.length.try_into()?);
                 Ok(u8_slice)
             }
         }

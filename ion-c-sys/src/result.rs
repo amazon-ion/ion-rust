@@ -8,7 +8,7 @@ use std::fmt;
 use std::num::TryFromIntError;
 
 /// IonC Error code and its associated error message.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct IonCError {
     pub code: i32,
     pub message: &'static str,
