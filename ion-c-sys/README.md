@@ -19,3 +19,4 @@ and [`cmake`][cmake].
 [ion-c]: https://github.com/amzn/ion-c
 [bindgen-req]: https://rust-lang.github.io/rust-bindgen/requirements.html
 [cargo-workspace]: https://doc.rust-lang.org/cargo/reference/workspaces.html
+[cmake]: https://cmake.org/
