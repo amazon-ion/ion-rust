@@ -1,3 +1,5 @@
+// Copyright Amazon.com, Inc. or its affiliates.
+
 use ion_c_sys::reader::*;
 use ion_c_sys::*;
 
@@ -38,7 +40,8 @@ enum Val {
     Bool(bool),
     Int(i64),
     Float(f64),
-    // TODO Decimal/Timestamp
+    // TODO ion-rust/#42 - decimal support
+    // TODO ion-rust/#43 - timestamp support
     Sym(&'static str),
     Str(&'static str),
     Clob(&'static [u8]),
