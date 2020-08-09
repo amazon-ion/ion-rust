@@ -486,6 +486,7 @@ pub struct IonCAnnotationsFieldWriterContext<'a, 'b, 'c> {
 }
 
 impl<'a, 'b, 'c> IonCAnnotationsFieldWriterContext<'a, 'b, 'c> {
+    #[inline]
     fn new_field(handle: &'b mut IonCWriterHandle<'a>, field: &'c str) -> Self {
         Self {
             handle,
@@ -494,6 +495,7 @@ impl<'a, 'b, 'c> IonCAnnotationsFieldWriterContext<'a, 'b, 'c> {
         }
     }
 
+    #[inline]
     fn new_annotations(handle: &'b mut IonCWriterHandle<'a>, annotations: &'c [&'c str]) -> Self {
         Self {
             handle,
@@ -503,92 +505,95 @@ impl<'a, 'b, 'c> IonCAnnotationsFieldWriterContext<'a, 'b, 'c> {
     }
 
     /// Sets the annotations for the context.
+    #[inline]
     pub fn annotations(&mut self, annotations: &'c [&'c str]) -> &mut Self {
         self.annotations = Some(annotations);
         self
     }
 
     /// Sets the field name for the context.
+    #[inline]
     pub fn field(&mut self, field: &'c str) -> &mut Self {
         self.field = Some(field);
         self
     }
-}
 
-macro_rules! write_annotations_field {
-    ($i:ident) => {
+    #[inline]
+    fn write_annotations_and_field(&mut self) -> IonCResult<()> {
         // Ion C promises that it won't do mutation for these!
-        if let Some(annotations) = $i.annotations {
+        if let Some(annotations) = self.annotations {
             for annotation in annotations {
                 let mut annotation_str = ION_STRING::try_from_str(annotation)?;
                 ionc!(ion_writer_add_annotation(
-                    $i.handle.writer,
+                    self.handle.writer,
                     &mut annotation_str
                 ))?;
             }
         }
-        if let Some(field) = $i.field {
+        if let Some(field) = self.field {
             let mut field_str = ION_STRING::try_from_str(field)?;
             ionc!(ion_writer_write_field_name(
-                $i.handle.writer,
+                self.handle.writer,
                 &mut field_str
             ))?;
         }
-    };
+
+        Ok(())
+    }
 }
 
 impl IonCValueWriter for IonCAnnotationsFieldWriterContext<'_, '_, '_> {
     #[inline]
     fn write_null(&mut self, tid: ION_TYPE) -> IonCResult<()> {
-        write_annotations_field!(self);
+        self.write_annotations_and_field()?;
         self.handle.write_null(tid)
     }
 
     #[inline]
     fn write_bool(&mut self, value: bool) -> IonCResult<()> {
-        write_annotations_field!(self);
+        self.write_annotations_and_field()?;
         self.handle.write_bool(value)
     }
 
     #[inline]
     fn write_i64(&mut self, value: i64) -> IonCResult<()> {
-        write_annotations_field!(self);
+        self.write_annotations_and_field()?;
         self.handle.write_i64(value)
     }
 
     #[inline]
     fn write_f64(&mut self, value: f64) -> IonCResult<()> {
-        write_annotations_field!(self);
+        self.write_annotations_and_field()?;
         self.handle.write_f64(value)
     }
 
     #[inline]
     fn write_symbol(&mut self, value: &str) -> IonCResult<()> {
-        write_annotations_field!(self);
+        self.write_annotations_and_field()?;
         self.handle.write_symbol(value)
     }
 
     #[inline]
     fn write_string(&mut self, value: &str) -> IonCResult<()> {
-        write_annotations_field!(self);
+        self.write_annotations_and_field()?;
         self.handle.write_string(value)
     }
 
     #[inline]
     fn write_clob(&mut self, value: &[u8]) -> IonCResult<()> {
-        write_annotations_field!(self);
+        self.write_annotations_and_field()?;
         self.handle.write_clob(value)
     }
 
     #[inline]
     fn write_blob(&mut self, value: &[u8]) -> IonCResult<()> {
-        write_annotations_field!(self);
+        self.write_annotations_and_field()?;
         self.handle.write_blob(value)
     }
 
     #[inline]
     fn start_container(&mut self, tid: ION_TYPE) -> IonCResult<()> {
-        write_annotations_field!(self);
+        self.write_annotations_and_field()?;
         self.handle.start_container(tid)
     }
 
