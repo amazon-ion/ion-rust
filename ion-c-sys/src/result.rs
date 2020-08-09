@@ -1,5 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+//! Provides convenient integration with `Error` and `Result` for Ion C.
+
 use crate::*;
 
 use std::error::Error;

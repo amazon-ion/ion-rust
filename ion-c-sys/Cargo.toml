@@ -5,10 +5,12 @@ edition = "2018"
 
 [dependencies]
 paste = "1.0.0"
+num-bigint = "0.3.0"
 
 [build-dependencies]
-cmake = "0.1"
-bindgen = "0.54"
+cmake = "0.1.44"
+bindgen = "0.54.1"
 
 [dev-dependencies]
 rstest = "0.6.4"
+rstest_reuse = "0.1.0"

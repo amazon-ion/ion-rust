@@ -1,5 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+//! Provides higher-level APIs for Ion C's `hREADER`.
+
 use std::convert::{TryFrom, TryInto};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -295,7 +297,32 @@ impl<'a> IonCReaderHandle<'a> {
         Ok(value)
     }
 
-    // TODO ion-rust/#50 - support ION_INT (arbitrary large integer) reads
+    /// Reads an `int` value from the reader as a `BigInt`.
+    ///
+    /// ## Usage
+    /// ```
+    /// # use std::convert::*;
+    /// # use ion_c_sys::*;
+    /// # use ion_c_sys::reader::*;
+    /// # use ion_c_sys::result::*;
+    /// # use num_bigint::BigInt;
+    /// # fn main() -> IonCResult<()> {
+    /// let mut reader = IonCReaderHandle::try_from("0x5195a4b154400e07dee3a7378c403b2d5dd6dd58735")?;
+    /// assert_eq!(ION_TYPE_INT, reader.next()?);
+    /// assert_eq!(
+    ///   BigInt::parse_bytes(b"1907775120294590714755986204580814176547217067050805", 10).unwrap(),
+    ///   reader.read_bigint()?
+    /// );
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[inline]
+    pub fn read_bigint(&mut self) -> IonCResult<BigInt> {
+        let mut value = ION_INT::default();
+        ionc!(ion_reader_read_ion_int(self.reader, &mut value))?;
+
+        Ok(value.try_to_bigint()?)
+    }
 
     /// Reads a `float` value from the reader.
     ///

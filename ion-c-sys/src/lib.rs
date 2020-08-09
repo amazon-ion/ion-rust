@@ -107,6 +107,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+pub mod int;
 pub mod reader;
 pub mod result;
 pub mod string;
@@ -114,14 +115,187 @@ pub mod writer;
 
 include!(concat!(env!("OUT_DIR"), "/ionc_bindings.rs"));
 
+use crate::result::*;
+
+use std::cmp::min;
 use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::{slice, str};
 
+use num_bigint::{BigInt, Sign};
 use paste::paste;
 
-use crate::result::*;
+#[cfg(test)]
+use rstest_reuse;
+
+impl ION_INT {
+    /// Constructs a `BigInt` from this `ION_INT`.
+    ///
+    /// Note that since `BigInt` does not have a ***view*** into its digits,
+    /// this method will make an intermediate copy as the big-endian encoded
+    /// byte vector that will then be stored into this `ION_INT`
+    pub fn assign_from_bigint(&mut self, src: &BigInt) -> IonCResult<()> {
+        let (sign, mut raw_mag) = src.to_bytes_be();
+        let is_neg = match sign {
+            Sign::Minus => 1,
+            _ => 0,
+        };
+
+        ionc!(ion_int_from_abs_bytes(
+            &mut *self,
+            raw_mag.as_mut_ptr(),
+            raw_mag.len().try_into()?,
+            is_neg
+        ))?;
+
+        Ok(())
+    }
+
+    /// Constructs a `BigInt` from this `ION_INT`.
+    pub fn try_to_bigint(&self) -> IonCResult<BigInt> {
+        if self._digits.is_null() {
+            return Err(IonCError::from(ion_error_code_IERR_NULL_VALUE));
+        }
+        if self._len < 0 {
+            return Err(IonCError::from(ion_error_code_IERR_INVALID_ARG));
+        }
+        if self._signum < -1 || self._signum > 1 {
+            return Err(IonCError::from(ion_error_code_IERR_INVALID_ARG));
+        }
+        let src_digits = unsafe { slice::from_raw_parts(self._digits, self._len.try_into()?) };
+
+        // figure out how many BigInt digits we need keeping in mind that
+        // ION_INT is base 2**31, and BigInt is base 2**32.
+        const ION_INT_BITS: u64 = 31;
+        const BIGINT_BITS: u64 = 32;
+        const ION_INT_DIGIT_MASK: u64 = 0x7FFF_FFFF;
+        let tgt_len = (((self._len as u64) * ION_INT_BITS) / BIGINT_BITS) + 1;
+        let mut digits = vec![0u32; tgt_len.try_into()?];
+
+        // total bits written
+        let mut bits_written = 0u64;
+        // note that we go from back to front for ION_INT as it is big-endian
+        // but BigInt is little-endian
+        for src_digit in src_digits.iter().rev() {
+            // get the source digit to deposit into the target digit(s)
+            let src_digit = (*src_digit as u64) & ION_INT_DIGIT_MASK;
+            // which target digit are we working on
+            let tgt_idx = (bits_written >> 5) as usize;
+            // how many bits are used in the current target digit
+            let filled_bits = bits_written & 0x1F;
+            // how many bits we can fit in the current target digit
+            let avail_bits = BIGINT_BITS - filled_bits;
+            // how many source bits have to go into the next target digit
+            let rem_bits = ION_INT_BITS - min(ION_INT_BITS, avail_bits);
+
+            // push the low order bits of the source into the available high order bits of the target
+            let old_tgt_digit = digits[tgt_idx];
+            let high_bit_mask = (src_digit << filled_bits) as u32;
+            let new_tgt_digit = old_tgt_digit | high_bit_mask;
+            digits[tgt_idx] = new_tgt_digit;
+
+            if tgt_idx + 1 < digits.len() && rem_bits > 0 {
+                // push the remaining high order bits into the low order bits of the next target digit
+                let next_idx = tgt_idx + 1;
+                let shift_bits = ION_INT_BITS - rem_bits;
+                let next_tgt_digit = (src_digit >> shift_bits) as u32;
+                digits[next_idx] = next_tgt_digit;
+            }
+
+            bits_written += ION_INT_BITS as u64;
+        }
+
+        const SIGN_TABLE: &[Sign] = &[Sign::Minus, Sign::NoSign, Sign::Plus];
+        Ok(BigInt::new(SIGN_TABLE[(self._signum + 1) as usize], digits))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::int::*;
+    use crate::result::*;
+    use crate::*;
+
+    use rstest::rstest;
+    use rstest_reuse::{self, *};
+
+    use num_bigint::BigInt;
+    use num_bigint::Sign::{self, *};
+
+    // TODO consider some kind of fuzz/property testing for this
+
+    #[template]
+    #[rstest(
+        lit,
+        sign,
+        case::zero("0", NoSign),
+        case::pos_31_bit("1576217826", Plus),
+        case::neg_31_bit("-1135682218", Minus),
+        case::pos_62_bit("4044881356853627201", Plus),
+        case::neg_62_bit("-3912230224800585615", Minus),
+        case::pos_80_bit("739079489563988370954567", Plus),
+        case::neg_80_bit("-1086195751445330490038795", Minus),
+        case::pos_256_bit(
+            "137867910096739512996847672171101012368076859213341045932878406344693462874820",
+            Plus,
+        ),
+        case::neg_256_bit(
+            "-172272298565065214306566076919200322665607032158922187439565911507697602517448",
+            Minus,
+        ),
+        case::pos_280_bit(
+            "1757357796823956205198798709416201514711937158830789249081025568737706527211427788829",
+            Plus,
+        ),
+        case::neg_280_bit(
+            "-1075268761612498909802747877455511969232059561308078408290306546278351574885791689247",
+            Minus,
+        )
+    )]
+    fn bigint(lit: &str, sign: Sign) {}
+
+    #[apply(bigint)]
+    fn assign_from_bigint(lit: &str, sign: Sign) -> IonCResult<()> {
+        let bval = BigInt::parse_bytes(lit.as_bytes(), 10).unwrap();
+        let mut ival = IonIntPtr::try_from_bigint(&bval)?;
+
+        let mut buf = vec![0u8; 512];
+        let mut len = 0;
+        ionc!(ion_int_to_char(
+            ival.as_mut_ptr(),
+            buf.as_mut_ptr(),
+            buf.len().try_into()?,
+            &mut len
+        ))?;
+
+        let expected_signum = match sign {
+            Minus => -1,
+            NoSign => 0,
+            Plus => 1,
+        };
+        let mut actual_signum = 0;
+        ionc!(ion_int_signum(ival.as_mut_ptr(), &mut actual_signum))?;
+        assert_eq!(expected_signum, actual_signum);
+        assert_eq!(lit.as_bytes(), &buf[0..len.try_into()?]);
+
+        Ok(())
+    }
+
+    #[apply(bigint)]
+    fn try_to_bigint(lit: &str, sign: Sign) -> IonCResult<()> {
+        let mut ival = IonIntPtr::try_new()?;
+
+        let mut istr = ION_STRING::try_from_str(lit)?;
+        ionc!(ion_int_from_string(ival.as_mut_ptr(), &mut istr))?;
+
+        let bval = ival.try_to_bigint()?;
+        assert_eq!(sign, bval.sign());
+        assert_eq!(lit, bval.to_string().as_str());
+
+        Ok(())
+    }
+}
 
 impl ION_STRING {
     /// Constructs an `ION_STRING` from a `&mut str`.

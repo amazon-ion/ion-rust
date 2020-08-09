@@ -1,5 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+//! Provides higher-level APIs for borrowing `str` slices safely from Ion C.
+
 use std::marker::PhantomData;
 use std::ops::Deref;
 
