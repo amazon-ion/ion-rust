@@ -1,46 +1,67 @@
-name: Build
+name: ion-rust CI Build
 
 on: [push]
 
 jobs:
-  linux:
+  build:
+    name: Build and Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Env Variable Setup 
+        if: matrix.os == 'windows-latest'
+        run: | 
+          echo '::set-env name=LIBCLANG_PATH::C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin'
+      - name: Git Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Rust Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Cargo Build 
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --verbose --workspace
+      - name: Cargo Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose --workspace
+
+  reports:
+    name: Code Coverage 
     runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
+    steps: 
+      - name: Git Checkout
         uses: actions/checkout@v2
         with:
           submodules: recursive
-      - name: Build
-        run: cargo build --verbose --workspace
-      - name: Tests
-        run: cargo test --verbose --workspace
-
-  macos:
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - name: Rust Toolchain
+        uses: actions-rs/toolchain@v1
         with:
-          submodules: recursive
-      - name: Build
-        run: cargo build --verbose --workspace
-      - name: Tests
-        run: cargo test --verbose --workspace
-
-  windows:
-    runs-on: windows-latest
-    env:
-      # needed for bindgen
-      LIBCLANG_PATH: C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Rust Cargo Tarpaulin
+        uses: actions-rs/tarpaulin@v0.1
         with:
-          submodules: recursive
-      - name: Build
-        run: cargo build --verbose --workspace
-      - name: Tests
-        run: cargo test --verbose --workspace
+          args: '--release --out Html --workspace'
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v1.0.2
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v1
+        with:
+          name: code-coverage-report
+          path: tarpaulin-report.html
+
+ 
