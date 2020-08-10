@@ -1,46 +1,38 @@
-name: Build
+name: CI Build
 
 on: [push]
 
 jobs:
-  linux:
-    runs-on: ubuntu-latest
+  build:
+    name: Build and Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-      - name: Checkout
+      - name: Env Variable Setup 
+        if: matrix.os == 'windows-latest'
+        run: | 
+          echo '::set-env name=LIBCLANG_PATH::C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin'
+      - name: Git Checkout
         uses: actions/checkout@v2
         with:
           submodules: recursive
-      - name: Build
-        run: cargo build --verbose --workspace
-      - name: Tests
-        run: cargo test --verbose --workspace
-
-  macos:
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - name: Rust Toolchain
+        uses: actions-rs/toolchain@v1
         with:
-          submodules: recursive
-      - name: Build
-        run: cargo build --verbose --workspace
-      - name: Tests
-        run: cargo test --verbose --workspace
-
-  windows:
-    runs-on: windows-latest
-    env:
-      # needed for bindgen
-      LIBCLANG_PATH: C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Cargo Build 
+        uses: actions-rs/cargo@v1
         with:
-          submodules: recursive
-      - name: Build
-        run: cargo build --verbose --workspace
-      - name: Tests
-        run: cargo test --verbose --workspace
+          command: build
+          args: --verbose --workspace
+      - name: Cargo Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose --workspace
+
