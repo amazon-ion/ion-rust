@@ -8,7 +8,14 @@ license = "Apache-2.0"
 readme = "README.md"
 keywords = ["ion", "parser", "data", "json", "format", "serde"]
 categories = ["encoding", "parser-implementations"]
-exclude = ["**/.git/**", "**/.github/**", "**/.travis.yml", "**/.appveyor.yml"]
+exclude = [
+    "**/.git/**",
+    "**/.github/**",
+    "**/.travis.yml",
+    "**/.appveyor.yml",
+    "**/ion-tests/iontestdata/**",
+    "*.pdf"
+]
 version = "0.1.0"
 edition = "2018"
 
