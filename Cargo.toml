@@ -6,7 +6,7 @@ homepage = "https://github.com/amzn/ion-rust"
 repository = "https://github.com/amzn/ion-rust"
 license = "Apache-2.0"
 readme = "README.md"
-keywords = ["ion", "parser", "data", "json", "format", "serde"]
+keywords = ["ion", "parser", "json", "format", "serde"]
 categories = ["encoding", "parser-implementations"]
 exclude = [
   "**/.git/**",
