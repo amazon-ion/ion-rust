@@ -80,24 +80,33 @@
 //!     }
 //!     // end the list
 //!     writer.finish_container()?;
-//!     // write a string
-//!     writer.write_string("💩")?;
+//!     // start a struct
+//!     writer.start_container(ION_TYPE_STRUCT)?;
+//!     {
+//!         // write a string
+//!         writer.field("name").annotations(&["version"]).write_string("💩")?;
+//!     }
+//!     // end the struct
+//!     writer.finish_container()?;
 //!     // finish writing
 //!     writer.finish()?
 //! };
 //!
 //! // make sure the bytes match what we expect
-//! assert_eq!(len, 17);
-//! let expected: Vec<u8> = vec![
+//! let expected: &[u8] = &[
 //!     0xE0, 0x01, 0x00, 0xEA,         // IVM
 //!     0xB7,                           // LIST size 7
 //!     0x20,                           // INT 0
 //!     0x21, 0x02,                     // INT 2
 //!     0x21, 0x04,                     // INT 4
 //!     0x21, 0x06,                     // INT 6
+//!     0xD9,                           // STRUCT size 8
+//!     0x84,                           // field "name" (sid 4)
+//!     0xE7, 0x81, 0x85,               // annotation "version" (sid 5)
 //!     0x84, 0xF0, 0x9F, 0x92, 0xA9,   // STRING 💩
 //! ];
-//! assert_eq!(expected.as_slice(), &buf[0..len]);
+//! assert_eq!(expected.len(), len);
+//! assert_eq!(expected, &buf[0..len]);
 //!
 //! # Ok(())
 //! # }
