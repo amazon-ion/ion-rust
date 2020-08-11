@@ -51,7 +51,7 @@ jobs:
           toolchain: nightly
           override: true
       - name: Rust Cargo Tarpaulin
-        eses: actions-rs/tarpaulin@v0.1
+        uses: actions-rs/tarpaulin@v0.1
         with:
           args: '--release -v --run-types AllTargets --run-types Doctests  --out Html --workspace -- --test-threads=1'
       - name: Upload to codecov.io
