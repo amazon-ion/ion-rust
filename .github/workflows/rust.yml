@@ -53,7 +53,7 @@ jobs:
       - name: Rust Cargo Tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--release -v --run-types AllTargets --run-types Doctests  --out Html --workspace -- --test-threads=1'
+          args: '-v --run-types AllTargets --run-types Doctests  --out Html --workspace'
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v1.0.2
         with:
