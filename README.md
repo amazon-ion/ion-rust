@@ -1,6 +1,6 @@
 # Amazon Ion Rust
 
-[![CI Build](https://github.com/amzn/ion-rust/workflows/CI%20Build/badge.svg)](https://github.com/amzn/ion-rust/actions?query=workflow%3A%22CI+Build%22i)
+[![CI Build](https://github.com/amzn/ion-rust/workflows/CI%20Build/badge.svg)](https://github.com/amzn/ion-rust/actions?query=workflow%3A%22CI+Build%22)
 
 
 A Rust implementation of the [Amazon Ion][spec] data format.
