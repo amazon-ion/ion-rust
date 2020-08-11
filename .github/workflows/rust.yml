@@ -4,7 +4,7 @@ on: [push]
 
 jobs:
   build:
-    name: Build and Test
+    name: CI Build
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -48,12 +48,12 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
+          toolchain: nightly
           override: true
       - name: Rust Cargo Tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--release --out Html --workspace'
+          args: '-v --run-types AllTests --run-types Doctests  --out Html --workspace -- --test-threads=1'
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v1.0.2
         with:
