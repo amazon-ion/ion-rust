@@ -1,6 +1,6 @@
 # `ion-c-sys`
 
-[![build](https://github.com/amzn/ion-rust/workflows/Build/badge.svg)](https://github.com/amzn/ion-rust/actions)
+[![CI Build](https://github.com/amzn/ion-rust/workflows/CI%20Build/badge.svg)](https://github.com/amzn/ion-rust/actions?query=workflow%3A%22CI+Build%22)
 
 A Rust binding to [Ion C][ion-c] which implements the [Amazon Ion][spec] data format.
 
