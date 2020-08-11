@@ -1,5 +1,14 @@
 [package]
 name = "ion-c-sys"
+authors = ["Amazon Ion Team <ion-team@amazon.com>"]
+description = "Bindings to Amazon Ion C"
+homepage = "https://github.com/amzn/ion-rust"
+repository = "https://github.com/amzn/ion-rust"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["ion", "parser", "data", "json", "format", "serde"]
+categories = ["encoding", "parser-implementations"]
+exclude = ["**/.git/**", "**/.github/**", "**/.travis.yml", "**/.appveyor.yml"]
 version = "0.1.0"
 edition = "2018"
 
