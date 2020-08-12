@@ -1,10 +1,13 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+//! Provides higher-level APIs for Ion C's `hWRITER`.
+
 use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 
+use crate::int::*;
 use crate::result::*;
 use crate::*;
 
@@ -25,7 +28,8 @@ pub trait IonCValueWriter {
     /// Writes an `int` value.
     fn write_i64(&mut self, value: i64) -> IonCResult<()>;
 
-    // TODO ion-rust/#50 - support ION_INT (arbitrary large integer) writes
+    /// Writes an `int` value.
+    fn write_bigint(&mut self, value: &BigInt) -> IonCResult<()>;
 
     /// Writes a `float` value.
     fn write_f64(&mut self, value: f64) -> IonCResult<()>;
@@ -268,7 +272,34 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
         ionc!(ion_writer_write_int64(self.writer, value))
     }
 
-    // TODO ion-rust/#50 - support ION_INT (arbitrary large integer) writes
+    /// Writes an `int` value.
+    ///
+    /// ## Usage
+    /// ```
+    /// # use std::convert::*;
+    /// # use ion_c_sys::*;
+    /// # use ion_c_sys::writer::*;
+    /// # use ion_c_sys::result::*;
+    /// # use num_bigint::BigInt;
+    /// # fn main() -> IonCResult<()> {
+    /// let mut buf = vec![0; 128];
+    /// let len = {
+    ///     let mut writer = IonCWriterHandle::new_buf_mode(buf.as_mut_slice(), WriterMode::Binary)?;
+    ///     let value = BigInt::parse_bytes(b"987654321987654321987654321", 10).unwrap();
+    ///     writer.write_bigint(&value)?;
+    ///     writer.finish()?
+    /// };
+    /// assert_eq!(
+    ///     b"\xE0\x01\x00\xEA\x2C\x03\x30\xF7\xF0\x14\x03\xF9\x4E\xDB\x18\x12\xB1",
+    ///     &buf[0..len]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[inline]
+    fn write_bigint(&mut self, value: &BigInt) -> IonCResult<()> {
+        let mut ion_int = IonIntPtr::try_from_bigint(value)?;
+        ionc!(ion_writer_write_ion_int(self.writer, &mut *ion_int))
+    }
 
     /// Writes a `float` value.
     ///
@@ -559,6 +590,12 @@ impl IonCValueWriter for IonCAnnotationsFieldWriterContext<'_, '_, '_> {
     fn write_i64(&mut self, value: i64) -> IonCResult<()> {
         self.write_annotations_and_field()?;
         self.handle.write_i64(value)
+    }
+
+    #[inline]
+    fn write_bigint(&mut self, value: &BigInt) -> IonCResult<()> {
+        self.write_annotations_and_field()?;
+        self.handle.write_bigint(value)
     }
 
     #[inline]
