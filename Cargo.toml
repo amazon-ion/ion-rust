@@ -1,5 +1,5 @@
 [package]
-name = "ion-rust"
+name = "ion-rs"
 authors = ["Amazon Ion Team <ion-team@amazon.com>"]
 description = "Implementation of Amazon Ion"
 homepage = "https://github.com/amzn/ion-rust"
@@ -33,9 +33,9 @@ failure = "~0.1"
 failure_derive = "~0.1"
 
 # NB: We use the tree dependency here for development and CI.
-#     When publishing, this needs to be temporarily with the
-#     current version.
-ion-c-sys = { path = "./ion-c-sys" }
+#     Note that when publishing you should update the version
+#     so that users can get the correct underlying ion-c-sys version.
+ion-c-sys = { path = "./ion-c-sys", version = "0.2.0" }
 
 [dev-dependencies]
 # Used by ion-tests integration
@@ -44,4 +44,3 @@ walkdir = "~2.3"
 [profile.release]
 lto = true
 codegen-units = 1
-

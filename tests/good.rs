@@ -8,8 +8,8 @@ use std::str::FromStr;
 
 use walkdir::WalkDir;
 
-use ion_rust::result::{decoding_error, IonResult};
-use ion_rust::{BinaryIonCursor, IonType, Reader};
+use ion_rs::result::{decoding_error, IonResult};
+use ion_rs::{BinaryIonCursor, IonType, Reader};
 
 const GOOD_TEST_FILES_PATH: &str = "ion-tests/iontestdata/good/";
 

@@ -1,8 +1,6 @@
-extern crate ion_rust;
-
-use ion_rust::cursor::StreamItem;
-use ion_rust::result::IonResult;
-use ion_rust::{BinaryIonCursor, Cursor, IonDataSource, IonType};
+use ion_rs::cursor::StreamItem;
+use ion_rs::result::IonResult;
+use ion_rs::{BinaryIonCursor, Cursor, IonDataSource, IonType};
 use std::fs::File;
 use std::process::exit;
 
