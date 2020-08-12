@@ -1,5 +1,8 @@
 # Amazon Ion Rust
 
+[![Crate](https://img.shields.io/crates/v/ion-rs.svg)](https://crates.io/crates/ion-rs)
+[![Docs](https://docs.rs/ion-rs/badge.svg)](https://https://docs.rs/ion-rs)
+[![License](https://img.shields.io/crates/l/ion-rs)](https://crates.io/crates/ion-rs)
 [![CI Build](https://github.com/amzn/ion-rust/workflows/CI%20Build/badge.svg)](https://github.com/amzn/ion-rust/actions?query=workflow%3A%22CI+Build%22)
 
 
