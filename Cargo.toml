@@ -1,5 +1,21 @@
 [package]
 name = "ion-rust"
+authors = ["Amazon Ion Team <ion-team@amazon.com>"]
+description = "Implementation of Amazon Ion"
+homepage = "https://github.com/amzn/ion-rust"
+repository = "https://github.com/amzn/ion-rust"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["ion", "parser", "json", "format", "serde"]
+categories = ["encoding", "parser-implementations"]
+exclude = [
+  "**/.git/**",
+  "**/.github/**",
+  "**/.travis.yml",
+  "**/.appveyor.yml",
+  "**/ion-tests/iontestdata/**",
+  "*.pdf"
+]
 version = "0.1.0"
 edition = "2018"
 
