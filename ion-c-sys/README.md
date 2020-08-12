@@ -1,5 +1,8 @@
 # `ion-c-sys`
 
+[![Crate](https://img.shields.io/crates/v/ion-c-sys.svg)](https://crates.io/crates/ion-c-sys)
+[![Docs](https://docs.rs/ion-c-sys/badge.svg)](https://https://docs.rs/ion-c-sys)
+[![License](https://img.shields.io/crates/l/ion-c-sys)](https://crates.io/crates/ion-c-sys)
 [![CI Build](https://github.com/amzn/ion-rust/workflows/CI%20Build/badge.svg)](https://github.com/amzn/ion-rust/actions?query=workflow%3A%22CI+Build%22)
 
 A Rust binding to [Ion C][ion-c] which implements the [Amazon Ion][spec] data format.
