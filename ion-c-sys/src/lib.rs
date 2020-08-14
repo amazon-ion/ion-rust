@@ -271,13 +271,13 @@ mod test_bigint {
 
     #[apply(bigint)]
     fn try_assign_bigint(lit: &str, sign: Sign) -> IonCResult<()> {
-        let bval = BigInt::parse_bytes(lit.as_bytes(), 10).unwrap();
-        let mut ival = IonIntPtr::try_from_bigint(&bval)?;
+        let big_val = BigInt::parse_bytes(lit.as_bytes(), 10).unwrap();
+        let mut ion_val = IonIntPtr::try_from_bigint(&big_val)?;
 
         let mut buf = vec![0u8; 512];
         let mut len = 0;
         ionc!(ion_int_to_char(
-            ival.as_mut_ptr(),
+            ion_val.as_mut_ptr(),
             buf.as_mut_ptr(),
             buf.len().try_into()?,
             &mut len
@@ -289,7 +289,7 @@ mod test_bigint {
             Plus => 1,
         };
         let mut actual_signum = 0;
-        ionc!(ion_int_signum(ival.as_mut_ptr(), &mut actual_signum))?;
+        ionc!(ion_int_signum(ion_val.as_mut_ptr(), &mut actual_signum))?;
         assert_eq!(expected_signum, actual_signum);
         assert_eq!(lit.as_bytes(), &buf[0..len.try_into()?]);
 
@@ -298,14 +298,14 @@ mod test_bigint {
 
     #[apply(bigint)]
     fn try_to_bigint(lit: &str, sign: Sign) -> IonCResult<()> {
-        let mut ival = IonIntPtr::try_new()?;
+        let mut ion_val = IonIntPtr::try_new()?;
 
-        let mut istr = ION_STRING::try_from_str(lit)?;
-        ionc!(ion_int_from_string(ival.as_mut_ptr(), &mut istr))?;
+        let mut ion_str = ION_STRING::try_from_str(lit)?;
+        ionc!(ion_int_from_string(ion_val.as_mut_ptr(), &mut ion_str))?;
 
-        let bval = ival.try_to_bigint()?;
-        assert_eq!(sign, bval.sign());
-        assert_eq!(lit, bval.to_string().as_str());
+        let big_val = ion_val.try_to_bigint()?;
+        assert_eq!(sign, big_val.sign());
+        assert_eq!(lit, big_val.to_string().as_str());
 
         Ok(())
     }
@@ -569,15 +569,15 @@ mod test_bigdecimal {
 
     #[apply(bigdecimal)]
     fn try_assign_bigdecimal(d_lit: &str, c_lit: &str, exponent: i32) -> IonCResult<()> {
-        let bval = BigDecimal::parse_bytes(d_lit.as_bytes(), 10).unwrap();
-        match IonDecimalPtr::try_from_bigdecimal(&bval) {
-            Ok(mut ival) => {
-                let actual_exponent = unsafe { ion_decimal_get_exponent(ival.as_mut_ptr()) };
+        let big_val = BigDecimal::parse_bytes(d_lit.as_bytes(), 10).unwrap();
+        match IonDecimalPtr::try_from_bigdecimal(&big_val) {
+            Ok(mut ion_val) => {
+                let actual_exponent = unsafe { ion_decimal_get_exponent(ion_val.as_mut_ptr()) };
 
                 // test the string representations--not ideal, but easier than extracting coefficient
                 let mut buf = vec![0u8; 128usize];
                 ionc!(ion_decimal_to_string(
-                    ival.as_mut_ptr(),
+                    ion_val.as_mut_ptr(),
                     buf.as_mut_ptr() as *mut i8
                 ))?;
                 let len = unsafe { strlen(buf.as_ptr() as *const i8) };
@@ -603,24 +603,24 @@ mod test_bigdecimal {
     fn try_to_bigdecimal(d_lit: &str, c_lit: &str, exponent: i32) -> IonCResult<()> {
         let cstring = CString::new(d_lit).unwrap();
         let mut ctx = make_context();
-        let mut ival = IonDecimalPtr::try_from_existing(ION_DECIMAL::default())?;
+        let mut ion_val = IonDecimalPtr::try_from_existing(ION_DECIMAL::default())?;
         ionc!(ion_decimal_from_string(
-            ival.as_mut_ptr(),
+            ion_val.as_mut_ptr(),
             cstring.as_ptr(),
             &mut ctx
         ))?;
 
-        let bval = ival.try_to_bigdecimal()?;
+        let big_val = ion_val.try_to_bigdecimal()?;
         assert_eq!(
-            bval,
-            ival.try_to_bigdecimal()?,
+            big_val,
+            ion_val.try_to_bigdecimal()?,
             "Make sure conversion is effectively immutable"
         );
 
         // we test against the coefficient and exponent because the string representation
         // is not stable between decNum and BigDecimal
         let expected_coefficient = BigInt::parse_bytes(c_lit.as_bytes(), 10).unwrap();
-        let (actual_coefficient, scale) = bval.as_bigint_and_exponent();
+        let (actual_coefficient, scale) = big_val.as_bigint_and_exponent();
         assert_eq!(
             expected_coefficient, actual_coefficient,
             "Testing coefficents"
