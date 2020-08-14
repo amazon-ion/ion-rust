@@ -347,7 +347,32 @@ impl<'a> IonCReaderHandle<'a> {
         Ok(value)
     }
 
-    // TODO ion-rust/#42 - support decimal reads
+    /// Reads a `bigdecimal` value from the reader.
+    ///
+    /// ## Usage
+    /// ```
+    /// # use std::convert::*;
+    /// # use bigdecimal::BigDecimal;
+    /// # use ion_c_sys::*;
+    /// # use ion_c_sys::decimal::*;
+    /// # use ion_c_sys::reader::*;
+    /// # use ion_c_sys::result::*;
+    /// # fn main() -> IonCResult<()> {
+    /// let mut reader = IonCReaderHandle::try_from("3.0")?;
+    /// assert_eq!(ION_TYPE_DECIMAL, reader.next()?);
+    /// let value = BigDecimal::parse_bytes(b"30E-1", 10).unwrap();
+    /// assert_eq!(value, reader.read_bigdecimal()?);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[inline]
+    pub fn read_bigdecimal(&mut self) -> IonCResult<BigDecimal> {
+        let mut value = ION_DECIMAL::default();
+        ionc!(ion_reader_read_ion_decimal(self.reader, &mut value))?;
+
+        Ok(value.try_to_bigdecimal()?)
+    }
+
     // TODO ion-rust/#43 - support timestamp reads
 
     /// Reads a `string`/`symbol` value from the reader.
