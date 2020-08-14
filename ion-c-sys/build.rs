@@ -34,7 +34,9 @@ fn main() {
         // make sure we can find all the relevant headers
         .clang_arg(format!("-I{}", ionc_inc_path.display()))
         .clang_arg(format!("-I{}", ionc_internal_inc_path.display()))
-        // defined in IonC's CMake configuration
+        // defined in IonC's CMake configuration.
+        // See https://github.com/amzn/ion-c/blob/1e911eb689a879427aa8842fe2ca7c78546aeed1/CMakeLists.txt#L22-L26
+        // for details.
         .clang_arg("-DDECNUMDIGITS=34")
         // invalidate the build whenever underlying headers change
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
