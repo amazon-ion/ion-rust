@@ -328,8 +328,6 @@ fn make_context() -> decContext {
     ctx
 }
 
-const DEC_QUAD_DIGITS: u64 = 37;
-
 impl ION_DECIMAL {
     /// Assigns a `BigDecimal` into this `ION_DECIMAL`.
     pub fn try_assign_bigdecimal(&mut self, value: &BigDecimal) -> IonCResult<()> {
@@ -337,7 +335,7 @@ impl ION_DECIMAL {
 
         // FIXME amzn/ion-rust#80 - this breaks encapsulation
         ionc!(ion_decimal_free(self))?;
-        if digits > DEC_QUAD_DIGITS {
+        if digits > (DECQUAD_Pmax as u64) {
             self.type_ = ION_DECIMAL_TYPE_ION_DECIMAL_TYPE_NUMBER;
             // need to allocate the number field
             ionc!(_ion_decimal_number_alloc(
@@ -372,8 +370,6 @@ impl ION_DECIMAL {
 
         match unsafe { decContextGetStatus(&mut ctx) } {
             0 => Ok(()),
-            // FIXME amzn/ion-rust#78 - we need to be more careful around the limits of decQuad.
-            DEC_Inexact => Err(IonCError::from(ion_error_code_IERR_NUMERIC_OVERFLOW)),
             // FIXME amzn/ion-rust#79 - we need to fix decNumber support.
             DEC_Invalid_context => Err(IonCError::from(ion_error_code_IERR_INVALID_STATE)),
             _ => Err(IonCError::from(ion_error_code_IERR_INTERNAL_ERROR)),
@@ -508,6 +504,16 @@ mod test_bigdecimal {
             "29557665423302931520009385209142",
             2000
         ),
+        case::p34_en6100(
+            "7.550261799183309871071383313529625E-6067",
+            "7550261799183309871071383313529625",
+            -6100
+        ),
+        case::p34_e6110(
+            "6.385180511995820599706505142429397E+6143",
+            "6385180511995820599706505142429397",
+            6110
+        ),
         case::p35_en5500(
             "5.7516904150035820771702738217456585E-5466",
             "57516904150035820771702738217456585",
@@ -583,9 +589,6 @@ mod test_bigdecimal {
                 assert_eq!(exponent, actual_exponent, "Testing exponents");
             }
             Err(e) => match e.code {
-                ion_error_code_IERR_NUMERIC_OVERFLOW => {
-                    println!("Ignoring amzn/ion-rust#78 for {}", d_lit)
-                }
                 ion_error_code_IERR_INVALID_STATE => {
                     println!("Ignoring amzn/ion-rust#79 for {}", d_lit)
                 }
