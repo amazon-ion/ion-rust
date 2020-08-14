@@ -327,7 +327,7 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
         ionc!(ion_writer_write_double(self.writer, value))
     }
 
-    /// Writes an `decimal` value.
+    /// Writes a `decimal` value.
     ///
     /// ## Usage
     /// ```

@@ -386,6 +386,8 @@ impl ION_DECIMAL {
     ///
     /// This implementation borrows mutably, to avoid a copy of the underlying
     /// decimal implementation, but does not change the value.
+    ///
+    /// Specifically, this code scales from/to the exponent the value to extract the coefficient.
     pub fn try_to_bigdecimal(&mut self) -> IonCResult<BigDecimal> {
         // special values are not supported
         let special =
@@ -604,7 +606,13 @@ mod test_bigdecimal {
             cstring.as_ptr(),
             &mut ctx
         ))?;
+
         let bval = ival.try_to_bigdecimal()?;
+        assert_eq!(
+            bval,
+            ival.try_to_bigdecimal()?,
+            "Make sure conversion is effectively immutable"
+        );
 
         // we test against the coefficient and exponent because the string representation
         // is not stable between decNum and BigDecimal
