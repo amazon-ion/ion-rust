@@ -335,6 +335,9 @@ fn make_context() -> decContext {
     ctx
 }
 
+// TODO amzn/ion-rust#79 - we need to fix decNumber support.
+const DEC_NUMBER_ERROR_MSG: &str = "DecNumber Not Supported";
+
 impl ION_DECIMAL {
     /// Assigns a `BigDecimal` into this `ION_DECIMAL`.
     pub fn try_assign_bigdecimal(&mut self, value: &BigDecimal) -> IonCResult<()> {
@@ -380,7 +383,7 @@ impl ION_DECIMAL {
             // FIXME amzn/ion-rust#79 - we need to fix decNumber support.
             DEC_Invalid_context => Err(IonCError::with_additional(
                 ion_error_code_IERR_INVALID_STATE,
-                "DecNumber Not Supported",
+                DEC_NUMBER_ERROR_MSG,
             )),
             _ => Err(IonCError::from(ion_error_code_IERR_INTERNAL_ERROR)),
         }
@@ -600,9 +603,7 @@ mod test_bigdecimal {
             }
             Err(e) => match e.code {
                 ion_error_code_IERR_INVALID_STATE => match e.additional {
-                    "DecNumber Not Supported" => {
-                        println!("Ignoring amzn/ion-rust#79 for {}", d_lit)
-                    }
+                    DEC_NUMBER_ERROR_MSG => println!("Ignoring amzn/ion-rust#79 for {}", d_lit),
                     _ => assert!(false, "Unexpected error {:?}", e),
                 },
                 _ => assert!(false, "Unexpected error: {:?}", e),
