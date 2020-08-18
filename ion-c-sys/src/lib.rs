@@ -121,6 +121,7 @@ pub mod int;
 pub mod reader;
 pub mod result;
 pub mod string;
+pub mod timestamp;
 pub mod writer;
 
 include!(concat!(env!("OUT_DIR"), "/ionc_bindings.rs"));
@@ -128,6 +129,10 @@ include!(concat!(env!("OUT_DIR"), "/ionc_bindings.rs"));
 use crate::decimal::IonDecimalPtr;
 use crate::int::IonIntPtr;
 use crate::result::*;
+use crate::timestamp::Mantissa::*;
+use crate::timestamp::TSOffsetKind::*;
+use crate::timestamp::TSPrecision::*;
+use crate::timestamp::{IonDateTime, Mantissa, TSOffsetKind, TS_MAX_MANTISSA_DIGITS};
 
 use std::cmp::min;
 use std::convert::TryInto;
@@ -136,7 +141,9 @@ use std::ptr;
 use std::str::Utf8Error;
 use std::{slice, str};
 
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, ToPrimitive, Zero};
+use chrono::offset::FixedOffset;
+use chrono::{Datelike, LocalResult, TimeZone, Timelike};
 use num_bigint::{BigInt, Sign};
 use paste::paste;
 
@@ -626,6 +633,408 @@ mod test_bigdecimal {
             "Testing coefficents"
         );
         assert_eq!(exponent, (-scale).try_into()?, "Testing exponents");
+
+        Ok(())
+    }
+}
+
+const SEC_IN_MINS: i32 = 60;
+const NS_IN_SEC: u32 = 1_000_000_000;
+
+impl ION_TIMESTAMP {
+    // Note that although we have `IonDateTime` as a wrapper--the logic to convert
+    // to/from `ION_TIMESTAMP` is kept here to avoid the dependency on `ION_TIMESTAMP`
+    // in `IonDateTime` and to keep it consistent to the bigint and decimal conversions.
+
+    /// Converts the given `IonDateTime` into this `ION_TIMESTAMP`.
+    pub fn try_assign_from_iondt(&mut self, ion_dt: &IonDateTime) -> IonCResult<()> {
+        let dt = ion_dt.as_datetime();
+        let prec = ion_dt.precision();
+        let offset_kind = ion_dt.offset_kind();
+
+        // clear everything out
+        self.month = 1;
+        self.day = 1;
+        self.hours = 0;
+        self.minutes = 0;
+        self.seconds = 0;
+        unsafe {
+            decQuadZero(&mut self.fraction);
+        }
+        self.tz_offset = 0;
+        self.precision = 0;
+
+        // fill in the timestamp
+        self.year = dt.year().try_into()?;
+        if *prec >= Month {
+            self.month = dt.month().try_into()?;
+            if *prec >= Day {
+                self.day = dt.day().try_into()?;
+                if *prec >= Minute {
+                    self.hours = dt.hour().try_into()?;
+                    self.minutes = dt.minute().try_into()?;
+                    if *prec >= Second {
+                        self.seconds = dt.second().try_into()?;
+                        if let Fractional(mantissa) = prec {
+                            self.try_assign_mantissa(dt, mantissa)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        // set the precision
+        self.precision = match prec {
+            Year => ION_TS_YEAR,
+            Month => ION_TS_MONTH,
+            Day => ION_TS_DAY,
+            Minute => ION_TS_MIN,
+            Second => ION_TS_SEC,
+            Fractional(_) => ION_TS_FRAC,
+        } as u8;
+
+        // set the offset
+        match offset_kind {
+            KnownOffset => {
+                let offset_minutes = dt.offset().local_minus_utc() / SEC_IN_MINS;
+                ionc!(ion_timestamp_set_local_offset(self, offset_minutes))?;
+            }
+            UnknownOffset => {
+                ionc!(ion_timestamp_unset_local_offset(self))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Assigns the fractional component.
+    fn try_assign_mantissa<T>(&mut self, dt: &T, mantissa: &Mantissa) -> IonCResult<()>
+    where
+        T: Timelike,
+    {
+        let mut ctx = make_context();
+        match mantissa {
+            Digits(digits) => {
+                unsafe {
+                    let nanos = dt.nanosecond();
+                    decQuadFromUInt32(&mut self.fraction, nanos);
+
+                    // shift over to set the precision to the number of digits
+                    let mut shift = decQuad::default();
+                    decQuadFromInt32(
+                        &mut shift,
+                        (*digits as i32) - (TS_MAX_MANTISSA_DIGITS as i32),
+                    );
+                    decQuadShift(&mut self.fraction, &self.fraction, &shift, &mut ctx);
+
+                    // scale the value to be a fraction
+                    let mut scale = decQuad::default();
+                    decQuadFromInt32(&mut scale, -(*digits as i32));
+                    decQuadScaleB(&mut self.fraction, &self.fraction, &scale, &mut ctx);
+                }
+            }
+            Fraction(frac) => {
+                let ion_frac = IonDecimalPtr::try_from_bigdecimal(frac)?;
+                // we don't support converting from a decimal that cannot fit in a decQuad
+                if ion_frac.type_ != ION_DECIMAL_TYPE_ION_DECIMAL_TYPE_QUAD {
+                    return Err(IonCError::with_additional(
+                        ion_error_code_IERR_INVALID_TIMESTAMP,
+                        "Precision exceeds decQuad for Timestamp",
+                    ));
+                }
+                unsafe {
+                    self.fraction = ion_frac.value.quad_value;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Converts this `ION_TIMESTAMP` into a `IonDateTime`.
+    ///
+    /// Note that this borrows mutably, because all of the underlying
+    /// `ion_timestamp_*` functions require a mutable pointer, but this operation
+    /// does not actually change the value.
+    pub fn try_to_iondt(&mut self) -> IonCResult<IonDateTime> {
+        let mut prec = 0;
+        ionc!(ion_timestamp_get_precision(self, &mut prec))?;
+        // XXX all of our constants are small u32--so cast over to work with them
+        let prec = prec as u32;
+
+        // we need an offset to construct the date with chrono
+        let mut offset_minutes = 0;
+        let mut has_offset = 0;
+
+        if prec >= ION_TS_MIN {
+            ionc!(ion_timestamp_has_local_offset(self, &mut has_offset))?;
+            if has_offset != 0 {
+                ionc!(ion_timestamp_get_local_offset(self, &mut offset_minutes))?;
+            }
+        }
+        let offset_seconds = (offset_minutes as i32) * SEC_IN_MINS;
+        let tz = FixedOffset::east_opt(offset_seconds)
+            .ok_or(IonCError::from(ion_error_code_IERR_INVALID_STATE))?;
+        let ts_offset = if has_offset != 0 {
+            TSOffsetKind::KnownOffset
+        } else {
+            TSOffsetKind::UnknownOffset
+        };
+
+        let day = if prec >= ION_TS_DAY { self.day } else { 1 };
+        let month = if prec >= ION_TS_MONTH { self.month } else { 1 };
+        match tz.ymd_opt(self.year as i32, month as u32, day as u32) {
+            LocalResult::Single(date) => {
+                let mut hours = 0;
+                let mut minutes = 0;
+                let mut seconds = 0;
+                if prec >= ION_TS_MIN {
+                    hours = self.hours;
+                    minutes = self.minutes;
+                    seconds = self.seconds;
+                }
+
+                // convert fractional seconds to nanoseconds
+                let frac_seconds = if prec >= ION_TS_FRAC {
+                    IonDecimalPtr::try_from_decquad(self.fraction)?.try_to_bigdecimal()?
+                } else {
+                    BigDecimal::zero()
+                };
+                if frac_seconds < BigDecimal::zero() || frac_seconds >= BigDecimal::from(1) {
+                    return Err(IonCError::from(ion_error_code_IERR_INVALID_STATE));
+                }
+                let nanos = (&frac_seconds * BigDecimal::from(NS_IN_SEC))
+                    .abs()
+                    .to_u32()
+                    .unwrap();
+
+                let dt = date
+                    .and_hms_nano_opt(hours as u32, minutes as u32, seconds as u32, nanos)
+                    .ok_or(IonCError::with_additional(
+                        ion_error_code_IERR_INVALID_TIMESTAMP,
+                        "Could not create DateTime",
+                    ))?;
+
+                let ts_prec = match prec {
+                    ION_TS_YEAR => Year,
+                    ION_TS_MONTH => Month,
+                    ION_TS_DAY => Day,
+                    ION_TS_MIN => Minute,
+                    ION_TS_SEC => Second,
+                    ION_TS_FRAC => {
+                        let (_, exponent) = frac_seconds.as_bigint_and_exponent();
+                        let mantissa = if exponent <= TS_MAX_MANTISSA_DIGITS {
+                            Digits(exponent as u32)
+                        } else {
+                            // preserve the fractional seconds in the precision.
+                            Fraction(frac_seconds)
+                        };
+                        Fractional(mantissa)
+                    }
+                    _ => {
+                        return Err(IonCError::with_additional(
+                            ion_error_code_IERR_INVALID_TIMESTAMP,
+                            "Invalid ION_TIMESTAMP precision",
+                        ))
+                    }
+                };
+
+                Ok(IonDateTime::new(dt, ts_prec, ts_offset))
+            }
+            _ => Err(IonCError::with_additional(
+                ion_error_code_IERR_INVALID_TIMESTAMP,
+                "Could not create Date",
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test_timestamp {
+    use crate::result::*;
+    use crate::timestamp::*;
+    use crate::*;
+
+    use rstest::rstest;
+    use rstest_reuse::{self, *};
+
+    use std::ffi::CString;
+    use std::str;
+
+    use chrono::DateTime;
+
+    fn frac(lit: &str) -> Mantissa {
+        Fraction(BigDecimal::parse_bytes(lit.as_bytes(), 10).unwrap())
+    }
+
+    #[template]
+    #[rstest(
+        ion_lit,
+        iso_lit,
+        precision,
+        offset_kind,
+        case::ts_2020("2020T", "2020-01-01T00:00:00Z", Year, UnknownOffset),
+        case::ts_1901_04("1901-04T", "1901-04-01T00:00:00Z", Month, UnknownOffset),
+        case::ts_2014_10_10("2014-10-10", "2014-10-10T00:00:00Z", Day, UnknownOffset),
+        case::ts_2017_07_07T01_20(
+            "2017-07-07T01:20-00:00",
+            "2017-07-07T01:20:00Z",
+            Minute,
+            UnknownOffset,
+        ),
+        case::ts_2018_06_30T03_25_p07_30(
+            "2018-06-30T03:25+07:30",
+            "2018-06-30T03:25:00+07:30",
+            Minute,
+            KnownOffset,
+        ),
+        case::ts_2019_04_30T03_25_32(
+            "2019-04-30T03:25:32-00:00",
+            "2019-04-30T03:25:32Z",
+            Second,
+            UnknownOffset,
+        ),
+        case::ts_2016_03_30T03_25_32_n00_00_same_as_zulu(
+            "2016-03-30T03:25:32-00:00",
+            "2016-03-30T03:25:32Z",
+            Second,
+            UnknownOffset,
+        ),
+        case::ts_2016_03_30T03_25_32_n08_00(
+            "2016-03-30T03:25:32-08:00",
+            "2016-03-30T03:25:32-08:00",
+            Second,
+            KnownOffset,
+        ),
+        case::ts_1975_02_19T12_43_55_123_n08_00(
+            "1975-02-19T12:43:55.123-08:00",
+            "1975-02-19T12:43:55.123-08:00",
+            Fractional(Digits(3)),
+            KnownOffset,
+        ),
+        case::ts_1975_02_19T12_43_55_001_n08_00(
+            "1975-02-19T12:43:55.001-08:00",
+            "1975-02-19T12:43:55.001-08:00",
+            Fractional(Digits(3)),
+            KnownOffset,
+        ),
+        case::ts_1975_02_19T12_43_55_12345_n08_00(
+            "1975-02-19T12:43:55.12345-08:00",
+            "1975-02-19T12:43:55.12345-08:00",
+            Fractional(Digits(5)),
+            KnownOffset,
+        ),
+        case::ts_1975_02_19T12_43_55_00005_n08_00(
+            "1975-02-19T12:43:55.00005-08:00",
+            "1975-02-19T12:43:55.00005-08:00",
+            Fractional(Digits(5)),
+            KnownOffset,
+        ),
+        case::ts_1975_02_19T12_43_55_012345_n08_00(
+            "1975-02-19T12:43:55.012345-08:00",
+            "1975-02-19T12:43:55.012345-08:00",
+            Fractional(Digits(6)),
+            KnownOffset,
+        ),
+        case::ts_1975_02_19T12_43_55_000056_n08_00(
+            "1975-02-19T12:43:55.000056-08:00",
+            "1975-02-19T12:43:55.000056-08:00",
+            Fractional(Digits(6)),
+            KnownOffset,
+        ),
+        case::ts_1974_01_20T12_43_55_123456789_n08_00(
+            "1974-01-20T12:43:55.123456789-08:00",
+            "1974-01-20T12:43:55.123456789-08:00",
+            Fractional(Digits(9)),
+            KnownOffset,
+        ),
+        case::ts_1974_01_20T12_43_55_000056789_n08_00(
+            "1974-01-20T12:43:55.000056789-08:00",
+            "1974-01-20T12:43:55.000056789-08:00",
+            Fractional(Digits(9)),
+            KnownOffset,
+        ),
+        case::ts_1973_12_25T12_43_55_123456789123456789_n08_00_truncation(
+            "1973-12-25T12:43:55.123456789123456789-08:00",
+            "1973-12-25T12:43:55.123456789-08:00",
+            Fractional(frac("0.123456789123456789")),
+            KnownOffset,
+        )
+    )]
+    fn timestamp(ion_lit: &str, iso_lit: &str, precision: TSPrecision, offset_kind: TSOffsetKind) {}
+
+    #[apply(timestamp)]
+    fn assign_from_datetime(
+        ion_lit: &str,
+        iso_lit: &str,
+        precision: TSPrecision,
+        offset_kind: TSOffsetKind,
+    ) -> IonCResult<()> {
+        // assign into an ION_TIMESTAMP
+        let dt = DateTime::parse_from_rfc3339(iso_lit).unwrap();
+        let ion_dt = IonDateTime::try_new(dt, precision, offset_kind)?;
+        let mut ion_timestamp = ION_TIMESTAMP::default();
+        ion_timestamp.try_assign_from_iondt(&ion_dt)?;
+
+        // serialize
+        let mut ctx = make_context();
+        let mut buf = vec![0u8; 128usize];
+        let mut read = 0;
+        ionc!(ion_timestamp_to_string(
+            &mut ion_timestamp,
+            buf.as_mut_ptr() as *mut i8,
+            buf.len().try_into()?,
+            &mut read,
+            &mut ctx
+        ))?;
+        assert_eq!(
+            ion_lit,
+            str::from_utf8(&buf[0..read.try_into()?])?,
+            "Compare timestamp text serialization"
+        );
+
+        Ok(())
+    }
+
+    #[apply(timestamp)]
+    fn try_to_datetime(
+        ion_lit: &str,
+        iso_lit: &str,
+        precision: TSPrecision,
+        offset_kind: TSOffsetKind,
+    ) -> IonCResult<()> {
+        let c_ion_lit_owned = CString::new(ion_lit).unwrap();
+        let c_ion_lit = c_ion_lit_owned.as_bytes_with_nul();
+        // construct ION_TIMESTAMP from test vector
+        let mut ion_timestamp = ION_TIMESTAMP::default();
+        let mut read = 0;
+        let mut ctx = make_context();
+        ionc!(ion_timestamp_parse(
+            &mut ion_timestamp,
+            c_ion_lit.as_ptr() as *mut i8,
+            c_ion_lit.len().try_into()?,
+            &mut read,
+            &mut ctx,
+        ))?;
+        assert_eq!(
+            ion_lit.len(),
+            read.try_into()?,
+            "Test that we parsed the entire Ion timestamp literal"
+        );
+
+        let expected_dt = DateTime::parse_from_rfc3339(iso_lit).unwrap();
+        let ion_dt = ion_timestamp.try_to_iondt()?;
+        assert_eq!(
+            &expected_dt,
+            ion_dt.as_datetime(),
+            "Test that our converted timestamp is equivalent"
+        );
+        assert_eq!(
+            &precision,
+            ion_dt.precision(),
+            "Compare timestamp precision"
+        );
+        assert_eq!(offset_kind, ion_dt.offset_kind(), "Compare offset kind");
 
         Ok(())
     }

@@ -14,11 +14,17 @@ use std::num::TryFromIntError;
 pub struct IonCError {
     pub code: i32,
     pub message: &'static str,
+    pub additional: &'static str,
 }
 
 impl IonCError {
-    /// Constructs and `IonCError` from an `iERR` error code.
-    pub fn from(code: i32) -> IonCError {
+    /// Constructs an `IonCError` from an `iERR` error code.
+    pub fn from(code: i32) -> Self {
+        Self::with_additional(code, "iERR Result")
+    }
+
+    /// Constructs an `IonCError` from an `iERR` error code and its own message
+    pub fn with_additional(code: i32, additional: &'static str) -> Self {
         match code {
             ion_error_code_IERR_NOT_IMPL..=ion_error_code_IERR_INVALID_LOB_TERMINATOR => {
                 unsafe {
@@ -26,12 +32,17 @@ impl IonCError {
                     let c_str = CStr::from_ptr(ion_error_to_str(code));
                     // the error codes are all ASCII so a panic here is a bug
                     let message = c_str.to_str().unwrap();
-                    IonCError { code, message }
+                    Self {
+                        code,
+                        message,
+                        additional,
+                    }
                 }
             }
-            _ => IonCError {
+            _ => Self {
                 code,
                 message: "Unknown Ion C Error Code",
+                additional,
             },
         }
     }
@@ -39,7 +50,11 @@ impl IonCError {
 
 impl fmt::Display for IonCError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Error {}: {}", self.code, self.message)
+        write!(
+            f,
+            "Error {}: {} ({})",
+            self.code, self.message, self.additional
+        )
     }
 }
 

@@ -29,6 +29,16 @@ impl IonDecimalPtr {
         Ok(decimal)
     }
 
+    /// Creates and `ION_DECIMAL` from a `decQuad`.
+    pub fn try_from_decquad(value: decQuad) -> IonCResult<Self> {
+        let ion_decimal = ION_DECIMAL {
+            type_: ION_DECIMAL_TYPE_ION_DECIMAL_TYPE_QUAD,
+            value: _ion_decimal__bindgen_ty_1 { quad_value: value },
+        };
+
+        Self::try_from_existing(ion_decimal)
+    }
+
     /// Binds an existing `ION_DECIMAL` to a pointer.
     pub fn try_from_existing(value: ION_DECIMAL) -> IonCResult<Self> {
         Ok(Self { value })

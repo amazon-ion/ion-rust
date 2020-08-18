@@ -373,7 +373,47 @@ impl<'a> IonCReaderHandle<'a> {
         Ok(value.try_to_bigdecimal()?)
     }
 
-    // TODO ion-rust/#43 - support timestamp reads
+    /// Reads a `timestamp` value from the reader.
+    ///
+    /// ## Usage
+    /// ```
+    /// # use std::convert::*;
+    /// # use ion_c_sys::*;
+    /// # use chrono::DateTime;
+    /// # use ion_c_sys::timestamp::*;
+    /// # use ion_c_sys::timestamp::Mantissa::*;
+    /// # use ion_c_sys::timestamp::TSPrecision::*;
+    /// # use ion_c_sys::timestamp::TSOffsetKind::*;
+    /// # use ion_c_sys::reader::*;
+    /// # use ion_c_sys::result::*;
+    /// # fn main() -> IonCResult<()> {
+    /// let mut reader = IonCReaderHandle::try_from("2020-10-10T12:34:45.123-00:00")?;
+    /// assert_eq!(ION_TYPE_TIMESTAMP, reader.next()?);
+    /// let ion_dt = reader.read_datetime()?;
+    ///
+    /// // the point in time should be the same
+    /// let expected_dt = DateTime::parse_from_rfc3339("2020-10-10T12:34:45.123Z").unwrap();
+    /// assert_eq!(&expected_dt, ion_dt.as_datetime());
+    ///
+    /// // precision should be millisecond level
+    /// if let Fractional(Digits(digits)) = ion_dt.precision() {
+    ///     assert_eq!(3, *digits);
+    /// } else {
+    ///     assert!(false, "Expected digits precision!");
+    /// }
+    ///
+    /// // we should have an unknown offset
+    /// assert_eq!(UnknownOffset, ion_dt.offset_kind());
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[inline]
+    pub fn read_datetime(&mut self) -> IonCResult<IonDateTime> {
+        let mut value = ION_TIMESTAMP::default();
+        ionc!(ion_reader_read_timestamp(self.reader, &mut value))?;
+
+        Ok(value.try_to_iondt()?)
+    }
 
     /// Reads a `string`/`symbol` value from the reader.
     ///

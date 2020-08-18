@@ -37,7 +37,8 @@ pub trait IonCValueWriter {
     /// Writes a `decimal` value.
     fn write_bigdecimal(&mut self, value: &BigDecimal) -> IonCResult<()>;
 
-    // TODO ion-rust/#43 - support timestamp writes
+    /// Writes a `timestamp` value.
+    fn write_datetime(&mut self, value: &IonDateTime) -> IonCResult<()>;
 
     /// Writes a `symbol` value.
     fn write_symbol(&mut self, value: &str) -> IonCResult<()>;
@@ -356,7 +357,42 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
         ionc!(ion_writer_write_ion_decimal(self.writer, &mut *ion_decimal))
     }
 
-    // TODO ion-rust/#43 - support timestamp writes
+    /// Writes a `timestamp` value.
+    ///
+    /// ## Usage
+    /// ```
+    /// # use std::convert::*;
+    /// # use ion_c_sys::*;
+    /// # use ion_c_sys::writer::*;
+    /// # use ion_c_sys::result::*;
+    /// # use ion_c_sys::timestamp::*;
+    /// # use ion_c_sys::timestamp::Mantissa::*;
+    /// # use ion_c_sys::timestamp::TSPrecision::*;
+    /// # use ion_c_sys::timestamp::TSOffsetKind::*;
+    /// # use chrono::DateTime;
+    /// # fn main() -> IonCResult<()> {
+    /// let mut buf = vec![0; 128];
+    /// let len = {
+    ///     let mut writer = IonCWriterHandle::new_buf_mode(buf.as_mut_slice(), WriterMode::Text)?;
+    ///     let dt = DateTime::parse_from_rfc3339("2020-01-02T12:34:00.123Z").unwrap();
+    ///
+    ///     // write the date time with microsecond precision and an unknown offset
+    ///     let ion_dt = IonDateTime::try_new(dt, Fractional(Digits(6)), UnknownOffset)?;
+    ///     writer.write_datetime(&ion_dt)?;
+    ///     writer.finish()?
+    /// };
+    /// assert_eq!(
+    ///     b"2020-01-02T12:34:00.123000-00:00",
+    ///     &buf[0..len]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[inline]
+    fn write_datetime(&mut self, value: &IonDateTime) -> IonCResult<()> {
+        let mut ion_timestamp = ION_TIMESTAMP::default();
+        ion_timestamp.try_assign_from_iondt(value)?;
+        ionc!(ion_writer_write_timestamp(self.writer, &mut ion_timestamp))
+    }
 
     /// Writes a `symbol` value.
     ///
@@ -638,6 +674,11 @@ impl IonCValueWriter for IonCAnnotationsFieldWriterContext<'_, '_, '_> {
     fn write_bigdecimal(&mut self, value: &BigDecimal) -> IonCResult<()> {
         self.write_annotations_and_field()?;
         self.handle.write_bigdecimal(value)
+    }
+
+    fn write_datetime(&mut self, value: &IonDateTime) -> IonCResult<()> {
+        self.write_annotations_and_field()?;
+        self.handle.write_datetime(value)
     }
 
     #[inline]
