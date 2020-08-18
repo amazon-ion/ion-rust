@@ -23,9 +23,13 @@ pub(crate) const TS_MAX_MANTISSA_DIGITS: i64 = 9;
 pub enum Mantissa {
     /// A kind of precision that uses digits from the nanoseconds field of the associated
     /// `DateTime` to represent the amount of mantissa.
+    ///
+    /// This is required for precision of nanoseconds or lower.
     Digits(u32),
     /// Specifies the mantissa precisely as a `BigDecimal` in the range `>= 0` and `< 1`.
     /// This should correspond to the nanoseconds field insofar as it is not truncated.
+    ///
+    /// This is only used for precision of greater than nanoseconds.
     Fraction(BigDecimal),
 }
 
@@ -149,6 +153,19 @@ impl IonDateTime {
                     }
                 }
                 Fraction(frac) => {
+                    if frac < &BigDecimal::zero() || frac >= &BigDecimal::from(1) {
+                        return Err(IonCError::with_additional(
+                            ion_error_code_IERR_INVALID_TIMESTAMP,
+                            "Mantissa outside of range",
+                        ));
+                    }
+                    let (_, scale) = frac.as_bigint_and_exponent();
+                    if scale <= TS_MAX_MANTISSA_DIGITS {
+                        return Err(IonCError::with_additional(
+                            ion_error_code_IERR_INVALID_TIMESTAMP,
+                            "Fractional mantissa not allowed for sub-nanosecond precision"
+                        ));
+                    }
                     let ns = date_time.nanosecond();
                     let frac_ns = (frac * BigDecimal::from(NS_IN_SEC)).abs().to_u32().ok_or(
                         IonCError::with_additional(
@@ -252,11 +269,23 @@ mod test_iondt {
             KnownOffset,
             Some(ion_error_code_IERR_INVALID_TIMESTAMP),
         ),
-        case::fractional_mantissa(
+        case::fractional_mantissa_neg(
+            "2020-01-01T00:01:00.1234567Z",
+            Fractional(frac("-0.1234567")),
+            KnownOffset,
+            Some(ion_error_code_IERR_INVALID_TIMESTAMP),
+        ),
+        case::fractional_mantissa_not_fractional(
+            "2020-01-01T00:01:00.1234567Z",
+            Fractional(frac("1.234567")),
+            KnownOffset,
+            Some(ion_error_code_IERR_INVALID_TIMESTAMP),
+        ),
+        case::fractional_mantissa_too_small(
             "2020-01-01T00:01:00.1234567Z",
             Fractional(frac("0.1234567")),
             KnownOffset,
-            None,
+            Some(ion_error_code_IERR_INVALID_TIMESTAMP),
         ),
         case::fractional_mantissa_more_precision(
             "2020-01-01T00:01:00.1234567Z",
