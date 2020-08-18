@@ -378,7 +378,10 @@ impl ION_DECIMAL {
         match unsafe { decContextGetStatus(&mut ctx) } {
             0 => Ok(()),
             // FIXME amzn/ion-rust#79 - we need to fix decNumber support.
-            DEC_Invalid_context => Err(IonCError::from(ion_error_code_IERR_INVALID_STATE)),
+            DEC_Invalid_context => Err(IonCError::with_additional(
+                ion_error_code_IERR_INVALID_STATE,
+                "DecNumber Not Supported",
+            )),
             _ => Err(IonCError::from(ion_error_code_IERR_INTERNAL_ERROR)),
         }
     }
@@ -596,9 +599,12 @@ mod test_bigdecimal {
                 assert_eq!(exponent, actual_exponent, "Testing exponents");
             }
             Err(e) => match e.code {
-                ion_error_code_IERR_INVALID_STATE => {
-                    println!("Ignoring amzn/ion-rust#79 for {}", d_lit)
-                }
+                ion_error_code_IERR_INVALID_STATE => match e.additional {
+                    "DecNumber Not Supported" => {
+                        println!("Ignoring amzn/ion-rust#79 for {}", d_lit)
+                    }
+                    _ => assert!(false, "Unexpected error {:?}", e),
+                },
                 _ => assert!(false, "Unexpected error: {:?}", e),
             },
         }
@@ -743,7 +749,7 @@ impl ION_TIMESTAMP {
                     ));
                 }
                 unsafe {
-                    self.fraction = ion_frac.value.quad_value;
+                    self.fraction = (*ion_frac).value.quad_value;
                 }
             }
         }
