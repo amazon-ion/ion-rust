@@ -16,12 +16,12 @@
 //! generally be used, especially with `Result` handling code.  These types provide some facade
 //! over Ion C, but only for the most generally used APIs. See:
 //!
-//! * [IonCReaderHandle][reader-handle]
-//! * [IonCWriterHandle][writer-handle]
+//! * [`IonCReader`][reader-trait]
+//! * [`IonCWriter`][writer-trait]
 //!
 //! [ionc-call]: macro.ionc.html
-//! [reader-handle]: reader/struct.IonCReaderHandle.html
-//! [writer-handle]: writer/struct.IonCWriterHandle.html
+//! [reader-trait]: reader/trait.IonCReader.html
+//! [writer-trait]: writer/trait.IonCWriter.html
 //!
 //! ### Ion Reader
 //! Here is an end-to-end example of reading some Ion data.
