@@ -1,5 +1,4 @@
 use crate::result::{illegal_operation, IonResult};
-use crate::text::encoder::TextEncoder;
 use crate::IonType;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
@@ -133,47 +132,122 @@ impl<W: Write> TextWriter<W> {
 
     /// Writes an Ion null of the specified type.
     pub fn write_null(&mut self, ion_type: IonType) -> IonResult<()> {
-        self.write_scalar(|output| TextEncoder::encode_null(output, ion_type))
+        use IonType::*;
+        self.write_scalar(|output| {
+            let null_text = match ion_type {
+                Null => "null",
+                Boolean => "null.bool",
+                Integer => "null.int",
+                Float => "null.float",
+                Decimal => "null.decimal",
+                Timestamp => "null.timestamp",
+                Symbol => "null.symbol",
+                String => "null.string",
+                Blob => "null.blob",
+                Clob => "null.clob",
+                List => "null.list",
+                SExpression => "null.sexp",
+                Struct => "null.struct",
+            };
+            write!(output, "{}", null_text)?;
+            Ok(())
+        })
     }
 
     /// Writes the provided bool value as an Ion boolean.
     pub fn write_bool(&mut self, value: bool) -> IonResult<()> {
-        self.write_scalar(|output| TextEncoder::encode_bool(output, value))
+        self.write_scalar(|output| {
+            let bool_text = match value {
+                true => "true",
+                false => "false",
+            };
+            write!(output, "{}", bool_text)?;
+            Ok(())
+        })
     }
 
     /// Writes the provided i64 value as an Ion integer.
     pub fn write_i64(&mut self, value: i64) -> IonResult<()> {
-        self.write_scalar(|output| TextEncoder::encode_i64(output, value))
+        self.write_scalar(|output| {
+            write!(output, "{}", value)?;
+            Ok(())
+        })
     }
 
     /// Writes the provided f64 value as an Ion float.
     pub fn write_f64(&mut self, value: f64) -> IonResult<()> {
-        self.write_scalar(|output| TextEncoder::encode_f64(output, value))
+        self.write_scalar(|output| {
+            if value.is_nan() {
+                write!(output, "nan")?;
+                return Ok(());
+            }
+
+            if value.is_infinite() {
+                if value.is_sign_positive() {
+                    write!(output, "+inf")?;
+                } else {
+                    write!(output, "-inf")?;
+                }
+                return Ok(());
+            }
+
+            // The {:e} formatter provided by the Display trait writes floats using scientific
+            // notation. It works for all floating point values except -0.0 (it drops the sign).
+            // See: https://github.com/rust-lang/rust/issues/20596
+            if value == 0.0f64 && value.is_sign_negative() {
+                write!(output, "-0e0")?;
+                return Ok(());
+            }
+
+            write!(output, "{:e}", value)?;
+            Ok(())
+        })
     }
 
     /// Writes the provided BigDecimal value as an Ion decimal.
     pub fn write_big_decimal(&mut self, value: &BigDecimal) -> IonResult<()> {
-        self.write_scalar(|output| TextEncoder::encode_big_decimal(output, value))
+        self.write_scalar(|output| {
+            write!(output, "{}", &value)?;
+            Ok(())
+        })
     }
 
     /// Writes the provided DateTime value as an Ion timestamp.
-    pub fn write_datetime<I: Into<DateTime<FixedOffset>>>(&mut self, value: I) -> IonResult<()> {
-        self.write_scalar(|output| TextEncoder::encode_datetime(output, value))
+    pub fn write_datetime(&mut self, value: &DateTime<FixedOffset>) -> IonResult<()> {
+        self.write_scalar(|output| {
+            write!(output, "{}", value.to_rfc3339())?;
+            Ok(())
+        })
     }
 
     /// Writes the provided &str value as an Ion symbol.
-    pub fn write_str_as_symbol(&mut self, value: &str) -> IonResult<()> {
-        self.write_scalar(|output| TextEncoder::encode_str_as_symbol(output, value))
+    pub fn write_symbol<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
+        self.write_scalar(|output| {
+            write!(output, "'{}'", value.as_ref())?;
+            Ok(())
+        })
     }
 
     /// Writes the provided &str value as an Ion string.
-    pub fn write_str_as_string(&mut self, value: &str) -> IonResult<()> {
-        self.write_scalar(|output| TextEncoder::encode_str_as_string(output, value))
+    pub fn write_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
+        self.write_scalar(|output| {
+            write!(output, "\"{}\"", value.as_ref())?;
+            Ok(())
+        })
     }
 
     /// Writes the provided byte array slice as an Ion blob.
     pub fn write_blob(&mut self, value: &[u8]) -> IonResult<()> {
-        self.write_scalar(|output| TextEncoder::encode_blob(output, value))
+        self.write_scalar(|output| {
+            // Rust format strings escape curly braces by doubling them. The following string is:
+            // * The opening {{ from a text Ion blob, with each brace doubled to escape it.
+            // * A {} pair used by the format string to indicate where the base64-encoded bytes
+            //   should be inserted.
+            // * The closing }} from a text Ion blob, with each brace doubled to escape it.
+            // TODO: Provide a re-usable encoding buffer instead of allocating a String each time.
+            write!(output, "{{{{{}}}}}", base64::encode(value))?;
+            Ok(())
+        })
     }
 
     /// Writes the provided byte array slice as an Ion clob.
@@ -260,7 +334,7 @@ mod tests {
         let offset = FixedOffset::west(0);
         let datetime = offset.from_utc_datetime(&naive_datetime);
         writer_test(
-            |w| w.write_datetime(datetime),
+            |w| w.write_datetime(&datetime),
             "2000-01-01T00:00:00+00:00\n",
         );
     }
@@ -269,9 +343,9 @@ mod tests {
     fn write_stream() {
         writer_test(
             |w| {
-                w.write_str_as_string("foo")?;
+                w.write_string("foo")?;
                 w.write_i64(21)?;
-                w.write_str_as_symbol("bar")
+                w.write_symbol("bar")
             },
             "\"foo\"\n21\n'bar'\n",
         );
@@ -293,9 +367,9 @@ mod tests {
         writer_test(
             |w| {
                 w.step_in(IonType::List)?;
-                w.write_str_as_string("foo")?;
+                w.write_string("foo")?;
                 w.write_i64(21)?;
-                w.write_str_as_symbol("bar")?;
+                w.write_symbol("bar")?;
                 w.step_out()
             },
             "[\"foo\",21,'bar',]\n",
@@ -307,10 +381,10 @@ mod tests {
         writer_test(
             |w| {
                 w.step_in(IonType::List)?;
-                w.write_str_as_string("foo")?;
+                w.write_string("foo")?;
                 w.write_i64(21)?;
                 w.step_in(IonType::List)?;
-                w.write_str_as_symbol("bar")?;
+                w.write_symbol("bar")?;
                 w.step_out()?;
                 w.step_out()
             },
@@ -323,9 +397,9 @@ mod tests {
         writer_test(
             |w| {
                 w.step_in(IonType::SExpression)?;
-                w.write_str_as_string("foo")?;
+                w.write_string("foo")?;
                 w.write_i64(21)?;
-                w.write_str_as_symbol("bar")?;
+                w.write_symbol("bar")?;
                 w.step_out()
             },
             "(\"foo\" 21 'bar' )\n",
@@ -338,12 +412,12 @@ mod tests {
             |w| {
                 w.step_in(IonType::Struct)?;
                 w.set_field_name("a");
-                w.write_str_as_string("foo")?;
+                w.write_string("foo")?;
                 w.set_field_name("b");
                 w.write_i64(21)?;
                 w.set_field_name("c");
                 w.set_annotations(&["qux"]);
-                w.write_str_as_symbol("bar")?;
+                w.write_symbol("bar")?;
                 w.step_out()
             },
             "{a:\"foo\",b:21,c:'qux'::'bar',}\n",
