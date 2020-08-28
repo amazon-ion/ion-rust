@@ -62,3 +62,12 @@ impl From<io::Error> for IonError {
         }
     }
 }
+
+/// Allows [`std::fmt::Error`]s to be converted to an IonError and propagated using the `?` operator.
+impl From<std::fmt::Error> for IonError {
+    fn from(error: std::fmt::Error) -> Self {
+        IonError::IoError {
+            description: format!("Encountered an IO error: {:?}", error),
+        }
+    }
+}

@@ -8,6 +8,7 @@ pub mod result;
 pub mod binary;
 pub mod cursor;
 pub mod data_source;
+pub mod text;
 pub mod types;
 
 mod constants;
