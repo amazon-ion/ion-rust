@@ -44,6 +44,12 @@ impl Deref for StrSliceRef<'_> {
     }
 }
 
+impl AsRef<str> for StrSliceRef<'_> {
+    fn as_ref(&self) -> &str {
+        self.string
+    }
+}
+
 /// Represents a slice of `str` slices that are borrowed from some source.
 ///
 /// This struct provides the mutable borrowing context for the given slice to avoid
@@ -80,5 +86,11 @@ impl<'a> Deref for StrSlicesRef<'a> {
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.strs.as_slice()
+    }
+}
+
+impl<'a> AsRef<[&'a str]> for StrSlicesRef<'a> {
+    fn as_ref(&self) -> &[&'a str] {
+        self.strs.as_slice()
     }
 }
