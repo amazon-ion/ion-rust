@@ -421,7 +421,7 @@ pub trait IonCWriter<'a>: IonCValueWriter + IonCAnnotationsFieldWriter {
     fn finish(&mut self) -> IonCResult<usize>;
 }
 
-/// Wrapper over `hWRITER` to make it easier to writers in IonC correctly.
+/// Wrapper over `hWRITER` to make it easier to use writers in IonC correctly.
 ///
 /// Specifically supports the `Drop` trait to make sure `ion_writer_close` is run.
 /// Access to the underlying `hWRITER` pointer is done by de-referencing the handle.
@@ -431,7 +431,7 @@ pub trait IonCWriter<'a>: IonCValueWriter + IonCAnnotationsFieldWriter {
 /// * [IonCValueWriter](./trait.IonCValueWriter.html)
 pub struct IonCWriterHandle<'a> {
     writer: hWRITER,
-    /// Placeholder to tie our lifecycle back to the source of the data--which might not
+    /// Placeholder to tie our lifecycle back to the destination--which might not
     /// actually be a byte slice (if we constructed this from a file or Ion C stream callback)
     referent: PhantomData<&'a mut u8>,
 }
