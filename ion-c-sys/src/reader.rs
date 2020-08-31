@@ -12,10 +12,9 @@ use crate::result::*;
 use crate::string::*;
 use crate::*;
 
-/// Wrapper over `hREADER` to make it easier to use readers in IonC correctly.
+/// The reading API for Ion C.
 ///
-/// Specifically supports the `Drop` trait to make sure `ion_reader_close` is run.
-/// Access to the underlying `hREADER` pointer is done by de-referencing the handle.
+/// See also [`IonCReaderHandle`](./struct.IonCReaderHandle.html).
 ///
 /// ## Usage
 /// ```
@@ -32,38 +31,9 @@ use crate::*;
 /// # Ok(())
 /// # }
 /// ```
-pub struct IonCReaderHandle<'a> {
-    reader: hREADER,
-    /// Placeholder to tie our lifecycle back to the source of the data--which might not
-    /// actually be a byte slice (if we constructed this from a file or Ion C stream callback)
-    referent: PhantomData<&'a [u8]>,
-}
-
-impl<'a> IonCReaderHandle<'a> {
-    /// Constructs a reader handle from a byte slice and given options.
-    pub fn new_buf(src: &'a [u8], options: &mut ION_READER_OPTIONS) -> Result<Self, IonCError> {
-        let mut reader = ptr::null_mut();
-        ionc!(ion_reader_open_buffer(
-            &mut reader,
-            // Ion C promises not to mutate this buffer!
-            src.as_ptr() as *mut u8,
-            src.len().try_into()?,
-            options,
-        ))?;
-        Ok(IonCReaderHandle {
-            reader,
-            referent: PhantomData::default(),
-        })
-    }
-
+pub trait IonCReader {
     /// Advances the reader to the next value and returns the type.
-    #[inline]
-    pub fn next(&mut self) -> IonCResult<ION_TYPE> {
-        let mut tid = ptr::null_mut();
-        ionc!(ion_reader_next(self.reader, &mut tid))?;
-
-        Ok(tid)
-    }
+    fn next(&mut self) -> IonCResult<ION_TYPE>;
 
     /// Returns the type of the current position.
     ///
@@ -83,25 +53,13 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn get_type(&self) -> IonCResult<ION_TYPE> {
-        let mut tid = ptr::null_mut();
-        ionc!(ion_reader_get_type(self.reader, &mut tid))?;
-
-        Ok(tid)
-    }
+    fn get_type(&self) -> IonCResult<ION_TYPE>;
 
     /// Steps in to the current container.
-    #[inline]
-    pub fn step_in(&mut self) -> IonCResult<()> {
-        ionc!(ion_reader_step_in(self.reader))
-    }
+    fn step_in(&mut self) -> IonCResult<()>;
 
     /// Steps out of the current container.
-    #[inline]
-    pub fn step_out(&mut self) -> IonCResult<()> {
-        ionc!(ion_reader_step_out(self.reader))
-    }
+    fn step_out(&mut self) -> IonCResult<()>;
 
     /// Returns the current container depth.
     ///
@@ -122,13 +80,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn depth(&self) -> IonCResult<i32> {
-        let mut depth = 0;
-        ionc!(ion_reader_get_depth(self.reader, &mut depth))?;
-
-        Ok(depth)
-    }
+    fn depth(&self) -> IonCResult<i32>;
 
     /// Returns if the reader is positioned on a `null` value.
     ///
@@ -147,13 +99,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn is_null(&self) -> IonCResult<bool> {
-        let mut is_null = 0;
-        ionc!(ion_reader_is_null(self.reader, &mut is_null))?;
-
-        Ok(is_null != 0)
-    }
+    fn is_null(&self) -> IonCResult<bool>;
 
     /// Returns if the reader is positioned within a `struct` value.
     /// ## Usage
@@ -171,13 +117,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn is_in_struct(&self) -> IonCResult<bool> {
-        let mut is_in_struct = 0;
-        ionc!(ion_reader_is_in_struct(self.reader, &mut is_in_struct))?;
-
-        Ok(is_in_struct != 0)
-    }
+    fn is_in_struct(&self) -> IonCResult<bool>;
 
     /// Returns the field name if the reader positioned within a structure.
     ///
@@ -197,15 +137,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn get_field_name(&mut self) -> IonCResult<StrSliceRef> {
-        let mut field = ION_STRING::default();
-        ionc!(ion_reader_get_field_name(self.reader, &mut field))?;
-
-        // make a str slice that is tied to our lifetime
-        let field_str = field.as_str(PhantomData::<&'a u8>::default())?;
-        Ok(StrSliceRef::new(self, field_str))
-    }
+    fn get_field_name(&mut self) -> IonCResult<StrSliceRef>;
 
     /// Retrieves the annotations associated with the current value.
     ///
@@ -230,26 +162,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn get_annotations(&mut self) -> IonCResult<StrSlicesRef> {
-        // determine how many annotations are available
-        let mut raw_len = 0;
-        ionc!(ion_reader_get_annotation_count(self.reader, &mut raw_len))?;
-
-        let len: usize = raw_len.try_into()?;
-        let mut annotations = Vec::new();
-        let mut curr = ION_STRING::default();
-        for i in 0..len {
-            ionc!(ion_reader_get_an_annotation(
-                self.reader,
-                i as c_int,
-                &mut curr
-            ))?;
-            // make a str slice that is tied to our lifetime
-            annotations.push(curr.as_str(PhantomData::<&'a u8>::default())?);
-        }
-
-        Ok(StrSlicesRef::new(self, annotations))
-    }
+    fn get_annotations(&mut self) -> IonCResult<StrSlicesRef>;
 
     /// Reads a `bool` value from the reader.
     ///
@@ -266,13 +179,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn read_bool(&mut self) -> IonCResult<bool> {
-        let mut value = 0;
-        ionc!(ion_reader_read_bool(self.reader, &mut value))?;
-
-        Ok(value != 0)
-    }
+    fn read_bool(&mut self) -> IonCResult<bool>;
 
     /// Reads an `int` value from the reader.
     ///
@@ -289,13 +196,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn read_i64(&mut self) -> IonCResult<i64> {
-        let mut value = 0;
-        ionc!(ion_reader_read_int64(self.reader, &mut value))?;
-
-        Ok(value)
-    }
+    fn read_i64(&mut self) -> IonCResult<i64>;
 
     /// Reads an `int` value from the reader as a `BigInt`.
     ///
@@ -316,13 +217,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn read_bigint(&mut self) -> IonCResult<BigInt> {
-        let mut value = ION_INT::default();
-        ionc!(ion_reader_read_ion_int(self.reader, &mut value))?;
-
-        Ok(value.try_to_bigint()?)
-    }
+    fn read_bigint(&mut self) -> IonCResult<BigInt>;
 
     /// Reads a `float` value from the reader.
     ///
@@ -339,13 +234,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn read_f64(&mut self) -> IonCResult<f64> {
-        let mut value = 0.0;
-        ionc!(ion_reader_read_double(self.reader, &mut value))?;
-
-        Ok(value)
-    }
+    fn read_f64(&mut self) -> IonCResult<f64>;
 
     /// Reads a `bigdecimal` value from the reader.
     ///
@@ -365,13 +254,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn read_bigdecimal(&mut self) -> IonCResult<BigDecimal> {
-        let mut value = ION_DECIMAL::default();
-        ionc!(ion_reader_read_ion_decimal(self.reader, &mut value))?;
-
-        Ok(value.try_to_bigdecimal()?)
-    }
+    fn read_bigdecimal(&mut self) -> IonCResult<BigDecimal>;
 
     /// Reads a `timestamp` value from the reader.
     ///
@@ -407,13 +290,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn read_datetime(&mut self) -> IonCResult<IonDateTime> {
-        let mut value = ION_TIMESTAMP::default();
-        ionc!(ion_reader_read_timestamp(self.reader, &mut value))?;
-
-        Ok(value.try_to_iondt()?)
-    }
+    fn read_datetime(&mut self) -> IonCResult<IonDateTime>;
 
     /// Reads a `string`/`symbol` value from the reader.
     ///
@@ -432,15 +309,7 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn read_string(&mut self) -> IonCResult<StrSliceRef> {
-        let mut value = ION_STRING::default();
-        ionc!(ion_reader_read_string(self.reader, &mut value))?;
-
-        // make a str slice that is tied to our lifetime
-        let str_ref = value.as_str(PhantomData::<&'a u8>::default())?;
-        Ok(StrSliceRef::new(self, str_ref))
-    }
+    fn read_string(&mut self) -> IonCResult<StrSliceRef>;
 
     /// Reads a `clob`/`blob` value from the reader.
     ///
@@ -462,8 +331,183 @@ impl<'a> IonCReaderHandle<'a> {
     /// # Ok(())
     /// # }
     /// ```
+    fn read_bytes(&mut self) -> IonCResult<Vec<u8>>;
+}
+
+/// Wrapper over `hREADER` to make it easier to use readers in IonC correctly.
+///
+/// Specifically supports the `Drop` trait to make sure `ion_reader_close` is run.
+/// Access to the underlying `hREADER` pointer is done by de-referencing the handle.
+pub struct IonCReaderHandle<'a> {
+    reader: hREADER,
+    /// Placeholder to tie our lifecycle back to the source of the data--which might not
+    /// actually be a byte slice (if we constructed this from a file or Ion C stream callback)
+    referent: PhantomData<&'a [u8]>,
+}
+
+impl<'a> IonCReaderHandle<'a> {
+    /// Constructs a reader handle from a byte slice and given options.
+    pub fn try_from_buf(
+        src: &'a [u8],
+        options: &mut ION_READER_OPTIONS,
+    ) -> Result<Self, IonCError> {
+        let mut reader = ptr::null_mut();
+        ionc!(ion_reader_open_buffer(
+            &mut reader,
+            // Ion C promises not to mutate this buffer!
+            src.as_ptr() as *mut u8,
+            src.len().try_into()?,
+            options,
+        ))?;
+        Ok(IonCReaderHandle {
+            reader,
+            referent: PhantomData::default(),
+        })
+    }
+}
+
+impl<'a> IonCReader for IonCReaderHandle<'a> {
     #[inline]
-    pub fn read_bytes(&mut self) -> IonCResult<Vec<u8>> {
+    fn next(&mut self) -> IonCResult<ION_TYPE> {
+        let mut tid = ptr::null_mut();
+        ionc!(ion_reader_next(self.reader, &mut tid))?;
+
+        Ok(tid)
+    }
+
+    #[inline]
+    fn get_type(&self) -> IonCResult<ION_TYPE> {
+        let mut tid = ptr::null_mut();
+        ionc!(ion_reader_get_type(self.reader, &mut tid))?;
+
+        Ok(tid)
+    }
+
+    #[inline]
+    fn step_in(&mut self) -> IonCResult<()> {
+        ionc!(ion_reader_step_in(self.reader))
+    }
+
+    #[inline]
+    fn step_out(&mut self) -> IonCResult<()> {
+        ionc!(ion_reader_step_out(self.reader))
+    }
+
+    #[inline]
+    fn depth(&self) -> IonCResult<i32> {
+        let mut depth = 0;
+        ionc!(ion_reader_get_depth(self.reader, &mut depth))?;
+
+        Ok(depth)
+    }
+
+    #[inline]
+    fn is_null(&self) -> IonCResult<bool> {
+        let mut is_null = 0;
+        ionc!(ion_reader_is_null(self.reader, &mut is_null))?;
+
+        Ok(is_null != 0)
+    }
+
+    #[inline]
+    fn is_in_struct(&self) -> IonCResult<bool> {
+        let mut is_in_struct = 0;
+        ionc!(ion_reader_is_in_struct(self.reader, &mut is_in_struct))?;
+
+        Ok(is_in_struct != 0)
+    }
+
+    #[inline]
+    fn get_field_name(&mut self) -> IonCResult<StrSliceRef> {
+        let mut field = ION_STRING::default();
+        ionc!(ion_reader_get_field_name(self.reader, &mut field))?;
+
+        // make a str slice that is tied to our lifetime
+        let field_str = field.as_str(PhantomData::<&'a u8>::default())?;
+        Ok(StrSliceRef::new(self, field_str))
+    }
+
+    fn get_annotations(&mut self) -> IonCResult<StrSlicesRef> {
+        // determine how many annotations are available
+        let mut raw_len = 0;
+        ionc!(ion_reader_get_annotation_count(self.reader, &mut raw_len))?;
+
+        let len: usize = raw_len.try_into()?;
+        let mut annotations = Vec::new();
+        let mut curr = ION_STRING::default();
+        for i in 0..len {
+            ionc!(ion_reader_get_an_annotation(
+                self.reader,
+                i as c_int,
+                &mut curr
+            ))?;
+            // make a str slice that is tied to our lifetime
+            annotations.push(curr.as_str(PhantomData::<&'a u8>::default())?);
+        }
+
+        Ok(StrSlicesRef::new(self, annotations))
+    }
+
+    #[inline]
+    fn read_bool(&mut self) -> IonCResult<bool> {
+        let mut value = 0;
+        ionc!(ion_reader_read_bool(self.reader, &mut value))?;
+
+        Ok(value != 0)
+    }
+
+    #[inline]
+    fn read_i64(&mut self) -> IonCResult<i64> {
+        let mut value = 0;
+        ionc!(ion_reader_read_int64(self.reader, &mut value))?;
+
+        Ok(value)
+    }
+
+    #[inline]
+    fn read_bigint(&mut self) -> IonCResult<BigInt> {
+        let mut value = ION_INT::default();
+        ionc!(ion_reader_read_ion_int(self.reader, &mut value))?;
+
+        Ok(value.try_to_bigint()?)
+    }
+
+    #[inline]
+    fn read_f64(&mut self) -> IonCResult<f64> {
+        let mut value = 0.0;
+        ionc!(ion_reader_read_double(self.reader, &mut value))?;
+
+        Ok(value)
+    }
+
+    #[inline]
+    fn read_bigdecimal(&mut self) -> IonCResult<BigDecimal> {
+        let mut value = ION_DECIMAL::default();
+        ionc!(ion_reader_read_ion_decimal(self.reader, &mut value))?;
+
+        Ok(value.try_to_bigdecimal()?)
+    }
+
+    #[inline]
+    fn read_datetime(&mut self) -> IonCResult<IonDateTime> {
+        let mut value = ION_TIMESTAMP::default();
+        ionc!(ion_reader_read_timestamp(self.reader, &mut value))?;
+
+        Ok(value.try_to_iondt()?)
+    }
+
+    #[inline]
+    fn read_string(&mut self) -> IonCResult<StrSliceRef> {
+        let mut value = ION_STRING::default();
+        ionc!(ion_reader_read_string(self.reader, &mut value))?;
+
+        // make a str slice that is tied to our lifetime
+        let str_ref = value.as_str(PhantomData::<&'a u8>::default())?;
+        Ok(StrSliceRef::new(self, str_ref))
+    }
+
+    #[inline]
+    fn read_bytes(&mut self) -> IonCResult<Vec<u8>> {
         let mut len = 0;
         ionc!(ion_reader_get_lob_size(self.reader, &mut len))?;
 
@@ -489,7 +533,7 @@ impl<'a> TryFrom<&'a [u8]> for IonCReaderHandle<'a> {
     /// Constructs a reader from a byte slice with the default options.
     #[inline]
     fn try_from(src: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::new_buf(src, &mut ION_READER_OPTIONS::default())
+        Self::try_from_buf(src, &mut ION_READER_OPTIONS::default())
     }
 }
 
