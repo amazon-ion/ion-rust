@@ -21,8 +21,8 @@ edition = "2018"
 
 [dependencies]
 paste = "1.0.0"
-num-bigint = "0.2.6"
-bigdecimal = "0.1.2"
+num-bigint = "0.3.0"
+bigdecimal = "0.2.0"
 chrono = "0.4.13"
 
 [build-dependencies]

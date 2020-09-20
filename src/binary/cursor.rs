@@ -874,6 +874,7 @@ mod tests {
     use crate::cursor::{Cursor, StreamItem, StreamItem::*};
     use crate::result::IonResult;
     use crate::types::IonType;
+    use std::convert::TryInto;
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 
@@ -989,7 +990,7 @@ mod tests {
     fn test_read_big_decimal_negative_exponent() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x52, 0xC1, 0x02]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(cursor.read_big_decimal()?, Some(0.2f64.into()));
+        assert_eq!(cursor.read_big_decimal()?, Some(0.2f64.try_into().unwrap()));
         Ok(())
     }
 
