@@ -459,6 +459,7 @@ mod test_bigdecimal {
 
     use bigdecimal::BigDecimal;
     use num_bigint::BigInt;
+    use std::os::raw::c_char;
 
     // TODO consider some kind of fuzz/property testing for this
 
@@ -591,9 +592,9 @@ mod test_bigdecimal {
                 let mut buf = vec![0u8; 128usize];
                 ionc!(ion_decimal_to_string(
                     ion_val.as_mut_ptr(),
-                    buf.as_mut_ptr() as *mut i8
+                    buf.as_mut_ptr() as *mut c_char
                 ))?;
-                let len = unsafe { strlen(buf.as_ptr() as *const i8) };
+                let len = unsafe { strlen(buf.as_ptr() as *const c_char) };
                 assert_eq!(
                     d_lit.replace("E", "d"),
                     str::from_utf8(&buf[0..len.try_into()?]).unwrap(),
@@ -866,6 +867,7 @@ mod test_timestamp {
     use rstest_reuse::{self, *};
 
     use std::ffi::CString;
+    use std::os::raw::c_char;
     use std::str;
 
     use chrono::DateTime;
@@ -989,7 +991,7 @@ mod test_timestamp {
         let mut read = 0;
         ionc!(ion_timestamp_to_string(
             &mut ion_timestamp,
-            buf.as_mut_ptr() as *mut i8,
+            buf.as_mut_ptr() as *mut c_char,
             buf.len().try_into()?,
             &mut read,
             &mut ctx
@@ -1018,7 +1020,7 @@ mod test_timestamp {
         let mut ctx = make_context();
         ionc!(ion_timestamp_parse(
             &mut ion_timestamp,
-            c_ion_lit.as_ptr() as *mut i8,
+            c_ion_lit.as_ptr() as *mut c_char,
             c_ion_lit.len().try_into()?,
             &mut read,
             &mut ctx,
