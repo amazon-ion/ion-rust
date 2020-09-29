@@ -19,9 +19,13 @@ macro_rules! mkpath {
 
 fn main() {
     let ionc_path = cmake::Config::new("ion-c").build();
-    let ionc_lib_path = mkpath!(&ionc_path, "lib");
 
-    println!("cargo:rustc-link-search=native={}", ionc_lib_path.display());
+    let lib_suffixes = &["lib", "lib64"];
+    for lib_suffix in lib_suffixes {
+        let ionc_lib_path = mkpath!(&ionc_path, lib_suffix);
+        println!("cargo:rustc-link-search=native={}", ionc_lib_path.display());
+    }
+
     println!("cargo:rustc-link-lib=static=decNumber_static");
     println!("cargo:rustc-link-lib=static=ionc_static");
 
