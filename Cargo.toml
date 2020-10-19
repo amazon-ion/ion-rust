@@ -16,7 +16,7 @@ exclude = [
   "**/ion-tests/iontestdata/**",
   "*.pdf"
 ]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2018"
 
 [workspace]
@@ -36,7 +36,7 @@ failure_derive = "^0.1"
 # NB: We use the tree dependency here for development and CI.
 #     Note that when publishing you should update the version
 #     so that users can get the correct underlying ion-c-sys version.
-ion-c-sys = { path = "./ion-c-sys", version = "0.4.3" }
+ion-c-sys = { path = "./ion-c-sys", version = "0.4" }
 
 [dev-dependencies]
 # Used by ion-tests integration
