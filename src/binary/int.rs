@@ -2,6 +2,7 @@ use std::mem;
 
 use crate::data_source::IonDataSource;
 use crate::result::{decoding_error, IonResult};
+use std::io::Write;
 
 type IntStorage = i64;
 const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<IntStorage>();
@@ -55,6 +56,26 @@ impl Int {
         })
     }
 
+    /// Encodes the provided `value` as an Int and writes it to the provided `sink`.
+    /// Returns the number of bytes written.
+    pub fn write_i64<W: Write>(sink: &mut W, value: i64) -> IonResult<usize> {
+        let magnitude = value.abs() as u64;
+        // Using leading_zeros() to determine how many empty bytes we can ignore.
+        // We subtract one from the number of leading bits to leave space for a sign bit
+        // and divide by 8 to get the number of bytes.
+        let empty_leading_bytes: u32 = magnitude.leading_zeros() - 1 >> 3;
+        let first_occupied_byte = empty_leading_bytes as usize;
+
+        let mut magnitude_bytes: [u8; mem::size_of::<u64>()] = (magnitude as u64).to_be_bytes();
+        let bytes_to_write: &mut [u8] = &mut magnitude_bytes[first_occupied_byte..];
+        if value < 0 {
+            bytes_to_write[0] |= 0b1000_0000;
+        }
+
+        sink.write_all(bytes_to_write)?;
+        Ok(bytes_to_write.len())
+    }
+
     /// Returns the value of the signed integer.
     #[inline(always)]
     pub fn value(&self) -> IntStorage {
@@ -73,6 +94,8 @@ impl Int {
 mod tests {
     use super::Int;
     use std::io::Cursor;
+    use crate::result::IonResult;
+    use std::io;
 
     const READ_ERROR_MESSAGE: &str = "Failed to read an Int from the provided cursor.";
 
@@ -137,5 +160,52 @@ mod tests {
         let data = &[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01];
         let _int = Int::read(&mut Cursor::new(data), data.len())
             .expect_err("This should have failed due to overflow.");
+    }
+
+    fn write_int_test(value: i64, expected_bytes: &[u8]) -> IonResult<()> {
+        let mut buffer: Vec<u8> = vec![];
+        Int::write_i64(&mut buffer, value)?;
+        assert_eq!(buffer.as_slice(), expected_bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_int_zero() -> IonResult<()> {
+        write_int_test(0, &[0b0000_0000])
+    }
+
+    #[test]
+    fn test_write_int_single_byte_values() -> IonResult<()> {
+        write_int_test(1, &[0b0000_0001])?;
+        write_int_test(3, &[0b0000_0011])?;
+        write_int_test(7, &[0b0000_0111])?;
+        write_int_test(100, &[0b0110_0100])?;
+
+        write_int_test(-1, &[0b1000_0001])?;
+        write_int_test(-3, &[0b1000_0011])?;
+        write_int_test(-7, &[0b1000_0111])?;
+        write_int_test(-100, &[0b1110_0100])?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_int_two_byte_values() -> IonResult<()> {
+        write_int_test(201, &[0b0000_0000, 0b1100_1001])?;
+        write_int_test(501, &[0b0000_0001, 0b1111_0101])?;
+        write_int_test(16_000, &[0b0011_1110, 0b1000_0000])?;
+
+        write_int_test(-201, &[0b1000_0000, 0b1100_1001])?;
+        write_int_test(-501, &[0b1000_0001, 0b1111_0101])?;
+        write_int_test(-16_000, &[0b1011_1110, 0b1000_0000])?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_int_max_i64() -> IonResult<()> {
+        let mut buffer: Vec<u8> = vec![];
+        let length = Int::write_i64(&mut buffer, i64::MAX)?;
+        let i = Int::read(&mut io::Cursor::new(buffer.as_slice()), length)?;
+        assert_eq!(i.value, i64::MAX);
+        Ok(())
     }
 }

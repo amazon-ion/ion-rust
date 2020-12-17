@@ -1,6 +1,7 @@
 use crate::data_source::IonDataSource;
 use crate::result::{decoding_error, IonResult};
 use std::mem;
+use std::io::Write;
 
 // ion_rust does not currently support reading variable length integers of truly arbitrary size.
 // These type aliases will simplify the process of changing the data types used to represent each
@@ -63,6 +64,42 @@ impl VarUInt {
         })
     }
 
+    /// Encodes the given unsigned int value as a VarUInt and writes it to the sink.
+    pub fn write_u64<W: Write>(sink: &mut W, mut magnitude: u64) -> IonResult<usize> {
+        // A u64 is 8 bytes of data. The VarUInt encoding will add a continuation bit to every byte,
+        // growing the data size by 8 more bits. Therefore, the largest encoded size of a u64 is
+        // 9 bytes.
+        const VAR_UINT_BUFFER_SIZE: usize = 9;
+
+        // Create a buffer to store the encoded value.
+        let mut buffer: [u8; VAR_UINT_BUFFER_SIZE] = [
+            0, 0, 0, 0, 0, 0, 0, 0, 0b1000_0000
+            //                        ^-- Set the 'end' flag of the final byte to 1
+        ];
+
+        if magnitude == 0 {
+            sink.write(&[0b1000_0000])?;
+            return Ok(1)
+        }
+
+        // The encoding process moves right-to-left, from the last byte in the buffer to the first.
+        // `first_byte` tracks the leftmost byte in the buffer that contains encoded data.
+        // We will always write at least one byte.
+        let mut first_byte = VAR_UINT_BUFFER_SIZE as u64;
+        for buffer_byte in buffer.iter_mut().rev() {
+            first_byte -= 1;
+            *buffer_byte |= magnitude as u8 & LOWER_7_BITMASK;
+            magnitude >>= BITS_PER_ENCODED_BYTE;
+            if magnitude == 0 {
+                break;
+            }
+        }
+
+        let encoded_bytes = &buffer[(first_byte as usize)..];
+        sink.write(encoded_bytes)?;
+        Ok(encoded_bytes.len())
+    }
+
     /// Returns the magnitude of the unsigned integer
     #[inline(always)]
     pub fn value(&self) -> VarUIntStorage {
@@ -81,6 +118,7 @@ impl VarUInt {
 mod tests {
     use super::VarUInt;
     use std::io::{BufReader, Cursor};
+    use crate::result::IonResult;
 
     const ERROR_MESSAGE: &'static str = "Failed to read a VarUInt from the provided data.";
 
@@ -134,5 +172,41 @@ mod tests {
             0b1111_1111,
         ]))
         .expect_err("This should have failed due to overflow.");
+    }
+
+    fn var_uint_encoding_test(value: u64, expected_encoding: &[u8]) -> IonResult<()> {
+        let mut buffer = vec![];
+        VarUInt::write_u64(&mut buffer, value)?;
+        assert_eq!(buffer.as_slice(), expected_encoding);
+        return Ok(())
+    }
+
+    #[test]
+    fn test_write_var_uint_zero() -> IonResult<()> {
+        var_uint_encoding_test(0, &[0b1000_0000])?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_var_uint_single_byte_values() -> IonResult<()> {
+        var_uint_encoding_test(6, &[0b1000_0110])?;
+        var_uint_encoding_test(17, &[0b1001_0001])?;
+        var_uint_encoding_test(41, &[0b1010_1001])?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_var_uint_two_byte_values() -> IonResult<()>  {
+        var_uint_encoding_test(279, &[0b0000_0010, 0b1001_0111])?;
+        var_uint_encoding_test(555, &[0b0000_0100, 0b1010_1011])?;
+        var_uint_encoding_test(999, &[0b0000_0111, 0b1110_0111])?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_var_uint_three_byte_values() -> IonResult<()> {
+        var_uint_encoding_test(81_991, &[0b0000_0101, 0b0000_0000, 0b1100_0111])?;
+        var_uint_encoding_test(400_600, &[0b0001_1000, 0b0011_1001, 0b1101_1000])?;
+        Ok(())
     }
 }

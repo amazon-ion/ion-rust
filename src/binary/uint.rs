@@ -47,7 +47,7 @@ impl UInt {
     }
 
     /// Encodes the provided `magnitude` as a UInt and writes it to the provided `sink`.
-    pub fn write_uint<W: Write>(sink: &mut W, magnitude: u64) -> IonResult<()> {
+    pub fn write_u64<W: Write>(sink: &mut W, magnitude: u64) -> IonResult<usize> {
         // leading_zeros() uses an intrinsic to calculate this quickly
         let empty_leading_bytes: u32 = magnitude.leading_zeros() >> 3; // Divide by 8 to get byte count
         let first_occupied_byte = empty_leading_bytes as usize;
@@ -56,7 +56,7 @@ impl UInt {
         let bytes_to_write: &[u8] = &magnitude_bytes[first_occupied_byte..];
 
         sink.write_all(bytes_to_write)?;
-        Ok(())
+        Ok(bytes_to_write.len())
     }
 
     /// Returns the magnitude of the unsigned integer.
@@ -116,7 +116,7 @@ mod tests {
     fn test_write_eight_byte_uint() {
         let value = 0x01_23_45_67_89_AB_CD_EF;
         let mut buffer: Vec<u8> = vec![];
-        UInt::write_uint(&mut buffer, value).expect(WRITE_ERROR_MESSAGE);
+        UInt::write_u64(&mut buffer, value).expect(WRITE_ERROR_MESSAGE);
         let expected_bytes = &[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF];
         assert_eq!(expected_bytes, buffer.as_slice());
     }
@@ -125,7 +125,7 @@ mod tests {
     fn test_write_five_byte_uint() {
         let value = 0x01_23_45_67_89;
         let mut buffer: Vec<u8> = vec![];
-        UInt::write_uint(&mut buffer, value).expect(WRITE_ERROR_MESSAGE);
+        UInt::write_u64(&mut buffer, value).expect(WRITE_ERROR_MESSAGE);
         let expected_bytes = &[0x01, 0x23, 0x45, 0x67, 0x89];
         assert_eq!(expected_bytes, buffer.as_slice());
     }
@@ -134,7 +134,7 @@ mod tests {
     fn test_write_three_byte_uint() {
         let value = 0x01_23_45;
         let mut buffer: Vec<u8> = vec![];
-        UInt::write_uint(&mut buffer, value).expect(WRITE_ERROR_MESSAGE);
+        UInt::write_u64(&mut buffer, value).expect(WRITE_ERROR_MESSAGE);
         let expected_bytes: &[u8] = &[0x01, 0x23, 0x45];
         assert_eq!(expected_bytes, buffer.as_slice());
     }
@@ -143,7 +143,7 @@ mod tests {
     fn test_write_uint_zero() {
         let value = 0x00;
         let mut buffer: Vec<u8> = vec![];
-        UInt::write_uint(&mut buffer, value).expect(WRITE_ERROR_MESSAGE);
+        UInt::write_u64(&mut buffer, value).expect(WRITE_ERROR_MESSAGE);
         let expected_bytes: &[u8] = &[];
         assert_eq!(expected_bytes, buffer.as_slice());
     }
