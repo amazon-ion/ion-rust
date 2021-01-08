@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Remove msys64
         if: runner.os == 'Windows'
-        run: Remove-Item -LiteralPath "C:\msys64\ " -Force -Recurse
+        run: Remove-Item -LiteralPath "C:\msys64\" -Force -Recurse
       - name: Install Dependencies
         if: runner.os == 'Windows'
         run: choco install llvm -y
