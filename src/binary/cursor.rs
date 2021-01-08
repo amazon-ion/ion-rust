@@ -27,39 +27,61 @@ use std::ops::Range;
 /// Information about the value over which the Cursor is currently positioned.
 #[derive(Clone, Debug)]
 struct EncodedValue {
+    // `EncodedValue` instances are moved during `step_in` and `step_out` operations.
+    // If the compiler decides that a value is too large to be moved with inline code,
+    // it will relocate the value using memcpy instead. This can be quite slow by comparison.
+    //
+    // Be cautious when adding new member fields or modifying the data types of existing member
+    // fields, as this may cause the in-memory size of `EncodedValue` instances to grow.
+    //
+    // See the Rust Performance Book section on measuring type sizes[1] for more information.
+    // [1] https://nnethercote.github.io/perf-book/type-sizes.html#measuring-type-sizes
+
     ion_type: IonType,
     header: Header,
     is_null: bool,
     index_at_depth: usize,
     field_id: Option<SymbolId>,
-    annotations: Vec<SymbolId>,
-    parent_index: Option<usize>,
 
-    // Each encoded value has up to four components, appearing
-    // in the following order:
+    // The `number_of_annotations` field stores the number of annotations associated with
+    // the current value in the Ion stream.
     //
-    // [ field_id? | annotations? | header | value ]
+    // The CursorState struct uses a single Vec to store the annotations of the current
+    // EncodedValue and any parent EncodedValues that have been stepped into. To read the
+    // annotations associated with the current EncodedValue, the cursor will iterate over the
+    // last `number_of_fields` entries in the annotations Vec. Each time that next() or step_out()
+    // are called, the cursor will truncate `number_of_annotations` values from the end of
+    // the annotations Vec.
     //
-    // The following fields store their respective byte offsets
-    // from the beginning of the data source.
+    // This approach allows us to re-use a single Vec for all annotations over the course
+    // of the entire Ion stream. It also minimizes the size of the `EncodedValue` struct
+    // (as calculated with `mem::size_of::<EncodedValue>()`); a Vec takes 24 bytes to
+    // represent on the stack, while storing the number of annotations takes 1 byte.
+    number_of_annotations: u8,
 
-    // Only valid if `field_id` is defined.
-    field_id_offset: usize,
-    // Only valid if `annotations` is not empty.
-    annotations_offset: usize,
+    // Each encoded value has up to five components, appearing in the following order:
+    //
+    // [ field_id? | annotations? | header (type descriptor) | header_length? | value ]
+    //
+    // Components shown with a `?` are optional.
+    //
+    // EncodedValue stores the offset of the type descriptor byte from the beginning of the
+    // data source (`header_offset`). The lengths of the other fields can be used to calculate
+    // their positions relative to the type descriptor byte.
+
+    // The number of bytes used to encode the field ID (if present) preceding the Ion value. If
+    // `field_id` is undefined, `field_id_length` will be zero.
+    field_id_length: u8,
+    // The number of bytes used to encode the annotations wrapper (if present) preceding the Ion
+    // value. If `annotations` is empty, `field_id_length` will be zero.
+    annotations_length: u8,
     // Type descriptor byte location.
     header_offset: usize,
-    // The first byte after the type descriptor and 'length' field.
-    // Only valid if `value_length` is non-zero.
-    value_offset: usize,
-    // The number of bytes used to encode the value, not including
-    // the header byte or length fields.
+    // The number of bytes used to encode the header not including the type descriptor byte.
+    header_length: u8,
+    // The number of bytes used to encode the value itself, not including the header byte
+    // or length fields.
     value_length: usize,
-
-    // The first offset beyond the end of this value, calculated as:
-    //     value_offset + value_length
-    // Stored here to avoid having to recalculate it.
-    value_end: usize,
 }
 
 impl EncodedValue {
@@ -67,9 +89,8 @@ impl EncodedValue {
     /// byte and any additional bytes used to encode the `length`.
     fn header_range(&self) -> Range<usize> {
         let start = self.header_offset;
-        // Range uses an exclusive `end`
-        let end = self.value_offset;
-        Range { start, end }
+        let end = start + self.header_length as usize + 1;
+        start..end
     }
 
     /// Returns the number of bytes used to encode this value's data.
@@ -80,11 +101,23 @@ impl EncodedValue {
         self.value_length
     }
 
+    /// The offset of the first byte following the header (and length, if present).
+    /// If `value_length()` returns zero, this offset is actually the first byte of
+    /// the next encoded value and should not be read.
+    fn value_offset(&self) -> usize {
+        self.header_offset + self.header_length as usize + 1 as usize
+    }
+
     /// Returns an offset Range containing any bytes following the header.
     fn value_range(&self) -> Range<usize> {
-        let start = self.value_offset;
-        let end = self.value_end;
-        Range { start, end }
+        let start = self.value_offset();
+        let end = start + self.value_length;
+        start..end
+    }
+
+    /// Returns the index of the first byte that is beyond the end of the current value's encoding.
+    fn value_end_exclusive(&self) -> usize {
+        self.value_offset() + self.value_length
     }
 
     /// Returns the number of bytes used to encode this value's field ID, if present.
@@ -92,19 +125,25 @@ impl EncodedValue {
         if self.field_id.is_none() {
             return None;
         }
-        if !self.annotations.is_empty() {
-            return Some(self.annotations_offset - self.field_id_offset);
+        Some(self.field_id_length as usize)
+    }
+
+    /// Returns the offset of the first byte used to encode this value's field ID, if present.
+    fn field_id_offset(&self) -> Option<usize> {
+        if self.field_id.is_none() {
+            return None;
         }
-        Some(self.header_offset - self.field_id_offset)
+        Some(self.header_offset
+            - self.annotations_length as usize
+            - self.field_id_length as usize)
     }
 
     /// Returns an offset Range that contains the bytes used to encode this value's field ID,
     /// if present.
     fn field_id_range(&self) -> Option<Range<usize>> {
-        if let Some(length) = self.field_id_length() {
-            let start = self.field_id_offset;
-            let end = start + length;
-            return Some(Range { start, end });
+        if let Some(start) = self.field_id_offset() {
+            let end = start + self.field_id_length as usize;
+            return Some(start..end);
         }
         None
     }
@@ -113,20 +152,27 @@ impl EncodedValue {
     /// While annotations envelope the value that they decorate, this function does not include
     /// the length of the value itself.
     fn annotations_length(&self) -> Option<usize> {
-        if self.annotations.is_empty() {
+        if self.number_of_annotations == 0 {
             return None;
         }
-        Some(self.header_offset - self.annotations_offset)
+        Some(self.annotations_length as usize)
+    }
+
+    /// Returns the offset of the beginning of the annotations wrapper, if present.
+    fn annotations_offset(&self) -> Option<usize> {
+        if self.number_of_annotations == 0 {
+            return None;
+        }
+        Some(self.header_offset - self.annotations_length as usize)
     }
 
     /// Returns an offset Range that includes the bytes used to encode this value's annotations,
     /// if any. While annotations envelope the value that they modify, this function does not
     /// include the bytes of the encoded value itself.
     fn annotations_range(&self) -> Option<Range<usize>> {
-        if let Some(length) = self.annotations_length() {
-            let start = self.annotations_offset;
-            let end = start + length;
-            return Some(Range { start, end });
+        if let Some(start) = self.annotations_offset() {
+            let end = start + self.annotations_length as usize;
+            return Some(start..end);
         }
         None
     }
@@ -142,16 +188,14 @@ impl Default for EncodedValue {
                 length_code: length_codes::NULL,
             },
             field_id: None,
-            annotations: Vec::new(),
             is_null: true,
             index_at_depth: 0,
-            field_id_offset: 0,
-            annotations_offset: 0,
+            field_id_length: 0,
+            annotations_length: 0,
             header_offset: 0,
-            value_offset: 0,
+            header_length: 0,
             value_length: 0,
-            value_end: 0,
-            parent_index: None,
+            number_of_annotations: 0
         }
     }
 }
@@ -192,6 +236,10 @@ pub struct CursorState {
     value: EncodedValue,
     // All of the values into which the cursor has stepped. Empty at the top level.
     parents: Vec<EncodedValue>,
+    // All of the annotations on values in `parents` and the current value.
+    // Having a single, reusable Vec reduces allocations and keeps the size of
+    // the EncodedValue type (which is frequently moved) small.
+    annotations: Vec<SymbolId>
 }
 
 /// Verifies that the current value is of the expected type and that the bytes representing that
@@ -231,7 +279,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         if let Some(ref parent) = self.cursor.parents.last() {
             // If the cursor is nested inside a parent object, don't attempt to read beyond the end of
             // the parent. Users can call '.step_out()' to progress beyond the container.
-            if self.cursor.bytes_read >= parent.value_end {
+            if self.cursor.bytes_read >= parent.value_end_exclusive() {
                 return Ok(None);
             }
         }
@@ -250,8 +298,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         };
         self.cursor.value.header = header;
 
-        // Clear the annotations vec before (maybe) reading new ones
-        self.cursor.value.annotations.truncate(0);
+        self.clear_annotations();
         if header.ion_type_code == IonTypeCode::Annotation {
             if header.length_code == 0 {
                 // This is actually the first byte in an Ion Version Marker
@@ -287,7 +334,13 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     }
 
     fn annotation_ids(&self) -> &[SymbolId] {
-        &self.cursor.value.annotations
+        let num_annotations = self.cursor.value.number_of_annotations as usize;
+        if num_annotations == 0 {
+            return EMPTY_SLICE_USIZE;
+        }
+        let end = self.cursor.annotations.len();
+        let start = end - num_annotations;
+        &self.cursor.annotations[start..end]
     }
 
     fn field_id(&self) -> Option<SymbolId> {
@@ -495,13 +548,16 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     #[inline]
     fn step_in(&mut self) -> IonResult<()> {
         use self::IonType::*;
+        use std::mem;
         self.cursor.is_in_struct = match self.cursor.value.ion_type {
             Struct => true,
             List | SExpression => false,
             _ => panic!("You cannot step into a(n) {:?}", self.cursor.value.ion_type),
         };
-        self.cursor.value.parent_index = Some(self.cursor.parents.len());
-        self.cursor.parents.push(self.cursor.value.clone());
+        self.cursor.parents.push(EncodedValue::default());
+        // We've just push()ed a value onto the `parents` Vec, so it's safe to call
+        // last_mut().unwrap() below.
+        mem::swap(&mut self.cursor.value, self.cursor.parents.last_mut().unwrap());
         self.cursor.depth += 1;
         self.cursor.index_at_depth = 0;
         Ok(())
@@ -512,20 +568,34 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         use std::mem;
         let bytes_to_skip;
 
-        // Remove the last parent from the parents vec
-        let mut parent = self
-            .cursor
-            .parents
-            .pop()
+        // Clear annotations belonging to the current value before we step out.
+        self.clear_annotations();
+
+        // EncodedLevel is a fairly large struct. Using Vec::pop() to remove the last item causes
+        // the last EncodedLevel to be moved to the stack before it's swap()ped into
+        // self.cursor.value, which is surprisingly expensive. As an optimization, we can get
+        // an in-place reference to the last parent in the Vec and perform the swap() there.
+        // We then truncate the Vec to discard the old value that was swapped into the last
+        // Vec position.
+
+        // Get an in-place handle to parent
+        let mut parent = self.cursor.parents
+            .last_mut()
             .ok_or_else(|| illegal_operation_raw("You cannot step out of the root level."))?;
 
         // We're stepping out of the container, so we need to skip to the end of it.
-        bytes_to_skip = parent.value_end - self.cursor.bytes_read;
+        let value_end_excl = parent.value_end_exclusive();
+        let bytes_read = self.cursor.bytes_read;
+        bytes_to_skip = value_end_excl - bytes_read;
 
         // Set the parent as the current value
         mem::swap(&mut self.cursor.value, &mut parent);
 
-        // Check to see what the new top of the parents stack is
+        // Drop the last entry in the parents Vec in-place to avoid another move.
+        let len_without_last = self.cursor.parents.len() - 1;
+        self.cursor.parents.truncate(len_without_last);
+
+        // Check to see what the new top of the parents stack is.
         if let Some(ref parent) = self.cursor.parents.last() {
             self.cursor.is_in_struct = parent.ion_type == IonType::Struct;
         } else {
@@ -543,7 +613,8 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     }
 }
 
-const EMPTY_SLICE: &[u8] = &[];
+const EMPTY_SLICE_U8: &[u8] = &[];
+const EMPTY_SLICE_USIZE: &[usize] = &[];
 
 /// Additional functionality that's only available if the data source is in-memory, such as a
 /// Vec<u8> or &[u8]).
@@ -559,14 +630,14 @@ where
             return None;
         }
         let start: usize;
-        if self.cursor.value.field_id.is_some() {
-            start = self.cursor.value.field_id_offset;
-        } else if !self.cursor.value.annotations.is_empty() {
-            start = self.cursor.value.annotations_offset;
+        if let Some(field_id_offset) = self.cursor.value.field_id_offset() {
+            start = field_id_offset;
+        } else if let Some(annotations_offset) = self.cursor.value.annotations_offset() {
+            start = annotations_offset;
         } else {
             start = self.cursor.value.header_offset;
         }
-        let end = self.cursor.value.value_end;
+        let end = self.cursor.value.value_end_exclusive();
         let bytes = self.data_source.get_ref().as_ref();
         Some(&bytes[start..end])
     }
@@ -626,7 +697,7 @@ where
     pub fn new(data_source: R) -> Self {
         BinaryIonCursor {
             data_source,
-            buffer: vec![0; 1024],
+            buffer: vec![0; 4096],
             cursor: CursorState {
                 ion_version: (1, 0),
                 bytes_read: 0,
@@ -635,6 +706,7 @@ where
                 is_in_struct: false,
                 value: Default::default(),
                 parents: Vec::new(),
+                annotations: Vec::new()
             },
             header_cache: create_header_byte_jump_table(),
         }
@@ -645,7 +717,17 @@ where
     }
 
     fn finished_reading_value(&mut self) -> bool {
-        self.cursor.value.value_length > 0 && self.cursor.bytes_read >= self.cursor.value.value_end
+        self.cursor.value.value_length > 0 && self.cursor.bytes_read >= self.cursor.value.value_end_exclusive()
+    }
+
+    fn clear_annotations(&mut self) {
+        if self.cursor.value.number_of_annotations > 0 {
+            // Drop the annotations belonging to the last value read from the annotations Vec
+            let prev_num_annotations = self.cursor.value.number_of_annotations as usize;
+            let new_annotations_len = self.cursor.annotations.len() - prev_num_annotations;
+            self.cursor.annotations.truncate(new_annotations_len);
+            self.cursor.value.number_of_annotations = 0;
+        }
     }
 
     #[inline(always)]
@@ -703,9 +785,8 @@ where
             Reserved => return decoding_error("Found an Ion Value with a Reserved type code."),
         };
 
-        self.cursor.value.value_offset = self.cursor.bytes_read;
+        self.cursor.value.header_length = (self.cursor.bytes_read - self.cursor.value.header_offset - 1) as u8;
         self.cursor.value.value_length = length;
-        self.cursor.value.value_end = self.cursor.value.value_offset + length;
         Ok(())
     }
 
@@ -777,33 +858,39 @@ where
         if self.cursor.index_at_depth == 0 {
             Ok(())
         } else {
-            let bytes_to_skip = self.cursor.value.value_end - self.cursor.bytes_read;
+            let bytes_to_skip = self.cursor.value.value_end_exclusive() - self.cursor.bytes_read;
             self.skip_bytes(bytes_to_skip)
         }
     }
 
     fn read_field_id(&mut self) -> IonResult<SymbolId> {
-        self.cursor.value.field_id_offset = self.cursor.bytes_read;
         let var_uint = self.read_var_uint()?;
         let field_id = var_uint.value();
+        self.cursor.value.field_id_length = var_uint.size_in_bytes() as u8;
         Ok(field_id)
     }
 
     fn read_annotations(&mut self) -> IonResult<()> {
+        let num_annotations_before = self.cursor.annotations.len();
         // The first byte of the annotations envelope is now behind the cursor
-        self.cursor.value.annotations_offset = self.cursor.bytes_read - 1;
+        let annotations_offset = self.cursor.bytes_read - 1;
         // The encoding allows us to skip over the annotations list and the value, but in practice
         // we won't know if we want to skip this value until we've read the type descriptor byte.
         // That means we need to read the length even though we have no intent to use it.
         let _annotations_and_value_length = self.read_standard_length()?;
-        let annotations_length = self.read_var_uint()?.value();
+        let annotations_length = self.read_var_uint()?;
         let mut bytes_read: usize = 0;
-        while bytes_read < annotations_length {
+        while bytes_read < annotations_length.value() {
             let var_uint = self.read_var_uint()?;
             bytes_read += var_uint.size_in_bytes();
             let annotation_symbol_id = var_uint.value();
-            self.cursor.value.annotations.push(annotation_symbol_id);
+            self.cursor.annotations.push(annotation_symbol_id);
         }
+        let new_annotations_count = self.cursor.annotations.len() - num_annotations_before;
+        self.cursor.value.number_of_annotations = new_annotations_count as u8;
+
+        // The annotations type descriptor byte + the length of the annotations sequence
+        self.cursor.value.annotations_length = (self.cursor.bytes_read - annotations_offset) as u8;
         Ok(())
     }
 
