@@ -14,7 +14,8 @@ jobs:
       - name: Env Variable Setup 
         if: matrix.os == 'windows-latest'
         run: | 
-          echo 'LIBCLANG_PATH=C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin' >> $GITHUB_ENV
+          echo 'PATH=$PATH:C:\msys64\mingw64\bin' >> $GITHUB_ENV
+          echo 'PATH=C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\Llvm\x64\bin' >> $GITHUB_ENV
       - name: Git Checkout
         uses: actions/checkout@v2
         with:
