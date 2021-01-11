@@ -558,7 +558,6 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
             .with_nanosecond(nanoseconds);
 
         if naive_datetime.is_none() {
-            println!("Depth: {}, Index at depth: {}", self.cursor.depth, self.cursor.index_at_depth);
             return decoding_error(
                 format!(
                     "{}: year={}, month={}, day={}, hour={}, minute={}, second={}, exp={}, coeff={}, nanos={}",
