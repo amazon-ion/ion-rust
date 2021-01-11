@@ -548,7 +548,11 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
             subsecond_coefficient = self.read_int(coefficient_size_in_bytes)?.value();
         }
 
-        // FIXME: This always assumes nanosecond precision.
+        // This turns the encoded decimal fractional seconds into a number of nanoseconds to set on
+        // the DateTime value we're building.
+        // TODO: This assumes that the provided DateTime had nanosecond precision.
+        //      Offer an read_* API that surfaces information about the encoded timestamp's
+        //      precision.
         const NANOSECONDS_PER_SECOND: f64 = 1_000_000_000f64;
         let fractional_seconds = subsecond_coefficient as f64 * 10f64.powf(subsecond_exponent as f64);
         let nanoseconds = (fractional_seconds * NANOSECONDS_PER_SECOND).round() as u32;
