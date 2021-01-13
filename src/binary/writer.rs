@@ -151,7 +151,7 @@ const INITIAL_ANNOTATIONS_CAPACITY: usize = 4;
 impl<W: Write> BinarySystemWriter<W> {
     /// Creates a new BinarySystemWriter that will write its encoded output to the provided
     /// io::Write sink.
-    fn new(out: W) -> BinarySystemWriter<W> {
+    pub fn new(out: W) -> BinarySystemWriter<W> {
         let mut levels = Vec::with_capacity(INITIAL_ENCODING_LEVELS_CAPACITY);
         // Create an EncodingLevel to represent the top level. It has no annotations.
         levels.push(EncodingLevel::new(ContainerType::TopLevel, None, 0, 0));
@@ -258,6 +258,8 @@ impl<W: Write> BinarySystemWriter<W> {
             value_io_range
         ]);
 
+        self.push_empty_io_range();
+
         Ok(())
     }
 
@@ -351,7 +353,7 @@ impl<W: Write> BinarySystemWriter<W> {
     }
 
     /// Writes an Ion null of the specified type.
-    fn write_null(&mut self, ion_type: IonType) -> IonResult<()> {
+    pub fn write_null(&mut self, ion_type: IonType) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
             let byte: u8 = match ion_type {
                 IonType::Null => 0x0F,
@@ -374,7 +376,7 @@ impl<W: Write> BinarySystemWriter<W> {
     }
 
     /// Writes an Ion boolean with the specified value.
-    fn write_bool(&mut self, value: bool) -> IonResult<()> {
+    pub fn write_bool(&mut self, value: bool) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
             let byte: u8 = if value { 0x11 } else { 0x10 };
             enc_buffer.push(byte);
@@ -383,7 +385,7 @@ impl<W: Write> BinarySystemWriter<W> {
     }
 
     /// Writes an Ion integer with the specified value.
-    fn write_i64(&mut self, value: i64) -> IonResult<()> {
+    pub fn write_i64(&mut self, value: i64) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
             let is_positive: bool = value >= 0;
             let magnitude: u64 = value.abs() as u64;
@@ -783,6 +785,19 @@ impl<W: Write> BinarySystemWriter<W> {
 
         Ok(())
     }
+
+    /// Returns a reference to the underlying io::Write implementation.
+    pub fn output(&self) -> &W {
+        &self.out
+    }
+
+    /// Returns a mutable reference to the underlying io::Write implementation. Modifying the
+    /// underlying sink is an inherently risky operation and can result in unexpected behavior.
+    /// It is not recommended for most use cases.
+    pub fn output_mut(&mut self) -> &mut W {
+        &mut self.out
+    }
+
 
     /// Writes any buffered data to the sink. This method can only be called when the writer is at
     /// the top level.
