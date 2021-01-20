@@ -28,7 +28,7 @@ fn read_all_values<R: IonDataSource>(cursor: &mut BinaryIonCursor<R>) -> IonResu
     let mut count: usize = 0;
     loop {
         match cursor.next()? {
-            Some(VersionMarker) => {}
+            Some(VersionMarker(_major, _minor)) => {}
             Some(StreamItem::Value(ion_type, is_null)) => {
                 count += 1;
                 if is_null {

@@ -10,6 +10,6 @@ mod type_code;
 mod uint;
 mod var_int;
 mod var_uint;
-mod writer;
+pub mod writer;
 
 pub(crate) use type_code::IonTypeCode;

@@ -64,7 +64,7 @@ pub trait Cursor {
 
     /// Runs the provided closure, passing in a reference to the string to be read and allowing a
     /// calculated value of any type to be returned. When possible, string_ref_map will pass a
-    /// reference directly to the bytes in the input buffer rather than copying the string.
+    /// reference directly to the bytes in the input buffer rather than allocating a new string.
     fn string_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
     where
         F: FnOnce(&str) -> T;
@@ -86,8 +86,18 @@ pub trait Cursor {
     /// If the current value is a blob, returns its value as a Vec<u8>; otherwise, returns None.
     fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
 
+    /// Runs the provided closure, passing in a reference to the blob to be read and allowing a
+    /// calculated value of any type to be returned. When possible, blob_ref_map will pass a
+    /// reference directly to the bytes in the input buffer rather than allocating a new array.
+    fn blob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
+
     /// If the current value is a clob, returns its value as a Vec<u8>; otherwise, returns None.
     fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
+
+    /// Runs the provided closure, passing in a reference to the clob to be read and allowing a
+    /// calculated value of any type to be returned. When possible, clob_ref_map will pass a
+    /// reference directly to the bytes in the input buffer rather than allocating a new array.
+    fn clob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
 
     /// If the current value is a timestamp, returns its value as a DateTime<FixedOffset>;
     /// otherwise, returns None.
@@ -111,7 +121,7 @@ pub trait Cursor {
 pub enum StreamItem {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
-    VersionMarker,
+    VersionMarker(u8, u8),
     /// An Ion value (e.g. an integer, timestamp, or struct).
     /// Includes the value's IonType and whether it is null.
     /// Stream values that represent system constructs (e.g. a struct marked with a

@@ -3,6 +3,7 @@ use bytes::BigEndian;
 use bytes::ByteOrder;
 use chrono::offset::FixedOffset;
 use chrono::prelude::*;
+use delegate::delegate;
 
 use crate::binary::constants::v1_0::IVM;
 use crate::cursor::{Cursor, StreamItem};
@@ -85,6 +86,18 @@ struct EncodedValue {
 }
 
 impl EncodedValue {
+
+    /// Returns the offset of the current value's type descriptor byte.
+    fn header_offset(&self) -> usize {
+        self.header_offset as usize
+    }
+
+    /// Returns the length of this value's header, including the type descriptor byte and any
+    /// additional bytes used to encode the value's length.
+    fn header_length(&self) -> usize {
+        self.header_length as usize
+    }
+
     /// Returns an offset Range containing this value's type descriptor
     /// byte and any additional bytes used to encode the `length`.
     fn header_range(&self) -> Range<usize> {
@@ -305,7 +318,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
                 // TODO: actually parse the IVM instead of assuming 1.0 and skipping it
                 self.cursor.ion_version = (1, 0);
                 self.skip_bytes(IVM.len() - 1)?;
-                return Ok(Some(StreamItem::VersionMarker));
+                return Ok(Some(StreamItem::VersionMarker(1, 0)));
             }
             // We've found an annotated value. Read all of the annotation symbols leading
             // up to the value.
@@ -489,6 +502,26 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         self.blob_ref_map(|b| b.into())
     }
 
+    fn blob_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
+        where
+            F: FnOnce(&[u8]) -> T,
+    {
+        read_safety_checks!(self, IonType::Blob);
+
+        let number_of_bytes = self.cursor.value.value_length;
+        self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
+    }
+
+    fn clob_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
+        where
+            F: FnOnce(&[u8]) -> T,
+    {
+        read_safety_checks!(self, IonType::Clob);
+
+        let number_of_bytes = self.cursor.value.value_length;
+        self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
+    }
+
     fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
         self.clob_ref_map(|c| c.into())
     }
@@ -653,6 +686,26 @@ impl<T> BinaryIonCursor<io::Cursor<T>>
 where
     T: AsRef<[u8]>,
 {
+    delegate! {
+        to self.cursor.value {
+            pub fn field_id_length(&self) -> Option<usize>;
+            pub fn field_id_offset(&self) -> Option<usize>;
+            pub fn field_id_range(&self) -> Option<Range<usize>>;
+
+            pub fn annotations_length(&self) -> Option<usize>;
+            pub fn annotations_offset(&self) -> Option<usize>;
+            pub fn annotations_range(&self) -> Option<Range<usize>>;
+
+            pub fn header_length(&self) -> usize;
+            pub fn header_offset(&self) -> usize;
+            pub fn header_range(&self) -> Range<usize>;
+
+            pub fn value_length(&self) -> usize;
+            pub fn value_offset(&self) -> usize;
+            pub fn value_range(&self) -> Range<usize>;
+        }
+    }
+
     /// Returns a slice containing the entirety of this encoded value, including its field ID
     /// (if present), its annotations (if present), its header, and the encoded value itself.
     /// Calling this function does not advance the cursor.
@@ -687,7 +740,7 @@ where
     /// Returns a slice containing the current value's raw bytes (not including its field ID,
     /// annotations, or type descriptor byte) without advancing the cursor.
     pub fn raw_value_bytes(&self) -> Option<&[u8]> {
-        if self.ion_type().is_none() || self.cursor.value.value_length == 0 {
+        if self.ion_type().is_none() {
             return None;
         }
         let bytes = self.data_source.get_ref().as_ref();
@@ -952,32 +1005,6 @@ where
         self.data_source
             .read_slice(number_of_bytes, &mut self.buffer, slice_processor)
     }
-
-    /// Runs the provided closure, passing in a reference to the value to be read and allowing a
-    /// calculated value of any type to be returned. When possible, blob_ref_map will pass a
-    /// reference directly to the bytes in the input buffer rather than copying the blob.
-    pub fn blob_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
-    where
-        F: FnOnce(&[u8]) -> T,
-    {
-        read_safety_checks!(self, IonType::Blob);
-
-        let number_of_bytes = self.cursor.value.value_length;
-        self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
-    }
-
-    /// Runs the provided closure, passing in a reference to the value to be read and allowing a
-    /// calculated value of any type to be returned. When possible, clob_ref_map will pass a
-    /// reference directly to the bytes in the input buffer rather than copying the clob.
-    pub fn clob_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
-    where
-        F: FnOnce(&[u8]) -> T,
-    {
-        read_safety_checks!(self, IonType::Clob);
-
-        let number_of_bytes = self.cursor.value.value_length;
-        self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
-    }
 }
 
 #[cfg(test)]
@@ -1014,7 +1041,7 @@ mod tests {
     fn ion_cursor_for(bytes: &[u8]) -> BinaryIonCursor<TestDataSource> {
         let mut binary_cursor = BinaryIonCursor::new(data_source_for(bytes));
         assert_eq!(binary_cursor.ion_type(), None);
-        assert_eq!(binary_cursor.next(), Ok(Some(VersionMarker)));
+        assert_eq!(binary_cursor.next(), Ok(Some(VersionMarker(1, 0))));
         assert_eq!(binary_cursor.ion_version(), (1u8, 0u8));
         binary_cursor
     }
@@ -1425,7 +1452,7 @@ mod tests {
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
         assert_eq!(cursor.annotation_ids(), &[12]);
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
-        assert_eq!(cursor.raw_value_bytes(), None);
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[15..15] /*That is, zero bytes*/));
         Ok(())
     }
 }

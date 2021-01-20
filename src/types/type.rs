@@ -17,3 +17,13 @@ pub enum IonType {
     SExpression,
     Struct,
 }
+
+impl IonType {
+    pub fn is_container(&self) -> bool {
+        use IonType::*;
+        match self {
+            List | SExpression | Struct => true,
+            _ => false
+        }
+    }
+}
