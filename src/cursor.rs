@@ -28,6 +28,9 @@ pub trait Cursor {
     /// is not positioned over a value, returns None.
     fn ion_type(&self) -> Option<IonType>;
 
+    /// Returns true if the current value is a null of any type; otherwise, returns false.
+    fn is_null(&self) -> bool;
+
     /// Returns a slice containing all of the annotation symbol IDs for the current value.
     /// If there is no current value, returns an empty slice.
     fn annotation_ids(&self) -> &[SymbolId];

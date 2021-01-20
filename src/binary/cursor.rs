@@ -333,6 +333,10 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         self.cursor.value.header.ion_type
     }
 
+    fn is_null(&self) -> bool {
+        self.cursor.value.is_null
+    }
+
     fn annotation_ids(&self) -> &[SymbolId] {
         let num_annotations = self.cursor.value.number_of_annotations as usize;
         if num_annotations == 0 {
@@ -492,6 +496,8 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     fn read_datetime(&mut self) -> IonResult<Option<DateTime<FixedOffset>>> {
         read_safety_checks!(self, IonType::Timestamp);
 
+        let datetime_start_offset = self.cursor.bytes_read;
+
         let offset_minutes = self.read_var_int()?.value();
         let year = self.read_var_uint()?.value();
 
@@ -500,6 +506,9 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         let mut hour = 0;
         let mut minute = 0;
         let mut second = 0;
+
+        let mut subsecond_exponent = 0;
+        let mut subsecond_coefficient = 0;
 
         loop {
             if self.finished_reading_value() {
@@ -527,21 +536,43 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
             }
 
             second = self.read_var_uint()?.value();
-            break;
+            if self.finished_reading_value() {
+                break;
+            }
 
-            // TODO:
-            //   https://github.com/amzn/ion-rust/issues/17
-            //   Read fractional seconds decimal value.
-            //   See DateTime#timestamp_subsec_nanos() to set it on the returned DateTime.
+            subsecond_exponent = self.read_var_int()?.value();
+            // The remaining bytes represent the coefficient. We need to determine how many bytes
+            // we've read to know how many remain.
+            let value_bytes_read = self.cursor.bytes_read - datetime_start_offset;
+            let coefficient_size_in_bytes = self.cursor.value.value_length - value_bytes_read;
+            subsecond_coefficient = self.read_int(coefficient_size_in_bytes)?.value();
         }
 
-        let naive_datetime = NaiveDate::from_ymd(year as i32, month as u32, day as u32).and_hms(
-            hour as u32,
-            minute as u32,
-            second as u32,
-        );
+        // This turns the encoded decimal fractional seconds into a number of nanoseconds to set on
+        // the DateTime value we're building.
+        // TODO: This assumes that the provided DateTime had nanosecond precision.
+        //      Offer an read_* API that surfaces information about the encoded timestamp's
+        //      precision.
+        const NANOSECONDS_PER_SECOND: f64 = 1_000_000_000f64;
+        let fractional_seconds = subsecond_coefficient as f64 * 10f64.powf(subsecond_exponent as f64);
+        let nanoseconds = (fractional_seconds * NANOSECONDS_PER_SECOND).round() as u32;
+
+        let naive_datetime = NaiveDate::from_ymd(year as i32, month as u32, day as u32)
+            .and_hms(hour as u32,minute as u32,second as u32)
+            .with_nanosecond(nanoseconds);
+
+        if naive_datetime.is_none() {
+            return decoding_error(
+                format!(
+                    "{}: year={}, month={}, day={}, hour={}, minute={}, second={}, exp={}, coeff={}, nanos={}",
+                    "Read a timestamp that would not be a legal DateTime.",
+                    year, month, day, hour, minute, second, subsecond_exponent, subsecond_coefficient, nanoseconds
+                )
+            );
+        }
+
         let offset = FixedOffset::west(offset_minutes as i32 * 60i32);
-        let datetime = offset.from_utc_datetime(&naive_datetime);
+        let datetime = offset.from_utc_datetime(&naive_datetime.unwrap());
         Ok(Some(datetime))
     }
 

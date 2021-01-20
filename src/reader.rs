@@ -173,6 +173,7 @@ impl<C: Cursor> Reader<C> {
     // delegated to self.cursor directly.
     delegate! {
         to self.cursor {
+            pub fn is_null(&self) -> bool;
             pub fn ion_version(&self) -> (u8, u8);
             pub fn ion_type(&self) -> Option<IonType>;
             pub fn annotation_ids(&self) -> &[SymbolId];
