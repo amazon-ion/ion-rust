@@ -1,17 +1,18 @@
 use std::boxed::Box;
 use std::io;
+use std::ops::Range;
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
-
 use delegate::delegate;
 
+use crate::{BinaryIonCursor, Cursor, IonType};
 use crate::constants::v1_0::system_symbol_ids;
 use crate::cursor::StreamItem::*;
 use crate::result::IonResult;
 use crate::symbol_table::SymbolTable;
+use crate::system_event_handler::SystemEventHandler;
 use crate::types::SymbolId;
-use crate::{BinaryIonCursor, Cursor, IonType, SymbolTableEventHandler};
 
 /// A streaming Ion reader that resolves symbol IDs into the appropriate text.
 ///
@@ -20,7 +21,7 @@ use crate::{BinaryIonCursor, Cursor, IonType, SymbolTableEventHandler};
 pub struct Reader<C: Cursor> {
     cursor: C,
     symbol_table: SymbolTable,
-    symtab_event_handler: Option<Box<dyn SymbolTableEventHandler>>,
+    system_event_handler: Option<Box<dyn SystemEventHandler>>,
 }
 
 impl<C: Cursor> Reader<C> {
@@ -28,7 +29,7 @@ impl<C: Cursor> Reader<C> {
         Reader {
             cursor,
             symbol_table: SymbolTable::new(),
-            symtab_event_handler: None,
+            system_event_handler: None,
         }
     }
 
@@ -39,9 +40,9 @@ impl<C: Cursor> Reader<C> {
     //       Reader generic over the handler type and set the Boxed trait object as the default.
     pub fn set_symtab_event_handler<H>(&mut self, handler: H)
     where
-        H: 'static + SymbolTableEventHandler,
+        H: 'static + SystemEventHandler,
     {
-        self.symtab_event_handler = Some(Box::new(handler));
+        self.system_event_handler = Some(Box::new(handler));
     }
 
     /// Advances the cursor to the next user-level Ion value, processing any system-level directives
@@ -49,8 +50,10 @@ impl<C: Cursor> Reader<C> {
     pub fn next(&mut self) -> IonResult<Option<(IonType, bool)>> {
         loop {
             match self.cursor.next()? {
-                Some(VersionMarker) => {
+                Some(VersionMarker(major, minor)) => {
                     self.symbol_table.reset();
+                    self.invoke_on_ivm_handler((major, minor));
+                    self.invoke_on_symbol_table_reset_handler();
                 }
                 Some(Value(IonType::Struct, false)) => {
                     if let [system_symbol_ids::ION_SYMBOL_TABLE, ..] = self.cursor.annotation_ids()
@@ -117,37 +120,43 @@ impl<C: Cursor> Reader<C> {
             }
             // If a symtab event handler is defined, pass it an immutable reference to the symbol
             // table so it can be inspected.
-            self.invoke_on_reset_handler();
+            self.invoke_on_symbol_table_reset_handler();
         }
 
         self.cursor.step_out()?;
         Ok(())
     }
 
-    fn invoke_on_reset_handler(&mut self) {
+    fn invoke_on_ivm_handler(&mut self, ion_version: (u8, u8)) {
+        self.system_event_handler
+            .as_mut()
+            .map(|h| h.on_ivm(ion_version));
+    }
+
+    fn invoke_on_symbol_table_reset_handler(&mut self) {
         // Temporarily break apart 'self' to get simultaneous references to the symbol table
-        // and the symtab event handler.
+        // and the system event handler.
         let Reader {
-            symtab_event_handler,
+            system_event_handler: symtab_event_handler,
             symbol_table,
             ..
         } = self;
         symtab_event_handler
             .as_mut()
-            .map(|h| h.on_reset(symbol_table));
+            .map(|h| h.on_symbol_table_reset(symbol_table));
     }
 
     fn invoke_on_append_handler(&mut self, new_ids_start: usize) {
         // Temporarily break apart 'self' to get simultaneous references to the symbol table
-        // and the symtab event handler.
+        // and the system event handler.
         let Reader {
-            symtab_event_handler,
+            system_event_handler: symtab_event_handler,
             symbol_table,
             ..
         } = self;
         symtab_event_handler
             .as_mut()
-            .map(|h| h.on_append(symbol_table, new_ids_start));
+            .map(|h| h.on_symbol_table_append(symbol_table, new_ids_start));
     }
 
     pub fn field_name(&self) -> Option<&str> {
@@ -185,8 +194,6 @@ impl<C: Cursor> Reader<C> {
             pub fn read_f64(&mut self) -> IonResult<Option<f64>>;
             pub fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>>;
             pub fn read_string(&mut self) -> IonResult<Option<String>>;
-            pub fn string_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>> where F: FnOnce(&str) -> T;
-            pub fn string_bytes_map<F, T>(&mut self, f: F) -> IonResult<Option<T>> where F: FnOnce(&[u8]) -> T;
             pub fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>>;
             pub fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
             pub fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
@@ -194,6 +201,12 @@ impl<C: Cursor> Reader<C> {
             pub fn step_in(&mut self) -> IonResult<()>;
             pub fn step_out(&mut self) -> IonResult<()>;
             pub fn depth(&self) -> usize;
+
+            pub fn string_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&str) -> U;
+            pub fn string_bytes_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
+
+            pub fn clob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
+            pub fn blob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
         }
     }
 }
@@ -201,9 +214,30 @@ impl<C: Cursor> Reader<C> {
 /// Functionality that is only available if the data source we're reading from is in-memory, like
 /// a Vec<u8> or &[u8].
 impl<T: AsRef<[u8]>> Reader<BinaryIonCursor<io::Cursor<T>>> {
-    #[inline(always)]
-    pub fn raw_value_bytes(&self) -> Option<&[u8]> {
-        self.cursor.raw_value_bytes()
+    delegate! {
+        to self.cursor {
+            pub fn raw_bytes(&self) -> Option<&[u8]>;
+            pub fn raw_field_id_bytes(&self) -> Option<&[u8]>;
+            pub fn raw_header_bytes(&self) -> Option<&[u8]>;
+            pub fn raw_value_bytes(&self) -> Option<&[u8]>;
+            pub fn raw_annotations_bytes(&self) -> Option<&[u8]>;
+
+            pub fn field_id_length(&self) -> Option<usize>;
+            pub fn field_id_offset(&self) -> Option<usize>;
+            pub fn field_id_range(&self) -> Option<Range<usize>>;
+
+            pub fn annotations_length(&self) -> Option<usize>;
+            pub fn annotations_offset(&self) -> Option<usize>;
+            pub fn annotations_range(&self) -> Option<Range<usize>>;
+
+            pub fn header_length(&self) -> usize;
+            pub fn header_offset(&self) -> usize;
+            pub fn header_range(&self) -> Range<usize>;
+
+            pub fn value_length(&self) -> usize;
+            pub fn value_offset(&self) -> usize;
+            pub fn value_range(&self) -> Range<usize>;
+        }
     }
 }
 
@@ -211,12 +245,13 @@ impl<T: AsRef<[u8]>> Reader<BinaryIonCursor<io::Cursor<T>>> {
 mod tests {
     use std::io;
 
+    use crate::{Reader, SymbolTable};
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::BinaryIonCursor;
     use crate::cursor::{Cursor, StreamItem::*};
     use crate::result::IonResult;
+    use crate::system_event_handler::SystemEventHandler;
     use crate::types::IonType;
-    use crate::{Reader, SymbolTable, SymbolTableEventHandler};
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 
@@ -238,7 +273,7 @@ mod tests {
     fn ion_cursor_for(bytes: &[u8]) -> BinaryIonCursor<TestDataSource> {
         let mut binary_cursor = BinaryIonCursor::new(data_source_for(bytes));
         assert_eq!(binary_cursor.ion_type(), None);
-        assert_eq!(binary_cursor.next(), Ok(Some(VersionMarker)));
+        assert_eq!(binary_cursor.next(), Ok(Some(VersionMarker(1, 0))));
         assert_eq!(binary_cursor.ion_version(), (1u8, 0u8));
         binary_cursor
     }
@@ -274,17 +309,13 @@ mod tests {
     ];
 
     struct Handler;
-    impl SymbolTableEventHandler for Handler {
-        fn on_append<'a>(&'a mut self, symbol_table: &'a SymbolTable, starting_id: usize) {
+    impl SystemEventHandler for Handler {
+        fn on_symbol_table_append<'a>(&'a mut self, symbol_table: &'a SymbolTable, starting_id: usize) {
             let new_symbols = symbol_table.symbols_tail(starting_id);
             assert_eq!(3, new_symbols.len());
             assert_eq!("foo", new_symbols[0].as_str());
             assert_eq!("bar", new_symbols[1].as_str());
             assert_eq!("baz", new_symbols[2].as_str());
-        }
-
-        fn on_reset<'a>(&'a mut self, _symbol_table: &'a SymbolTable) {
-            unimplemented!()
         }
     }
 

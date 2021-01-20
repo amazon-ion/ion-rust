@@ -74,12 +74,3 @@ impl SymbolTable {
         self.symbols_by_id.len()
     }
 }
-
-/// Functions that will be called when the reader handles system-level events that would otherwise
-/// not be surfaced to the user level.
-pub trait SymbolTableEventHandler {
-    /// Invoked when new symbols are added to the end of the existing table.
-    fn on_append<'a>(&'a mut self, symbol_table: &'a SymbolTable, starting_id: usize);
-    /// Invoked when the active symbol table is reset, potentially defining new symbols.
-    fn on_reset<'a>(&'a mut self, symbol_table: &'a SymbolTable);
-}

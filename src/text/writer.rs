@@ -28,6 +28,13 @@ impl<W: Write> TextWriter<W> {
         self.output.get_ref()
     }
 
+    /// Returns a mutable reference to the underlying io::Write implementation. Modifying the
+    /// underlying sink is an inherently risky operation and can result in unexpected behavior.
+    /// It is not recommended for most use cases.
+    pub fn output_mut(&mut self) -> &mut W {
+        self.output.get_mut()
+    }
+
     /// Causes any buffered data to be written to the underlying io::Write implementation.
     pub fn flush(&mut self) -> IonResult<()> {
         self.output.flush()?;
