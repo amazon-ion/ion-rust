@@ -30,8 +30,7 @@ bigdecimal = "^0.2"
 bytes = "^0.4"
 chrono = "^0.4"
 delegate = "^0.5"
-failure = "^0.1"
-failure_derive = "^0.1"
+thiserror = "1.0"
 
 # NB: We use the tree dependency here for development and CI.
 #     Note that when publishing you should update the version
