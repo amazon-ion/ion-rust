@@ -301,6 +301,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         self.cursor.value.field_id = if self.cursor.is_in_struct {
             Some(self.read_field_id()?)
         } else {
+            self.cursor.value.field_id_length = 0;
             None
         };
 
@@ -811,6 +812,7 @@ where
             let new_annotations_len = self.cursor.annotations.len() - prev_num_annotations;
             self.cursor.annotations.truncate(new_annotations_len);
             self.cursor.value.number_of_annotations = 0;
+            self.cursor.value.annotations_length = 0;
         }
     }
 
@@ -1031,7 +1033,7 @@ mod tests {
         data
     }
 
-    // Creates an io::Cursor over the provided data
+    // Prepends an Ion Version Marker to the provided data and wraps it in an io::Cursor.
     fn data_source_for(bytes: &[u8]) -> TestDataSource {
         let data = ion_data(bytes);
         io::Cursor::new(data)
@@ -1453,6 +1455,98 @@ mod tests {
         assert_eq!(cursor.annotation_ids(), &[12]);
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[15..15] /*That is, zero bytes*/));
+        Ok(())
+    }
+
+    #[test]
+    fn test_clear_annotations() -> IonResult<()> {
+        // Verifies that byte offset bookkeeping is correct when the cursor reads a field with
+        // annotations, then a field with no annotations, and finally a value with neither a
+        // field ID nor annotations.
+
+        let ion_data = &[
+            0xee, 0x98, 0x81, 0x83, // $ion_symbol_table::
+            0xde, 0x94,             // {                    // 20-byte struct
+            0x87,                   //   symbols:           // $7:
+            0xbe, 0x91,             //   [                  // 17-byte list
+            0x83, 0x66, 0x6f, 0x6f, //     "foo",
+            0x83, 0x62, 0x61, 0x72, //     "bar",
+            0x83, 0x62, 0x61, 0x7a, //     "baz",
+            0x84, 0x71, 0x75, 0x75, //     "quux",
+            0x78,                   //
+                                    //   ]
+                                    // }
+            0xda,                   // {                    // 10-byte struct
+            0x8a,                   //    foo:              // $10:
+            0xe5, 0x82, 0x8b, 0x8c, //    bar::baz::        // $11::$12::
+            0x21, 0x05,             //    5
+            0x8d,                   //    quux:
+            0x21, 0x07,             //    7
+                                    // }
+            0x10,                   // false
+        ];
+
+        let mut cursor = ion_cursor_for(ion_data);
+
+        // Local symbol table. We don't interpret any symbols for this test, so we can skip over it.
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Struct, false)),
+            cursor.next()?
+        );
+
+        // The first user-level value appears at byte offset 26
+        // Top-level struct {
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Struct, false)),
+            cursor.next()?
+        );
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[26..37]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[26..=26]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[27..37]));
+
+        cursor.step_in()?;
+
+        // foo: bar::baz::5
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Integer, false)),
+            cursor.next()?
+        );
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[27..34]));
+        assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[27..=27]));
+        assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[28..32]));
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[32..=32]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[33..=33]));
+        assert_eq!(cursor.read_i64()?, Some(5));
+
+        // quux: 7
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Integer, false)),
+            cursor.next()?
+        );
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[34..37]));
+        assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[34..=34]));
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[35..=35]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[36..=36]));
+        assert_eq!(cursor.read_i64()?, Some(7));
+
+        // End of top-level struct
+        cursor.step_out()?;
+
+        // false
+        assert_eq!(
+            Some(StreamItem::Value(IonType::Boolean, false)),
+            cursor.next()?
+        );
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[37..=37]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[37..=37]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[37..37] /* empty */));
+        assert_eq!(cursor.read_bool()?, Some(false));
+
         Ok(())
     }
 }
