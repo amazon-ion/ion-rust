@@ -31,6 +31,7 @@ bytes = "^0.4"
 chrono = "^0.4"
 delegate = "^0.5"
 thiserror = "1.0"
+nom = "6.1.0"
 
 # NB: We use the tree dependency here for development and CI.
 #     Note that when publishing you should update the version
