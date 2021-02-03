@@ -3,29 +3,29 @@ use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{DateTime, FixedOffset, Offset};
-use nom::Parser;
+use nom::{Parser, AsChar};
 use nom::branch::alt;
-use nom::bytes::streaming::{is_a, tag, take_while1};
+use nom::bytes::streaming::{is_a, tag, take_while1, is_not, take_until};
 use nom::character::{is_digit, is_hex_digit};
-use nom::character::streaming::{alpha1, char, digit0, digit1, none_of, one_of, satisfy};
-use nom::combinator::{map, map_res, not, opt, peek, recognize, success};
+use nom::character::streaming::{alpha1, char, digit0, digit1, none_of, one_of, satisfy, anychar};
+use nom::combinator::{map, map_res, not, opt, peek, recognize, success, verify, value};
 use nom::error::{context, VerboseError};
 use nom::Finish;
 use nom::IResult;
-use nom::multi::{many0, many0_count, many1, many1_count, separated_list1};
+use nom::multi::{many0, many0_count, many1, many1_count, separated_list1, many_m_n, fold_many0};
 use nom::sequence::{pair, preceded, separated_pair, terminated, tuple, delimited};
 
 use crate::IonType;
-use crate::result::{decoding_error, IonResult};
+use crate::result::{decoding_error, IonResult, IonError, decoding_error_raw};
 use crate::types::SymbolId;
 use nom::number::complete::recognize_float;
 
 // TODO: Modify impl to match this description.
 //       See: https://crates.io/crates/encoding_rs_io
 // We have a String buffer that we fill periodically by reading from input.
-// We read the string line-at-a-time.
+// We read the string N lines-at-a-time.
 // If a read comes back as incomplete, we clear the buffer of any already-processed text
-// and then append the next line from input. Then we try the same read again.
+// and then append the next N lines from input. Then we try the same read again.
 
 pub struct TextReader {
     input: String,
@@ -43,7 +43,7 @@ enum TextStreamItem {
     Decimal(BigDecimal),
     Timestamp(DateTime<FixedOffset>), //TODO: Proper Ion Timestamp value w/Precision
     String(String),
-    Symbol(SymbolId), // TODO: SymbolToken API
+    Symbol(String), // TODO: SymbolToken API
     Blob(Vec<u8>),
     Clob(Vec<u8>),
     ListStart,
@@ -71,6 +71,13 @@ impl TextStreamItem {
     }
 }
 
+#[derive(Debug, Clone)]
+enum StringFragment<'a> {
+    Substring(&'a str),
+    EscapedChar(char),
+    EscapedNewline,
+}
+
 //TODO: Explanatory note about how `recognize` works and how to combine it with many0_count and many1_count.
 
 impl TextReader {
@@ -81,11 +88,7 @@ impl TextReader {
     // TODO: Are these only stop characters for numeric values? See the ANTLR grammar:
     // https://amzn.github.io/ion-docs/grammar/IonText.g4.txt
     fn stop_character(input: &str) -> IResult<&str, char> {
-        //TODO: \v and \f are not recognized escapes in Rust strings
-        //      We should use the unicode escape equivalent for those byte sequences:
-        //        \v: 0x0b
-        //        \f: 0x0c
-        peek(one_of("{}[](),\"' \t\n\r"))(input)
+        peek(one_of("{}[](),\"' \t\n\r\u{0b}\u{0c}"))(input)
     }
 
     // Recognizes a null and converts it into a TextStreamItem::Null containing the associated
@@ -95,7 +98,7 @@ impl TextReader {
             delimited(
                 tag("null"),
                 opt(preceded(char('.'), alpha1)),
-                peek(Self::stop_character),
+                Self::stop_character,
             ),
             |maybe_ion_type_text| {
                 if let Some(ion_type_text) = maybe_ion_type_text {
@@ -291,6 +294,7 @@ impl TextReader {
                     recognize(Self::decimal_exponent_marker_followed_by_digits),
                 ))),
             |text| {
+                println!("Decimal w/exp text: {:?}", text);
                 // TODO: Reusable buffer for sanitization
                 let substitute_exponent_markers: &[char] = &['d', 'D'];
                 let mut sanitized = text.replace(substitute_exponent_markers, "e");
@@ -298,6 +302,7 @@ impl TextReader {
                 if sanitized.ends_with("e") {
                     sanitized.push_str("0");
                 }
+                println!("Decimal w/exp sanitized: {:?}", &sanitized);
                 Ok(TextStreamItem::Decimal(BigDecimal::from_str(&sanitized)?))
             }
         )(input)
@@ -307,8 +312,10 @@ impl TextReader {
         map_res::<_, _, _, _, ParseBigDecimalError, _, _>(
         Self::floating_point_number,
             |text| {
+                println!("Decimal w/o exp text: {:?}", text);
                 // TODO: Reusable buffer for sanitization
                 let sanitized = text.replace("_", "");
+                println!("Decimal w/o exp sanitized: {:?}", &sanitized);
                 Ok(TextStreamItem::Decimal(BigDecimal::from_str(&sanitized)?))
             }
         )(input)
@@ -374,15 +381,19 @@ impl TextReader {
     fn decimal_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, Option<&str>> {
         preceded(
             one_of("dD"),
-            opt(Self::digits_after_delimiter)
+            opt(Self::exponent_digits)
         )(input)
     }
 
     fn float_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, Option<&str>> {
         preceded(
             one_of("eE"),
-            opt(Self::digits_after_delimiter)
+            opt(Self::exponent_digits)
         )(input)
+    }
+
+    fn exponent_digits(input: &str) -> IResult<&str, &str> {
+        recognize(pair(opt(char('-')), Self::digits_after_delimiter))(input)
     }
 
     // Unlike before the delimiter, the digits that follow the delimiter can start with one or more
@@ -398,13 +409,297 @@ impl TextReader {
         )(input)
     }
 
+    fn whitespace(input: &str) -> IResult<&str, &str> {
+        //TODO Comments
+        is_a(" \r\n\t")(input)
+    }
+
+    fn string(input: &str) -> IResult<&str, TextStreamItem> {
+        alt((Self::short_string, Self::long_string))(input)
+    }
+
+    fn short_string(input: &str) -> IResult<&str, TextStreamItem> {
+        map(
+            delimited(char('"'), Self::short_string_body, char('"')),
+            |text| {
+                println!("Short string parts: {:?}", &text);
+                TextStreamItem::String(text)
+            }
+        )(input)
+    }
+
+    // TODO: This parser allocates a Vec to hold each intermediate '''...''' string
+    //       and then again to merge them into a finished product. These allocations
+    //       could be removed with some refactoring.
+    fn long_string(input: &str) -> IResult<&str, TextStreamItem> {
+        map(
+            terminated(
+                    many1(
+                        terminated(
+                            delimited(tag("'''"), Self::long_string_body, tag("'''")),
+                            opt(Self::whitespace)
+                        )
+                    ),
+                    peek(not(tag("'''")))
+                ),
+            |text| {
+                println!("Long string parts: {:?}", &text);
+                TextStreamItem::String(text.join(""))
+            }
+        )(input)
+    }
+
+    fn long_string_body(input: &str) -> IResult<&str, String> {
+        fold_many0(
+            Self::long_string_fragment,
+            String::new(),
+            |mut string, fragment| {
+                match fragment {
+                    StringFragment::EscapedNewline => {} // Discard escaped newlines
+                    StringFragment::EscapedChar(c) => string.push(c),
+                    StringFragment::Substring(s) => string.push_str(s),
+                }
+                string
+            },
+        )(input)
+    }
+
+    fn long_string_fragment(input: &str) -> IResult<&str, StringFragment> {
+        alt((
+            Self::escaped_newline,
+            Self::escaped_char,
+            Self::long_string_fragment_without_escaped_text,
+        ))(input)
+    }
+
+    fn long_string_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
+        map(
+            verify(take_until("'''"), |s: &str| !s.is_empty()),
+            |text| StringFragment::Substring(text)
+        )(input)
+    }
+
+    // TODO: This allocates a new String in order to perform character substitutions for escape
+    //       sequences. With some refactoring, we should be able to instead load the string into
+    //       a reusable buffer. This would require changing TextStreamItem::String(String) to
+    //       TextStreamItem::String, and the APIs would have to look for the loaded value in the
+    //       buffer.
+    fn short_string_body(input: &str) -> IResult<&str, String> {
+        fold_many0(
+            Self::short_string_fragment,
+            String::new(),
+            |mut string, fragment| {
+                match fragment {
+                    StringFragment::EscapedNewline => {} // Discard escaped newlines
+                    StringFragment::EscapedChar(c) => string.push(c),
+                    StringFragment::Substring(s) => string.push_str(s),
+                }
+                string
+            },
+        )(input)
+    }
+
+    fn short_string_fragment(input: &str) -> IResult<&str, StringFragment> {
+        alt((
+            Self::escaped_newline,
+            Self::escaped_char,
+            Self::short_string_fragment_without_escaped_text,
+        ))(input)
+    }
+
+    fn short_string_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
+        map(
+            verify(is_not("\"\\\""), |s: &str| !s.is_empty()),
+            |text| StringFragment::Substring(text)
+        )(input)
+    }
+
+    fn symbol(input: &str) -> IResult<&str, TextStreamItem> {
+        alt((Self::identifier, Self::quoted_symbol))(input)
+    }
+
+    fn quoted_symbol(input: &str) -> IResult<&str, TextStreamItem> {
+        map(
+            delimited(char('\''), Self::quoted_symbol_body, char('\'')),
+            |text| {
+                println!("Symbol text: {:?}", &text);
+                TextStreamItem::Symbol(text)
+            }
+        )(input)
+    }
+
+    fn quoted_symbol_body(input: &str) -> IResult<&str, String> {
+        fold_many0(
+            Self::quoted_symbol_string_fragment,
+            String::new(),
+            |mut string, fragment| {
+                match fragment {
+                    StringFragment::EscapedNewline => {} // Discard escaped newlines
+                    StringFragment::EscapedChar(c) => string.push(c),
+                    StringFragment::Substring(s) => string.push_str(s),
+                }
+                string
+            },
+        )(input)
+    }
+
+    fn quoted_symbol_string_fragment(input: &str) -> IResult<&str, StringFragment> {
+        alt((
+            Self::escaped_newline,
+            Self::escaped_char,
+            Self::quoted_symbol_fragment_without_escaped_text,
+        ))(input)
+    }
+
+    fn quoted_symbol_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
+        map(
+            verify(is_not("'\\'"), |s: &str| !s.is_empty()),
+            |text| StringFragment::Substring(text)
+        )(input)
+    }
+
+    fn identifier(input: &str) -> IResult<&str, TextStreamItem> {
+        map(
+            recognize(
+                terminated(
+                    pair(
+                        Self::identifier_initial_character,
+                        Self::identifier_trailing_characters
+                    ),
+                    Self::stop_character
+                )
+            ),
+            |text| {
+                TextStreamItem::Symbol(text.to_owned())
+            }
+        )(input)
+    }
+
+    fn identifier_initial_character(input: &str) -> IResult<&str, char> {
+        alt((one_of("$_"), satisfy(|c| c.is_ascii_alphabetic())))(input)
+    }
+
+    fn identifier_trailing_characters(input: &str) -> IResult<&str, &str> {
+        recognize(
+            many0_count(
+                alt((
+                    one_of("$_"),
+                    satisfy(|c| c.is_ascii_alphanumeric())
+                ))
+            )
+        )(input)
+    }
+
+    // Discards escaped newlines
+    fn escaped_newline(input: &str) -> IResult<&str, StringFragment> {
+        value(StringFragment::EscapedNewline, tag("\\\n"))(input)
+    }
+
+    // Some escape sequences discard the associated character (like escaped newlines),
+    // so this returns Option<char> to accommodate that.
+    fn escaped_char(input: &str) -> IResult<&str, StringFragment> {
+        map(
+            preceded(
+                char('\\'),
+                alt((
+                    Self::escaped_char_unicode,
+                    Self::escaped_char_literal,
+                ))
+            ),
+            |c| StringFragment::EscapedChar(c)
+        )(input)
+    }
+
+    // See: https://amzn.github.io/ion-docs/docs/spec.html#escapes
+    fn escaped_char_literal(input: &str) -> IResult<&str, char> {
+        alt((
+            value('\n', char('n')),
+            value('\r', char('r')),
+            value('\t', char('t')),
+            value('\\', char('\\')),
+            value('/', char('/')),
+            value('"', char('"')),
+            value('\'', char('\'')),
+            value('?', char('?')),
+            value('\u{00}', char('0')), // NUL
+            value('\u{07}', char('a')), // alert BEL
+            value('\u{08}', char('b')), // backspace
+            value('\u{0B}', char('v')), // vertical tab
+            value('\u{0C}', char('f')), // form feed
+        ))(input)
+    }
+
+    fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
+        map_res::<_, _, _, _, IonError, _, _>(
+            alt((
+                Self::escaped_char_unicode_2_digit_hex,
+                Self::escaped_char_unicode_4_digit_hex,
+                Self::escaped_char_unicode_8_digit_hex,
+            )),
+            |hex_digits| {
+                let number_value = u32::from_str_radix(hex_digits, 16)
+                    .or_else(|e| Err(decoding_error_raw(
+                    format!("Couldn't parse unicode escape '{}': {:?}", hex_digits, e)
+                )))?;
+                let char_value = std::char::from_u32(number_value)
+                    .ok_or_else(|| decoding_error_raw(
+                        format!("Couldn't parse unicode escape '{}': {} is not a valid codepoint.", hex_digits, number_value))
+                    )?;
+                Ok(char_value)
+            }
+        )(input)
+    }
+
+    fn escaped_char_unicode_2_digit_hex(input: &str) -> IResult<&str, &str> {
+        let hex_digit = Self::single_hex_digit;
+        preceded(
+        char('x'),
+        recognize(
+            tuple(
+                (hex_digit, hex_digit)
+                )
+            )
+        )(input)
+    }
+
+    fn escaped_char_unicode_4_digit_hex(input: &str) -> IResult<&str, &str> {
+        let hex_digit = Self::single_hex_digit;
+        preceded(
+            char('u'),
+            recognize(
+                tuple(
+                    (hex_digit, hex_digit, hex_digit, hex_digit)
+                )
+            )
+        )(input)
+    }
+
+    fn escaped_char_unicode_8_digit_hex(input: &str) -> IResult<&str, &str> {
+        let hex_digit = Self::single_hex_digit;
+        preceded(
+            char('U'),
+            recognize(
+                tuple(
+                    (hex_digit, hex_digit, hex_digit, hex_digit,
+                     hex_digit, hex_digit, hex_digit, hex_digit)
+                )
+            )
+        )(input)
+    }
+
+    fn single_hex_digit(input: &str) -> IResult<&str, char> {
+        satisfy(|c| <char as AsChar>::is_hex_digit(c))(input)
+    }
+
     fn stream_item(input: &str) -> IResult<&str, TextStreamItem> {
         alt((
             Self::null,
             Self::boolean,
             Self::integer,
             Self::float,
-            Self::decimal
+            Self::decimal,
+            Self::string,
+            Self::symbol
         ))(input)
     }
 }
@@ -427,7 +722,6 @@ mod reader_tests {
     use super::{ParseResult, TextReader};
     use bigdecimal::BigDecimal;
     use std::str::FromStr;
-    // use num_traits::pow::Pow;
 
     type TestParser = fn(&str) -> IResult<&str, TextStreamItem>;
 
@@ -450,6 +744,7 @@ mod reader_tests {
             panic!("Parse unexpectedly succeeded: {:?} -> {:?}", text, parsed.unwrap().1);
         }
     }
+
 
     #[test]
     fn test_parse_nulls() {
@@ -660,6 +955,7 @@ mod reader_tests {
         good("-279d ", "-279e0");
         good("-279d0 ", "-279e0");
         good("-999_9d9_9 ", "-9999e99");
+        good("-999_9d-9_9 ", "-9999e-99");
 
         // Missing decimal (would be parsed as an integer)
         bad("305 ");
@@ -729,6 +1025,112 @@ mod reader_tests {
     }
 
     #[test]
+    fn test_parse_short_strings() {
+        let good = |text: &str, expected: &str| {
+            parse_test_ok(
+                TextReader::string,
+                text,
+                TextStreamItem::String(expected.to_owned()));
+        };
+        let bad = |s: &str| parse_test_err(TextReader::string, s);
+
+        good("\"\" ", "");
+        good("\"Hello, world!\" ", "Hello, world!");
+        // Escape literals
+        good("\"Hello\nworld!\" ", "Hello\nworld!");
+        good("\"Hello\tworld!\" ", "Hello\tworld!");
+        good("\"\\\"Hello, world!\\\"\" ", "\"Hello, world!\"");
+        // 2-digit Unicode hex escape sequences
+        good("\"\\x48ello, \\x77orld!\" ", "Hello, world!");
+        // 4-digit Unicode hex escape sequences
+        good("\"\\u0048ello, \\u0077orld!\" ", "Hello, world!");
+        // 8-digit Unicode hex escape sequences
+        good("\"\\U00000048ello, \\U00000077orld!\" ", "Hello, world!");
+        // Escaped newlines are discarded
+        good("\"Hello,\\\n world!\" ", "Hello, world!");
+
+        // Missing quotes
+        bad("Hello, world ");
+        // Missing closing quote
+        bad("\"Hello, world ");
+        // Leading whitespace not accepted
+        bad(" \"Hello, world\" ");
+    }
+
+    #[test]
+    fn test_parse_long_strings() {
+        let good = |text: &str, expected: &str| {
+            parse_test_ok(
+                TextReader::string,
+                text,
+                TextStreamItem::String(expected.to_owned()));
+        };
+        let bad = |s: &str| parse_test_err(TextReader::string, s);
+
+        // Long strings can have any number of segments separated by whitespace.
+        // These test strings end in an integer so the parser knows the long string is done.
+        good("'''foo''' 1", "foo");
+        good("'''foo bar baz''' 1", "foo bar baz");
+        good("'''foo''' '''bar''' '''baz''' 1", "foobarbaz");
+        good("'''foo'''\n\n\n'''bar'''\n\n\n'''baz''' 1", "foobarbaz");
+        good("'''\\x66oo''' '''\\u0062\\U00000061r''' '''\\x62\\U00000061z''' 1", "foobarbaz");
+    }
+
+    #[test]
+    fn test_parse_symbol_identifiers() {
+        let good = |text: &str, expected: &str| {
+            parse_test_ok(
+                TextReader::symbol,
+                text,
+                TextStreamItem::Symbol(expected.to_owned()));
+        };
+        let bad = |s: &str| parse_test_err(TextReader::string, s);
+
+        good("foo ", "foo");
+        good("$foo ", "$foo");
+        good("_foo ", "_foo");
+        good("$_ ", "$_");
+        good("$ion_1_0 ", "$ion_1_0");
+        good("__foo__ ", "__foo__");
+        good("foo12345 ", "foo12345");
+
+        // Starts with a digit
+        bad("1foo ");
+        // Leading whitespace not accepted
+        bad(" foo ");
+        // Cannot be the last thing in input (stream might be incomplete
+        bad("foo");
+    }
+
+    #[test]
+    fn test_parse_quoted_symbols() {
+        let good = |text: &str, expected: &str| {
+            parse_test_ok(
+                TextReader::symbol,
+                text,
+                TextStreamItem::Symbol(expected.to_owned()));
+        };
+        let bad = |s: &str| parse_test_err(TextReader::string, s);
+
+        good("'foo' ", "foo");
+        good("'$foo' ", "$foo");
+        good("'_foo' ", "_foo");
+        good("'11foo' ", "11foo");
+        good("'$_' ", "$_");
+        good("'$ion_1_0' ", "$ion_1_0");
+        good("'__foo__' ", "__foo__");
+        good("'foo12345' ", "foo12345");
+        good("'foo bar baz' ", "foo bar baz");
+        good("'foo \"bar\" baz' ", "foo \"bar\" baz");
+        good("'7@#$%^&*()!' ", "7@#$%^&*()!");
+
+        // Leading whitespace not accepted
+        bad(" 'foo' ");
+        // Cannot be the last thing in input (stream might be incomplete
+        bad("'foo'");
+    }
+
+    #[test]
     fn test_detect_stream_item_types() {
         let expect_type = |text: &str, expected_ion_type: IonType| {
             let value = parse_unwrap(TextReader::stream_item, text);
@@ -748,5 +1150,9 @@ mod reader_tests {
         expect_type("-5.0d ", IonType::Decimal);
         expect_type("5.0e ", IonType::Float);
         expect_type("-5.0e ", IonType::Float);
+        expect_type("\"foo\"", IonType::String);
+        expect_type("'''foo''' 1", IonType::String);
+        expect_type("foo ", IonType::Symbol);
+        expect_type("'foo bar baz' ", IonType::Symbol);
     }
 }
