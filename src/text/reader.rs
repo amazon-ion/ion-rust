@@ -1,8 +1,7 @@
 use std::num::{ParseIntError, ParseFloatError};
 use std::str::FromStr;
 
-use bigdecimal::{BigDecimal, ParseBigDecimalError};
-use chrono::{DateTime, FixedOffset, Offset};
+use chrono::{DateTime, FixedOffset};
 use nom::{Parser, AsChar};
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, tag, take_while1, is_not, take_until};
@@ -17,8 +16,14 @@ use nom::sequence::{pair, preceded, separated_pair, terminated, tuple, delimited
 
 use crate::IonType;
 use crate::result::{decoding_error, IonResult, IonError, decoding_error_raw};
-use crate::types::SymbolId;
-use nom::number::complete::recognize_float;
+use crate::types::{
+    decimal::Decimal,
+    SymbolId
+};
+use crate::types::decimal::{Coefficient, Sign};
+use num_bigint::BigUint;
+use crate::types::timestamp::{Timestamp, Mantissa, FractionalSecondSetter};
+use crate::types::decimal::Coefficient::BigUInt;
 
 // TODO: Modify impl to match this description.
 //       See: https://crates.io/crates/encoding_rs_io
@@ -40,8 +45,8 @@ enum TextStreamItem {
     Boolean(bool),
     Integer(i64),
     Float(f64),
-    Decimal(BigDecimal),
-    Timestamp(DateTime<FixedOffset>), //TODO: Proper Ion Timestamp value w/Precision
+    Decimal(Decimal),
+    Timestamp(Timestamp),
     String(String),
     Symbol(String), // TODO: SymbolToken API
     Blob(Vec<u8>),
@@ -286,48 +291,102 @@ impl TextReader {
     }
 
     fn decimal_with_exponent(input: &str) -> IResult<&str, TextStreamItem> {
-        map_res::<_, _, _, _, ParseBigDecimalError, _, _>(
-            recognize(
-                tuple((
-                    opt(tag("-")),
-                    alt((Self::floating_point_number, Self::digits_before_delimiter)),
-                    recognize(Self::decimal_exponent_marker_followed_by_digits),
-                ))),
-            |text| {
-                println!("Decimal w/exp text: {:?}", text);
-                // TODO: Reusable buffer for sanitization
-                let substitute_exponent_markers: &[char] = &['d', 'D'];
-                let mut sanitized = text.replace(substitute_exponent_markers, "e");
-                sanitized = sanitized.replace("_", "");
-                if sanitized.ends_with("e") {
-                    sanitized.push_str("0");
-                }
-                println!("Decimal w/exp sanitized: {:?}", &sanitized);
-                Ok(TextStreamItem::Decimal(BigDecimal::from_str(&sanitized)?))
+        map(
+                pair(
+                    alt((
+                        // Returns a tuple of (sign, digits before '.', and digits after '.')
+                        Self::floating_point_number_components,
+                        // Needs to return the same fields as above, so we tack on a 'None'
+                        map(
+                            pair(opt(tag("-")), Self::digits_before_delimiter),
+                            |(sign, leading_digits)| (sign, leading_digits, None)
+                        )
+                    )),
+                    Self::decimal_exponent_marker_followed_by_digits,
+                ),
+            |((sign, digits_before, digits_after), exponent)| {
+                let decimal = Self::decimal_from_text_components(
+                    sign,
+                    digits_before,
+                    digits_after,
+                    exponent,
+                );
+               TextStreamItem::Decimal(decimal)
             }
         )(input)
     }
 
     fn decimal_without_exponent(input: &str) -> IResult<&str, TextStreamItem> {
-        map_res::<_, _, _, _, ParseBigDecimalError, _, _>(
-        Self::floating_point_number,
-            |text| {
-                println!("Decimal w/o exp text: {:?}", text);
-                // TODO: Reusable buffer for sanitization
-                let sanitized = text.replace("_", "");
-                println!("Decimal w/o exp sanitized: {:?}", &sanitized);
-                Ok(TextStreamItem::Decimal(BigDecimal::from_str(&sanitized)?))
+        map(
+            Self::floating_point_number_components,
+            |(sign, digits_before_dot, digits_after_dot)| {
+                let decimal = Self::decimal_from_text_components(
+                    sign,
+                    digits_before_dot,
+                    digits_after_dot,
+                    "0", // If no exponent is specified, we always start from 0
+                );
+                TextStreamItem::Decimal(decimal)
             }
         )(input)
     }
 
+    fn decimal_from_text_components(
+        sign_text: Option<&str>,
+        digits_before_dot: &str,
+        digits_after_dot: Option<&str>,
+        exponent_text: &str
+    ) -> Decimal {
+        use crate::types::decimal::Sign;
+        let digits_after_dot = digits_after_dot.unwrap_or("");
+
+        let sign = if sign_text.is_some() {Sign::Negative} else {Sign::Positive};
+
+        let mut coefficient_text = format!("{}{}", digits_before_dot, digits_after_dot);
+        coefficient_text.retain(|c| c != '_');
+        // u64::MAX is a 20-digit number starting with `1`. For simplicity, we'll turn any number
+        // with 19 or fewer digits into a u64 and anything else into a BigUint. This leaves a small
+        // amount of performance on the table.
+        // TODO: Constant for `20`, store any value that will fit in a u64 in a u64.
+        // Ion's parsing rules should only let through strings of digits and underscores. Since
+        // we've just removed the underscores above, the `from_str` methods below should always
+        // succeed.
+        let coefficient: Coefficient = if coefficient_text.len() < 20 {
+            let value = u64::from_str(&coefficient_text)
+                .expect("parsing coefficient as u64 failed");
+            Coefficient::U64(value)
+        } else {
+            let value = BigUint::from_str(&coefficient_text)
+                .expect("parsing coefficient as BigUint failed");
+            Coefficient::BigUInt(value)
+        };
+
+        let sanitized = exponent_text.replace('_', "");
+        let mut exponent = i64::from_str(&sanitized)
+            .expect("parsing exponent as i64 failed");
+        // Reduce the exponent by the number of digits that follow the decimal point
+        exponent -= digits_after_dot.chars().filter(|c| c.is_digit(10)).count() as i64;
+        Decimal::new(sign, coefficient, exponent)
+    }
+
+    // Match an optional sign, leading digits, dot, then trailing digits
+    fn floating_point_number_components(input: &str) -> IResult<&str, (Option<&str>, &str, Option<&str>)> {
+        map(
+            opt(tag("-"))
+                .and(Self::digits_before_delimiter)
+                .and(Self::dot_followed_by_digits),
+            |parts| {
+                // Flatten out the unweildy tuple structure created by chaining and()s
+                let ((sign, leading_digits), trailing_digits) = parts;
+                (sign, leading_digits, trailing_digits)
+            }
+        )(input)
+    }
+
+    // Returns the complete text that was matched by `floating_point_number_components`, ignoring
+    // structure.
     fn floating_point_number(input: &str) -> IResult<&str, &str> {
-        recognize(
-        tuple((
-            opt(tag("-")),
-            Self::digits_before_delimiter,
-            recognize(Self::dot_followed_by_digits),
-        )))(input)
+        recognize(Self::floating_point_number_components)(input)
     }
 
     fn float(input: &str) -> IResult<&str, TextStreamItem> {
@@ -378,10 +437,10 @@ impl TextReader {
         )(input)
     }
 
-    fn decimal_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, Option<&str>> {
+    fn decimal_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, &str> {
         preceded(
             one_of("dD"),
-            opt(Self::exponent_digits)
+            Self::exponent_digits
         )(input)
     }
 
@@ -407,6 +466,243 @@ impl TextReader {
                 digit1
             )
         )(input)
+    }
+
+    fn timestamp(input: &str) -> IResult<&str, TextStreamItem> {
+        alt((
+            Self::timestamp_precision_y,
+            Self::timestamp_precision_ym,
+            Self::timestamp_precision_ymd,
+            Self::timestamp_precision_ymd_hm,
+            Self::timestamp_precision_ymd_hms,
+            Self::timestamp_precision_ymd_hms_fractional
+        ))(input)
+    }
+
+    fn timestamp_precision_y(input: &str) -> IResult<&str, TextStreamItem> {
+        map_res::<_, _, _, _, IonError, _, _>(
+            terminated(Self::year, pair(tag("T"), Self::stop_character)),
+                |year| {
+                    let timestamp = Timestamp::with_year(year).build()?;
+                    Ok(TextStreamItem::Timestamp(timestamp))
+            }
+        )(input)
+    }
+
+    fn timestamp_precision_ym(input: &str) -> IResult<&str, TextStreamItem> {
+        map_res::<_, _, _, _, IonError, _, _>(
+            terminated(pair(Self::year, Self::month), pair(tag("T"), Self::stop_character)),
+            |(year, month)| {
+                let timestamp = Timestamp::with_year(year)
+                    .with_month(month)
+                    .build()?;
+                Ok(TextStreamItem::Timestamp(timestamp))
+            }
+        )(input)
+    }
+
+    fn timestamp_precision_ymd(input: &str) -> IResult<&str, TextStreamItem> {
+        map_res::<_, _, _, _, IonError, _, _>(
+            terminated(tuple((Self::year, Self::month, Self::day)), pair(opt(tag("T")), Self::stop_character)),
+            |(year, month, day)| {
+                let timestamp = Timestamp::with_ymd(year, month, day).build()?;
+                Ok(TextStreamItem::Timestamp(timestamp))
+            }
+        )(input)
+    }
+
+    fn timestamp_precision_ymd_hm(input: &str) -> IResult<&str, TextStreamItem> {
+        map_res::<_, _, _, _, IonError, _, _>(
+            terminated(pair(tuple((Self::year, Self::month, Self::day, Self::hour_and_minute)), Self::timezone_offset), Self::stop_character),
+            |((year, month, day, (hour, minute)), offset)| {
+                let builder = Timestamp::with_ymd(year, month, day)
+                    .with_hour_and_minute(hour, minute);
+                let timestamp = if let Some(minutes) = offset {
+                    builder.build_at_offset(minutes)
+                } else {
+                    builder.build_at_unknown_offset()
+                }?;
+                Ok(TextStreamItem::Timestamp(timestamp))
+            }
+        )(input)
+    }
+
+    fn timestamp_precision_ymd_hms(input: &str) -> IResult<&str, TextStreamItem> {
+        map_res::<_, _, _, _, IonError, _, _>(
+            terminated(pair(tuple((Self::year, Self::month, Self::day, Self::hour_and_minute, Self::second)), Self::timezone_offset), Self::stop_character),
+            |((year, month, day, (hour, minute), second), offset)| {
+                let builder = Timestamp::with_ymd(year, month, day)
+                    .with_hms(hour, minute, second);
+                let timestamp = if let Some(minutes) = offset {
+                    builder.build_at_offset(minutes)
+                } else {
+                    builder.build_at_unknown_offset()
+                }?;
+                Ok(TextStreamItem::Timestamp(timestamp))
+            }
+        )(input)
+    }
+
+    fn timestamp_precision_ymd_hms_fractional(input: &str) -> IResult<&str, TextStreamItem> {
+        map_res::<_, _, _, _, IonError, _, _>(
+            terminated(pair(tuple((Self::year, Self::month, Self::day, Self::hour_and_minute, Self::second, Self::recognize_fractional_seconds)), Self::timezone_offset), Self::stop_character),
+            |((year, month, day, (hour, minute), second, fractional), offset)| {
+                let builder = Timestamp::with_ymd(year, month, day)
+                    .with_hms(hour, minute, second);
+                let timestamp = Self::assign_fractional_seconds(fractional, builder, offset)?;
+                Ok(TextStreamItem::Timestamp(timestamp))
+            }
+        )(input)
+    }
+
+    fn assign_fractional_seconds(fractional: &str, mut setter: FractionalSecondSetter, offset: Option<i32>) -> IonResult<Timestamp> {
+        // If the precision is less than or equal to nanoseconds...
+        let number_of_digits = fractional.len();
+        if number_of_digits <= 9 {
+            let power = 9 - number_of_digits;
+            let nanoseconds = Self::trim_zeros_expect_u32(fractional, "fractional seconds") * 10u32.pow(power as u32);
+            setter = setter.with_nanoseconds_and_precision(nanoseconds, number_of_digits as u32);
+        } else {
+            let coefficient = BigUint::from_str(fractional).expect("parsing fractional seconds as BigUint failed");
+            let mut digit_count = 1i64;
+            let mut tmp_coefficient = coefficient.clone();
+            let ten = BigUint::from(10u32);
+            while tmp_coefficient > ten {
+                tmp_coefficient /= &ten;
+                digit_count += 1;
+            }
+            let decimal = Decimal::new(Sign::Positive, coefficient, -1 * digit_count);
+            setter = setter.with_fractional_seconds(decimal);
+        }
+        if let Some(minutes) = offset {
+            return Ok(setter.build_at_offset(minutes)?);
+        }
+
+        Ok(setter.build_at_unknown_offset()?)
+    }
+
+    fn year(input: &str) -> IResult<&str, u32> {
+        let y = Self::digit;
+        map(
+            recognize(tuple((y, y, y, y))),
+            |year| Self::trim_zeros_expect_u32(year, "year")
+        )(input)
+    }
+
+    fn month(input: &str) -> IResult<&str, u32> {
+        map(
+            preceded(
+                tag("-"),
+            recognize(
+                alt((
+                        pair(char('0'), one_of("123456789")),
+                        pair(char('1'), one_of("012"))
+                    ))
+                )
+            ),
+        |month: &str|  Self::trim_zeros_expect_u32(month, "month")
+        )(input)
+    }
+
+    fn day(input: &str) -> IResult<&str, u32> {
+        map(
+            preceded(
+                tag("-"),
+                recognize(
+                    alt((
+                        pair(char('0'), one_of("123456789")),
+                        pair(one_of("12"), Self::digit),
+                        pair(char('3'), one_of("01"))
+                    ))
+                )
+            ),
+            |day|  Self::trim_zeros_expect_u32(day, "day")
+        )(input)
+    }
+
+    fn hour_and_minute(input: &str) -> IResult<&str, (u32, u32)> {
+        map(
+            preceded(
+                tag("T"),
+                separated_pair(
+                    recognize(
+                        alt((
+                            pair(one_of("01"), Self::digit),
+                            pair(one_of("2"), one_of("0123")),
+                        ))
+                    ),
+                    tag(":"),
+                    recognize(pair(one_of("012345"), Self::digit))
+                )
+            ),
+            |(hours, minutes)| {
+                let hours = Self::trim_zeros_expect_u32(hours, "hours");
+                let minutes = Self::trim_zeros_expect_u32(minutes, "minutes");
+                (hours, minutes)
+            }
+        )(input)
+    }
+
+    fn second(input: &str) -> IResult<&str, u32> {
+        map(
+            preceded(
+                tag(":"),
+                recognize(pair(one_of("012345"), Self::digit))
+            ),
+            |seconds| Self::trim_zeros_expect_u32(seconds, "seconds")
+        )(input)
+    }
+
+    fn recognize_fractional_seconds(input: &str) -> IResult<&str, &str> {
+        preceded(tag("."), digit1)(input)
+    }
+
+    fn timezone_offset(input: &str) -> IResult<&str, Option<i32>> {
+        alt((
+            map(tag("Z"), |_| Some(0)),
+            map(tag("-00:00"), |_| None),
+            map(pair(one_of("-+"), Self::timezone_offset_hours_minutes),
+                |(sign, (hours, minutes))| {
+                    let hours = Self::trim_zeros_expect_i32(hours, "offset hours");
+                    let minutes = Self::trim_zeros_expect_i32(minutes, "offset minutes");
+                    let offset_minutes = (hours * 60) + minutes;
+                    if sign == '-' {
+                        return Some(-1 * offset_minutes);
+                    }
+                    Some(offset_minutes)
+                })
+        ))(input)
+    }
+
+    fn timezone_offset_hours_minutes(input: &str) -> IResult<&str, (&str, &str)> {
+        separated_pair(
+            // The parser does not restrict the range of hours/minutes allowed in the offset.
+            recognize(pair(Self::digit, Self::digit)),
+            tag(":"),
+            recognize(pair(Self::digit, Self::digit))
+        )(input)
+    }
+
+    fn trim_leading_zeros(input: &str) -> &str {
+        // Remove all leading zeros. If the last character is a zero, leave it alone.
+        let trimmed = input.trim_start_matches('0');
+        if trimmed.is_empty() {
+            return "0";
+        }
+        trimmed
+    }
+
+    fn trim_zeros_expect_u32(input: &str, label: &str) -> u32 {
+        u32::from_str(Self::trim_leading_zeros(input))
+            .expect(&format!("parsing {} as a u32 failed", label))
+    }
+    fn trim_zeros_expect_i32(input: &str, label: &str) -> i32 {
+        i32::from_str(Self::trim_leading_zeros(input))
+            .expect(&format!("parsing {} as an i32 failed", label))
+    }
+
+    fn digit(input: &str) -> IResult<&str, char> {
+        satisfy(|c| c.is_digit(10))(input)
     }
 
     fn whitespace(input: &str) -> IResult<&str, &str> {
@@ -699,16 +995,14 @@ impl TextReader {
             Self::float,
             Self::decimal,
             Self::string,
-            Self::symbol
+            Self::symbol,
+            Self::timestamp,
         ))(input)
     }
 }
 
 #[cfg(test)]
 mod reader_tests {
-    use std::result::Result;
-
-    use nom::bytes::streaming::is_a;
     use nom::character::streaming::char;
     use nom::combinator::recognize;
     use nom::error::ParseError;
@@ -722,6 +1016,9 @@ mod reader_tests {
     use super::{ParseResult, TextReader};
     use bigdecimal::BigDecimal;
     use std::str::FromStr;
+    use crate::types::decimal::{Decimal, Sign, Coefficient};
+    use crate::types::timestamp::Timestamp;
+    use crate::result::IonResult;
 
     type TestParser = fn(&str) -> IResult<&str, TextStreamItem>;
 
@@ -935,29 +1232,26 @@ mod reader_tests {
 
     #[test]
     fn test_parse_decimals_with_exponents() {
-        let to_decimal = |s: &str| BigDecimal::from_str(s)
-            .map_err(|e| panic!("BigDecimal couldn't parse {:?}", s))
-            .unwrap();
-        let good = |s: &str, d: &str|
-            parse_test_ok(TextReader::decimal, s, TextStreamItem::Decimal(to_decimal(d)));
+        let good = |s: &str, d: Decimal|
+            parse_test_ok(TextReader::decimal, s, TextStreamItem::Decimal(d));
         let bad = |s: &str| parse_test_err(TextReader::decimal, s);
 
-        // All of the strings on the right side below are passed to BigDecimal's parser, which
-        // recognizes 'e', not 'd'.
-        good("0d ", "0e0");
-        good("0D ", "0e0");
-        good("0d0 ", "0e0");
-        good("305d1 ", "305e1");
-        good("305d-1 ", "305e-1");
-        good("111_111d222 ", "111111e222");
-        good("111_111d-222 ", "111111e-222");
-        good("111_111d222_222 ", "111111e222222");
-        good("-279d ", "-279e0");
-        good("-279d0 ", "-279e0");
-        good("-999_9d9_9 ", "-9999e99");
-        good("-999_9d-9_9 ", "-9999e-99");
+        use Sign::{Positive, Negative};
 
-        // Missing decimal (would be parsed as an integer)
+        good("0d0 ", Decimal::new(Positive, 0, 0));
+        good("0D0 ", Decimal::new(Positive, 0, 0));
+        good("-0d0 ", Decimal::new(Negative, 0, 0));
+        good("-0D0 ", Decimal::new(Negative, 0, 0));
+        good("305d1 ", Decimal::new(Positive, 305, 1));
+        good("305d-1 ", Decimal::new(Positive, 305, -1));
+        good("111_111d222 ", Decimal::new(Positive, 111_111, 222));
+        good("111_111d-222 ", Decimal::new(Positive, 111_111, -222));
+        good("111_111d222_222 ", Decimal::new(Positive, 111_111, 222_222));
+        good("-279d0 ", Decimal::new(Negative, 279, 0));
+        good("-999_9d9_9 ", Decimal::new(Negative, 9_999, 99));
+        good("-999_9d-9_9 ", Decimal::new(Negative, 9_999, -99));
+
+        // Missing exponent, would be parsed as an integer)
         bad("305 ");
         // Fractional exponent
         bad("305d0.5");
@@ -983,28 +1277,26 @@ mod reader_tests {
 
     #[test]
     fn test_parse_decimals_without_exponents() {
-        let to_decimal = |s: &str| BigDecimal::from_str(s)
-            .map_err(|e| panic!("BigDecimal couldn't parse {:?}", s))
-            .unwrap();
-        let good = |s: &str, d: &str|
-            parse_test_ok(TextReader::decimal, s, TextStreamItem::Decimal(to_decimal(d)));
+        let good = |s: &str, d: Decimal|
+            parse_test_ok(TextReader::decimal, s, TextStreamItem::Decimal(d));
         let bad = |s: &str| parse_test_err(TextReader::decimal, s);
 
-        // All of the strings on the right side below are passed to BigDecimal's parser, which
-        // recognizes 'e', not 'd'.
-        good("0. ", "0e0");
-        good("0.0 ", "0e0");
-        good("0.5 ", "0.5e0");
-        good("3050. ", "3050.");
-        good("3050.667 ", "3050.667");
-        good("111_111.000 ", "111111.000");
-        good("111_111.0_0_0 ", "111111.000");
-        good("-279. ", "-279e0");
-        good("-279.0 ", "-279e0");
-        good("-279.701 ", "-279.701e0");
-        good("-999_9.0_0 ", "-9999.00");
+        use Sign::{Positive, Negative};
 
-        // // Missing decimal (would be parsed as an integer)
+        good("0. ", Decimal::new(Positive, 0, 0));
+        good("-0. ", Decimal::new(Negative, 0, 0));
+        good("0.0 ",  Decimal::new(Positive, 0, -1));
+        good("0.5 ", Decimal::new(Positive, 5, -1));
+        good("3050. ", Decimal::new(Positive, 3050, 0));
+        good("3050.667 ", Decimal::new(Positive, 3050667, -3));
+        good("111_111.000 ", Decimal::new(Positive, 111111000, -3));
+        good("111_111.0_0_0 ", Decimal::new(Positive, 111111000, -3));
+        good("-279. ", Decimal::new(Negative, 279, 0));
+        good("-279.0 ", Decimal::new(Negative, 2790, -1));
+        good("-279.701 ", Decimal::new(Negative, 279701, -3));
+        good("-999_9.0_0 ", Decimal::new(Negative, 999900, -2));
+
+        // // Missing decimal point, would be parsed as an integer
         bad("305 ");
         // Doesn't consume leading whitespace
         bad(" 3050.0 ");
@@ -1129,6 +1421,74 @@ mod reader_tests {
         // Cannot be the last thing in input (stream might be incomplete
         bad("'foo'");
     }
+    #[test]
+    fn test_parse_timestamps() -> IonResult<()> {
+        let good = |text: &str, expected: Timestamp| {
+            parse_test_ok(
+                TextReader::timestamp,
+                text,
+                TextStreamItem::Timestamp(expected.to_owned()));
+        };
+        let bad = |s: &str| parse_test_err(TextReader::string, s);
+
+        good("0001T ", Timestamp::with_year(1).build()?);
+        good("1997T ", Timestamp::with_year(1997).build()?);
+        good("2021T ", Timestamp::with_year(2021).build()?);
+
+        good("2021-01T ", Timestamp::with_year(2021).with_month(1).build()?);
+        good("2021-09T ", Timestamp::with_year(2021).with_month(9).build()?);
+
+        good("2021-09-01 ", Timestamp::with_ymd(2021, 9, 1).build()?);
+        good("2021-09-30T ", Timestamp::with_ymd(2021, 9, 30).build()?);
+
+        let builder = Timestamp::with_ymd(2021, 9, 30);
+        good("2021-09-30T00:00Z ", builder.clone().with_hour_and_minute(0, 0).build_at_offset(0)?);
+        good("2021-09-30T23:11+00:00 ", builder.clone().with_hour_and_minute(23, 11).build_at_offset(0)?);
+        good("2021-09-30T23:11-05:00 ", builder.clone().with_hour_and_minute(23, 11).build_at_offset(-300)?);
+        good("2021-09-30T21:47-00:00 ", builder.clone().with_hour_and_minute(21, 47).build_at_unknown_offset()?);
+
+        let builder = Timestamp::with_ymd(2021, 12, 25);
+        good("2021-12-25T00:00:00Z ", builder.clone().with_hms(0, 0, 0).build_at_offset(0)?);
+        good("2021-12-25T17:00:38+00:00 ", builder.clone().with_hms(17, 0, 38).build_at_offset(0)?);
+        good("2021-12-25T08:35:07-05:30 ", builder.clone().with_hms(8, 35, 7).build_at_offset(-330)?);
+        good("2021-12-25T12:25:59-00:00 ", builder.clone().with_hms(12, 25, 59).build_at_unknown_offset()?);
+
+        let builder = Timestamp::with_ymd(2021, 12, 25).with_hms(14, 30, 31);
+        good("2021-12-25T14:30:31.193+00:00 ", builder.clone().with_milliseconds(193).build_at_offset(0)?);
+        good("2021-12-25T14:30:31.193193-05:00 ", builder.clone().with_microseconds(193193).build_at_offset(-300)?);
+        good("2021-12-25T14:30:31.193193193-00:00 ", builder.clone().with_nanoseconds(193193193).build_at_unknown_offset()?);
+        good("2021-12-25T14:30:31.19319319319-00:00 ",
+             builder.clone()
+                .with_fractional_seconds(Decimal::new(Sign::Positive, 19319319319, -11))
+                .build_at_unknown_offset()?
+            );
+        good("2021-12-25T14:30:31.193193193193193-00:00 ",
+             builder.clone()
+                 .with_fractional_seconds(Decimal::new(Sign::Positive, 193193193193193, -15))
+                 .build_at_unknown_offset()?
+        );
+        // good("2021-12-25T14:30:31.193+00:00 ", builder.clone().with_hms(12, 25, 59).build_at_unknown_offset()?);
+
+        // No trailing 'T', would parse as integers
+        bad("1997 ");
+        bad("2021-01 ");
+        // No month 0
+        bad("2021-00T ");
+        // Wrong delimiter
+        bad("2021/09/30 ");
+        // No 31st of September
+        bad("2021-09-31T ");
+        // No 17th month
+        bad("2021-17-31T ");
+        // No negative years
+        bad("-2021-09-30T ");
+        // Years must be exactly 4 digits
+        bad("900-09-30T ");
+        bad("19900-09-30T ");
+        // Missing offset
+        bad("2021-09-01T23:11");
+        Ok(())
+    }
 
     #[test]
     fn test_detect_stream_item_types() {
@@ -1146,13 +1506,16 @@ mod reader_tests {
         expect_type("-5 ", IonType::Integer);
         expect_type("5.0 ", IonType::Decimal);
         expect_type("-5.0 ", IonType::Decimal);
-        expect_type("5.0d ", IonType::Decimal);
-        expect_type("-5.0d ", IonType::Decimal);
+        expect_type("5.0d0 ", IonType::Decimal);
+        expect_type("-5.0d0 ", IonType::Decimal);
         expect_type("5.0e ", IonType::Float);
         expect_type("-5.0e ", IonType::Float);
         expect_type("\"foo\"", IonType::String);
         expect_type("'''foo''' 1", IonType::String);
         expect_type("foo ", IonType::Symbol);
         expect_type("'foo bar baz' ", IonType::Symbol);
+        expect_type("2021T ", IonType::Timestamp);
+        expect_type("2021-02T ", IonType::Timestamp);
+        expect_type("2021-02-08T ", IonType::Timestamp);
     }
 }

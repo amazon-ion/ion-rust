@@ -5,7 +5,7 @@
 pub type SymbolId = usize;
 
 mod r#type;
-mod decimal;
-mod timestamp;
+pub mod decimal;
+pub mod timestamp;
 
 pub use r#type::IonType;

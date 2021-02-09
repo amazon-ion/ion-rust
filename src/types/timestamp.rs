@@ -10,7 +10,7 @@ use std::fmt::Debug;
 // value is `Digits`, then it contains information about how to interpret the `nanoseconds` data
 // in its parent `Timestamp`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum FractionalSeconds {
+pub enum Mantissa {
     /// The number of decimal places of precision in the accompanying Timestamp's fractional seconds.
     /// For example, a value of `3` would indicate millisecond precision. A value of `6` would
     /// indiciate microsecond precision. All precisions less than or equal to nanoseconds should use
@@ -77,7 +77,7 @@ pub struct Timestamp {
     date_time: NaiveDateTime,
     offset: Option<FixedOffset>,
     precision: Precision,
-    fractional_seconds: Option<FractionalSeconds>
+    fractional_seconds: Option<Mantissa>
 }
 
 impl Timestamp {
@@ -152,7 +152,7 @@ impl Timestamp {
     }
 
     fn fractional_seconds_equal(&self, other: &Timestamp) -> bool {
-        use FractionalSeconds::*;
+        use Mantissa::*;
         match (self.fractional_seconds.as_ref(), other.fractional_seconds.as_ref()) {
             (None, None) => true,
             (Some(_), None) => false,
@@ -220,7 +220,7 @@ impl From<NaiveDateTime> for Timestamp {
             date_time,
             offset: None,
             precision: Precision::Day,
-            fractional_seconds: Some(FractionalSeconds::Digits(9))
+            fractional_seconds: Some(Mantissa::Digits(9))
         }
     }
 }
@@ -232,7 +232,7 @@ impl From<DateTime<FixedOffset>> for Timestamp {
         // Get a copy of the offset to store separately
         let offset = Some(*fixed_offset_date_time.offset());
         let precision = Precision::FractionalSeconds;
-        let fractional_seconds = Some(FractionalSeconds::Digits(9));
+        let fractional_seconds = Some(Mantissa::Digits(9));
         Timestamp {
             date_time,
             offset,
@@ -254,7 +254,7 @@ struct TimestampBuilder {
     hour: Option<u8>,
     minute: Option<u8>,
     second: Option<u8>,
-    fractional_seconds: Option<FractionalSeconds>,
+    fractional_seconds: Option<Mantissa>,
     nanoseconds: Option<u32>,
 }
 
@@ -376,12 +376,12 @@ impl MonthSetter {
     // convenient ways to do both. Internally, it uses a 1-based representation.
 
     // 0-indexed month
-    fn with_month0(mut self, year: u32) -> DaySetter {
+    pub fn with_month0(self, year: u32) -> DaySetter {
         self.with_month(year+1)
     }
 
     // 1-indexed month
-    fn with_month(mut self, month: u32) -> DaySetter {
+    pub fn with_month(self, month: u32) -> DaySetter {
         let mut builder = self.builder;
         builder.precision = Precision::Month;
         builder.month = Some(month as u8);
@@ -390,7 +390,7 @@ impl MonthSetter {
         }
     }
 
-    fn build(self) -> IonResult<Timestamp> {
+    pub fn build(self) -> IonResult<Timestamp> {
         self.into_builder().build()
     }
 }
@@ -406,12 +406,12 @@ impl DaySetter {
     // convenient ways to do both. Internally, it uses a 1-based representation.
 
     // 0-indexed day
-    fn with_day0(mut self, day: u32) -> HourAndMinuteSetter {
+    pub fn with_day0(self, day: u32) -> HourAndMinuteSetter {
         self.with_day(day+1)
     }
 
     // 1-indexed day
-    fn with_day(mut self, day: u32) -> HourAndMinuteSetter {
+    pub fn with_day(self, day: u32) -> HourAndMinuteSetter {
         let mut builder = self.builder;
         builder.precision = Precision::Day;
         builder.day = Some(day as u8);
@@ -420,7 +420,7 @@ impl DaySetter {
         }
     }
 
-    fn build(self) -> IonResult<Timestamp> {
+    pub fn build(self) -> IonResult<Timestamp> {
         self.into_builder().build()
     }
 }
@@ -431,7 +431,7 @@ pub struct HourAndMinuteSetter {
 }
 
 impl HourAndMinuteSetter {
-    fn with_hms(mut self, hour: u32, minute: u32, second: u32) -> FractionalSecondSetter {
+    pub fn with_hms(self, hour: u32, minute: u32, second: u32) -> FractionalSecondSetter {
         let mut builder = self.builder;
         builder.hour = Some(hour as u8);
         builder.minute = Some(minute as u8);
@@ -443,7 +443,7 @@ impl HourAndMinuteSetter {
     }
 
     // Timestamp doesn't allow you to specify an hour without specifying the minutes too.
-    fn with_hour_and_minute(mut self, hour: u32, minute: u32) -> SecondSetter {
+    pub fn with_hour_and_minute(self, hour: u32, minute: u32) -> SecondSetter {
         let mut builder = self.builder;
         builder.precision = Precision::HourAndMinute;
         builder.hour = Some(hour as u8);
@@ -453,7 +453,7 @@ impl HourAndMinuteSetter {
         }
     }
 
-    fn build(self) -> IonResult<Timestamp> {
+    pub fn build(self) -> IonResult<Timestamp> {
         self.into_builder().build()
     }
 }
@@ -464,7 +464,7 @@ pub struct SecondSetter {
 }
 
 impl SecondSetter {
-    fn with_second(mut self, second: u32) -> FractionalSecondSetter {
+    pub fn with_second(self, second: u32) -> FractionalSecondSetter {
         let mut builder = self.builder;
         builder.precision = Precision::Second;
         builder.second = Some(second as u8);
@@ -473,12 +473,12 @@ impl SecondSetter {
         }
     }
 
-    fn build_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
+    pub fn build_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
         self.builder.offset = Some(offset_minutes);
         self.into_builder().build()
     }
 
-    fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
+    pub fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
         self.builder.offset = None;
         self.into_builder().build()
     }
@@ -490,42 +490,62 @@ pub struct FractionalSecondSetter {
 }
 
 impl FractionalSecondSetter {
-    fn with_nanoseconds(mut self, nanosecond: u32) -> FractionalSecondSetter {
+    pub fn with_nanoseconds(self, nanosecond: u32) -> FractionalSecondSetter {
         let mut builder = self.builder;
         builder.precision = Precision::FractionalSeconds;
-        builder.fractional_seconds = Some(FractionalSeconds::Digits(9));
+        builder.fractional_seconds = Some(Mantissa::Digits(9));
         builder.nanoseconds = Some(nanosecond);
         FractionalSecondSetter {
             builder
         }
     }
 
-    fn with_microseconds(mut self, microsecond: u32) -> FractionalSecondSetter {
+    pub fn with_microseconds(self, microsecond: u32) -> FractionalSecondSetter {
         let mut builder = self.builder;
         builder.precision = Precision::FractionalSeconds;
-        builder.fractional_seconds = Some(FractionalSeconds::Digits(6));
+        builder.fractional_seconds = Some(Mantissa::Digits(6));
         builder.nanoseconds = Some(microsecond * 1000);
         FractionalSecondSetter {
             builder
         }
     }
 
-    fn with_milliseconds(mut self, millisecond: u32) -> FractionalSecondSetter {
+    pub fn with_milliseconds(self, millisecond: u32) -> FractionalSecondSetter {
         let mut builder = self.builder;
         builder.precision = Precision::FractionalSeconds;
-        builder.fractional_seconds = Some(FractionalSeconds::Digits(3));
+        builder.fractional_seconds = Some(Mantissa::Digits(3));
         builder.nanoseconds = Some(millisecond * 1_000_000);
         FractionalSecondSetter {
             builder
         }
     }
 
-    fn build_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
+    pub fn with_nanoseconds_and_precision(self, nanoseconds: u32, precision_digits: u32) -> FractionalSecondSetter {
+        let mut builder = self.builder;
+        builder.precision = Precision::FractionalSeconds;
+        builder.fractional_seconds = Some(Mantissa::Digits(precision_digits));
+        builder.nanoseconds = Some(nanoseconds);
+        FractionalSecondSetter {
+            builder
+        }
+    }
+
+    pub fn with_fractional_seconds(self, fractional_seconds: Decimal) -> FractionalSecondSetter {
+        let mut builder = self.builder;
+        builder.precision = Precision::FractionalSeconds;
+        builder.fractional_seconds = Some(Mantissa::Arbitrary(fractional_seconds));
+        builder.nanoseconds = None;
+        FractionalSecondSetter {
+            builder
+        }
+    }
+
+    pub fn build_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
         self.builder.offset = Some(offset_minutes);
         self.into_builder().build()
     }
 
-    fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
+    pub fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
         self.builder.offset = None;
         self.into_builder().build()
     }
@@ -555,7 +575,7 @@ impl_time_unit_setter_for!(FractionalSecondSetter);
 mod timestamp_tests {
     use crate::types::decimal::{Decimal, Sign};
     use chrono::{DateTime, Timelike, Datelike, FixedOffset, TimeZone, NaiveDateTime};
-    use crate::types::timestamp::{Timestamp, Precision, TimestampBuilder, FractionalSeconds};
+    use crate::types::timestamp::{Timestamp, Precision, TimestampBuilder, Mantissa};
     use std::str::FromStr;
     use crate::result::IonResult;
 
@@ -839,7 +859,7 @@ mod timestamp_tests {
             .unwrap_or_else(|e| panic!("Couldn't build timestamp: {:?}", e));
 
         assert_eq!(timestamp1.precision, Precision::FractionalSeconds);
-        assert_eq!(timestamp1.fractional_seconds, Some(FractionalSeconds::Digits(3)));
+        assert_eq!(timestamp1.fractional_seconds, Some(Mantissa::Digits(3)));
         assert_eq!(timestamp1, timestamp2);
     }
 

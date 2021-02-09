@@ -147,13 +147,28 @@ impl Ord for Decimal {
     }
 }
 
-// Make a Decimal from a u32
-impl From<u32> for Decimal {
-    fn from(value: u32) -> Self {
-        let sign = if value < 0 {Sign::Negative} else {Sign::Positive};
-        Decimal::new(sign, value as u64, 0)
-    }
+macro_rules! impl_decimal_from_signed_primitive_integer {
+    ($($t:ty),*) => ($(
+        impl From<$t> for Decimal {
+            fn from(value: $t) -> Self {
+                let sign = if value < 0 {Sign::Negative} else {Sign::Positive};
+                Decimal::new(sign, value as u64, 0)
+            }
+        }
+    )*)
 }
+impl_decimal_from_signed_primitive_integer!(i8, i16, i32, i64, isize);
+
+macro_rules! impl_decimal_from_unsigned_primitive_integer {
+    ($($t:ty),*) => ($(
+        impl From<$t> for Decimal {
+            fn from(value: $t) -> Self {
+                Decimal::new(Sign::Positive, value as u64, 0)
+            }
+        }
+    )*)
+}
+impl_decimal_from_unsigned_primitive_integer!(u8, u16, u32, u64, usize);
 
 // Make a Decimal from a BigDecimal
 impl From<BigDecimal> for Decimal {
@@ -190,7 +205,6 @@ impl From<Decimal> for BigDecimal {
         BigDecimal::new(coefficient, exponent)
     }
 }
-
 
 #[cfg(test)]
 mod coefficient_tests {
