@@ -1,7 +1,6 @@
 use crate::types::decimal::Decimal;
 use chrono::{DateTime, FixedOffset, NaiveDateTime, Datelike, Timelike, TimeZone, NaiveDate};
-use std::time::SystemTime;
-use crate::result::{IonResult, illegal_operation, illegal_operation_raw};
+use crate::result::{IonResult, illegal_operation_raw};
 use std::fmt::Debug;
 
 //TODO: Revise doc
@@ -573,60 +572,8 @@ impl_time_unit_setter_for!(FractionalSecondSetter);
 
 #[cfg(test)]
 mod timestamp_tests {
-    use crate::types::decimal::{Decimal, Sign};
-    use chrono::{DateTime, Timelike, Datelike, FixedOffset, TimeZone, NaiveDateTime};
-    use crate::types::timestamp::{Timestamp, Precision, TimestampBuilder, Mantissa};
-    use std::str::FromStr;
+    use crate::types::timestamp::{Timestamp, Precision, Mantissa};
     use crate::result::IonResult;
-
-    fn timestamp_from_datetimes_eq_test<I: Into<Timestamp>>(t1: I, t2: I) {
-        let t1 = t1.into();
-        let t2 = t2.into();
-        assert_eq!(t1, t2);
-    }
-
-    fn timestamp_from_datetimes_ne_test<I: Into<Timestamp>>(t1: I, t2: I) {
-        let t1 = t1.into();
-        let t2 = t2.into();
-        assert_ne!(t1, t2);
-    }
-
-    // TODO: This relies on DateTime's string parsing, which follows different (but overlapping)
-    //       rules from text Ion timestamp parsers. We should replace it when the text reader
-    //       is available.
-    fn timestamp_from_str(s: &str, precision: Precision) -> Timestamp {
-        if let Ok(datetime) = DateTime::<FixedOffset>::from_str(s) {
-            return Timestamp::from_datetime(datetime, precision);
-        }
-        NaiveDateTime::from_str(s).unwrap().into()
-    }
-
-    fn timestamp_eq_test(s1: &str, precision1: Precision, s2: &str, precision2: Precision) {
-        let t1 = timestamp_from_str(s1, precision1);
-        let t2 = timestamp_from_str(s2, precision2);
-        timestamp_from_datetimes_eq_test(t1, t2);
-    }
-
-    fn timestamp_ne_test(s1: &str, precision1: Precision, s2: &str, precision2: Precision) {
-        let t1 = timestamp_from_str(s1, precision1);
-        let t2 = timestamp_from_str(s2, precision2);
-        timestamp_from_datetimes_ne_test(t1, t2);
-    }
-
-    #[test]
-    fn test_timestamp_eq() {
-        use Precision::*;
-        let timezone = FixedOffset::west(5 * 60 * 60); // UTC-4:00
-        let f = Precision::FractionalSeconds;
-        timestamp_eq_test("2021-02-05T16:43:51-05:00", f, "2021-02-05T16:43:51-05:00", f);
-        timestamp_eq_test("2021-02-05T16:43:51Z", f, "2021-02-05T16:43:51Z", f);
-        timestamp_eq_test("2021-02-05T16:43:51+00:00", f, "2021-02-05T16:43:51+00:00", f);
-        timestamp_eq_test("2021-02-05T16:43:51+05:00", f, "2021-02-05T16:43:51+05:00", f);
-        timestamp_eq_test("2021-02-05T16:43:51Z", f, "2021-02-05T16:43:51+00:00", f);
-
-        // Unknown offset
-        timestamp_eq_test("2021-02-05T16:43:51", f, "2021-02-05T16:43:51", f);
-    }
 
     #[test]
     fn test_timestamps_with_same_ymd_hms_millis_at_known_offset_are_equal() -> IonResult<()> {

@@ -208,16 +208,9 @@ impl From<Decimal> for BigDecimal {
 
 #[cfg(test)]
 mod coefficient_tests {
-    use std::result::Result;
-
-    use crate::IonType;
-
     use bigdecimal::{BigDecimal, ToPrimitive};
-    use std::str::FromStr;
     use crate::types::decimal::{Coefficient, Decimal, Sign};
-    use num_bigint::{BigInt, BigUint, ToBigUint};
-    use crate::types::decimal::Coefficient::BigUInt;
-    use std::ops::Neg;
+    use num_bigint::BigUint;
 
     fn eq_test<I1, I2>(c1: I1, c2: I2) where I1: Into<Coefficient>, I2: Into<Coefficient> {
         let c1 = c1.into();
