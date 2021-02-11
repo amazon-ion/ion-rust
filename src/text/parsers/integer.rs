@@ -8,15 +8,14 @@ use nom::bytes::streaming::{tag, take_while1, is_a};
 use nom::multi::many0_count;
 use std::num::ParseIntError;
 use nom::character::streaming::char;
-use crate::text::parsers::numeric_support::digits_before_dot;
+use crate::text::parsers::numeric_support::base_10_integer_digits;
 
 // This module uses the phrase "base 10" to avoid potentially confusing references to "decimal",
-// a phrase which is heavily overloaded, particularly in the context of parsing Ion. It may refer
-// to the Ion type decimal, the base-10 notation, or the fractional delimiter of a floating-point
-// number.
+// a phrase which is heavily overloaded in the context of parsing Ion. It may refer to the Ion type
+// decimal, the base-10 notation, or the fractional delimiter of a floating-point number.
 
-// Recognizes an integer of any supported notation (base-2, base-10, base-16) and converts
-// it into a TextStreamItem::Integer containing the resulting i64.
+/// Matches the text representation of an integer in any supported notation (base-2, base-10, or
+/// base-16) and returns the resulting [i64] as a [TextStreamItem::Integer].
 pub(crate) fn parse_integer(input: &str) -> IResult<&str, TextStreamItem> {
     terminated(
         alt((base_16_integer, base_2_integer, base_10_integer)),
@@ -24,8 +23,8 @@ pub(crate) fn parse_integer(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
-// Recognizes a hexadecimal notation integer (sign, '0x', digits) and converts it into a
-// TextStreamItem::Integer containing the resulting i64 value.
+/// Matches a base-16 notation integer (e.g. `0xCAFE`, `0Xcafe`, or `-0xCa_Fe`) and returns the
+/// resulting [i64] as a [TextStreamItem::Integer].
 fn base_16_integer(input: &str) -> IResult<&str, TextStreamItem> {
     map_res(
         separated_pair(
@@ -41,7 +40,7 @@ fn base_16_integer(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
-// Recognizes the 'digits' portion of a hexadecimal notation integer: (sign, '0b', digits)
+/// Recognizes the digits that follow the '0x' or '0X' in a base-16 integer.
 fn base_16_integer_digits(input: &str) -> IResult<&str, &str> {
     recognize(
         terminated(
@@ -53,14 +52,14 @@ fn base_16_integer_digits(input: &str) -> IResult<&str, &str> {
     )(input)
 }
 
-// The "1" suffix is a style borrowed from `nom`.
-// Recognizes 1 or more hex digits in a row.
+/// Recognizes 1 or more consecutive base-16 digits.
+// This function's "1" suffix is a style borrowed from `nom`.
 fn take_base_16_digits1(input: &str) -> IResult<&str, &str> {
     take_while1(|c: char| c.is_digit(16))(input)
 }
 
-// Recognizes a binary notation integer (sign, '0b', digits) and converts it into a
-// TextStreamItem::Integer containing the resulting i64 value.
+/// Matches a base-2 notation integer (e.g. `0b0`, `0B1`, or `-0b10_10`) and returns the resulting
+/// [i64] as a [TextStreamItem::Integer].
 fn base_2_integer(input: &str) -> IResult<&str, TextStreamItem> {
     map_res(
         separated_pair(
@@ -76,7 +75,7 @@ fn base_2_integer(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
-// Recognizes the 'digits' portion of a binary notation integer (sign, '0b', digits)
+/// Recognizes the digits that follow the '0b' or 'B' in a base-2 integer.
 fn base_2_integer_digits(input: &str) -> IResult<&str, &str> {
     recognize(
         terminated(
@@ -88,8 +87,8 @@ fn base_2_integer_digits(input: &str) -> IResult<&str, &str> {
     )(input)
 }
 
-// Recognizes a decimal notation integer (sign, digits) and converts it into a
-// TextStreamItem::Integer containing the resulting i64 value.
+/// Matches a base-10 notation integer (e.g. `0`, `255`, or `-1_024`) and returns the resulting
+/// [i64] as a [TextStreamItem::Integer].
 fn base_10_integer(input: &str) -> IResult<&str, TextStreamItem> {
     map_res(
         recognize(
@@ -105,22 +104,14 @@ fn base_10_integer(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
-// Just like i64::from_str_radix, but will remove any underscores from the input text first.
+/// Strips any underscores out of the provided text and then parses it according to the specified
+/// radix.
 fn parse_i64_with_radix(text: &str, radix: u32) -> Result<i64, ParseIntError> {
     if text.contains('_') {
         let sanitized = text.replace("_", "");
         return i64::from_str_radix(&sanitized, radix);
     }
     i64::from_str_radix(text, radix)
-}
-
-fn base_10_integer_digits(input: &str) -> IResult<&str, &str> {
-    alt((
-        // The number is either a zero...
-        recognize(char('0')),
-        // Or it's a non-zero followed by some number of '_'-separated digits
-        digits_before_dot
-    ))(input)
 }
 
 #[cfg(test)]

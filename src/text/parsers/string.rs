@@ -9,24 +9,29 @@ use nom::multi::{fold_many0, many1};
 use crate::text::parsers::whitespace;
 use crate::text::parsers::text_support::{StringFragment, escaped_newline, escaped_char};
 
+/// Matches the text representation of a string value and returns the resulting [String]
+/// as a [TextStreamItem::String].
 pub(crate) fn parse_string(input: &str) -> IResult<&str, TextStreamItem> {
     alt((short_string, long_string))(input)
 }
 
+/// Matches a short string (e.g. `"Hello"`) and returns the resulting [String]
+/// as a [TextStreamItem::String].
 fn short_string(input: &str) -> IResult<&str, TextStreamItem> {
     map(
         delimited(char('"'), short_string_body, char('"')),
         |text| {
-            println!("Short string parts: {:?}", &text);
             TextStreamItem::String(text)
         }
     )(input)
 }
 
-// TODO: This parser allocates a Vec to hold each intermediate '''...''' string
-//       and then again to merge them into a finished product. These allocations
-//       could be removed with some refactoring.
+/// Matches a long string (e.g. `'''Hello, '''\n'''World!'''`) and returns the resulting [String]
+/// as a [TextStreamItem::String].
 fn long_string(input: &str) -> IResult<&str, TextStreamItem> {
+    // TODO: This parser allocates a Vec to hold each intermediate '''...''' string
+    //       and then again to merge them into a finished product. These allocations
+    //       could be removed with some refactoring.
     map(
         terminated(
             many1(
@@ -44,6 +49,7 @@ fn long_string(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches the body of a long string fragment. (The `hello` in `'''hello'''`.)
 fn long_string_body(input: &str) -> IResult<&str, String> {
     fold_many0(
         long_string_fragment,
@@ -59,6 +65,7 @@ fn long_string_body(input: &str) -> IResult<&str, String> {
     )(input)
 }
 
+/// Matches an escaped character or a substring without any escapes in a long string.
 fn long_string_fragment(input: &str) -> IResult<&str, StringFragment> {
     alt((
         escaped_newline,
@@ -67,6 +74,7 @@ fn long_string_fragment(input: &str) -> IResult<&str, StringFragment> {
     ))(input)
 }
 
+/// Matches the next string fragment while respecting the long string delimiter (`'''`).
 fn long_string_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
     map(
         verify(take_until("'''"), |s: &str| !s.is_empty()),
@@ -74,15 +82,11 @@ fn long_string_fragment_without_escaped_text(input: &str) -> IResult<&str, Strin
     )(input)
 }
 
-// TODO: This allocates a new String in order to perform character substitutions for escape
-//       sequences. With some refactoring, we should be able to instead load the string into
-//       a reusable buffer. This would require changing TextStreamItem::String(String) to
-//       TextStreamItem::String, and the APIs would have to look for the loaded value in the
-//       buffer.
+/// Matches the body of a short string. (The `hello` in `"hello"`.)
 fn short_string_body(input: &str) -> IResult<&str, String> {
     fold_many0(
         short_string_fragment,
-        String::new(),
+        String::new(), // TODO: Reusable buffer
         |mut string, fragment| {
             match fragment {
                 StringFragment::EscapedNewline => {} // Discard escaped newlines
@@ -94,6 +98,7 @@ fn short_string_body(input: &str) -> IResult<&str, String> {
     )(input)
 }
 
+/// Matches an escaped character or a substring without any escapes in a short string.
 fn short_string_fragment(input: &str) -> IResult<&str, StringFragment> {
     alt((
         escaped_newline,
@@ -102,6 +107,7 @@ fn short_string_fragment(input: &str) -> IResult<&str, StringFragment> {
     ))(input)
 }
 
+/// Matches the next string fragment while respecting the short string delimiter (`"`).
 fn short_string_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
     map(
         verify(is_not("\"\\\""), |s: &str| !s.is_empty()),

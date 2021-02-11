@@ -9,10 +9,14 @@ use nom::multi::{fold_many0, many0_count};
 use crate::text::parsers::stop_character;
 use crate::text::parsers::text_support::{StringFragment, escaped_newline, escaped_char};
 
+/// Matches the text representation of a symbol value and returns the resulting [String]
+/// as a [TextStreamItem::Symbol].
 pub(crate) fn parse_symbol(input: &str) -> IResult<&str, TextStreamItem> {
     alt((identifier, quoted_symbol))(input)
 }
 
+/// Matches a quoted symbol (e.g. `'foo bar'`) and returns the resulting [String]
+/// as a [TextStreamItem::Symbol].
 fn quoted_symbol(input: &str) -> IResult<&str, TextStreamItem> {
     map(
         delimited(char('\''), quoted_symbol_body, char('\'')),
@@ -23,6 +27,7 @@ fn quoted_symbol(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches the body of a quoted symbol. (The `hello` in `'hello'`.)
 fn quoted_symbol_body(input: &str) -> IResult<&str, String> {
     fold_many0(
         quoted_symbol_string_fragment,
@@ -38,6 +43,7 @@ fn quoted_symbol_body(input: &str) -> IResult<&str, String> {
     )(input)
 }
 
+/// Matches an escaped character or a substring without any escapes in a long string.
 fn quoted_symbol_string_fragment(input: &str) -> IResult<&str, StringFragment> {
     alt((
         escaped_newline,
@@ -46,6 +52,7 @@ fn quoted_symbol_string_fragment(input: &str) -> IResult<&str, StringFragment> {
     ))(input)
 }
 
+/// Matches the next quoted symbol string fragment while respecting the symbol delimiter (`'`).
 fn quoted_symbol_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
     map(
         verify(is_not("'\\'"), |s: &str| !s.is_empty()),
@@ -53,6 +60,8 @@ fn quoted_symbol_fragment_without_escaped_text(input: &str) -> IResult<&str, Str
     )(input)
 }
 
+/// Matches an identifier (e.g. `foo`) and returns the resulting [String]
+/// as a [TextStreamItem::Symbol].
 fn identifier(input: &str) -> IResult<&str, TextStreamItem> {
     map(
         recognize(
@@ -70,10 +79,12 @@ fn identifier(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches any character that can appear at the start of an identifier.
 fn identifier_initial_character(input: &str) -> IResult<&str, char> {
     alt((one_of("$_"), satisfy(|c| c.is_ascii_alphabetic())))(input)
 }
 
+/// Matches characters that are legal in an identifier, though not necessarily at the beginning.
 fn identifier_trailing_characters(input: &str) -> IResult<&str, &str> {
     recognize(
         many0_count(

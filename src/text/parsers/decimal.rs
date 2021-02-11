@@ -13,6 +13,8 @@ use crate::text::parsers::stop_character;
 use crate::text::TextStreamItem;
 use crate::types::decimal::{Coefficient, Decimal, Sign};
 
+/// Matches the text representation of a decimal value and returns the resulting [Decimal]
+/// as a [TextStreamItem::Decimal].
 pub(crate) fn parse_decimal(input: &str) -> IResult<&str, TextStreamItem> {
     terminated(
         alt((decimal_with_exponent, decimal_without_exponent)),
@@ -20,6 +22,7 @@ pub(crate) fn parse_decimal(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches decimal values that have an exponent. (For example, `7d0`, `71d-1`, and `-71d-1`.)
 fn decimal_with_exponent(input: &str) -> IResult<&str, TextStreamItem> {
     map(
         pair(
@@ -46,6 +49,7 @@ fn decimal_with_exponent(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches decimal values that do not have an exponent. (For example, `7.`, `7.1`, and `-7.1`.)
 fn decimal_without_exponent(input: &str) -> IResult<&str, TextStreamItem> {
     map(
         floating_point_number_components,
@@ -61,26 +65,29 @@ fn decimal_without_exponent(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Given the four text components of a decimal value (the sign, the digits before the decimal point,
+/// the digits after the decimal point, and the exponent), constructs a [Decimal] value.
 fn decimal_from_text_components(
     sign_text: Option<&str>,
     digits_before_dot: &str,
     digits_after_dot: Option<&str>,
     exponent_text: &str
 ) -> Decimal {
-    let digits_after_dot = digits_after_dot.unwrap_or("");
+    // The longest number that can fit into a u64 without finer-grained bounds checks.
+    const MAX_U64_DIGITS: usize = 19;
+    // u64::MAX is a 20-digit number starting with `1`. For simplicity, we'll turn any number
+    // with 19 or fewer digits into a u64 and anything else into a BigUint.
 
+    let digits_after_dot = digits_after_dot.unwrap_or("");
     let sign = if sign_text.is_some() {Sign::Negative} else {Sign::Positive};
 
+    // TODO: Reusable buffer for formatting/sanitization
     let mut coefficient_text = format!("{}{}", digits_before_dot, digits_after_dot);
     coefficient_text.retain(|c| c != '_');
-    // u64::MAX is a 20-digit number starting with `1`. For simplicity, we'll turn any number
-    // with 19 or fewer digits into a u64 and anything else into a BigUint. This leaves a small
-    // amount of performance on the table.
-    // TODO: Constant for `20`, store any value that will fit in a u64 in a u64.
     // Ion's parsing rules should only let through strings of digits and underscores. Since
     // we've just removed the underscores above, the `from_str` methods below should always
     // succeed.
-    let coefficient: Coefficient = if coefficient_text.len() < 20 {
+    let coefficient: Coefficient = if coefficient_text.len() < MAX_U64_DIGITS {
         let value = u64::from_str(&coefficient_text)
             .expect("parsing coefficient as u64 failed");
         Coefficient::U64(value)
@@ -90,6 +97,7 @@ fn decimal_from_text_components(
         Coefficient::BigUInt(value)
     };
 
+    // TODO: Reusable buffer for sanitization
     let sanitized = exponent_text.replace('_', "");
     let mut exponent = i64::from_str(&sanitized)
         .expect("parsing exponent as i64 failed");
@@ -98,6 +106,7 @@ fn decimal_from_text_components(
     Decimal::new(sign, coefficient, exponent)
 }
 
+/// Matches the decimal exponent marker ('d' or 'D') followed by a signed integer. (e.g. 'd-16')
 fn decimal_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, &str> {
     preceded(
         one_of("dD"),
@@ -178,7 +187,7 @@ mod reader_tests {
         parse_equals("-279.701 ", Decimal::new(Negative, 279701, -3));
         parse_equals("-999_9.0_0 ", Decimal::new(Negative, 999900, -2));
 
-        // // Missing decimal point, would be parsed as an integer
+        // Missing decimal point, would be parsed as an integer
         parse_fails("305 ");
         // Doesn't consume leading whitespace
         parse_fails(" 3050.0 ");

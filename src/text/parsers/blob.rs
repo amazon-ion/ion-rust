@@ -1,3 +1,5 @@
+//! Parsing logic for the text representation of blob values.
+
 use base64::DecodeError;
 use nom::IResult;
 use nom::branch::alt;
@@ -10,8 +12,8 @@ use nom::sequence::{delimited, pair};
 use crate::text::parsers::whitespace;
 use crate::text::TextStreamItem;
 
-// Recognizes a boolean and converts it into a TextStreamItem::Binary containing the resulting
-// bool.
+/// Matches the text representation of a blob value, decodes it, and returns the resulting bytes
+/// as a [TextStreamItem::Blob].
 pub(crate) fn parse_blob(input: &str) -> IResult<&str, TextStreamItem> {
     map_res::<_, _, _, _, DecodeError, _, _>(
         delimited(
@@ -25,6 +27,8 @@ pub(crate) fn parse_blob(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches a series of valid base64-encoded characters. (This function does not attempt to decode
+/// the matched value.)
 fn recognize_base64_data(input: &str) -> IResult<&str, &str> {
     recognize(
         pair(

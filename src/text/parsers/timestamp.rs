@@ -9,13 +9,15 @@ use nom::IResult;
 use nom::sequence::{pair, preceded, separated_pair, terminated, tuple};
 use num_bigint::BigUint;
 
-use crate::result::{IonError, IonResult};
+use crate::result::{IonError};
 use crate::text::parsers::{stop_character, trim_zeros_expect_u32, digit, trim_zeros_expect_i32};
 use crate::types::decimal::{Decimal, Sign};
 use crate::types::timestamp::{FractionalSecondSetter, Timestamp};
 use std::ops::DivAssign;
 use crate::text::TextStreamItem;
 
+/// Matches the text representation of a timestamp value and returns the resulting Timestamp
+/// as a [TextStreamItem::Timestamp].
 pub(crate) fn parse_timestamp(input: &str) -> IResult<&str, TextStreamItem> {
     alt((
         timestamp_precision_y,
@@ -27,6 +29,8 @@ pub(crate) fn parse_timestamp(input: &str) -> IResult<&str, TextStreamItem> {
     ))(input)
 }
 
+/// Matches the text representation of a timestamp value with year precision (e.g. `2018T`) and
+/// returns the resulting Timestamp as a [TextStreamItem::Timestamp].
 fn timestamp_precision_y(input: &str) -> IResult<&str, TextStreamItem> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(year, pair(tag("T"), stop_character)),
@@ -37,6 +41,8 @@ fn timestamp_precision_y(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches the text representation of a timestamp value with month precision (e.g. `2018-06T`) and
+/// returns the resulting Timestamp as a [TextStreamItem::Timestamp].
 fn timestamp_precision_ym(input: &str) -> IResult<&str, TextStreamItem> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(pair(year, month), pair(tag("T"), stop_character)),
@@ -49,6 +55,8 @@ fn timestamp_precision_ym(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches the text representation of a timestamp value with day precision (e.g. `2018-06-12T`) and
+/// returns the resulting Timestamp as a [TextStreamItem::Timestamp].
 fn timestamp_precision_ymd(input: &str) -> IResult<&str, TextStreamItem> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(tuple((year, month, day)), pair(opt(tag("T")), stop_character)),
@@ -59,6 +67,9 @@ fn timestamp_precision_ymd(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches the text representation of a timestamp value with minute precision
+/// (e.g. `2018-06-12T:23:57-05:00`) and returns the resulting Timestamp as
+/// a [TextStreamItem::Timestamp].
 fn timestamp_precision_ymd_hm(input: &str) -> IResult<&str, TextStreamItem> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(pair(tuple((year, month, day, hour_and_minute)), timezone_offset), stop_character),
@@ -75,6 +86,9 @@ fn timestamp_precision_ymd_hm(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches the text representation of a timestamp value with second precision
+/// (e.g. `2018-06-12T:23:57:45-05:00`) and returns the resulting Timestamp as
+/// a [TextStreamItem::Timestamp].
 fn timestamp_precision_ymd_hms(input: &str) -> IResult<&str, TextStreamItem> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(pair(tuple((year, month, day, hour_and_minute, second)), timezone_offset), stop_character),
@@ -91,26 +105,38 @@ fn timestamp_precision_ymd_hms(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches the text representation of a timestamp value with fractional second precision
+/// (e.g. `2018-06-12T:23:57:45.993-05:00`) and returns the resulting Timestamp as
+/// a [TextStreamItem::Timestamp].
 fn timestamp_precision_ymd_hms_fractional(input: &str) -> IResult<&str, TextStreamItem> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(pair(tuple((year, month, day, hour_and_minute, second, recognize_fractional_seconds)), timezone_offset), stop_character),
         |((year, month, day, (hour, minute), second, fractional), offset)| {
             let builder = Timestamp::with_ymd(year, month, day)
                 .with_hms(hour, minute, second);
-            let timestamp = assign_fractional_seconds_and_build(fractional, builder, offset)?;
+            let builder = assign_fractional_seconds(fractional, builder);
+            let timestamp = if let Some(minutes) = offset {
+                builder.build_at_offset(minutes)?
+            } else {
+                builder.build_at_unknown_offset()?
+            };
             Ok(TextStreamItem::Timestamp(timestamp))
         },
     )(input)
 }
 
-fn assign_fractional_seconds_and_build(fractional: &str, mut setter: FractionalSecondSetter, offset: Option<i32>) -> IonResult<Timestamp> {
-    // If the precision is less than or equal to nanoseconds...
+/// Parses the fractional seconds and stores it in the [FractionalSecondSetter].
+fn assign_fractional_seconds(fractional: &str, mut setter: FractionalSecondSetter) -> FractionalSecondSetter {
     let number_of_digits = fractional.len();
+    // If the precision is less than or equal to nanoseconds...
     if number_of_digits <= 9 {
+        // Convert the number to nanoseconds and make a note of its original precision.
         let power = 9 - number_of_digits;
         let nanoseconds = trim_zeros_expect_u32(fractional, "fractional seconds") * 10u32.pow(power as u32);
         setter = setter.with_nanoseconds_and_precision(nanoseconds, number_of_digits as u32);
     } else {
+        // Otherwise, the number's precision is great enough that we'll need to construct a Decimal
+        // to store it with loss of fidelity.
         let coefficient = BigUint::from_str(fractional)
             .expect("parsing fractional seconds as BigUint failed");
         let mut digit_count = 1i64;
@@ -123,13 +149,10 @@ fn assign_fractional_seconds_and_build(fractional: &str, mut setter: FractionalS
         let decimal = Decimal::new(Sign::Positive, coefficient, -1 * digit_count);
         setter = setter.with_fractional_seconds(decimal);
     }
-    if let Some(minutes) = offset {
-        return Ok(setter.build_at_offset(minutes)?);
-    }
-
-    Ok(setter.build_at_unknown_offset()?)
+    setter
 }
 
+/// Matches a four-digit year, returning it as a u32.
 fn year(input: &str) -> IResult<&str, u32> {
     let y = digit;
     map(
@@ -138,6 +161,7 @@ fn year(input: &str) -> IResult<&str, u32> {
     )(input)
 }
 
+/// Matches a two-digit month, returning it as a u32.
 fn month(input: &str) -> IResult<&str, u32> {
     map(
         preceded(
@@ -153,6 +177,7 @@ fn month(input: &str) -> IResult<&str, u32> {
     )(input)
 }
 
+/// Matches a two-digit day, returning it as a u32.
 fn day(input: &str) -> IResult<&str, u32> {
     map(
         preceded(
@@ -169,6 +194,7 @@ fn day(input: &str) -> IResult<&str, u32> {
     )(input)
 }
 
+/// Matches a 'T' followed by the hour and minute (`T15:35`), returning them as as a (u32, u32) pair.
 fn hour_and_minute(input: &str) -> IResult<&str, (u32, u32)> {
     map(
         preceded(
@@ -192,6 +218,7 @@ fn hour_and_minute(input: &str) -> IResult<&str, (u32, u32)> {
     )(input)
 }
 
+/// Matches a ':' followed by a two-digit second field. (`:44`)
 fn second(input: &str) -> IResult<&str, u32> {
     map(
         preceded(
@@ -202,10 +229,13 @@ fn second(input: &str) -> IResult<&str, u32> {
     )(input)
 }
 
+/// Recognizes a decimal point followed by one or more digits.
 fn recognize_fractional_seconds(input: &str) -> IResult<&str, &str> {
     preceded(tag("."), digit1)(input)
 }
 
+/// Matches a timezone offset (`Z`, `-00:00`, `-05:00`, or `+01:00`) and returns it as a number of
+/// minutes offset from UTC. Negative numbers indicate timezones west of UTC.
 fn timezone_offset(input: &str) -> IResult<&str, Option<i32>> {
     alt((
         map(tag("Z"), |_| Some(0)),
@@ -223,6 +253,7 @@ fn timezone_offset(input: &str) -> IResult<&str, Option<i32>> {
     ))(input)
 }
 
+/// Recognizes the hours and minutes portions of a timezone offset. (`12` and `35` in `12:35`)
 fn timezone_offset_hours_minutes(input: &str) -> IResult<&str, (&str, &str)> {
     separated_pair(
         // The parser does not restrict the range of hours/minutes allowed in the offset.
@@ -330,12 +361,12 @@ mod reader_tests {
         parse_equals("2021-12-25T14:30:31.193193193-00:00 ", builder.clone().with_nanoseconds(193193193).build_at_unknown_offset()?);
         parse_equals("2021-12-25T14:30:31.19319319319-00:00 ",
                      builder.clone()
-                         .with_fractional_seconds(Decimal::new(Sign::Positive, 19319319319, -11))
+                         .with_fractional_seconds(Decimal::new(Sign::Positive, 19319319319i64, -11))
                          .build_at_unknown_offset()?
         );
         parse_equals("2021-12-25T14:30:31.193193193193193-00:00 ",
                      builder.clone()
-                         .with_fractional_seconds(Decimal::new(Sign::Positive, 193193193193193, -15))
+                         .with_fractional_seconds(Decimal::new(Sign::Positive, 193193193193193i64, -15))
                          .build_at_unknown_offset()?
         );
         Ok(())

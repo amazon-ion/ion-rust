@@ -10,6 +10,8 @@ use crate::text::parsers::numeric_support::{digits_before_dot, floating_point_nu
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
+/// Matches the text representation of a float value and returns the resulting [f64]
+/// as a [TextStreamItem::Float].
 pub(crate) fn parse_float(input: &str) -> IResult<&str, TextStreamItem> {
     terminated(
         alt((float_special_value, float_numeric_value)),
@@ -17,6 +19,7 @@ pub(crate) fn parse_float(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
+/// Matches special IEEE-754 floating point values, including +/- infinity and NaN.
 fn float_special_value(input: &str) -> IResult<&str, TextStreamItem> {
     map(tag("nan"), |_| TextStreamItem::Float(f64::NAN))
         .or(map(tag("+inf"), |_| TextStreamItem::Float(f64::INFINITY)))
@@ -24,6 +27,7 @@ fn float_special_value(input: &str) -> IResult<&str, TextStreamItem> {
         .parse(input)
 }
 
+/// Matches numeric floating point values. (e.g. `7e0`, `7.1e0` or `71e-1`)
 fn float_numeric_value(input: &str) -> IResult<&str, TextStreamItem> {
     map_res::<_, _, _, _, ParseFloatError, _, _>(
         recognize(
@@ -33,22 +37,20 @@ fn float_numeric_value(input: &str) -> IResult<&str, TextStreamItem> {
                 recognize(float_exponent_marker_followed_by_digits),
             ))),
         |text| {
-            println!("Numeric float: {:?}", text);
             // TODO: Reusable buffer for sanitization
             let mut sanitized = text.replace("_", "");
             if sanitized.ends_with('e') || sanitized.ends_with('E') {
                 sanitized.push_str("0");
             }
-            println!("Sanitized: {:?}", &sanitized);
             Ok(TextStreamItem::Float(f64::from_str(&sanitized)?))
         }
     )(input)
 }
 
-fn float_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, Option<&str>> {
+fn float_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, &str> {
     preceded(
         one_of("eE"),
-        opt(exponent_digits)
+        exponent_digits
     )(input)
 }
 
@@ -83,17 +85,21 @@ mod float_parsing_tests {
 
     #[test]
     fn test_parse_float_numeric_values() {
-        parse_equals("0.0e ", 0.0);
-        parse_equals("0E ", 0.0);
+        parse_equals("0.0e0 ", 0.0);
+        parse_equals("0E0 ", 0.0);
         parse_equals("0e0 ", 0e0);
         parse_equals("305e1 ", 3050.0);
         parse_equals("305.0e1 ", 3050.0);
-        parse_equals("-279e ", -279.0);
+        parse_equals("-0.279e3 ", -279.0);
         parse_equals("-279e0 ", -279.0);
-        parse_equals("-279.5e ", -279.5);
+        parse_equals("-279.5e0 ", -279.5);
 
-        // // Missing exponent (would be parsed as an integer)
+        // Missing exponent (would be parsed as an integer)
         parse_fails("305 ");
+        // Has exponent delimiter but missing exponent
+        parse_fails("305e ");
+        // No digits before the decimal point
+        parse_fails(".305e ");
         // Fractional exponent
         parse_fails("305e0.5");
         // Negative fractional exponent

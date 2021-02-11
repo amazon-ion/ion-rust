@@ -8,8 +8,8 @@ use crate::text::parsers::stop_character;
 use crate::result::decoding_error;
 use nom::character::streaming::{char, alpha1};
 
-// Recognizes a null and converts it into a TextStreamItem::Null containing the associated
-// IonType.
+/// Matches the text representation of a null and returns the null's associated `IonType` as
+/// a [TextStreamItem::Null].
 pub(crate) fn parse_null(input: &str) -> IResult<&str, TextStreamItem> {
     map_res(
         delimited(
@@ -30,7 +30,7 @@ pub(crate) fn parse_null(input: &str) -> IResult<&str, TextStreamItem> {
     )(input)
 }
 
-// Maps the type text from an Ion null to its corresponding IonType.
+/// Maps the type text from an Ion null to its corresponding IonType.
 fn ion_type_from_text(text: &str) -> Option<IonType> {
     use IonType::*;
     let ion_type = match text {

@@ -3,13 +3,25 @@ use bigdecimal::{ToPrimitive, BigDecimal, Signed};
 use std::ops::Neg;
 use std::cmp::Ordering;
 
+/// An integer value acting as the coefficient of a [Decimal]. When possible, users should prefer
+/// to represent the integer as a [u64] for efficiency. If the integer is too large to fit in a u64,
+/// users may instead opt to represent it as a [BigUint] at the cost of allocations and runtime
+/// complexity.
 #[derive(Clone, Debug)]
 pub enum Coefficient {
     U64(u64),
     BigUInt(BigUint)
 }
 
+// TODO: We currently model Decimal as a (Sign, Coefficient, Exponent) tuple. Modeling the
+//       Coefficient as being separate from the Sign value means that we can't convert signed
+//       integer types (i32, i64, etc) into a Coefficient via traits. Coefficient should be
+//       a combination of a sign and magnitude, not just the magnitude.
+
 impl Coefficient {
+    /// Compares a [u64] integer with a [BigUint] to see if they are equal. This method never
+    /// allocates. It will always prefer to downgrade a BigUint and compare the two integers as
+    /// u64 values. If this is not possible, then the two numbers cannot possibly be equal anyway.
     fn cross_representation_eq(c1: u64, c2: &BigUint) -> bool {
         // Try to downgrade the BigUint first since that's cheaper than upgrading the u64.
         if let Some(downgraded_c2) = c2.to_u64() {
@@ -47,17 +59,26 @@ impl Ord for Coefficient {
         match (self, other) {
             (U64(c1), U64(c2)) => c1.cmp(c2),
             (BigUInt(c1), BigUInt(c2)) => c1.cmp(c2),
+            // TODO: These methods should attempt to downgrade the BigUint first to see if
+            //       allocations can be avoided.
             (U64(c1), BigUInt(c2)) => BigUint::from(*c1).cmp(c2),
             (BigUInt(c1), U64(c2)) => c1.cmp(&BigUint::from(*c2)),
         }
     }
 }
 
-impl From<u64> for Coefficient {
-    fn from(value: u64) -> Self {
-        Coefficient::U64(value)
-    }
+// This macro makes it possible to turn unsigned int primitives into a Coefficient using `.into()`.
+macro_rules! impl_coefficient_from_small_unsigned_int_types {
+    ($($t:ty),*) => ($(
+        impl From<$t> for Coefficient {
+            fn from(value: $t) -> Coefficient {
+                Coefficient::U64(value as u64)
+            }
+        }
+    )*)
 }
+//TODO: Remove i32, i64. Currently used for testing.
+impl_coefficient_from_small_unsigned_int_types!(u8, u16, u32, u64, usize, i32, i64,);
 
 impl From<BigUint> for Coefficient {
     fn from(value: BigUint) -> Self {
@@ -75,12 +96,15 @@ impl ToBigUint for Coefficient {
     }
 }
 
+/// Indicates whether the Decimal value is less than 0 (negative) or not (positive).
+/// When the Decimal's magnitude is zero, the Sign can be used to distinguish between -0 and 0.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Sign {
     Negative,
     Positive,
 }
 
+/// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
 #[derive(Clone, Debug)]
 pub struct Decimal {
     sign: Sign,
@@ -89,6 +113,8 @@ pub struct Decimal {
 }
 
 impl Decimal {
+    /// Constructs a new Decimal with the provided components. The value of the decimal is
+    ///    (coefficient * 10^exponent) * (if sign == Sign::Negative { -1 } else { 1 })
     pub fn new<I: Into<Coefficient>>(sign: Sign, coefficient: I, exponent: i64) -> Decimal {
         let coefficient = coefficient.into();
         Decimal {
@@ -170,7 +196,7 @@ macro_rules! impl_decimal_from_unsigned_primitive_integer {
 }
 impl_decimal_from_unsigned_primitive_integer!(u8, u16, u32, u64, usize);
 
-// Make a Decimal from a BigDecimal
+/// Make a Decimal from a BigDecimal. This is a lossless operation.
 impl From<BigDecimal> for Decimal {
     fn from(value: BigDecimal) -> Self {
         let sign = if value.sign() == num_bigint::Sign::Minus {
@@ -189,7 +215,8 @@ impl From<BigDecimal> for Decimal {
     }
 }
 
-// Make a BigDecimal from a Decimal
+/// Make a BigDecimal from a Decimal. BigDecimal doesn't have a distinct -0, so this is technically
+/// a lossy operation.
 impl From<Decimal> for BigDecimal {
     fn from(value: Decimal) -> Self {
         let mut coefficient: BigInt = match value.coefficient {

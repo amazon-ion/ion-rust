@@ -1,15 +1,22 @@
-use crate::text::parsers::timestamp::parse_timestamp;
-use crate::text::parsers::integer::parse_integer;
-use crate::text::parsers::boolean::parse_boolean;
-use crate::text::parsers::float::parse_float;
-use crate::text::parsers::null::parse_null;
-use crate::text::parsers::decimal::parse_decimal;
-use crate::text::parsers::symbol::parse_symbol;
-use crate::text::parsers::string::parse_string;
-use crate::text::TextStreamItem;
-use crate::text::parsers::blob::parse_blob;
-use nom::branch::alt;
 use nom::IResult;
+use nom::branch::alt;
+use nom::combinator::opt;
+use nom::Err::Incomplete;
+use nom::sequence::preceded;
+
+use crate::result::IonResult;
+use crate::text::parsers::blob::parse_blob;
+use crate::text::parsers::boolean::parse_boolean;
+use crate::text::parsers::decimal::parse_decimal;
+use crate::text::parsers::float::parse_float;
+use crate::text::parsers::integer::parse_integer;
+use crate::text::parsers::null::parse_null;
+use crate::text::parsers::string::parse_string;
+use crate::text::parsers::symbol::parse_symbol;
+use crate::text::parsers::timestamp::parse_timestamp;
+use crate::text::parsers::whitespace;
+use crate::text::TextStreamItem;
+
 // TODO: Modify impl to match this description.
 //       See: https://crates.io/crates/encoding_rs_io
 // We have a String buffer that we fill periodically by reading from input.
@@ -19,13 +26,19 @@ use nom::IResult;
 
 pub struct TextReader {
     input: String,
+    current_item: Option<TextStreamItem>,
+    bytes_read: usize,
 }
 
 //TODO: Explanatory note about how `recognize` works and how to combine it with many0_count and many1_count.
 
 impl TextReader {
-    fn buffer(&self) -> &str {
-        self.input.as_str()
+    fn new(input: String) -> TextReader {
+        TextReader {
+            input,
+            current_item: None,
+            bytes_read: 0,
+        }
     }
 
     fn stream_item(input: &str) -> IResult<&str, TextStreamItem> {
@@ -41,19 +54,81 @@ impl TextReader {
             parse_blob,
         ))(input)
     }
+
+    fn top_level_value(input: &str) -> IResult<&str, TextStreamItem> {
+        preceded(
+            opt(whitespace),
+            Self::stream_item,
+        )(input)
+    }
+
+    pub fn bytes_read(&self) -> usize {
+        self.bytes_read
+    }
+
+    //TODO: TextStreamItem is an internal data type and should not be part of the public API.
+    //      This is only here for testing.
+    pub(crate) fn next(&mut self) -> IonResult<TextStreamItem> {
+        let input = &self.input[self.bytes_read..];
+        let length_before_parse = input.len();
+        println!("Input: {:?}", input);
+        let (remaining_text, item) = match Self::top_level_value(input) {
+             Err(Incomplete(needed)) => {
+                panic!("Incomplete! {:?}", needed);
+                // TODO: 'Incomplete' just means the current string ends with a partial value.
+                //       In most cases, this just means we need to read more text from input and
+                //       append them to the end of the string before trying again.
+            },
+            Ok((remaining_text, item)) => {
+                (remaining_text, item)
+            },
+            Err(_) => {
+                panic!("Bad. :(");
+            }
+        };
+        self.bytes_read += length_before_parse - remaining_text.len();
+        Ok(item)
+    }
 }
 
 #[cfg(test)]
 mod reader_tests {
     use crate::IonType;
+    use crate::result::IonResult;
     use crate::text::parsers::unit_test_support::parse_unwrap;
     use crate::text::reader::TextReader;
+    use crate::text::TextStreamItem;
+    use crate::types::decimal::{Decimal, Sign};
+    use crate::types::timestamp::Timestamp;
+
+    fn top_level_value_test(ion_text: &str, expected: TextStreamItem) {
+        let mut reader = TextReader::new(ion_text.to_owned());
+        let item = reader.next().unwrap();
+        assert_eq!(item, expected);
+    }
+
+    #[test]
+    fn test_read_single_top_level_values() -> IonResult<()>{
+        let tlv = top_level_value_test;
+        tlv(" null ", TextStreamItem::Null(IonType::Null));
+        tlv(" null.string ", TextStreamItem::Null(IonType::String));
+        tlv(" true ", TextStreamItem::Boolean(true));
+        tlv(" false ", TextStreamItem::Boolean(false));
+        tlv(" 738 ", TextStreamItem::Integer(738));
+        tlv(" 2.5e0 ", TextStreamItem::Float(2.5));
+        tlv(" 2.5 ", TextStreamItem::Decimal(Decimal::new(Sign::Positive, 25, -1)));
+        tlv(" 2007-07-12T ", TextStreamItem::Timestamp(Timestamp::with_ymd(2007, 7, 12).build()?));
+        tlv(" foo ", TextStreamItem::Symbol("foo".to_owned()));
+        tlv(" \"hi!\" ", TextStreamItem::String("hi!".to_owned()));
+        tlv(" {{ZW5jb2RlZA==}} ", TextStreamItem::Blob(Vec::from("encoded".as_bytes())));
+        Ok(())
+    }
 
     #[test]
     fn test_detect_stream_item_types() {
         let expect_type = |text: &str, expected_ion_type: IonType| {
             let value = parse_unwrap(TextReader::stream_item, text);
-            assert_eq!(expected_ion_type, value.ion_type());
+            assert_eq!(expected_ion_type, value.ion_type().unwrap());
         };
 
         expect_type("null ", IonType::Null);
@@ -67,8 +142,8 @@ mod reader_tests {
         expect_type("-5.0 ", IonType::Decimal);
         expect_type("5.0d0 ", IonType::Decimal);
         expect_type("-5.0d0 ", IonType::Decimal);
-        expect_type("5.0e ", IonType::Float);
-        expect_type("-5.0e ", IonType::Float);
+        expect_type("5.0e0 ", IonType::Float);
+        expect_type("-5.0e1_024 ", IonType::Float);
         expect_type("\"foo\"", IonType::String);
         expect_type("'''foo''' 1", IonType::String);
         expect_type("foo ", IonType::Symbol);
