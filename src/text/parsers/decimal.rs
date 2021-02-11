@@ -1,17 +1,19 @@
 use std::str::FromStr;
 
-use nom::IResult;
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::one_of;
 use nom::combinator::{map, opt};
+use nom::IResult;
 use nom::sequence::{pair, preceded, terminated};
 use num_bigint::BigUint;
 
 use crate::text::parsers::numeric_support::{digits_before_dot, exponent_digits, floating_point_number_components};
 use crate::text::parsers::stop_character;
 use crate::text::TextStreamItem;
-use crate::types::decimal::{Coefficient, Decimal, Sign};
+use crate::types::coefficient::{Coefficient, Sign};
+use crate::types::decimal::Decimal;
+use crate::types::magnitude::Magnitude;
 
 /// Matches the text representation of a decimal value and returns the resulting [Decimal]
 /// as a [TextStreamItem::Decimal].
@@ -82,20 +84,22 @@ fn decimal_from_text_components(
     let sign = if sign_text.is_some() {Sign::Negative} else {Sign::Positive};
 
     // TODO: Reusable buffer for formatting/sanitization
-    let mut coefficient_text = format!("{}{}", digits_before_dot, digits_after_dot);
-    coefficient_text.retain(|c| c != '_');
+    let mut magnitude_text = format!("{}{}", digits_before_dot, digits_after_dot);
+    magnitude_text.retain(|c| c != '_');
     // Ion's parsing rules should only let through strings of digits and underscores. Since
     // we've just removed the underscores above, the `from_str` methods below should always
     // succeed.
-    let coefficient: Coefficient = if coefficient_text.len() < MAX_U64_DIGITS {
-        let value = u64::from_str(&coefficient_text)
-            .expect("parsing coefficient as u64 failed");
-        Coefficient::U64(value)
+    let magnitude: Magnitude = if magnitude_text.len() < MAX_U64_DIGITS {
+        u64::from_str(&magnitude_text)
+            .expect("parsing coefficient magnitude as u64 failed")
+            .into()
     } else {
-        let value = BigUint::from_str(&coefficient_text)
-            .expect("parsing coefficient as BigUint failed");
-        Coefficient::BigUInt(value)
+        BigUint::from_str(&magnitude_text)
+            .expect("parsing coefficient magnitude as BigUint failed")
+            .into()
     };
+
+    let coefficient = Coefficient::new(sign, magnitude);
 
     // TODO: Reusable buffer for sanitization
     let sanitized = exponent_text.replace('_', "");
@@ -103,7 +107,7 @@ fn decimal_from_text_components(
         .expect("parsing exponent as i64 failed");
     // Reduce the exponent by the number of digits that follow the decimal point
     exponent -= digits_after_dot.chars().filter(|c| c.is_digit(10)).count() as i64;
-    Decimal::new(sign, coefficient, exponent)
+    Decimal::new(coefficient, exponent)
 }
 
 /// Matches the decimal exponent marker ('d' or 'D') followed by a signed integer. (e.g. 'd-16')
@@ -119,7 +123,7 @@ mod reader_tests {
     use crate::text::parsers::decimal::parse_decimal;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::TextStreamItem;
-    use crate::types::decimal::{Decimal, Sign};
+    use crate::types::decimal::Decimal;
 
     fn parse_equals(text: &str, expected: Decimal) {
         parse_test_ok(parse_decimal, text, TextStreamItem::Decimal(expected))
@@ -131,20 +135,20 @@ mod reader_tests {
 
     #[test]
     fn test_parse_decimals_with_exponents() {
-        use Sign::{Positive, Negative};
-
-        parse_equals("0d0 ", Decimal::new(Positive, 0, 0));
-        parse_equals("0D0 ", Decimal::new(Positive, 0, 0));
-        parse_equals("-0d0 ", Decimal::new(Negative, 0, 0));
-        parse_equals("-0D0 ", Decimal::new(Negative, 0, 0));
-        parse_equals("305d1 ", Decimal::new(Positive, 305, 1));
-        parse_equals("305d-1 ", Decimal::new(Positive, 305, -1));
-        parse_equals("111_111d222 ", Decimal::new(Positive, 111_111, 222));
-        parse_equals("111_111d-222 ", Decimal::new(Positive, 111_111, -222));
-        parse_equals("111_111d222_222 ", Decimal::new(Positive, 111_111, 222_222));
-        parse_equals("-279d0 ", Decimal::new(Negative, 279, 0));
-        parse_equals("-999_9d9_9 ", Decimal::new(Negative, 9_999, 99));
-        parse_equals("-999_9d-9_9 ", Decimal::new(Negative, 9_999, -99));
+        parse_equals("0d0 ", Decimal::new(0, 0));
+        parse_equals("0D0 ", Decimal::new( 0, 0));
+        parse_equals("-0d0 ", Decimal::negative_zero());
+        parse_equals("-0D0 ", Decimal::negative_zero());
+        parse_equals("-0d5 ", Decimal::negative_zero_with_exponent(5));
+        parse_equals("-0d-5 ", Decimal::negative_zero_with_exponent(-5));
+        parse_equals("305d1 ", Decimal::new(305, 1));
+        parse_equals("305d-1 ", Decimal::new( 305, -1));
+        parse_equals("111_111d222 ", Decimal::new(111_111, 222));
+        parse_equals("111_111d-222 ", Decimal::new(111_111, -222));
+        parse_equals("111_111d222_222 ", Decimal::new(111_111, 222_222));
+        parse_equals("-279d0 ", Decimal::new(-279, 0));
+        parse_equals("-999_9d9_9 ", Decimal::new(-9_999, 99));
+        parse_equals("-999_9d-9_9 ", Decimal::new(-9_999, -99));
 
         // Missing exponent, would be parsed as an integer)
         parse_fails("305 ");
@@ -172,20 +176,18 @@ mod reader_tests {
 
     #[test]
     fn test_parse_decimals_without_exponents() {
-        use Sign::{Positive, Negative};
-
-        parse_equals("0. ", Decimal::new(Positive, 0, 0));
-        parse_equals("-0. ", Decimal::new(Negative, 0, 0));
-        parse_equals("0.0 ",  Decimal::new(Positive, 0, -1));
-        parse_equals("0.5 ", Decimal::new(Positive, 5, -1));
-        parse_equals("3050. ", Decimal::new(Positive, 3050, 0));
-        parse_equals("3050.667 ", Decimal::new(Positive, 3050667, -3));
-        parse_equals("111_111.000 ", Decimal::new(Positive, 111111000, -3));
-        parse_equals("111_111.0_0_0 ", Decimal::new(Positive, 111111000, -3));
-        parse_equals("-279. ", Decimal::new(Negative, 279, 0));
-        parse_equals("-279.0 ", Decimal::new(Negative, 2790, -1));
-        parse_equals("-279.701 ", Decimal::new(Negative, 279701, -3));
-        parse_equals("-999_9.0_0 ", Decimal::new(Negative, 999900, -2));
+        parse_equals("0. ", Decimal::new(0, 0));
+        parse_equals("-0. ", Decimal::negative_zero());
+        parse_equals("0.0 ",  Decimal::new(0, -1));
+        parse_equals("0.5 ", Decimal::new(5, -1));
+        parse_equals("3050. ", Decimal::new(3050, 0));
+        parse_equals("3050.667 ", Decimal::new(3050667, -3));
+        parse_equals("111_111.000 ", Decimal::new(111111000, -3));
+        parse_equals("111_111.0_0_0 ", Decimal::new(111111000, -3));
+        parse_equals("-279. ", Decimal::new(-279, 0));
+        parse_equals("-279.0 ", Decimal::new(-2790, -1));
+        parse_equals("-279.701 ", Decimal::new( -279701, -3));
+        parse_equals("-999_9.0_0 ", Decimal::new(-999900, -2));
 
         // Missing decimal point, would be parsed as an integer
         parse_fails("305 ");

@@ -1,20 +1,20 @@
+use std::ops::DivAssign;
 use std::str::FromStr;
 
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::complete::digit1;
-use nom::character::streaming::{one_of, char};
-use nom::combinator::{map, map_res, recognize, opt};
+use nom::character::streaming::{char, one_of};
+use nom::combinator::{map, map_res, opt, recognize};
 use nom::IResult;
 use nom::sequence::{pair, preceded, separated_pair, terminated, tuple};
 use num_bigint::BigUint;
 
-use crate::result::{IonError};
-use crate::text::parsers::{stop_character, trim_zeros_expect_u32, digit, trim_zeros_expect_i32};
-use crate::types::decimal::{Decimal, Sign};
-use crate::types::timestamp::{FractionalSecondSetter, Timestamp};
-use std::ops::DivAssign;
+use crate::result::IonError;
+use crate::text::parsers::{digit, stop_character, trim_zeros_expect_i32, trim_zeros_expect_u32};
 use crate::text::TextStreamItem;
+use crate::types::decimal::Decimal;
+use crate::types::timestamp::{FractionalSecondSetter, Timestamp};
 
 /// Matches the text representation of a timestamp value and returns the resulting Timestamp
 /// as a [TextStreamItem::Timestamp].
@@ -146,7 +146,7 @@ fn assign_fractional_seconds(fractional: &str, mut setter: FractionalSecondSette
             tmp_coefficient.div_assign(&ten);
             digit_count += 1;
         }
-        let decimal = Decimal::new(Sign::Positive, coefficient, -1 * digit_count);
+        let decimal = Decimal::new(coefficient, -1 * digit_count);
         setter = setter.with_fractional_seconds(decimal);
     }
     setter
@@ -265,12 +265,12 @@ fn timezone_offset_hours_minutes(input: &str) -> IResult<&str, (&str, &str)> {
 
 #[cfg(test)]
 mod reader_tests {
-    use crate::types::timestamp::Timestamp;
     use crate::result::IonResult;
     use crate::text::parsers::timestamp::parse_timestamp;
-    use crate::types::decimal::{Decimal, Sign};
-    use crate::text::parsers::unit_test_support::{parse_test_ok, parse_test_err};
+    use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::TextStreamItem;
+    use crate::types::decimal::Decimal;
+    use crate::types::timestamp::Timestamp;
 
     fn parse_equals(text: &str, expected: Timestamp) {
         parse_test_ok(parse_timestamp, text, TextStreamItem::Timestamp(expected))
@@ -361,12 +361,12 @@ mod reader_tests {
         parse_equals("2021-12-25T14:30:31.193193193-00:00 ", builder.clone().with_nanoseconds(193193193).build_at_unknown_offset()?);
         parse_equals("2021-12-25T14:30:31.19319319319-00:00 ",
                      builder.clone()
-                         .with_fractional_seconds(Decimal::new(Sign::Positive, 19319319319i64, -11))
+                         .with_fractional_seconds(Decimal::new(19319319319i64, -11))
                          .build_at_unknown_offset()?
         );
         parse_equals("2021-12-25T14:30:31.193193193193193-00:00 ",
                      builder.clone()
-                         .with_fractional_seconds(Decimal::new(Sign::Positive, 193193193193193i64, -15))
+                         .with_fractional_seconds(Decimal::new( 193193193193193i64, -15))
                          .build_at_unknown_offset()?
         );
         Ok(())

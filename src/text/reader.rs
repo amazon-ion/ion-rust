@@ -1,7 +1,7 @@
-use nom::IResult;
 use nom::branch::alt;
 use nom::combinator::opt;
 use nom::Err::Incomplete;
+use nom::IResult;
 use nom::sequence::preceded;
 
 use crate::result::IonResult;
@@ -98,7 +98,7 @@ mod reader_tests {
     use crate::text::parsers::unit_test_support::parse_unwrap;
     use crate::text::reader::TextReader;
     use crate::text::TextStreamItem;
-    use crate::types::decimal::{Decimal, Sign};
+    use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
 
     fn top_level_value_test(ion_text: &str, expected: TextStreamItem) {
@@ -116,7 +116,7 @@ mod reader_tests {
         tlv(" false ", TextStreamItem::Boolean(false));
         tlv(" 738 ", TextStreamItem::Integer(738));
         tlv(" 2.5e0 ", TextStreamItem::Float(2.5));
-        tlv(" 2.5 ", TextStreamItem::Decimal(Decimal::new(Sign::Positive, 25, -1)));
+        tlv(" 2.5 ", TextStreamItem::Decimal(Decimal::new(25, -1)));
         tlv(" 2007-07-12T ", TextStreamItem::Timestamp(Timestamp::with_ymd(2007, 7, 12).build()?));
         tlv(" foo ", TextStreamItem::Symbol("foo".to_owned()));
         tlv(" \"hi!\" ", TextStreamItem::String("hi!".to_owned()));
