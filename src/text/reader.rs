@@ -17,20 +17,21 @@ use crate::text::parsers::timestamp::parse_timestamp;
 use crate::text::parsers::whitespace;
 use crate::text::TextStreamItem;
 
-// TODO: Modify impl to match this description.
+// TODO: Implement a full text reader.
+//       This implementation is a placeholder. It currently capable of reading a single top-level scalar
+//       of any type. It cannot iterate, step in/out, or handle annotations.
+//       It currently operates an an input of [String]. A full implementation will instead have
+//       an input source implementing [io::BufRead] and pull in several lines of text at a time,
+//       appending more to the working String when an attempt at parsing a value returns
+//       `nom::error::Incomplete(_)`.
+//       For other String streaming alternatives, see:
 //       See: https://crates.io/crates/encoding_rs_io
-// We have a String buffer that we fill periodically by reading from input.
-// We read the string N lines-at-a-time.
-// If a read comes back as incomplete, we clear the buffer of any already-processed text
-// and then append the next N lines from input. Then we try the same read again.
 
 pub struct TextReader {
     input: String,
     current_item: Option<TextStreamItem>,
     bytes_read: usize,
 }
-
-//TODO: Explanatory note about how `recognize` works and how to combine it with many0_count and many1_count.
 
 impl TextReader {
     fn new(input: String) -> TextReader {
@@ -67,14 +68,13 @@ impl TextReader {
     }
 
     //TODO: TextStreamItem is an internal data type and should not be part of the public API.
-    //      This is only here for testing.
-    pub(crate) fn next(&mut self) -> IonResult<TextStreamItem> {
+    //      This method is currently private and only usable in this module's unit tests.
+    fn next(&mut self) -> IonResult<TextStreamItem> {
         let input = &self.input[self.bytes_read..];
         let length_before_parse = input.len();
-        println!("Input: {:?}", input);
         let (remaining_text, item) = match Self::top_level_value(input) {
              Err(Incomplete(needed)) => {
-                panic!("Incomplete! {:?}", needed);
+                panic!("Incomplete data: {:?}", needed);
                 // TODO: 'Incomplete' just means the current string ends with a partial value.
                 //       In most cases, this just means we need to read more text from input and
                 //       append them to the end of the string before trying again.
@@ -83,7 +83,7 @@ impl TextReader {
                 (remaining_text, item)
             },
             Err(_) => {
-                panic!("Bad. :(");
+                panic!("Could not parse provided input.");
             }
         };
         self.bytes_read += length_before_parse - remaining_text.len();
