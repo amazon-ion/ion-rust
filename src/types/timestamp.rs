@@ -118,6 +118,11 @@ impl Timestamp {
             (Some(Arbitrary(d1)), Some(Arbitrary(d2))) => {
                 d1.eq(d2)
             }
+            //TODO: I believe that the public API makes it impossible for a user to create a
+            //      Timestamp with a Mantissa::Arbitrary(_) unless it is required. If this is
+            //      correct, the following two cases can be reduced to `false`, as two Timestamps
+            //      using different Mantissa variants are inherently unequal. Both of these
+            //      branches currently allocate, so this would be a worthwhile optimization.
             (Some(Digits(d1)), Some(Arbitrary(d2))) => {
                 let upgraded: Decimal = (*d1).into();
                 upgraded.eq(d2)
@@ -864,13 +869,14 @@ mod timestamp_tests {
             .build_at_offset(-4 * 60)
             .unwrap_or_else(|e| panic!("Couldn't build timestamp: {:?}", e));
 
-        let timestamp2 = Timestamp::with_ymd_hms_millis(2021, 2, 5, 17, 39, 51, 194)
+        let timestamp3 = Timestamp::with_ymd_hms_millis(2021, 2, 5, 17, 39, 51, 194)
             .build_at_offset(-4 * 60)
             .unwrap_or_else(|e| panic!("Couldn't build timestamp: {:?}", e));
 
         assert_eq!(timestamp1.precision, Precision::FractionalSeconds);
         assert_eq!(timestamp1.fractional_seconds, Some(Mantissa::Digits(3)));
         assert_eq!(timestamp1, timestamp2);
+        assert_eq!(timestamp2, timestamp3);
     }
 
     #[test]
