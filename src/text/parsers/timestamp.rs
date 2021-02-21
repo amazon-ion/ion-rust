@@ -136,7 +136,7 @@ fn assign_fractional_seconds(fractional: &str, mut setter: FractionalSecondSette
         setter = setter.with_nanoseconds_and_precision(nanoseconds, number_of_digits as u32);
     } else {
         // Otherwise, the number's precision is great enough that we'll need to construct a Decimal
-        // to store it with loss of fidelity.
+        // to store it without loss of fidelity.
         let coefficient = BigUint::from_str(fractional)
             .expect("parsing fractional seconds as BigUint failed");
         let mut digit_count = 1i64;
