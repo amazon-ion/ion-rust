@@ -1,10 +1,11 @@
 use std::cmp::Ordering;
 
 use bigdecimal::{BigDecimal, Signed};
-use num_bigint::{BigUint, ToBigUint};
+use num_bigint::{BigUint, ToBigUint, BigInt};
 
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::magnitude::Magnitude;
+use std::convert::{TryFrom, TryInto};
 
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
 #[derive(Clone, Debug)]
@@ -93,7 +94,7 @@ impl Decimal {
         let mut adjusted_magnitude: BigUint = d2.coefficient
             .magnitude()
             .to_biguint()
-            .unwrap().into();
+            .unwrap();
         adjusted_magnitude *= 10u64.pow(exponent_delta as u32);
         let cmp = Magnitude::BigUInt(adjusted_magnitude).cmp(&d1.coefficient.magnitude());
         cmp
@@ -169,11 +170,16 @@ impl From<BigDecimal> for Decimal {
     }
 }
 
-/// Make a BigDecimal from a Decimal. BigDecimal doesn't have a distinct -0, so this is technically
-/// a lossy operation.
-impl From<Decimal> for BigDecimal {
-    fn from(value: Decimal) -> Self {
-        BigDecimal::new(value.coefficient.into(), -value.exponent)
+impl TryFrom<Decimal> for BigDecimal {
+    //TODO: There's only one possible cause of failure for this method, but it would still be nice
+    //      to return an error type that's more descriptive than `()`.
+    type Error = ();
+    /// Attempts to create a BigDecimal from a Decimal. Returns an Error if the Decimal being
+    /// converted is a negative zero, which BigDecimal cannot represent. Returns Ok otherwise.
+    fn try_from(value: Decimal) -> Result<Self, Self::Error> {
+        // The Coefficient type cannot be converted to a BigInt if it is a negative zero.
+        let coefficient_big_int: BigInt = value.coefficient.try_into()?;
+        Ok(BigDecimal::new(coefficient_big_int, -value.exponent))
     }
 }
 
@@ -183,6 +189,7 @@ mod decimal_tests {
     use crate::types::decimal::Decimal;
     use bigdecimal::BigDecimal;
     use num_traits::ToPrimitive;
+    use std::convert::TryInto;
 
     #[test]
     fn test_decimal_eq() {
@@ -243,9 +250,23 @@ mod decimal_tests {
     #[test]
     fn test_convert_to_big_decimal() {
         let decimal = Decimal::new(-24601, -3);
-        let big_decimal: BigDecimal = decimal.into();
+        let big_decimal: BigDecimal = decimal.try_into().unwrap();
         let double = big_decimal.to_f64().unwrap();
         assert_eq!(-24.601, double);
+
+        // Any form of negative zero will fail to be converted.
+
+        let decimal = Decimal::negative_zero();
+        let conversion_result: Result<BigDecimal, ()> = decimal.try_into();
+        assert!(conversion_result.is_err());
+
+        let decimal = Decimal::negative_zero_with_exponent(6);
+        let conversion_result: Result<BigDecimal, ()> = decimal.try_into();
+        assert!(conversion_result.is_err());
+
+        let decimal = Decimal::negative_zero_with_exponent(-6);
+        let conversion_result: Result<BigDecimal, ()> = decimal.try_into();
+        assert!(conversion_result.is_err());
     }
 
     #[test]
