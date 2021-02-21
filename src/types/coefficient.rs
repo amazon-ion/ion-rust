@@ -3,6 +3,7 @@ use num_traits::{Zero};
 
 use crate::types::magnitude::Magnitude;
 use std::ops::MulAssign;
+use std::convert::TryFrom;
 
 /// Indicates whether the Coefficient's magnitude is less than 0 (negative) or not (positive).
 /// When the magnitude is zero, the Sign can be used to distinguish between -0 and 0.
@@ -81,8 +82,17 @@ macro_rules! impl_coefficient_from_signed_int_types {
 impl_coefficient_from_signed_int_types!(i8, i16, i32, i64, i128, isize);
 
 // `BigInt` can't represent -0, so this is technically a lossy operation.
-impl From<Coefficient> for BigInt {
-    fn from(value: Coefficient) -> Self {
+impl TryFrom<Coefficient> for BigInt {
+    //TODO: There's only one possible cause of failure for this method, but it would still be nice
+    //      to return an error type that's more descriptive than `()`.
+    type Error = ();
+
+    /// Attempts to create a BigInt from a Coefficient. Returns an Error if the Coefficient being
+    /// converted is a negative zero, which BigInt cannot represent. Returns Ok otherwise.
+    fn try_from(value: Coefficient) -> Result<Self, Self::Error> {
+        if value.is_negative_zero() {
+            return Err(());
+        }
         let mut big_int: BigInt = match value.magnitude {
             Magnitude::U64(m) => m.into(),
             Magnitude::BigUInt(m) => m.into()
@@ -90,7 +100,7 @@ impl From<Coefficient> for BigInt {
         if value.sign == Sign::Negative {
             big_int.mul_assign(-1);
         }
-        big_int
+        Ok(big_int)
     }
 }
 
