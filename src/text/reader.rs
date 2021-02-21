@@ -74,10 +74,10 @@ impl TextReader {
         let length_before_parse = input.len();
         let (remaining_text, item) = match Self::top_level_value(input) {
              Err(Incomplete(needed)) => {
-                panic!("Incomplete data: {:?}", needed);
-                // TODO: 'Incomplete' just means the current string ends with a partial value.
-                //       In most cases, this just means we need to read more text from input and
-                //       append them to the end of the string before trying again.
+                 panic!("Incomplete data: {:?}", needed);
+                 // TODO: 'Incomplete' indicates that the current input string ends with a partial
+                 //       value. In most cases, this just means we need to read more text from input
+                 //       and append it to the end of the input string before trying again.
             },
             Ok((remaining_text, item)) => {
                 (remaining_text, item)
