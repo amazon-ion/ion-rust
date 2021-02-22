@@ -77,9 +77,15 @@ impl PartialEq for IonError {
 /// A convenience method for creating an IonResult containing an IonError::DecodingError with the
 /// provided description text.
 pub fn decoding_error<T, S: AsRef<str>>(description: S) -> IonResult<T> {
-    Err(IonError::DecodingError {
+    Err(decoding_error_raw(description))
+}
+
+/// A convenience method for creating an IonError::DecodingError with the provided operation
+/// text. Useful for calling Option#ok_or_else.
+pub fn decoding_error_raw<S: AsRef<str>>(description: S) -> IonError {
+    IonError::DecodingError {
         description: description.as_ref().to_string(),
-    })
+    }
 }
 
 /// A convenience method for creating an IonResult containing an IonError::IllegalOperation with the

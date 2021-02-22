@@ -5,5 +5,9 @@
 pub type SymbolId = usize;
 
 mod r#type;
+pub mod decimal;
+pub mod timestamp;
+pub mod coefficient;
+pub mod magnitude;
 
 pub use r#type::IonType;
