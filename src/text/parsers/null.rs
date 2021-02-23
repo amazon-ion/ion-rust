@@ -1,12 +1,12 @@
-use crate::IonType;
-use nom::{IResult};
+use crate::result::decoding_error;
+use crate::text::parsers::stop_character;
 use crate::text::TextStreamItem;
+use crate::IonType;
+use nom::bytes::streaming::tag;
+use nom::character::streaming::{alpha1, char};
 use nom::combinator::{map_res, opt};
 use nom::sequence::{delimited, preceded};
-use nom::bytes::streaming::tag;
-use crate::text::parsers::stop_character;
-use crate::result::decoding_error;
-use nom::character::streaming::{char, alpha1};
+use nom::IResult;
 
 /// Matches the text representation of a null and returns the null's associated `IonType` as
 /// a [TextStreamItem::Null].
@@ -21,12 +21,14 @@ pub(crate) fn parse_null(input: &str) -> IResult<&str, TextStreamItem> {
             if let Some(ion_type_text) = maybe_ion_type_text {
                 match ion_type_from_text(ion_type_text) {
                     Some(ion_type) => Ok(TextStreamItem::Null(ion_type)),
-                    None => decoding_error(format!("Invalid Ion type used in `null.{}`", ion_type_text))
+                    None => {
+                        decoding_error(format!("Invalid Ion type used in `null.{}`", ion_type_text))
+                    }
                 }
             } else {
                 Ok(TextStreamItem::Null(IonType::Null))
             }
-        }
+        },
     )(input)
 }
 
@@ -54,9 +56,9 @@ fn ion_type_from_text(text: &str) -> Option<IonType> {
 
 #[cfg(test)]
 mod null_parsing_tests {
-    use crate::text::parsers::unit_test_support::{parse_test_ok, parse_test_err};
-    use crate::text::TextStreamItem;
     use crate::text::parsers::null::parse_null;
+    use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
+    use crate::text::TextStreamItem;
     use crate::IonType;
 
     fn parse_equals(text: &str, expected: IonType) {

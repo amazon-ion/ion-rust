@@ -1,10 +1,10 @@
+pub(in crate::text) mod parsers;
 pub mod reader;
 pub mod writer;
-pub(in crate::text) mod parsers;
 
-use crate::IonType;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
+use crate::IonType;
 
 /// Represents a single item encountered in a text Ion stream. The enum includes variants for each
 /// scalar type as well as variants for the beginning and end of each container type.
@@ -49,7 +49,7 @@ impl TextStreamItem {
             TextStreamItem::ListStart => IonType::List,
             TextStreamItem::SExpressionStart => IonType::SExpression,
             TextStreamItem::StructStart => IonType::Struct,
-            _ => return None // The remaining items are container ends
+            _ => return None, // The remaining items are container ends
         };
         Some(ion_type)
     }

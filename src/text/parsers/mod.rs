@@ -8,8 +8,8 @@ use nom::character::streaming::{one_of, satisfy};
 use nom::combinator::peek;
 use nom::IResult;
 
-pub(crate) mod boolean;
 pub(crate) mod blob;
+pub(crate) mod boolean;
 pub(crate) mod decimal;
 pub(crate) mod float;
 pub(crate) mod integer;
@@ -45,8 +45,7 @@ pub(crate) fn trim_leading_zeros(input: &str) -> &str {
 /// If parsing fails, `trim_zeros_expect_u32` will panic and produce an error message containing
 /// the text in `label`.
 pub(crate) fn trim_zeros_expect_u32(input: &str, label: &str) -> u32 {
-    u32::from_str(trim_leading_zeros(input))
-        .expect(&format!("parsing {} as a u32 failed", label))
+    u32::from_str(trim_leading_zeros(input)).expect(&format!("parsing {} as a u32 failed", label))
 }
 
 /// Takes a numeric string and removes all leading zeros before attempting to parse it as an i32.
@@ -54,8 +53,7 @@ pub(crate) fn trim_zeros_expect_u32(input: &str, label: &str) -> u32 {
 /// If parsing fails, `trim_zeros_expect_i32` will panic and produce an error message containing
 /// the text in `label`.
 pub(crate) fn trim_zeros_expect_i32(input: &str, label: &str) -> i32 {
-    i32::from_str(trim_leading_zeros(input))
-        .expect(&format!("parsing {} as an i32 failed", label))
+    i32::from_str(trim_leading_zeros(input)).expect(&format!("parsing {} as an i32 failed", label))
 }
 
 /// Matches the next input character if it is a base-10 digit. This wraps [char::is_digit] in the
@@ -91,7 +89,11 @@ pub(crate) mod unit_test_support {
     pub(crate) fn parse_test_err(parser: TestParser, text: &str) {
         let parsed = parser(text);
         if parsed.is_ok() {
-            panic!("parse unexpectedly succeeded: {:?} -> {:?}", text, parsed.unwrap().1);
+            panic!(
+                "parse unexpectedly succeeded: {:?} -> {:?}",
+                text,
+                parsed.unwrap().1
+            );
         }
     }
 
@@ -100,7 +102,11 @@ pub(crate) mod unit_test_support {
     pub(crate) fn parse_unwrap(parser: TestParser, text: &str) -> TextStreamItem {
         let parsed = parser(text);
         if parsed.is_err() {
-            panic!("{:?}: parse unexpectedly failed on input: {:?}", parsed.finish(), text);
+            panic!(
+                "{:?}: parse unexpectedly failed on input: {:?}",
+                parsed.finish(),
+                text
+            );
         }
         parsed.unwrap().1
     }

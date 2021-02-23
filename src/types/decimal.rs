@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use bigdecimal::{BigDecimal, Signed};
-use num_bigint::{BigUint, ToBigUint, BigInt};
+use num_bigint::{BigInt, BigUint, ToBigUint};
 
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::magnitude::Magnitude;
@@ -22,7 +22,7 @@ impl Decimal {
         let coefficient = coefficient.into();
         Decimal {
             coefficient,
-            exponent
+            exponent,
         }
     }
 
@@ -39,7 +39,7 @@ impl Decimal {
         let coefficient = Coefficient::negative_zero();
         Decimal {
             coefficient,
-            exponent
+            exponent,
         }
     }
 
@@ -71,7 +71,8 @@ impl Decimal {
         // But first, a detour: Decimal zeros are a special case because we can't scale them via
         // multiplication.
         if *d1.coefficient.magnitude() == Magnitude::U64(0)
-           && *d2.coefficient.magnitude() == Magnitude::U64(0) {
+            && *d2.coefficient.magnitude() == Magnitude::U64(0)
+        {
             // Ion only considers zeros with the same sign to be equal if their exponents are
             // equal. We already know the exponents are different, but we still need to decide
             // between Ordering::Greater and Ordering::Less. We can order the zeros by comparing
@@ -91,10 +92,7 @@ impl Decimal {
     // d1 must have a smaller exponent than d2
     fn compare_scaled_magnitudes(d1: &Decimal, d2: &Decimal) -> Ordering {
         let exponent_delta = d2.exponent - d1.exponent;
-        let mut adjusted_magnitude: BigUint = d2.coefficient
-            .magnitude()
-            .to_biguint()
-            .unwrap();
+        let mut adjusted_magnitude: BigUint = d2.coefficient.magnitude().to_biguint().unwrap();
         adjusted_magnitude *= 10u64.pow(exponent_delta as u32);
         let cmp = Magnitude::BigUInt(adjusted_magnitude).cmp(&d1.coefficient.magnitude());
         cmp
@@ -185,7 +183,7 @@ impl TryFrom<Decimal> for BigDecimal {
 
 #[cfg(test)]
 mod decimal_tests {
-    use crate::types::coefficient::{Sign, Coefficient};
+    use crate::types::coefficient::{Coefficient, Sign};
     use crate::types::decimal::Decimal;
     use bigdecimal::BigDecimal;
     use num_traits::ToPrimitive;
@@ -193,34 +191,16 @@ mod decimal_tests {
 
     #[test]
     fn test_decimal_eq() {
-        assert_eq!(
-            Decimal::new(80, 2),
-            Decimal::new(8, 3)
-        );
-        assert_eq!(
-            Decimal::new(124, -2),
-            Decimal::new(1240, -3)
-        );
-        assert_eq!(
-            Decimal::new(0, 0),
-            Decimal::new(0, 0)
-        );
-        assert_ne!(
-            Decimal::new(0, -2),
-            Decimal::new(0, 3)
-        );
-        assert_eq!(
-            Decimal::negative_zero(),
-            Decimal::negative_zero()
-        );
+        assert_eq!(Decimal::new(80, 2), Decimal::new(8, 3));
+        assert_eq!(Decimal::new(124, -2), Decimal::new(1240, -3));
+        assert_eq!(Decimal::new(0, 0), Decimal::new(0, 0));
+        assert_ne!(Decimal::new(0, -2), Decimal::new(0, 3));
+        assert_eq!(Decimal::negative_zero(), Decimal::negative_zero());
         assert_ne!(
             Decimal::negative_zero_with_exponent(2),
             Decimal::negative_zero_with_exponent(7)
         );
-        assert_ne!(
-            Decimal::new(0, 2),
-            Decimal::new(0, 5)
-        );
+        assert_ne!(Decimal::new(0, 2), Decimal::new(0, 5));
         assert_ne!(
             Decimal::new(0, 0),
             Decimal::new(Coefficient::new(Sign::Negative, 0), 0)
@@ -229,22 +209,10 @@ mod decimal_tests {
 
     #[test]
     fn test_decimal_ord() {
-        assert!(
-            Decimal::new(80, 3) >
-            Decimal::new(-80, 3)
-        );
-        assert!(
-            Decimal::new(80, 3) >
-            Decimal::new(8, 3)
-        );
-        assert!(
-            Decimal::new(80, 4) >
-            Decimal::new(80, 3)
-        );
-        assert!(
-            Decimal::new(1240, -3) >
-            Decimal::new(124, -3)
-        )
+        assert!(Decimal::new(80, 3) > Decimal::new(-80, 3));
+        assert!(Decimal::new(80, 3) > Decimal::new(8, 3));
+        assert!(Decimal::new(80, 4) > Decimal::new(80, 3));
+        assert!(Decimal::new(1240, -3) > Decimal::new(124, -3))
     }
 
     #[test]

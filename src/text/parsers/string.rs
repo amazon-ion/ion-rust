@@ -1,13 +1,13 @@
-use nom::combinator::{map, verify, opt, peek, not};
-use nom::{IResult};
-use nom::sequence::{delimited, terminated};
-use nom::branch::alt;
-use nom::character::streaming::char;
-use nom::bytes::streaming::{tag, is_not, take_until};
-use crate::text::TextStreamItem;
-use nom::multi::{fold_many0, many1};
+use crate::text::parsers::text_support::{escaped_char, escaped_newline, StringFragment};
 use crate::text::parsers::whitespace;
-use crate::text::parsers::text_support::{StringFragment, escaped_newline, escaped_char};
+use crate::text::TextStreamItem;
+use nom::branch::alt;
+use nom::bytes::streaming::{is_not, tag, take_until};
+use nom::character::streaming::char;
+use nom::combinator::{map, not, opt, peek, verify};
+use nom::multi::{fold_many0, many1};
+use nom::sequence::{delimited, terminated};
+use nom::IResult;
 
 /// Matches the text representation of a string value and returns the resulting [String]
 /// as a [TextStreamItem::String].
@@ -18,12 +18,9 @@ pub(crate) fn parse_string(input: &str) -> IResult<&str, TextStreamItem> {
 /// Matches a short string (e.g. `"Hello"`) and returns the resulting [String]
 /// as a [TextStreamItem::String].
 fn short_string(input: &str) -> IResult<&str, TextStreamItem> {
-    map(
-        delimited(char('"'), short_string_body, char('"')),
-        |text| {
-            TextStreamItem::String(text)
-        }
-    )(input)
+    map(delimited(char('"'), short_string_body, char('"')), |text| {
+        TextStreamItem::String(text)
+    })(input)
 }
 
 /// Matches a long string (e.g. `'''Hello, '''\n'''World!'''`) and returns the resulting [String]
@@ -34,18 +31,16 @@ fn long_string(input: &str) -> IResult<&str, TextStreamItem> {
     //       could be removed with some refactoring.
     map(
         terminated(
-            many1(
-                terminated(
-                    delimited(tag("'''"), long_string_body, tag("'''")),
-                    opt(whitespace)
-                )
-            ),
-            peek(not(tag("'''")))
+            many1(terminated(
+                delimited(tag("'''"), long_string_body, tag("'''")),
+                opt(whitespace),
+            )),
+            peek(not(tag("'''"))),
         ),
         |text| {
             println!("Long string parts: {:?}", &text);
             TextStreamItem::String(text.join(""))
-        }
+        },
     )(input)
 }
 
@@ -76,10 +71,9 @@ fn long_string_fragment(input: &str) -> IResult<&str, StringFragment> {
 
 /// Matches the next string fragment while respecting the long string delimiter (`'''`).
 fn long_string_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
-    map(
-        verify(take_until("'''"), |s: &str| !s.is_empty()),
-        |text| StringFragment::Substring(text)
-    )(input)
+    map(verify(take_until("'''"), |s: &str| !s.is_empty()), |text| {
+        StringFragment::Substring(text)
+    })(input)
 }
 
 /// Matches the body of a short string. (The `hello` in `"hello"`.)
@@ -109,20 +103,23 @@ fn short_string_fragment(input: &str) -> IResult<&str, StringFragment> {
 
 /// Matches the next string fragment while respecting the short string delimiter (`"`).
 fn short_string_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
-    map(
-        verify(is_not("\"\\\""), |s: &str| !s.is_empty()),
-        |text| StringFragment::Substring(text)
-    )(input)
+    map(verify(is_not("\"\\\""), |s: &str| !s.is_empty()), |text| {
+        StringFragment::Substring(text)
+    })(input)
 }
 
 #[cfg(test)]
 mod string_parsing_tests {
-    use crate::text::parsers::unit_test_support::{parse_test_ok, parse_test_err};
-    use crate::text::TextStreamItem;
     use crate::text::parsers::string::parse_string;
+    use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
+    use crate::text::TextStreamItem;
 
     fn parse_equals(text: &str, expected: &str) {
-        parse_test_ok(parse_string, text, TextStreamItem::String(expected.to_owned()))
+        parse_test_ok(
+            parse_string,
+            text,
+            TextStreamItem::String(expected.to_owned()),
+        )
     }
 
     fn parse_fails(text: &str) {
@@ -162,6 +159,9 @@ mod string_parsing_tests {
         parse_equals("'''foo bar baz''' 1", "foo bar baz");
         parse_equals("'''foo''' '''bar''' '''baz''' 1", "foobarbaz");
         parse_equals("'''foo'''\n\n\n'''bar'''\n\n\n'''baz''' 1", "foobarbaz");
-        parse_equals("'''\\x66oo''' '''\\u0062\\U00000061r''' '''\\x62\\U00000061z''' 1", "foobarbaz");
+        parse_equals(
+            "'''\\x66oo''' '''\\u0062\\U00000061r''' '''\\x62\\U00000061z''' 1",
+            "foobarbaz",
+        );
     }
 }

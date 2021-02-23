@@ -1,14 +1,14 @@
-use nom::IResult;
-use crate::text::TextStreamItem;
-use nom::sequence::{terminated, separated_pair, pair, preceded};
-use nom::branch::alt;
-use crate::text::parsers::stop_character;
-use nom::combinator::{map_res, opt, recognize};
-use nom::bytes::streaming::{tag, take_while1, is_a};
-use nom::multi::many0_count;
-use std::num::ParseIntError;
-use nom::character::streaming::char;
 use crate::text::parsers::numeric_support::base_10_integer_digits;
+use crate::text::parsers::stop_character;
+use crate::text::TextStreamItem;
+use nom::branch::alt;
+use nom::bytes::streaming::{is_a, tag, take_while1};
+use nom::character::streaming::char;
+use nom::combinator::{map_res, opt, recognize};
+use nom::multi::many0_count;
+use nom::sequence::{pair, preceded, separated_pair, terminated};
+use nom::IResult;
+use std::num::ParseIntError;
 
 // This module uses the phrase "base 10" to avoid potentially confusing references to "decimal",
 // a phrase which is heavily overloaded in the context of parsing Ion. It may refer to the Ion type
@@ -19,7 +19,7 @@ use crate::text::parsers::numeric_support::base_10_integer_digits;
 pub(crate) fn parse_integer(input: &str) -> IResult<&str, TextStreamItem> {
     terminated(
         alt((base_16_integer, base_2_integer, base_10_integer)),
-        stop_character
+        stop_character,
     )(input)
 }
 
@@ -30,26 +30,24 @@ fn base_16_integer(input: &str) -> IResult<&str, TextStreamItem> {
         separated_pair(
             opt(char('-')),
             alt((tag("0x"), tag("0X"))),
-            base_16_integer_digits
+            base_16_integer_digits,
         ),
         |(maybe_sign, text_digits)| {
             parse_i64_with_radix(text_digits, 16)
-                .map(|i| if maybe_sign.is_some() {-i} else {i})
+                .map(|i| if maybe_sign.is_some() { -i } else { i })
                 .map(|i| TextStreamItem::Integer(i))
-        }
+        },
     )(input)
 }
 
 /// Recognizes the digits that follow the '0x' or '0X' in a base-16 integer.
 fn base_16_integer_digits(input: &str) -> IResult<&str, &str> {
-    recognize(
-        terminated(
-            // Zero or more digits-followed-by-underscores
-            many0_count(pair(take_base_16_digits1, char('_'))),
-            // One or more digits
-            take_base_16_digits1
-        )
-    )(input)
+    recognize(terminated(
+        // Zero or more digits-followed-by-underscores
+        many0_count(pair(take_base_16_digits1, char('_'))),
+        // One or more digits
+        take_base_16_digits1,
+    ))(input)
 }
 
 /// Recognizes 1 or more consecutive base-16 digits.
@@ -65,42 +63,32 @@ fn base_2_integer(input: &str) -> IResult<&str, TextStreamItem> {
         separated_pair(
             opt(char('-')),
             alt((tag("0b"), tag("0B"))),
-            base_2_integer_digits
+            base_2_integer_digits,
         ),
         |(maybe_sign, text_digits)| {
             parse_i64_with_radix(text_digits, 2)
-                .map(|i| if maybe_sign.is_some() {-i} else {i})
+                .map(|i| if maybe_sign.is_some() { -i } else { i })
                 .map(|i| TextStreamItem::Integer(i))
-        }
+        },
     )(input)
 }
 
 /// Recognizes the digits that follow the '0b' or 'B' in a base-2 integer.
 fn base_2_integer_digits(input: &str) -> IResult<&str, &str> {
-    recognize(
-        terminated(
-            // Zero or more digits-followed-by-underscores
-            many0_count(pair(is_a("01"), char('_'))),
-            // One or more digits
-            is_a("01")
-        )
-    )(input)
+    recognize(terminated(
+        // Zero or more digits-followed-by-underscores
+        many0_count(pair(is_a("01"), char('_'))),
+        // One or more digits
+        is_a("01"),
+    ))(input)
 }
 
 /// Matches a base-10 notation integer (e.g. `0`, `255`, or `-1_024`) and returns the resulting
 /// [i64] as a [TextStreamItem::Integer].
 fn base_10_integer(input: &str) -> IResult<&str, TextStreamItem> {
     map_res(
-        recognize(
-            preceded(
-                opt(char('-')),
-                base_10_integer_digits
-            )
-        ),
-        |text| {
-            parse_i64_with_radix(text, 10)
-                .map(|i| TextStreamItem::Integer(i))
-        }
+        recognize(preceded(opt(char('-')), base_10_integer_digits)),
+        |text| parse_i64_with_radix(text, 10).map(|i| TextStreamItem::Integer(i)),
     )(input)
 }
 
@@ -116,9 +104,9 @@ fn parse_i64_with_radix(text: &str, radix: u32) -> Result<i64, ParseIntError> {
 
 #[cfg(test)]
 mod integer_parsing_tests {
-    use crate::text::parsers::unit_test_support::{parse_test_ok, parse_test_err};
-    use crate::text::TextStreamItem;
     use crate::text::parsers::integer::parse_integer;
+    use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
+    use crate::text::TextStreamItem;
 
     fn parse_equals(text: &str, expected: i64) {
         parse_test_ok(parse_integer, text, TextStreamItem::Integer(expected))

@@ -1,8 +1,8 @@
 use nom::branch::alt;
 use nom::combinator::opt;
+use nom::sequence::preceded;
 use nom::Err::Incomplete;
 use nom::IResult;
-use nom::sequence::preceded;
 
 use crate::result::IonResult;
 use crate::text::parsers::blob::parse_blob;
@@ -57,10 +57,7 @@ impl TextReader {
     }
 
     fn top_level_value(input: &str) -> IResult<&str, TextStreamItem> {
-        preceded(
-            opt(whitespace),
-            Self::stream_item,
-        )(input)
+        preceded(opt(whitespace), Self::stream_item)(input)
     }
 
     pub fn bytes_read(&self) -> usize {
@@ -73,15 +70,13 @@ impl TextReader {
         let input = &self.input[self.bytes_read..];
         let length_before_parse = input.len();
         let (remaining_text, item) = match Self::top_level_value(input) {
-             Err(Incomplete(needed)) => {
-                 panic!("Incomplete data: {:?}", needed);
-                 // TODO: 'Incomplete' indicates that the current input string ends with a partial
-                 //       value. In most cases, this just means we need to read more text from input
-                 //       and append it to the end of the input string before trying again.
-            },
-            Ok((remaining_text, item)) => {
-                (remaining_text, item)
-            },
+            Err(Incomplete(needed)) => {
+                panic!("Incomplete data: {:?}", needed);
+                // TODO: 'Incomplete' indicates that the current input string ends with a partial
+                //       value. In most cases, this just means we need to read more text from input
+                //       and append it to the end of the input string before trying again.
+            }
+            Ok((remaining_text, item)) => (remaining_text, item),
             Err(_) => {
                 panic!("Could not parse provided input.");
             }
@@ -93,13 +88,13 @@ impl TextReader {
 
 #[cfg(test)]
 mod reader_tests {
-    use crate::IonType;
     use crate::result::IonResult;
     use crate::text::parsers::unit_test_support::parse_unwrap;
     use crate::text::reader::TextReader;
     use crate::text::TextStreamItem;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
+    use crate::IonType;
 
     fn top_level_value_test(ion_text: &str, expected: TextStreamItem) {
         let mut reader = TextReader::new(ion_text.to_owned());
@@ -108,7 +103,7 @@ mod reader_tests {
     }
 
     #[test]
-    fn test_read_single_top_level_values() -> IonResult<()>{
+    fn test_read_single_top_level_values() -> IonResult<()> {
         let tlv = top_level_value_test;
         tlv(" null ", TextStreamItem::Null(IonType::Null));
         tlv(" null.string ", TextStreamItem::Null(IonType::String));
@@ -117,10 +112,16 @@ mod reader_tests {
         tlv(" 738 ", TextStreamItem::Integer(738));
         tlv(" 2.5e0 ", TextStreamItem::Float(2.5));
         tlv(" 2.5 ", TextStreamItem::Decimal(Decimal::new(25, -1)));
-        tlv(" 2007-07-12T ", TextStreamItem::Timestamp(Timestamp::with_ymd(2007, 7, 12).build()?));
+        tlv(
+            " 2007-07-12T ",
+            TextStreamItem::Timestamp(Timestamp::with_ymd(2007, 7, 12).build()?),
+        );
         tlv(" foo ", TextStreamItem::Symbol("foo".to_owned()));
         tlv(" \"hi!\" ", TextStreamItem::String("hi!".to_owned()));
-        tlv(" {{ZW5jb2RlZA==}} ", TextStreamItem::Blob(Vec::from("encoded".as_bytes())));
+        tlv(
+            " {{ZW5jb2RlZA==}} ",
+            TextStreamItem::Blob(Vec::from("encoded".as_bytes())),
+        );
         Ok(())
     }
 

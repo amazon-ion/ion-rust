@@ -4,11 +4,13 @@ use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::one_of;
 use nom::combinator::{map, opt};
-use nom::IResult;
 use nom::sequence::{pair, preceded, terminated};
+use nom::IResult;
 use num_bigint::BigUint;
 
-use crate::text::parsers::numeric_support::{digits_before_dot, exponent_digits, floating_point_number_components};
+use crate::text::parsers::numeric_support::{
+    digits_before_dot, exponent_digits, floating_point_number_components,
+};
 use crate::text::parsers::stop_character;
 use crate::text::TextStreamItem;
 use crate::types::coefficient::{Coefficient, Sign};
@@ -20,7 +22,7 @@ use crate::types::magnitude::Magnitude;
 pub(crate) fn parse_decimal(input: &str) -> IResult<&str, TextStreamItem> {
     terminated(
         alt((decimal_with_exponent, decimal_without_exponent)),
-        stop_character
+        stop_character,
     )(input)
 }
 
@@ -34,20 +36,15 @@ fn decimal_with_exponent(input: &str) -> IResult<&str, TextStreamItem> {
                 // Needs to return the same fields as above, so we tack on a 'None'
                 map(
                     pair(opt(tag("-")), digits_before_dot),
-                    |(sign, leading_digits)| (sign, leading_digits, None)
-                )
+                    |(sign, leading_digits)| (sign, leading_digits, None),
+                ),
             )),
             decimal_exponent_marker_followed_by_digits,
         ),
         |((sign, digits_before, digits_after), exponent)| {
-            let decimal = decimal_from_text_components(
-                sign,
-                digits_before,
-                digits_after,
-                exponent,
-            );
+            let decimal = decimal_from_text_components(sign, digits_before, digits_after, exponent);
             TextStreamItem::Decimal(decimal)
-        }
+        },
     )(input)
 }
 
@@ -63,7 +60,7 @@ fn decimal_without_exponent(input: &str) -> IResult<&str, TextStreamItem> {
                 "0", // If no exponent is specified, we always start from 0
             );
             TextStreamItem::Decimal(decimal)
-        }
+        },
     )(input)
 }
 
@@ -73,7 +70,7 @@ fn decimal_from_text_components(
     sign_text: Option<&str>,
     digits_before_dot: &str,
     digits_after_dot: Option<&str>,
-    exponent_text: &str
+    exponent_text: &str,
 ) -> Decimal {
     // The longest number that can fit into a u64 without finer-grained bounds checks.
     const MAX_U64_DIGITS: usize = 19;
@@ -81,7 +78,11 @@ fn decimal_from_text_components(
     // with 19 or fewer digits into a u64 and anything else into a BigUint.
 
     let digits_after_dot = digits_after_dot.unwrap_or("");
-    let sign = if sign_text.is_some() {Sign::Negative} else {Sign::Positive};
+    let sign = if sign_text.is_some() {
+        Sign::Negative
+    } else {
+        Sign::Positive
+    };
 
     // TODO: Reusable buffer for formatting/sanitization
     let mut magnitude_text = format!("{}{}", digits_before_dot, digits_after_dot);
@@ -103,8 +104,7 @@ fn decimal_from_text_components(
 
     // TODO: Reusable buffer for sanitization
     let sanitized = exponent_text.replace('_', "");
-    let mut exponent = i64::from_str(&sanitized)
-        .expect("parsing exponent as i64 failed");
+    let mut exponent = i64::from_str(&sanitized).expect("parsing exponent as i64 failed");
     // Reduce the exponent by the number of digits that follow the decimal point
     exponent -= digits_after_dot.chars().filter(|c| c.is_digit(10)).count() as i64;
     Decimal::new(coefficient, exponent)
@@ -112,10 +112,7 @@ fn decimal_from_text_components(
 
 /// Matches the decimal exponent marker ('d' or 'D') followed by a signed integer. (e.g. 'd-16')
 fn decimal_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, &str> {
-    preceded(
-        one_of("dD"),
-        exponent_digits
-    )(input)
+    preceded(one_of("dD"), exponent_digits)(input)
 }
 
 #[cfg(test)]
@@ -136,13 +133,13 @@ mod reader_tests {
     #[test]
     fn test_parse_decimals_with_exponents() {
         parse_equals("0d0 ", Decimal::new(0, 0));
-        parse_equals("0D0 ", Decimal::new( 0, 0));
+        parse_equals("0D0 ", Decimal::new(0, 0));
         parse_equals("-0d0 ", Decimal::negative_zero());
         parse_equals("-0D0 ", Decimal::negative_zero());
         parse_equals("-0d5 ", Decimal::negative_zero_with_exponent(5));
         parse_equals("-0d-5 ", Decimal::negative_zero_with_exponent(-5));
         parse_equals("305d1 ", Decimal::new(305, 1));
-        parse_equals("305d-1 ", Decimal::new( 305, -1));
+        parse_equals("305d-1 ", Decimal::new(305, -1));
         parse_equals("111_111d222 ", Decimal::new(111_111, 222));
         parse_equals("111_111d-222 ", Decimal::new(111_111, -222));
         parse_equals("111_111d222_222 ", Decimal::new(111_111, 222_222));
@@ -178,7 +175,7 @@ mod reader_tests {
     fn test_parse_decimals_without_exponents() {
         parse_equals("0. ", Decimal::new(0, 0));
         parse_equals("-0. ", Decimal::negative_zero());
-        parse_equals("0.0 ",  Decimal::new(0, -1));
+        parse_equals("0.0 ", Decimal::new(0, -1));
         parse_equals("0.5 ", Decimal::new(5, -1));
         parse_equals("3050. ", Decimal::new(3050, 0));
         parse_equals("3050.667 ", Decimal::new(3050667, -3));
@@ -186,7 +183,7 @@ mod reader_tests {
         parse_equals("111_111.0_0_0 ", Decimal::new(111111000, -3));
         parse_equals("-279. ", Decimal::new(-279, 0));
         parse_equals("-279.0 ", Decimal::new(-2790, -1));
-        parse_equals("-279.701 ", Decimal::new( -279701, -3));
+        parse_equals("-279.701 ", Decimal::new(-279701, -3));
         parse_equals("-999_9.0_0 ", Decimal::new(-999900, -2));
 
         // Missing decimal point, would be parsed as an integer

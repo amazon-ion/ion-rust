@@ -1,12 +1,14 @@
-use nom::{IResult, Parser};
-use crate::text::TextStreamItem;
-use nom::sequence::{terminated, preceded, tuple};
-use nom::branch::alt;
+use crate::text::parsers::numeric_support::{
+    digits_before_dot, exponent_digits, floating_point_number,
+};
 use crate::text::parsers::stop_character;
-use nom::combinator::{map_res, opt, recognize, map};
-use nom::bytes::streaming::{tag};
+use crate::text::TextStreamItem;
+use nom::branch::alt;
+use nom::bytes::streaming::tag;
 use nom::character::streaming::one_of;
-use crate::text::parsers::numeric_support::{digits_before_dot, floating_point_number, exponent_digits};
+use nom::combinator::{map, map_res, opt, recognize};
+use nom::sequence::{preceded, terminated, tuple};
+use nom::{IResult, Parser};
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
@@ -15,7 +17,7 @@ use std::str::FromStr;
 pub(crate) fn parse_float(input: &str) -> IResult<&str, TextStreamItem> {
     terminated(
         alt((float_special_value, float_numeric_value)),
-        stop_character
+        stop_character,
     )(input)
 }
 
@@ -23,19 +25,20 @@ pub(crate) fn parse_float(input: &str) -> IResult<&str, TextStreamItem> {
 fn float_special_value(input: &str) -> IResult<&str, TextStreamItem> {
     map(tag("nan"), |_| TextStreamItem::Float(f64::NAN))
         .or(map(tag("+inf"), |_| TextStreamItem::Float(f64::INFINITY)))
-        .or(map(tag("-inf"), |_| TextStreamItem::Float(f64::NEG_INFINITY)))
+        .or(map(tag("-inf"), |_| {
+            TextStreamItem::Float(f64::NEG_INFINITY)
+        }))
         .parse(input)
 }
 
 /// Matches numeric floating point values. (e.g. `7e0`, `7.1e0` or `71e-1`)
 fn float_numeric_value(input: &str) -> IResult<&str, TextStreamItem> {
     map_res::<_, _, _, _, ParseFloatError, _, _>(
-        recognize(
-            tuple((
-                opt(tag("-")),
-                alt((floating_point_number, digits_before_dot)),
-                recognize(float_exponent_marker_followed_by_digits),
-            ))),
+        recognize(tuple((
+            opt(tag("-")),
+            alt((floating_point_number, digits_before_dot)),
+            recognize(float_exponent_marker_followed_by_digits),
+        ))),
         |text| {
             // TODO: Reusable buffer for sanitization
             let mut sanitized = text.replace("_", "");
@@ -43,22 +46,19 @@ fn float_numeric_value(input: &str) -> IResult<&str, TextStreamItem> {
                 sanitized.push_str("0");
             }
             Ok(TextStreamItem::Float(f64::from_str(&sanitized)?))
-        }
+        },
     )(input)
 }
 
 fn float_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, &str> {
-    preceded(
-        one_of("eE"),
-        exponent_digits
-    )(input)
+    preceded(one_of("eE"), exponent_digits)(input)
 }
 
 #[cfg(test)]
 mod float_parsing_tests {
-    use crate::text::parsers::unit_test_support::{parse_test_ok, parse_test_err, parse_unwrap};
-    use crate::text::TextStreamItem;
     use crate::text::parsers::float::parse_float;
+    use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok, parse_unwrap};
+    use crate::text::TextStreamItem;
     use std::str::FromStr;
 
     fn parse_equals(text: &str, expected: f64) {

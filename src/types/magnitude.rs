@@ -10,7 +10,7 @@ use num_bigint::{BigUint, ToBigUint};
 #[derive(Clone, Debug)]
 pub enum Magnitude {
     U64(u64),
-    BigUInt(BigUint)
+    BigUInt(BigUint),
 }
 
 impl PartialEq for Magnitude {
@@ -20,7 +20,7 @@ impl PartialEq for Magnitude {
             (U64(m1), U64(m2)) => m1 == m2,
             (BigUInt(m1), BigUInt(m2)) => m1 == m2,
             (U64(m1), BigUInt(m2)) => Magnitude::cross_representation_eq(*m1, &m2),
-            (BigUInt(m1), U64(m2)) => Magnitude::cross_representation_eq(*m2, &m1)
+            (BigUInt(m1), U64(m2)) => Magnitude::cross_representation_eq(*m2, &m1),
         }
     }
 }
@@ -40,7 +40,7 @@ impl Ord for Magnitude {
             (U64(m1), U64(m2)) => m1.cmp(m2),
             (BigUInt(m1), BigUInt(m2)) => m1.cmp(m2),
             (U64(m1), BigUInt(m2)) => Magnitude::cross_representation_cmp(*m1, m2),
-            (BigUInt(m1), U64(m2)) => Magnitude::cross_representation_cmp(*m2, m1).reverse()
+            (BigUInt(m1), U64(m2)) => Magnitude::cross_representation_cmp(*m2, m1).reverse(),
         }
     }
 }
@@ -78,7 +78,7 @@ impl From<Magnitude> for BigUint {
         use Magnitude::*;
         match value {
             U64(m) => BigUint::from(m),
-            BigUInt(m) => m
+            BigUInt(m) => m,
         }
     }
 }
@@ -103,9 +103,7 @@ macro_rules! impl_magnitude_from_small_unsigned_int_types {
     )*)
 }
 
-impl_magnitude_from_small_unsigned_int_types!(
-    u8, u16, u32, u64, usize
-);
+impl_magnitude_from_small_unsigned_int_types!(u8, u16, u32, u64, usize);
 
 macro_rules! impl_magnitude_from_small_signed_int_types {
     ($($t:ty),*) => ($(
@@ -123,9 +121,7 @@ macro_rules! impl_magnitude_from_small_signed_int_types {
     )*)
 }
 
-impl_magnitude_from_small_signed_int_types!(
-    i8, i16, i32, i64, isize
-);
+impl_magnitude_from_small_signed_int_types!(i8, i16, i32, i64, isize);
 
 impl From<u128> for Magnitude {
     fn from(value: u128) -> Magnitude {
@@ -147,19 +143,31 @@ mod magnitude_tests {
     use num_traits::Zero;
     use std::cmp::Ordering;
 
-    fn eq_test<I1, I2>(m1: I1, m2: I2) where I1: Into<Magnitude>, I2: Into<Magnitude> {
+    fn eq_test<I1, I2>(m1: I1, m2: I2)
+    where
+        I1: Into<Magnitude>,
+        I2: Into<Magnitude>,
+    {
         let m1 = m1.into();
         let m2 = m2.into();
         assert_eq!(m1, m2);
     }
 
-    fn ne_test<I1, I2>(m1: I1, m2: I2) where I1: Into<Magnitude>, I2: Into<Magnitude> {
+    fn ne_test<I1, I2>(m1: I1, m2: I2)
+    where
+        I1: Into<Magnitude>,
+        I2: Into<Magnitude>,
+    {
         let m1 = m1.into();
         let m2 = m2.into();
         assert_ne!(m1, m2);
     }
 
-    fn cmp_test<I1, I2>(m1: I1, ordering: Ordering, m2: I2) where I1: Into<Magnitude>, I2: Into<Magnitude> {
+    fn cmp_test<I1, I2>(m1: I1, ordering: Ordering, m2: I2)
+    where
+        I1: Into<Magnitude>,
+        I2: Into<Magnitude>,
+    {
         let m1 = m1.into();
         let m2 = m2.into();
         assert!(m1.cmp(&m2) == ordering);

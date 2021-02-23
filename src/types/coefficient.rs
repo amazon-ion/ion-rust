@@ -1,9 +1,9 @@
-use num_bigint::{BigUint, BigInt};
-use num_traits::{Zero};
+use num_bigint::{BigInt, BigUint};
+use num_traits::Zero;
 
 use crate::types::magnitude::Magnitude;
-use std::ops::MulAssign;
 use std::convert::TryFrom;
+use std::ops::MulAssign;
 
 /// Indicates whether the Coefficient's magnitude is less than 0 (negative) or not (positive).
 /// When the magnitude is zero, the Sign can be used to distinguish between -0 and 0.
@@ -26,10 +26,7 @@ pub struct Coefficient {
 impl Coefficient {
     pub(crate) fn new<I: Into<Magnitude>>(sign: Sign, magnitude: I) -> Self {
         let magnitude = magnitude.into();
-        Coefficient {
-            sign,
-            magnitude,
-        }
+        Coefficient { sign, magnitude }
     }
 
     pub(crate) fn sign(&self) -> Sign {
@@ -43,7 +40,7 @@ impl Coefficient {
     pub(crate) fn negative_zero() -> Self {
         Coefficient {
             sign: Sign::Negative,
-            magnitude: Magnitude::U64(0)
+            magnitude: Magnitude::U64(0),
         }
     }
 
@@ -51,7 +48,7 @@ impl Coefficient {
         match (self.sign, &self.magnitude) {
             (Sign::Negative, Magnitude::U64(0)) => true,
             (Sign::Negative, Magnitude::BigUInt(b)) if b.is_zero() => true,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -95,7 +92,7 @@ impl TryFrom<Coefficient> for BigInt {
         }
         let mut big_int: BigInt = match value.magnitude {
             Magnitude::U64(m) => m.into(),
-            Magnitude::BigUInt(m) => m.into()
+            Magnitude::BigUInt(m) => m.into(),
         };
         if value.sign == Sign::Negative {
             big_int.mul_assign(-1);
@@ -108,10 +105,14 @@ impl TryFrom<Coefficient> for BigInt {
 mod coefficient_tests {
     use num_bigint::BigUint;
 
-    use crate::types::coefficient::{Coefficient};
+    use crate::types::coefficient::Coefficient;
     use crate::types::decimal::Decimal;
 
-    fn eq_test<I1, I2>(c1: I1, c2: I2) where I1: Into<Coefficient>, I2: Into<Coefficient> {
+    fn eq_test<I1, I2>(c1: I1, c2: I2)
+    where
+        I1: Into<Coefficient>,
+        I2: Into<Coefficient>,
+    {
         let c1 = c1.into();
         let c2 = c2.into();
         assert_eq!(c1, c2);
