@@ -1459,6 +1459,7 @@ mod tests {
     }
 
     #[test]
+    #[rustfmt::skip]
     fn test_clear_annotations() -> IonResult<()> {
         // Verifies that byte offset bookkeeping is correct when the cursor reads a field with
         // annotations, then a field with no annotations, and finally a value with neither a

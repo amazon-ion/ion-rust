@@ -74,6 +74,7 @@ impl VarInt {
         })
     }
 
+    #[rustfmt::skip]
     pub fn write_i64<W: Write>(sink: &mut W, value: i64) -> IonResult<()> {
         // An i64 is 8 bytes of data. The VarInt encoding will add one continuation bit per byte
         // as well as a sign bit, for a total of 9 extra bits. Therefore, the largest encoding
