@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use std::convert::From;
-use std::{io, fmt};
+use std::{fmt, io};
 
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;
@@ -28,7 +28,9 @@ pub enum IonError {
 
     /// Returned when the user has performed an illegal operation (for example: calling stepOut()
     /// on the cursor at the top level.)
-    #[error("The user has performed an operation that is not legal in the current state: {operation}")]
+    #[error(
+        "The user has performed an operation that is not legal in the current state: {operation}"
+    )]
     IllegalOperation { operation: String },
 }
 
@@ -40,19 +42,19 @@ impl Clone for IonError {
     fn clone(&self) -> Self {
         use IonError::*;
         match self {
-            IoError {source} => IoError {
+            IoError { source } => IoError {
                 // io::Error implements From<ErrorKind>, and ErrorKind is cloneable.
-                source: io::Error::from(source.kind().clone())
+                source: io::Error::from(source.kind().clone()),
             },
-            FmtError {source} => FmtError {
-                source: source.clone()
+            FmtError { source } => FmtError {
+                source: source.clone(),
             },
-            DecodingError {description} => DecodingError {
-                description: description.clone()
+            DecodingError { description } => DecodingError {
+                description: description.clone(),
             },
-            IllegalOperation {operation} => IllegalOperation {
-                operation: operation.clone()
-            }
+            IllegalOperation { operation } => IllegalOperation {
+                operation: operation.clone(),
+            },
         }
     }
 }
@@ -65,11 +67,11 @@ impl PartialEq for IonError {
         use IonError::*;
         match (self, other) {
             // We can compare the io::Errors' ErrorKinds, offering a weak definition of equality.
-            (IoError {source: s1}, IoError {source: s2}) => s1.kind() == s2.kind(),
-            (FmtError {source: s1}, FmtError {source: s2}) => s1 == s2,
-            (DecodingError {description: s1}, DecodingError {description: s2}) => s1 == s2,
-            (IllegalOperation {operation: s1}, IllegalOperation {operation: s2}) => s1 == s2,
-            _ => false
+            (IoError { source: s1 }, IoError { source: s2 }) => s1.kind() == s2.kind(),
+            (FmtError { source: s1 }, FmtError { source: s2 }) => s1 == s2,
+            (DecodingError { description: s1 }, DecodingError { description: s2 }) => s1 == s2,
+            (IllegalOperation { operation: s1 }, IllegalOperation { operation: s2 }) => s1 == s2,
+            _ => false,
         }
     }
 }

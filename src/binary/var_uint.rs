@@ -1,7 +1,7 @@
 use crate::data_source::IonDataSource;
 use crate::result::{decoding_error, IonResult};
-use std::mem;
 use std::io::Write;
+use std::mem;
 
 // ion_rust does not currently support reading variable length integers of truly arbitrary size.
 // These type aliases will simplify the process of changing the data types used to represent each
@@ -65,6 +65,7 @@ impl VarUInt {
     }
 
     /// Encodes the given unsigned int value as a VarUInt and writes it to the sink.
+    #[rustfmt::skip]
     pub fn write_u64<W: Write>(sink: &mut W, mut magnitude: u64) -> IonResult<usize> {
         // A u64 is 8 bytes of data. The VarUInt encoding will add a continuation bit to every byte,
         // growing the data size by 8 more bits. Therefore, the largest encoded size of a u64 is
@@ -117,8 +118,8 @@ impl VarUInt {
 #[cfg(test)]
 mod tests {
     use super::VarUInt;
-    use std::io::{BufReader, Cursor};
     use crate::result::IonResult;
+    use std::io::{BufReader, Cursor};
 
     const ERROR_MESSAGE: &'static str = "Failed to read a VarUInt from the provided data.";
 
@@ -178,7 +179,7 @@ mod tests {
         let mut buffer = vec![];
         VarUInt::write_u64(&mut buffer, value)?;
         assert_eq!(buffer.as_slice(), expected_encoding);
-        return Ok(())
+        return Ok(());
     }
 
     #[test]
@@ -196,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_var_uint_two_byte_values() -> IonResult<()>  {
+    fn test_write_var_uint_two_byte_values() -> IonResult<()> {
         var_uint_encoding_test(279, &[0b0000_0010, 0b1001_0111])?;
         var_uint_encoding_test(555, &[0b0000_0100, 0b1010_1011])?;
         var_uint_encoding_test(999, &[0b0000_0111, 0b1110_0111])?;

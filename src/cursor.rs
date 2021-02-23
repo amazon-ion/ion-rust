@@ -89,7 +89,9 @@ pub trait Cursor {
     /// Runs the provided closure, passing in a reference to the blob to be read and allowing a
     /// calculated value of any type to be returned. When possible, blob_ref_map will pass a
     /// reference directly to the bytes in the input buffer rather than allocating a new array.
-    fn blob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
+    fn blob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>>
+    where
+        F: FnOnce(&[u8]) -> U;
 
     /// If the current value is a clob, returns its value as a Vec<u8>; otherwise, returns None.
     fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
@@ -97,7 +99,9 @@ pub trait Cursor {
     /// Runs the provided closure, passing in a reference to the clob to be read and allowing a
     /// calculated value of any type to be returned. When possible, clob_ref_map will pass a
     /// reference directly to the bytes in the input buffer rather than allocating a new array.
-    fn clob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
+    fn clob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>>
+    where
+        F: FnOnce(&[u8]) -> U;
 
     /// If the current value is a timestamp, returns its value as a DateTime<FixedOffset>;
     /// otherwise, returns None.

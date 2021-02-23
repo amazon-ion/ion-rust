@@ -6,13 +6,13 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 use delegate::delegate;
 
-use crate::{BinaryIonCursor, Cursor, IonType};
 use crate::constants::v1_0::system_symbol_ids;
 use crate::cursor::StreamItem::*;
 use crate::result::IonResult;
 use crate::symbol_table::SymbolTable;
 use crate::system_event_handler::SystemEventHandler;
 use crate::types::SymbolId;
+use crate::{BinaryIonCursor, Cursor, IonType};
 
 /// A streaming Ion reader that resolves symbol IDs into the appropriate text.
 ///
@@ -245,13 +245,13 @@ impl<T: AsRef<[u8]>> Reader<BinaryIonCursor<io::Cursor<T>>> {
 mod tests {
     use std::io;
 
-    use crate::{Reader, SymbolTable};
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::BinaryIonCursor;
     use crate::cursor::{Cursor, StreamItem::*};
     use crate::result::IonResult;
     use crate::system_event_handler::SystemEventHandler;
     use crate::types::IonType;
+    use crate::{Reader, SymbolTable};
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 
@@ -310,7 +310,11 @@ mod tests {
 
     struct Handler;
     impl SystemEventHandler for Handler {
-        fn on_symbol_table_append<'a>(&'a mut self, symbol_table: &'a SymbolTable, starting_id: usize) {
+        fn on_symbol_table_append<'a>(
+            &'a mut self,
+            symbol_table: &'a SymbolTable,
+            starting_id: usize,
+        ) {
             let new_symbols = symbol_table.symbols_tail(starting_id);
             assert_eq!(3, new_symbols.len());
             assert_eq!("foo", new_symbols[0].as_str());

@@ -37,7 +37,6 @@ struct EncodedValue {
     //
     // See the Rust Performance Book section on measuring type sizes[1] for more information.
     // [1] https://nnethercote.github.io/perf-book/type-sizes.html#measuring-type-sizes
-
     ion_type: IonType,
     header: Header,
     is_null: bool,
@@ -86,7 +85,6 @@ struct EncodedValue {
 }
 
 impl EncodedValue {
-
     /// Returns the offset of the current value's type descriptor byte.
     fn header_offset(&self) -> usize {
         self.header_offset as usize
@@ -146,9 +144,7 @@ impl EncodedValue {
         if self.field_id.is_none() {
             return None;
         }
-        Some(self.header_offset
-            - self.annotations_length as usize
-            - self.field_id_length as usize)
+        Some(self.header_offset - self.annotations_length as usize - self.field_id_length as usize)
     }
 
     /// Returns an offset Range that contains the bytes used to encode this value's field ID,
@@ -208,7 +204,7 @@ impl Default for EncodedValue {
             header_offset: 0,
             header_length: 0,
             value_length: 0,
-            number_of_annotations: 0
+            number_of_annotations: 0,
         }
     }
 }
@@ -252,7 +248,7 @@ pub struct CursorState {
     // All of the annotations on values in `parents` and the current value.
     // Having a single, reusable Vec reduces allocations and keeps the size of
     // the EncodedValue type (which is frequently moved) small.
-    annotations: Vec<SymbolId>
+    annotations: Vec<SymbolId>,
 }
 
 /// Verifies that the current value is of the expected type and that the bytes representing that
@@ -504,8 +500,8 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     }
 
     fn blob_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
-        where
-            F: FnOnce(&[u8]) -> T,
+    where
+        F: FnOnce(&[u8]) -> T,
     {
         read_safety_checks!(self, IonType::Blob);
 
@@ -514,8 +510,8 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     }
 
     fn clob_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
-        where
-            F: FnOnce(&[u8]) -> T,
+    where
+        F: FnOnce(&[u8]) -> T,
     {
         read_safety_checks!(self, IonType::Clob);
 
@@ -588,11 +584,12 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         //      Offer an read_* API that surfaces information about the encoded timestamp's
         //      precision.
         const NANOSECONDS_PER_SECOND: f64 = 1_000_000_000f64;
-        let fractional_seconds = subsecond_coefficient as f64 * 10f64.powf(subsecond_exponent as f64);
+        let fractional_seconds =
+            subsecond_coefficient as f64 * 10f64.powf(subsecond_exponent as f64);
         let nanoseconds = (fractional_seconds * NANOSECONDS_PER_SECOND).round() as u32;
 
         let naive_datetime = NaiveDate::from_ymd(year as i32, month as u32, day as u32)
-            .and_hms(hour as u32,minute as u32,second as u32)
+            .and_hms(hour as u32, minute as u32, second as u32)
             .with_nanosecond(nanoseconds);
 
         if naive_datetime.is_none() {
@@ -622,7 +619,10 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         self.cursor.parents.push(EncodedValue::default());
         // We've just push()ed a value onto the `parents` Vec, so it's safe to call
         // last_mut().unwrap() below.
-        mem::swap(&mut self.cursor.value, self.cursor.parents.last_mut().unwrap());
+        mem::swap(
+            &mut self.cursor.value,
+            self.cursor.parents.last_mut().unwrap(),
+        );
         self.cursor.depth += 1;
         self.cursor.index_at_depth = 0;
         Ok(())
@@ -644,7 +644,9 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         // Vec position.
 
         // Get an in-place handle to parent
-        let mut parent = self.cursor.parents
+        let mut parent = self
+            .cursor
+            .parents
             .last_mut()
             .ok_or_else(|| illegal_operation_raw("You cannot step out of the root level."))?;
 
@@ -791,7 +793,7 @@ where
                 is_in_struct: false,
                 value: Default::default(),
                 parents: Vec::new(),
-                annotations: Vec::new()
+                annotations: Vec::new(),
             },
             header_cache: create_header_byte_jump_table(),
         }
@@ -802,7 +804,8 @@ where
     }
 
     fn finished_reading_value(&mut self) -> bool {
-        self.cursor.value.value_length > 0 && self.cursor.bytes_read >= self.cursor.value.value_end_exclusive()
+        self.cursor.value.value_length > 0
+            && self.cursor.bytes_read >= self.cursor.value.value_end_exclusive()
     }
 
     fn clear_annotations(&mut self) {
@@ -871,7 +874,8 @@ where
             Reserved => return decoding_error("Found an Ion Value with a Reserved type code."),
         };
 
-        self.cursor.value.header_length = (self.cursor.bytes_read - self.cursor.value.header_offset - 1) as u8;
+        self.cursor.value.header_length =
+            (self.cursor.bytes_read - self.cursor.value.header_offset - 1) as u8;
         self.cursor.value.value_length = length;
         Ok(())
     }
@@ -1454,11 +1458,15 @@ mod tests {
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
         assert_eq!(cursor.annotation_ids(), &[12]);
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
-        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[15..15] /*That is, zero bytes*/));
+        assert_eq!(
+            cursor.raw_value_bytes(),
+            Some(&ion_data[15..15] /*That is, zero bytes*/)
+        );
         Ok(())
     }
 
     #[test]
+    #[rustfmt::skip]
     fn test_clear_annotations() -> IonResult<()> {
         // Verifies that byte offset bookkeeping is correct when the cursor reads a field with
         // annotations, then a field with no annotations, and finally a value with neither a

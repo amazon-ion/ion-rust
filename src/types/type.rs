@@ -23,7 +23,7 @@ impl IonType {
         use IonType::*;
         match self {
             List | SExpression | Struct => true,
-            _ => false
+            _ => false,
         }
     }
 }
