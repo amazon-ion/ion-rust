@@ -37,4 +37,9 @@ jobs:
         with:
           command: test
           args: --verbose --workspace
+      - name: Rustfmt Check
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --verbose -- --check
 
