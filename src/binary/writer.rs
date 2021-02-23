@@ -1,19 +1,19 @@
-use std::{io, mem};
 use std::io::Write;
 use std::ops::Range;
+use std::{io, mem};
 
 use bigdecimal::{BigDecimal, Signed, ToPrimitive};
 use bytes::BufMut;
-use chrono::{Datelike, DateTime, FixedOffset, Timelike};
+use chrono::{DateTime, Datelike, FixedOffset, Timelike};
 
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::int::Int;
 use crate::binary::uint::UInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::IonType;
 use crate::result::{illegal_operation, IonResult};
 use crate::types::SymbolId;
+use crate::IonType;
 
 // Ion's length prefixing requires that elements in a stream be encoded out of order.
 // For example, to write the annotated list $ion::["foo", "bar"], the writer must:
@@ -82,10 +82,12 @@ struct EncodingLevel {
 }
 
 impl EncodingLevel {
-    fn new(container_type: ContainerType,
-           field_id: Option<SymbolId>,
-           num_annotations: u8,
-           td_io_range_index: usize) -> EncodingLevel {
+    fn new(
+        container_type: ContainerType,
+        field_id: Option<SymbolId>,
+        num_annotations: u8,
+        td_io_range_index: usize,
+    ) -> EncodingLevel {
         EncodingLevel {
             container_type,
             field_id,
@@ -103,7 +105,6 @@ impl EncodingLevel {
             .sum()
     }
 }
-
 
 /// A system-level streaming binary Ion writer. This writer does not provide symbol table
 /// management; symbol-related operations (e.g. setting field IDs and annotations or writing symbol
@@ -174,7 +175,10 @@ impl<W: Write> BinarySystemWriter<W> {
     // Uses the provided closure to encode data to the buffer. Returns the range of the buffer
     // now occupied by the encoded bytes.
     #[inline]
-    fn encode_to_buffer(&mut self, mut encode_fn: impl FnMut(&mut Self) -> IonResult<()>) -> IonResult<IoRange> {
+    fn encode_to_buffer(
+        &mut self,
+        mut encode_fn: impl FnMut(&mut Self) -> IonResult<()>,
+    ) -> IonResult<IoRange> {
         let start = self.buffer.len();
         encode_fn(self)?;
         let end = self.buffer.len();
@@ -195,7 +199,8 @@ impl<W: Write> BinarySystemWriter<W> {
     // a new one.
     #[inline]
     fn extend_last_range(&mut self, number_of_bytes: usize) {
-        let last_range = self.io_ranges
+        let last_range = self
+            .io_ranges
             .last_mut()
             .expect("io_ranges unexpectedly empty.");
         last_range.end += number_of_bytes;
@@ -203,7 +208,10 @@ impl<W: Write> BinarySystemWriter<W> {
 
     // Handles before-and-after tasks common to writing all non-container values, like encoding
     // field IDs and annotation wrappers.
-    fn write_scalar(&mut self, mut write_fn: impl FnMut(&mut Vec<u8>) -> IonResult<()>) -> IonResult<()> {
+    fn write_scalar(
+        &mut self,
+        mut write_fn: impl FnMut(&mut Vec<u8>) -> IonResult<()>,
+    ) -> IonResult<()> {
         // If we're in a struct, encode the field ID first.
         if self.is_in_struct() {
             let field_id = self.expect_field_id()? as u64;
@@ -216,9 +224,7 @@ impl<W: Write> BinarySystemWriter<W> {
             return self.encode_annotated_scalar(write_fn);
         }
 
-        let encoded_range = self.encode_to_buffer(|writer| {
-            write_fn(&mut writer.buffer)
-        })?;
+        let encoded_range = self.encode_to_buffer(|writer| write_fn(&mut writer.buffer))?;
         self.extend_last_range(encoded_range.len());
 
         Ok(())
@@ -226,13 +232,13 @@ impl<W: Write> BinarySystemWriter<W> {
 
     // Uses the provided closure to encode a scalar value, then encodes the annotation wrapper
     // based on the encoded value's length and the configured annotations sequence.
-    fn encode_annotated_scalar(&mut self,
-                               mut scalar_write_fn: impl FnMut(&mut Vec<u8>) -> IonResult<()>) -> IonResult<()> {
-
+    fn encode_annotated_scalar(
+        &mut self,
+        mut scalar_write_fn: impl FnMut(&mut Vec<u8>) -> IonResult<()>,
+    ) -> IonResult<()> {
         // Encode the scalar into the buffer, but do not push the IoRange yet.
-        let value_io_range: IoRange = self.encode_to_buffer(|writer| {
-            scalar_write_fn(&mut writer.buffer)
-        })?;
+        let value_io_range: IoRange =
+            self.encode_to_buffer(|writer| scalar_write_fn(&mut writer.buffer))?;
 
         // Create ranges that will ultimately point to the encoded components of the annotations
         // wrapper for the value.
@@ -255,7 +261,7 @@ impl<W: Write> BinarySystemWriter<W> {
             header_io_range,
             annotations_seq_length_io_range,
             annotations_seq_io_range,
-            value_io_range
+            value_io_range,
         ]);
 
         self.push_empty_io_range();
@@ -266,32 +272,40 @@ impl<W: Write> BinarySystemWriter<W> {
     // Writes the annotations wrapper for a value of a given length. Callers should encode the
     // value to the buffer, call this method with the value's encoded length, then push
     // the populated IoRanges in the necessary order.
-    fn encode_annotation_wrapper(&mut self,
-                                 header_io_range: &mut IoRange,
-                                 annotations_seq_length_io_range: &mut IoRange,
-                                 annotations_seq_io_range: &mut IoRange,
-                                 wrapped_value_length: usize) -> IonResult<()> {
+    fn encode_annotation_wrapper(
+        &mut self,
+        header_io_range: &mut IoRange,
+        annotations_seq_length_io_range: &mut IoRange,
+        annotations_seq_io_range: &mut IoRange,
+        wrapped_value_length: usize,
+    ) -> IonResult<()> {
         // Encode the sequence of annotations and make a note of the encoded length.
         // The return value of mem::replace is the original range value, which is always 0..0.
         // We can safely ignore it.
-        let _ = mem::replace(annotations_seq_io_range, self.encode_to_buffer(|writer| {
-            let range = writer.current_value_annotations_range();
-            let annotations = &writer.annotations_all_levels[range];
-            for annotation_id in annotations {
-                VarUInt::write_u64(&mut writer.buffer, *annotation_id as u64)?;
-            }
-            Ok(())
-        })?);
+        let _ = mem::replace(
+            annotations_seq_io_range,
+            self.encode_to_buffer(|writer| {
+                let range = writer.current_value_annotations_range();
+                let annotations = &writer.annotations_all_levels[range];
+                for annotation_id in annotations {
+                    VarUInt::write_u64(&mut writer.buffer, *annotation_id as u64)?;
+                }
+                Ok(())
+            })?,
+        );
         let annotation_sequence_encoded_length = annotations_seq_io_range.len();
 
         // Encode the length of the annotations sequence as a VarUInt.
-        let _ = mem::replace(annotations_seq_length_io_range, self.encode_to_buffer(|writer| {
-            let _num_bytes = VarUInt::write_u64(
-                &mut writer.buffer,
-                annotation_sequence_encoded_length as u64,
-            )?;
-            Ok(())
-        })?);
+        let _ = mem::replace(
+            annotations_seq_length_io_range,
+            self.encode_to_buffer(|writer| {
+                let _num_bytes = VarUInt::write_u64(
+                    &mut writer.buffer,
+                    annotation_sequence_encoded_length as u64,
+                )?;
+                Ok(())
+            })?,
+        );
 
         // The length of the wrapper is the sum total of:
         // 1. The length of the encoded annotations sequence
@@ -302,18 +316,22 @@ impl<W: Write> BinarySystemWriter<W> {
             + wrapped_value_length;
 
         // Now that we know the wrapper length, encode the annotation wrapper header.
-        let _ = mem::replace(header_io_range, self.encode_to_buffer(|writer| {
-            let type_descriptor: u8;
-            if wrapper_length <= MAX_INLINE_LENGTH { // Use inline length encoding
-                type_descriptor = 0xE0 | wrapper_length as u8;
-                writer.buffer.push(type_descriptor);
-            } else {
-                type_descriptor = 0xEE; // VarUInt length encoding
-                writer.buffer.push(type_descriptor);
-                VarUInt::write_u64(&mut writer.buffer, wrapper_length as u64)?;
-            }
-            Ok(())
-        })?);
+        let _ = mem::replace(
+            header_io_range,
+            self.encode_to_buffer(|writer| {
+                let type_descriptor: u8;
+                if wrapper_length <= MAX_INLINE_LENGTH {
+                    // Use inline length encoding
+                    type_descriptor = 0xE0 | wrapper_length as u8;
+                    writer.buffer.push(type_descriptor);
+                } else {
+                    type_descriptor = 0xEE; // VarUInt length encoding
+                    writer.buffer.push(type_descriptor);
+                    VarUInt::write_u64(&mut writer.buffer, wrapper_length as u64)?;
+                }
+                Ok(())
+            })?,
+        );
 
         self.clear_annotations();
         Ok(())
@@ -333,7 +351,8 @@ impl<W: Write> BinarySystemWriter<W> {
     #[inline]
     pub fn clear_annotations(&mut self) {
         if self.num_annotations_current_value > 0 {
-            let new_length = self.annotations_all_levels.len() - self.num_annotations_current_value as usize;
+            let new_length =
+                self.annotations_all_levels.len() - self.num_annotations_current_value as usize;
             self.annotations_all_levels.truncate(new_length);
             self.num_annotations_current_value = 0;
         }
@@ -641,9 +660,9 @@ impl<W: Write> BinarySystemWriter<W> {
     fn expect_field_id(&self) -> IonResult<usize> {
         match self.field_id {
             Some(field_id) => Ok(field_id),
-            None => illegal_operation(
-                "`set_field_id()` must be called before each field in a struct."
-            )
+            None => {
+                illegal_operation("`set_field_id()` must be called before each field in a struct.")
+            }
         }
     }
 
@@ -655,7 +674,7 @@ impl<W: Write> BinarySystemWriter<W> {
             List => ContainerType::List,
             SExpression => ContainerType::SExpression,
             Struct => ContainerType::Struct,
-            _ => return illegal_operation("Cannot step into a scalar Ion type.")
+            _ => return illegal_operation("Cannot step into a scalar Ion type."),
         };
 
         // If this is a field in a struct, encode the field ID at the end of the last IO range.
@@ -696,7 +715,7 @@ impl<W: Write> BinarySystemWriter<W> {
     pub fn step_out(&mut self) -> IonResult<()> {
         if self.levels.len() <= 1 {
             return illegal_operation(
-                "Cannot call step_out() unless the writer is positioned within a container."
+                "Cannot call step_out() unless the writer is positioned within a container.",
             );
         }
         self.clear_annotations();
@@ -710,7 +729,7 @@ impl<W: Write> BinarySystemWriter<W> {
             List => 0xB0,
             SExpression => 0xC0,
             Struct => 0xD0,
-            _ => return illegal_operation("Cannot step into a scalar Ion type.")
+            _ => return illegal_operation("Cannot step into a scalar Ion type."),
         };
 
         // Encode the type descriptor byte, and optional length
@@ -727,7 +746,8 @@ impl<W: Write> BinarySystemWriter<W> {
         })?;
 
         // Retrieve this container's header byte range from io_ranges
-        let td_io_range = self.io_ranges
+        let td_io_range = self
+            .io_ranges
             .get_mut(container.td_io_range_index)
             .expect("Missing type descriptor IO range for {}");
 
@@ -749,7 +769,11 @@ impl<W: Write> BinarySystemWriter<W> {
 
     // When step_out() is called and the container has been written, this function uses the encoded
     // length to write the container's annotations wrapper.
-    fn encode_container_annotations(&mut self, td_io_range_index: usize, container_size: usize) -> IonResult<()> {
+    fn encode_container_annotations(
+        &mut self,
+        td_io_range_index: usize,
+        container_size: usize,
+    ) -> IonResult<()> {
         // Create IoRanges that will ultimately point to the encoded components of the annotations
         // wrapper for the value.
         let mut header_io_range: Range<usize> = 0..0;
@@ -766,10 +790,7 @@ impl<W: Write> BinarySystemWriter<W> {
 
         // Populate each of the reserved annotation IO ranges using the results from above.
         let header_io_range_index = td_io_range_index - IO_RANGES_PER_ANNOTATION_WRAPPER;
-        let _ = mem::replace(
-            &mut self.io_ranges[header_io_range_index],
-            header_io_range,
-        );
+        let _ = mem::replace(&mut self.io_ranges[header_io_range_index], header_io_range);
 
         let annotations_seq_length_io_range_index = header_io_range_index + 1;
         let _ = mem::replace(
@@ -798,13 +819,12 @@ impl<W: Write> BinarySystemWriter<W> {
         &mut self.out
     }
 
-
     /// Writes any buffered data to the sink. This method can only be called when the writer is at
     /// the top level.
     pub fn flush(&mut self) -> IonResult<()> {
         if self.levels.len() > 1 {
             return illegal_operation(
-                "Cannot call flush() while the writer is positioned within a container."
+                "Cannot call flush() while the writer is positioned within a container.",
             );
         }
 
@@ -815,7 +835,8 @@ impl<W: Write> BinarySystemWriter<W> {
         // we'll write to output.
 
         for io_range in self.io_ranges.drain(..) {
-            self.contiguous_encoding.extend_from_slice(&self.buffer[io_range]);
+            self.contiguous_encoding
+                .extend_from_slice(&self.buffer[io_range]);
         }
 
         // TODO: When io::Write#is_write_vectored[1] or trait specialization[2] stabilize,
@@ -888,21 +909,28 @@ mod writer_tests {
         ion_type: IonType,
         mut write_fn: impl FnMut(&mut TestWriter, &T) -> IonResult<()>,
         mut read_fn: impl FnMut(&mut TestReader) -> IonResult<Option<U>>,
-    ) -> IonResult<()> where T: Debug, U: std::cmp::PartialEq<T> + Debug {
-        binary_writer_test(|writer| {
-            for value in values {
-                write_fn(writer, value)?;
-            }
-            Ok(())
-        }, |reader| {
-            for value in values {
-                assert_eq!(reader.next()?, Some((ion_type, false)));
-                let reader_value = read_fn(reader)?
-                    .expect("Reader expected another value but the stream was empty.");
-                assert_eq!(reader_value, *value);
-            }
-            Ok(())
-        })
+    ) -> IonResult<()>
+    where
+        T: Debug,
+        U: std::cmp::PartialEq<T> + Debug,
+    {
+        binary_writer_test(
+            |writer| {
+                for value in values {
+                    write_fn(writer, value)?;
+                }
+                Ok(())
+            },
+            |reader| {
+                for value in values {
+                    assert_eq!(reader.next()?, Some((ion_type, false)));
+                    let reader_value = read_fn(reader)?
+                        .expect("Reader expected another value but the stream was empty.");
+                    assert_eq!(reader_value, *value);
+                }
+                Ok(())
+            },
+        )
     }
 
     #[test]
@@ -923,17 +951,20 @@ mod writer_tests {
             IonType::Struct,
         ];
 
-        binary_writer_test(|writer| {
-            for ion_type in ion_types {
-                writer.write_null(*ion_type)?;
-            }
-            Ok(())
-        }, |reader| {
-            for ion_type in ion_types {
-                assert_eq!(reader.next()?, Some((*ion_type, true)));
-            }
-            Ok(())
-        })
+        binary_writer_test(
+            |writer| {
+                for ion_type in ion_types {
+                    writer.write_null(*ion_type)?;
+                }
+                Ok(())
+            },
+            |reader| {
+                for ion_type in ion_types {
+                    assert_eq!(reader.next()?, Some((*ion_type, true)));
+                }
+                Ok(())
+            },
+        )
     }
 
     #[test]
@@ -1049,12 +1080,18 @@ mod writer_tests {
         )
     }
 
-    fn expect_scalar<T: Debug, U: PartialEq<T> + Debug>(reader: &mut TestReader,
-                                                        ion_type: IonType,
-                                                        mut read_fn: impl FnMut(&mut TestReader) -> IonResult<Option<U>>,
-                                                        expected_value: T) {
-        let next = reader.next()
-            .unwrap_or_else(|_| panic!("Expected to read {:?}, but the stream was empty.", expected_value));
+    fn expect_scalar<T: Debug, U: PartialEq<T> + Debug>(
+        reader: &mut TestReader,
+        ion_type: IonType,
+        mut read_fn: impl FnMut(&mut TestReader) -> IonResult<Option<U>>,
+        expected_value: T,
+    ) {
+        let next = reader.next().unwrap_or_else(|_| {
+            panic!(
+                "Expected to read {:?}, but the stream was empty.",
+                expected_value
+            )
+        });
         assert_eq!(next, Some((ion_type, false)));
         let value = read_fn(reader)
             .unwrap_or_else(|_| panic!("Failed to read in expected value: {:?}", expected_value));
@@ -1082,11 +1119,17 @@ mod writer_tests {
     }
 
     fn expect_null(reader: &mut TestReader) {
-        assert_eq!(reader.next().expect("Failed to read null."), Some((IonType::Null, true)));
+        assert_eq!(
+            reader.next().expect("Failed to read null."),
+            Some((IonType::Null, true))
+        );
     }
 
     fn expect_container(reader: &mut TestReader, ion_type: IonType) {
-        assert_eq!(reader.next().expect("Failed to read container."), Some((ion_type, false)));
+        assert_eq!(
+            reader.next().expect("Failed to read container."),
+            Some((ion_type, false))
+        );
     }
 
     fn expect_list(reader: &mut TestReader) {
@@ -1106,7 +1149,10 @@ mod writer_tests {
     }
 
     fn expect_annotations(reader: &TestReader, annotations: &[&str]) {
-        assert_eq!(reader.annotations().collect::<Vec<&str>>().as_slice(), annotations);
+        assert_eq!(
+            reader.annotations().collect::<Vec<&str>>().as_slice(),
+            annotations
+        );
     }
 
     fn write_lst<W: Write>(writer: &mut BinarySystemWriter<W>, symbols: &[&str]) -> IonResult<()> {
@@ -1127,198 +1173,222 @@ mod writer_tests {
     fn binary_writer_mixed_scalars() -> IonResult<()> {
         // The tests above write streams containing a single type of Ion value. This test writes
         // a mix.
-        binary_writer_test(|writer| {
-            writer.write_i64(42)?;
-            writer.write_string("Hello")?;
-            writer.write_symbol_id(12)?;
-            writer.write_f32(2.5)?;
-            writer.write_f64(7.5)?;
-            writer.write_bool(false)
-        }, |reader| {
-            expect_integer(reader, 42);
-            expect_string(reader, "Hello");
-            expect_symbol_id(reader, 12);
-            expect_float(reader, 2.5);
-            expect_float(reader, 7.5);
-            expect_bool(reader, false);
-            Ok(())
-        })
+        binary_writer_test(
+            |writer| {
+                writer.write_i64(42)?;
+                writer.write_string("Hello")?;
+                writer.write_symbol_id(12)?;
+                writer.write_f32(2.5)?;
+                writer.write_f64(7.5)?;
+                writer.write_bool(false)
+            },
+            |reader| {
+                expect_integer(reader, 42);
+                expect_string(reader, "Hello");
+                expect_symbol_id(reader, 12);
+                expect_float(reader, 2.5);
+                expect_float(reader, 7.5);
+                expect_bool(reader, false);
+                Ok(())
+            },
+        )
     }
 
     #[test]
     fn binary_writer_annotated_scalars() -> IonResult<()> {
-        binary_writer_test(|writer| {
-            write_lst(writer, &["foo", "bar", "baz", "quux", "quuz", "waldo"])?;
+        binary_writer_test(
+            |writer| {
+                write_lst(writer, &["foo", "bar", "baz", "quux", "quuz", "waldo"])?;
 
-            writer.set_annotation_ids(&[10]);
-            writer.write_bool(true)?;
+                writer.set_annotation_ids(&[10]);
+                writer.write_bool(true)?;
 
-            writer.set_annotation_ids(&[11, 12]);
-            writer.write_i64(42)?;
+                writer.set_annotation_ids(&[11, 12]);
+                writer.write_i64(42)?;
 
-            writer.set_annotation_ids(&[13, 14, 15]);
-            writer.write_string("Hello")
-        }, |reader| {
-            expect_bool(reader, true);
-            expect_annotations(reader, &["foo"]);
+                writer.set_annotation_ids(&[13, 14, 15]);
+                writer.write_string("Hello")
+            },
+            |reader| {
+                expect_bool(reader, true);
+                expect_annotations(reader, &["foo"]);
 
-            expect_integer(reader, 42);
-            expect_annotations(reader, &["bar", "baz"]);
+                expect_integer(reader, 42);
+                expect_annotations(reader, &["bar", "baz"]);
 
-            expect_string(reader, "Hello");
-            expect_annotations(reader, &["quux", "quuz", "waldo"]);
-            Ok(())
-        })
+                expect_string(reader, "Hello");
+                expect_annotations(reader, &["quux", "quuz", "waldo"]);
+                Ok(())
+            },
+        )
     }
 
     #[test]
     fn binary_writer_annotated_containers() -> IonResult<()> {
-        binary_writer_test(|writer| {
-            write_lst(writer, &["foo", "bar", "baz", "quux", "quuz", "waldo", "gary"])?;
+        binary_writer_test(
+            |writer| {
+                write_lst(
+                    writer,
+                    &["foo", "bar", "baz", "quux", "quuz", "waldo", "gary"],
+                )?;
 
-            // foo::(true)
-            writer.set_annotation_ids(&[10]);
-            writer.step_in(IonType::SExpression)?;
-            writer.write_bool(true)?;
-            writer.step_out()?;
+                // foo::(true)
+                writer.set_annotation_ids(&[10]);
+                writer.step_in(IonType::SExpression)?;
+                writer.write_bool(true)?;
+                writer.step_out()?;
 
-            // bar::baz::[11]
-            writer.set_annotation_ids(&[11, 12]);
-            writer.step_in(IonType::List)?;
-            writer.write_i64(11)?;
-            writer.step_out()?;
+                // bar::baz::[11]
+                writer.set_annotation_ids(&[11, 12]);
+                writer.step_in(IonType::List)?;
+                writer.write_i64(11)?;
+                writer.step_out()?;
 
-            // quux::quuz::waldo::{gary: "foo"}
-            writer.set_annotation_ids(&[13, 14, 15]);
-            writer.step_in(IonType::Struct)?;
-            writer.set_field_id(16);
-            writer.write_string("foo")?;
-            writer.step_out()
-        }, |reader| {
-            expect_s_expression(reader);
-            expect_annotations(reader, &["foo"]);
-            reader.step_in()?;
-            expect_bool(reader, true);
-            reader.step_out()?;
+                // quux::quuz::waldo::{gary: "foo"}
+                writer.set_annotation_ids(&[13, 14, 15]);
+                writer.step_in(IonType::Struct)?;
+                writer.set_field_id(16);
+                writer.write_string("foo")?;
+                writer.step_out()
+            },
+            |reader| {
+                expect_s_expression(reader);
+                expect_annotations(reader, &["foo"]);
+                reader.step_in()?;
+                expect_bool(reader, true);
+                reader.step_out()?;
 
-            expect_list(reader);
-            expect_annotations(reader, &["bar", "baz"]);
-            reader.step_in()?;
-            expect_integer(reader, 11);
-            reader.step_out()?;
+                expect_list(reader);
+                expect_annotations(reader, &["bar", "baz"]);
+                reader.step_in()?;
+                expect_integer(reader, 11);
+                reader.step_out()?;
 
-            expect_struct(reader);
-            expect_annotations(reader, &["quux", "quuz", "waldo"]);
-            reader.step_in()?;
-            expect_string(reader, "foo");
-            expect_field_name(reader, "gary");
-            reader.step_out()?;
-            Ok(())
-        })
+                expect_struct(reader);
+                expect_annotations(reader, &["quux", "quuz", "waldo"]);
+                reader.step_in()?;
+                expect_string(reader, "foo");
+                expect_field_name(reader, "gary");
+                reader.step_out()?;
+                Ok(())
+            },
+        )
     }
 
     #[test]
     fn binary_writer_nested_annotated_containers() -> IonResult<()> {
-        binary_writer_test(|writer| {
-            write_lst(writer, &["foo", "bar", "baz", "quux"])?;
-            // foo::{bar: baz::[quux::"quuz"]]}
-            writer.set_annotation_ids(&[10]);
-            writer.step_in(IonType::Struct)?;
-            writer.set_field_id(11);
-            writer.set_annotation_ids(&[12]);
-            writer.step_in(IonType::List)?;
-            writer.set_annotation_ids(&[13]);
-            writer.write_string("quuz")?;
-            writer.step_out()?; // End of list
-            writer.step_out() // End of struct
-        }, |reader| {
-            expect_struct(reader);
-            expect_annotations(reader, &["foo"]);
-            reader.step_in()?;
-            expect_list(reader);
-            expect_field_name(reader, "bar");
-            expect_annotations(reader, &["baz"]);
-            reader.step_in()?;
-            expect_string(reader, "quuz");
-            expect_annotations(reader, &["quux"]);
-            reader.step_out()?;
-            reader.step_out()?;
-            Ok(())
-        })
+        binary_writer_test(
+            |writer| {
+                write_lst(writer, &["foo", "bar", "baz", "quux"])?;
+                // foo::{bar: baz::[quux::"quuz"]]}
+                writer.set_annotation_ids(&[10]);
+                writer.step_in(IonType::Struct)?;
+                writer.set_field_id(11);
+                writer.set_annotation_ids(&[12]);
+                writer.step_in(IonType::List)?;
+                writer.set_annotation_ids(&[13]);
+                writer.write_string("quuz")?;
+                writer.step_out()?; // End of list
+                writer.step_out() // End of struct
+            },
+            |reader| {
+                expect_struct(reader);
+                expect_annotations(reader, &["foo"]);
+                reader.step_in()?;
+                expect_list(reader);
+                expect_field_name(reader, "bar");
+                expect_annotations(reader, &["baz"]);
+                reader.step_in()?;
+                expect_string(reader, "quuz");
+                expect_annotations(reader, &["quux"]);
+                reader.step_out()?;
+                reader.step_out()?;
+                Ok(())
+            },
+        )
     }
 
     #[test]
     fn binary_writer_list() -> IonResult<()> {
-        binary_writer_test(|writer| {
-            // [42, "Hello"]
-            writer.step_in(IonType::List)?;
-            writer.write_i64(42)?;
-            writer.write_string("Hello")?;
-            writer.step_out()
-        }, |reader| {
-            expect_list(reader);
-            reader.step_in()?;
-            expect_integer(reader, 42);
-            expect_string(reader, "Hello");
-            reader.step_out()
-        })
+        binary_writer_test(
+            |writer| {
+                // [42, "Hello"]
+                writer.step_in(IonType::List)?;
+                writer.write_i64(42)?;
+                writer.write_string("Hello")?;
+                writer.step_out()
+            },
+            |reader| {
+                expect_list(reader);
+                reader.step_in()?;
+                expect_integer(reader, 42);
+                expect_string(reader, "Hello");
+                reader.step_out()
+            },
+        )
     }
 
     #[test]
     fn binary_writer_nested_list() -> IonResult<()> {
-        binary_writer_test(|writer| {
-            // [42, ["Hello"], "foo"]
-            writer.step_in(IonType::List)?;
-            writer.write_i64(42)?;
-            writer.step_in(IonType::List)?;
-            writer.write_string("Hello")?;
-            writer.step_out()?;
-            writer.write_string("foo")?;
-            writer.step_out()
-        }, |reader| {
-            expect_list(reader);
-            reader.step_in()?;
-            expect_integer(reader, 42);
-            expect_list(reader);
-            reader.step_in()?;
-            expect_string(reader, "Hello");
-            reader.step_out()?;
-            expect_string(reader, "foo");
-            reader.step_out()
-        })
+        binary_writer_test(
+            |writer| {
+                // [42, ["Hello"], "foo"]
+                writer.step_in(IonType::List)?;
+                writer.write_i64(42)?;
+                writer.step_in(IonType::List)?;
+                writer.write_string("Hello")?;
+                writer.step_out()?;
+                writer.write_string("foo")?;
+                writer.step_out()
+            },
+            |reader| {
+                expect_list(reader);
+                reader.step_in()?;
+                expect_integer(reader, 42);
+                expect_list(reader);
+                reader.step_in()?;
+                expect_string(reader, "Hello");
+                reader.step_out()?;
+                expect_string(reader, "foo");
+                reader.step_out()
+            },
+        )
     }
 
     #[test]
     fn binary_writer_nested_structs() -> IonResult<()> {
-        binary_writer_test(|writer| {
-            write_lst(writer, &["foo", "bar", "baz", "quux"])?;
+        binary_writer_test(
+            |writer| {
+                write_lst(writer, &["foo", "bar", "baz", "quux"])?;
 
-            // {foo: true, bar: {quux: 7}, baz: null}
-            writer.step_in(IonType::Struct)?;
-            writer.set_field_id(10);
-            writer.write_bool(true)?;
-            writer.set_field_id(11);
-            writer.step_in(IonType::Struct)?;
-            writer.set_field_id(13);
-            writer.write_i64(7)?;
-            writer.step_out()?; // End of nested struct
-            writer.set_field_id(12);
-            writer.write_null(IonType::Null)?;
-            writer.step_out() // End of top-level struct
-        }, |reader| {
-            expect_struct(reader);
-            reader.step_in()?;
-            expect_bool(reader, true);
-            expect_field_name(reader, "foo");
-            expect_struct(reader);
-            expect_field_name(reader, "bar");
-            reader.step_in()?;
-            expect_integer(reader, 7);
-            expect_field_name(reader, "quux");
-            reader.step_out()?;
-            expect_null(reader);
-            expect_field_name(reader, "baz");
-            reader.step_out()
-        })
+                // {foo: true, bar: {quux: 7}, baz: null}
+                writer.step_in(IonType::Struct)?;
+                writer.set_field_id(10);
+                writer.write_bool(true)?;
+                writer.set_field_id(11);
+                writer.step_in(IonType::Struct)?;
+                writer.set_field_id(13);
+                writer.write_i64(7)?;
+                writer.step_out()?; // End of nested struct
+                writer.set_field_id(12);
+                writer.write_null(IonType::Null)?;
+                writer.step_out() // End of top-level struct
+            },
+            |reader| {
+                expect_struct(reader);
+                reader.step_in()?;
+                expect_bool(reader, true);
+                expect_field_name(reader, "foo");
+                expect_struct(reader);
+                expect_field_name(reader, "bar");
+                reader.step_in()?;
+                expect_integer(reader, 7);
+                expect_field_name(reader, "quux");
+                reader.step_out()?;
+                expect_null(reader);
+                expect_field_name(reader, "baz");
+                reader.step_out()
+            },
+        )
     }
 }

@@ -163,7 +163,7 @@ impl IonDateTime {
                     if scale <= TS_MAX_MANTISSA_DIGITS {
                         return Err(IonCError::with_additional(
                             ion_error_code_IERR_INVALID_TIMESTAMP,
-                            "Fractional mantissa not allowed for sub-nanosecond precision"
+                            "Fractional mantissa not allowed for sub-nanosecond precision",
                         ));
                     }
                     let ns = date_time.nanosecond();

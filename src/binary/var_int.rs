@@ -1,7 +1,7 @@
 use crate::data_source::IonDataSource;
 use crate::result::{decoding_error, IonResult};
-use std::mem;
 use std::io::Write;
+use std::mem;
 
 // ion_rust does not currently support reading variable length integers of truly arbitrary size.
 // These type aliases will simplify the process of changing the data types used to represent each
@@ -149,8 +149,8 @@ impl VarInt {
 #[cfg(test)]
 mod tests {
     use super::VarInt;
-    use std::io::{BufReader, Cursor};
     use crate::result::IonResult;
+    use std::io::{BufReader, Cursor};
 
     const ERROR_MESSAGE: &'static str = "Failed to read a VarUInt from the provided data.";
 
@@ -226,7 +226,7 @@ mod tests {
         let mut buffer = vec![];
         VarInt::write_i64(&mut buffer, value)?;
         assert_eq!(buffer.as_slice(), expected_encoding);
-        return Ok(())
+        return Ok(());
     }
 
     #[test]
@@ -243,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_var_int_two_byte_values() -> IonResult<()>  {
+    fn test_write_var_int_two_byte_values() -> IonResult<()> {
         var_int_encoding_test(555, &[0b0000_0100, 0b1010_1011])?;
         var_int_encoding_test(-555, &[0b0100_0100, 0b1010_1011])?;
         Ok(())

@@ -93,9 +93,9 @@ impl Int {
 #[cfg(test)]
 mod tests {
     use super::Int;
-    use std::io::Cursor;
     use crate::result::IonResult;
     use std::io;
+    use std::io::Cursor;
 
     const READ_ERROR_MESSAGE: &str = "Failed to read an Int from the provided cursor.";
 
