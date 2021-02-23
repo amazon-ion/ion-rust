@@ -1,9 +1,9 @@
 //! Parsing logic for the text representation of boolean values.
 
-use nom::{IResult, Parser};
 use nom::bytes::streaming::tag;
 use nom::combinator::{map, recognize};
 use nom::sequence::terminated;
+use nom::{IResult, Parser};
 
 use crate::text::parsers::stop_character;
 use crate::text::TextStreamItem;
@@ -13,13 +13,11 @@ use crate::text::TextStreamItem;
 pub(crate) fn parse_boolean(input: &str) -> IResult<&str, TextStreamItem> {
     map(
         recognize(terminated(tag("true").or(tag("false")), stop_character)),
-        |bool_text: &str| {
-            match bool_text {
-                "true" => TextStreamItem::Boolean(true),
-                "false" => TextStreamItem::Boolean(false),
-                _ => unreachable!("text had to match 'true' or 'false' before reaching this point")
-            }
-        }
+        |bool_text: &str| match bool_text {
+            "true" => TextStreamItem::Boolean(true),
+            "false" => TextStreamItem::Boolean(false),
+            _ => unreachable!("text had to match 'true' or 'false' before reaching this point"),
+        },
     )(input)
 }
 

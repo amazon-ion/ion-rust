@@ -1,13 +1,13 @@
 //! Parsing logic for the text representation of blob values.
 
 use base64::DecodeError;
-use nom::IResult;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, tag};
 use nom::character::streaming::{alphanumeric1, char};
 use nom::combinator::{map_res, opt, recognize};
 use nom::multi::many0_count;
 use nom::sequence::{delimited, pair};
+use nom::IResult;
 
 use crate::text::parsers::whitespace;
 use crate::text::TextStreamItem;
@@ -21,23 +21,17 @@ pub(crate) fn parse_blob(input: &str) -> IResult<&str, TextStreamItem> {
             recognize_base64_data,
             pair(opt(whitespace), tag("}}")),
         ),
-        |base64_text| {
-            Ok(TextStreamItem::Blob(base64::decode(base64_text)?))
-        }
+        |base64_text| Ok(TextStreamItem::Blob(base64::decode(base64_text)?)),
     )(input)
 }
 
 /// Matches a series of valid base64-encoded characters. (This function does not attempt to decode
 /// the matched value.)
 fn recognize_base64_data(input: &str) -> IResult<&str, &str> {
-    recognize(
-        pair(
-            many0_count(
-                alt((alphanumeric1, is_a("+/")))
-            ),
-        pair(opt(char('=')), opt(char('=')))
-        )
-    )(input)
+    recognize(pair(
+        many0_count(alt((alphanumeric1, is_a("+/")))),
+        pair(opt(char('=')), opt(char('='))),
+    ))(input)
 }
 
 #[cfg(test)]
@@ -65,7 +59,10 @@ mod blob_parsing_tests {
         // No padding characters ('=') required
         parse_equals("{{aGVsbG8h}} ", "hello!");
         // 1 padding character required
-        parse_equals("{{YnJldml0eSBpcyB0aGUgc291bCBvZiB3aXQ=}} ", "brevity is the soul of wit");
+        parse_equals(
+            "{{YnJldml0eSBpcyB0aGUgc291bCBvZiB3aXQ=}} ",
+            "brevity is the soul of wit",
+        );
         // 2 padding characters required
         parse_equals("{{Zm9vLCBiYXIsIGJheiwgcXV1eA==}} ", "foo, bar, baz, quux");
         // Various legal whitespace arrangements

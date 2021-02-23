@@ -4,10 +4,10 @@
 
 pub type SymbolId = usize;
 
-mod r#type;
-pub mod decimal;
-pub mod timestamp;
 pub mod coefficient;
+pub mod decimal;
 pub mod magnitude;
+pub mod timestamp;
+mod r#type;
 
 pub use r#type::IonType;

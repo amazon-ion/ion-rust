@@ -1,12 +1,12 @@
 // Parsing functions that are common to textual types
 
-use nom::combinator::{value, map, map_res, recognize};
-use nom::{IResult, AsChar};
-use nom::sequence::{preceded, tuple};
+use crate::result::{decoding_error_raw, IonError};
 use nom::branch::alt;
-use crate::result::{IonError, decoding_error_raw};
-use nom::character::streaming::{char, satisfy};
 use nom::bytes::streaming::tag;
+use nom::character::streaming::{char, satisfy};
+use nom::combinator::{map, map_res, recognize, value};
+use nom::sequence::{preceded, tuple};
+use nom::{AsChar, IResult};
 
 /// The text Ion types each need to be able to read strings that contain escaped characters.
 /// This type represents the possible types of substring that make up any given piece of text from
@@ -33,12 +33,9 @@ pub(crate) fn escaped_char(input: &str) -> IResult<&str, StringFragment> {
     map(
         preceded(
             char('\\'),
-            alt((
-                escaped_char_unicode,
-                escaped_char_literal,
-            ))
+            alt((escaped_char_unicode, escaped_char_literal)),
         ),
-        |c| StringFragment::EscapedChar(c)
+        |c| StringFragment::EscapedChar(c),
     )(input)
 }
 
@@ -72,20 +69,20 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
             escaped_char_unicode_8_digit_hex,
         )),
         |hex_digits| {
-            let number_value = u32::from_str_radix(hex_digits, 16)
-                .or_else(|e| Err(decoding_error_raw(
-                    format!("Couldn't parse unicode escape '{}': {:?}", hex_digits, e)
-                )))?;
-            let char_value = std::char::from_u32(number_value)
-                .ok_or_else(|| decoding_error_raw(
-                    format!(
-                        "Couldn't parse unicode escape '{}': {} is not a valid codepoint.",
-                        hex_digits,
-                        number_value
-                    )
-                ))?;
+            let number_value = u32::from_str_radix(hex_digits, 16).or_else(|e| {
+                Err(decoding_error_raw(format!(
+                    "Couldn't parse unicode escape '{}': {:?}",
+                    hex_digits, e
+                )))
+            })?;
+            let char_value = std::char::from_u32(number_value).ok_or_else(|| {
+                decoding_error_raw(format!(
+                    "Couldn't parse unicode escape '{}': {} is not a valid codepoint.",
+                    hex_digits, number_value
+                ))
+            })?;
             Ok(char_value)
-        }
+        },
     )(input)
 }
 
@@ -93,14 +90,7 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
 /// substitute character.
 pub(crate) fn escaped_char_unicode_2_digit_hex(input: &str) -> IResult<&str, &str> {
     let hex_digit = single_hex_digit;
-    preceded(
-        char('x'),
-        recognize(
-            tuple(
-                (hex_digit, hex_digit)
-            )
-        )
-    )(input)
+    preceded(char('x'), recognize(tuple((hex_digit, hex_digit))))(input)
 }
 
 /// Matches a 4-digit Unicode escape (starting with '\u'), returning the appropriate
@@ -109,14 +99,9 @@ pub(crate) fn escaped_char_unicode_4_digit_hex(input: &str) -> IResult<&str, &st
     let hex_digit = single_hex_digit;
     preceded(
         char('u'),
-        recognize(
-            tuple(
-                (hex_digit, hex_digit, hex_digit, hex_digit)
-            )
-        )
+        recognize(tuple((hex_digit, hex_digit, hex_digit, hex_digit))),
     )(input)
 }
-
 
 /// Matches an 8-digit Unicode escape (starting with '\U'), returning the appropriate
 /// substitute character.
@@ -124,12 +109,9 @@ pub(crate) fn escaped_char_unicode_8_digit_hex(input: &str) -> IResult<&str, &st
     let hex_digit = single_hex_digit;
     preceded(
         char('U'),
-        recognize(
-            tuple(
-                (hex_digit, hex_digit, hex_digit, hex_digit,
-                 hex_digit, hex_digit, hex_digit, hex_digit)
-            )
-        )
+        recognize(tuple((
+            hex_digit, hex_digit, hex_digit, hex_digit, hex_digit, hex_digit, hex_digit, hex_digit,
+        ))),
     )(input)
 }
 
