@@ -9,6 +9,37 @@ pub struct TextWriter<W: Write> {
     annotations: Vec<String>,
     field_name: Option<String>,
     containers: Vec<IonType>,
+    STRING_ESCAPE_CODES: Vec<String>,
+}
+
+pub const ZERO_PADDING: [&str; 8] = ["", "0", "00", "000", "0000", "00000", "000000", "0000000"];
+
+/**
+ * String escape codes, for Ion Clob.
+ */
+fn string_escape_code_init() -> Vec<String> {
+    let mut string_escape_codes = vec!["".to_string(); 256];
+    string_escape_codes[0x00] = "\\0".to_string();
+    string_escape_codes[0x07] = "\\a".to_string();
+    string_escape_codes[0x08] = "\\b".to_string();
+    string_escape_codes['\t' as usize] = "\\t".to_string();
+    string_escape_codes['\n' as usize] = "\\n".to_string();
+    string_escape_codes[0x0B] = "\\v".to_string();
+    string_escape_codes[0x0C] = "\\f".to_string();
+    string_escape_codes['\r' as usize] = "\\r".to_string();
+    string_escape_codes['\\' as usize] = "\\\\".to_string();
+    string_escape_codes['\"' as usize] = "\\\"".to_string();
+    for i in 1..0x20 {
+        if string_escape_codes[i] == "" {
+            let s = format!("{:x}", i);
+            string_escape_codes[i] = "\\x".to_owned() + ZERO_PADDING[2 - s.chars().count()] + &s;
+        }
+    }
+    for i in 0x7F..0x100 {
+        let s = format!("{:x}", i);
+        string_escape_codes[i] = "\\x".to_owned() + &s;
+    }
+    return string_escape_codes;
 }
 
 impl<W: Write> TextWriter<W> {
@@ -20,6 +51,7 @@ impl<W: Write> TextWriter<W> {
             annotations: vec![],
             field_name: None,
             containers: vec![],
+            STRING_ESCAPE_CODES: string_escape_code_init(),
         }
     }
 
@@ -259,7 +291,25 @@ impl<W: Write> TextWriter<W> {
 
     /// Writes the provided byte array slice as an Ion clob.
     pub fn write_clob(&mut self, _value: &[u8]) -> IonResult<()> {
-        todo!()
+        // clob_value to be written based on defined STRING_ESCAPE_CODES.
+        let mut clob_value = String::from("");
+        for i in 0.._value.len() {
+            let c = (_value[i] & 0xff) as char;
+            let mut escapedByte = &self.STRING_ESCAPE_CODES[c as usize];
+            if escapedByte != "" {
+                clob_value = format!("{}{}", clob_value, escapedByte);
+            } else {
+                clob_value = format!("{}{}", clob_value, &c);
+            }
+        }
+        self.write_scalar(|output| {
+            write!(output, "{{{{");
+            write!(output, "{}", '"');
+            write!(output, "{}", clob_value);
+            write!(output, "{}", '"');
+            write!(output, "}}}}");
+            Ok(())
+        })
     }
 }
 
@@ -364,9 +414,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn write_clob() {
-        todo!();
+        writer_test(
+            |w| w.write_clob(&[b'a', b'"', b'\'', b'\n']),
+            "{{\"a\\\"'\\n\"}}\n",
+        );
     }
 
     #[test]
