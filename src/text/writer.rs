@@ -9,7 +9,7 @@ pub struct TextWriter<W: Write> {
     annotations: Vec<String>,
     field_name: Option<String>,
     containers: Vec<IonType>,
-    STRING_ESCAPE_CODES: Vec<String>,
+    string_escape_codes: Vec<String>,
 }
 
 pub const ZERO_PADDING: [&str; 8] = ["", "0", "00", "000", "0000", "00000", "000000", "0000000"];
@@ -51,7 +51,7 @@ impl<W: Write> TextWriter<W> {
             annotations: vec![],
             field_name: None,
             containers: vec![],
-            STRING_ESCAPE_CODES: string_escape_code_init(),
+            string_escape_codes: string_escape_code_init(),
         }
     }
 
@@ -295,19 +295,15 @@ impl<W: Write> TextWriter<W> {
         let mut clob_value = String::from("");
         for i in 0.._value.len() {
             let c = (_value[i] & 0xff) as char;
-            let mut escapedByte = &self.STRING_ESCAPE_CODES[c as usize];
-            if escapedByte != "" {
-                clob_value = format!("{}{}", clob_value, escapedByte);
+            let escaped_byte = &self.string_escape_codes[c as usize];
+            if escaped_byte != "" {
+                clob_value = format!("{}{}", clob_value, escaped_byte);
             } else {
                 clob_value = format!("{}{}", clob_value, &c);
             }
         }
         self.write_scalar(|output| {
-            write!(output, "{{{{");
-            write!(output, "{}", '"');
-            write!(output, "{}", clob_value);
-            write!(output, "{}", '"');
-            write!(output, "}}}}");
+            write!(output, "{{{{\"{}\"}}}}", clob_value)?;
             Ok(())
         })
     }
