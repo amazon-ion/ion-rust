@@ -12,13 +12,11 @@ pub struct TextWriter<W: Write> {
     string_escape_codes: Vec<String>,
 }
 
-pub const ZERO_PADDING: [&str; 8] = ["", "0", "00", "000", "0000", "00000", "000000", "0000000"];
-
 /**
  * String escape codes, for Ion Clob.
  */
 fn string_escape_code_init() -> Vec<String> {
-    let mut string_escape_codes = vec!["".to_string(); 256];
+    let mut string_escape_codes = vec![String::new(); 256];
     string_escape_codes[0x00] = "\\0".to_string();
     string_escape_codes[0x07] = "\\a".to_string();
     string_escape_codes[0x08] = "\\b".to_string();
@@ -31,13 +29,11 @@ fn string_escape_code_init() -> Vec<String> {
     string_escape_codes['\"' as usize] = "\\\"".to_string();
     for i in 1..0x20 {
         if string_escape_codes[i] == "" {
-            let s = format!("{:x}", i);
-            string_escape_codes[i] = "\\x".to_owned() + ZERO_PADDING[2 - s.chars().count()] + &s;
+            string_escape_codes[i] = format!("\\x{:02x}", i);
         }
     }
     for i in 0x7F..0x100 {
-        let s = format!("{:x}", i);
-        string_escape_codes[i] = "\\x".to_owned() + &s;
+        string_escape_codes[i] = format!("\\x{:x}" , i);
     }
     return string_escape_codes;
 }
@@ -290,16 +286,16 @@ impl<W: Write> TextWriter<W> {
     }
 
     /// Writes the provided byte array slice as an Ion clob.
-    pub fn write_clob(&mut self, _value: &[u8]) -> IonResult<()> {
+    pub fn write_clob(&mut self, value: &[u8]) -> IonResult<()> {
         // clob_value to be written based on defined STRING_ESCAPE_CODES.
-        let mut clob_value = String::from("");
-        for i in 0.._value.len() {
-            let c = (_value[i] & 0xff) as char;
+        let mut clob_value = String::new();
+        for i in 0..value.len() {
+            let c = value[i] as char;
             let escaped_byte = &self.string_escape_codes[c as usize];
             if escaped_byte != "" {
-                clob_value = format!("{}{}", clob_value, escaped_byte);
+                clob_value.push_str(escaped_byte);
             } else {
-                clob_value = format!("{}{}", clob_value, &c);
+                clob_value.push(c);
             }
         }
         self.write_scalar(|output| {
@@ -412,8 +408,16 @@ mod tests {
     #[test]
     fn write_clob() {
         writer_test(
-            |w| w.write_clob(&[b'a', b'"', b'\'', b'\n']),
+            |w| w.write_clob("a\"\'\n".as_bytes()),
             "{{\"a\\\"'\\n\"}}\n",
+        );
+        writer_test(
+            |w| w.write_clob("❤️".as_bytes()),
+            "{{\"\\xe2\\x9d\\xa4\\xef\\xb8\\x8f\"}}\n",
+        );
+        writer_test(
+            |w| w.write_clob("hello world".as_bytes()),
+            "{{\"hello world\"}}\n",
         );
     }
 
