@@ -33,7 +33,7 @@ fn string_escape_code_init() -> Vec<String> {
         }
     }
     for i in 0x7F..0x100 {
-        string_escape_codes[i] = format!("\\x{:x}" , i);
+        string_escape_codes[i] = format!("\\x{:x}", i);
     }
     return string_escape_codes;
 }
