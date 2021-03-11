@@ -289,7 +289,7 @@ impl<W: Write> TextWriter<W> {
     pub fn write_clob(&mut self, value: &[u8]) -> IonResult<()> {
         // clob_value to be written based on defined STRING_ESCAPE_CODES.
         const NUM_DELIMITER_BYTES: usize = 4; // {{}}
-        const NUM_HEX_BYTES_PER_BYTE: usize = 4; // \xH
+        const NUM_HEX_BYTES_PER_BYTE: usize = 4; // \xHH
 
         // Set aside enough memory to hold a clob containing all hex-encoded bytes
         let mut clob_value =
