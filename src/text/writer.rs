@@ -288,7 +288,13 @@ impl<W: Write> TextWriter<W> {
     /// Writes the provided byte array slice as an Ion clob.
     pub fn write_clob(&mut self, value: &[u8]) -> IonResult<()> {
         // clob_value to be written based on defined STRING_ESCAPE_CODES.
-        let mut clob_value = String::new();
+        const NUM_DELIMITER_BYTES: usize = 4; // {{}}
+        const NUM_HEX_BYTES_PER_BYTE: usize = 4; // \xH
+
+        // Set aside enough memory to hold a clob containing all hex-encoded bytes
+        let mut clob_value =
+            String::with_capacity((value.len() * NUM_HEX_BYTES_PER_BYTE) + NUM_DELIMITER_BYTES);
+
         for i in 0..value.len() {
             let c = value[i] as char;
             let escaped_byte = &self.string_escape_codes[c as usize];
