@@ -9,6 +9,33 @@ pub struct TextWriter<W: Write> {
     annotations: Vec<String>,
     field_name: Option<String>,
     containers: Vec<IonType>,
+    string_escape_codes: Vec<String>,
+}
+
+/**
+ * String escape codes, for Ion Clob.
+ */
+fn string_escape_code_init() -> Vec<String> {
+    let mut string_escape_codes = vec![String::new(); 256];
+    string_escape_codes[0x00] = "\\0".to_string();
+    string_escape_codes[0x07] = "\\a".to_string();
+    string_escape_codes[0x08] = "\\b".to_string();
+    string_escape_codes['\t' as usize] = "\\t".to_string();
+    string_escape_codes['\n' as usize] = "\\n".to_string();
+    string_escape_codes[0x0B] = "\\v".to_string();
+    string_escape_codes[0x0C] = "\\f".to_string();
+    string_escape_codes['\r' as usize] = "\\r".to_string();
+    string_escape_codes['\\' as usize] = "\\\\".to_string();
+    string_escape_codes['\"' as usize] = "\\\"".to_string();
+    for i in 1..0x20 {
+        if string_escape_codes[i] == "" {
+            string_escape_codes[i] = format!("\\x{:02x}", i);
+        }
+    }
+    for i in 0x7F..0x100 {
+        string_escape_codes[i] = format!("\\x{:x}", i);
+    }
+    return string_escape_codes;
 }
 
 impl<W: Write> TextWriter<W> {
@@ -20,6 +47,7 @@ impl<W: Write> TextWriter<W> {
             annotations: vec![],
             field_name: None,
             containers: vec![],
+            string_escape_codes: string_escape_code_init(),
         }
     }
 
@@ -258,8 +286,28 @@ impl<W: Write> TextWriter<W> {
     }
 
     /// Writes the provided byte array slice as an Ion clob.
-    pub fn write_clob(&mut self, _value: &[u8]) -> IonResult<()> {
-        todo!()
+    pub fn write_clob(&mut self, value: &[u8]) -> IonResult<()> {
+        // clob_value to be written based on defined STRING_ESCAPE_CODES.
+        const NUM_DELIMITER_BYTES: usize = 4; // {{}}
+        const NUM_HEX_BYTES_PER_BYTE: usize = 4; // \xHH
+
+        // Set aside enough memory to hold a clob containing all hex-encoded bytes
+        let mut clob_value =
+            String::with_capacity((value.len() * NUM_HEX_BYTES_PER_BYTE) + NUM_DELIMITER_BYTES);
+
+        for i in 0..value.len() {
+            let c = value[i] as char;
+            let escaped_byte = &self.string_escape_codes[c as usize];
+            if escaped_byte != "" {
+                clob_value.push_str(escaped_byte);
+            } else {
+                clob_value.push(c);
+            }
+        }
+        self.write_scalar(|output| {
+            write!(output, "{{{{\"{}\"}}}}", clob_value)?;
+            Ok(())
+        })
     }
 }
 
@@ -364,9 +412,19 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn write_clob() {
-        todo!();
+        writer_test(
+            |w| w.write_clob("a\"\'\n".as_bytes()),
+            "{{\"a\\\"'\\n\"}}\n",
+        );
+        writer_test(
+            |w| w.write_clob("❤️".as_bytes()),
+            "{{\"\\xe2\\x9d\\xa4\\xef\\xb8\\x8f\"}}\n",
+        );
+        writer_test(
+            |w| w.write_clob("hello world".as_bytes()),
+            "{{\"hello world\"}}\n",
+        );
     }
 
     #[test]
