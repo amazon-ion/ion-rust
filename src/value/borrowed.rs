@@ -32,14 +32,14 @@ impl<'a> SymbolToken for BorrowedSymbolToken<'a> {
     type ImportSourceType = BorrowedImportSource<'a>;
 
     fn text(&self) -> Option<&str> {
-        unimplemented!()
+        self.text
     }
 
     fn local_sid(&self) -> Option<usize> {
-        unimplemented!()
+        self.local_sid
     }
 
     fn source(&self) -> Option<&Self::ImportSourceType> {
-        unimplemented!()
+        self.source.as_ref()
     }
 }
