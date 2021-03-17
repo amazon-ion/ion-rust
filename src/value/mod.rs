@@ -42,3 +42,18 @@ pub trait SymbolToken {
     /// The source of this token, which may be `None` if the symbol is locally defined.
     fn source(&self) -> Option<&Self::ImportSourceType>;
 }
+
+/// Represents a either a borrowed or owned Ion datum.  There are/will be specific traits for
+/// _borrowed_ and _owned_ implementations, but this trait unifies them both.
+pub trait Element {
+    type SymbolToken: SymbolToken;
+
+    /// The type of data this element represents.
+    fn ion_type(&self) -> IonType;
+
+    /// The annotations for this element.
+    fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a>;
+
+    /// Returns whether this element is a `null` value
+    fn is_null(&self) -> bool;
+}
