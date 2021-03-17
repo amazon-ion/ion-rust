@@ -29,7 +29,7 @@ pub struct BorrowedSymbolToken<'a> {
 }
 
 impl<'a> SymbolToken for BorrowedSymbolToken<'a> {
-    type ImportSourceType = BorrowedImportSource<'a>;
+    type ImportSource = BorrowedImportSource<'a>;
 
     fn text(&self) -> Option<&str> {
         self.text
@@ -39,7 +39,7 @@ impl<'a> SymbolToken for BorrowedSymbolToken<'a> {
         self.local_sid
     }
 
-    fn source(&self) -> Option<&Self::ImportSourceType> {
+    fn source(&self) -> Option<&Self::ImportSource> {
         self.source.as_ref()
     }
 }

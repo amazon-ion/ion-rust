@@ -29,7 +29,7 @@ pub struct OwnedSymbolToken {
 }
 
 impl SymbolToken for OwnedSymbolToken {
-    type ImportSourceType = OwnedImportSource;
+    type ImportSource = OwnedImportSource;
 
     fn text(&self) -> Option<&str> {
         self.text.as_ref().map(String::as_str)
@@ -39,7 +39,9 @@ impl SymbolToken for OwnedSymbolToken {
         self.local_sid
     }
 
-    fn source(&self) -> Option<&Self::ImportSourceType> {
+    fn source(&self) -> Option<&Self::ImportSource> {
         self.source.as_ref()
     }
 }
+
+pub trait

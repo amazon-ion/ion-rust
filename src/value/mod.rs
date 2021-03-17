@@ -29,7 +29,7 @@ pub trait ImportSource {
 /// This can be either a symbol value itself, an annotation, or an field name.
 /// A token may have `text`, a symbol `id`, or both.
 pub trait SymbolToken {
-    type ImportSourceType: ImportSource;
+    type ImportSource: ImportSource;
 
     /// The text of the token, which may be `None` if no text is associated with the token
     /// (e.g. lack of a shared symbol table import for a given SID).
@@ -40,13 +40,15 @@ pub trait SymbolToken {
     fn local_sid(&self) -> Option<SymbolId>;
 
     /// The source of this token, which may be `None` if the symbol is locally defined.
-    fn source(&self) -> Option<&Self::ImportSourceType>;
+    fn source(&self) -> Option<&Self::ImportSource>;
 }
 
-/// Represents a either a borrowed or owned Ion datum.  There are/will be specific traits for
+/// Represents a either a borrowed or owned Ion datum.  There are/will be specific APIs for
 /// _borrowed_ and _owned_ implementations, but this trait unifies them both.
 pub trait Element {
     type SymbolToken: SymbolToken;
+    type Sequence: Sequence;
+    type Struct: Struct;
 
     /// The type of data this element represents.
     fn ion_type(&self) -> IonType;
@@ -56,4 +58,12 @@ pub trait Element {
 
     /// Returns whether this element is a `null` value
     fn is_null(&self) -> bool;
+
+    // TODO - add all the accessors to the trait
 }
+
+/// Represents the _value_ of sequences of Ion elements (i.e. `list` and `sexp`).
+pub trait Sequence {}
+
+/// Represents the _value_ of `struct` of Ion elements.
+pub trait Struct {}
