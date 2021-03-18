@@ -7,6 +7,7 @@ use nom::IResult;
 use crate::result::IonResult;
 use crate::text::parsers::blob::parse_blob;
 use crate::text::parsers::boolean::parse_boolean;
+use crate::text::parsers::clob::parse_clob;
 use crate::text::parsers::decimal::parse_decimal;
 use crate::text::parsers::float::parse_float;
 use crate::text::parsers::integer::parse_integer;
@@ -53,6 +54,7 @@ impl TextReader {
             parse_string,
             parse_symbol,
             parse_blob,
+            parse_clob,
         ))(input)
     }
 
@@ -122,6 +124,10 @@ mod reader_tests {
             " {{ZW5jb2RlZA==}} ",
             TextStreamItem::Blob(Vec::from("encoded".as_bytes())),
         );
+        tlv(
+            " {{\"hello\"}} ",
+            TextStreamItem::Clob(Vec::from("hello".as_bytes())),
+        );
         Ok(())
     }
 
@@ -155,5 +161,6 @@ mod reader_tests {
         expect_type("2021-02-08T12:30Z ", IonType::Timestamp);
         expect_type("2021-02-08T12:30:02-00:00 ", IonType::Timestamp);
         expect_type("2021-02-08T12:30:02.111-00:00 ", IonType::Timestamp);
+        expect_type("{{\"hello\"}}", IonType::Clob);
     }
 }

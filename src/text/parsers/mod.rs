@@ -10,6 +10,7 @@ use nom::IResult;
 
 pub(crate) mod blob;
 pub(crate) mod boolean;
+pub(crate) mod clob;
 pub(crate) mod decimal;
 pub(crate) mod float;
 pub(crate) mod integer;
@@ -81,7 +82,7 @@ pub(crate) mod unit_test_support {
     /// to `expected`.
     pub(crate) fn parse_test_ok(parser: TestParser, text: &str, expected: TextStreamItem) {
         let actual = parse_unwrap(parser, text);
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     /// Uses `parser` to parse the provided `text` expecting it to fail. If it succeeds, this
