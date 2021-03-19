@@ -2,6 +2,7 @@
 
 use super::{ImportSource, SymbolToken};
 use crate::types::SymbolId;
+use crate::IonType;
 
 /// A simple, owned implementation of  [`ImportSource`].
 #[derive(Debug, Clone)]
@@ -44,4 +45,11 @@ impl SymbolToken for OwnedSymbolToken {
     }
 }
 
-pub trait
+pub enum OwnedValue {
+    Null(IonType), // TODO fill this in
+}
+
+pub struct OwnedElement {
+    annotations: Vec<OwnedSymbolToken>,
+    value: OwnedValue,
+}
