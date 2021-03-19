@@ -44,7 +44,7 @@ pub trait SymbolToken {
 }
 
 /// Represents a either a borrowed or owned Ion datum.  There are/will be specific APIs for
-/// _borrowed_ and _owned_ implementations, but this trait unifies them both.
+/// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
 pub trait Element {
     type SymbolToken: SymbolToken;
     type Sequence: Sequence;
@@ -54,6 +54,12 @@ pub trait Element {
     fn ion_type(&self) -> IonType;
 
     /// The annotations for this element.
+    ///
+    /// Note that this uses a `Box<dyn Iterator<...>>` to capture the borrow cleanly without
+    /// without [generic associated types (GAT)][gat].  In theory, when GAT lands, this could
+    /// be replaced with static polymorphism.
+    ///
+    /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
     fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a>;
 
     /// Returns whether this element is a `null` value
@@ -63,7 +69,11 @@ pub trait Element {
 }
 
 /// Represents the _value_ of sequences of Ion elements (i.e. `list` and `sexp`).
-pub trait Sequence {}
+pub trait Sequence {
+    // TODO - implement me!
+}
 
 /// Represents the _value_ of `struct` of Ion elements.
-pub trait Struct {}
+pub trait Struct {
+    // TODO - implement me!
+}
