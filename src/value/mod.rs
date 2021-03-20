@@ -65,6 +65,11 @@ pub trait Element {
     /// Returns whether this element is a `null` value
     fn is_null(&self) -> bool;
 
+    /// Returns a slice to the textual value of this element.
+    /// This will return `None` in the case that the type is not `string`/`symbol`,
+    /// if the value is a `null`, or the text of the `symbol` is not defined.
+    fn as_str(&self) -> Option<&str>;
+
     // TODO - add all the accessors to the trait
 }
 
@@ -77,3 +82,9 @@ pub trait Sequence {
 pub trait Struct {
     // TODO - implement me!
 }
+
+// TODO this is a placeholder until we actually fill it in!
+impl Struct for () {}
+
+// TODO this is a placeholder until we actually fill it in!
+impl Sequence for () {}

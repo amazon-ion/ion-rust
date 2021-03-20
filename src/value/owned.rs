@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use super::{ImportSource, SymbolToken};
+use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
 
@@ -45,11 +45,55 @@ impl SymbolToken for OwnedSymbolToken {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum OwnedValue {
-    Null(IonType), // TODO fill this in
+    Null(IonType),
+    String(String),
+    // TODO fill this in with the rest of the value types...
 }
 
+#[derive(Debug, Clone)]
 pub struct OwnedElement {
     annotations: Vec<OwnedSymbolToken>,
     value: OwnedValue,
+}
+
+impl OwnedElement {
+    /// Constructs a new owned element from its constituent components.
+    fn new(annotations: Vec<OwnedSymbolToken>, value: OwnedValue) -> Self {
+        OwnedElement { annotations, value }
+    }
+}
+
+impl Element for OwnedElement {
+    type SymbolToken = OwnedSymbolToken;
+    type Sequence = ();
+    type Struct = ();
+
+    fn ion_type(&self) -> IonType {
+        use OwnedValue::*;
+
+        match &self.value {
+            Null(t) => *t,
+            String(_) => IonType::String,
+        }
+    }
+
+    fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a> {
+        Box::new(self.annotations.iter())
+    }
+
+    fn is_null(&self) -> bool {
+        match &self.value {
+            OwnedValue::Null(_) => true,
+            _ => false,
+        }
+    }
+
+    fn as_str(&self) -> Option<&str> {
+        match &self.value {
+            OwnedValue::String(s) => Some(s),
+            _ => None,
+        }
+    }
 }
