@@ -2,6 +2,7 @@
 
 use super::{Element, ImportSource, SymbolToken};
 use crate::types::SymbolId;
+use crate::value::AnyInt;
 use crate::IonType;
 
 /// A simple, borrowed implementation of [`ImportSource`].
@@ -45,9 +46,10 @@ impl<'a> SymbolToken for BorrowedSymbolToken<'a> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum BorrowedValue<'a> {
     Null(IonType),
+    Integer(AnyInt),
     String(&'a str),
     Symbol(BorrowedSymbolToken<'a>),
     // TODO fill this in with the rest...
@@ -75,6 +77,7 @@ impl<'a> Element for BorrowedElement<'a> {
         use BorrowedValue::*;
         match &self.value {
             Null(t) => *t,
+            Integer(_) => IonType::Integer,
             String(_) => IonType::String,
             Symbol(_) => IonType::Symbol,
         }
@@ -88,6 +91,13 @@ impl<'a> Element for BorrowedElement<'a> {
         match &self.value {
             BorrowedValue::Null(_) => true,
             _ => false,
+        }
+    }
+
+    fn as_any_int(&self) -> Option<&AnyInt> {
+        match &self.value {
+            BorrowedValue::Integer(i) => Some(i),
+            _ => None,
         }
     }
 

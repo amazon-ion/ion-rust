@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use super::{Element, ImportSource, SymbolToken};
+use super::{AnyInt, Element, ImportSource, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
 
@@ -48,6 +48,7 @@ impl SymbolToken for OwnedSymbolToken {
 #[derive(Debug, Clone)]
 pub enum OwnedValue {
     Null(IonType),
+    Integer(AnyInt),
     String(String),
     Symbol(OwnedSymbolToken),
     // TODO fill this in with the rest of the value types...
@@ -76,6 +77,7 @@ impl Element for OwnedElement {
 
         match &self.value {
             Null(t) => *t,
+            Integer(_) => IonType::Integer,
             String(_) => IonType::String,
             Symbol(_) => IonType::Symbol,
         }
@@ -89,6 +91,13 @@ impl Element for OwnedElement {
         match &self.value {
             OwnedValue::Null(_) => true,
             _ => false,
+        }
+    }
+
+    fn as_any_int(&self) -> Option<&AnyInt> {
+        match &self.value {
+            OwnedValue::Integer(i) => Some(i),
+            _ => None,
         }
     }
 

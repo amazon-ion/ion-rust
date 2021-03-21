@@ -12,6 +12,8 @@
 
 use crate::types::SymbolId;
 use crate::IonType;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 pub mod borrowed;
 pub mod owned;
@@ -43,6 +45,44 @@ pub trait SymbolToken {
     fn source(&self) -> Option<&Self::ImportSource>;
 }
 
+/// Provides convenient integer accessors for integer values that are like [`AnyInt`]
+pub trait IntAccess {
+    /// Returns the value as an `i64` if it can be represented as such.
+    fn as_i64(&self) -> Option<i64>;
+
+    /// Returns a reference as a [`BigInt`] if it is represented as such.  Note that this
+    /// method may return `None` if the underlying representation *is not* stored in a [`BigInt`]
+    /// such as if it is represented as an `i64` so it is somewhat asymmetric with respect
+    /// to [`IntAccess::as_i64`].
+    fn as_big_int(&self) -> Option<&BigInt>;
+}
+
+/// Container for either an integer that can fit in a 64-bit word or an arbitrarily sized
+/// [`BigInt`].
+#[derive(Debug, Clone)]
+pub enum AnyInt {
+    I64(i64),
+    BigInt(BigInt),
+}
+
+impl IntAccess for AnyInt {
+    #[inline]
+    fn as_i64(&self) -> Option<i64> {
+        match &self {
+            AnyInt::I64(i) => Some(*i),
+            AnyInt::BigInt(big) => big.to_i64(),
+        }
+    }
+
+    #[inline]
+    fn as_big_int(&self) -> Option<&BigInt> {
+        match &self {
+            AnyInt::I64(_) => None,
+            AnyInt::BigInt(big) => Some(big),
+        }
+    }
+}
+
 /// Represents a either a borrowed or owned Ion datum.  There are/will be specific APIs for
 /// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
 pub trait Element {
@@ -65,6 +105,10 @@ pub trait Element {
     /// Returns whether this element is a `null` value
     fn is_null(&self) -> bool;
 
+    /// Returns a reference to the underlying [`AnyInt`] for this element.
+    /// This will return `None` if the type is not `int` or the value is `null.int`.
+    fn as_any_int(&self) -> Option<&AnyInt>;
+
     /// Returns a slice to the textual value of this element.
     /// This will return `None` in the case that the type is not `string`/`symbol`,
     /// if the value is a `null`, or the text of the `symbol` is not defined.
@@ -76,6 +120,25 @@ pub trait Element {
     fn as_sym(&self) -> Option<&Self::SymbolToken>;
 
     // TODO - add all the accessors to the trait
+}
+
+impl<T> IntAccess for T
+where
+    T: Element,
+{
+    fn as_i64(&self) -> Option<i64> {
+        match self.as_any_int() {
+            Some(any) => any.as_i64(),
+            _ => None,
+        }
+    }
+
+    fn as_big_int(&self) -> Option<&BigInt> {
+        match self.as_any_int() {
+            Some(any) => any.as_big_int(),
+            _ => None,
+        }
+    }
 }
 
 /// Represents the _value_ of sequences of Ion elements (i.e. `list` and `sexp`).
