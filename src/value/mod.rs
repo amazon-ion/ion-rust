@@ -70,6 +70,11 @@ pub trait Element {
     /// if the value is a `null`, or the text of the `symbol` is not defined.
     fn as_str(&self) -> Option<&str>;
 
+    /// Returns a reference to the [`SymbolToken`] of this element.
+    /// This will return `None` in the case that the type is not `symbol` or the value is
+    /// `null.symbol`.
+    fn as_sym(&self) -> Option<&Self::SymbolToken>;
+
     // TODO - add all the accessors to the trait
 }
 

@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
+use super::{Element, ImportSource, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
 
@@ -49,6 +49,7 @@ impl SymbolToken for OwnedSymbolToken {
 pub enum OwnedValue {
     Null(IonType),
     String(String),
+    Symbol(OwnedSymbolToken),
     // TODO fill this in with the rest of the value types...
 }
 
@@ -76,6 +77,7 @@ impl Element for OwnedElement {
         match &self.value {
             Null(t) => *t,
             String(_) => IonType::String,
+            Symbol(_) => IonType::Symbol,
         }
     }
 
@@ -92,7 +94,15 @@ impl Element for OwnedElement {
 
     fn as_str(&self) -> Option<&str> {
         match &self.value {
-            OwnedValue::String(s) => Some(s),
+            OwnedValue::String(text) => Some(text),
+            OwnedValue::Symbol(sym) => sym.text(),
+            _ => None,
+        }
+    }
+
+    fn as_sym(&self) -> Option<&Self::SymbolToken> {
+        match &self.value {
+            OwnedValue::Symbol(sym) => Some(sym),
             _ => None,
         }
     }

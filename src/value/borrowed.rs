@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
+use super::{Element, ImportSource, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
 
@@ -48,7 +48,9 @@ impl<'a> SymbolToken for BorrowedSymbolToken<'a> {
 #[derive(Debug, Copy, Clone)]
 pub enum BorrowedValue<'a> {
     Null(IonType),
-    String(&'a str), // TODO fill this in with the rest...
+    String(&'a str),
+    Symbol(BorrowedSymbolToken<'a>),
+    // TODO fill this in with the rest...
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +76,7 @@ impl<'a> Element for BorrowedElement<'a> {
         match &self.value {
             Null(t) => *t,
             String(_) => IonType::String,
+            Symbol(_) => IonType::Symbol,
         }
     }
 
@@ -89,8 +92,16 @@ impl<'a> Element for BorrowedElement<'a> {
     }
 
     fn as_str(&self) -> Option<&str> {
-        match self.value {
-            BorrowedValue::String(s) => Some(s),
+        match &self.value {
+            BorrowedValue::String(text) => Some(*text),
+            BorrowedValue::Symbol(sym) => sym.text(),
+            _ => None,
+        }
+    }
+
+    fn as_sym(&self) -> Option<&Self::SymbolToken> {
+        match &self.value {
+            BorrowedValue::Symbol(sym) => Some(sym),
             _ => None,
         }
     }
