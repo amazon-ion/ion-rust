@@ -120,6 +120,8 @@ pub trait Element {
     fn as_sym(&self) -> Option<&Self::SymbolToken>;
 
     // TODO - add all the accessors to the trait
+
+    // TODO - add mutation methods to the trait
 }
 
 impl<T> IntAccess for T
