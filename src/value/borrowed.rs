@@ -57,6 +57,13 @@ pub struct BorrowedElement<'a> {
     value: BorrowedValue<'a>,
 }
 
+impl<'a> BorrowedElement<'a> {
+    /// Constructs a new borrowed element from its constituent components.
+    fn new(annotations: Vec<BorrowedSymbolToken<'a>>, value: BorrowedValue<'a>) -> Self {
+        BorrowedElement { annotations, value }
+    }
+}
+
 impl<'a> Element for BorrowedElement<'a> {
     type SymbolToken = BorrowedSymbolToken<'a>;
     type Sequence = ();
