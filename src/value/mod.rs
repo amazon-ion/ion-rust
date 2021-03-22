@@ -128,6 +128,12 @@ pub trait Element {
     /// if the value is any `null`.
     fn as_sequence(&self) -> Option<&Self::Sequence>;
 
+    /// Returns a reference to the [`Struct`] of this element.
+    ///
+    /// This will return `None` in the case that the type is not `struct` or the value is
+    /// any `null`.
+    fn as_struct(&self) -> Option<&Self::Struct>;
+
     // TODO add all the accessors to the trait
 
     // TODO add mutation methods to the trait
@@ -170,8 +176,19 @@ pub trait Sequence {
 
 /// Represents the _value_ of `struct` of Ion elements.
 pub trait Struct {
-    // TODO implement me!
-}
+    type FieldName: SymbolToken + ?Sized;
+    type Element: Element + ?Sized;
 
-// TODO this is a placeholder until we actually fill it in!
-impl Struct for () {}
+    /// The fields of the structure.
+    ///
+    /// Note that this uses a `Box<dyn Iterator<...>>` to capture the borrow cleanly without
+    /// without [generic associated types (GAT)][gat].  In theory, when GAT lands, this could
+    /// be replaced with static polymorphism.
+    ///
+    /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
+    fn iter<'a>(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a>;
+
+    // TODO add a get first/all element by name
+}

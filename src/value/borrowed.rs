@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use super::{Element, ImportSource, Sequence, SymbolToken};
+use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::SymbolId;
 use crate::value::AnyInt;
 use crate::IonType;
@@ -90,6 +90,33 @@ impl<'a> Sequence for BorrowedSequence<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct BorrowedStruct<'a> {
+    // TODO model actual map indexing for the struct (maybe as a variant type)
+    //      otherwise struct field lookup will be O(N)
+    fields: Vec<(BorrowedSymbolToken<'a>, BorrowedElement<'a>)>,
+}
+
+impl<'a> BorrowedStruct<'a> {
+    fn new(fields: Vec<(BorrowedSymbolToken<'a>, BorrowedElement<'a>)>) -> Self {
+        Self { fields }
+    }
+}
+
+impl<'a> Struct for BorrowedStruct<'a> {
+    type FieldName = BorrowedSymbolToken<'a>;
+    type Element = BorrowedElement<'a>;
+
+    fn iter<'b>(
+        &'b self,
+    ) -> Box<dyn Iterator<Item = (&'b Self::FieldName, &'b Self::Element)> + 'b> {
+        // convert &(k, v) -> (&k, &v)
+        Box::new(self.fields.iter().map(|kv| match &kv {
+            (k, v) => (k, v),
+        }))
+    }
+}
+
 // TODO replace the references with `Cow` and bridge to the owned APIs for mutability
 
 #[derive(Debug, Clone)]
@@ -100,6 +127,7 @@ pub enum BorrowedValue<'a> {
     Symbol(BorrowedSymbolToken<'a>),
     SExpression(BorrowedSequence<'a>),
     List(BorrowedSequence<'a>),
+    Struct(BorrowedStruct<'a>),
     // TODO fill this in with the rest...
 }
 
@@ -118,7 +146,7 @@ impl<'a> BorrowedElement<'a> {
 impl<'a> Element for BorrowedElement<'a> {
     type SymbolToken = BorrowedSymbolToken<'a>;
     type Sequence = BorrowedSequence<'a>;
-    type Struct = ();
+    type Struct = BorrowedStruct<'a>;
 
     fn ion_type(&self) -> IonType {
         use BorrowedValue::*;
@@ -129,6 +157,7 @@ impl<'a> Element for BorrowedElement<'a> {
             Symbol(_) => IonType::Symbol,
             SExpression(_) => IonType::SExpression,
             List(_) => IonType::List,
+            Struct(_) => IonType::Struct,
         }
     }
 
@@ -168,6 +197,13 @@ impl<'a> Element for BorrowedElement<'a> {
     fn as_sequence(&self) -> Option<&Self::Sequence> {
         match &self.value {
             BorrowedValue::SExpression(seq) | BorrowedValue::List(seq) => Some(seq),
+            _ => None,
+        }
+    }
+
+    fn as_struct(&self) -> Option<&Self::Struct> {
+        match &self.value {
+            BorrowedValue::Struct(structure) => Some(structure),
             _ => None,
         }
     }

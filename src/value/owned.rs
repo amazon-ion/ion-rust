@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use super::{AnyInt, Element, ImportSource, Sequence, SymbolToken};
+use super::{AnyInt, Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
 
@@ -90,6 +90,33 @@ impl Sequence for OwnedSequence {
 }
 
 #[derive(Debug, Clone)]
+pub struct OwnedStruct {
+    // TODO model actual map indexing for the struct (maybe as a variant type)
+    //      otherwise struct field lookup will be O(N)
+    fields: Vec<(OwnedSymbolToken, OwnedElement)>,
+}
+
+impl OwnedStruct {
+    fn new(fields: Vec<(OwnedSymbolToken, OwnedElement)>) -> Self {
+        Self { fields }
+    }
+}
+
+impl Struct for OwnedStruct {
+    type FieldName = OwnedSymbolToken;
+    type Element = OwnedElement;
+
+    fn iter<'a>(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a> {
+        // convert &(k, v) -> (&k, &v)
+        Box::new(self.fields.iter().map(|kv| match &kv {
+            (k, v) => (k, v),
+        }))
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum OwnedValue {
     Null(IonType),
     Integer(AnyInt),
@@ -97,6 +124,7 @@ pub enum OwnedValue {
     Symbol(OwnedSymbolToken),
     SExpression(OwnedSequence),
     List(OwnedSequence),
+    Struct(OwnedStruct),
     // TODO fill this in with the rest of the value types...
 }
 
@@ -115,7 +143,7 @@ impl OwnedElement {
 impl Element for OwnedElement {
     type SymbolToken = OwnedSymbolToken;
     type Sequence = OwnedSequence;
-    type Struct = ();
+    type Struct = OwnedStruct;
 
     fn ion_type(&self) -> IonType {
         use OwnedValue::*;
@@ -127,6 +155,7 @@ impl Element for OwnedElement {
             Symbol(_) => IonType::Symbol,
             SExpression(_) => IonType::SExpression,
             List(_) => IonType::List,
+            Struct(_) => IonType::Struct,
         }
     }
 
@@ -166,6 +195,13 @@ impl Element for OwnedElement {
     fn as_sequence(&self) -> Option<&Self::Sequence> {
         match &self.value {
             OwnedValue::SExpression(seq) | OwnedValue::List(seq) => Some(seq),
+            _ => None,
+        }
+    }
+
+    fn as_struct(&self) -> Option<&Self::Struct> {
+        match &self.value {
+            OwnedValue::Struct(structure) => Some(structure),
             _ => None,
         }
     }
