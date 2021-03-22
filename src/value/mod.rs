@@ -31,7 +31,7 @@ pub trait ImportSource {
 /// This can be either a symbol value itself, an annotation, or an field name.
 /// A token may have `text`, a symbol `id`, or both.
 pub trait SymbolToken {
-    type ImportSource: ImportSource;
+    type ImportSource: ImportSource + ?Sized;
 
     /// The text of the token, which may be `None` if no text is associated with the token
     /// (e.g. lack of a shared symbol table import for a given SID).
@@ -86,9 +86,9 @@ impl IntAccess for AnyInt {
 /// Represents a either a borrowed or owned Ion datum.  There are/will be specific APIs for
 /// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
 pub trait Element {
-    type SymbolToken: SymbolToken;
-    type Sequence: Sequence;
-    type Struct: Struct;
+    type SymbolToken: SymbolToken + ?Sized;
+    type Sequence: Sequence + ?Sized;
+    type Struct: Struct + ?Sized;
 
     /// The type of data this element represents.
     fn ion_type(&self) -> IonType;
@@ -106,17 +106,20 @@ pub trait Element {
     fn is_null(&self) -> bool;
 
     /// Returns a reference to the underlying [`AnyInt`] for this element.
-    /// This will return `None` if the type is not `int` or the value is `null.int`.
+    /// 
+    /// This will return `None` if the type is not `int` or the value is any `null`.
     fn as_any_int(&self) -> Option<&AnyInt>;
 
     /// Returns a slice to the textual value of this element.
+    /// 
     /// This will return `None` in the case that the type is not `string`/`symbol`,
-    /// if the value is a `null`, or the text of the `symbol` is not defined.
+    /// if the value is any `null`, or the text of the `symbol` is not defined.
     fn as_str(&self) -> Option<&str>;
 
     /// Returns a reference to the [`SymbolToken`] of this element.
+    /// 
     /// This will return `None` in the case that the type is not `symbol` or the value is
-    /// `null.symbol`.
+    /// any `null`.
     fn as_sym(&self) -> Option<&Self::SymbolToken>;
     
     /// Returns a reference to the [`Sequence`] of this element.
@@ -125,9 +128,9 @@ pub trait Element {
     /// if the value is any `null`.
     fn as_sequence(&self) -> Option<&Self::Sequence>;
 
-    // TODO - add all the accessors to the trait
+    // TODO add all the accessors to the trait
 
-    // TODO - add mutation methods to the trait
+    // TODO add mutation methods to the trait
 }
 
 impl<T> IntAccess for T
@@ -167,7 +170,7 @@ pub trait Sequence {
 
 /// Represents the _value_ of `struct` of Ion elements.
 pub trait Struct {
-    // TODO - implement me!
+    // TODO implement me!
 }
 
 // TODO this is a placeholder until we actually fill it in!
