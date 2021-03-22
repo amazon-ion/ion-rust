@@ -118,6 +118,12 @@ pub trait Element {
     /// This will return `None` in the case that the type is not `symbol` or the value is
     /// `null.symbol`.
     fn as_sym(&self) -> Option<&Self::SymbolToken>;
+    
+    /// Returns a reference to the [`Sequence`] of this element.
+    /// 
+    /// This will return `None` in the case that the type is not `sexp`/`list` or
+    /// if the value is any `null`.
+    fn as_sequence(&self) -> Option<&Self::Sequence>;
 
     // TODO - add all the accessors to the trait
 
@@ -145,7 +151,18 @@ where
 
 /// Represents the _value_ of sequences of Ion elements (i.e. `list` and `sexp`).
 pub trait Sequence {
-    // TODO - implement me!
+    type Element: Element + ?Sized;
+
+    /// The children of the sequence.
+    ///
+    /// Note that this uses a `Box<dyn Iterator<...>>` to capture the borrow cleanly without
+    /// without [generic associated types (GAT)][gat].  In theory, when GAT lands, this could
+    /// be replaced with static polymorphism.
+    ///
+    /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
+
+    // TODO add a get by index method
 }
 
 /// Represents the _value_ of `struct` of Ion elements.
@@ -155,6 +172,3 @@ pub trait Struct {
 
 // TODO this is a placeholder until we actually fill it in!
 impl Struct for () {}
-
-// TODO this is a placeholder until we actually fill it in!
-impl Sequence for () {}

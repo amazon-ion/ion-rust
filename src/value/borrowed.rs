@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use super::{Element, ImportSource, SymbolToken};
+use super::{Element, ImportSource, Sequence, SymbolToken};
 use crate::types::SymbolId;
 use crate::value::AnyInt;
 use crate::IonType;
@@ -47,11 +47,33 @@ impl<'a> SymbolToken for BorrowedSymbolToken<'a> {
 }
 
 #[derive(Debug, Clone)]
+pub struct BorrowedSequence<'a> {
+    children: Vec<BorrowedElement<'a>>,
+}
+
+impl<'a> BorrowedSequence<'a> {
+    /// Constructs a new borrowed sequence from a vector.
+    fn new(children: Vec<BorrowedElement<'a>>) -> Self {
+        BorrowedSequence { children }
+    }
+}
+
+impl<'a> Sequence for BorrowedSequence<'a> {
+    type Element = BorrowedElement<'a>;
+
+    fn iter<'b>(&'b self) -> Box<dyn Iterator<Item = &'b Self::Element> + 'b> {
+        Box::new(self.children.iter())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum BorrowedValue<'a> {
     Null(IonType),
     Integer(AnyInt),
     String(&'a str),
     Symbol(BorrowedSymbolToken<'a>),
+    SExpression(BorrowedSequence<'a>),
+    List(BorrowedSequence<'a>),
     // TODO fill this in with the rest...
 }
 
@@ -70,7 +92,7 @@ impl<'a> BorrowedElement<'a> {
 
 impl<'a> Element for BorrowedElement<'a> {
     type SymbolToken = BorrowedSymbolToken<'a>;
-    type Sequence = ();
+    type Sequence = BorrowedSequence<'a>;
     type Struct = ();
 
     fn ion_type(&self) -> IonType {
@@ -80,6 +102,8 @@ impl<'a> Element for BorrowedElement<'a> {
             Integer(_) => IonType::Integer,
             String(_) => IonType::String,
             Symbol(_) => IonType::Symbol,
+            SExpression(_) => IonType::SExpression,
+            List(_) => IonType::List,
         }
     }
 
@@ -112,6 +136,13 @@ impl<'a> Element for BorrowedElement<'a> {
     fn as_sym(&self) -> Option<&Self::SymbolToken> {
         match &self.value {
             BorrowedValue::Symbol(sym) => Some(sym),
+            _ => None,
+        }
+    }
+
+    fn as_sequence(&self) -> Option<&Self::Sequence> {
+        match &self.value {
+            BorrowedValue::SExpression(seq) | BorrowedValue::List(seq) => Some(seq),
             _ => None,
         }
     }

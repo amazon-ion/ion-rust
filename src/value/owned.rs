@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use super::{AnyInt, Element, ImportSource, SymbolToken};
+use super::{AnyInt, Element, ImportSource, Sequence, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
 
@@ -46,11 +46,32 @@ impl SymbolToken for OwnedSymbolToken {
 }
 
 #[derive(Debug, Clone)]
+pub struct OwnedSequence {
+    children: Vec<OwnedElement>,
+}
+
+impl OwnedSequence {
+    fn new(children: Vec<OwnedElement>) -> Self {
+        OwnedSequence { children }
+    }
+}
+
+impl Sequence for OwnedSequence {
+    type Element = OwnedElement;
+
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
+        Box::new(self.children.iter())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum OwnedValue {
     Null(IonType),
     Integer(AnyInt),
     String(String),
     Symbol(OwnedSymbolToken),
+    SExpression(OwnedSequence),
+    List(OwnedSequence),
     // TODO fill this in with the rest of the value types...
 }
 
@@ -69,7 +90,7 @@ impl OwnedElement {
 
 impl Element for OwnedElement {
     type SymbolToken = OwnedSymbolToken;
-    type Sequence = ();
+    type Sequence = OwnedSequence;
     type Struct = ();
 
     fn ion_type(&self) -> IonType {
@@ -80,6 +101,8 @@ impl Element for OwnedElement {
             Integer(_) => IonType::Integer,
             String(_) => IonType::String,
             Symbol(_) => IonType::Symbol,
+            SExpression(_) => IonType::SExpression,
+            List(_) => IonType::List,
         }
     }
 
@@ -112,6 +135,13 @@ impl Element for OwnedElement {
     fn as_sym(&self) -> Option<&Self::SymbolToken> {
         match &self.value {
             OwnedValue::Symbol(sym) => Some(sym),
+            _ => None,
+        }
+    }
+
+    fn as_sequence(&self) -> Option<&Self::Sequence> {
+        match &self.value {
+            OwnedValue::SExpression(seq) | OwnedValue::List(seq) => Some(seq),
             _ => None,
         }
     }
