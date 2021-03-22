@@ -90,6 +90,8 @@ impl<'a> Sequence for BorrowedSequence<'a> {
     }
 }
 
+// TODO replace the references with `Cow` and bridge to the owned APIs for mutability
+
 #[derive(Debug, Clone)]
 pub enum BorrowedValue<'a> {
     Null(IonType),
