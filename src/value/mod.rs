@@ -106,24 +106,24 @@ pub trait Element {
     fn is_null(&self) -> bool;
 
     /// Returns a reference to the underlying [`AnyInt`] for this element.
-    /// 
+    ///
     /// This will return `None` if the type is not `int` or the value is any `null`.
     fn as_any_int(&self) -> Option<&AnyInt>;
 
     /// Returns a slice to the textual value of this element.
-    /// 
+    ///
     /// This will return `None` in the case that the type is not `string`/`symbol`,
     /// if the value is any `null`, or the text of the `symbol` is not defined.
     fn as_str(&self) -> Option<&str>;
 
     /// Returns a reference to the [`SymbolToken`] of this element.
-    /// 
+    ///
     /// This will return `None` in the case that the type is not `symbol` or the value is
     /// any `null`.
     fn as_sym(&self) -> Option<&Self::SymbolToken>;
-    
+
     /// Returns a reference to the [`Sequence`] of this element.
-    /// 
+    ///
     /// This will return `None` in the case that the type is not `sexp`/`list` or
     /// if the value is any `null`.
     fn as_sequence(&self) -> Option<&Self::Sequence>;
