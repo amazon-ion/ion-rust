@@ -12,6 +12,12 @@ pub struct BorrowedImportSource<'a> {
     sid: SymbolId,
 }
 
+impl<'a> BorrowedImportSource<'a> {
+    fn new(table: &'a str, sid: SymbolId) -> Self {
+        Self { table, sid }
+    }
+}
+
 impl<'a> ImportSource for BorrowedImportSource<'a> {
     fn table(&self) -> &str {
         self.table
@@ -28,6 +34,25 @@ pub struct BorrowedSymbolToken<'a> {
     text: Option<&'a str>,
     local_sid: Option<SymbolId>,
     source: Option<BorrowedImportSource<'a>>,
+}
+
+impl<'a> BorrowedSymbolToken<'a> {
+    fn new(
+        text: Option<&'a str>,
+        local_sid: Option<SymbolId>,
+        source: Option<BorrowedImportSource<'a>>,
+    ) -> Self {
+        Self {
+            text,
+            local_sid,
+            source,
+        }
+    }
+
+    /// Constructs a token that contains only text.
+    fn new_text(text: &'a str) -> Self {
+        Self::new(Some(text), None, None)
+    }
 }
 
 impl<'a> SymbolToken for BorrowedSymbolToken<'a> {
@@ -52,9 +77,8 @@ pub struct BorrowedSequence<'a> {
 }
 
 impl<'a> BorrowedSequence<'a> {
-    /// Constructs a new borrowed sequence from a vector.
     fn new(children: Vec<BorrowedElement<'a>>) -> Self {
-        BorrowedSequence { children }
+        Self { children }
     }
 }
 
@@ -84,9 +108,8 @@ pub struct BorrowedElement<'a> {
 }
 
 impl<'a> BorrowedElement<'a> {
-    /// Constructs a new borrowed element from its constituent components.
     fn new(annotations: Vec<BorrowedSymbolToken<'a>>, value: BorrowedValue<'a>) -> Self {
-        BorrowedElement { annotations, value }
+        Self { annotations, value }
     }
 }
 

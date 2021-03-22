@@ -11,6 +11,12 @@ pub struct OwnedImportSource {
     sid: SymbolId,
 }
 
+impl OwnedImportSource {
+    fn new(table: String, sid: SymbolId) -> Self {
+        Self { table, sid }
+    }
+}
+
 impl ImportSource for OwnedImportSource {
     fn table(&self) -> &str {
         &self.table
@@ -27,6 +33,25 @@ pub struct OwnedSymbolToken {
     text: Option<String>,
     local_sid: Option<SymbolId>,
     source: Option<OwnedImportSource>,
+}
+
+impl OwnedSymbolToken {
+    fn new(
+        text: Option<String>,
+        local_sid: Option<SymbolId>,
+        source: Option<OwnedImportSource>,
+    ) -> Self {
+        Self {
+            text,
+            local_sid,
+            source,
+        }
+    }
+
+    /// Constructs a token that contains only text.
+    fn new_text(text: String) -> Self {
+        Self::new(Some(text), None, None)
+    }
 }
 
 impl SymbolToken for OwnedSymbolToken {
@@ -52,7 +77,7 @@ pub struct OwnedSequence {
 
 impl OwnedSequence {
     fn new(children: Vec<OwnedElement>) -> Self {
-        OwnedSequence { children }
+        Self { children }
     }
 }
 
@@ -82,9 +107,8 @@ pub struct OwnedElement {
 }
 
 impl OwnedElement {
-    /// Constructs a new owned element from its constituent components.
     fn new(annotations: Vec<OwnedSymbolToken>, value: OwnedValue) -> Self {
-        OwnedElement { annotations, value }
+        Self { annotations, value }
     }
 }
 
