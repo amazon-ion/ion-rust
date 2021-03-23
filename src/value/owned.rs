@@ -1,10 +1,15 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+//! Provides owned implementations of [`SymbolToken`], [`Element`] and its dependents.
+//!
+//! This API is simpler to manage with respect to borrowing lifetimes, but requires full
+//! ownership of data to do so.
+
 use super::{AnyInt, Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
 
-/// A simple, owned implementation of  [`ImportSource`].
+/// An owned implementation of  [`ImportSource`].
 #[derive(Debug, Clone)]
 pub struct OwnedImportSource {
     table: String,
@@ -12,8 +17,11 @@ pub struct OwnedImportSource {
 }
 
 impl OwnedImportSource {
-    fn new(table: String, sid: SymbolId) -> Self {
-        Self { table, sid }
+    pub fn new<T: Into<String>>(table: T, sid: SymbolId) -> Self {
+        Self {
+            table: table.into(),
+            sid,
+        }
     }
 }
 
@@ -27,7 +35,7 @@ impl ImportSource for OwnedImportSource {
     }
 }
 
-/// A simple, owned implementation of [`SymbolToken`].
+/// An owned implementation of [`SymbolToken`].
 #[derive(Debug, Clone)]
 pub struct OwnedSymbolToken {
     text: Option<String>,
@@ -36,7 +44,7 @@ pub struct OwnedSymbolToken {
 }
 
 impl OwnedSymbolToken {
-    fn new(
+    pub fn new(
         text: Option<String>,
         local_sid: Option<SymbolId>,
         source: Option<OwnedImportSource>,
@@ -47,10 +55,12 @@ impl OwnedSymbolToken {
             source,
         }
     }
+}
 
-    /// Constructs a token that contains only text.
-    fn new_text(text: String) -> Self {
-        Self::new(Some(text), None, None)
+impl<T: Into<String>> From<T> for OwnedSymbolToken {
+    /// Constructs an owned token that has only text.
+    fn from(text: T) -> Self {
+        Self::new(Some(text.into()), None, None)
     }
 }
 
@@ -70,13 +80,14 @@ impl SymbolToken for OwnedSymbolToken {
     }
 }
 
+/// An owned implementation of [`Sequence`]
 #[derive(Debug, Clone)]
 pub struct OwnedSequence {
     children: Vec<OwnedElement>,
 }
 
 impl OwnedSequence {
-    fn new(children: Vec<OwnedElement>) -> Self {
+    pub fn new(children: Vec<OwnedElement>) -> Self {
         Self { children }
     }
 }
@@ -89,6 +100,7 @@ impl Sequence for OwnedSequence {
     }
 }
 
+/// An owned implementation of [`Struct`]
 #[derive(Debug, Clone)]
 pub struct OwnedStruct {
     // TODO model actual map indexing for the struct (maybe as a variant type)
@@ -97,7 +109,7 @@ pub struct OwnedStruct {
 }
 
 impl OwnedStruct {
-    fn new(fields: Vec<(OwnedSymbolToken, OwnedElement)>) -> Self {
+    pub fn new(fields: Vec<(OwnedSymbolToken, OwnedElement)>) -> Self {
         Self { fields }
     }
 }
@@ -116,6 +128,7 @@ impl Struct for OwnedStruct {
     }
 }
 
+/// Variants for all owned version _values_ within an [`Element`].
 #[derive(Debug, Clone)]
 pub enum OwnedValue {
     Null(IonType),
@@ -128,6 +141,7 @@ pub enum OwnedValue {
     // TODO fill this in with the rest of the value types...
 }
 
+/// An owned implementation of [`Element`]
 #[derive(Debug, Clone)]
 pub struct OwnedElement {
     annotations: Vec<OwnedSymbolToken>,
@@ -135,8 +149,14 @@ pub struct OwnedElement {
 }
 
 impl OwnedElement {
-    fn new(annotations: Vec<OwnedSymbolToken>, value: OwnedValue) -> Self {
+    pub fn new(annotations: Vec<OwnedSymbolToken>, value: OwnedValue) -> Self {
         Self { annotations, value }
+    }
+}
+
+impl From<OwnedValue> for OwnedElement {
+    fn from(val: OwnedValue) -> Self {
+        Self::new(vec![], val)
     }
 }
 

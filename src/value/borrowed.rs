@@ -1,24 +1,31 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+//! Provides borrowed implementations of [`SymbolToken`], [`Element`] and its dependents.
+//!
+//! Specifically, all implementations are tied to some particular lifetime, generally linked
+//! to a parser implementation of some sort or some context from which the borrow can occur.
+//! For simple values, the values are inlined (see [`BorrowedValue`]), but for things that are
+//! backed by octets or string data, `&[u8]` and `&str` are used.
+
 use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::SymbolId;
 use crate::value::AnyInt;
 use crate::IonType;
 
-/// A simple, borrowed implementation of [`ImportSource`].
+/// A borrowed implementation of [`ImportSource`].
 #[derive(Debug, Copy, Clone)]
-pub struct BorrowedImportSource<'a> {
-    table: &'a str,
+pub struct BorrowedImportSource<'val> {
+    table: &'val str,
     sid: SymbolId,
 }
 
-impl<'a> BorrowedImportSource<'a> {
-    fn new(table: &'a str, sid: SymbolId) -> Self {
+impl<'val> BorrowedImportSource<'val> {
+    pub fn new(table: &'val str, sid: SymbolId) -> Self {
         Self { table, sid }
     }
 }
 
-impl<'a> ImportSource for BorrowedImportSource<'a> {
+impl<'val> ImportSource for BorrowedImportSource<'val> {
     fn table(&self) -> &str {
         self.table
     }
@@ -28,19 +35,19 @@ impl<'a> ImportSource for BorrowedImportSource<'a> {
     }
 }
 
-/// A simple, borrowed implementation of [`SymbolToken`].
+/// A borrowed implementation of [`SymbolToken`].
 #[derive(Debug, Copy, Clone)]
-pub struct BorrowedSymbolToken<'a> {
-    text: Option<&'a str>,
+pub struct BorrowedSymbolToken<'val> {
+    text: Option<&'val str>,
     local_sid: Option<SymbolId>,
-    source: Option<BorrowedImportSource<'a>>,
+    source: Option<BorrowedImportSource<'val>>,
 }
 
-impl<'a> BorrowedSymbolToken<'a> {
-    fn new(
-        text: Option<&'a str>,
+impl<'val> BorrowedSymbolToken<'val> {
+    pub fn new(
+        text: Option<&'val str>,
         local_sid: Option<SymbolId>,
-        source: Option<BorrowedImportSource<'a>>,
+        source: Option<BorrowedImportSource<'val>>,
     ) -> Self {
         Self {
             text,
@@ -48,15 +55,16 @@ impl<'a> BorrowedSymbolToken<'a> {
             source,
         }
     }
+}
 
-    /// Constructs a token that contains only text.
-    fn new_text(text: &'a str) -> Self {
+impl<'val> From<&'val str> for BorrowedSymbolToken<'val> {
+    fn from(text: &'val str) -> Self {
         Self::new(Some(text), None, None)
     }
 }
 
-impl<'a> SymbolToken for BorrowedSymbolToken<'a> {
-    type ImportSource = BorrowedImportSource<'a>;
+impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
+    type ImportSource = BorrowedImportSource<'val>;
 
     fn text(&self) -> Option<&str> {
         self.text
@@ -71,45 +79,47 @@ impl<'a> SymbolToken for BorrowedSymbolToken<'a> {
     }
 }
 
+/// A borrowed implementation of [`Sequence`].
 #[derive(Debug, Clone)]
-pub struct BorrowedSequence<'a> {
-    children: Vec<BorrowedElement<'a>>,
+pub struct BorrowedSequence<'val> {
+    children: Vec<BorrowedElement<'val>>,
 }
 
-impl<'a> BorrowedSequence<'a> {
-    fn new(children: Vec<BorrowedElement<'a>>) -> Self {
+impl<'val> BorrowedSequence<'val> {
+    pub fn new(children: Vec<BorrowedElement<'val>>) -> Self {
         Self { children }
     }
 }
 
-impl<'a> Sequence for BorrowedSequence<'a> {
-    type Element = BorrowedElement<'a>;
+impl<'val> Sequence for BorrowedSequence<'val> {
+    type Element = BorrowedElement<'val>;
 
-    fn iter<'b>(&'b self) -> Box<dyn Iterator<Item = &'b Self::Element> + 'b> {
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(self.children.iter())
     }
 }
 
+/// A borrowed implementation of [`Struct`]
 #[derive(Debug, Clone)]
-pub struct BorrowedStruct<'a> {
+pub struct BorrowedStruct<'val> {
     // TODO model actual map indexing for the struct (maybe as a variant type)
     //      otherwise struct field lookup will be O(N)
-    fields: Vec<(BorrowedSymbolToken<'a>, BorrowedElement<'a>)>,
+    fields: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
 }
 
-impl<'a> BorrowedStruct<'a> {
-    fn new(fields: Vec<(BorrowedSymbolToken<'a>, BorrowedElement<'a>)>) -> Self {
+impl<'val> BorrowedStruct<'val> {
+    pub fn new(fields: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>) -> Self {
         Self { fields }
     }
 }
 
-impl<'a> Struct for BorrowedStruct<'a> {
-    type FieldName = BorrowedSymbolToken<'a>;
-    type Element = BorrowedElement<'a>;
+impl<'val> Struct for BorrowedStruct<'val> {
+    type FieldName = BorrowedSymbolToken<'val>;
+    type Element = BorrowedElement<'val>;
 
-    fn iter<'b>(
-        &'b self,
-    ) -> Box<dyn Iterator<Item = (&'b Self::FieldName, &'b Self::Element)> + 'b> {
+    fn iter<'a>(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a> {
         // convert &(k, v) -> (&k, &v)
         Box::new(self.fields.iter().map(|kv| match &kv {
             (k, v) => (k, v),
@@ -119,34 +129,43 @@ impl<'a> Struct for BorrowedStruct<'a> {
 
 // TODO replace the references with `Cow` and bridge to the owned APIs for mutability
 
+/// Variants for all borrowed version _values_ within an [`Element`].
 #[derive(Debug, Clone)]
-pub enum BorrowedValue<'a> {
+pub enum BorrowedValue<'val> {
     Null(IonType),
     Integer(AnyInt),
-    String(&'a str),
-    Symbol(BorrowedSymbolToken<'a>),
-    SExpression(BorrowedSequence<'a>),
-    List(BorrowedSequence<'a>),
-    Struct(BorrowedStruct<'a>),
+    String(&'val str),
+    Symbol(BorrowedSymbolToken<'val>),
+    SExpression(BorrowedSequence<'val>),
+    List(BorrowedSequence<'val>),
+    Struct(BorrowedStruct<'val>),
     // TODO fill this in with the rest...
 }
 
+/// A borrowed implementation of [`Element`]
 #[derive(Debug, Clone)]
-pub struct BorrowedElement<'a> {
-    annotations: Vec<BorrowedSymbolToken<'a>>,
-    value: BorrowedValue<'a>,
+pub struct BorrowedElement<'val> {
+    annotations: Vec<BorrowedSymbolToken<'val>>,
+    value: BorrowedValue<'val>,
 }
 
-impl<'a> BorrowedElement<'a> {
-    fn new(annotations: Vec<BorrowedSymbolToken<'a>>, value: BorrowedValue<'a>) -> Self {
+impl<'val> BorrowedElement<'val> {
+    pub fn new(annotations: Vec<BorrowedSymbolToken<'val>>, value: BorrowedValue<'val>) -> Self {
         Self { annotations, value }
     }
 }
 
-impl<'a> Element for BorrowedElement<'a> {
-    type SymbolToken = BorrowedSymbolToken<'a>;
-    type Sequence = BorrowedSequence<'a>;
-    type Struct = BorrowedStruct<'a>;
+impl<'val> From<BorrowedValue<'val>> for BorrowedElement<'val> {
+    /// Constructs a [`BorrowedElement`] without annotations from this value.
+    fn from(val: BorrowedValue<'val>) -> Self {
+        Self::new(vec![], val)
+    }
+}
+
+impl<'val> Element for BorrowedElement<'val> {
+    type SymbolToken = BorrowedSymbolToken<'val>;
+    type Sequence = BorrowedSequence<'val>;
+    type Struct = BorrowedStruct<'val>;
 
     fn ion_type(&self) -> IonType {
         use BorrowedValue::*;
@@ -161,7 +180,7 @@ impl<'a> Element for BorrowedElement<'a> {
         }
     }
 
-    fn annotations<'b>(&'b self) -> Box<dyn Iterator<Item = &'b Self::SymbolToken> + 'b> {
+    fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a> {
         Box::new(self.annotations.iter())
     }
 

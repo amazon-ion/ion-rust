@@ -3,11 +3,95 @@
 //! Provides a in-memory tree representation of Ion values that can be operated on in
 //! a dynamically typed way.
 //!
-//! References:
+//! This module consists of two submodules that implement the value traits:
+//!
+//! * The [`owned`] module provides an implementation of values that have no associated
+//!   lifetime.  These types are convenient, but may imply extra copying/cloning.
+//! * The [`borrowed`] module provides an implementation of values that are tied to some
+//!   associated lifetime and borrow a reference to their underlying data in some way
+//!   (e.g. storing a `&str` in the value versus a fully owned `String`).
+//!
+//! ## Examples
+//! In general, users should use the traits in this module to make their code work
+//! in contexts that have either [`borrowed`] or [`owned`] values.  This can be done
+//! most easily by writing generic functions that can work with a reference of any type.
+//!
+//! For example, consider a fairly contrived, but generic `extract_text` function that unwraps
+//! and converts [`SymbolToken::text()`] into an owned `String`:
+//!
+//! ```
+//! use ion_rs::value::SymbolToken;
+//! use ion_rs::value::borrowed::BorrowedSymbolToken;
+//! use ion_rs::value::owned::OwnedSymbolToken;
+//!
+//! fn extract_text<T: SymbolToken>(tok: &T) -> String {
+//!     tok.text().unwrap().into()
+//! }
+//!
+//! let owned_token: OwnedSymbolToken = "hello".into();
+//!
+//! // owned value to emphasize lifetime
+//! let text = String::from("hello");
+//! let borrowed_token: BorrowedSymbolToken = text.as_str().into();
+//!
+//! let owned_text = extract_text(&owned_token);
+//! let borrowed_text = extract_text(&borrowed_token);
+//! assert_eq!(owned_text, borrowed_text);
+//! ```
+//!
+//! This extends to the [`Element`] trait as well which is the "top-level" API type for
+//! any Ion datum.  Consider a contrived function that extracts returns the annotations
+//! of an underlying element as a `Vec<String>`.  Note that filters out any annotation
+//! that may not have text (so data could be dropped):
+//!
+//! ```
+//! use ion_rs::value::{Element, SymbolToken};
+//! use ion_rs::value::borrowed::*;
+//! use ion_rs::value::owned::*;
+//!
+//! fn extract_annotations<T: Element>(elem: &T) -> Vec<String> {
+//!     elem.annotations().flat_map(
+//!         |tok| tok.text().map(|text_ref| text_ref.to_string())
+//!     ).collect()
+//! }
+//!
+//! let owned_elem = OwnedElement::new(
+//!     vec![
+//!         OwnedSymbolToken::new(
+//!             None,
+//!             Some(300),
+//!             Some(OwnedImportSource::new("foo", 12))
+//!         ),
+//!         "hello".into()
+//!     ],
+//!     OwnedValue::String("world".into())
+//! );
+//!
+//! // owned values to emphasize lifetime
+//! let strings: Vec<String> =
+//!     vec!["hello", "world"].iter().map(|x| x.to_string()).collect();
+//! let borrowed_elem = BorrowedElement::new(
+//!     vec![
+//!         strings[0].as_str().into(),
+//!         BorrowedSymbolToken::new(
+//!             None,
+//!             Some(200),
+//!             Some(BorrowedImportSource::new("bar", 9))
+//!         )
+//!     ],
+//!     BorrowedValue::String(&strings[1])
+//! );
+//!
+//! let owned_annotations = extract_annotations(&owned_elem);
+//! let borrowed_annotations = extract_annotations(&borrowed_elem);
+//! assert_eq!(owned_annotations, borrowed_annotations);
+//! ```
+//!
+//! For reference here are a couple other _value_ style APIs for JSON:
 //! * [`simd_json`'s `Value` API][simd-json-value]
 //! * [`serde_json`'s `Value` API][serde-json-value]
 //!
-//! [simd-json-value]: https://docs.rs/simd-json/0.3.25/simd_json/value/index.html
+//! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
 use crate::types::SymbolId;
@@ -48,17 +132,55 @@ pub trait SymbolToken {
 /// Provides convenient integer accessors for integer values that are like [`AnyInt`]
 pub trait IntAccess {
     /// Returns the value as an `i64` if it can be represented as such.
+    ///
+    /// ## Usage
+    /// ```
+    /// # use ion_rs::value::*;
+    /// # use ion_rs::value::owned::*;
+    /// # use ion_rs::value::borrowed::*;
+    /// # use num_bigint::*;
+    /// let big_any = AnyInt::BigInt(BigInt::from(100));
+    /// let i64_any = AnyInt::I64(100);
+    /// assert_eq!(big_any.as_i64(), i64_any.as_i64());
+    ///
+    /// // works on element too
+    /// let big_elem: OwnedElement = OwnedValue::Integer(big_any).into();
+    /// let i64_elem: BorrowedElement = BorrowedValue::Integer(i64_any).into();
+    ///
+    /// assert_eq!(big_elem.as_i64(), i64_elem.as_i64());
+    /// ```
     fn as_i64(&self) -> Option<i64>;
 
     /// Returns a reference as a [`BigInt`] if it is represented as such.  Note that this
     /// method may return `None` if the underlying representation *is not* stored in a [`BigInt`]
     /// such as if it is represented as an `i64` so it is somewhat asymmetric with respect
     /// to [`IntAccess::as_i64`].
+    ///
+    /// ## Usage
+    /// ```
+    /// # use ion_rs::value::*;
+    /// # use ion_rs::value::owned::*;
+    /// # use ion_rs::value::borrowed::*;
+    /// # use num_bigint::*;
+    /// # use std::str::FromStr;
+    /// let big_any = AnyInt::BigInt(BigInt::from(100));
+    /// assert_eq!(BigInt::from_str("100").unwrap(), *big_any.as_big_int().unwrap());
+    /// let i64_any = AnyInt::I64(100);
+    /// assert_eq!(None, i64_any.as_big_int());
+    ///
+    /// // works on element too
+    /// let big_elem: BorrowedElement = BorrowedValue::Integer(big_any).into();
+    /// assert_eq!(BigInt::from_str("100").unwrap(), *big_elem.as_big_int().unwrap());
+    /// let i64_elem: OwnedElement = OwnedValue::Integer(i64_any).into();
+    /// assert_eq!(None, i64_elem.as_big_int());
+    /// ```
     fn as_big_int(&self) -> Option<&BigInt>;
 }
 
 /// Container for either an integer that can fit in a 64-bit word or an arbitrarily sized
 /// [`BigInt`].
+///
+/// See [`IntAccess`] for common operations.
 #[derive(Debug, Clone)]
 pub enum AnyInt {
     I64(i64),
@@ -94,6 +216,31 @@ pub trait Element {
     fn ion_type(&self) -> IonType;
 
     /// The annotations for this element.
+    ///
+    /// ## Usage
+    /// ```
+    /// # use ion_rs::value::*;
+    /// # use ion_rs::value::owned::*;
+    /// # use ion_rs::value::borrowed::*;
+    /// // simple function to extract the annotations to owned strings
+    /// fn annotation_strings<T: Element>(elem: &T) -> Vec<String> {
+    ///     elem.annotations().map(|tok| tok.text().unwrap().into()).collect()
+    /// }
+    ///
+    /// let strs = vec!["a", "b", "c"];
+    /// let owned_elem = OwnedElement::new(
+    ///     strs.iter().map(|s| (*s).into()).collect(),
+    ///     OwnedValue::String("moo".into())
+    /// );
+    /// let borrowed_elem = BorrowedElement::new(
+    ///     strs.iter().map(|s| (*s).into()).collect(),
+    ///     BorrowedValue::String("moo")
+    /// );
+    ///
+    /// let expected: Vec<String> = strs.iter().map(|s| (*s).into()).collect();
+    /// assert_eq!(expected, annotation_strings(&owned_elem));
+    /// assert_eq!(expected, annotation_strings(&borrowed_elem));
+    /// ```
     ///
     /// Note that this uses a `Box<dyn Iterator<...>>` to capture the borrow cleanly without
     /// without [generic associated types (GAT)][gat].  In theory, when GAT lands, this could
