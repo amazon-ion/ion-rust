@@ -8,9 +8,11 @@
 use super::{AnyInt, Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 /// An owned implementation of  [`ImportSource`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct OwnedImportSource {
     table: String,
     sid: SymbolId,
@@ -80,6 +82,27 @@ impl SymbolToken for OwnedSymbolToken {
     }
 }
 
+impl Hash for OwnedSymbolToken {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.text.hash(state);
+        self.source.hash(state);
+    }
+}
+
+impl PartialEq for OwnedSymbolToken {
+    fn eq(&self, other: &Self) -> bool {
+        if self.text == other.text {
+            true
+        } else if self.source == other.source {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Eq for OwnedSymbolToken {}
+
 /// An owned implementation of [`Sequence`]
 #[derive(Debug, Clone)]
 pub struct OwnedSequence {
@@ -98,6 +121,31 @@ impl Sequence for OwnedSequence {
     fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(self.children.iter())
     }
+
+    fn get(&self, index: usize) -> Option<&Self::Element> {
+        if index > self.children.len() {
+            None
+        } else {
+            Some(&self.children[index])
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.children.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    // TODO should return Option<&Self:Element> and remove usage of unwrap()
+    fn pop(&mut self) -> Self::Element {
+        self.children.pop().unwrap()
+    }
+
+    fn push(&mut self, e: Self::Element) {
+        self.children.push(e)
+    }
 }
 
 /// An owned implementation of [`Struct`]
@@ -105,11 +153,11 @@ impl Sequence for OwnedSequence {
 pub struct OwnedStruct {
     // TODO model actual map indexing for the struct (maybe as a variant type)
     //      otherwise struct field lookup will be O(N)
-    fields: Vec<(OwnedSymbolToken, OwnedElement)>,
+    fields: HashMap<OwnedSymbolToken, Vec<OwnedElement>>,
 }
 
 impl OwnedStruct {
-    pub fn new(fields: Vec<(OwnedSymbolToken, OwnedElement)>) -> Self {
+    pub fn new(fields: HashMap<OwnedSymbolToken, Vec<OwnedElement>>) -> Self {
         Self { fields }
     }
 }
@@ -120,11 +168,24 @@ impl Struct for OwnedStruct {
 
     fn iter<'a>(
         &'a self,
-    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a> {
-        // convert &(k, v) -> (&k, &v)
-        Box::new(self.fields.iter().map(|kv| match &kv {
-            (k, v) => (k, v),
+    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, Option<&'a Self::Element>)> + 'a> {
+        // convert (&k, &v[0..n]) -> (&k, &v[0])
+        Box::new(self.fields.iter().map(|kv| match kv {
+            (k, v) => (k, v.first()),
         }))
+    }
+
+    fn get(&self, field_name: &Self::FieldName) -> Option<&Self::Element> {
+        self.fields.get(field_name)?.first()
+    }
+
+    // TODO remove usage of unwrap()[unwrap] as it will panic for None
+    //  [unwrap] https://doc.rust-lang.org/std/option/enum.Option.html#method.unwrap
+    fn get_all<'a>(
+        &'a self,
+        field_name: &'a Self::FieldName,
+    ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
+        Box::new(self.fields.get(field_name).unwrap().iter())
     }
 }
 

@@ -318,7 +318,20 @@ pub trait Sequence {
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
     fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
 
-    // TODO add a get by index method
+    // get value for the given index in the sequence
+    fn get(&self, i: usize) -> Option<&Self::Element>;
+
+    // get length of the sequence
+    fn len(&self) -> usize;
+
+    // check if the sequence is empty or not
+    fn is_empty(&self) -> bool;
+
+    // returns the last element from the sequence
+    fn pop(&mut self) -> Self::Element;
+
+    // Appends the given value e to the end of the Array
+    fn push(&mut self, e: Self::Element);
 }
 
 /// Represents the _value_ of `struct` of Ion elements.
@@ -335,7 +348,14 @@ pub trait Struct {
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
     fn iter<'a>(
         &'a self,
-    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a>;
+    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, Option<&'a Self::Element>)> + 'a>;
 
-    // TODO add a get first/all element by name
+    // gets the first value for the given field name in struct
+    fn get(&self, field_name: &Self::FieldName) -> Option<&Self::Element>;
+
+    // gets all values corresponding to the given field name in struct
+    fn get_all<'a>(
+        &'a self,
+        field_name: &'a Self::FieldName,
+    ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
 }
