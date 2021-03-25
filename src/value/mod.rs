@@ -49,11 +49,8 @@
 //! use ion_rs::value::borrowed::*;
 //! use ion_rs::value::owned::*;
 //!
-//! /// Note that this API will filter out any annotations without text.
-//! /// Which may change the position of the annotation
-//! /// (if one cares about such things).
-//! fn extract_annotations<T: Element>(elem: &T) -> Vec<String> {
-//!     elem.annotations().flat_map(
+//! fn extract_annotations<T: Element>(elem: &T) -> Vec<Option<String>> {
+//!     elem.annotations().map(
 //!         |tok| tok.text().map(|text_ref| text_ref.to_string())
 //!     ).collect()
 //! }
@@ -75,12 +72,12 @@
 //!     vec!["hello", "world"].iter().map(|x| x.to_string()).collect();
 //! let borrowed_elem = BorrowedElement::new(
 //!     vec![
-//!         strings[0].as_str().into(),
 //!         BorrowedSymbolToken::new(
 //!             None,
 //!             Some(200),
 //!             Some(BorrowedImportSource::new("bar", 9))
-//!         )
+//!         ),
+//!         strings[0].as_str().into()
 //!     ],
 //!     BorrowedValue::String(&strings[1])
 //! );
@@ -225,7 +222,8 @@ pub trait Element {
     /// # use ion_rs::value::*;
     /// # use ion_rs::value::owned::*;
     /// # use ion_rs::value::borrowed::*;
-    /// // simple function to extract the annotations to owned strings
+    /// // simple function to extract the annotations to owned strings.
+    /// // will panic if the text is not there!
     /// fn annotation_strings<T: Element>(elem: &T) -> Vec<String> {
     ///     elem.annotations().map(|tok| tok.text().unwrap().into()).collect()
     /// }
