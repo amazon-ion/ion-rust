@@ -40,8 +40,8 @@
 //! ```
 //!
 //! This extends to the [`Element`] trait as well which is the "top-level" API type for
-//! any Ion datum.  Consider a contrived function that extracts returns the annotations
-//! of an underlying element as a `Vec<String>`.  Note that filters out any annotation
+//! any Ion datum.  Consider a contrived function that extracts and returns the annotations
+//! of an underlying element as a `Vec<String>`.  Note that it filters out any annotation
 //! that may not have text (so data could be dropped):
 //!
 //! ```
