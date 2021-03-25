@@ -12,6 +12,7 @@ use crate::IonType;
 /// An owned implementation of  [`ImportSource`].
 #[derive(Debug, Clone)]
 pub struct OwnedImportSource {
+    // TODO consider Rc<String> here as we flesh out sharing/symbol tables.
     table: String,
     sid: SymbolId,
 }
@@ -38,6 +39,7 @@ impl ImportSource for OwnedImportSource {
 /// An owned implementation of [`SymbolToken`].
 #[derive(Debug, Clone)]
 pub struct OwnedSymbolToken {
+    // TODO consider Rc<String> for a common case of many symbols sharing the same text.
     text: Option<String>,
     local_sid: Option<SymbolId>,
     source: Option<OwnedImportSource>,

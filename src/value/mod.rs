@@ -49,6 +49,9 @@
 //! use ion_rs::value::borrowed::*;
 //! use ion_rs::value::owned::*;
 //!
+//! /// Note that this API will filter out any annotations without text.
+//! /// Which may change the position of the annotation
+//! /// (if one cares about such things).
 //! fn extract_annotations<T: Element>(elem: &T) -> Vec<String> {
 //!     elem.annotations().flat_map(
 //!         |tok| tok.text().map(|text_ref| text_ref.to_string())
