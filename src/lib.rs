@@ -7,6 +7,7 @@ pub mod cursor;
 pub mod data_source;
 pub mod text;
 pub mod types;
+pub mod value;
 
 pub mod constants;
 mod reader;
