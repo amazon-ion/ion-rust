@@ -187,7 +187,7 @@ impl Struct for OwnedStruct {
                 .into_iter()
                 .flat_map(|v| v.iter())
                 .map(|kv| match &kv {
-                    (k, v) => v,
+                    (_k, v) => v,
                 }),
         )
     }
