@@ -318,20 +318,21 @@ pub trait Sequence {
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
     fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
 
-    // get value for the given index in the sequence
+    /// get value for the given index in the sequence
     fn get(&self, i: usize) -> Option<&Self::Element>;
 
-    // get length of the sequence
+    /// get length of the sequence
     fn len(&self) -> usize;
 
-    // check if the sequence is empty or not
+    /// check if the sequence is empty or not
     fn is_empty(&self) -> bool;
 
+    // TODO Add these mutable methods on Sequence
     // returns the last element from the sequence
-    fn pop(&mut self) -> Self::Element;
+    // fn pop(&mut self) -> Self::Element;
 
     // Appends the given value e to the end of the Array
-    fn push(&mut self, e: Self::Element);
+    // fn push(&mut self, e: Self::Element);
 }
 
 /// Represents the _value_ of `struct` of Ion elements.
@@ -348,14 +349,15 @@ pub trait Struct {
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
     fn iter<'a>(
         &'a self,
-    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, Option<&'a Self::Element>)> + 'a>;
+    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a>;
 
-    // gets the first value for the given field name in struct
-    fn get(&self, field_name: &Self::FieldName) -> Option<&Self::Element>;
+    /// gets the first value for the given field name in struct
+    /// TODO add generic implementation to allow &String, String for lookup
+    fn get(&self, field_name: &String) -> Option<&Self::Element>;
 
-    // gets all values corresponding to the given field name in struct
+    /// gets all values corresponding to the given field name in struct
     fn get_all<'a>(
         &'a self,
-        field_name: &'a Self::FieldName,
+        field_name: &'a String,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
 }

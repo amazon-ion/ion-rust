@@ -12,10 +12,9 @@ use crate::types::SymbolId;
 use crate::value::AnyInt;
 use crate::IonType;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 
 /// A borrowed implementation of [`ImportSource`].
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone)]
 pub struct BorrowedImportSource<'val> {
     table: &'val str,
     sid: SymbolId,
@@ -81,27 +80,6 @@ impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
     }
 }
 
-impl<'val> Hash for BorrowedSymbolToken<'val> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.text.hash(state);
-        self.source.hash(state);
-    }
-}
-
-impl<'val> PartialEq for BorrowedSymbolToken<'val> {
-    fn eq(&self, other: &Self) -> bool {
-        if self.text == other.text {
-            true
-        } else if self.source == other.source {
-            true
-        } else {
-            false
-        }
-    }
-}
-
-impl<'val> Eq for BorrowedSymbolToken<'val> {}
-
 /// A borrowed implementation of [`Sequence`].
 #[derive(Debug, Clone)]
 pub struct BorrowedSequence<'val> {
@@ -137,27 +115,36 @@ impl<'val> Sequence for BorrowedSequence<'val> {
         self.children.len() == 0
     }
 
-    // TODO should return Option<&Self:Element> and remove usage of unwrap()
-    fn pop(&mut self) -> Self::Element {
+    // TODO Add these mutable methods on Sequence
+    /*fn pop(&mut self) -> Self::Element {
         self.children.pop().unwrap()
     }
 
     fn push(&mut self, e: Self::Element) {
         self.children.push(e)
-    }
+    }*/
 }
 
 /// A borrowed implementation of [`Struct`]
 #[derive(Debug, Clone)]
 pub struct BorrowedStruct<'val> {
-    // TODO model actual map indexing for the struct (maybe as a variant type)
-    //      otherwise struct field lookup will be O(N)
-    fields: HashMap<BorrowedSymbolToken<'val>, Vec<BorrowedElement<'val>>>,
+    fields_with_text_key: HashMap<String, Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>>,
+    fields_with_no_text_key: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
 }
 
 impl<'val> BorrowedStruct<'val> {
-    pub fn new(fields: HashMap<BorrowedSymbolToken<'val>, Vec<BorrowedElement<'val>>>) -> Self {
-        Self { fields }
+    // TODO remove constructor and instead add from_iter function to HashMap and Vec from iterator
+    fn new(
+        fields_with_text: HashMap<
+            std::string::String,
+            Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
+        >,
+        fields_with_no_text: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
+    ) -> Self {
+        Self {
+            fields_with_text_key: fields_with_text,
+            fields_with_no_text_key: fields_with_no_text,
+        }
     }
 }
 
@@ -167,24 +154,42 @@ impl<'val> Struct for BorrowedStruct<'val> {
 
     fn iter<'a>(
         &'a self,
-    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, Option<&'a Self::Element>)> + 'a> {
+    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a> {
         // convert (&k, &v[0..n]) -> (&k, &v[0])
-        Box::new(self.fields.iter().map(|kv| match kv {
-            (k, v) => (k, v.first()),
+        // flattens the fields_with_text_key HashMap and chains with fields_with_no_text_key
+        // to return all fields with iterator
+        let all_fields_vec: Vec<&(BorrowedSymbolToken, BorrowedElement)> = self
+            .fields_with_text_key
+            .values()
+            .flat_map(|v| v)
+            .into_iter()
+            .chain(self.fields_with_no_text_key.iter())
+            .collect();
+        Box::new(all_fields_vec.into_iter().map(|kv| match &kv {
+            (k, v) => (k, v),
         }))
     }
 
-    fn get(&self, field_name: &Self::FieldName) -> Option<&Self::Element> {
-        self.fields.get(field_name)?.first()
+    fn get(&self, field_name: &String) -> Option<&Self::Element> {
+        match self.fields_with_text_key.get(field_name)?.last() {
+            None => None,
+            Some(value) => Some(&value.1),
+        }
     }
 
-    // TODO remove usage of unwrap()[unwrap] as it will panic for None
-    //  [unwrap] https://doc.rust-lang.org/std/option/enum.Option.html#method.unwrap
     fn get_all<'a>(
         &'a self,
-        field_name: &'a Self::FieldName,
+        field_name: &'a String,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
-        Box::new(self.fields.get(field_name).unwrap().iter())
+        Box::new(
+            self.fields_with_text_key
+                .get(field_name)
+                .into_iter()
+                .flat_map(|v| v.iter())
+                .map(|kv| match &kv {
+                    (k, v) => v,
+                }),
+        )
     }
 }
 
