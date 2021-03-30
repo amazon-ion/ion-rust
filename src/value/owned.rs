@@ -8,6 +8,7 @@
 use super::{AnyInt, Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
+use std::collections::HashMap;
 
 /// An owned implementation of  [`ImportSource`].
 #[derive(Debug, Clone)]
@@ -100,6 +101,22 @@ impl Sequence for OwnedSequence {
     fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(self.children.iter())
     }
+
+    fn get(&self, index: usize) -> Option<&Self::Element> {
+        if index > self.children.len() {
+            None
+        } else {
+            Some(&self.children[index])
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.children.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// An owned implementation of [`Struct`]
@@ -107,12 +124,20 @@ impl Sequence for OwnedSequence {
 pub struct OwnedStruct {
     // TODO model actual map indexing for the struct (maybe as a variant type)
     //      otherwise struct field lookup will be O(N)
-    fields: Vec<(OwnedSymbolToken, OwnedElement)>,
+    text_fields: HashMap<String, Vec<(OwnedSymbolToken, OwnedElement)>>,
+    no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
 }
 
 impl OwnedStruct {
-    pub fn new(fields: Vec<(OwnedSymbolToken, OwnedElement)>) -> Self {
-        Self { fields }
+    // TODO remove constructor and instead add from_iter function to HashMap and Vec from iterator
+    fn new(
+        text_fields: HashMap<String, Vec<(OwnedSymbolToken, OwnedElement)>>,
+        no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
+    ) -> Self {
+        Self {
+            text_fields,
+            no_text_fields,
+        }
     }
 }
 
@@ -124,9 +149,38 @@ impl Struct for OwnedStruct {
         &'a self,
     ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a> {
         // convert &(k, v) -> (&k, &v)
-        Box::new(self.fields.iter().map(|kv| match &kv {
-            (k, v) => (k, v),
-        }))
+        // flattens the fields_with_text_key HashMap and chains with fields_with_no_text_key
+        // to return all fields with iterator
+        Box::new(
+            self.text_fields
+                .values()
+                .flat_map(|v| v)
+                .into_iter()
+                .chain(self.no_text_fields.iter())
+                .map(|(k, v)| (k, v)),
+        )
+    }
+
+    fn get(&self, field_name: &String) -> Option<&Self::Element> {
+        match self.text_fields.get(field_name)?.last() {
+            None => None,
+            Some(value) => Some(&value.1),
+        }
+    }
+
+    fn get_all<'a>(
+        &'a self,
+        field_name: &'a String,
+    ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
+        Box::new(
+            self.text_fields
+                .get(field_name)
+                .into_iter()
+                .flat_map(|v| v.iter())
+                .map(|kv| match &kv {
+                    (_k, v) => v,
+                }),
+        )
     }
 }
 
