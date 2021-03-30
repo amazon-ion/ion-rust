@@ -115,15 +115,6 @@ impl Sequence for OwnedSequence {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
-
-    // TODO Add these mutable methods on Sequence
-    /*fn pop(&mut self) -> Self::Element {
-        self.children.pop().unwrap()
-    }
-
-    fn push(&mut self, e: Self::Element) {
-        self.children.push(e)
-    }*/
 }
 
 /// An owned implementation of [`Struct`]
@@ -131,19 +122,19 @@ impl Sequence for OwnedSequence {
 pub struct OwnedStruct {
     // TODO model actual map indexing for the struct (maybe as a variant type)
     //      otherwise struct field lookup will be O(N)
-    fields_with_text_key: HashMap<String, Vec<(OwnedSymbolToken, OwnedElement)>>,
-    fields_with_no_text_key: Vec<(OwnedSymbolToken, OwnedElement)>,
+    text_fields: HashMap<String, Vec<(OwnedSymbolToken, OwnedElement)>>,
+    no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
 }
 
 impl OwnedStruct {
     // TODO remove constructor and instead add from_iter function to HashMap and Vec from iterator
     fn new(
-        fields_with_text: HashMap<String, Vec<(OwnedSymbolToken, OwnedElement)>>,
-        fields_with_no_text: Vec<(OwnedSymbolToken, OwnedElement)>,
+        text_fields: HashMap<String, Vec<(OwnedSymbolToken, OwnedElement)>>,
+        no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
     ) -> Self {
         Self {
-            fields_with_text_key: fields_with_text,
-            fields_with_no_text_key: fields_with_no_text,
+            text_fields,
+            no_text_fields,
         }
     }
 }
@@ -158,20 +149,20 @@ impl Struct for OwnedStruct {
         // convert &(k, v) -> (&k, &v)
         // flattens the fields_with_text_key HashMap and chains with fields_with_no_text_key
         // to return all fields with iterator
-        let all_fields_vec: Vec<&(OwnedSymbolToken, OwnedElement)> = self
-            .fields_with_text_key
-            .values()
-            .flat_map(|v| v)
-            .into_iter()
-            .chain(self.fields_with_no_text_key.iter())
-            .collect();
-        Box::new(all_fields_vec.into_iter().map(|kv| match &kv {
-            (k, v) => (k, v),
-        }))
+        Box::new(
+            self.text_fields
+                .values()
+                .flat_map(|v| v)
+                .into_iter()
+                .chain(self.no_text_fields.iter())
+                .map(|kv| match &kv {
+                    (k, v) => (k, v),
+                }),
+        )
     }
 
     fn get(&self, field_name: &String) -> Option<&Self::Element> {
-        match self.fields_with_text_key.get(field_name)?.last() {
+        match self.text_fields.get(field_name)?.last() {
             None => None,
             Some(value) => Some(&value.1),
         }
@@ -182,7 +173,7 @@ impl Struct for OwnedStruct {
         field_name: &'a String,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(
-            self.fields_with_text_key
+            self.text_fields
                 .get(field_name)
                 .into_iter()
                 .flat_map(|v| v.iter())

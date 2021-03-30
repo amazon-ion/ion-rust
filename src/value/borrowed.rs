@@ -114,36 +114,24 @@ impl<'val> Sequence for BorrowedSequence<'val> {
     fn is_empty(&self) -> bool {
         self.children.len() == 0
     }
-
-    // TODO Add these mutable methods on Sequence
-    /*fn pop(&mut self) -> Self::Element {
-        self.children.pop().unwrap()
-    }
-
-    fn push(&mut self, e: Self::Element) {
-        self.children.push(e)
-    }*/
 }
 
 /// A borrowed implementation of [`Struct`]
 #[derive(Debug, Clone)]
 pub struct BorrowedStruct<'val> {
-    fields_with_text_key: HashMap<String, Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>>,
-    fields_with_no_text_key: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
+    text_fields: HashMap<String, Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>>,
+    no_text_fields: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
 }
 
 impl<'val> BorrowedStruct<'val> {
     // TODO remove constructor and instead add from_iter function to HashMap and Vec from iterator
     fn new(
-        fields_with_text: HashMap<
-            std::string::String,
-            Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
-        >,
-        fields_with_no_text: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
+        text_fields: HashMap<String, Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>>,
+        no_text_fields: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
     ) -> Self {
         Self {
-            fields_with_text_key: fields_with_text,
-            fields_with_no_text_key: fields_with_no_text,
+            text_fields,
+            no_text_fields,
         }
     }
 }
@@ -158,20 +146,20 @@ impl<'val> Struct for BorrowedStruct<'val> {
         // convert (&k, &v[0..n]) -> (&k, &v[0])
         // flattens the fields_with_text_key HashMap and chains with fields_with_no_text_key
         // to return all fields with iterator
-        let all_fields_vec: Vec<&(BorrowedSymbolToken, BorrowedElement)> = self
-            .fields_with_text_key
-            .values()
-            .flat_map(|v| v)
-            .into_iter()
-            .chain(self.fields_with_no_text_key.iter())
-            .collect();
-        Box::new(all_fields_vec.into_iter().map(|kv| match &kv {
-            (k, v) => (k, v),
-        }))
+        Box::new(
+            self.text_fields
+                .values()
+                .flat_map(|v| v)
+                .into_iter()
+                .chain(self.no_text_fields.iter())
+                .map(|kv| match &kv {
+                    (k, v) => (k, v),
+                }),
+        )
     }
 
     fn get(&self, field_name: &String) -> Option<&Self::Element> {
-        match self.fields_with_text_key.get(field_name)?.last() {
+        match self.text_fields.get(field_name)?.last() {
             None => None,
             Some(value) => Some(&value.1),
         }
@@ -182,7 +170,7 @@ impl<'val> Struct for BorrowedStruct<'val> {
         field_name: &'a String,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(
-            self.fields_with_text_key
+            self.text_fields
                 .get(field_name)
                 .into_iter()
                 .flat_map(|v| v.iter())
