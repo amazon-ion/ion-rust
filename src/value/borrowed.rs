@@ -152,9 +152,7 @@ impl<'val> Struct for BorrowedStruct<'val> {
                 .flat_map(|v| v)
                 .into_iter()
                 .chain(self.no_text_fields.iter())
-                .map(|kv| match &kv {
-                    (k, v) => (k, v),
-                }),
+                .map(|(k, v)| (k, v)),
         )
     }
 
