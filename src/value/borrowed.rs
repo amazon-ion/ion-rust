@@ -8,12 +8,12 @@
 //! backed by octets or string data, `&[u8]` and `&str` are used.
 
 use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
+use crate::types::decimal::Decimal;
+use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::value::AnyInt;
 use crate::IonType;
 use std::collections::HashMap;
-use crate::types::decimal::Decimal;
-use crate::types::timestamp::Timestamp;
 
 /// A borrowed implementation of [`ImportSource`].
 #[derive(Debug, Copy, Clone)]

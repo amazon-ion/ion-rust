@@ -6,13 +6,13 @@
 //! ownership of data to do so.
 
 use super::{AnyInt, Element, ImportSource, Sequence, Struct, SymbolToken};
+use crate::result::IonError::IllegalOperation;
+use crate::types::decimal::Decimal;
+use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::IonType;
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::types::decimal::Decimal;
-use crate::types::timestamp::Timestamp;
-use crate::result::IonError::IllegalOperation;
 
 /// An owned implementation of  [`ImportSource`].
 #[derive(Debug, Clone)]

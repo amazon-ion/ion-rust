@@ -94,12 +94,12 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
+use crate::types::decimal::Decimal;
+use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::IonType;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
-use crate::types::decimal::Decimal;
-use crate::types::timestamp::Timestamp;
 
 pub mod borrowed;
 pub mod owned;
@@ -294,15 +294,15 @@ pub trait Element {
     fn as_bool(&self) -> Option<&bool>;
 
     /// Returns a reference to the underlying bytes of this element.
-   ///
-   /// This will return `None` in the case that the type is not `blob` or the value is
-   /// any `null`.
+    ///
+    /// This will return `None` in the case that the type is not `blob` or the value is
+    /// any `null`.
     fn as_blob(&self) -> Option<&Vec<u8>>;
 
     /// Returns a reference to the underlying bytes of this element.
-   ///
-   /// This will return `None` in the case that the type is not `clob` or the value is
-   /// any `null`.
+    ///
+    /// This will return `None` in the case that the type is not `clob` or the value is
+    /// any `null`.
     fn as_clob(&self) -> Option<&Vec<u8>>;
 
     /// Returns a reference to the [`Sequence`] of this element.
