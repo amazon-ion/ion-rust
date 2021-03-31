@@ -12,6 +12,7 @@ use crate::types::SymbolId;
 use crate::value::AnyInt;
 use crate::IonType;
 use std::collections::HashMap;
+use std::iter::FromIterator;
 
 /// A borrowed implementation of [`ImportSource`].
 #[derive(Debug, Copy, Clone)]
@@ -123,12 +124,32 @@ pub struct BorrowedStruct<'val> {
     no_text_fields: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
 }
 
-impl<'val> BorrowedStruct<'val> {
-    // TODO remove constructor and instead add from_iter function to HashMap and Vec from iterator
-    fn new(
-        text_fields: HashMap<String, Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>>,
-        no_text_fields: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
-    ) -> Self {
+impl<'val, K, V> FromIterator<(K, V)> for BorrowedStruct<'val>
+where
+    K: Into<BorrowedSymbolToken<'val>>,
+    V: Into<BorrowedElement<'val>>,
+{
+    /// Returns a borrowed struct from the given iterator of field names/values.
+    fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
+        let mut text_fields: HashMap<String, Vec<(BorrowedSymbolToken, BorrowedElement)>> =
+            HashMap::new();
+        let mut no_text_fields: Vec<(BorrowedSymbolToken, BorrowedElement)> = Vec::new();
+
+        for (k, v) in iter {
+            let key = k.into();
+            let val = v.into();
+
+            match key.text() {
+                Some(text) => {
+                    let vals = text_fields.entry(text.into()).or_insert(Vec::new());
+                    vals.push((key, val));
+                }
+                None => {
+                    no_text_fields.push((key, val));
+                }
+            }
+        }
+
         Self {
             text_fields,
             no_text_fields,
@@ -143,8 +164,7 @@ impl<'val> Struct for BorrowedStruct<'val> {
     fn iter<'a>(
         &'a self,
     ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a> {
-        // convert (&k, &v[0..n]) -> (&k, &v[0])
-        // flattens the fields_with_text_key HashMap and chains with fields_with_no_text_key
+        // flattens the text_fields HashMap and chains with no_text_fields
         // to return all fields with iterator
         Box::new(
             self.text_fields
@@ -152,29 +172,27 @@ impl<'val> Struct for BorrowedStruct<'val> {
                 .flat_map(|v| v)
                 .into_iter()
                 .chain(self.no_text_fields.iter())
-                .map(|(k, v)| (k, v)),
+                .map(|(s, v)| (s, v)),
         )
     }
 
-    fn get(&self, field_name: &str) -> Option<&Self::Element> {
-        match self.text_fields.get(field_name)?.last() {
-            None => None,
-            Some(value) => Some(&value.1),
-        }
+    fn get<T: AsRef<str>>(&self, field_name: T) -> Option<&Self::Element> {
+        self.text_fields
+            .get(field_name.as_ref())?
+            .last()
+            .map(|(_s, v)| v)
     }
 
-    fn get_all<'a>(
+    fn get_all<'a, T: AsRef<str>>(
         &'a self,
-        field_name: &'a str,
+        field_name: T,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(
             self.text_fields
-                .get(field_name)
+                .get(field_name.as_ref())
                 .into_iter()
                 .flat_map(|v| v.iter())
-                .map(|kv| match &kv {
-                    (_k, v) => v,
-                }),
+                .map(|(_s, v)| v),
         )
     }
 }

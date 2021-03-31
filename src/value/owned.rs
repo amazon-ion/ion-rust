@@ -9,6 +9,7 @@ use super::{AnyInt, Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
 use std::collections::HashMap;
+use std::iter::FromIterator;
 use std::rc::Rc;
 
 /// An owned implementation of  [`ImportSource`].
@@ -125,12 +126,32 @@ pub struct OwnedStruct {
     no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
 }
 
-impl OwnedStruct {
-    // TODO remove constructor and instead add from_iter function to HashMap and Vec from iterator
-    fn new(
-        text_fields: HashMap<Rc<str>, Vec<(OwnedSymbolToken, OwnedElement)>>,
-        no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
-    ) -> Self {
+impl<K, V> FromIterator<(K, V)> for OwnedStruct
+where
+    K: Into<OwnedSymbolToken>,
+    V: Into<OwnedElement>,
+{
+    /// Returns an owned struct from the given iterator of field names/values.
+    fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
+        let mut text_fields: HashMap<Rc<str>, Vec<(OwnedSymbolToken, OwnedElement)>> =
+            HashMap::new();
+        let mut no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)> = Vec::new();
+
+        for (k, v) in iter {
+            let key = k.into();
+            let val = v.into();
+
+            match key.text() {
+                Some(text) => {
+                    let vals = text_fields.entry(text.into()).or_insert(Vec::new());
+                    vals.push((key, val));
+                }
+                None => {
+                    no_text_fields.push((key, val));
+                }
+            }
+        }
+
         Self {
             text_fields,
             no_text_fields,
@@ -158,25 +179,23 @@ impl Struct for OwnedStruct {
         )
     }
 
-    fn get(&self, field_name: &str) -> Option<&Self::Element> {
-        match self.text_fields.get(field_name)?.last() {
-            None => None,
-            Some(value) => Some(&value.1),
-        }
+    fn get<T: AsRef<str>>(&self, field_name: T) -> Option<&Self::Element> {
+        self.text_fields
+            .get(field_name.as_ref())?
+            .last()
+            .map(|(_s, v)| v)
     }
 
-    fn get_all<'a>(
+    fn get_all<'a, T: AsRef<str>>(
         &'a self,
-        field_name: &'a str,
+        field_name: T,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(
             self.text_fields
-                .get(field_name)
+                .get(field_name.as_ref())
                 .into_iter()
                 .flat_map(|v| v.iter())
-                .map(|kv| match &kv {
-                    (_k, v) => v,
-                }),
+                .map(|(_s, v)| v),
         )
     }
 }
