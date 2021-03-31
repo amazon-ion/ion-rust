@@ -121,8 +121,6 @@ impl Sequence for OwnedSequence {
 /// An owned implementation of [`Struct`]
 #[derive(Debug, Clone)]
 pub struct OwnedStruct {
-    // TODO model actual map indexing for the struct (maybe as a variant type)
-    //      otherwise struct field lookup will be O(N)
     text_fields: HashMap<Rc<str>, Vec<(OwnedSymbolToken, OwnedElement)>>,
     no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
 }
