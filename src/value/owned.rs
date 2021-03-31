@@ -9,17 +9,17 @@ use super::{AnyInt, Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::SymbolId;
 use crate::IonType;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// An owned implementation of  [`ImportSource`].
 #[derive(Debug, Clone)]
 pub struct OwnedImportSource {
-    // TODO consider Rc<String> here as we flesh out sharing/symbol tables.
-    table: String,
+    table: Rc<str>,
     sid: SymbolId,
 }
 
 impl OwnedImportSource {
-    pub fn new<T: Into<String>>(table: T, sid: SymbolId) -> Self {
+    pub fn new<T: Into<Rc<str>>>(table: T, sid: SymbolId) -> Self {
         Self {
             table: table.into(),
             sid,
@@ -40,15 +40,14 @@ impl ImportSource for OwnedImportSource {
 /// An owned implementation of [`SymbolToken`].
 #[derive(Debug, Clone)]
 pub struct OwnedSymbolToken {
-    // TODO consider Rc<String> for a common case of many symbols sharing the same text.
-    text: Option<String>,
+    text: Option<Rc<str>>,
     local_sid: Option<SymbolId>,
     source: Option<OwnedImportSource>,
 }
 
 impl OwnedSymbolToken {
     pub fn new(
-        text: Option<String>,
+        text: Option<Rc<str>>,
         local_sid: Option<SymbolId>,
         source: Option<OwnedImportSource>,
     ) -> Self {
@@ -60,7 +59,7 @@ impl OwnedSymbolToken {
     }
 }
 
-impl<T: Into<String>> From<T> for OwnedSymbolToken {
+impl<T: Into<Rc<str>>> From<T> for OwnedSymbolToken {
     /// Constructs an owned token that has only text.
     fn from(text: T) -> Self {
         Self::new(Some(text.into()), None, None)
@@ -71,7 +70,7 @@ impl SymbolToken for OwnedSymbolToken {
     type ImportSource = OwnedImportSource;
 
     fn text(&self) -> Option<&str> {
-        self.text.as_ref().map(String::as_str)
+        self.text.as_ref().map(|s| s.as_ref())
     }
 
     fn local_sid(&self) -> Option<usize> {
@@ -122,16 +121,14 @@ impl Sequence for OwnedSequence {
 /// An owned implementation of [`Struct`]
 #[derive(Debug, Clone)]
 pub struct OwnedStruct {
-    // TODO model actual map indexing for the struct (maybe as a variant type)
-    //      otherwise struct field lookup will be O(N)
-    text_fields: HashMap<String, Vec<(OwnedSymbolToken, OwnedElement)>>,
+    text_fields: HashMap<Rc<str>, Vec<(OwnedSymbolToken, OwnedElement)>>,
     no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
 }
 
 impl OwnedStruct {
     // TODO remove constructor and instead add from_iter function to HashMap and Vec from iterator
     fn new(
-        text_fields: HashMap<String, Vec<(OwnedSymbolToken, OwnedElement)>>,
+        text_fields: HashMap<Rc<str>, Vec<(OwnedSymbolToken, OwnedElement)>>,
         no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
     ) -> Self {
         Self {
@@ -161,7 +158,7 @@ impl Struct for OwnedStruct {
         )
     }
 
-    fn get(&self, field_name: &String) -> Option<&Self::Element> {
+    fn get(&self, field_name: &str) -> Option<&Self::Element> {
         match self.text_fields.get(field_name)?.last() {
             None => None,
             Some(value) => Some(&value.1),
@@ -170,7 +167,7 @@ impl Struct for OwnedStruct {
 
     fn get_all<'a>(
         &'a self,
-        field_name: &'a String,
+        field_name: &'a str,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(
             self.text_fields
