@@ -156,7 +156,7 @@ impl<'val> Struct for BorrowedStruct<'val> {
         )
     }
 
-    fn get(&self, field_name: &String) -> Option<&Self::Element> {
+    fn get(&self, field_name: &str) -> Option<&Self::Element> {
         match self.text_fields.get(field_name)?.last() {
             None => None,
             Some(value) => Some(&value.1),
@@ -165,7 +165,7 @@ impl<'val> Struct for BorrowedStruct<'val> {
 
     fn get_all<'a>(
         &'a self,
-        field_name: &'a String,
+        field_name: &'a str,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(
             self.text_fields

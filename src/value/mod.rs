@@ -349,12 +349,12 @@ pub trait Struct {
     /// Returns the last value corresponding to the field_name in the struct or
     /// returns `None` if the field_name does not exist in the struct
     /// TODO add generic implementation to allow &String, String for lookup
-    fn get(&self, field_name: &String) -> Option<&Self::Element>;
+    fn get(&self, field_name: &str) -> Option<&Self::Element>;
 
     /// Returns an iterator with all the values corresponding to the field_name in the struct or
     /// returns an empty iterator if the field_name does not exist in the struct
     fn get_all<'a>(
         &'a self,
-        field_name: &'a String,
+        field_name: &'a str,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
 }
