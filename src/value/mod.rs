@@ -263,7 +263,7 @@ pub trait Element {
     /// Returns a reference to the underlying float value for this element.
     ///
     /// This will return `None` if the type is not `float` or the value is any `null`.
-    fn as_float(&self) -> Option<&f64>;
+    fn as_float(&self) -> Option<f64>;
 
     /// Returns a reference to the underlying [`Decimal`] for this element.
     ///
@@ -291,19 +291,19 @@ pub trait Element {
     ///
     ///  This will return `None` in the case that the type is not `bool` or the value is
     ///   any `null`.
-    fn as_bool(&self) -> Option<&bool>;
+    fn as_bool(&self) -> Option<bool>;
 
     /// Returns a reference to the underlying bytes of this element.
     ///
     /// This will return `None` in the case that the type is not `blob` or the value is
     /// any `null`.
-    fn as_blob(&self) -> Option<&Vec<u8>>;
+    fn as_blob(&self) -> Option<&[u8]>;
 
     /// Returns a reference to the underlying bytes of this element.
     ///
     /// This will return `None` in the case that the type is not `clob` or the value is
     /// any `null`.
-    fn as_clob(&self) -> Option<&Vec<u8>>;
+    fn as_clob(&self) -> Option<&[u8]>;
 
     /// Returns a reference to the [`Sequence`] of this element.
     ///

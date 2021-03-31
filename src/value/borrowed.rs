@@ -188,14 +188,14 @@ impl<'val> Struct for BorrowedStruct<'val> {
 pub enum BorrowedValue<'val> {
     Null(IonType),
     Integer(AnyInt),
-    Float(f64),
+    Float(&'val f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
     String(&'val str),
     Symbol(BorrowedSymbolToken<'val>),
     Boolean(&'val bool),
-    Blob(Vec<u8>),
-    Clob(Vec<u8>),
+    Blob(&'val [u8]),
+    Clob(&'val [u8]),
     SExpression(BorrowedSequence<'val>),
     List(BorrowedSequence<'val>),
     Struct(BorrowedStruct<'val>),
@@ -264,9 +264,9 @@ impl<'val> Element for BorrowedElement<'val> {
         }
     }
 
-    fn as_float(&self) -> Option<&f64> {
+    fn as_float(&self) -> Option<f64> {
         match &self.value {
-            BorrowedValue::Float(f) => Some(f),
+            BorrowedValue::Float(&f) => Some(f),
             _ => None,
         }
     }
@@ -300,23 +300,23 @@ impl<'val> Element for BorrowedElement<'val> {
         }
     }
 
-    fn as_bool(&self) -> Option<&bool> {
+    fn as_bool(&self) -> Option<bool> {
         match &self.value {
-            BorrowedValue::Boolean(b) => Some(b),
+            BorrowedValue::Boolean(&b) => Some(b),
             _ => None,
         }
     }
 
-    fn as_blob(&self) -> Option<&Vec<u8>> {
+    fn as_blob(&self) -> Option<&[u8]> {
         match &self.value {
-            BorrowedValue::Blob(bytes) => Some(bytes),
+            BorrowedValue::Blob(bytes) => Some(*bytes),
             _ => None,
         }
     }
 
-    fn as_clob(&self) -> Option<&Vec<u8>> {
+    fn as_clob(&self) -> Option<&[u8]> {
         match &self.value {
-            BorrowedValue::Clob(bytes) => Some(bytes),
+            BorrowedValue::Clob(bytes) => Some(*bytes),
             _ => None,
         }
     }

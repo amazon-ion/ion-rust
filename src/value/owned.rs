@@ -6,7 +6,6 @@
 //! ownership of data to do so.
 
 use super::{AnyInt, Element, ImportSource, Sequence, Struct, SymbolToken};
-use crate::result::IonError::IllegalOperation;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
@@ -265,9 +264,9 @@ impl Element for OwnedElement {
         }
     }
 
-    fn as_float(&self) -> Option<&f64> {
+    fn as_float(&self) -> Option<f64> {
         match &self.value {
-            OwnedValue::Float(f) => Some(f),
+            OwnedValue::Float(f) => Some(*f),
             _ => None,
         }
     }
@@ -301,21 +300,21 @@ impl Element for OwnedElement {
         }
     }
 
-    fn as_bool(&self) -> Option<&bool> {
+    fn as_bool(&self) -> Option<bool> {
         match &self.value {
-            OwnedValue::Boolean(b) => Some(b),
+            OwnedValue::Boolean(b) => Some(*b),
             _ => None,
         }
     }
 
-    fn as_blob(&self) -> Option<&Vec<u8>> {
+    fn as_blob(&self) -> Option<&[u8]> {
         match &self.value {
             OwnedValue::Blob(bytes) => Some(bytes),
             _ => None,
         }
     }
 
-    fn as_clob(&self) -> Option<&Vec<u8>> {
+    fn as_clob(&self) -> Option<&[u8]> {
         match &self.value {
             OwnedValue::Clob(bytes) => Some(bytes),
             _ => None,
