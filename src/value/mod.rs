@@ -348,13 +348,35 @@ pub trait Struct {
 
     /// Returns the last value corresponding to the field_name in the struct or
     /// returns `None` if the field_name does not exist in the struct
-    /// TODO add generic implementation to allow &String, String for lookup
-    fn get(&self, field_name: &str) -> Option<&Self::Element>;
+    ///
+    /// ## Usage
+    /// ```
+    /// # use ion_rs::value::*;
+    /// # use ion_rs::value::owned::*;
+    /// let fields: Vec<(&str, OwnedValue)>= vec![("a", "b"), ("c", "d")]
+    ///     .into_iter().map(|(k, v)| (k, OwnedValue::String(v.into()))).collect();
+    /// let owned: OwnedStruct = fields.into_iter().collect();
+    /// assert_eq!("d", owned.get("c".to_string()).map(|e| e.as_str()).flatten().unwrap());
+    /// ```
+    fn get<T: AsRef<str>>(&self, field_name: T) -> Option<&Self::Element>;
 
     /// Returns an iterator with all the values corresponding to the field_name in the struct or
     /// returns an empty iterator if the field_name does not exist in the struct
-    fn get_all<'a>(
+    ///
+    /// ## Usage
+    /// ```
+    /// # use ion_rs::value::*;
+    /// # use ion_rs::value::borrowed::*;
+    /// let fields: Vec<(&str, BorrowedValue)>= vec![("a", "b"), ("c", "d"), ("c", "e")]
+    ///     .into_iter().map(|(k, v)| (k, BorrowedValue::String(v))).collect();
+    /// let owned: BorrowedStruct = fields.into_iter().collect();
+    /// assert_eq!(
+    ///     vec!["d", "e"],
+    ///     owned.get_all("c").flat_map(|e| e.as_str()).collect::<Vec<&str>>()
+    /// );
+    /// ```
+    fn get_all<'a, T: AsRef<str>>(
         &'a self,
-        field_name: &'a str,
+        field_name: T,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
 }
