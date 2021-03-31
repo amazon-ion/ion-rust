@@ -98,6 +98,8 @@ use crate::types::SymbolId;
 use crate::IonType;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
+use crate::types::decimal::Decimal;
+use crate::types::timestamp::Timestamp;
 
 pub mod borrowed;
 pub mod owned;
@@ -258,6 +260,21 @@ pub trait Element {
     /// This will return `None` if the type is not `int` or the value is any `null`.
     fn as_any_int(&self) -> Option<&AnyInt>;
 
+    /// Returns a reference to the underlying float value for this element.
+    ///
+    /// This will return `None` if the type is not `float` or the value is any `null`.
+    fn as_float(&self) -> Option<&f64>;
+
+    /// Returns a reference to the underlying [`Decimal`] for this element.
+    ///
+    /// This will return `None` if the type is not `decimal` or the value is any `null`.
+    fn as_decimal(&self) -> Option<&Decimal>;
+
+    /// Returns a reference to the underlying [`Timestamp`] for this element.
+    ///
+    /// This will return `None` if the type is not `timestamp` or the value is any `null`.
+    fn as_timestamp(&self) -> Option<&Timestamp>;
+
     /// Returns a slice to the textual value of this element.
     ///
     /// This will return `None` in the case that the type is not `string`/`symbol`,
@@ -269,6 +286,24 @@ pub trait Element {
     /// This will return `None` in the case that the type is not `symbol` or the value is
     /// any `null`.
     fn as_sym(&self) -> Option<&Self::SymbolToken>;
+
+    /// Returns a reference to the boolean value of this element.
+    ///
+    ///  This will return `None` in the case that the type is not `bool` or the value is
+    ///   any `null`.
+    fn as_bool(&self) -> Option<&bool>;
+
+    /// Returns a reference to the underlying bytes of this element.
+   ///
+   /// This will return `None` in the case that the type is not `blob` or the value is
+   /// any `null`.
+    fn as_blob(&self) -> Option<&Vec<u8>>;
+
+    /// Returns a reference to the underlying bytes of this element.
+   ///
+   /// This will return `None` in the case that the type is not `clob` or the value is
+   /// any `null`.
+    fn as_clob(&self) -> Option<&Vec<u8>>;
 
     /// Returns a reference to the [`Sequence`] of this element.
     ///

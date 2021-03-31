@@ -12,6 +12,8 @@ use crate::types::SymbolId;
 use crate::value::AnyInt;
 use crate::IonType;
 use std::collections::HashMap;
+use crate::types::decimal::Decimal;
+use crate::types::timestamp::Timestamp;
 
 /// A borrowed implementation of [`ImportSource`].
 #[derive(Debug, Copy, Clone)]
@@ -186,8 +188,14 @@ impl<'val> Struct for BorrowedStruct<'val> {
 pub enum BorrowedValue<'val> {
     Null(IonType),
     Integer(AnyInt),
+    Float(f64),
+    Decimal(Decimal),
+    Timestamp(Timestamp),
     String(&'val str),
     Symbol(BorrowedSymbolToken<'val>),
+    Boolean(&'val bool),
+    Blob(Vec<u8>),
+    Clob(Vec<u8>),
     SExpression(BorrowedSequence<'val>),
     List(BorrowedSequence<'val>),
     Struct(BorrowedStruct<'val>),
@@ -224,8 +232,14 @@ impl<'val> Element for BorrowedElement<'val> {
         match &self.value {
             Null(t) => *t,
             Integer(_) => IonType::Integer,
+            Float(_) => IonType::Float,
+            Decimal(_) => IonType::Decimal,
+            Timestamp(_) => IonType::Timestamp,
             String(_) => IonType::String,
             Symbol(_) => IonType::Symbol,
+            Boolean(_) => IonType::Boolean,
+            Blob(_) => IonType::Blob,
+            Clob(_) => IonType::Clob,
             SExpression(_) => IonType::SExpression,
             List(_) => IonType::List,
             Struct(_) => IonType::Struct,
@@ -250,6 +264,27 @@ impl<'val> Element for BorrowedElement<'val> {
         }
     }
 
+    fn as_float(&self) -> Option<&f64> {
+        match &self.value {
+            BorrowedValue::Float(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    fn as_decimal(&self) -> Option<&Decimal> {
+        match &self.value {
+            BorrowedValue::Decimal(d) => Some(d),
+            _ => None,
+        }
+    }
+
+    fn as_timestamp(&self) -> Option<&Timestamp> {
+        match &self.value {
+            BorrowedValue::Timestamp(t) => Some(t),
+            _ => None,
+        }
+    }
+
     fn as_str(&self) -> Option<&str> {
         match &self.value {
             BorrowedValue::String(text) => Some(*text),
@@ -261,6 +296,27 @@ impl<'val> Element for BorrowedElement<'val> {
     fn as_sym(&self) -> Option<&Self::SymbolToken> {
         match &self.value {
             BorrowedValue::Symbol(sym) => Some(sym),
+            _ => None,
+        }
+    }
+
+    fn as_bool(&self) -> Option<&bool> {
+        match &self.value {
+            BorrowedValue::Boolean(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    fn as_blob(&self) -> Option<&Vec<u8>> {
+        match &self.value {
+            BorrowedValue::Blob(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    fn as_clob(&self) -> Option<&Vec<u8>> {
+        match &self.value {
+            BorrowedValue::Clob(bytes) => Some(bytes),
             _ => None,
         }
     }

@@ -10,6 +10,9 @@ use crate::types::SymbolId;
 use crate::IonType;
 use std::collections::HashMap;
 use std::rc::Rc;
+use crate::types::decimal::Decimal;
+use crate::types::timestamp::Timestamp;
+use crate::result::IonError::IllegalOperation;
 
 /// An owned implementation of  [`ImportSource`].
 #[derive(Debug, Clone)]
@@ -186,8 +189,14 @@ impl Struct for OwnedStruct {
 pub enum OwnedValue {
     Null(IonType),
     Integer(AnyInt),
+    Float(f64),
+    Decimal(Decimal),
+    Timestamp(Timestamp),
     String(String),
     Symbol(OwnedSymbolToken),
+    Boolean(bool),
+    Blob(Vec<u8>),
+    Clob(Vec<u8>),
     SExpression(OwnedSequence),
     List(OwnedSequence),
     Struct(OwnedStruct),
@@ -224,8 +233,14 @@ impl Element for OwnedElement {
         match &self.value {
             Null(t) => *t,
             Integer(_) => IonType::Integer,
+            Float(_) => IonType::Float,
+            Decimal(_) => IonType::Decimal,
+            Timestamp(_) => IonType::Timestamp,
             String(_) => IonType::String,
             Symbol(_) => IonType::Symbol,
+            Boolean(_) => IonType::Boolean,
+            Blob(_) => IonType::Blob,
+            Clob(_) => IonType::Clob,
             SExpression(_) => IonType::SExpression,
             List(_) => IonType::List,
             Struct(_) => IonType::Struct,
@@ -250,6 +265,27 @@ impl Element for OwnedElement {
         }
     }
 
+    fn as_float(&self) -> Option<&f64> {
+        match &self.value {
+            OwnedValue::Float(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    fn as_decimal(&self) -> Option<&Decimal> {
+        match &self.value {
+            OwnedValue::Decimal(d) => Some(d),
+            _ => None,
+        }
+    }
+
+    fn as_timestamp(&self) -> Option<&Timestamp> {
+        match &self.value {
+            OwnedValue::Timestamp(t) => Some(t),
+            _ => None,
+        }
+    }
+
     fn as_str(&self) -> Option<&str> {
         match &self.value {
             OwnedValue::String(text) => Some(text),
@@ -261,6 +297,27 @@ impl Element for OwnedElement {
     fn as_sym(&self) -> Option<&Self::SymbolToken> {
         match &self.value {
             OwnedValue::Symbol(sym) => Some(sym),
+            _ => None,
+        }
+    }
+
+    fn as_bool(&self) -> Option<&bool> {
+        match &self.value {
+            OwnedValue::Boolean(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    fn as_blob(&self) -> Option<&Vec<u8>> {
+        match &self.value {
+            OwnedValue::Blob(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    fn as_clob(&self) -> Option<&Vec<u8>> {
+        match &self.value {
+            OwnedValue::Clob(bytes) => Some(bytes),
             _ => None,
         }
     }
