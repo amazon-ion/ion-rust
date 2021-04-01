@@ -341,10 +341,10 @@ mod value_tests {
     use crate::result::IonResult;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::value::owned::{OwnedElement, OwnedSequence, OwnedSymbolToken, OwnedValue};
+    use crate::value::owned::{OwnedElement, OwnedSymbolToken, OwnedValue};
     use crate::value::{AnyInt, Element, IntAccess, SymbolToken};
 
-    fn extract_text<T: SymbolToken>(tok: &T) -> String {
+    fn extract_text<T: SymbolToken>(tok: &T) -> &str {
         tok.text().unwrap().into()
     }
 
