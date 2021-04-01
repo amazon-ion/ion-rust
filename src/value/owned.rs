@@ -335,3 +335,118 @@ impl Element for OwnedElement {
         }
     }
 }
+
+#[cfg(test)]
+mod value_tests {
+    use crate::result::IonResult;
+    use crate::types::decimal::Decimal;
+    use crate::types::timestamp::Timestamp;
+    use crate::value::owned::{OwnedElement, OwnedSequence, OwnedSymbolToken, OwnedValue};
+    use crate::value::{AnyInt, Element, IntAccess, SymbolToken};
+
+    fn extract_text<T: SymbolToken>(tok: &T) -> String {
+        tok.text().unwrap().into()
+    }
+
+    fn create_element_from_value(value: OwnedValue) -> OwnedElement {
+        let annotations = vec!["foo", "bar", "baz"];
+        let owned_elem =
+            OwnedElement::new(annotations.iter().map(|s| (*s).into()).collect(), value);
+        owned_elem
+    }
+
+    #[test]
+    fn test_as_any_int() -> IonResult<()> {
+        let owned_elem = create_element_from_value(OwnedValue::Integer(AnyInt::I64(100)));
+        let expected_elem = AnyInt::I64(100);
+
+        assert_eq!(&expected_elem.as_i64(), &owned_elem.as_i64());
+        assert_eq!(&expected_elem.as_big_int(), &owned_elem.as_big_int());
+        Ok(())
+    }
+
+    #[test]
+    fn test_as_float() -> IonResult<()> {
+        let owned_elem = create_element_from_value(OwnedValue::Float(305e1));
+        let expected_elem = Some(305e1);
+
+        assert_eq!(&expected_elem, &owned_elem.as_float());
+        Ok(())
+    }
+
+    #[test]
+    fn test_as_decimal() -> IonResult<()> {
+        let decimal_value1 = Decimal::new(8, 3);
+        let decimal_value2 = Decimal::new(80, 2);
+
+        let owned_elem = create_element_from_value(OwnedValue::Decimal(decimal_value1));
+        let expected_elem = Some(&decimal_value2);
+
+        assert_eq!(&expected_elem, &owned_elem.as_decimal());
+        Ok(())
+    }
+
+    #[test]
+    fn test_as_timestamp() -> IonResult<()> {
+        let builder = Timestamp::with_ymd_hms_millis(2021, 2, 5, 16, 43, 51, 192);
+        let timestamp_value1 = builder.clone().build_at_offset(5 * 60 * 60)?;
+        let timestamp_value2 = builder.clone().build_at_offset(5 * 60 * 60)?;
+
+        let owned_elem = create_element_from_value(OwnedValue::Timestamp(timestamp_value1));
+        let expected_elem = Some(&timestamp_value2);
+
+        assert_eq!(&expected_elem, &owned_elem.as_timestamp());
+        Ok(())
+    }
+
+    #[test]
+    fn test_as_str() -> IonResult<()> {
+        let owned_elem = create_element_from_value(OwnedValue::String("hello".into()));
+        let expected_elem = Some("hello");
+
+        assert_eq!(&expected_elem, &owned_elem.as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn test_as_sym() -> IonResult<()> {
+        let owned_token: OwnedSymbolToken = "hello".into();
+        let owned_elem = create_element_from_value(OwnedValue::Symbol(owned_token));
+        let expected_elem: &OwnedSymbolToken = &("hello".into());
+
+        assert_eq!(
+            extract_text(expected_elem),
+            extract_text(owned_elem.as_sym().unwrap().into())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_as_bool() -> IonResult<()> {
+        let owned_elem = create_element_from_value(OwnedValue::Boolean(false));
+        let expected_elem = Some(false);
+
+        assert_eq!(&expected_elem, &owned_elem.as_bool());
+        Ok(())
+    }
+
+    #[test]
+    fn test_as_blob() -> IonResult<()> {
+        let owned_elem =
+            create_element_from_value(OwnedValue::Blob(String::from("{{aGVsbG8h}}").into_bytes()));
+        let expected_elem = Some("{{aGVsbG8h}}".as_bytes());
+
+        assert_eq!(&expected_elem, &owned_elem.as_blob());
+        Ok(())
+    }
+
+    #[test]
+    fn test_as_clob() -> IonResult<()> {
+        let owned_elem =
+            create_element_from_value(OwnedValue::Clob(String::from("{{\"hello\"}}").into_bytes()));
+        let expected_elem = Some("{{\"hello\"}}".as_bytes());
+
+        assert_eq!(&expected_elem, &owned_elem.as_clob());
+        Ok(())
+    }
+}
