@@ -188,12 +188,12 @@ impl<'val> Struct for BorrowedStruct<'val> {
 pub enum BorrowedValue<'val> {
     Null(IonType),
     Integer(AnyInt),
-    Float(&'val f64),
+    Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
     String(&'val str),
     Symbol(BorrowedSymbolToken<'val>),
-    Boolean(&'val bool),
+    Boolean(bool),
     Blob(&'val [u8]),
     Clob(&'val [u8]),
     SExpression(BorrowedSequence<'val>),
@@ -266,7 +266,7 @@ impl<'val> Element for BorrowedElement<'val> {
 
     fn as_float(&self) -> Option<f64> {
         match &self.value {
-            BorrowedValue::Float(&f) => Some(f),
+            BorrowedValue::Float(f) => Some(*f),
             _ => None,
         }
     }
@@ -302,7 +302,7 @@ impl<'val> Element for BorrowedElement<'val> {
 
     fn as_bool(&self) -> Option<bool> {
         match &self.value {
-            BorrowedValue::Boolean(&b) => Some(b),
+            BorrowedValue::Boolean(b) => Some(*b),
             _ => None,
         }
     }
