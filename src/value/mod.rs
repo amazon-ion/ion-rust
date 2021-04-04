@@ -207,6 +207,24 @@ impl IntAccess for AnyInt {
     }
 }
 
+impl PartialEq for AnyInt {
+    fn eq(&self, other: &Self) -> bool {
+        use AnyInt::*;
+        match self {
+            I64(my_i64) => match other {
+                I64(other_i64) => my_i64 == other_i64,
+                BigInt(other_bi) => Some(*my_i64) == other_bi.to_i64(),
+            },
+            BigInt(my_bi) => match other {
+                I64(other_i64) => my_bi.to_i64() == Some(*other_i64),
+                BigInt(other_bi) => my_bi == other_bi,
+            },
+        }
+    }
+}
+
+impl Eq for AnyInt {}
+
 /// Represents a either a borrowed or owned Ion datum.  There are/will be specific APIs for
 /// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
 pub trait Element {
