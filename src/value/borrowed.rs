@@ -282,7 +282,7 @@ impl<'val> Element for BorrowedElement<'val> {
         }
     }
 
-    fn as_float(&self) -> Option<f64> {
+    fn as_f64(&self) -> Option<f64> {
         match &self.value {
             BorrowedValue::Float(f) => Some(*f),
             _ => None,
@@ -325,16 +325,9 @@ impl<'val> Element for BorrowedElement<'val> {
         }
     }
 
-    fn as_blob(&self) -> Option<&[u8]> {
+    fn as_bytes(&self) -> Option<&[u8]> {
         match &self.value {
-            BorrowedValue::Blob(bytes) => Some(*bytes),
-            _ => None,
-        }
-    }
-
-    fn as_clob(&self) -> Option<&[u8]> {
-        match &self.value {
-            BorrowedValue::Clob(bytes) => Some(*bytes),
+            BorrowedValue::Blob(bytes) | BorrowedValue::Clob(bytes) => Some(*bytes),
             _ => None,
         }
     }

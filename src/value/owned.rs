@@ -283,7 +283,7 @@ impl Element for OwnedElement {
         }
     }
 
-    fn as_float(&self) -> Option<f64> {
+    fn as_f64(&self) -> Option<f64> {
         match &self.value {
             OwnedValue::Float(f) => Some(*f),
             _ => None,
@@ -326,16 +326,9 @@ impl Element for OwnedElement {
         }
     }
 
-    fn as_blob(&self) -> Option<&[u8]> {
+    fn as_bytes(&self) -> Option<&[u8]> {
         match &self.value {
-            OwnedValue::Blob(bytes) => Some(bytes),
-            _ => None,
-        }
-    }
-
-    fn as_clob(&self) -> Option<&[u8]> {
-        match &self.value {
-            OwnedValue::Clob(bytes) => Some(bytes),
+            OwnedValue::Blob(bytes) | OwnedValue::Clob(bytes) => Some(bytes),
             _ => None,
         }
     }
@@ -392,7 +385,7 @@ mod value_tests {
     fn test_as_float(
         #[with(OwnedValue::Float(305e1))] owned_element: OwnedElement,
     ) -> IonResult<()> {
-        assert_eq!(&Some(305e1), &owned_element.as_float());
+        assert_eq!(&Some(305e1), &owned_element.as_f64());
         Ok(())
     }
 
@@ -452,7 +445,7 @@ mod value_tests {
     fn test_as_blob(
         #[with(OwnedValue::Blob("{{aGVsbG8h}}".as_bytes().to_vec()))] owned_element: OwnedElement,
     ) -> IonResult<()> {
-        assert_eq!(&Some("{{aGVsbG8h}}".as_bytes()), &owned_element.as_blob());
+        assert_eq!(&Some("{{aGVsbG8h}}".as_bytes()), &owned_element.as_bytes());
         Ok(())
     }
 
@@ -460,7 +453,7 @@ mod value_tests {
     fn test_as_clob(
         #[with(OwnedValue::Clob("{{\"hello\"}}".as_bytes().to_vec()))] owned_element: OwnedElement,
     ) -> IonResult<()> {
-        assert_eq!(&Some("{{\"hello\"}}".as_bytes()), &owned_element.as_clob());
+        assert_eq!(&Some("{{\"hello\"}}".as_bytes()), &owned_element.as_bytes());
         Ok(())
     }
 }
