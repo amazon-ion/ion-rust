@@ -207,6 +207,24 @@ impl IntAccess for AnyInt {
     }
 }
 
+impl PartialEq for AnyInt {
+    fn eq(&self, other: &Self) -> bool {
+        use AnyInt::*;
+        match self {
+            I64(my_i64) => match other {
+                I64(other_i64) => my_i64 == other_i64,
+                BigInt(other_bi) => Some(*my_i64) == other_bi.to_i64(),
+            },
+            BigInt(my_bi) => match other {
+                I64(other_i64) => my_bi.to_i64() == Some(*other_i64),
+                BigInt(other_bi) => my_bi == other_bi,
+            },
+        }
+    }
+}
+
+impl Eq for AnyInt {}
+
 /// Represents a either a borrowed or owned Ion datum.  There are/will be specific APIs for
 /// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
 pub trait Element {
@@ -263,7 +281,7 @@ pub trait Element {
     /// Returns a reference to the underlying float value for this element.
     ///
     /// This will return `None` if the type is not `float` or the value is any `null`.
-    fn as_float(&self) -> Option<f64>;
+    fn as_f64(&self) -> Option<f64>;
 
     /// Returns a reference to the underlying [`Decimal`] for this element.
     ///
@@ -295,15 +313,9 @@ pub trait Element {
 
     /// Returns a reference to the underlying bytes of this element.
     ///
-    /// This will return `None` in the case that the type is not `blob` or the value is
+    /// This will return `None` in the case that the type is not `blob`/`clob` or the value is
     /// any `null`.
-    fn as_blob(&self) -> Option<&[u8]>;
-
-    /// Returns a reference to the underlying bytes of this element.
-    ///
-    /// This will return `None` in the case that the type is not `clob` or the value is
-    /// any `null`.
-    fn as_clob(&self) -> Option<&[u8]>;
+    fn as_bytes(&self) -> Option<&[u8]>;
 
     /// Returns a reference to the [`Sequence`] of this element.
     ///
