@@ -30,6 +30,14 @@ impl OwnedImportSource {
     }
 }
 
+impl PartialEq for OwnedImportSource {
+    fn eq(&self, other: &Self) -> bool {
+        self.table == other.table && self.sid == other.sid
+    }
+}
+
+impl Eq for OwnedImportSource {}
+
 impl ImportSource for OwnedImportSource {
     fn table(&self) -> &str {
         &self.table
@@ -61,6 +69,18 @@ impl OwnedSymbolToken {
         }
     }
 }
+
+impl PartialEq for OwnedSymbolToken {
+    fn eq(&self, other: &Self) -> bool {
+        if other.text != None && self.text != None {
+            other.text == self.text
+        } else {
+            self.source == other.source
+        }
+    }
+}
+
+impl Eq for OwnedSymbolToken {}
 
 impl<T: Into<Rc<str>>> From<T> for OwnedSymbolToken {
     /// Constructs an owned token that has only text.
@@ -97,6 +117,17 @@ impl OwnedSequence {
     }
 }
 
+impl FromIterator<OwnedElement> for OwnedSequence {
+    /// Returns an owned sequence from the given iterator of elements.
+    fn from_iter<I: IntoIterator<Item = OwnedElement>>(iter: I) -> Self {
+        let mut children: Vec<OwnedElement> = Vec::new();
+        for elem in iter {
+            children.push(elem);
+        }
+        Self { children }
+    }
+}
+
 impl Sequence for OwnedSequence {
     type Element = OwnedElement;
 
@@ -116,6 +147,14 @@ impl Sequence for OwnedSequence {
         self.len() == 0
     }
 }
+
+impl PartialEq for OwnedSequence {
+    fn eq(&self, other: &Self) -> bool {
+        self.children == other.children
+    }
+}
+
+impl Eq for OwnedSequence {}
 
 /// An owned implementation of [`Struct`]
 #[derive(Debug, Clone)]
@@ -198,8 +237,21 @@ impl Struct for OwnedStruct {
     }
 }
 
+impl PartialEq for OwnedStruct {
+    fn eq(&self, other: &Self) -> bool {
+        for (key, value) in &self.text_fields {
+            if other.get_all(key).ne(value.iter().map(|(_s, v)| v)) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl Eq for OwnedStruct {}
+
 /// Variants for all owned version _values_ within an [`Element`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum OwnedValue {
     Null(IonType),
     Integer(AnyInt),
@@ -229,6 +281,14 @@ impl OwnedElement {
         Self { annotations, value }
     }
 }
+
+impl PartialEq for OwnedElement {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value && self.annotations == other.annotations
+    }
+}
+
+impl Eq for OwnedElement {}
 
 impl From<OwnedValue> for OwnedElement {
     fn from(val: OwnedValue) -> Self {
@@ -392,6 +452,18 @@ mod value_tests {
 
     type ElemAssertFunc = dyn Fn(&OwnedElement) -> ();
 
+    #[rstest]
+    #[case::annotations_with_elem(OwnedElement::new(["foo","bar","baz"].iter().map(|s| (*s).into()).collect(), OwnedValue::Boolean(true)), vec![OwnedSymbolToken::from("foo"), OwnedSymbolToken::from("bar"), OwnedSymbolToken::from("baz")])]
+    #[case::annotations_with_elem(OwnedValue::Boolean(true).into(), vec![])]
+    fn annotations_with_element(
+        #[case] elem: OwnedElement,
+        #[case] annotations: Vec<OwnedSymbolToken>,
+    ) {
+        let actual: Vec<&OwnedSymbolToken> = elem.annotations().map(|tok| tok).collect();
+        let expected: Vec<&OwnedSymbolToken> = annotations.iter().collect();
+        assert_eq!(actual, expected);
+    }
+
     #[rstest(
         val, ion_type, valid_ops_iter, op_assert,
         case::null(
@@ -453,7 +525,15 @@ mod value_tests {
                 assert_eq!(Some("hello"), e.as_sym().unwrap().text());
             }
         ),
-        // TODO more symbol token tests (without text)
+        case::sym_no_text(
+            OwnedValue::Symbol(OwnedSymbolToken::new(None, Some(10), Some(OwnedImportSource::new("greetings", 1)))),
+            IonType::Symbol,
+            vec![AsSym],
+            &|e: &OwnedElement| {
+                assert_eq!(Some(10), e.as_sym().unwrap().local_sid());
+                assert_eq!(Some(&OwnedImportSource::new("greetings", 1)), e.as_sym().unwrap().source());
+            }
+        ),
         case::blob(
             OwnedValue::Blob("world".as_bytes().into()),
             IonType::Blob,
@@ -470,7 +550,30 @@ mod value_tests {
                 assert_eq!(Some("goodbye".as_bytes()), e.as_bytes());
             }
         ),
-        // TODO add cases for list/sexp/struct
+        case::list(
+            OwnedValue::List(vec![OwnedValue::Boolean(true), OwnedValue::Boolean(false)].into_iter().map(|v| v.into()).collect()),
+            IonType::List,
+            AsSequence,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&vec![OwnedValue::Boolean(true), OwnedValue::Boolean(false)].into_iter().map(|v| v.into()).collect()), e.as_sequence());
+            }
+        ),
+        case::sexp(
+            OwnedValue::SExpression(vec![OwnedValue::Boolean(true), OwnedValue::Boolean(false)].into_iter().map(|v| v.into()).collect()),
+            IonType::SExpression,
+            AsSequence,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&vec![OwnedValue::Boolean(true), OwnedValue::Boolean(false)].into_iter().map(|v| v.into()).collect()), e.as_sequence());
+            }
+        ),
+        case::struct_(
+            OwnedValue::Struct(vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter().collect()),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter().collect()), e.as_struct());
+            }
+        )
     )]
     fn owned_element_accessors<O: IntoIterator<Item = ElemOp>>(
         val: OwnedValue,
@@ -493,9 +596,10 @@ mod value_tests {
             (AsStr, &|e| assert_eq!(None, e.as_str())),
             (AsSym, &|e| assert_eq!(true, e.as_sym().is_none())),
             (AsBytes, &|e| assert_eq!(None, e.as_bytes())),
-            (AsSequence, &|e| assert_eq!(true, e.as_sequence().is_none())),
-            (AsStruct, &|e| assert_eq!(true, e.as_struct().is_none())),
+            (AsSequence, &|e| assert_eq!(None, e.as_sequence())),
+            (AsStruct, &|e| assert_eq!(None, e.as_struct())),
         ];
+
         // produce the table of assertions to operate on, replacing the one specified by
         // the test case
         let valid_ops: HashSet<ElemOp> = valid_ops_iter.into_iter().collect();

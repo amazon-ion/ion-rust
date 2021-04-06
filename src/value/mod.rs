@@ -116,6 +116,7 @@ pub trait ImportSource {
 /// A view of a symbolic token.
 /// This can be either a symbol value itself, an annotation, or an field name.
 /// A token may have `text`, a symbol `id`, or both.
+/// here text as `None` represents SID $0
 pub trait SymbolToken {
     type ImportSource: ImportSource + ?Sized;
 
