@@ -57,12 +57,8 @@
 //!
 //! let owned_elem = OwnedElement::new(
 //!     vec![
-//!         OwnedSymbolToken::new(
-//!             None,
-//!             Some(300),
-//!             Some(OwnedImportSource::new("foo", 12))
-//!         ),
-//!         "hello".into()
+//!         local_sid_token(300).with_source("foo", 12),
+//!         text_token("hello")
 //!     ],
 //!     OwnedValue::String("world".into())
 //! );

@@ -57,7 +57,7 @@ pub struct OwnedSymbolToken {
 }
 
 impl OwnedSymbolToken {
-    pub fn new(
+    fn new(
         text: Option<Rc<str>>,
         local_sid: Option<SymbolId>,
         source: Option<OwnedImportSource>,
@@ -68,6 +68,38 @@ impl OwnedSymbolToken {
             source,
         }
     }
+
+    /// Decorates the [`OwnedSymbolToken`] with text.
+    pub fn with_text<T: Into<Rc<str>>>(mut self, text: T) -> Self {
+        self.text = Some(text.into());
+        self
+    }
+
+    /// Decorates the [`OwnedSymbolToken`] with a local ID.
+    pub fn with_local_sid(mut self, local_sid: SymbolId) -> Self {
+        self.local_sid = Some(local_sid);
+        self
+    }
+
+    /// Decorates the [`OwnedSymbolToken`] with an [`OwnedImportSource`].
+    pub fn with_source<T: Into<Rc<str>>>(mut self, table: T, sid: SymbolId) -> Self {
+        self.source = Some(OwnedImportSource::new(table, sid));
+        self
+    }
+}
+
+/// Constructs an [`OwnedSymbolToken`] with unknown text and a local ID.
+/// A common case for binary parsing (though technically relevant in text).
+#[inline]
+pub fn local_sid_token(local_sid: SymbolId) -> OwnedSymbolToken {
+    OwnedSymbolToken::new(None, Some(local_sid), None)
+}
+
+/// Constructs an [`OwnedSymbolToken`] with just text.
+/// A common case for text and synthesizing tokens.
+#[inline]
+pub fn text_token<T: Into<Rc<str>>>(text: T) -> OwnedSymbolToken {
+    OwnedSymbolToken::new(Some(text.into()), None, None)
 }
 
 impl PartialEq for OwnedSymbolToken {
@@ -85,7 +117,7 @@ impl Eq for OwnedSymbolToken {}
 impl<T: Into<Rc<str>>> From<T> for OwnedSymbolToken {
     /// Constructs an owned token that has only text.
     fn from(text: T) -> Self {
-        Self::new(Some(text.into()), None, None)
+        text_token(text)
     }
 }
 
@@ -573,13 +605,55 @@ mod value_tests {
             &|e: &OwnedElement| {
                 assert_eq!(Some(&vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter().collect()), e.as_struct());
             }
-        )
+        ),
+        // TODO consider factoring this out of the value tests to make it more contained
+        // TODO consider adding non-equivs for this (really symbol token tests are probably better for this)
+        eq_annotations => [
+            // trivially empty is equivalent to another empty
+            vec![vec![], vec![]],
+            // tokens with text
+            vec![
+                vec![text_token("hello"), text_token("world")],
+                // containing local sids only
+                vec![
+                    text_token("hello").with_local_sid(20),
+                    local_sid_token(21).with_text("world"),
+                ],
+                // mix of local sid, but all with sources
+                vec![
+                    text_token("hello").with_source("hello_table", 2),
+                    text_token("world").with_local_sid(59).with_source("world_table", 200)
+                ]
+            ],
+            // tokens without text
+            vec![
+                vec![
+                    // local sid only with no text are all $0 equivalent
+                    local_sid_token(21),
+                    // source import table is the comparator for unknown cases
+                    local_sid_token(22).with_source("hello_table", 2)
+                ],
+                vec![
+                    local_sid_token(0),
+                    local_sid_token(400).with_source("hello_table", 2),
+                ],
+                vec![
+                    local_sid_token(200),
+                    text_token("hello").with_source("hello_table", 2),
+                ],
+                vec![
+                    local_sid_token(99),
+                    text_token("hello").with_local_sid(500).with_source("hello_table", 2),
+                ],
+            ],
+        ]
     )]
     fn owned_element_accessors<O: IntoIterator<Item = ElemOp>>(
         val: OwnedValue,
         ion_type: IonType,
         valid_ops_iter: O,
         op_assert: &ElemAssertFunc,
+        eq_annotations: Vec<Vec<OwnedSymbolToken>>,
     ) {
         // table of negative assertions for each operation
         let neg_table: Vec<(ElemOp, &ElemAssertFunc)> = vec![
@@ -594,7 +668,7 @@ mod value_tests {
             (AsDecimal, &|e| assert_eq!(None, e.as_decimal())),
             (AsTimestamp, &|e| assert_eq!(None, e.as_timestamp())),
             (AsStr, &|e| assert_eq!(None, e.as_str())),
-            (AsSym, &|e| assert_eq!(true, e.as_sym().is_none())),
+            (AsSym, &|e| assert_eq!(None, e.as_sym())),
             (AsBytes, &|e| assert_eq!(None, e.as_bytes())),
             (AsSequence, &|e| assert_eq!(None, e.as_sequence())),
             (AsStruct, &|e| assert_eq!(None, e.as_struct())),
@@ -616,6 +690,21 @@ mod value_tests {
 
         for assert in op_assertions {
             assert(&elem);
+        }
+
+        // assert that a value element as-is is equal to itself
+        assert_eq!(elem, elem);
+
+        // use the base value to make annotated versions
+        let eq_elems: Vec<OwnedElement> = eq_annotations
+            .into_iter()
+            .map(|annotations| OwnedElement::new(annotations, elem.value.clone()))
+            .collect();
+
+        for left_elem in eq_elems.iter() {
+            for right_elem in eq_elems.iter() {
+                assert_eq!(left_elem, right_elem);
+            }
         }
     }
 }
