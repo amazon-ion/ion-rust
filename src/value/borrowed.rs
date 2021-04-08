@@ -103,11 +103,7 @@ impl<'val> Sequence for BorrowedSequence<'val> {
     }
 
     fn get(&self, index: usize) -> Option<&Self::Element> {
-        if index > self.children.len() {
-            None
-        } else {
-            Some(&self.children[index])
-        }
+        self.children.get(index)
     }
 
     fn len(&self) -> usize {
