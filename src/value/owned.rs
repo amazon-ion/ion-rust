@@ -105,11 +105,7 @@ impl Sequence for OwnedSequence {
     }
 
     fn get(&self, index: usize) -> Option<&Self::Element> {
-        if index > self.children.len() {
-            None
-        } else {
-            Some(&self.children[index])
-        }
+        self.children.get(index)
     }
 
     fn len(&self) -> usize {
@@ -360,7 +356,7 @@ mod value_tests {
     use std::iter::{once, Once};
 
     /// Makes a timestamp from an RFC-3339 string and panics if it can't
-    fn mk_ts<T: AsRef<str>>(text: T) -> Timestamp {
+    fn make_timestamp<T: AsRef<str>>(text: T) -> Timestamp {
         DateTime::parse_from_rfc3339(text.as_ref()).unwrap().into()
     }
 
@@ -435,10 +431,12 @@ mod value_tests {
             &|e: &OwnedElement| assert_eq!(Some(&Decimal::new(80, 2)), e.as_decimal())
         ),
         case::timestamp(
-            OwnedValue::Timestamp(mk_ts("2014-10-16T12:01:00-00:00")),
+            OwnedValue::Timestamp(make_timestamp("2014-10-16T12:01:00-00:00")),
             IonType::Timestamp,
             AsTimestamp,
-            &|e: &OwnedElement| assert_eq!(Some(&mk_ts("2014-10-16T12:01:00+00:00")), e.as_timestamp())
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&make_timestamp("2014-10-16T12:01:00+00:00")), e.as_timestamp());
+            }
         ),
         case::str(
             OwnedValue::String("hello".into()),
