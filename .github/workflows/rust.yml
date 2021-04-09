@@ -6,6 +6,9 @@ jobs:
   build:
     name: Build and Test
     runs-on: ${{ matrix.os }}
+    # We want to run on external PRs, but not on internal ones as push automatically builds
+    # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amzn/ion-rust'
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
