@@ -26,9 +26,9 @@ bigdecimal = "0.2.0"
 chrono = "0.4.13"
 
 [build-dependencies]
-cmake = "0.1.44"
-bindgen = "0.54.0"
+cmake = "0.1.45"
+bindgen = "0.58.1"
 
 [dev-dependencies]
-rstest = "0.6.4"
-rstest_reuse = "0.1.0"
+rstest = "0.7.0"
+rstest_reuse = "0.1.2"
