@@ -114,23 +114,43 @@ pub trait ImportSource {
 /// A token may have `text`, a symbol `id`, or both.
 /// here text as `None` represents SID $0
 ///
-/// The PartialEq for [`SymbolToken`] defines the equivalence according to Ion Data Model,
-/// but the PartialEq transitivity rule[1] is inconsistent with the [`SymbolToken`]
-/// equivalence rule defined by Ion Data Model as shown below:
+/// ## `PartialEq` Implementation Notes
+/// Implementations of [`SymbolToken`] that implement [`PartialEq`] should do so without
+/// violating the transitivity rule of [`PartialEq`].  Specifically, this means that
+/// one cannot use [`PartialEq`] to implement the [Ion data model][symbol-data-model]
+/// definition of equivalence for symbolic tokens.
 ///
-/// ``` ignore,
-///     c := (nil, 200, ("my_table", 1))
+/// Consider the following pseudo-code describing Ion data model semantics:
+///
+/// ```ignore,
+///     //   (<text>, <local id>, <source>)
+///     
+///     a := (nil, 200, ("my_table", 1))
 ///     b := ("foobar", 200, ("my_table", 1))
-///     a := ("foobar", nil, nil)
+///     c := ("foobar", nil, nil)
 ///
-///     a == b, b == a // true
-///     b == c, c == b // true
-///     // According to Ion Data Model, expected return value is false (i.e. a != c),
-///     // but it will return true here due to the PartialEq transitivity rule
-///     a == c // true
+///     a == b, b == a // true -- source matches
+///     b == c, c == b // true -- text matches
+///
+///     a == c         // false - text + no source != no text with source
 /// ```
 ///
-/// [1] - https://doc.rust-lang.org/std/cmp/trait.PartialEq.html
+/// The problem above is that `a != c` violates the contract for `PartialEq` as equality
+/// must be *transitive*.
+///
+/// A reasonable definition for [`PartialEq`] is that any symbol with text is equal to
+/// any other symbol with text, but in the case that a symbol does not have text,
+/// it is equal to another symbol if and only if that symbol does not have text and
+/// the source is the same.
+///
+/// In practice the above difference from the [Ion data model][symbol-data-model]
+/// should only affect esoteric use cases of the API.  For example, a use case where
+/// data is read from a context in which a shared symbol table is not available and
+/// is mixed with data was resolved with the shared symbol table being present.
+/// Such a context implies more than one symbol table catalog in use by an application
+/// which is not a typical (but certainly valid) usage pattern.
+///
+/// [symbol-data-model]: https://amzn.github.io/ion-docs/docs/symbols.html#data-model
 pub trait SymbolToken {
     type ImportSource: ImportSource + ?Sized;
 
