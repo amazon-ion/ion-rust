@@ -113,6 +113,24 @@ pub trait ImportSource {
 /// This can be either a symbol value itself, an annotation, or an field name.
 /// A token may have `text`, a symbol `id`, or both.
 /// here text as `None` represents SID $0
+///
+/// The PartialEq for [`SymbolToken`] defines the equivalence according to Ion Data Model,
+/// but the PartialEq transitivity rule[1] is inconsistent with the [`SymbolToken`]
+/// equivalence rule defined by Ion Data Model as shown below:
+///
+/// ``` ignore,
+///     c := (nil, 200, ("my_table", 1))
+///     b := ("foobar", 200, ("my_table", 1))
+///     a := ("foobar", nil, nil)
+///
+///     a == b, b == a // true
+///     b == c, c == b // true
+///     // According to Ion Data Model, expected return value is false (i.e. a != c),
+///     // but it will return true here due to the PartialEq transitivity rule
+///     a == c // true
+/// ```
+///
+/// [1] - https://doc.rust-lang.org/std/cmp/trait.PartialEq.html
 pub trait SymbolToken {
     type ImportSource: ImportSource + ?Sized;
 
