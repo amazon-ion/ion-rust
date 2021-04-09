@@ -609,7 +609,7 @@ mod value_tests {
                 assert_eq!(Some(&vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter().collect()), e.as_struct());
             }
         ),
-        case::struct_(
+        case::struct_with_no_text(
             OwnedValue::Struct(vec![(local_sid_token(21).with_source("hello_table", 2), OwnedValue::String("hello".into()))].into_iter().collect()),
             IonType::Struct,
             AsStruct,
