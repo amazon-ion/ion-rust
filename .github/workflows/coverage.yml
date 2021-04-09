@@ -1,0 +1,46 @@
+name: Code Coverage
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ${{ matrix.os }}
+    # We want to run on external PRs, but not on internal ones as push automatically builds
+    # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amzn/ion-rust'
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+      - name: Git Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Rust Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+      - name: Cargo Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose --workspace --all-features --no-fail-fast
+        env:
+          CARGO_INCREMENTAL: '0'
+          # https://github.com/marketplace/actions/rust-grcov
+          # For some reason the panic=abort modes don't work for build script...
+          #RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+          #RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
+          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
+      - id: coverage
+        name: Code Coverage
+        uses: actions-rs/grcov@v0.1
+      - name: Codecov Upload
+        uses: codecov/codecov-action@v1
+        with:
+          files: ${{ steps.coverage.outputs.report }}
