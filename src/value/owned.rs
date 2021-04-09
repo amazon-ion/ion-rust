@@ -617,6 +617,14 @@ mod value_tests {
                 assert_eq!(Some(&vec![(local_sid_token(21).with_source("hello_table", 2), OwnedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
             }
         ),
+        case::struct_with_no_text(
+            OwnedValue::Struct(vec![(local_sid_token(21), OwnedValue::String("hello".into()))].into_iter().collect()),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&vec![(local_sid_token(21), OwnedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
+            }
+        ),
         // TODO consider factoring this out of the value tests to make it more contained
         // TODO consider adding non-equivs for this (really symbol token tests are probably better for this)
         eq_annotations => [
