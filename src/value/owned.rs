@@ -271,12 +271,22 @@ impl Struct for OwnedStruct {
 
 impl PartialEq for OwnedStruct {
     fn eq(&self, other: &Self) -> bool {
-        for (key, value) in &self.text_fields {
-            if other.get_all(key).ne(value.iter().map(|(_s, v)| v)) {
-                return false;
-            }
-        }
-        true
+        // check if both the text_fields have same (field_name,value) pairs
+        self.text_fields.iter().all(|(key, value)| {
+            value.iter().all(|(_my_s, my_v)| {
+                other
+                    .get_all(key)
+                    .find(|other_v| my_v == *other_v)
+                    .is_some()
+            })
+        }) && self.no_text_fields.iter().all(|(my_k, my_v)| {
+            // check if both the no_text_fields have same values
+            other
+                .no_text_fields
+                .iter()
+                .find(|(other_k, other_v)| my_k == other_k && my_v == other_v)
+                .is_some()
+        })
     }
 }
 
@@ -604,6 +614,173 @@ mod value_tests {
             AsStruct,
             &|e: &OwnedElement| {
                 assert_eq!(Some(&vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter().collect()), e.as_struct());
+            }
+        ),
+        case::struct_not_equal(
+            OwnedValue::Struct(vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter().collect()),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_ne!(Some(&vec![("name", OwnedElement::from(OwnedValue::String("Ion".into())))].into_iter().collect()), e.as_struct());
+            }
+        ),
+        case::struct_with_local_sid(
+            OwnedValue::Struct(vec![(local_sid_token(21), OwnedValue::String("hello".into()))].into_iter().collect()),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&vec![(local_sid_token(21), OwnedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
+            }
+        ),
+        // SymbolToken with local SID and no text are equivalent to each other and to SID $0 
+        case::struct_with_different_local_sids(
+            OwnedValue::Struct(vec![(local_sid_token(21), OwnedValue::String("hello".into()))].into_iter().collect()),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&vec![(local_sid_token(22), OwnedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
+            }
+        ),
+        case::struct_with_import_source(
+            OwnedValue::Struct(vec![(local_sid_token(21).with_source("hello_table", 2), OwnedValue::String("hello".into()))].into_iter().collect()),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&vec![(local_sid_token(21).with_source("hello_table", 2), OwnedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
+            }
+        ),
+        case::struct_with_import_source_not_equal(
+            OwnedValue::Struct(vec![(local_sid_token(21).with_source("hello_table", 2), OwnedValue::String("hello".into()))].into_iter().collect()),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_ne!(Some(&vec![(local_sid_token(21).with_source("hey_table", 2), OwnedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
+            }
+        ),
+        case::struct_with_multiple_fields(
+            OwnedValue::Struct(
+                vec![
+                    ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
+                    ("name", OwnedElement::from(OwnedValue::String("Ion".into()))),
+                ].into_iter().collect()
+            ),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(
+                    Some(
+                        &vec![
+                            ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
+                            ("name", OwnedElement::from(OwnedValue::String("Ion".into()))),
+                        ].into_iter().collect()
+                    ),
+                    e.as_struct()
+                );
+            }
+        ),
+        case::struct_with_multiple_fields_not_equal(
+            OwnedValue::Struct(
+                vec![
+                    ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
+                    ("name", OwnedElement::from(OwnedValue::String("Ion".into()))),
+                ].into_iter().collect()
+            ),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_ne!(
+                    Some(
+                        &vec![
+                            ("greetings", OwnedElement::from(OwnedValue::String("world".into()))),
+                            ("name", OwnedElement::from(OwnedValue::String("Ion".into()))),
+                        ].into_iter().collect()
+                    ),
+                    e.as_struct()
+                );
+            }
+        ),
+        case::struct_with_multiple_unordred_fields(
+            OwnedValue::Struct(
+                vec![
+                    ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
+                    ("name", OwnedElement::from(OwnedValue::String("Ion".into()))),
+                ].into_iter().collect()
+            ),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(
+                    Some(
+                        &vec![
+                            ("name", OwnedElement::from(OwnedValue::String("Ion".into()))),
+                            ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))),
+                        ].into_iter().collect()
+                    ),
+                    e.as_struct()
+                );
+            }
+        ),
+        case::struct_with_text_and_duplicates(
+            OwnedValue::Struct(
+                vec![
+                    ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
+                    ("greetings", OwnedElement::from(OwnedValue::String("world".into()))),
+                ].into_iter().collect()
+            ),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(
+                    Some(
+                        &vec![
+                            ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))),
+                            ("greetings", OwnedElement::from(OwnedValue::String("world".into()))),
+                        ].into_iter().collect()
+                    ),
+                    e.as_struct()
+                );
+            }
+        ),
+        case::struct_with_text_and_unordered_duplicates(
+            OwnedValue::Struct(
+                vec![
+                    ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
+                    ("greetings", OwnedElement::from(OwnedValue::String("world".into()))),
+                ].into_iter().collect()
+            ),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(
+                    Some(
+                        &vec![
+                            ("greetings", OwnedElement::from(OwnedValue::String("world".into()))),
+                            ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))),
+                        ].into_iter().collect()
+                    ),
+                    e.as_struct()
+                );
+            }
+        ),
+        case::struct_with_no_text_and_unordered_duplicates(
+            OwnedValue::Struct(
+                vec![
+                    (local_sid_token(21), OwnedElement::from(OwnedValue::String("hello".into()))), 
+                    (local_sid_token(21), OwnedElement::from(OwnedValue::String("world".into()))),
+                ].into_iter().collect()
+            ),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(
+                    Some(
+                        &vec![
+                            (local_sid_token(21), OwnedElement::from(OwnedValue::String("world".into()))),
+                            (local_sid_token(21), OwnedElement::from(OwnedValue::String("hello".into()))),
+                        ].into_iter().collect()
+                    ),
+                    e.as_struct()
+                );
             }
         ),
         // TODO consider factoring this out of the value tests to make it more contained
