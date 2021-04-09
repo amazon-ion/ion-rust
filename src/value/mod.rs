@@ -57,12 +57,8 @@
 //!
 //! let owned_elem = OwnedElement::new(
 //!     vec![
-//!         OwnedSymbolToken::new(
-//!             None,
-//!             Some(300),
-//!             Some(OwnedImportSource::new("foo", 12))
-//!         ),
-//!         "hello".into()
+//!         local_sid_token(300).with_source("foo", 12),
+//!         text_token("hello")
 //!     ],
 //!     OwnedValue::String("world".into())
 //! );
@@ -116,6 +112,7 @@ pub trait ImportSource {
 /// A view of a symbolic token.
 /// This can be either a symbol value itself, an annotation, or an field name.
 /// A token may have `text`, a symbol `id`, or both.
+/// here text as `None` represents SID $0
 pub trait SymbolToken {
     type ImportSource: ImportSource + ?Sized;
 

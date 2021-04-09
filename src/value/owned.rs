@@ -30,6 +30,14 @@ impl OwnedImportSource {
     }
 }
 
+impl PartialEq for OwnedImportSource {
+    fn eq(&self, other: &Self) -> bool {
+        self.table == other.table && self.sid == other.sid
+    }
+}
+
+impl Eq for OwnedImportSource {}
+
 impl ImportSource for OwnedImportSource {
     fn table(&self) -> &str {
         &self.table
@@ -49,7 +57,7 @@ pub struct OwnedSymbolToken {
 }
 
 impl OwnedSymbolToken {
-    pub fn new(
+    fn new(
         text: Option<Rc<str>>,
         local_sid: Option<SymbolId>,
         source: Option<OwnedImportSource>,
@@ -60,12 +68,56 @@ impl OwnedSymbolToken {
             source,
         }
     }
+
+    /// Decorates the [`OwnedSymbolToken`] with text.
+    pub fn with_text<T: Into<Rc<str>>>(mut self, text: T) -> Self {
+        self.text = Some(text.into());
+        self
+    }
+
+    /// Decorates the [`OwnedSymbolToken`] with a local ID.
+    pub fn with_local_sid(mut self, local_sid: SymbolId) -> Self {
+        self.local_sid = Some(local_sid);
+        self
+    }
+
+    /// Decorates the [`OwnedSymbolToken`] with an [`OwnedImportSource`].
+    pub fn with_source<T: Into<Rc<str>>>(mut self, table: T, sid: SymbolId) -> Self {
+        self.source = Some(OwnedImportSource::new(table, sid));
+        self
+    }
 }
+
+/// Constructs an [`OwnedSymbolToken`] with unknown text and a local ID.
+/// A common case for binary parsing (though technically relevant in text).
+#[inline]
+pub fn local_sid_token(local_sid: SymbolId) -> OwnedSymbolToken {
+    OwnedSymbolToken::new(None, Some(local_sid), None)
+}
+
+/// Constructs an [`OwnedSymbolToken`] with just text.
+/// A common case for text and synthesizing tokens.
+#[inline]
+pub fn text_token<T: Into<Rc<str>>>(text: T) -> OwnedSymbolToken {
+    OwnedSymbolToken::new(Some(text.into()), None, None)
+}
+
+impl PartialEq for OwnedSymbolToken {
+    fn eq(&self, other: &Self) -> bool {
+        if other.text != None && self.text != None {
+            other.text == self.text
+        } else {
+            self.source == other.source
+        }
+    }
+}
+
+impl Eq for OwnedSymbolToken {}
 
 impl<T: Into<Rc<str>>> From<T> for OwnedSymbolToken {
     /// Constructs an owned token that has only text.
     fn from(text: T) -> Self {
-        Self::new(Some(text.into()), None, None)
+        text_token(text)
     }
 }
 
@@ -97,6 +149,17 @@ impl OwnedSequence {
     }
 }
 
+impl FromIterator<OwnedElement> for OwnedSequence {
+    /// Returns an owned sequence from the given iterator of elements.
+    fn from_iter<I: IntoIterator<Item = OwnedElement>>(iter: I) -> Self {
+        let mut children: Vec<OwnedElement> = Vec::new();
+        for elem in iter {
+            children.push(elem);
+        }
+        Self { children }
+    }
+}
+
 impl Sequence for OwnedSequence {
     type Element = OwnedElement;
 
@@ -116,6 +179,14 @@ impl Sequence for OwnedSequence {
         self.len() == 0
     }
 }
+
+impl PartialEq for OwnedSequence {
+    fn eq(&self, other: &Self) -> bool {
+        self.children == other.children
+    }
+}
+
+impl Eq for OwnedSequence {}
 
 /// An owned implementation of [`Struct`]
 #[derive(Debug, Clone)]
@@ -198,8 +269,21 @@ impl Struct for OwnedStruct {
     }
 }
 
+impl PartialEq for OwnedStruct {
+    fn eq(&self, other: &Self) -> bool {
+        for (key, value) in &self.text_fields {
+            if other.get_all(key).ne(value.iter().map(|(_s, v)| v)) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl Eq for OwnedStruct {}
+
 /// Variants for all owned version _values_ within an [`Element`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum OwnedValue {
     Null(IonType),
     Integer(AnyInt),
@@ -229,6 +313,14 @@ impl OwnedElement {
         Self { annotations, value }
     }
 }
+
+impl PartialEq for OwnedElement {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value && self.annotations == other.annotations
+    }
+}
+
+impl Eq for OwnedElement {}
 
 impl From<OwnedValue> for OwnedElement {
     fn from(val: OwnedValue) -> Self {
@@ -392,6 +484,18 @@ mod value_tests {
 
     type ElemAssertFunc = dyn Fn(&OwnedElement) -> ();
 
+    #[rstest]
+    #[case::annotations_with_elem(OwnedElement::new(["foo","bar","baz"].iter().map(|s| (*s).into()).collect(), OwnedValue::Boolean(true)), vec![OwnedSymbolToken::from("foo"), OwnedSymbolToken::from("bar"), OwnedSymbolToken::from("baz")])]
+    #[case::annotations_with_elem(OwnedValue::Boolean(true).into(), vec![])]
+    fn annotations_with_element(
+        #[case] elem: OwnedElement,
+        #[case] annotations: Vec<OwnedSymbolToken>,
+    ) {
+        let actual: Vec<&OwnedSymbolToken> = elem.annotations().map(|tok| tok).collect();
+        let expected: Vec<&OwnedSymbolToken> = annotations.iter().collect();
+        assert_eq!(actual, expected);
+    }
+
     #[rstest(
         val, ion_type, valid_ops_iter, op_assert,
         case::null(
@@ -453,7 +557,15 @@ mod value_tests {
                 assert_eq!(Some("hello"), e.as_sym().unwrap().text());
             }
         ),
-        // TODO more symbol token tests (without text)
+        case::sym_no_text(
+            OwnedValue::Symbol(OwnedSymbolToken::new(None, Some(10), Some(OwnedImportSource::new("greetings", 1)))),
+            IonType::Symbol,
+            vec![AsSym],
+            &|e: &OwnedElement| {
+                assert_eq!(Some(10), e.as_sym().unwrap().local_sid());
+                assert_eq!(Some(&OwnedImportSource::new("greetings", 1)), e.as_sym().unwrap().source());
+            }
+        ),
         case::blob(
             OwnedValue::Blob("world".as_bytes().into()),
             IonType::Blob,
@@ -470,13 +582,78 @@ mod value_tests {
                 assert_eq!(Some("goodbye".as_bytes()), e.as_bytes());
             }
         ),
-        // TODO add cases for list/sexp/struct
+        case::list(
+            OwnedValue::List(vec![OwnedValue::Boolean(true), OwnedValue::Boolean(false)].into_iter().map(|v| v.into()).collect()),
+            IonType::List,
+            AsSequence,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&vec![OwnedValue::Boolean(true), OwnedValue::Boolean(false)].into_iter().map(|v| v.into()).collect()), e.as_sequence());
+            }
+        ),
+        case::sexp(
+            OwnedValue::SExpression(vec![OwnedValue::Boolean(true), OwnedValue::Boolean(false)].into_iter().map(|v| v.into()).collect()),
+            IonType::SExpression,
+            AsSequence,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&vec![OwnedValue::Boolean(true), OwnedValue::Boolean(false)].into_iter().map(|v| v.into()).collect()), e.as_sequence());
+            }
+        ),
+        case::struct_(
+            OwnedValue::Struct(vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter().collect()),
+            IonType::Struct,
+            AsStruct,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter().collect()), e.as_struct());
+            }
+        ),
+        // TODO consider factoring this out of the value tests to make it more contained
+        // TODO consider adding non-equivs for this (really symbol token tests are probably better for this)
+        eq_annotations => [
+            // trivially empty is equivalent to another empty
+            vec![vec![], vec![]],
+            // tokens with text
+            vec![
+                vec![text_token("hello"), text_token("world")],
+                // containing local sids only
+                vec![
+                    text_token("hello").with_local_sid(20),
+                    local_sid_token(21).with_text("world"),
+                ],
+                // mix of local sid, but all with sources
+                vec![
+                    text_token("hello").with_source("hello_table", 2),
+                    text_token("world").with_local_sid(59).with_source("world_table", 200)
+                ]
+            ],
+            // tokens without text
+            vec![
+                vec![
+                    // local sid only with no text are all $0 equivalent
+                    local_sid_token(21),
+                    // source import table is the comparator for unknown cases
+                    local_sid_token(22).with_source("hello_table", 2)
+                ],
+                vec![
+                    local_sid_token(0),
+                    local_sid_token(400).with_source("hello_table", 2),
+                ],
+                vec![
+                    local_sid_token(200),
+                    text_token("hello").with_source("hello_table", 2),
+                ],
+                vec![
+                    local_sid_token(99),
+                    text_token("hello").with_local_sid(500).with_source("hello_table", 2),
+                ],
+            ],
+        ]
     )]
     fn owned_element_accessors<O: IntoIterator<Item = ElemOp>>(
         val: OwnedValue,
         ion_type: IonType,
         valid_ops_iter: O,
         op_assert: &ElemAssertFunc,
+        eq_annotations: Vec<Vec<OwnedSymbolToken>>,
     ) {
         // table of negative assertions for each operation
         let neg_table: Vec<(ElemOp, &ElemAssertFunc)> = vec![
@@ -491,11 +668,12 @@ mod value_tests {
             (AsDecimal, &|e| assert_eq!(None, e.as_decimal())),
             (AsTimestamp, &|e| assert_eq!(None, e.as_timestamp())),
             (AsStr, &|e| assert_eq!(None, e.as_str())),
-            (AsSym, &|e| assert_eq!(true, e.as_sym().is_none())),
+            (AsSym, &|e| assert_eq!(None, e.as_sym())),
             (AsBytes, &|e| assert_eq!(None, e.as_bytes())),
-            (AsSequence, &|e| assert_eq!(true, e.as_sequence().is_none())),
-            (AsStruct, &|e| assert_eq!(true, e.as_struct().is_none())),
+            (AsSequence, &|e| assert_eq!(None, e.as_sequence())),
+            (AsStruct, &|e| assert_eq!(None, e.as_struct())),
         ];
+
         // produce the table of assertions to operate on, replacing the one specified by
         // the test case
         let valid_ops: HashSet<ElemOp> = valid_ops_iter.into_iter().collect();
@@ -512,6 +690,21 @@ mod value_tests {
 
         for assert in op_assertions {
             assert(&elem);
+        }
+
+        // assert that a value element as-is is equal to itself
+        assert_eq!(elem, elem);
+
+        // use the base value to make annotated versions
+        let eq_elems: Vec<OwnedElement> = eq_annotations
+            .into_iter()
+            .map(|annotations| OwnedElement::new(annotations, elem.value.clone()))
+            .collect();
+
+        for left_elem in eq_elems.iter() {
+            for right_elem in eq_elems.iter() {
+                assert_eq!(left_elem, right_elem);
+            }
         }
     }
 }
