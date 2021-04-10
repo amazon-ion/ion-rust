@@ -2,9 +2,9 @@
 
 [![Crate](https://img.shields.io/crates/v/ion-rs.svg)](https://crates.io/crates/ion-rs)
 [![Docs](https://docs.rs/ion-rs/badge.svg)](https://docs.rs/ion-rs)
-[![License](https://img.shields.io/hexpm/l/plug.svg)](https://github.com/amzn/ion-rust/blob/master/LICENSE)
+[![License](https://img.shields.io/hexpm/l/plug.svg)](https://github.com/amzn/ion-rust/blob/main/LICENSE)
 [![CI Build](https://github.com/amzn/ion-rust/workflows/CI%20Build/badge.svg)](https://github.com/amzn/ion-rust/actions?query=workflow%3A%22CI+Build%22)
-[![codecov](https://codecov.io/gh/amzn/ion-rust/branch/master/graph/badge.svg?token=GB20BDE48S)](https://codecov.io/gh/amzn/ion-rust)
+[![codecov](https://codecov.io/gh/amzn/ion-rust/branch/main/graph/badge.svg?token=GB20BDE48S)](https://codecov.io/gh/amzn/ion-rust)
 
 A Rust implementation of the [Amazon Ion][spec] data format.
 
