@@ -94,6 +94,7 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 pub mod borrowed;
+pub mod loader;
 pub mod owned;
 
 /// The shared symbol table source of a given [`SymbolToken`].
