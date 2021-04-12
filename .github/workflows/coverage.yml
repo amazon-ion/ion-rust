@@ -21,7 +21,7 @@ jobs:
       - name: Rust Toolchain
         uses: actions-rs/toolchain@v1
         with:
-          profile: minimal
+          profile: default
           toolchain: nightly
           override: true
       - name: Cargo Test
