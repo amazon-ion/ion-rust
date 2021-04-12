@@ -122,7 +122,7 @@ pub trait ImportSource {
 ///
 /// Consider the following pseudo-code describing Ion data model semantics:
 ///
-/// ```ignore,
+/// ```plain
 ///     //   (<text>, <local id>, <source>)
 ///     
 ///     a := (nil, 200, ("my_table", 1))
