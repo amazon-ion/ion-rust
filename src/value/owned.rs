@@ -558,7 +558,7 @@ mod value_tests {
             AsStr,
             &|e: &OwnedElement| assert_eq!(Some("hello"), e.as_str())
         ),
-        case::sym_text(
+        case::sym_with_text(
             OwnedValue::Symbol("hello".into()),
             IonType::Symbol,
             vec![AsStr, AsSym],
@@ -567,13 +567,58 @@ mod value_tests {
                 assert_eq!(Some("hello"), e.as_sym().unwrap().text());
             }
         ),
-        case::sym_no_text(
+        case::sym_with_local_sid_source(
             OwnedValue::Symbol(OwnedSymbolToken::new(None, Some(10), Some(OwnedImportSource::new("greetings", 1)))),
             IonType::Symbol,
             vec![AsSym],
             &|e: &OwnedElement| {
                 assert_eq!(Some(10), e.as_sym().unwrap().local_sid());
                 assert_eq!(Some(&OwnedImportSource::new("greetings", 1)), e.as_sym().unwrap().source());
+            }
+        ),
+        case::sym_with_text_local_sid_source(
+            OwnedValue::Symbol(local_sid_token(10).with_source("greetings", 1).with_text("foo")),
+            IonType::Symbol,
+            vec![AsSym, AsStr],
+            &|e: &OwnedElement| {
+                assert_eq!(Some("foo"), e.as_str());
+                assert_eq!(Some("foo"), e.as_sym().unwrap().text());
+                assert_eq!(Some(10), e.as_sym().unwrap().local_sid());
+                assert_eq!(Some(&OwnedImportSource::new("greetings", 1)), e.as_sym().unwrap().source());
+            }
+        ),
+        // OwnedValue::Symbol equivalence based on PartialEq of SymbolToken
+        case::sym_text_as_sym(
+            OwnedValue::Symbol(text_token("hello")),
+            IonType::Symbol,
+            vec![AsStr, AsSym],
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&text_token("hello")), e.as_sym());
+            }
+        ),
+        case::sym_with_local_sid_source_as_sym(
+            OwnedValue::Symbol(local_sid_token(10).with_source("greetings", 1)),
+            IonType::Symbol,
+            vec![AsSym],
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&local_sid_token(10).with_source("greetings", 1)), e.as_sym());
+                assert_eq!(Some(&local_sid_token(10).with_source("greetings", 1).with_text("foo")), e.as_sym());
+                // negative tests
+                // SymbolToken with no text when compared SymbolToken with text would be equivalent if provided sources are same
+                // otherwise it would not be equivalent
+                assert_ne!(Some(&text_token("foo")), e.as_sym());
+                // If ImportSource for both no text SymbolTokens are not equal then both SymbolTokens are not equal
+                assert_ne!(Some(&local_sid_token(10).with_source("greetings", 2)), e.as_sym());
+            }
+        ),
+        // SymbolTokens with same texts are always equivalent
+        case::sym_with_text_local_sid_source_as_sym(
+            OwnedValue::Symbol(text_token("foo")),
+            IonType::Symbol,
+            vec![AsStr, AsSym],
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&text_token("foo").with_source("greetings", 1)), e.as_sym());
+                assert_eq!(Some(&text_token("foo").with_source("greetings", 1).with_local_sid(10)), e.as_sym());
             }
         ),
         case::blob(
