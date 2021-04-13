@@ -107,7 +107,26 @@ impl PartialEq for OwnedSymbolToken {
         if other.text != None && self.text != None {
             other.text == self.text
         } else {
-            self.source == other.source
+            // For unknown text(i.e. None), the tokens are equal only if
+            //      1. For symbols defined from shared symbol table imports, symbols are equivalent
+            //         if both the symbols have same import source
+            //      2. Symbols with unknown text declared in a local symbol table are
+            //         all equivalent to one another and to SID 0.
+            if self.source == None && other.source == None {
+                if self.text == None && other.text == None {
+                    if self.local_sid != None && other.local_sid != None {
+                        true
+                    } else {
+                        self.local_sid == other.local_sid
+                    }
+                } else {
+                    // if one token has text and another doesn't have text and
+                    // for both tokens source is unknown(i.e. None)
+                    false
+                }
+            } else {
+                self.source == other.source
+            }
         }
     }
 }
@@ -519,19 +538,19 @@ mod value_tests {
             vec![
                 text_token("bar"),
                 local_sid_token(10).with_source("greetings", 1),
-                local_sid_token(10).with_source("hello_table", 2)
+                local_sid_token(10).with_source("hello_table", 2),
+                local_sid_token(10)
             ]
         ),
         case::sym_local_sid(
             // local sids with no text are equivalent to each other and to SID $0
             vec![
                 local_sid_token(200),
-                local_sid_token(100),
-                text_token("foo"),
-                text_token("foo").with_local_sid(200)
+                local_sid_token(100)
             ],
             vec![
-                local_sid_token(200).with_source("greetings", 2)
+                local_sid_token(200).with_source("greetings", 2),
+                text_token("foo").with_local_sid(200)
             ]
         ),
         // SymbolTokens with no text are equivalent only if their source is equivalent
@@ -544,7 +563,8 @@ mod value_tests {
             vec![
                 local_sid_token(200).with_source("greetings", 2),
                 local_sid_token(200).with_source("hello_table", 1),
-                local_sid_token(200)
+                local_sid_token(200),
+                text_token("greetings")
             ]
         )
     )]
