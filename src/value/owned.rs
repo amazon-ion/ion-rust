@@ -506,6 +506,74 @@ mod value_tests {
         assert_eq!(actual, expected);
     }
 
+    /// Each case is a set of tokens that are the same, and a set of tokens that are not ever equal to the first.
+    /// This should test symmetry/transitivity/commutativity
+    #[rstest(
+        // SymbolTokens with same text are equivalent
+        case::sym_text(
+            vec![
+                text_token("foo"),
+                text_token("foo").with_local_sid(10),
+                text_token("foo").with_local_sid(10).with_source("greetings", 2)
+            ],
+            vec![
+                text_token("foo"),
+                text_token("bar"),
+                local_sid_token(10).with_source("greetings", 2)
+            ]
+        ),
+        case::sym_local_sid(
+            // local sids with no text are equivalent to each other and to SID $0
+            vec![
+                local_sid_token(200),
+                local_sid_token(100),
+                text_token("foo")
+            ],
+            vec![
+                local_sid_token(200),
+                local_sid_token(200).with_source("greetings", 2)
+            ]
+        ),
+        // SymbolTokens with no text are equivalent only if their source is equivalent
+        case::sym_source(
+            vec![
+                local_sid_token(200).with_source("greetings", 1),
+                local_sid_token(100).with_source("greetings", 1),
+                local_sid_token(100).with_source("greetings", 1).with_text("foo")
+            ],
+            vec![
+                local_sid_token(200).with_source("greetings", 1),
+                local_sid_token(200).with_source("greetings", 2),
+                local_sid_token(200).with_source("hello_table", 1),
+                // transitivity rule for PartialEq is violated here 
+                // as, a: = local_sid_token(200).with_source("greetings", 1) 
+                //     b: = local_sid_token(100).with_source("greetings", 1).with_text("foo")
+                //     c: = text_token("foo) 
+                // 
+                //     a == b -> true - source matches
+                //     b == c -> true - text matches
+                //     a == c -> false - text + no source != no source + text
+                text_token("foo")
+            ]
+        )
+    )]
+    fn owned_symbol_token_eq(
+        #[case] equivalent: Vec<OwnedSymbolToken>,
+        #[case] non_equivalent: Vec<OwnedSymbolToken>,
+    ) {
+        // check if equivalent vector contains set of tokens that are all equal
+        for eq_this_token in &equivalent {
+            for eq_other_token in &equivalent {
+                assert_eq!(eq_this_token, eq_other_token);
+            }
+        }
+
+        // check if non_equivalent vector contains a set of tokens that are not ever equal to the first.
+        for non_eq_token in &non_equivalent[1..] {
+            assert_ne!(&non_equivalent[0], non_eq_token);
+        }
+    }
+
     #[rstest(
         val, ion_type, valid_ops_iter, op_assert,
         case::null(
@@ -585,40 +653,6 @@ mod value_tests {
                 assert_eq!(Some("foo"), e.as_sym().unwrap().text());
                 assert_eq!(Some(10), e.as_sym().unwrap().local_sid());
                 assert_eq!(Some(&OwnedImportSource::new("greetings", 1)), e.as_sym().unwrap().source());
-            }
-        ),
-        // OwnedValue::Symbol equivalence based on PartialEq of SymbolToken
-        case::sym_text_as_sym(
-            OwnedValue::Symbol(text_token("hello")),
-            IonType::Symbol,
-            vec![AsStr, AsSym],
-            &|e: &OwnedElement| {
-                assert_eq!(Some(&text_token("hello")), e.as_sym());
-            }
-        ),
-        case::sym_with_local_sid_source_as_sym(
-            OwnedValue::Symbol(local_sid_token(10).with_source("greetings", 1)),
-            IonType::Symbol,
-            vec![AsSym],
-            &|e: &OwnedElement| {
-                assert_eq!(Some(&local_sid_token(10).with_source("greetings", 1)), e.as_sym());
-                assert_eq!(Some(&local_sid_token(10).with_source("greetings", 1).with_text("foo")), e.as_sym());
-                // negative tests
-                // SymbolToken with no text when compared SymbolToken with text would be equivalent if provided sources are same
-                // otherwise it would not be equivalent
-                assert_ne!(Some(&text_token("foo")), e.as_sym());
-                // If ImportSource for both no text SymbolTokens are not equal then both SymbolTokens are not equal
-                assert_ne!(Some(&local_sid_token(10).with_source("greetings", 2)), e.as_sym());
-            }
-        ),
-        // SymbolTokens with same texts are always equivalent
-        case::sym_with_text_local_sid_source_as_sym(
-            OwnedValue::Symbol(text_token("foo")),
-            IonType::Symbol,
-            vec![AsStr, AsSym],
-            &|e: &OwnedElement| {
-                assert_eq!(Some(&text_token("foo").with_source("greetings", 1)), e.as_sym());
-                assert_eq!(Some(&text_token("foo").with_source("greetings", 1).with_local_sid(10)), e.as_sym());
             }
         ),
         case::blob(
