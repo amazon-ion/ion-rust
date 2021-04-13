@@ -517,9 +517,9 @@ mod value_tests {
                 text_token("foo").with_local_sid(10).with_source("greetings", 2)
             ],
             vec![
-                text_token("foo"),
                 text_token("bar"),
-                local_sid_token(10).with_source("greetings", 2)
+                local_sid_token(10).with_source("greetings", 1),
+                local_sid_token(10).with_source("hello_table", 2)
             ]
         ),
         case::sym_local_sid(
@@ -527,10 +527,10 @@ mod value_tests {
             vec![
                 local_sid_token(200),
                 local_sid_token(100),
-                text_token("foo")
+                text_token("foo"),
+                text_token("foo").with_local_sid(200)
             ],
             vec![
-                local_sid_token(200),
                 local_sid_token(200).with_source("greetings", 2)
             ]
         ),
@@ -542,18 +542,9 @@ mod value_tests {
                 local_sid_token(100).with_source("greetings", 1).with_text("foo")
             ],
             vec![
-                local_sid_token(200).with_source("greetings", 1),
                 local_sid_token(200).with_source("greetings", 2),
                 local_sid_token(200).with_source("hello_table", 1),
-                // transitivity rule for PartialEq is violated here 
-                // as, a: = local_sid_token(200).with_source("greetings", 1) 
-                //     b: = local_sid_token(100).with_source("greetings", 1).with_text("foo")
-                //     c: = text_token("foo) 
-                // 
-                //     a == b -> true - source matches
-                //     b == c -> true - text matches
-                //     a == c -> false - text + no source != no source + text
-                text_token("foo")
+                local_sid_token(200)
             ]
         )
     )]
@@ -568,9 +559,12 @@ mod value_tests {
             }
         }
 
-        // check if non_equivalent vector contains a set of tokens that are not ever equal to the first.
-        for non_eq_token in &non_equivalent[1..] {
-            assert_ne!(&non_equivalent[0], non_eq_token);
+        // check if non_equivalent vector contains a set of tokens that are not ever equal
+        // to the equivalent set tokens.
+        for eq_token in &equivalent {
+            for non_eq_token in &non_equivalent {
+                assert_ne!(eq_token, non_eq_token);
+            }
         }
     }
 
