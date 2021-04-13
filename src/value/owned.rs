@@ -104,10 +104,12 @@ pub fn text_token<T: Into<Rc<str>>>(text: T) -> OwnedSymbolToken {
 
 impl PartialEq for OwnedSymbolToken {
     fn eq(&self, other: &Self) -> bool {
-        if other.text != None && self.text != None {
+        if other.text != None || self.text != None {
+            // if either side has text, we only compare text
             other.text == self.text
         } else {
-            self.source == other.source
+            // no text--so the sources must be the same (all local symbols with no source are the same)
+            other.source == self.source
         }
     }
 }
@@ -506,6 +508,71 @@ mod value_tests {
         assert_eq!(actual, expected);
     }
 
+    /// Each case is a set of tokens that are the same, and a set of tokens that are not ever equal to the first.
+    /// This should test symmetry/transitivity/commutativity
+    #[rstest(
+        // SymbolTokens with same text are equivalent
+        case::sym_text(
+            vec![
+                text_token("foo"),
+                text_token("foo").with_local_sid(10),
+                text_token("foo").with_local_sid(10).with_source("greetings", 2)
+            ],
+            vec![
+                text_token("bar"),
+                local_sid_token(10).with_source("greetings", 1),
+                local_sid_token(10).with_source("hello_table", 2),
+                local_sid_token(10)
+            ]
+        ),
+        case::sym_local_sid(
+            // local sids with no text are equivalent to each other and to SID $0
+            vec![
+                local_sid_token(200),
+                local_sid_token(100)
+            ],
+            vec![
+                local_sid_token(200).with_source("greetings", 2),
+                text_token("foo").with_local_sid(200)
+            ]
+        ),
+        // SymbolTokens with no text are equivalent only if their source is equivalent
+        case::sym_source(
+            vec![
+                local_sid_token(200).with_source("greetings", 1),
+                local_sid_token(100).with_source("greetings", 1)
+            ],
+            vec![
+                local_sid_token(200).with_source("greetings", 2),
+                local_sid_token(200).with_source("hello_table", 1),
+                local_sid_token(200),
+                text_token("greetings"),
+                // due to the transitivity rule this is not equivalent to any member from above vector,
+                // even though it has the same import source
+                local_sid_token(100).with_source("greetings", 1).with_text("foo")
+            ]
+        )
+    )]
+    fn owned_symbol_token_eq(
+        #[case] equivalent: Vec<OwnedSymbolToken>,
+        #[case] non_equivalent: Vec<OwnedSymbolToken>,
+    ) {
+        // check if equivalent vector contains set of tokens that are all equal
+        for eq_this_token in &equivalent {
+            for eq_other_token in &equivalent {
+                assert_eq!(eq_this_token, eq_other_token);
+            }
+        }
+
+        // check if non_equivalent vector contains a set of tokens that are not ever equal
+        // to the equivalent set tokens.
+        for eq_token in &equivalent {
+            for non_eq_token in &non_equivalent {
+                assert_ne!(eq_token, non_eq_token);
+            }
+        }
+    }
+
     #[rstest(
         val, ion_type, valid_ops_iter, op_assert,
         case::null(
@@ -558,7 +625,7 @@ mod value_tests {
             AsStr,
             &|e: &OwnedElement| assert_eq!(Some("hello"), e.as_str())
         ),
-        case::sym_text(
+        case::sym_with_text(
             OwnedValue::Symbol("hello".into()),
             IonType::Symbol,
             vec![AsStr, AsSym],
@@ -567,11 +634,22 @@ mod value_tests {
                 assert_eq!(Some("hello"), e.as_sym().unwrap().text());
             }
         ),
-        case::sym_no_text(
+        case::sym_with_local_sid_source(
             OwnedValue::Symbol(OwnedSymbolToken::new(None, Some(10), Some(OwnedImportSource::new("greetings", 1)))),
             IonType::Symbol,
             vec![AsSym],
             &|e: &OwnedElement| {
+                assert_eq!(Some(10), e.as_sym().unwrap().local_sid());
+                assert_eq!(Some(&OwnedImportSource::new("greetings", 1)), e.as_sym().unwrap().source());
+            }
+        ),
+        case::sym_with_text_local_sid_source(
+            OwnedValue::Symbol(local_sid_token(10).with_source("greetings", 1).with_text("foo")),
+            IonType::Symbol,
+            vec![AsSym, AsStr],
+            &|e: &OwnedElement| {
+                assert_eq!(Some("foo"), e.as_str());
+                assert_eq!(Some("foo"), e.as_sym().unwrap().text());
                 assert_eq!(Some(10), e.as_sym().unwrap().local_sid());
                 assert_eq!(Some(&OwnedImportSource::new("greetings", 1)), e.as_sym().unwrap().source());
             }
@@ -813,15 +891,7 @@ mod value_tests {
                 vec![
                     local_sid_token(0),
                     local_sid_token(400).with_source("hello_table", 2),
-                ],
-                vec![
-                    local_sid_token(200),
-                    text_token("hello").with_source("hello_table", 2),
-                ],
-                vec![
-                    local_sid_token(99),
-                    text_token("hello").with_local_sid(500).with_source("hello_table", 2),
-                ],
+                ]
             ],
         ]
     )]
