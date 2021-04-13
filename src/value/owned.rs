@@ -104,29 +104,12 @@ pub fn text_token<T: Into<Rc<str>>>(text: T) -> OwnedSymbolToken {
 
 impl PartialEq for OwnedSymbolToken {
     fn eq(&self, other: &Self) -> bool {
-        if other.text != None && self.text != None {
+        if other.text != None || self.text != None {
+            // if either side has text, we only compare text
             other.text == self.text
         } else {
-            // For unknown text(i.e. None), the tokens are equal only if
-            //      1. For symbols defined from shared symbol table imports, symbols are equivalent
-            //         if both the symbols have same import source
-            //      2. Symbols with unknown text declared in a local symbol table are
-            //         all equivalent to one another and to SID 0.
-            if self.source == None && other.source == None {
-                if self.text == None && other.text == None {
-                    if self.local_sid != None && other.local_sid != None {
-                        true
-                    } else {
-                        self.local_sid == other.local_sid
-                    }
-                } else {
-                    // if one token has text and another doesn't have text and
-                    // for both tokens source is unknown(i.e. None)
-                    false
-                }
-            } else {
-                self.source == other.source
-            }
+            // no text--so the sources must be the same (all local symbols with no source are the same)
+            other.source == self.source
         }
     }
 }
@@ -557,14 +540,16 @@ mod value_tests {
         case::sym_source(
             vec![
                 local_sid_token(200).with_source("greetings", 1),
-                local_sid_token(100).with_source("greetings", 1),
-                local_sid_token(100).with_source("greetings", 1).with_text("foo")
+                local_sid_token(100).with_source("greetings", 1)
             ],
             vec![
                 local_sid_token(200).with_source("greetings", 2),
                 local_sid_token(200).with_source("hello_table", 1),
                 local_sid_token(200),
-                text_token("greetings")
+                text_token("greetings"),
+                // due to the transitivity rule this is not equivalent to any member from above vector,
+                // even though it has the same import source
+                local_sid_token(100).with_source("greetings", 1).with_text("foo")
             ]
         )
     )]
@@ -906,15 +891,7 @@ mod value_tests {
                 vec![
                     local_sid_token(0),
                     local_sid_token(400).with_source("hello_table", 2),
-                ],
-                vec![
-                    local_sid_token(200),
-                    text_token("hello").with_source("hello_table", 2),
-                ],
-                vec![
-                    local_sid_token(99),
-                    text_token("hello").with_local_sid(500).with_source("hello_table", 2),
-                ],
+                ]
             ],
         ]
     )]
