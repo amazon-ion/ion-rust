@@ -22,7 +22,8 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: default
-          toolchain: nightly
+          # nightly can be very volatile--pin this to a version we know works well...
+          toolchain: nightly-2021-03-23
           override: true
       - name: Cargo Test
         uses: actions-rs/cargo@v1
