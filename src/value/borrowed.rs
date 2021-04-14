@@ -149,6 +149,17 @@ impl<'val> BorrowedSequence<'val> {
     }
 }
 
+impl<'val> FromIterator<BorrowedElement<'val>> for BorrowedSequence<'val> {
+    /// Returns an owned sequence from the given iterator of elements.
+    fn from_iter<I: IntoIterator<Item = BorrowedElement<'val>>>(iter: I) -> Self {
+        let mut children: Vec<BorrowedElement> = Vec::new();
+        for elem in iter {
+            children.push(elem);
+        }
+        Self { children }
+    }
+}
+
 impl<'val> Sequence for BorrowedSequence<'val> {
     type Element = BorrowedElement<'val>;
 
