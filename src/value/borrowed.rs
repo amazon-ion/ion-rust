@@ -29,6 +29,14 @@ impl<'val> BorrowedImportSource<'val> {
     }
 }
 
+impl<'val> PartialEq for BorrowedImportSource<'val> {
+    fn eq(&self, other: &Self) -> bool {
+        self.table == other.table && self.sid == other.sid
+    }
+}
+
+impl<'val> Eq for BorrowedImportSource<'val> {}
+
 impl<'val> ImportSource for BorrowedImportSource<'val> {
     fn table(&self) -> &str {
         self.table
@@ -59,7 +67,53 @@ impl<'val> BorrowedSymbolToken<'val> {
             source,
         }
     }
+
+    /// Decorates the [`BorrowedSymbolToken`] with text.
+    pub fn with_text(mut self, text: &'val str) -> Self {
+        self.text = Some(text);
+        self
+    }
+
+    /// Decorates the [`BorrowedSymbolToken`] with a local ID.
+    pub fn with_local_sid(mut self, local_sid: SymbolId) -> Self {
+        self.local_sid = Some(local_sid);
+        self
+    }
+
+    /// Decorates the [`BorrowedSymbolToken`] with an [`BorrowedImportSource`].
+    pub fn with_source(mut self, table: &'val str, sid: SymbolId) -> Self {
+        self.source = Some(BorrowedImportSource::new(table, sid));
+        self
+    }
 }
+
+/// Constructs an [`BorrowedSymbolToken`] with unknown text and a local ID.
+/// A common case for binary parsing (though technically relevant in text).
+#[inline]
+pub fn borrowed_local_sid_token<'val>(local_sid: SymbolId) -> BorrowedSymbolToken<'val> {
+    BorrowedSymbolToken::new(None, Some(local_sid), None)
+}
+
+/// Constructs an [`BorrowedSymbolToken`] with just text.
+/// A common case for text and synthesizing tokens.
+#[inline]
+pub fn borrowed_text_token(text: &str) -> BorrowedSymbolToken {
+    BorrowedSymbolToken::new(Some(text), None, None)
+}
+
+impl<'val> PartialEq for BorrowedSymbolToken<'val> {
+    fn eq(&self, other: &Self) -> bool {
+        if other.text != None || self.text != None {
+            // if either side has text, we only compare text
+            other.text == self.text
+        } else {
+            // no text--so the sources must be the same (all local symbols with no source are the same)
+            other.source == self.source
+        }
+    }
+}
+
+impl<'val> Eq for BorrowedSymbolToken<'val> {}
 
 impl<'val> From<&'val str> for BorrowedSymbolToken<'val> {
     fn from(text: &'val str) -> Self {
@@ -114,6 +168,14 @@ impl<'val> Sequence for BorrowedSequence<'val> {
         self.children.len() == 0
     }
 }
+
+impl<'val> PartialEq for BorrowedSequence<'val> {
+    fn eq(&self, other: &Self) -> bool {
+        self.children == other.children
+    }
+}
+
+impl<'val> Eq for BorrowedSequence<'val> {}
 
 /// A borrowed implementation of [`Struct`]
 #[derive(Debug, Clone)]
@@ -195,10 +257,33 @@ impl<'val> Struct for BorrowedStruct<'val> {
     }
 }
 
+impl<'val> PartialEq for BorrowedStruct<'val> {
+    fn eq(&self, other: &Self) -> bool {
+        // check if both the text_fields have same (field_name,value) pairs
+        self.text_fields.iter().all(|(key, value)| {
+            value.iter().all(|(_my_s, my_v)| {
+                other
+                    .get_all(key)
+                    .find(|other_v| my_v == *other_v)
+                    .is_some()
+            })
+        }) && self.no_text_fields.iter().all(|(my_k, my_v)| {
+            // check if both the no_text_fields have same values
+            other
+                .no_text_fields
+                .iter()
+                .find(|(other_k, other_v)| my_k == other_k && my_v == other_v)
+                .is_some()
+        })
+    }
+}
+
+impl<'val> Eq for BorrowedStruct<'val> {}
+
 // TODO replace the references with `Cow` and bridge to the owned APIs for mutability
 
 /// Variants for all borrowed version _values_ within an [`Element`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BorrowedValue<'val> {
     Null(IonType),
     Integer(AnyInt),
@@ -228,6 +313,14 @@ impl<'val> BorrowedElement<'val> {
         Self { annotations, value }
     }
 }
+
+impl<'val> PartialEq for BorrowedElement<'val> {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value && self.annotations == other.annotations
+    }
+}
+
+impl<'val> Eq for BorrowedElement<'val> {}
 
 impl<'val> From<BorrowedValue<'val>> for BorrowedElement<'val> {
     /// Constructs a [`BorrowedElement`] without annotations from this value.
