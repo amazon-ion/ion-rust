@@ -32,6 +32,13 @@ pub enum IonError {
         "The user has performed an operation that is not legal in the current state: {operation}"
     )]
     IllegalOperation { operation: String },
+
+    /// Indicates that the underlying failure is due to a problem in [`ion_c_sys`].
+    #[error("{source:?}")]
+    IonCError {
+        #[from]
+        source: ion_c_sys::result::IonCError,
+    },
 }
 
 // io::Error does not implement Clone, which precludes us from simply deriving an implementation.
@@ -55,6 +62,9 @@ impl Clone for IonError {
             IllegalOperation { operation } => IllegalOperation {
                 operation: operation.clone(),
             },
+            IonCError { source } => IonCError {
+                source: source.clone(),
+            },
         }
     }
 }
@@ -71,6 +81,7 @@ impl PartialEq for IonError {
             (FmtError { source: s1 }, FmtError { source: s2 }) => s1 == s2,
             (DecodingError { description: s1 }, DecodingError { description: s2 }) => s1 == s2,
             (IllegalOperation { operation: s1 }, IllegalOperation { operation: s2 }) => s1 == s2,
+            (IonCError { source: s1 }, IonCError { source: s2 }) => s1 == s2,
             _ => false,
         }
     }
@@ -101,5 +112,23 @@ pub fn illegal_operation<T, S: AsRef<str>>(operation: S) -> IonResult<T> {
 pub fn illegal_operation_raw<S: AsRef<str>>(operation: S) -> IonError {
     IonError::IllegalOperation {
         operation: operation.as_ref().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use ion_c_sys::result::*;
+    use ion_c_sys::{ion_error_code_IERR_EOF, ion_error_code_IERR_INVALID_ARG};
+
+    #[test]
+    fn ion_c_error_eq() {
+        // make sure we can actually convert an Ion C error
+        let e1: IonError = IonCError::from(ion_error_code_IERR_EOF).into();
+        let e2: IonError = IonCError::from(ion_error_code_IERR_INVALID_ARG).into();
+
+        // make sure eq/clone works
+        assert_eq!(e1, e1.clone());
+        assert_ne!(e1, e2);
     }
 }
