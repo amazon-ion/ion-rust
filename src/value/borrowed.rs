@@ -90,14 +90,14 @@ impl<'val> BorrowedSymbolToken<'val> {
 /// Constructs an [`BorrowedSymbolToken`] with unknown text and a local ID.
 /// A common case for binary parsing (though technically relevant in text).
 #[inline]
-pub fn borrowed_local_sid_token<'val>(local_sid: SymbolId) -> BorrowedSymbolToken<'val> {
+pub fn local_sid_token<'val>(local_sid: SymbolId) -> BorrowedSymbolToken<'val> {
     BorrowedSymbolToken::new(None, Some(local_sid), None)
 }
 
 /// Constructs an [`BorrowedSymbolToken`] with just text.
 /// A common case for text and synthesizing tokens.
 #[inline]
-pub fn borrowed_text_token(text: &str) -> BorrowedSymbolToken {
+pub fn text_token(text: &str) -> BorrowedSymbolToken {
     BorrowedSymbolToken::new(Some(text), None, None)
 }
 
@@ -513,42 +513,42 @@ mod borrowed_value_tests {
         // SymbolTokens with same text are equivalent
         case::sym_text(
             vec![
-                borrowed_text_token("foo"),
-                borrowed_text_token("foo").with_local_sid(10),
-                borrowed_text_token("foo").with_local_sid(10).with_source("greetings", 2)
+                text_token("foo"),
+                text_token("foo").with_local_sid(10),
+                text_token("foo").with_local_sid(10).with_source("greetings", 2)
             ],
             vec![
-                borrowed_text_token("bar"),
-                borrowed_local_sid_token(10).with_source("greetings", 1),
-                borrowed_local_sid_token(10).with_source("hello_table", 2),
-                borrowed_local_sid_token(10)
+                text_token("bar"),
+                local_sid_token(10).with_source("greetings", 1),
+                local_sid_token(10).with_source("hello_table", 2),
+                local_sid_token(10)
             ]
         ),
         case::sym_local_sid(
             // local sids with no text are equivalent to each other and to SID $0
             vec![
-                borrowed_local_sid_token(200),
-                borrowed_local_sid_token(100)
+                local_sid_token(200),
+                local_sid_token(100)
             ],
             vec![
-                borrowed_local_sid_token(200).with_source("greetings", 2),
-                borrowed_text_token("foo").with_local_sid(200)
+                local_sid_token(200).with_source("greetings", 2),
+                text_token("foo").with_local_sid(200)
             ]
         ),
         // SymbolTokens with no text are equivalent only if their source is equivalent
         case::sym_source(
             vec![
-                borrowed_local_sid_token(200).with_source("greetings", 1),
-                borrowed_local_sid_token(100).with_source("greetings", 1)
+                local_sid_token(200).with_source("greetings", 1),
+                local_sid_token(100).with_source("greetings", 1)
             ],
             vec![
-                borrowed_local_sid_token(200).with_source("greetings", 2),
-                borrowed_local_sid_token(200).with_source("hello_table", 1),
-                borrowed_local_sid_token(200),
-                borrowed_text_token("greetings"),
+                local_sid_token(200).with_source("greetings", 2),
+                local_sid_token(200).with_source("hello_table", 1),
+                local_sid_token(200),
+                text_token("greetings"),
                 // due to the transitivity rule this is not equivalent to any member from above vector,
                 // even though it has the same import source
-                borrowed_local_sid_token(100).with_source("greetings", 1).with_text("foo")
+                local_sid_token(100).with_source("greetings", 1).with_text("foo")
             ]
         )
     )]
@@ -643,7 +643,7 @@ mod borrowed_value_tests {
             }
         ),
         case::sym_with_text_local_sid_source(
-            BorrowedValue::Symbol(borrowed_local_sid_token(10).with_source("greetings", 1).with_text("foo")),
+            BorrowedValue::Symbol(local_sid_token(10).with_source("greetings", 1).with_text("foo")),
             IonType::Symbol,
             vec![AsSym, AsStr],
             &|e: &BorrowedElement| {
@@ -702,36 +702,36 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_local_sid(
-            BorrowedValue::Struct(vec![(borrowed_local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter().collect()),
+            BorrowedValue::Struct(vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter().collect()),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
-                assert_eq!(Some(&vec![(borrowed_local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
+                assert_eq!(Some(&vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
             }
         ),
         // SymbolToken with local SID and no text are equivalent to each other and to SID $0 
         case::struct_with_different_local_sids(
-            BorrowedValue::Struct(vec![(borrowed_local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter().collect()),
+            BorrowedValue::Struct(vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter().collect()),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
-                assert_eq!(Some(&vec![(borrowed_local_sid_token(22), BorrowedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
+                assert_eq!(Some(&vec![(local_sid_token(22), BorrowedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
             }
         ),
         case::struct_with_import_source(
-            BorrowedValue::Struct(vec![(borrowed_local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter().collect()),
+            BorrowedValue::Struct(vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter().collect()),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
-                assert_eq!(Some(&vec![(borrowed_local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
+                assert_eq!(Some(&vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
             }
         ),
         case::struct_with_import_source_not_equal(
-            BorrowedValue::Struct(vec![(borrowed_local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter().collect()),
+            BorrowedValue::Struct(vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter().collect()),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
-                assert_ne!(Some(&vec![(borrowed_local_sid_token(21).with_source("hey_table", 2), BorrowedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
+                assert_ne!(Some(&vec![(local_sid_token(21).with_source("hey_table", 2), BorrowedValue::String("hello".into()))].into_iter().collect()), e.as_struct());
             }
         ),
         case::struct_with_multiple_fields(
@@ -842,8 +842,8 @@ mod borrowed_value_tests {
         case::struct_with_no_text_and_unordered_duplicates(
             BorrowedValue::Struct(
                 vec![
-                    (borrowed_local_sid_token(21), BorrowedElement::from(BorrowedValue::String("hello".into()))),
-                    (borrowed_local_sid_token(21), BorrowedElement::from(BorrowedValue::String("world".into()))),
+                    (local_sid_token(21), BorrowedElement::from(BorrowedValue::String("hello".into()))),
+                    (local_sid_token(21), BorrowedElement::from(BorrowedValue::String("world".into()))),
                 ].into_iter().collect()
             ),
             IonType::Struct,
@@ -852,8 +852,8 @@ mod borrowed_value_tests {
                 assert_eq!(
                     Some(
                         &vec![
-                            (borrowed_local_sid_token(21), BorrowedElement::from(BorrowedValue::String("world".into()))),
-                            (borrowed_local_sid_token(21), BorrowedElement::from(BorrowedValue::String("hello".into()))),
+                            (local_sid_token(21), BorrowedElement::from(BorrowedValue::String("world".into()))),
+                            (local_sid_token(21), BorrowedElement::from(BorrowedValue::String("hello".into()))),
                         ].into_iter().collect()
                     ),
                     e.as_struct()
@@ -867,29 +867,29 @@ mod borrowed_value_tests {
             vec![vec![], vec![]],
             // tokens with text
             vec![
-                vec![borrowed_text_token("hello"), borrowed_text_token("world")],
+                vec![text_token("hello"), text_token("world")],
                 // containing local sids only
                 vec![
-                    borrowed_text_token("hello").with_local_sid(20),
-                    borrowed_local_sid_token(21).with_text("world"),
+                    text_token("hello").with_local_sid(20),
+                    local_sid_token(21).with_text("world"),
                 ],
                 // mix of local sid, but all with sources
                 vec![
-                    borrowed_text_token("hello").with_source("hello_table", 2),
-                    borrowed_text_token("world").with_local_sid(59).with_source("world_table", 200)
+                    text_token("hello").with_source("hello_table", 2),
+                    text_token("world").with_local_sid(59).with_source("world_table", 200)
                 ]
             ],
             // tokens without text
             vec![
                 vec![
                     // local sid only with no text are all $0 equivalent
-                    borrowed_local_sid_token(21),
+                    local_sid_token(21),
                     // source import table is the comparator for unknown cases
-                    borrowed_local_sid_token(22).with_source("hello_table", 2)
+                    local_sid_token(22).with_source("hello_table", 2)
                 ],
                 vec![
-                    borrowed_local_sid_token(0),
-                    borrowed_local_sid_token(400).with_source("hello_table", 2),
+                    local_sid_token(0),
+                    local_sid_token(400).with_source("hello_table", 2),
                 ]
             ],
         ]
