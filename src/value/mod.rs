@@ -47,7 +47,7 @@
 //! ```
 //! use ion_rs::value::{Element, SymbolToken};
 //! use ion_rs::value::borrowed::*;
-//! use ion_rs::value::owned::*;
+//! use ion_rs::value::owned::{OwnedValue, OwnedElement, local_sid_token as owned_local_sid_token, text_token as owned_text_token};
 //!
 //! fn extract_annotations<T: Element>(elem: &T) -> Vec<Option<String>> {
 //!     elem.annotations().map(
@@ -57,8 +57,8 @@
 //!
 //! let owned_elem = OwnedElement::new(
 //!     vec![
-//!         local_sid_token(300).with_source("foo", 12),
-//!         text_token("hello")
+//!         owned_local_sid_token(300).with_source("foo", 12),
+//!         owned_text_token("hello")
 //!     ],
 //!     OwnedValue::String("world".into())
 //! );
