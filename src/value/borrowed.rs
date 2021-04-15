@@ -56,7 +56,7 @@ pub struct BorrowedSymbolToken<'val> {
 }
 
 impl<'val> BorrowedSymbolToken<'val> {
-    pub fn new(
+    fn new(
         text: Option<&'val str>,
         local_sid: Option<SymbolId>,
         source: Option<BorrowedImportSource<'val>>,

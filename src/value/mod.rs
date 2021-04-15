@@ -46,7 +46,7 @@
 //!
 //! ```
 //! use ion_rs::value::{Element, SymbolToken};
-//! use ion_rs::value::borrowed::*;
+//! use ion_rs::value::borrowed::{BorrowedValue, BorrowedElement, local_sid_token as borrowed_local_sid_token, text_token as borrowed_text_token};
 //! use ion_rs::value::owned::{OwnedValue, OwnedElement, local_sid_token as owned_local_sid_token, text_token as owned_text_token};
 //!
 //! fn extract_annotations<T: Element>(elem: &T) -> Vec<Option<String>> {
@@ -68,12 +68,8 @@
 //!     vec!["hello", "world"].iter().map(|x| x.to_string()).collect();
 //! let borrowed_elem = BorrowedElement::new(
 //!     vec![
-//!         BorrowedSymbolToken::new(
-//!             None,
-//!             Some(200),
-//!             Some(BorrowedImportSource::new("bar", 9))
-//!         ),
-//!         strings[0].as_str().into()
+//!         borrowed_local_sid_token(200).with_source("bar", 9),
+//!         borrowed_text_token(&strings[0])
 //!     ],
 //!     BorrowedValue::String(&strings[1])
 //! );
