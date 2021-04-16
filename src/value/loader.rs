@@ -1,11 +1,15 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 use crate::result::IonResult;
-use crate::value::owned::{OwnedElement, OwnedSymbolToken, OwnedValue};
+use crate::value::owned::{OwnedElement, OwnedStruct, OwnedSymbolToken, OwnedValue};
+use crate::value::AnyInt;
 use crate::IonType;
 use ion_c_sys::reader::{IonCReader, IonCReaderHandle};
 use ion_c_sys::ION_TYPE;
 use std::convert::{TryFrom, TryInto};
+use std::iter::FromIterator;
+
+use super::owned::text_token;
 
 /// TODO add/refactor trait/implementation for borrowing over some context
 ///      we could make it generic with generic associated types or just have a lifetime
@@ -70,18 +74,19 @@ impl<'a> IonCReaderIterator<'a> {
                 IonType::Null => Null(ion_type),
                 IonType::Boolean => Boolean(self.reader.read_bool()?),
                 IonType::Integer => {
-                    todo!()
+                    Integer(AnyInt::I64(self.reader.read_i64()?));
+                    todo!("BigInt")
                 }
                 IonType::Float => Float(self.reader.read_f64()?),
                 IonType::Decimal => Decimal(self.reader.read_bigdecimal()?.into()),
                 IonType::Timestamp => Timestamp(self.reader.read_datetime()?.into()),
                 IonType::Symbol => todo!(),
-                IonType::String => todo!(),
+                IonType::String => String(self.reader.read_string()?.as_str().into()),
                 IonType::Clob => todo!(),
-                IonType::Blob => todo!(),
+                IonType::Blob => Blob(self.reader.read_bytes()?),
                 IonType::List => todo!(),
                 IonType::SExpression => todo!(),
-                IonType::Struct => todo!(),
+                IonType::Struct => Struct(OwnedStruct::from_iter(self.materialize_struct()?)),
             }
         };
 
@@ -93,6 +98,23 @@ impl<'a> IonCReaderIterator<'a> {
     fn materialize_top_level(&mut self, ionc_type: ION_TYPE) -> IonResult<OwnedElement> {
         self.materialize(ionc_type.try_into()?)
     }
+
+    fn materialize_struct(&mut self) -> IonResult<Vec<(OwnedSymbolToken, OwnedElement)>> {
+        let mut vec = vec![];
+        self.reader.step_in()?;
+        loop {
+            let ionc_type = self.read_next()?;
+            if let ion_c_sys::ION_TYPE_EOF = ionc_type {
+                break;
+            }
+
+            let token = text_token(self.reader.get_field_name()?.as_ref());
+            let elem = self.materialize_top_level(ionc_type)?;
+            vec.push((token, elem));
+        }
+        self.reader.step_out()?;
+        Ok(vec)
+    }
 }
 
 impl<'a> Iterator for IonCReaderIterator<'a> {
@@ -102,7 +124,7 @@ impl<'a> Iterator for IonCReaderIterator<'a> {
         // perform scaffolding over the Some/None part of the API
         match self.read_next() {
             Ok(ionc_type) => {
-                if let ion_c_sys::ION_TYPE_NONE = ionc_type {
+                if let ion_c_sys::ION_TYPE_EOF = ionc_type {
                     // reader says nothing, we're done!
                     None
                 } else {
@@ -132,4 +154,26 @@ impl Loader for IonCLoader {
 /// Returns an implementation defined [`Loader`] instance.
 pub fn loader() -> impl Loader {
     IonCLoader {}
+}
+
+#[cfg(test)]
+mod loader_tests {
+    use super::*;
+    use crate::value::{Element, Struct};
+
+    #[test]
+    fn load_em_up() -> IonResult<()> {
+        let data = b"{bool_field: true,string_field: \"string\"}";
+        let mut all: Vec<_> = loader().iterate_over(data)?.collect();
+        assert_eq!(1, all.len());
+        let elem = all.pop().unwrap()?;
+        let strukt = elem.as_struct().unwrap();
+        assert_eq!(true, strukt.get("bool_field").unwrap().as_bool().unwrap());
+        assert_eq!(
+            "string",
+            strukt.get("string_field").unwrap().as_str().unwrap()
+        );
+
+        Ok(())
+    }
 }
