@@ -1,13 +1,12 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 use crate::result::IonResult;
-use crate::value::owned::{OwnedElement, OwnedStruct, OwnedSymbolToken, OwnedValue};
+use crate::value::owned::{OwnedElement, OwnedSequence, OwnedStruct, OwnedSymbolToken, OwnedValue};
 use crate::value::AnyInt;
 use crate::IonType;
 use ion_c_sys::reader::{IonCReader, IonCReaderHandle};
 use ion_c_sys::ION_TYPE;
 use std::convert::{TryFrom, TryInto};
-use std::iter::FromIterator;
 
 use super::owned::text_token;
 
@@ -41,6 +40,7 @@ pub trait Loader {
 
 struct IonCReaderIterator<'a> {
     reader: IonCReaderHandle<'a>,
+    done: bool,
 }
 
 impl<'a> IonCReaderIterator<'a> {
@@ -73,20 +73,23 @@ impl<'a> IonCReaderIterator<'a> {
                 // technically unreachable...
                 IonType::Null => Null(ion_type),
                 IonType::Boolean => Boolean(self.reader.read_bool()?),
-                IonType::Integer => {
-                    Integer(AnyInt::I64(self.reader.read_i64()?));
-                    todo!("BigInt")
-                }
+                // TODO deal with the big integer case
+                IonType::Integer => Integer(if let Ok(ival) = self.reader.read_i64() {
+                    AnyInt::I64(ival)
+                } else {
+                    AnyInt::BigInt(self.reader.read_bigint()?)
+                }),
                 IonType::Float => Float(self.reader.read_f64()?),
                 IonType::Decimal => Decimal(self.reader.read_bigdecimal()?.into()),
                 IonType::Timestamp => Timestamp(self.reader.read_datetime()?.into()),
-                IonType::Symbol => todo!(),
+                // TODO get the `ION_SYMBOL` value and extract the complete symbolic information.
+                IonType::Symbol => Symbol(self.reader.read_string()?.as_str().into()),
                 IonType::String => String(self.reader.read_string()?.as_str().into()),
-                IonType::Clob => todo!(),
+                IonType::Clob => Clob(self.reader.read_bytes()?),
                 IonType::Blob => Blob(self.reader.read_bytes()?),
-                IonType::List => todo!(),
-                IonType::SExpression => todo!(),
-                IonType::Struct => Struct(OwnedStruct::from_iter(self.materialize_struct()?)),
+                IonType::List => List(self.materialize_sequence()?),
+                IonType::SExpression => SExpression(self.materialize_sequence()?),
+                IonType::Struct => Struct(self.materialize_struct()?),
             }
         };
 
@@ -99,8 +102,8 @@ impl<'a> IonCReaderIterator<'a> {
         self.materialize(ionc_type.try_into()?)
     }
 
-    fn materialize_struct(&mut self) -> IonResult<Vec<(OwnedSymbolToken, OwnedElement)>> {
-        let mut vec = vec![];
+    fn materialize_sequence(&mut self) -> IonResult<OwnedSequence> {
+        let mut children = Vec::new();
         self.reader.step_in()?;
         loop {
             let ionc_type = self.read_next()?;
@@ -108,12 +111,28 @@ impl<'a> IonCReaderIterator<'a> {
                 break;
             }
 
-            let token = text_token(self.reader.get_field_name()?.as_ref());
-            let elem = self.materialize_top_level(ionc_type)?;
-            vec.push((token, elem));
+            children.push(self.materialize_top_level(ionc_type)?);
         }
         self.reader.step_out()?;
-        Ok(vec)
+        Ok(children.into_iter().collect())
+    }
+
+    fn materialize_struct(&mut self) -> IonResult<OwnedStruct> {
+        let mut fields = vec![];
+        self.reader.step_in()?;
+        loop {
+            let ionc_type = self.read_next()?;
+            if let ion_c_sys::ION_TYPE_EOF = ionc_type {
+                break;
+            }
+
+            // TODO get the `ION_SYMBOL` value and extract the complete symbolic information.
+            let token = text_token(self.reader.get_field_name()?.as_str());
+            let elem = self.materialize_top_level(ionc_type)?;
+            fields.push((token, elem));
+        }
+        self.reader.step_out()?;
+        Ok(fields.into_iter().collect())
     }
 }
 
@@ -121,15 +140,25 @@ impl<'a> Iterator for IonCReaderIterator<'a> {
     type Item = IonResult<OwnedElement>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // if we previously returned an error, we're done
+        if self.done {
+            return None;
+        }
         // perform scaffolding over the Some/None part of the API
         match self.read_next() {
             Ok(ionc_type) => {
                 if let ion_c_sys::ION_TYPE_EOF = ionc_type {
                     // reader says nothing, we're done!
+                    self.done = true;
                     None
                 } else {
                     // we've got something
-                    Some(self.materialize_top_level(ionc_type))
+                    let result = self.materialize_top_level(ionc_type);
+                    if let Err(_) = &result {
+                        // a failure means the iterator is done
+                        self.done = true;
+                    }
+                    Some(result)
                 }
             }
             // next failed...
@@ -147,7 +176,10 @@ impl Loader for IonCLoader {
     ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'a>> {
         let reader = IonCReaderHandle::try_from(data)?;
 
-        Ok(Box::new(IonCReaderIterator { reader }))
+        Ok(Box::new(IonCReaderIterator {
+            reader,
+            done: false,
+        }))
     }
 }
 
@@ -159,21 +191,272 @@ pub fn loader() -> impl Loader {
 #[cfg(test)]
 mod loader_tests {
     use super::*;
-    use crate::value::{Element, Struct};
+    use crate::types::timestamp::Timestamp as TS;
+    use crate::value::owned::OwnedValue::*;
+    use crate::value::owned::*;
+    use crate::value::{AnyInt, Element};
+    use crate::IonType;
+    use bigdecimal::BigDecimal;
+    use ion_c_sys::result::IonCError;
+    use ion_c_sys::{
+        ion_error_code_IERR_INVALID_BINARY, ion_error_code_IERR_INVALID_STATE,
+        ion_error_code_IERR_NULL_VALUE,
+    };
+    use num_bigint::BigInt;
+    use rstest::*;
+    use std::str::FromStr;
+
+    #[inline]
+    fn load_all(input: &[u8]) -> IonResult<Vec<OwnedElement>> {
+        loader().iterate_over(input)?.collect()
+    }
+
+    #[inline]
+    fn single(input: &[u8]) -> IonResult<OwnedElement> {
+        let loader = loader();
+        let mut iter = loader.iterate_over(input)?;
+        let first = iter.next().unwrap();
+        assert_eq!(None, iter.next());
+        first
+    }
+
+    #[rstest]
+    #[case::nulls(
+        br#"
+           null
+           null.bool
+           null.int
+           null.float
+           null.decimal
+           null.timestamp
+           null.symbol
+           null.string
+           null.clob
+           null.blob
+           null.list
+           null.sexp
+           null.struct
+        "#,
+        vec![
+            Null(IonType::Null),
+            Null(IonType::Boolean),
+            Null(IonType::Integer),
+            Null(IonType::Float),
+            Null(IonType::Decimal),
+            Null(IonType::Timestamp),
+            Null(IonType::Symbol),
+            Null(IonType::String),
+            Null(IonType::Clob),
+            Null(IonType::Blob),
+            Null(IonType::List),
+            Null(IonType::SExpression),
+            Null(IonType::Struct),
+        ].into_iter().map(|v| v.into()).collect(),
+    )]
+    #[case::ints(
+        br#"
+            0
+            -65536 65535
+            -4294967296 4294967295
+            -9007199254740992 9007199254740991
+            -18446744073709551616 18446744073709551615
+            -79228162514264337593543950336 79228162514264337593543950335
+        "#,
+        vec![
+            0,
+            -65536, 65535,
+            -4294967296, 4294967295,
+            -9007199254740992, 9007199254740991,
+        ].into_iter().map(|v| AnyInt::I64(v)).chain(
+            vec![
+                "-18446744073709551616", "18446744073709551615",
+                "-79228162514264337593543950336", "79228162514264337593543950335",
+            ].into_iter()
+            .map(|v| AnyInt::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap()))
+        ).map(|ai| Integer(ai).into()).collect(),
+    )]
+    #[case::floats(
+        // TODO NaN is Ion Data Model equivalent to itself but not PartialEq
+        br#"
+           1e0 +inf -inf
+        "#,
+        vec![
+            1f64, f64::INFINITY, f64::NEG_INFINITY,
+        ].into_iter().map(|v| Float(v).into()).collect(),
+    )]
+    #[case::decimals(
+        br#"
+            1d0 100d10 -2.1234567d-100
+        "#,
+        vec![
+            "1e0", "100e10", "-2.1234567e-100",
+        ].into_iter().map(|s| Decimal(BigDecimal::from_str(s).unwrap().into()).into()).collect(),
+    )]
+    #[case::timestamps(
+        br#"
+            2020T
+            2020-02-27T
+            2020-02-27T14:16:33-00:00
+            2020-02-27T14:16:33.123Z
+        "#,
+        vec![
+            TS::with_year(2020).build(),
+            TS::with_ymd(2020, 2, 27).build(),
+            TS::with_ymd(2020, 2, 27)
+                .with_hms(14, 16, 33)
+                .build_at_unknown_offset(),
+            TS::with_ymd(2020, 2, 27)
+                .with_hms(14, 16, 33)
+                .with_milliseconds(123)
+                .build_at_offset(0),
+        ].into_iter().map(|ts_res| Timestamp(ts_res.unwrap()).into()).collect(),
+    )]
+    #[case::text_symbols(
+        br#"
+            foo
+            'bar'
+        "#,
+        vec![
+            "foo", "bar",
+        ].into_iter().map(|s| Symbol(s.into()).into()).collect(),
+    )]
+    #[case::strings(
+        br#"
+            '''hello'''
+            "world"
+        "#,
+        vec![
+            "hello", "world",
+        ].into_iter().map(|s| String(s.into()).into()).collect(),
+    )]
+    #[case::clobs(
+        br#"
+            {{'''goodbye'''}}
+            {{"moon"}}
+        "#,
+        {
+            // XXX annotate a vector otherwise inference gets a bit confused
+            let lobs: Vec<&[u8]> = vec![
+                b"goodbye", b"moon",
+            ];
+            lobs
+        }.into_iter().map(|b| Clob(b.into()).into()).collect(),
+    )]
+    #[case::blobs(
+        br#"
+           {{bW9v}}
+        "#,
+        {
+            // XXX annotate a vector otherwise inference gets a bit confused
+            let lobs: Vec<&[u8]> = vec![
+                b"moo",
+            ];
+            lobs
+        }.into_iter().map(|b| Blob(b.into()).into()).collect(),
+    )]
+    #[case::lists(
+        br#"
+            ["a", "b"]
+        "#,
+        vec![
+            vec!["a", "b"].into_iter().map(|s| String(s.into()).into()).collect(),
+        ].into_iter()
+            .map(|elems: Vec<OwnedElement>| List(elems.into_iter().collect()).into())
+            .collect(),
+    )]
+    #[case::sexps(
+        br#"
+            (e f g)
+        "#,
+        vec![
+            vec!["e", "f", "g"].into_iter().map(|s| Symbol(s.into()).into()).collect(),
+        ].into_iter()
+            .map(|elems: Vec<OwnedElement>| SExpression(elems.into_iter().collect()).into())
+            .collect(),
+    )]
+    #[case::structs(
+        br#"
+            {
+                bool_field: a::true,
+                string_field: a::"moo!",
+                string_field: a::"oink!",
+            }
+        "#,
+        vec![
+            vec![
+                (text_token("string_field"), String("oink!".into())),
+                (text_token("string_field"), String("moo!".into())),
+                (text_token("bool_field"), Boolean(true)),
+            ]
+        ].into_iter()
+            .map(|fields: Vec<(OwnedSymbolToken, OwnedValue)>| {
+                Struct(
+                    fields.into_iter().map(|(tok, val)| {
+                        (tok, OwnedElement::new(vec![text_token("a")], val))
+                    }).collect()).into()
+            })
+            .collect(),
+    )]
+    fn load_and_compare(
+        #[case] input: &[u8],
+        #[case] expected: Vec<OwnedElement>,
+    ) -> IonResult<()> {
+        let actual = load_all(input)?;
+        assert_eq!(expected, actual);
+        Ok(())
+    }
 
     #[test]
-    fn load_em_up() -> IonResult<()> {
-        let data = b"{bool_field: true,string_field: \"string\"}";
-        let mut all: Vec<_> = loader().iterate_over(data)?.collect();
-        assert_eq!(1, all.len());
-        let elem = all.pop().unwrap()?;
-        let strukt = elem.as_struct().unwrap();
-        assert_eq!(true, strukt.get("bool_field").unwrap().as_bool().unwrap());
-        assert_eq!(
-            "string",
-            strukt.get("string_field").unwrap().as_str().unwrap()
-        );
+    fn load_nan() -> IonResult<()> {
+        let actual = single(b"nan")?;
+        assert!(actual.as_f64().unwrap().is_nan());
+        Ok(())
+    }
 
+    #[rstest]
+    #[case::unknown_local_symbol(
+        br#"
+            $ion_1_0
+            $ion_symbol_table::{
+                symbols:[null]
+            }
+            $10
+        "#,
+        vec![
+            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE).into())
+        ]
+    )]
+    #[case::unknown_shared_symbol_field_name(
+        br#"
+            $ion_1_0
+            $ion_symbol_table::{
+                imports:[{name: "my_table", version: 1, max_id: 100}]
+            }
+            {$10:5}
+        "#,
+        vec![
+            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE).into())
+        ]
+    )]
+    #[case::illegal_negative_zero_int(
+        &[0xE0, 0x01, 0x00, 0xEA, 0x30],
+        vec![
+            Err(IonCError::from(ion_error_code_IERR_INVALID_BINARY).into())
+        ]
+    )]
+    #[case::illegal_fcode(
+        &[0xE0, 0x01, 0x00, 0xEA, 0xF0],
+        vec![
+            Err(IonCError::from(ion_error_code_IERR_INVALID_STATE).into())
+        ]
+    )]
+    /// Like load_and_compare, but against results (which makes it easier to test for errors).
+    fn load_expect(
+        #[case] input: &[u8],
+        #[case] expected: Vec<IonResult<OwnedElement>>,
+    ) -> IonResult<()> {
+        let actual: Vec<_> = loader().iterate_over(input)?.collect();
+        assert_eq!(expected, actual);
         Ok(())
     }
 }
