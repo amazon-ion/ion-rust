@@ -406,7 +406,6 @@ impl ION_DECIMAL {
         }
 
         // get some information about the decimal
-        let negative = unsafe { ion_decimal_is_negative(self) } != 0;
         let exponent = unsafe { ion_decimal_get_exponent(self) };
         let mut ctx = make_context();
 
@@ -435,10 +434,7 @@ impl ION_DECIMAL {
         ))?;
 
         // make the decimal -- note scale is negative exponent
-        let mut coefficient = ion_coefficient.try_to_bigint()?;
-        if negative {
-            coefficient *= -1;
-        }
+        let coefficient = ion_coefficient.try_to_bigint()?;
         Ok(BigDecimal::new(coefficient, -exponent as i64))
     }
 }
@@ -468,20 +464,40 @@ mod test_bigdecimal {
         d_lit, c_lit, exponent,
         case::zero("0E0", "0", 0),
         case::zero_p1_en8("0E-8", "0", -8),
+        case::n8_en9(
+            "-0.060231219",
+            "-60231219",
+            -9
+        ),
         case::p8_en9(
             "0.060231219",
             "60231219",
             -9
+        ),
+        case::n8_e7(
+            "-2.7851880E+14",
+            "-27851880",
+            7
         ),
         case::p8_e7(
             "2.7851880E+14",
             "27851880",
             7
         ),
+        case::n10_en32(
+            "-8.960115983E-23",
+            "-8960115983",
+            -32
+        ),
         case::p10_en32(
             "8.960115983E-23",
             "8960115983",
             -32
+        ),
+        case::n10_e33(
+            "-9.020634788E+42",
+            "-9020634788",
+            33
         ),
         case::p10_e33(
             "9.020634788E+42",
