@@ -916,7 +916,7 @@ mod from_ionc_tests {
         BigDecimal::parse_bytes(lit.as_bytes(), 10).unwrap().into()
     }
 
-    /// Creates an `IonDateTime` or panics from constituent components.
+    /// Creates an `IonDateTime` from constituent components or panics.
     fn ionc_dt(dt_lit: &str, precision: TSPrecision, offset_kind: TSOffsetKind) -> IonDateTime {
         let dt = DateTime::parse_from_rfc3339(dt_lit).unwrap();
         IonDateTime::try_new(dt, precision, offset_kind).unwrap()
