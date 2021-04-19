@@ -1014,7 +1014,7 @@ mod from_ionc_tests {
     #[case::beyondnanos_zulu(
         ionc_dt(
             "2020-01-01T00:01:23.999888777Z",
-            ionc_ts::TSPrecision::Fractional(frac("0.99988877766")),
+            ionc_ts::TSPrecision::Fractional(fractional("0.99988877766")),
             ionc_ts::TSOffsetKind::KnownOffset
         ),
         Timestamp::with_ymd(2020, 1, 1)
