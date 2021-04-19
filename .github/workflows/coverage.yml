@@ -21,9 +21,9 @@ jobs:
       - name: Rust Toolchain
         uses: actions-rs/toolchain@v1
         with:
-          profile: default
+          profile: minimal
           # nightly can be very volatile--pin this to a version we know works well...
-          toolchain: nightly-2021-03-23
+          toolchain: nightly-2021-04-18
           override: true
       - name: Cargo Test
         uses: actions-rs/cargo@v1
