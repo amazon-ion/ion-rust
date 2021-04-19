@@ -323,11 +323,13 @@ pub trait IonCReader {
     /// # use ion_c_sys::reader::*;
     /// # use ion_c_sys::result::*;
     /// # fn main() -> IonCResult<()> {
-    /// let mut reader = IonCReaderHandle::try_from("{{\"hello\"}} {{d29ybGQ=}}")?;
+    /// let mut reader = IonCReaderHandle::try_from("{{\"hello\"}} {{d29ybGQ=}} {{}}")?;
     /// assert_eq!(ION_TYPE_CLOB, reader.next()?);
     /// assert_eq!(b"hello", reader.read_bytes()?.as_slice());
     /// assert_eq!(ION_TYPE_BLOB, reader.next()?);
     /// assert_eq!(b"world", reader.read_bytes()?.as_slice());
+    /// assert_eq!(ION_TYPE_BLOB, reader.next()?);
+    /// assert_eq!(b"", reader.read_bytes()?.as_slice());
     /// # Ok(())
     /// # }
     /// ```
@@ -510,6 +512,12 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
     fn read_bytes(&mut self) -> IonCResult<Vec<u8>> {
         let mut len = 0;
         ionc!(ion_reader_get_lob_size(self.reader, &mut len))?;
+        if len == 0 {
+            // XXX short-circuit the empty case
+            // until amzn/ion-c#233 is fixed this will panic, but there
+            // is no reason to call into Ion C in this case anyhow
+            return Ok(Vec::new());
+        }
 
         let mut read_len = 0;
         let mut buf = vec![0; len.try_into()?];
