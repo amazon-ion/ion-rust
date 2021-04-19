@@ -908,7 +908,7 @@ mod from_ionc_tests {
     use ion_c_sys::timestamp as ionc_ts;
     use rstest::*;
 
-    fn frac(lit: &str) -> ionc_ts::Mantissa {
+    fn fractional(lit: &str) -> ionc_ts::Mantissa {
         ionc_ts::Mantissa::Fraction(BigDecimal::parse_bytes(lit.as_bytes(), 10).unwrap())
     }
 
