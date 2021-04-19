@@ -513,7 +513,9 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         let mut len = 0;
         ionc!(ion_reader_get_lob_size(self.reader, &mut len))?;
         if len == 0 {
-            // short-circuit the empty case
+            // XXX short-circuit the empty case
+            // until amzn/ion-c#233 is fixed this will panic, but there
+            // is no reason to call into Ion C in this case anyhow
             return Ok(Vec::new());
         }
 
