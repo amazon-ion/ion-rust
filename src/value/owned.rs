@@ -11,6 +11,7 @@ use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::value::LobBuilder;
 use crate::IonType;
+use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::rc::Rc;
@@ -140,7 +141,7 @@ impl SymbolToken for OwnedSymbolToken {
     }
 }
 
-/// An owned implementation of [`Lob`]
+/// An owned implementation of [`LobBuilder`].
 #[derive(Debug, Clone)]
 pub struct OwnedLobBuilder {
     value: Vec<u8>,
@@ -350,8 +351,8 @@ pub enum OwnedValue {
     String(String),
     Symbol(OwnedSymbolToken),
     Boolean(bool),
-    Blob(OwnedLobBuilder),
-    Clob(OwnedLobBuilder),
+    Blob(Vec<u8>),
+    Clob(Vec<u8>),
     SExpression(OwnedSequence),
     List(OwnedSequence),
     Struct(OwnedStruct),
@@ -391,9 +392,15 @@ impl From<IonType> for OwnedElement {
     }
 }
 
-impl From<AnyInt> for OwnedElement {
-    fn from(int_val: AnyInt) -> Self {
-        OwnedValue::Integer(int_val).into()
+impl From<i64> for OwnedElement {
+    fn from(i64_val: i64) -> Self {
+        OwnedValue::Integer(AnyInt::I64(i64_val)).into()
+    }
+}
+
+impl From<BigInt> for OwnedElement {
+    fn from(big_int_val: BigInt) -> Self {
+        OwnedValue::Integer(AnyInt::BigInt(big_int_val)).into()
     }
 }
 
@@ -528,7 +535,7 @@ impl Element for OwnedElement {
 
     fn as_bytes(&self) -> Option<&[u8]> {
         match &self.value {
-            OwnedValue::Blob(bytes) | OwnedValue::Clob(bytes) => Some(&bytes.value),
+            OwnedValue::Blob(bytes) | OwnedValue::Clob(bytes) => Some(bytes),
             _ => None,
         }
     }
@@ -558,6 +565,7 @@ mod value_tests {
     use chrono::*;
     use rstest::*;
     use std::iter::{once, Once};
+    use std::str::FromStr;
 
     /// Makes a timestamp from an RFC-3339 string and panics if it can't
     fn make_timestamp<T: AsRef<str>>(text: T) -> Timestamp {
@@ -689,7 +697,7 @@ mod value_tests {
             &|e: &OwnedElement| assert_eq!(Some(true), e.as_bool())
         ),
         case::i64(
-            AnyInt::I64(100).into(),
+            100.into(),
             IonType::Integer,
             AsAnyInt,
             &|e: &OwnedElement| {
@@ -698,7 +706,15 @@ mod value_tests {
                 assert_eq!(None, e.as_big_int());
             }
         ),
-        // // TODO a BigInt test case
+        case::BigInt(
+            BigInt::from(100).into(),
+            IonType::Integer,
+            AsAnyInt,
+            &|e: &OwnedElement| {
+                assert_eq!(Some(&AnyInt::BigInt(BigInt::from(100))), e.as_any_int());
+                assert_eq!(BigInt::from_str("100").unwrap(), *e.as_big_int().unwrap());
+            }
+        ),
         case::f64(
             16.0.into(),
             IonType::Float,

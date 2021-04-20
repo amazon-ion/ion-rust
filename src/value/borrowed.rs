@@ -13,6 +13,7 @@ use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::value::{AnyInt, LobBuilder};
 use crate::IonType;
+use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::iter::FromIterator;
 
@@ -136,7 +137,7 @@ impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
         self.source.as_ref()
     }
 }
-/// An borrowed implementation of [`Lob`]
+/// An borrowed implementation of [`LobBuilder`].
 #[derive(Debug, Clone)]
 pub struct BorrowedLobBuilder<'val> {
     value: &'val [u8],
@@ -347,8 +348,8 @@ pub enum BorrowedValue<'val> {
     String(&'val str),
     Symbol(BorrowedSymbolToken<'val>),
     Boolean(bool),
-    Blob(BorrowedLobBuilder<'val>),
-    Clob(BorrowedLobBuilder<'val>),
+    Blob(&'val [u8]),
+    Clob(&'val [u8]),
     SExpression(BorrowedSequence<'val>),
     List(BorrowedSequence<'val>),
     Struct(BorrowedStruct<'val>),
@@ -389,9 +390,15 @@ impl<'val> From<IonType> for BorrowedElement<'val> {
     }
 }
 
-impl<'val> From<AnyInt> for BorrowedElement<'val> {
-    fn from(int_val: AnyInt) -> Self {
-        BorrowedValue::Integer(int_val).into()
+impl<'val> From<i64> for BorrowedElement<'val> {
+    fn from(i64_val: i64) -> Self {
+        BorrowedValue::Integer(AnyInt::I64(i64_val)).into()
+    }
+}
+
+impl<'val> From<BigInt> for BorrowedElement<'val> {
+    fn from(big_int_val: BigInt) -> Self {
+        BorrowedValue::Integer(AnyInt::BigInt(big_int_val)).into()
     }
 }
 
@@ -525,7 +532,7 @@ impl<'val> Element for BorrowedElement<'val> {
 
     fn as_bytes(&self) -> Option<&[u8]> {
         match &self.value {
-            BorrowedValue::Blob(bytes) | BorrowedValue::Clob(bytes) => Some(bytes.value),
+            BorrowedValue::Blob(bytes) | BorrowedValue::Clob(bytes) => Some(bytes),
             _ => None,
         }
     }
@@ -555,6 +562,7 @@ mod borrowed_value_tests {
     use chrono::*;
     use rstest::*;
     use std::iter::{once, Once};
+    use std::str::FromStr;
 
     /// Makes a timestamp from an RFC-3339 string and panics if it can't
     fn make_timestamp<T: AsRef<str>>(text: T) -> Timestamp {
@@ -686,7 +694,7 @@ mod borrowed_value_tests {
             &|e: &BorrowedElement| assert_eq!(Some(true), e.as_bool())
         ),
         case::i64(
-            AnyInt::I64(100).into(),
+            100.into(),
             IonType::Integer,
             AsAnyInt,
             &|e: &BorrowedElement| {
@@ -695,7 +703,15 @@ mod borrowed_value_tests {
                 assert_eq!(None, e.as_big_int());
             }
         ),
-        // TODO a BigInt test case
+        case::BigInt(
+            BigInt::from(100).into(),
+            IonType::Integer,
+            AsAnyInt,
+            &|e: &BorrowedElement| {
+                assert_eq!(Some(&AnyInt::BigInt(BigInt::from(100))), e.as_any_int());
+                assert_eq!(BigInt::from_str("100").unwrap(), *e.as_big_int().unwrap());
+            }
+        ),
         case::f64(
             16.0.into(),
             IonType::Float,

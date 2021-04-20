@@ -260,9 +260,9 @@ impl Eq for AnyInt {}
 /// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
 pub trait Element {
     type SymbolToken: SymbolToken + ?Sized;
-    type Sequence: Sequence + ?Sized;
+    type Sequence: Sequence<Element = Self> + ?Sized;
     type Struct: Struct + ?Sized;
-    type LobBuilder: LobBuilder + ?Sized;
+    type LobBuilder: LobBuilder<Element = Self> + ?Sized;
 
     /// The type of data this element represents.
     fn ion_type(&self) -> IonType;
@@ -408,10 +408,10 @@ pub trait Sequence {
     /// Returns true if the sequence is empty otherwise returns false
     fn is_empty(&self) -> bool;
 
-    /// build `list` from sequence
+    /// Builds a `list` [`Element`] from this [`Sequence`].
     fn into_list(self) -> Self::Element;
 
-    /// build `sexp` from sequence
+    /// Builds a `sexp` [`Element`] from this [`Sequence`].
     fn into_sexp(self) -> Self::Element;
 }
 
