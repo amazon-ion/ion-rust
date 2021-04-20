@@ -11,7 +11,7 @@ use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
-use crate::value::AnyInt;
+use crate::value::{AnyInt, LobBuilder};
 use crate::IonType;
 use std::collections::HashMap;
 use std::iter::FromIterator;
@@ -136,6 +136,41 @@ impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
         self.source.as_ref()
     }
 }
+/// An borrowed implementation of [`Lob`]
+#[derive(Debug, Clone)]
+pub struct BorrowedLobBuilder<'val> {
+    value: &'val [u8],
+}
+
+impl<'val> BorrowedLobBuilder<'val> {
+    pub fn new(value: &'val [u8]) -> Self {
+        Self { value }
+    }
+}
+
+impl<'val> LobBuilder for BorrowedLobBuilder<'val> {
+    type Element = BorrowedElement<'val>;
+
+    fn into_clob(self) -> Self::Element {
+        BorrowedElement::new(vec![], BorrowedValue::Clob(self.value.into()))
+    }
+
+    fn into_blob(self) -> Self::Element {
+        BorrowedElement::new(vec![], BorrowedValue::Blob(self.value.into()))
+    }
+}
+
+impl<'val, T: Into<&'val [u8]>> From<T> for BorrowedLobBuilder<'val> {
+    fn from(bytes_val: T) -> Self {
+        BorrowedLobBuilder::new(bytes_val.into())
+    }
+}
+
+impl<'val> PartialEq for BorrowedLobBuilder<'val> {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
 
 /// A borrowed implementation of [`Sequence`].
 #[derive(Debug, Clone)]
@@ -177,6 +212,14 @@ impl<'val> Sequence for BorrowedSequence<'val> {
 
     fn is_empty(&self) -> bool {
         self.children.len() == 0
+    }
+
+    fn into_list(self) -> Self::Element {
+        BorrowedValue::List(self).into()
+    }
+
+    fn into_sexp(self) -> Self::Element {
+        BorrowedValue::SExpression(self).into()
     }
 }
 
@@ -304,8 +347,8 @@ pub enum BorrowedValue<'val> {
     String(&'val str),
     Symbol(BorrowedSymbolToken<'val>),
     Boolean(bool),
-    Blob(&'val [u8]),
-    Clob(&'val [u8]),
+    Blob(BorrowedLobBuilder<'val>),
+    Clob(BorrowedLobBuilder<'val>),
     SExpression(BorrowedSequence<'val>),
     List(BorrowedSequence<'val>),
     Struct(BorrowedStruct<'val>),
@@ -340,10 +383,65 @@ impl<'val> From<BorrowedValue<'val>> for BorrowedElement<'val> {
     }
 }
 
+impl<'val> From<IonType> for BorrowedElement<'val> {
+    fn from(ion_type: IonType) -> Self {
+        BorrowedValue::Null(ion_type).into()
+    }
+}
+
+impl<'val> From<AnyInt> for BorrowedElement<'val> {
+    fn from(int_val: AnyInt) -> Self {
+        BorrowedValue::Integer(int_val).into()
+    }
+}
+
+impl<'val> From<f64> for BorrowedElement<'val> {
+    fn from(f64_val: f64) -> Self {
+        BorrowedValue::Float(f64_val).into()
+    }
+}
+
+impl<'val> From<Decimal> for BorrowedElement<'val> {
+    fn from(decimal_val: Decimal) -> Self {
+        BorrowedValue::Decimal(decimal_val).into()
+    }
+}
+
+impl<'val> From<Timestamp> for BorrowedElement<'val> {
+    fn from(timestamp_val: Timestamp) -> Self {
+        BorrowedValue::Timestamp(timestamp_val).into()
+    }
+}
+
+impl<'val> From<bool> for BorrowedElement<'val> {
+    fn from(bool_val: bool) -> Self {
+        BorrowedValue::Boolean(bool_val).into()
+    }
+}
+
+impl<'val> From<&'val str> for BorrowedElement<'val> {
+    fn from(string_val: &'val str) -> Self {
+        BorrowedValue::String(string_val).into()
+    }
+}
+
+impl<'val> From<BorrowedSymbolToken<'val>> for BorrowedElement<'val> {
+    fn from(sym_val: BorrowedSymbolToken<'val>) -> Self {
+        BorrowedValue::Symbol(sym_val).into()
+    }
+}
+
+impl<'val> From<BorrowedStruct<'val>> for BorrowedElement<'val> {
+    fn from(struct_val: BorrowedStruct<'val>) -> Self {
+        BorrowedValue::Struct(struct_val).into()
+    }
+}
+
 impl<'val> Element for BorrowedElement<'val> {
     type SymbolToken = BorrowedSymbolToken<'val>;
     type Sequence = BorrowedSequence<'val>;
     type Struct = BorrowedStruct<'val>;
+    type LobBuilder = BorrowedLobBuilder<'val>;
 
     fn ion_type(&self) -> IonType {
         use BorrowedValue::*;
@@ -427,7 +525,7 @@ impl<'val> Element for BorrowedElement<'val> {
 
     fn as_bytes(&self) -> Option<&[u8]> {
         match &self.value {
-            BorrowedValue::Blob(bytes) | BorrowedValue::Clob(bytes) => Some(*bytes),
+            BorrowedValue::Blob(bytes) | BorrowedValue::Clob(bytes) => Some(bytes.value),
             _ => None,
         }
     }
@@ -573,22 +671,22 @@ mod borrowed_value_tests {
     }
 
     #[rstest(
-        val, ion_type, valid_ops_iter, op_assert,
+        elem, ion_type, valid_ops_iter, op_assert,
         case::null(
-            BorrowedValue::Null(IonType::Null),
+            IonType::Null.into(),
             IonType::Null,
             IsNull,
             &|e: &BorrowedElement| assert_eq!(true, e.is_null())
         ),
         // TODO more null testing (probably its own fixture)
         case::bool(
-            BorrowedValue::Boolean(true),
+            true.into(),
             IonType::Boolean,
             AsBool,
             &|e: &BorrowedElement| assert_eq!(Some(true), e.as_bool())
         ),
         case::i64(
-            BorrowedValue::Integer(AnyInt::I64(100)),
+            AnyInt::I64(100).into(),
             IonType::Integer,
             AsAnyInt,
             &|e: &BorrowedElement| {
@@ -599,19 +697,19 @@ mod borrowed_value_tests {
         ),
         // TODO a BigInt test case
         case::f64(
-            BorrowedValue::Float(16.0),
+            16.0.into(),
             IonType::Float,
             AsF64,
             &|e: &BorrowedElement| assert_eq!(Some(16.0), e.as_f64())
         ),
         case::decimal(
-            BorrowedValue::Decimal(Decimal::new(8, 3)),
+            Decimal::new(8, 3).into(),
             IonType::Decimal,
             AsDecimal,
             &|e: &BorrowedElement| assert_eq!(Some(&Decimal::new(80, 2)), e.as_decimal())
         ),
         case::timestamp(
-            BorrowedValue::Timestamp(make_timestamp("2014-10-16T12:01:00-00:00")),
+            make_timestamp("2014-10-16T12:01:00-00:00").into(),
             IonType::Timestamp,
             AsTimestamp,
             &|e: &BorrowedElement| {
@@ -619,13 +717,13 @@ mod borrowed_value_tests {
             }
         ),
         case::str(
-            BorrowedValue::String("hello".into()),
+            "hello".into(),
             IonType::String,
             AsStr,
             &|e: &BorrowedElement| assert_eq!(Some("hello"), e.as_str())
         ),
         case::sym_with_text(
-            BorrowedValue::Symbol("hello".into()),
+            text_token("hello").into(),
             IonType::Symbol,
             vec![AsStr, AsSym],
             &|e: &BorrowedElement| {
@@ -634,7 +732,7 @@ mod borrowed_value_tests {
             }
         ),
         case::sym_with_local_sid_source(
-            BorrowedValue::Symbol(BorrowedSymbolToken::new(None, Some(10), Some(BorrowedImportSource::new("greetings", 1)))),
+            local_sid_token(10).with_source("greetings", 1).into(),
             IonType::Symbol,
             vec![AsSym],
             &|e: &BorrowedElement| {
@@ -643,7 +741,7 @@ mod borrowed_value_tests {
             }
         ),
         case::sym_with_text_local_sid_source(
-            BorrowedValue::Symbol(local_sid_token(10).with_source("greetings", 1).with_text("foo")),
+            local_sid_token(10).with_source("greetings", 1).with_text("foo").into(),
             IonType::Symbol,
             vec![AsSym, AsStr],
             &|e: &BorrowedElement| {
@@ -654,7 +752,7 @@ mod borrowed_value_tests {
             }
         ),
         case::blob(
-            BorrowedValue::Blob("world".as_bytes().into()),
+            BorrowedLobBuilder::from("world".as_bytes()).into_blob(),
             IonType::Blob,
             AsBytes,
             &|e: &BorrowedElement| {
@@ -662,7 +760,7 @@ mod borrowed_value_tests {
             }
         ),
         case::clob(
-            BorrowedValue::Clob("goodbye".as_bytes().into()),
+            BorrowedLobBuilder::from("goodbye".as_bytes()).into_clob(),
             IonType::Clob,
             AsBytes,
             &|e: &BorrowedElement| {
@@ -670,7 +768,7 @@ mod borrowed_value_tests {
             }
         ),
         case::list(
-            BorrowedValue::List(vec![BorrowedValue::Boolean(true), BorrowedValue::Boolean(false)].into_iter().map(|v| v.into()).collect()),
+            BorrowedSequence::from_iter(vec![true.into(), false.into()].into_iter()).into_list(),
             IonType::List,
             AsSequence,
             &|e: &BorrowedElement| {
@@ -678,7 +776,7 @@ mod borrowed_value_tests {
             }
         ),
         case::sexp(
-            BorrowedValue::SExpression(vec![BorrowedValue::Boolean(true), BorrowedValue::Boolean(false)].into_iter().map(|v| v.into()).collect()),
+            BorrowedSequence::from_iter(vec![true.into(), false.into()].into_iter()).into_sexp(),
             IonType::SExpression,
             AsSequence,
             &|e: &BorrowedElement| {
@@ -686,7 +784,7 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_(
-            BorrowedValue::Struct(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello".into())))].into_iter().collect()),
+            BorrowedStruct::from_iter(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello".into())))].into_iter()).into(),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -694,7 +792,7 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_not_equal(
-            BorrowedValue::Struct(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello".into())))].into_iter().collect()),
+            BorrowedStruct::from_iter(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello".into())))].into_iter()).into(),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -702,7 +800,7 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_local_sid(
-            BorrowedValue::Struct(vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter().collect()),
+            BorrowedStruct::from_iter(vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter()).into(),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -711,7 +809,7 @@ mod borrowed_value_tests {
         ),
         // SymbolToken with local SID and no text are equivalent to each other and to SID $0 
         case::struct_with_different_local_sids(
-            BorrowedValue::Struct(vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter().collect()),
+            BorrowedStruct::from_iter(vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter()).into(),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -719,7 +817,7 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_import_source(
-            BorrowedValue::Struct(vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter().collect()),
+            BorrowedStruct::from_iter(vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter()).into(),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -727,7 +825,7 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_import_source_not_equal(
-            BorrowedValue::Struct(vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter().collect()),
+            BorrowedStruct::from_iter(vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter()).into(),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -735,12 +833,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_multiple_fields(
-            BorrowedValue::Struct(
+            BorrowedStruct::from_iter(
                 vec![
                     ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
                     ("name", BorrowedElement::from(BorrowedValue::String("Ion".into()))),
-                ].into_iter().collect()
-            ),
+                ].into_iter()
+            ).into(),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -756,12 +854,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_multiple_fields_not_equal(
-            BorrowedValue::Struct(
+            BorrowedStruct::from_iter(
                 vec![
                     ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
                     ("name", BorrowedElement::from(BorrowedValue::String("Ion".into()))),
-                ].into_iter().collect()
-            ),
+                ].into_iter()
+            ).into(),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -777,12 +875,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_multiple_unordred_fields(
-            BorrowedValue::Struct(
+            BorrowedStruct::from_iter(
                 vec![
                     ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
                     ("name", BorrowedElement::from(BorrowedValue::String("Ion".into()))),
-                ].into_iter().collect()
-            ),
+                ].into_iter()
+            ).into(),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -798,12 +896,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_text_and_duplicates(
-        BorrowedValue::Struct(
+        BorrowedStruct::from_iter(
             vec![
                 ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
                 ("greetings", BorrowedElement::from(BorrowedValue::String("world".into()))),
-            ].into_iter().collect()
-        ),
+            ].into_iter()
+        ).into(),
         IonType::Struct,
         AsStruct,
         &|e: &BorrowedElement| {
@@ -819,12 +917,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_text_and_unordered_duplicates(
-        BorrowedValue::Struct(
+        BorrowedStruct::from_iter(
             vec![
                 ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
                 ("greetings", BorrowedElement::from(BorrowedValue::String("world".into()))),
-            ].into_iter().collect()
-        ),
+            ].into_iter()
+        ).into(),
         IonType::Struct,
         AsStruct,
         &|e: &BorrowedElement| {
@@ -840,12 +938,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_no_text_and_unordered_duplicates(
-            BorrowedValue::Struct(
+            BorrowedStruct::from_iter(
                 vec![
                     (local_sid_token(21), BorrowedElement::from(BorrowedValue::String("hello".into()))),
                     (local_sid_token(21), BorrowedElement::from(BorrowedValue::String("world".into()))),
-                ].into_iter().collect()
-            ),
+                ].into_iter()
+            ).into(),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -895,7 +993,7 @@ mod borrowed_value_tests {
         ]
     )]
     fn borrowed_element_accessors<O: IntoIterator<Item = ElemOp>>(
-        val: BorrowedValue,
+        elem: BorrowedElement,
         ion_type: IonType,
         valid_ops_iter: O,
         op_assert: &ElemAssertFunc,
@@ -931,7 +1029,6 @@ mod borrowed_value_tests {
             .collect();
 
         // construct an element to test
-        let elem: BorrowedElement = val.into();
         assert_eq!(ion_type, elem.ion_type());
 
         for assert in op_assertions {

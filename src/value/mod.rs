@@ -262,6 +262,7 @@ pub trait Element {
     type SymbolToken: SymbolToken + ?Sized;
     type Sequence: Sequence + ?Sized;
     type Struct: Struct + ?Sized;
+    type LobBuilder: LobBuilder + ?Sized;
 
     /// The type of data this element represents.
     fn ion_type(&self) -> IonType;
@@ -406,6 +407,12 @@ pub trait Sequence {
 
     /// Returns true if the sequence is empty otherwise returns false
     fn is_empty(&self) -> bool;
+
+    /// build `list` from sequence
+    fn into_list(self) -> Self::Element;
+
+    /// build `sexp` from sequence
+    fn into_sexp(self) -> Self::Element;
 }
 
 /// Represents the _value_ of `struct` of Ion elements.
@@ -482,4 +489,15 @@ pub trait Struct {
         &'a self,
         field_name: T,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
+}
+
+/// Represents the constructor of Lob (i.e. `clob` and `blob`).
+pub trait LobBuilder {
+    type Element: Element + ?Sized;
+
+    /// build `clob` from Lob
+    fn into_clob(self) -> Self::Element;
+
+    /// build `blob` from Lob
+    fn into_blob(self) -> Self::Element;
 }
