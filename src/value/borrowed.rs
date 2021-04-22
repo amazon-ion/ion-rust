@@ -139,28 +139,28 @@ impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
 }
 
 /// An borrowed implementation of [`Builder`].
-impl<'val> Builder for BorrowedValue<'val> {
+impl<'val> Builder for BorrowedElement<'val> {
     type Element = BorrowedElement<'val>;
     type Sequence = BorrowedSequence<'val>;
 
-    fn new_null(e_type: IonType) -> Self {
-        BorrowedValue::Null(e_type)
+    fn new_null(e_type: IonType) -> Self::Element {
+        BorrowedValue::Null(e_type).into()
     }
 
-    fn new_clob(bytes: &'static [u8]) -> Self {
-        BorrowedValue::Clob(bytes)
+    fn new_clob(bytes: &'static [u8]) -> Self::Element {
+        BorrowedValue::Clob(bytes).into()
     }
 
-    fn new_blob(bytes: &'static [u8]) -> Self {
-        BorrowedValue::Blob(bytes)
+    fn new_blob(bytes: &'static [u8]) -> Self::Element {
+        BorrowedValue::Blob(bytes).into()
     }
 
-    fn new_list(seq: Self::Sequence) -> Self {
-        BorrowedValue::List(seq)
+    fn new_list(seq: Self::Sequence) -> Self::Element {
+        BorrowedValue::List(seq).into()
     }
 
-    fn new_sexp(seq: Self::Sequence) -> Self {
-        BorrowedValue::SExpression(seq)
+    fn new_sexp(seq: Self::Sequence) -> Self::Element {
+        BorrowedValue::SExpression(seq).into()
     }
 }
 
@@ -431,7 +431,7 @@ impl<'val> Element for BorrowedElement<'val> {
     type SymbolToken = BorrowedSymbolToken<'val>;
     type Sequence = BorrowedSequence<'val>;
     type Struct = BorrowedStruct<'val>;
-    type Builder = BorrowedValue<'val>;
+    type Builder = BorrowedElement<'val>;
 
     fn ion_type(&self) -> IonType {
         use BorrowedValue::*;
@@ -751,7 +751,7 @@ mod borrowed_value_tests {
             }
         ),
         case::blob(
-            BorrowedValue::new_blob(b"world").into(),
+            BorrowedElement::new_blob(b"world"),
             IonType::Blob,
             AsBytes,
             &|e: &BorrowedElement| {
@@ -759,7 +759,7 @@ mod borrowed_value_tests {
             }
         ),
         case::clob(
-            BorrowedValue::new_clob(b"goodbye").into(),
+            BorrowedElement::new_clob(b"goodbye"),
             IonType::Clob,
             AsBytes,
             &|e: &BorrowedElement| {
@@ -767,7 +767,7 @@ mod borrowed_value_tests {
             }
         ),
         case::list(
-            BorrowedValue::new_list(vec![true.into(), false.into()].into_iter().collect()).into(),
+            BorrowedElement::new_list(vec![true.into(), false.into()].into_iter().collect()),
             IonType::List,
             AsSequence,
             &|e: &BorrowedElement| {
@@ -775,7 +775,7 @@ mod borrowed_value_tests {
             }
         ),
         case::sexp(
-            BorrowedValue::new_sexp(vec![true.into(), false.into()].into_iter().collect()).into(),
+            BorrowedElement::new_sexp(vec![true.into(), false.into()].into_iter().collect()),
             IonType::SExpression,
             AsSequence,
             &|e: &BorrowedElement| {

@@ -142,28 +142,28 @@ impl SymbolToken for OwnedSymbolToken {
 }
 
 /// An owned implementation of [`Builder`].
-impl Builder for OwnedValue {
+impl Builder for OwnedElement {
     type Element = OwnedElement;
     type Sequence = OwnedSequence;
 
-    fn new_null(e_type: IonType) -> Self {
-        OwnedValue::Null(e_type)
+    fn new_null(e_type: IonType) -> Self::Element {
+        OwnedValue::Null(e_type).into()
     }
 
-    fn new_clob(bytes: &[u8]) -> Self {
-        OwnedValue::Clob(bytes.into())
+    fn new_clob(bytes: &[u8]) -> Self::Element {
+        OwnedValue::Clob(bytes.into()).into()
     }
 
-    fn new_blob(bytes: &[u8]) -> Self {
-        OwnedValue::Blob(bytes.into())
+    fn new_blob(bytes: &[u8]) -> Self::Element {
+        OwnedValue::Blob(bytes.into()).into()
     }
 
-    fn new_list(seq: Self::Sequence) -> Self {
-        OwnedValue::List(seq)
+    fn new_list(seq: Self::Sequence) -> Self::Element {
+        OwnedValue::List(seq).into()
     }
 
-    fn new_sexp(seq: Self::Sequence) -> Self {
-        OwnedValue::SExpression(seq)
+    fn new_sexp(seq: Self::Sequence) -> Self::Element {
+        OwnedValue::SExpression(seq).into()
     }
 }
 
@@ -432,7 +432,7 @@ impl Element for OwnedElement {
     type SymbolToken = OwnedSymbolToken;
     type Sequence = OwnedSequence;
     type Struct = OwnedStruct;
-    type Builder = OwnedValue;
+    type Builder = OwnedElement;
 
     fn ion_type(&self) -> IonType {
         use OwnedValue::*;
@@ -753,7 +753,7 @@ mod value_tests {
             }
         ),
         case::blob(
-            OwnedValue::new_blob(b"world").into(),
+            OwnedElement::new_blob(b"world"),
             IonType::Blob,
             AsBytes,
             &|e: &OwnedElement| {
@@ -761,7 +761,7 @@ mod value_tests {
             }
         ),
         case::clob(
-            OwnedValue::new_clob(b"goodbye").into(),
+            OwnedElement::new_clob(b"goodbye"),
             IonType::Clob,
             AsBytes,
             &|e: &OwnedElement| {
@@ -769,7 +769,7 @@ mod value_tests {
             }
         ),
         case::list(
-            OwnedValue::new_list(vec![true.into(), false.into()].into_iter().collect()).into(),
+            OwnedElement::new_list(vec![true.into(), false.into()].into_iter().collect()),
             IonType::List,
             AsSequence,
             &|e: &OwnedElement| {
@@ -777,7 +777,7 @@ mod value_tests {
             }
         ),
         case::sexp(
-            OwnedValue::new_sexp(vec![true.into(), false.into()].into_iter().collect()).into(),
+            OwnedElement::new_sexp(vec![true.into(), false.into()].into_iter().collect()),
             IonType::SExpression,
             AsSequence,
             &|e: &OwnedElement| {
