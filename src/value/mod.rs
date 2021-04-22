@@ -260,8 +260,9 @@ impl Eq for AnyInt {}
 /// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
 pub trait Element {
     type SymbolToken: SymbolToken + ?Sized;
-    type Sequence: Sequence + ?Sized;
-    type Struct: Struct + ?Sized;
+    type Sequence: Sequence<Element = Self> + ?Sized;
+    type Struct: Struct<FieldName = Self::SymbolToken, Element = Self> + ?Sized;
+    type Builder: Builder<Element = Self> + ?Sized;
 
     /// The type of data this element represents.
     fn ion_type(&self) -> IonType;
@@ -482,4 +483,24 @@ pub trait Struct {
         &'a self,
         field_name: T,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
+}
+
+pub trait Builder {
+    type Element: Element + ?Sized;
+    type Sequence: Sequence<Element = Self::Element> + ?Sized;
+
+    /// Build a `null` from IonType using Builder
+    fn new_null(e_type: IonType) -> Self::Element;
+
+    /// Build a `clob` using Builder
+    fn new_clob(bytes: &'static [u8]) -> Self::Element;
+
+    /// Build a `blob` using Builder
+    fn new_blob(bytes: &'static [u8]) -> Self::Element;
+
+    /// Build a `list` from Sequence using Builder
+    fn new_list(seq: Self::Sequence) -> Self::Element;
+
+    /// Build a `sexp` from Sequence using Builder
+    fn new_sexp(seq: Self::Sequence) -> Self::Element;
 }
