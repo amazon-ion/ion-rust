@@ -138,7 +138,7 @@ impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
     }
 }
 
-/// An borrowed implementation of [`Builder`].
+/// A borrowed implementation of [`Builder`].
 impl<'val> Builder for BorrowedElement<'val> {
     type Element = BorrowedElement<'val>;
     type Sequence = BorrowedSequence<'val>;
