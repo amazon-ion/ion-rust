@@ -26,8 +26,8 @@ pub trait Loader {
     /// Parses Ion over a given slice of data and yields each top-level value as
     /// an [`Element`] instance.
     ///
-    /// The [`Iterator`] will generally return `Ok([Element])` but on a failure of
-    /// parsing it will return an `Err([IonError])` and then a `None` to signal no more
+    /// The [`Iterator`] will generally return `Some(Ok([Element]))` but on a failure of
+    /// parsing it will return a `Some(Err([IonError]))` and then a `None` to signal no more
     /// elements.
     ///
     /// This will return an [`IonError`] if the parser could not be initialized over the given
