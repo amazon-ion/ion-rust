@@ -487,10 +487,36 @@ pub trait Struct {
 
 pub trait Builder {
     type Element: Element + ?Sized;
+    type SymbolToken: SymbolToken + ?Sized;
     type Sequence: Sequence<Element = Self::Element> + ?Sized;
+    type Struct: Struct<FieldName = Self::SymbolToken, Element = Self::Element> + ?Sized;
 
     /// Build a `null` from IonType using Builder
     fn new_null(e_type: IonType) -> Self::Element;
+
+    /// Build a `bool` using Builder
+    fn new_bool(bool: bool) -> Self::Element;
+
+    /// Build a `string` using Builder
+    fn new_string(str: &'static str) -> Self::Element;
+
+    /// Build a `symbol` from SymbolToken using Builder
+    fn new_symbol(sym: Self::SymbolToken) -> Self::Element;
+
+    /// Build a `i64` using Builder
+    fn new_i64(int: i64) -> Self::Element;
+
+    /// Build a `big int` using Builder
+    fn new_big_int(big_int: BigInt) -> Self::Element;
+
+    /// Build a `decimal` using Builder
+    fn new_decimal(decimal: Decimal) -> Self::Element;
+
+    /// Build a `timestamp` using Builder
+    fn new_timestamp(timestamp: Timestamp) -> Self::Element;
+
+    /// Build a `f64` using Builder
+    fn new_f64(float: f64) -> Self::Element;
 
     /// Build a `clob` using Builder
     fn new_clob(bytes: &'static [u8]) -> Self::Element;
@@ -503,4 +529,7 @@ pub trait Builder {
 
     /// Build a `sexp` from Sequence using Builder
     fn new_sexp(seq: Self::Sequence) -> Self::Element;
+
+    /// Build a `struct` from Struct using Builder
+    fn new_struct(struct_: Self::Struct) -> Self::Element;
 }
