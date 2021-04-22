@@ -262,7 +262,7 @@ pub trait Element {
     type SymbolToken: SymbolToken + ?Sized;
     type Sequence: Sequence<Element = Self> + ?Sized;
     type Struct: Struct + ?Sized;
-    type LobBuilder: LobBuilder<Element = Self> + ?Sized;
+    type Builder: Builder<Element = Self> + ?Sized;
 
     /// The type of data this element represents.
     fn ion_type(&self) -> IonType;
@@ -407,12 +407,6 @@ pub trait Sequence {
 
     /// Returns true if the sequence is empty otherwise returns false
     fn is_empty(&self) -> bool;
-
-    /// Builds a `list` [`Element`] from this [`Sequence`].
-    fn into_list(self) -> Self::Element;
-
-    /// Builds a `sexp` [`Element`] from this [`Sequence`].
-    fn into_sexp(self) -> Self::Element;
 }
 
 /// Represents the _value_ of `struct` of Ion elements.
@@ -491,13 +485,22 @@ pub trait Struct {
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
 }
 
-/// Represents the constructor of Lob (i.e. `clob` and `blob`).
-pub trait LobBuilder {
+pub trait Builder {
     type Element: Element + ?Sized;
+    type Sequence: Sequence<Element = Self::Element> + ?Sized;
 
-    /// build `clob` from Lob
-    fn into_clob(self) -> Self::Element;
+    /// Build a `null` from IonType using Builder
+    fn new_null(e_type: IonType) -> Self;
 
-    /// build `blob` from Lob
-    fn into_blob(self) -> Self::Element;
+    /// Build a `clob` using Builder
+    fn new_clob(bytes: &'static [u8]) -> Self;
+
+    /// Build a `blob` using Builder
+    fn new_blob(bytes: &'static [u8]) -> Self;
+
+    /// Build a `list` from Sequence using Builder
+    fn new_list(seq: Self::Sequence) -> Self;
+
+    /// Build a `sexp` from Sequence using Builder
+    fn new_sexp(seq: Self::Sequence) -> Self;
 }

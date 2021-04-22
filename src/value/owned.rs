@@ -9,7 +9,7 @@ use super::{AnyInt, Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
-use crate::value::LobBuilder;
+use crate::value::Builder;
 use crate::IonType;
 use num_bigint::BigInt;
 use std::collections::HashMap;
@@ -141,39 +141,29 @@ impl SymbolToken for OwnedSymbolToken {
     }
 }
 
-/// An owned implementation of [`LobBuilder`].
-#[derive(Debug, Clone)]
-pub struct OwnedLobBuilder {
-    value: Vec<u8>,
-}
-
-impl OwnedLobBuilder {
-    pub fn new(value: Vec<u8>) -> Self {
-        Self { value }
-    }
-}
-
-impl LobBuilder for OwnedLobBuilder {
+/// An owned implementation of [`Builder`].
+impl Builder for OwnedValue {
     type Element = OwnedElement;
+    type Sequence = OwnedSequence;
 
-    fn into_clob(self) -> Self::Element {
-        OwnedValue::Clob(self.value.into()).into()
+    fn new_null(e_type: IonType) -> Self {
+        OwnedValue::Null(e_type)
     }
 
-    fn into_blob(self) -> Self::Element {
-        OwnedValue::Blob(self.value.into()).into()
+    fn new_clob(bytes: &[u8]) -> Self {
+        OwnedValue::Clob(bytes.into())
     }
-}
 
-impl<T: Into<Vec<u8>>> From<T> for OwnedLobBuilder {
-    fn from(bytes_val: T) -> Self {
-        OwnedLobBuilder::new(bytes_val.into())
+    fn new_blob(bytes: &[u8]) -> Self {
+        OwnedValue::Blob(bytes.into())
     }
-}
 
-impl PartialEq for OwnedLobBuilder {
-    fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
+    fn new_list(seq: Self::Sequence) -> Self {
+        OwnedValue::List(seq)
+    }
+
+    fn new_sexp(seq: Self::Sequence) -> Self {
+        OwnedValue::SExpression(seq)
     }
 }
 
@@ -217,14 +207,6 @@ impl Sequence for OwnedSequence {
 
     fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    fn into_list(self) -> Self::Element {
-        OwnedValue::List(self).into()
-    }
-
-    fn into_sexp(self) -> Self::Element {
-        OwnedValue::SExpression(self).into()
     }
 }
 
@@ -450,7 +432,7 @@ impl Element for OwnedElement {
     type SymbolToken = OwnedSymbolToken;
     type Sequence = OwnedSequence;
     type Struct = OwnedStruct;
-    type LobBuilder = OwnedLobBuilder;
+    type Builder = OwnedValue;
 
     fn ion_type(&self) -> IonType {
         use OwnedValue::*;
@@ -706,7 +688,7 @@ mod value_tests {
                 assert_eq!(None, e.as_big_int());
             }
         ),
-        case::BigInt(
+        case::big_int(
             BigInt::from(100).into(),
             IonType::Integer,
             AsAnyInt,
@@ -771,7 +753,7 @@ mod value_tests {
             }
         ),
         case::blob(
-            OwnedLobBuilder::from("world".as_bytes().to_vec()).into_blob(),
+            OwnedValue::new_blob(b"world").into(),
             IonType::Blob,
             AsBytes,
             &|e: &OwnedElement| {
@@ -779,7 +761,7 @@ mod value_tests {
             }
         ),
         case::clob(
-            OwnedLobBuilder::from("goodbye".as_bytes().to_vec()).into_clob(),
+            OwnedValue::new_clob(b"goodbye").into(),
             IonType::Clob,
             AsBytes,
             &|e: &OwnedElement| {
@@ -787,7 +769,7 @@ mod value_tests {
             }
         ),
         case::list(
-            OwnedSequence::from_iter(vec![true.into(), false.into()].into_iter()).into_list(),
+            OwnedValue::new_list(vec![true.into(), false.into()].into_iter().collect()).into(),
             IonType::List,
             AsSequence,
             &|e: &OwnedElement| {
@@ -795,7 +777,7 @@ mod value_tests {
             }
         ),
         case::sexp(
-            OwnedSequence::from_iter(vec![true.into(), false.into()].into_iter()).into_sexp(),
+            OwnedValue::new_sexp(vec![true.into(), false.into()].into_iter().collect()).into(),
             IonType::SExpression,
             AsSequence,
             &|e: &OwnedElement| {

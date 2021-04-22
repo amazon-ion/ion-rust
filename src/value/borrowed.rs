@@ -11,7 +11,7 @@ use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
-use crate::value::{AnyInt, LobBuilder};
+use crate::value::{AnyInt, Builder};
 use crate::IonType;
 use num_bigint::BigInt;
 use std::collections::HashMap;
@@ -137,39 +137,30 @@ impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
         self.source.as_ref()
     }
 }
-/// An borrowed implementation of [`LobBuilder`].
-#[derive(Debug, Clone)]
-pub struct BorrowedLobBuilder<'val> {
-    value: &'val [u8],
-}
 
-impl<'val> BorrowedLobBuilder<'val> {
-    pub fn new(value: &'val [u8]) -> Self {
-        Self { value }
-    }
-}
-
-impl<'val> LobBuilder for BorrowedLobBuilder<'val> {
+/// An borrowed implementation of [`Builder`].
+impl<'val> Builder for BorrowedValue<'val> {
     type Element = BorrowedElement<'val>;
+    type Sequence = BorrowedSequence<'val>;
 
-    fn into_clob(self) -> Self::Element {
-        BorrowedElement::new(vec![], BorrowedValue::Clob(self.value.into()))
+    fn new_null(e_type: IonType) -> Self {
+        BorrowedValue::Null(e_type)
     }
 
-    fn into_blob(self) -> Self::Element {
-        BorrowedElement::new(vec![], BorrowedValue::Blob(self.value.into()))
+    fn new_clob(bytes: &'static [u8]) -> Self {
+        BorrowedValue::Clob(bytes)
     }
-}
 
-impl<'val, T: Into<&'val [u8]>> From<T> for BorrowedLobBuilder<'val> {
-    fn from(bytes_val: T) -> Self {
-        BorrowedLobBuilder::new(bytes_val.into())
+    fn new_blob(bytes: &'static [u8]) -> Self {
+        BorrowedValue::Blob(bytes)
     }
-}
 
-impl<'val> PartialEq for BorrowedLobBuilder<'val> {
-    fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
+    fn new_list(seq: Self::Sequence) -> Self {
+        BorrowedValue::List(seq)
+    }
+
+    fn new_sexp(seq: Self::Sequence) -> Self {
+        BorrowedValue::SExpression(seq)
     }
 }
 
@@ -213,14 +204,6 @@ impl<'val> Sequence for BorrowedSequence<'val> {
 
     fn is_empty(&self) -> bool {
         self.children.len() == 0
-    }
-
-    fn into_list(self) -> Self::Element {
-        BorrowedValue::List(self).into()
-    }
-
-    fn into_sexp(self) -> Self::Element {
-        BorrowedValue::SExpression(self).into()
     }
 }
 
@@ -448,7 +431,7 @@ impl<'val> Element for BorrowedElement<'val> {
     type SymbolToken = BorrowedSymbolToken<'val>;
     type Sequence = BorrowedSequence<'val>;
     type Struct = BorrowedStruct<'val>;
-    type LobBuilder = BorrowedLobBuilder<'val>;
+    type Builder = BorrowedValue<'val>;
 
     fn ion_type(&self) -> IonType {
         use BorrowedValue::*;
@@ -703,7 +686,7 @@ mod borrowed_value_tests {
                 assert_eq!(None, e.as_big_int());
             }
         ),
-        case::BigInt(
+        case::big_int(
             BigInt::from(100).into(),
             IonType::Integer,
             AsAnyInt,
@@ -768,7 +751,7 @@ mod borrowed_value_tests {
             }
         ),
         case::blob(
-            BorrowedLobBuilder::from("world".as_bytes()).into_blob(),
+            BorrowedValue::new_blob(b"world").into(),
             IonType::Blob,
             AsBytes,
             &|e: &BorrowedElement| {
@@ -776,7 +759,7 @@ mod borrowed_value_tests {
             }
         ),
         case::clob(
-            BorrowedLobBuilder::from("goodbye".as_bytes()).into_clob(),
+            BorrowedValue::new_clob(b"goodbye").into(),
             IonType::Clob,
             AsBytes,
             &|e: &BorrowedElement| {
@@ -784,7 +767,7 @@ mod borrowed_value_tests {
             }
         ),
         case::list(
-            BorrowedSequence::from_iter(vec![true.into(), false.into()].into_iter()).into_list(),
+            BorrowedValue::new_list(vec![true.into(), false.into()].into_iter().collect()).into(),
             IonType::List,
             AsSequence,
             &|e: &BorrowedElement| {
@@ -792,7 +775,7 @@ mod borrowed_value_tests {
             }
         ),
         case::sexp(
-            BorrowedSequence::from_iter(vec![true.into(), false.into()].into_iter()).into_sexp(),
+            BorrowedValue::new_sexp(vec![true.into(), false.into()].into_iter().collect()).into(),
             IonType::SExpression,
             AsSequence,
             &|e: &BorrowedElement| {
