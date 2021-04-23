@@ -197,8 +197,8 @@ impl<'val> Builder for BorrowedElement<'val> {
         BorrowedValue::SExpression(seq).into()
     }
 
-    fn new_struct(struct_: Self::Struct) -> Self::Element {
-        BorrowedValue::Struct(struct_).into()
+    fn new_struct(structure: Self::Struct) -> Self::Element {
+        BorrowedValue::Struct(structure).into()
     }
 }
 

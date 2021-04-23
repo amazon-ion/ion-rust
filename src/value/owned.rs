@@ -200,8 +200,8 @@ impl Builder for OwnedElement {
         OwnedValue::SExpression(seq).into()
     }
 
-    fn new_struct(struct_: Self::Struct) -> Self::Element {
-        OwnedValue::Struct(struct_).into()
+    fn new_struct(structure: Self::Struct) -> Self::Element {
+        OwnedValue::Struct(structure).into()
     }
 }
 
