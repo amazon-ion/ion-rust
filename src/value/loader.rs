@@ -1,5 +1,8 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+//! Provides utility to load Ion data into [`Element`](super::Element) from different sources such
+//! as slices or files.
+
 use crate::result::IonResult;
 use crate::value::owned::{OwnedElement, OwnedSequence, OwnedStruct, OwnedSymbolToken, OwnedValue};
 use crate::value::AnyInt;
@@ -10,13 +13,14 @@ use std::convert::{TryFrom, TryInto};
 
 use super::owned::text_token;
 
-/// TODO add/refactor trait/implementation for borrowing over some context
-///      we could make it generic with generic associated types or just have a lifetime
-///      scoped implementation
+// TODO add/refactor trait/implementation for borrowing over some context
+//      we could make it generic with generic associated types or just have a lifetime
+//      scoped implementation
 
-/// Loads Ion data into [`Element`] instances.
+/// Loads Ion data into [`Element`](super::Element) instances.
 ///
-/// Users of this trait should not assume any particular implementation of `Element`.
+/// ## Notes
+/// Users of this trait should not assume any particular implementation of [`Element`](super::Element).
 /// In the future, [generic associated types (GAT)][gat] and [existential types in traits][et]
 /// should make it easier to model this more abstractly.
 ///
@@ -24,18 +28,18 @@ use super::owned::text_token;
 /// [et]:https://rust-lang.github.io/rfcs/2071-impl-trait-existential-types.html
 pub trait Loader {
     /// Parses Ion over a given slice of data and yields each top-level value as
-    /// an [`Element`] instance.
+    /// an [`Element`](super::Element) instance.
     ///
     /// The [`Iterator`] will generally return `Some(Ok([Element]))` but on a failure of
     /// parsing it will return a `Some(Err([IonError]))` and then a `None` to signal no more
     /// elements.
     ///
-    /// This will return an [`IonError`] if the parser could not be initialized over the given
-    /// slice.
-    fn iterate_over<'a>(
+    /// This will return an [`IonError`](crate::result::IonError) if the parser could not
+    /// be initialized over the given slice.
+    fn iterate_over<'a, 'b>(
         &'a self,
-        data: &'a [u8],
-    ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'a>>;
+        data: &'b [u8],
+    ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'b>>;
 }
 
 struct IonCReaderIterator<'a> {
@@ -170,10 +174,10 @@ impl<'a> Iterator for IonCReaderIterator<'a> {
 struct IonCLoader {}
 
 impl Loader for IonCLoader {
-    fn iterate_over<'a>(
+    fn iterate_over<'a, 'b>(
         &'a self,
-        data: &'a [u8],
-    ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'a>> {
+        data: &'b [u8],
+    ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'b>> {
         let reader = IonCReaderHandle::try_from(data)?;
 
         Ok(Box::new(IonCReaderIterator {

@@ -10,9 +10,30 @@
 //! * The [`borrowed`] module provides an implementation of values that are tied to some
 //!   associated lifetime and borrow a reference to their underlying data in some way
 //!   (e.g. storing a `&str` in the value versus a fully owned `String`).
+//! * The [`loader`] module provides API and implementation to load Ion data into [`Element`]
+//!   instances.
 //!
 //! ## Examples
-//! In general, users should use the traits in this module to make their code work
+//! In general, users will use the [`loader::Loader`] trait to load in data:
+//!
+//! ```
+//! use ion_rs::IonType;
+//! use ion_rs::result::IonResult;
+//! use ion_rs::value::{Element, Struct};
+//! use ion_rs::value::loader::loader;
+//! use ion_rs::value::loader::Loader;
+//!
+//! fn main() -> IonResult<()> {
+//!     let mut iter = loader().iterate_over(br#""hello!"#)?;
+//!     if let Some(Ok(elem)) = iter.next() {
+//!         assert_eq!(IonType::String, elem.ion_type());
+//!         assert_eq!("hello!", elem.as_str().unwrap());
+//!     }
+//!     Ok(())
+//! }
+//! ```
+//!
+//! Users should use the traits in this module to make their code work
 //! in contexts that have either [`borrowed`] or [`owned`] values.  This can be done
 //! most easily by writing generic functions that can work with a reference of any type.
 //!
