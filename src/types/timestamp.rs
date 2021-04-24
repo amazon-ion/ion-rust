@@ -358,7 +358,7 @@ impl TimestampBuilder {
     }
 }
 
-/// Allows the user to set the `month` field on a [TimestampBuilder] that has already had its `year`
+/// Allows the user to set the `month` field on a builder that has already had its `year`
 /// field set. Or, if `Year` is the desired precision, they may build the [Timestamp] with an
 /// unknown offset instead.
 #[derive(Debug, Clone)]
@@ -389,7 +389,7 @@ impl MonthSetter {
     }
 }
 
-/// Allows the user to set the `day` field on a [TimestampBuilder] that has already had its `year`
+/// Allows the user to set the `day` field on a builder that has already had its `year`
 /// and `month` fields set. Or, if `Month` is the desired precision, they may build the [Timestamp]
 /// with an unknown offset instead.
 #[derive(Debug, Clone)]
@@ -420,7 +420,7 @@ impl DaySetter {
     }
 }
 
-/// Allows the user to set the `hour` and `minute` fields on a [TimestampBuilder] that has already
+/// Allows the user to set the `hour` and `minute` fields on a builder that has already
 /// had its `year`, `month`, and `day` fields set. Or, if `Day` is the desired precision,
 /// they may build the [Timestamp] with an unknown offset instead.
 #[derive(Debug, Clone)]
@@ -451,7 +451,7 @@ impl HourAndMinuteSetter {
     }
 }
 
-/// Allows the user to set the `second` field on a [TimestampBuilder] that has already
+/// Allows the user to set the `second` field on a builder that has already
 /// had its `year`, `month`, `day`, `hour`, and `minute` fields set. Or, if `HourAndMinute` is the
 /// desired precision, they may build the [Timestamp] instead, optionally specifying an offset if
 /// known.
@@ -479,7 +479,7 @@ impl SecondSetter {
     }
 }
 
-/// Allows the user to set the `fractional_seconds` field on a [TimestampBuilder] that has already
+/// Allows the user to set the `fractional_seconds` field on a builder that has already
 /// had its `year`, `month`, `day`, `hour`, `minute`, and `second` fields set. Or, if
 /// `Second` is the desired precision, they may build the [Timestamp] instead, optionally
 /// specifying an offset if known.

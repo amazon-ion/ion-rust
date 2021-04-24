@@ -3,7 +3,9 @@ use std::cmp::Ordering;
 use bigdecimal::ToPrimitive;
 use num_bigint::{BigUint, ToBigUint};
 
-/// An unsigned integer that can be combined with a [Sign] to act as the coefficient of a [Decimal].
+/// An unsigned integer that can be combined with a [Sign](crate::types::coefficient::Sign)
+/// to act as the coefficient of a [Decimal](crate::types::decimal::Decimal).
+///
 /// When possible, users should prefer to represent the integer as a [u64] for efficiency. If the
 /// integer is too large to fit in a u64, users may instead opt to represent it as a [BigUint] at
 /// the cost of allocations and runtime complexity.
