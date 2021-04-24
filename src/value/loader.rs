@@ -40,6 +40,12 @@ pub trait Loader {
         &'a self,
         data: &'b [u8],
     ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'b>>;
+
+    /// Parses given Ion over a given slice into an [`Vec`] returning an
+    /// [`IonError`](crate::result::IonError) if any error occurs during the parse.
+    fn load_all(&self, data: &[u8]) -> IonResult<Vec<OwnedElement>> {
+        self.iterate_over(data)?.collect()
+    }
 }
 
 struct IonCReaderIterator<'a> {
