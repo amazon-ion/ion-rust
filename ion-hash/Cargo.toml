@@ -1,0 +1,23 @@
+[package]
+name = "ion-hash"
+authors = ["Amazon Ion Team <ion-team@amazon.com>"]
+description = "Ion Hash"
+homepage = "https://github.com/amzn/ion-rust"
+repository = "https://github.com/amzn/ion-rust"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["ion", "parser", "json", "format", "serde", "hash"]
+categories = ["encoding", "parser-implementations", "hashing"]
+exclude = [
+    "**/.git/**",
+    "**/.github/**",
+    "**/.travis.yml",
+    "**/.appveyor.yml",
+    "**/ion-tests/iontestdata/**",
+    "*.pdf"
+]
+version = "0.0.1"
+edition = "2018"
+
+[dependencies]
+ion-rs = { path = "../", version = "0.4" }
