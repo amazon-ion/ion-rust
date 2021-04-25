@@ -3,7 +3,7 @@
 //! Provides utility to load Ion data into [`Element`](super::Element) from different sources such
 //! as slices or files.
 
-use crate::result::IonResult;
+use crate::result::{decoding_error, IonResult};
 use crate::value::owned::{OwnedElement, OwnedSequence, OwnedStruct, OwnedSymbolToken, OwnedValue};
 use crate::value::AnyInt;
 use crate::IonType;
@@ -43,8 +43,31 @@ pub trait Loader {
 
     /// Parses given Ion over a given slice into an [`Vec`] returning an
     /// [`IonError`](crate::result::IonError) if any error occurs during the parse.
+    #[inline]
     fn load_all(&self, data: &[u8]) -> IonResult<Vec<OwnedElement>> {
         self.iterate_over(data)?.collect()
+    }
+
+    /// Parses Ion over a given slice into a single [`Element`](super::Element) instance.
+    /// Returns [`IonError`](crate::result::IonError) if any error occurs during the parse
+    /// or there is more than one top-level [`Element`](super::Element) in the data.
+    #[inline]
+    fn load_one(&self, data: &[u8]) -> IonResult<OwnedElement> {
+        let mut iter = self.iterate_over(data)?;
+        match iter.next() {
+            Some(Ok(elem)) => {
+                // make sure there is nothing else
+                match iter.next() {
+                    None => Ok(elem),
+                    Some(Ok(_)) => {
+                        decoding_error("Expected a single element, but there was more than one")
+                    }
+                    Some(other) => other,
+                }
+            }
+            Some(other) => other,
+            None => decoding_error("Expected a single element, data was empty"),
+        }
     }
 }
 
