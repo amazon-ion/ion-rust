@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use ion_rs::result::{decoding_error, IonResult};
+use ion_rs::result::{decoding_error, IonError, IonResult};
 use ion_rs::value::loader::{loader, Loader};
 use ion_rs::value::owned::OwnedElement;
 use ion_rs::value::{Element, Sequence, SymbolToken};
@@ -33,6 +33,12 @@ const ALL_SKIP_LIST: &[&str] = &[
     "ion-tests/iontestdata/good/typecodes/T7-small.10n",
 ];
 
+/// Files that should not be tested for equivalence with load_one against load_all
+const LOAD_ONE_EQUIVS_SKIP_LIST: &[&str] = &[
+    // we need a structural equality (IonEq) for these (amzn/ion-rust#220)
+    "ion-tests/iontestdata/good/floatSpecials.ion",
+];
+
 /// Files that should only be skipped in equivalence file testing
 const EQUIVS_SKIP_LIST: &[&str] = &[
     // ion-c seems to have a problem with negative binary literals (amzn/ion-c#235)
@@ -61,20 +67,64 @@ fn concat<'a>(left: &[&'a str], right: &[&'a str]) -> Vec<&'a str> {
         .collect()
 }
 
-fn load_file<L: Loader>(loader: &L, file_name: &str) -> IonResult<Vec<OwnedElement>> {
-    // TODO have a better API that doesn't require buffering into memory everything...
-    let data = read(file_name)?;
-    loader.load_all(&data)
-}
-
-fn assert_file<T, F: FnOnce() -> IonResult<T>>(skip_list: &[&str], file_name: &str, asserter: F) {
-    if skip_list
+/// Determines if the given file name is in the paths list.  This deals with platform
+/// path separator differences from '/' separators in the path list.
+#[inline]
+fn contains_path(paths: &[&str], file_name: &str) -> bool {
+    paths
         .into_iter()
         // TODO construct the paths in a not so hacky way
         .map(|p| p.replace("/", &PATH_SEPARATOR.to_string()))
         .find(|p| p == file_name)
         .is_some()
-    {
+}
+
+fn load_file<L: Loader>(loader: &L, file_name: &str) -> IonResult<Vec<OwnedElement>> {
+    // TODO have a better API that doesn't require buffering into memory everything...
+    let data = read(file_name)?;
+    let result = loader.load_all(&data);
+
+    // do some simple single value loading tests
+    let single_result = loader.load_one(&data);
+    match &result {
+        Ok(elems) => {
+            if elems.len() == 1 {
+                match single_result {
+                    Ok(elem) => {
+                        // only compare if we know equality to work
+                        if !contains_path(LOAD_ONE_EQUIVS_SKIP_LIST, file_name) {
+                            assert_eq!(elems[0], elem)
+                        }
+                    }
+                    Err(e) => panic!("Expected element {:?}, got {:?}", elems, e),
+                }
+            } else {
+                match single_result {
+                    Ok(elem) => panic!(
+                        "Did not expect element for duplicates: {:?}, {:?}",
+                        elems, elem
+                    ),
+                    Err(e) => match e {
+                        IonError::DecodingError { description: _ } => (),
+                        other => {
+                            panic!("Got an error we did not expect for duplicates: {:?}", other)
+                        }
+                    },
+                }
+            }
+        }
+        Err(_) => assert!(
+            single_result.is_err(),
+            "Expected error from load_one: {:?}",
+            single_result
+        ),
+    };
+
+    result
+}
+
+fn assert_file<T, F: FnOnce() -> IonResult<T>>(skip_list: &[&str], file_name: &str, asserter: F) {
+    if contains_path(skip_list, file_name) {
         println!("IGNORING: {}", file_name);
     } else {
         println!("TESTING: {}", file_name);

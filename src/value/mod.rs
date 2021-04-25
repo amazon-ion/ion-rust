@@ -58,6 +58,39 @@
 //! # }
 //! ```
 //!
+//! [`Loader::load_one`](loader::Loader::load_one) is another convenient way to parse a single
+//! top-level element into a [`Element`].  This method will return an error if the data has
+//! a parsing error or if there is more than one [`Element`] in the stream:
+//!
+//! ```
+//! # use ion_rs::IonType;
+//! # use ion_rs::result::IonResult;
+//! # use ion_rs::value::{Element, IntAccess, Struct};
+//! # use ion_rs::value::loader::loader;
+//! # use ion_rs::value::loader::Loader;
+//! # fn main() -> IonResult<()> {
+//! #
+//! // load a single value from binary: 42
+//! let elem = loader().load_one(&[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x2A])?;
+//! assert_eq!(IonType::Integer, elem.ion_type());
+//! assert_eq!(42, elem.as_i64().unwrap());
+//!
+//! // cannot load two values in a stream this way: 42 0
+//! assert!(loader().load_one(&[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x2A, 0x20]).is_err());
+//!
+//! // cannot load an empty stream (binary IVM only)
+//! assert!(loader().load_one(&[0xE0, 0x01, 0x00, 0xEA]).is_err());
+//!
+//! // normal malformed binary is a failure!
+//! assert!(loader().load_one(&[0xE0, 0x01, 0x00, 0xEA, 0xF0]).is_err());
+//!
+//! // also an error if malformed data happens after valid single value
+//! assert!(loader().load_one(&[0xE0, 0x01, 0x00, 0xEA, 0x20, 0x30]).is_err());
+//! #
+//! #    Ok(())
+//! # }
+//! ```
+//!
 //! Users should use the traits in this module to make their code work
 //! in contexts that have either [`borrowed`] or [`owned`] values.  This can be done
 //! most easily by writing generic functions that can work with a reference of any type.
