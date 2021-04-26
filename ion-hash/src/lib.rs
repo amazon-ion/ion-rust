@@ -16,15 +16,30 @@
 //! # }
 //! ```
 
+use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::{value::Element, IonType};
 
 use sha2::{digest::Output, Digest, Sha256};
 
+// A `try`-like macro to workaround the Element API ergonomics. This API
+// requires checking the type and then calling the appropriate getter function
+// (which returns a None if you got it wrong). This macro turns the `None` into
+// an `IonError`.
+// TODO: Remove this once the Element API is reworked.
+macro_rules! t {
+    ($getter:expr) => {
+        match $getter {
+            Some(value) => value,
+            None => illegal_operation("Missing expected value")?,
+        }
+    };
+}
+
 /// Utility to hash an [`Element`] using SHA-256 as the hash function.
-pub fn sha256<E: Element>(elem: &E) -> Vec<u8> {
+pub fn sha256<E: Element>(elem: &E) -> IonResult<Vec<u8>> {
     let mut hasher = IonHasher::new(Sha256::new());
-    let result = hasher.hash_element(elem);
-    Vec::from(result.as_slice())
+    let result = hasher.hash_element(elem)?;
+    Ok(Vec::from(result.as_slice()))
 }
 
 /// Bytes markers as per the spec.
@@ -63,7 +78,7 @@ where
 
     /// Computes the Ion hash over an [`Element`] recursively using this
     /// hasher's [`Digest`]
-    fn hash_element<E: Element + ?Sized>(&mut self, elem: &E) -> Output<D> {
+    fn hash_element<E: Element + ?Sized>(&mut self, elem: &E) -> IonResult<Output<D>> {
         let serialized_bytes = match elem.ion_type() {
             IonType::Null => todo!(),
             IonType::Boolean => todo!(),
@@ -72,7 +87,7 @@ where
             IonType::Decimal => todo!(),
             IonType::Timestamp => todo!(),
             IonType::Symbol => todo!(),
-            IonType::String => self.visit_string(elem.as_str().unwrap()),
+            IonType::String => self.visit_string(t!(elem.as_str())),
             IonType::Clob => todo!(),
             IonType::Blob => todo!(),
             IonType::List => todo!(),
@@ -83,7 +98,7 @@ where
         // TODO: Annotations
 
         self.hasher.update(serialized_bytes);
-        self.hasher.finalize_reset()
+        Ok(self.hasher.finalize_reset())
     }
 
     fn visit_string(&mut self, value: &str) -> Vec<u8> {
@@ -116,10 +131,11 @@ mod tests {
     use ion_rs::value::owned::*;
 
     #[test]
-    fn ion_hash_sha256_string() {
+    fn ion_hash_sha256_string() -> IonResult<()> {
         let expected = hex!("82c4010bfc9cace7f645c0a951243b9b122cb5ba21b60b3f71ea79c513c39342");
         let hello_world = OwnedElement::new(vec![], OwnedValue::String("hello world".to_string()));
-        let computed = sha256(&hello_world);
+        let computed = sha256(&hello_world)?;
         assert_eq!(expected, &computed[..]);
+        Ok(())
     }
 }
