@@ -14,7 +14,7 @@
 //!   instances.
 //!
 //! ## Examples
-//! In general, users will use the [`loader::Loader`] trait to load in data:
+//! In general, users will use the [`Loader`](loader::Loader) trait to load in data:
 //!
 //! ```
 //! use ion_rs::IonType;
@@ -24,13 +24,38 @@
 //! use ion_rs::value::loader::Loader;
 //!
 //! fn main() -> IonResult<()> {
-//!     let mut iter = loader().iterate_over(br#""hello!"#)?;
+//!     let mut iter = loader().iterate_over(br#""hello!""#)?;
 //!     if let Some(Ok(elem)) = iter.next() {
 //!         assert_eq!(IonType::String, elem.ion_type());
 //!         assert_eq!("hello!", elem.as_str().unwrap());
+//!     } else {
+//!         panic!("Expected an element!");
 //!     }
+//!     assert!(iter.next().is_none());
 //!     Ok(())
 //! }
+//! ```
+//!
+//! [`Loader::load_all`](loader::Loader::load_all) is a convenient way to put all of the
+//! parsed [`Element`] into a [`Vec`], with a single [`IonError`](crate::result::IonError) wrapper:
+//!
+//! ```
+//! # use ion_rs::IonType;
+//! # use ion_rs::result::IonResult;
+//! # use ion_rs::value::{Element, Struct};
+//! # use ion_rs::value::loader::loader;
+//! # use ion_rs::value::loader::Loader;
+//! # fn main() -> IonResult<()> {
+//! #
+//! let elems = loader().load_all(br#""hello" world"#)?;
+//! assert_eq!(2, elems.len());
+//! assert_eq!(IonType::String, elems[0].ion_type());
+//! assert_eq!("hello", elems[0].as_str().unwrap());
+//! assert_eq!(IonType::Symbol, elems[1].ion_type());
+//! assert_eq!("world", elems[1].as_str().unwrap());
+//! #
+//! #    Ok(())
+//! # }
 //! ```
 //!
 //! Users should use the traits in this module to make their code work

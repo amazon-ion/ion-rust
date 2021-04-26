@@ -44,6 +44,7 @@ ion-c-sys = { path = "./ion-c-sys", version = "0.4" }
 [dev-dependencies]
 # Used by ion-tests integration
 walkdir = "^2.3"
+test-generator = "0.3"
 
 [profile.release]
 lto = true
