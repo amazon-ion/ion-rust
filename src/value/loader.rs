@@ -48,7 +48,7 @@ pub trait Loader {
         self.iterate_over(data)?.collect()
     }
 
-    /// Parses given Ion over a given slice into a single [`Element`](super::Element) instance.
+    /// Parses Ion over a given slice into a single [`Element`](super::Element) instance.
     /// Returning [`IonError`](crate::result::IonError) if any error occurs during the parse
     /// or there is more than one top-level [`Element`](super::Element) in the data.
     #[inline]
