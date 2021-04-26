@@ -49,7 +49,7 @@ pub trait Loader {
     }
 
     /// Parses Ion over a given slice into a single [`Element`](super::Element) instance.
-    /// Returning [`IonError`](crate::result::IonError) if any error occurs during the parse
+    /// Returns [`IonError`](crate::result::IonError) if any error occurs during the parse
     /// or there is more than one top-level [`Element`](super::Element) in the data.
     #[inline]
     fn load_one(&self, data: &[u8]) -> IonResult<OwnedElement> {
