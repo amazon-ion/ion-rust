@@ -68,6 +68,10 @@ fn load_file<L: Loader>(loader: &L, file_name: &str) -> IonResult<Vec<OwnedEleme
 }
 
 fn assert_file<T, F: FnOnce() -> IonResult<T>>(skip_list: &[&str], file_name: &str, asserter: F) {
+    // TODO if frehberg/test-generator#7 gets implemented we could do a proper ignore
+
+    // print the paths here either way so it is easy to copy/paste to investigate failures
+    // use the --show-output argument to see it
     if skip_list
         .into_iter()
         // TODO construct the paths in a not so hacky way
@@ -166,20 +170,19 @@ where
     let group_lists = load_file(&loader, file_name)?;
     for group_list in group_lists.iter() {
         // every grouping set is a list/sexp
-        // look for the embbedded annotation to parse/test as the underlying value
+        // look for the embedded annotation to parse/test as the underlying value
         let is_embedded = group_list
             .annotations()
             .find(|annotation| annotation.text() == Some("embedded_documents"))
             .is_some();
-        match group_list.as_sequence() {
-            Some(group) => {
-                if is_embedded {
-                    load_group_embedded(&loader, group, &group_assert)?;
-                } else {
-                    for this in group.iter() {
-                        for that in group.iter() {
-                            value_assert(this, that);
-                        }
+        match (group_list.as_sequence(), is_embedded) {
+            (Some(group), true) => {
+                load_group_embedded(&loader, group, &group_assert)?;
+            }
+            (Some(group), false) => {
+                for this in group.iter() {
+                    for that in group.iter() {
+                        value_assert(this, that);
                     }
                 }
             }
@@ -205,6 +208,7 @@ fn equivs(file_name: &str) {
 
 #[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.ion")]
 // no binary files exist and the macro doesn't like empty globs...
+// see frehberg/test-generator#12
 //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
 fn non_equivs(file_name: &str) {
     let skip_list = concat(ALL_SKIP_LIST, NON_EQUIVS_SKIP_LIST);
