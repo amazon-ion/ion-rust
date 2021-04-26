@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Implement Ion Hash as per the [spec](https://amzn.github.io/ion-hash/docs/spec.html)
+//! Implements the [Ion Hash specification](https://amzn.github.io/ion-hash/docs/spec.html)
 //!
 //! ## Examples
 //! ```rust
@@ -16,35 +16,36 @@
 //! # }
 //! ```
 
-use ion_rs::{
-    value::{owned::OwnedElement, Element},
-    IonType,
-};
+use ion_rs::{value::Element, IonType};
 
 use sha2::{digest::Output, Digest, Sha256};
 
-pub fn sha256(elem: &OwnedElement) -> Vec<u8> {
+/// Utility to hash an [`Element`] using SHA-256 as the hash function.
+pub fn sha256<E: Element>(elem: &E) -> Vec<u8> {
     let mut hasher = IonHasher::new(Sha256::new());
-    let result = hasher.visit_element(elem);
+    let result = hasher.hash_element(elem);
     Vec::from(result.as_slice())
 }
 
 /// Bytes markers as per the spec.
-mod markers {
+struct Markers;
+impl Markers {
     /// single byte begin marker
-    pub(crate) const B: u8 = 0x0B;
+    const B: u8 = 0x0B;
     /// single byte end marker
-    pub(crate) const E: u8 = 0x0E;
+    const E: u8 = 0x0E;
     /// single byte escape
-    pub(crate) const ESC: u8 = 0x0C;
+    const ESC: u8 = 0x0C;
     /// type qualifier octet consisting of a four-bit type code T followed by a four-bit qualifier Q
     /// (this varies per type)
-    pub(crate) const TQ_STRING: u8 = 0x80;
+    const TQ_STRING: u8 = 0x80;
 }
 
 // TODO: In the fullness of time, we will have a IonHashReader and a
 // IonHashWriter. This will allow reading/writing a value *while* computing a
-// hash. For now, we provide a standalone hasher using the OwnedElement API.
+// hash. For now, we provide a standalone hasher using the Element API.
+/// Provides Ion hash over arbitrary [`Element`] instances with a given
+/// [`Digest`] algorithm.
 pub struct IonHasher<D>
 where
     D: Digest,
@@ -56,11 +57,13 @@ impl<D> IonHasher<D>
 where
     D: Digest,
 {
-    fn new(hasher: D) -> IonHasher<D> {
-        IonHasher { hasher }
+    fn new(hasher: D) -> Self {
+        Self { hasher }
     }
 
-    fn visit_element(&mut self, elem: &OwnedElement) -> Output<D> {
+    /// Computes the Ion hash over an [`Element`] recursively using this
+    /// hasher's [`Digest`]
+    fn hash_element<E: Element + ?Sized>(&mut self, elem: &E) -> Output<D> {
         let serialized_bytes = match elem.ion_type() {
             IonType::Null => todo!(),
             IonType::Boolean => todo!(),
@@ -77,15 +80,17 @@ where
             IonType::Struct => todo!(),
         };
 
+        // TODO: Annotations
+
         self.hasher.update(serialized_bytes);
         self.hasher.finalize_reset()
     }
 
     fn visit_string(&mut self, value: &str) -> Vec<u8> {
         let representation = value.as_bytes();
-        let mut serialized_bytes = vec![markers::B, markers::TQ_STRING];
+        let mut serialized_bytes = vec![Markers::B, Markers::TQ_STRING];
         serialized_bytes.extend(ion_hash_escape(representation));
-        serialized_bytes.push(markers::E);
+        serialized_bytes.push(Markers::E);
         serialized_bytes
     }
 }
@@ -94,7 +99,7 @@ where
 fn ion_hash_escape(representation: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(representation.len());
     for byte in representation {
-        if let markers::B | markers::E | markers::ESC = *byte {
+        if let Markers::B | Markers::E | Markers::ESC = *byte {
             out.push(0x0C);
         }
         out.push(*byte);
