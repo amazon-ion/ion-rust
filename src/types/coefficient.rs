@@ -1,6 +1,7 @@
 use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
 
+use crate::result::{illegal_operation, IonError};
 use crate::types::magnitude::Magnitude;
 use std::convert::TryFrom;
 use std::ops::MulAssign;
@@ -80,15 +81,13 @@ impl_coefficient_from_signed_int_types!(i8, i16, i32, i64, i128, isize);
 
 // `BigInt` can't represent -0, so this is technically a lossy operation.
 impl TryFrom<Coefficient> for BigInt {
-    //TODO: There's only one possible cause of failure for this method, but it would still be nice
-    //      to return an error type that's more descriptive than `()`.
-    type Error = ();
+    type Error = IonError;
 
     /// Attempts to create a BigInt from a Coefficient. Returns an Error if the Coefficient being
     /// converted is a negative zero, which BigInt cannot represent. Returns Ok otherwise.
     fn try_from(value: Coefficient) -> Result<Self, Self::Error> {
         if value.is_negative_zero() {
-            return Err(());
+            illegal_operation("Cannot convert negative zero Decimal to BigDecimal")?;
         }
         let mut big_int: BigInt = match value.magnitude {
             Magnitude::U64(m) => m.into(),

@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use bigdecimal::{BigDecimal, Signed};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 
+use crate::result::IonError;
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::magnitude::Magnitude;
 use std::convert::{TryFrom, TryInto};
@@ -169,9 +170,7 @@ impl From<BigDecimal> for Decimal {
 }
 
 impl TryFrom<Decimal> for BigDecimal {
-    //TODO: There's only one possible cause of failure for this method, but it would still be nice
-    //      to return an error type that's more descriptive than `()`.
-    type Error = ();
+    type Error = IonError;
     /// Attempts to create a BigDecimal from a Decimal. Returns an Error if the Decimal being
     /// converted is a negative zero, which BigDecimal cannot represent. Returns Ok otherwise.
     fn try_from(value: Decimal) -> Result<Self, Self::Error> {
@@ -183,6 +182,7 @@ impl TryFrom<Decimal> for BigDecimal {
 
 #[cfg(test)]
 mod decimal_tests {
+    use crate::result::IonError;
     use crate::types::coefficient::{Coefficient, Sign};
     use crate::types::decimal::Decimal;
     use bigdecimal::BigDecimal;
@@ -225,15 +225,15 @@ mod decimal_tests {
         // Any form of negative zero will fail to be converted.
 
         let decimal = Decimal::negative_zero();
-        let conversion_result: Result<BigDecimal, ()> = decimal.try_into();
+        let conversion_result: Result<BigDecimal, IonError> = decimal.try_into();
         assert!(conversion_result.is_err());
 
         let decimal = Decimal::negative_zero_with_exponent(6);
-        let conversion_result: Result<BigDecimal, ()> = decimal.try_into();
+        let conversion_result: Result<BigDecimal, IonError> = decimal.try_into();
         assert!(conversion_result.is_err());
 
         let decimal = Decimal::negative_zero_with_exponent(-6);
-        let conversion_result: Result<BigDecimal, ()> = decimal.try_into();
+        let conversion_result: Result<BigDecimal, IonError> = decimal.try_into();
         assert!(conversion_result.is_err());
     }
 

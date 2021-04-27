@@ -1,7 +1,8 @@
-use crate::result::{illegal_operation_raw, IonResult};
+use crate::result::{illegal_operation, illegal_operation_raw, IonError, IonResult};
 use crate::types::decimal::Decimal;
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use ion_c_sys::timestamp::{IonDateTime, TSOffsetKind, TSPrecision};
+use std::convert::TryInto;
 use std::fmt::Debug;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
@@ -628,6 +629,44 @@ impl From<ion_c_sys::timestamp::IonDateTime> for Timestamp {
     }
 }
 
+/// In general there should be 1-to-1 fidelity between these types, but there
+/// is no static way to guarantee this because of [`Decimal`] and the public constructor for
+/// [`IonDateTime`](ion_c_sys::timestamp::IonDateTime).
+impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
+    type Error = IonError;
+
+    fn try_into(self) -> Result<IonDateTime, Self::Error> {
+        use ion_c_sys::timestamp::Mantissa as IonCMantissa;
+
+        let (offset_kind, offset) = match self.offset {
+            None => (TSOffsetKind::UnknownOffset, FixedOffset::east(0)),
+            Some(offset) => (TSOffsetKind::KnownOffset, offset),
+        };
+        let precision = match (self.precision, self.fractional_seconds) {
+            (Precision::Year, _) => TSPrecision::Year,
+            (Precision::Month, _) => TSPrecision::Month,
+            (Precision::Day, _) => TSPrecision::Day,
+            (Precision::HourAndMinute, _) => TSPrecision::Minute,
+            (Precision::Second, _) => TSPrecision::Second,
+            (Precision::FractionalSeconds, Some(mantissa)) => {
+                TSPrecision::Fractional(match mantissa {
+                    Mantissa::Digits(digits) => IonCMantissa::Digits(digits),
+                    Mantissa::Arbitrary(fraction) => IonCMantissa::Fraction(fraction.try_into()?),
+                })
+            }
+            _ => {
+                // invariant violation
+                return illegal_operation(format!(
+                    "Could not convert timestamp with fractional seconds and no mantissa"
+                ));
+            }
+        };
+        let date_time = offset.from_utc_datetime(&self.date_time);
+
+        Ok(IonDateTime::try_new(date_time, precision, offset_kind)?)
+    }
+}
+
 #[cfg(test)]
 mod timestamp_tests {
     use crate::result::IonResult;
@@ -902,7 +941,7 @@ mod timestamp_tests {
 }
 
 #[cfg(test)]
-mod from_ionc_tests {
+mod ionc_tests {
     use super::*;
     use bigdecimal::BigDecimal;
     use ion_c_sys::timestamp as ionc_ts;
@@ -1023,12 +1062,14 @@ mod from_ionc_tests {
             .build_at_offset(0)
             .unwrap()
     )]
-    fn convert_from_ionc(
+    fn convert_from_to_ionc(
         #[case] source: IonDateTime,
         #[case] expected: Timestamp,
     ) -> IonResult<()> {
-        let actual: Timestamp = source.into();
+        let actual: Timestamp = source.clone().into();
         assert_eq!(expected, actual);
+        let converted_source: IonDateTime = actual.try_into()?;
+        assert_eq!(source, converted_source);
         Ok(())
     }
 }
