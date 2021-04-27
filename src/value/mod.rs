@@ -263,7 +263,7 @@ pub trait Element
 where
     Self: From<i64> + From<bool> + From<Decimal> + From<Timestamp> + From<f64> + From<BigInt>,
 {
-    type SymbolToken: SymbolToken + ?Sized + Debug + PartialEq;
+    type SymbolToken: SymbolToken + Debug + PartialEq;
     type Sequence: Sequence<Element = Self> + ?Sized + Debug + PartialEq;
     type Struct: Struct<FieldName = Self::SymbolToken, Element = Self> + ?Sized + Debug + PartialEq;
     type Builder: Builder<Element = Self> + ?Sized;
@@ -415,8 +415,13 @@ pub trait Sequence {
 
 /// Represents the _value_ of `struct` of Ion elements.
 pub trait Struct {
-    type FieldName: SymbolToken + ?Sized;
+    type FieldName: SymbolToken;
     type Element: Element + ?Sized;
+
+    /// construct a new Sequence from iterator of elements
+    // fn new<K: Into<Self::FieldName>, V: Into<Self::Element>, I: IntoIterator<Item = (K, V)>>(
+    //     seq: I,
+    // ) -> Self;
 
     /// The fields of the structure.
     ///
@@ -491,9 +496,10 @@ pub trait Struct {
 
 pub trait Builder {
     type Element: Element + ?Sized;
-    type SymbolToken: SymbolToken + ?Sized;
+    type SymbolToken: SymbolToken + PartialEq;
     type Sequence: Sequence<Element = Self::Element> + ?Sized;
     type Struct: Struct<FieldName = Self::SymbolToken, Element = Self::Element> + ?Sized;
+    type ImportSource: ImportSource;
 
     /// Build a `null` from IonType using Builder
     fn new_null(e_type: IonType) -> Self::Element;
@@ -503,6 +509,13 @@ pub trait Builder {
 
     /// Build a `string` using Builder
     fn new_string(str: &'static str) -> Self::Element;
+
+    /// Build a `SymbolToken` using Builder
+    fn symbol_token(
+        text: Option<&'static str>,
+        local_sid: Option<SymbolId>,
+        source: Option<Self::ImportSource>,
+    ) -> Self::SymbolToken;
 
     /// Build a `symbol` from SymbolToken using Builder
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element;
@@ -529,13 +542,19 @@ pub trait Builder {
     fn new_blob(bytes: &'static [u8]) -> Self::Element;
 
     /// Build a `list` from Sequence using Builder
-    fn new_list(seq: Self::Sequence) -> Self::Element;
+    fn new_list<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element;
 
     /// Build a `sexp` from Sequence using Builder
-    fn new_sexp(seq: Self::Sequence) -> Self::Element;
+    fn new_sexp<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element;
 
     /// Build a `struct` from Struct using Builder
-    fn new_struct(structure: Self::Struct) -> Self::Element;
+    fn new_struct<
+        K: Into<Self::SymbolToken>,
+        V: Into<Self::Element>,
+        I: IntoIterator<Item = (K, V)>,
+    >(
+        structure: I,
+    ) -> Self::Element;
 }
 
 #[cfg(test)]
@@ -589,7 +608,7 @@ mod generic_value_tests {
     struct Case<E: Element> {
         elem: E,
         ion_type: IonType,
-        ops: ElemOp,
+        ops: Vec<ElemOp>,
         op_assert: Box<dyn Fn(&E)>,
     }
 
@@ -597,7 +616,7 @@ mod generic_value_tests {
         Case {
             elem: E::Builder::new_null(IonType::Null),
             ion_type: IonType::Null,
-            ops: IsNull,
+            ops: vec![IsNull],
             op_assert: Box::new(|e: &E| assert_eq!(true, e.is_null())),
         }
     }
@@ -606,7 +625,7 @@ mod generic_value_tests {
         Case {
             elem: true.into(),
             ion_type: IonType::Boolean,
-            ops: AsBool,
+            ops: vec![AsBool],
             op_assert: Box::new(|e: &E| assert_eq!(Some(true), e.as_bool())),
         }
     }
@@ -615,7 +634,7 @@ mod generic_value_tests {
         Case {
             elem: 100.into(),
             ion_type: IonType::Integer,
-            ops: AsAnyInt,
+            ops: vec![AsAnyInt],
             op_assert: Box::new(|e: &E| assert_eq!(Some(&AnyInt::I64(100)), e.as_any_int())),
         }
     }
@@ -624,7 +643,7 @@ mod generic_value_tests {
         Case {
             elem: BigInt::from(100).into(),
             ion_type: IonType::Integer,
-            ops: AsAnyInt,
+            ops: vec![AsAnyInt],
             op_assert: Box::new(|e: &E| {
                 assert_eq!(Some(&AnyInt::BigInt(BigInt::from(100))), e.as_any_int())
             }),
@@ -635,7 +654,7 @@ mod generic_value_tests {
         Case {
             elem: 16.0.into(),
             ion_type: IonType::Float,
-            ops: AsF64,
+            ops: vec![AsF64],
             op_assert: Box::new(|e: &E| assert_eq!(Some(16.0), e.as_f64())),
         }
     }
@@ -644,7 +663,7 @@ mod generic_value_tests {
         Case {
             elem: make_timestamp("2014-10-16T12:01:00-00:00").into(),
             ion_type: IonType::Timestamp,
-            ops: AsTimestamp,
+            ops: vec![AsTimestamp],
             op_assert: Box::new(|e: &E| {
                 assert_eq!(
                     Some(&make_timestamp("2014-10-16T12:01:00+00:00")),
@@ -658,7 +677,7 @@ mod generic_value_tests {
         Case {
             elem: Decimal::new(8, 3).into(),
             ion_type: IonType::Decimal,
-            ops: AsDecimal,
+            ops: vec![AsDecimal],
             op_assert: Box::new(|e: &E| assert_eq!(Some(&Decimal::new(80, 2)), e.as_decimal())),
         }
     }
@@ -667,8 +686,20 @@ mod generic_value_tests {
         Case {
             elem: E::Builder::new_string("hello"),
             ion_type: IonType::String,
-            ops: AsStr,
+            ops: vec![AsStr],
             op_assert: Box::new(|e: &E| assert_eq!(Some("hello"), e.as_str())),
+        }
+    }
+
+    fn symbol_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_symbol(E::Builder::symbol_token(Some("foo"), None, None)),
+            ion_type: IonType::Symbol,
+            ops: vec![AsSym, AsStr],
+            op_assert: Box::new(|e: &E| assert_eq!(Some("foo"), e.as_sym().unwrap().text())),
         }
     }
 
@@ -676,7 +707,7 @@ mod generic_value_tests {
         Case {
             elem: E::Builder::new_blob(b"hello"),
             ion_type: IonType::Blob,
-            ops: AsBytes,
+            ops: vec![AsBytes],
             op_assert: Box::new(|e: &E| assert_eq!(Some("hello".as_bytes()), e.as_bytes())),
         }
     }
@@ -685,8 +716,74 @@ mod generic_value_tests {
         Case {
             elem: E::Builder::new_clob(b"goodbye"),
             ion_type: IonType::Clob,
-            ops: AsBytes,
+            ops: vec![AsBytes],
             op_assert: Box::new(|e: &E| assert_eq!(Some("goodbye".as_bytes()), e.as_bytes())),
+        }
+    }
+
+    fn list_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_list(vec![true.into(), false.into()].into_iter()),
+            ion_type: IonType::List,
+            ops: vec![AsSequence],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_sequence().unwrap();
+                let expected: Vec<E> = vec![true.into(), false.into()];
+                // assert the length of list
+                assert_eq!(2, actual.len());
+                for i in 0..actual.len() {
+                    // assert the list elements one-by-one
+                    assert_eq!(Some(&expected[i]), actual.get(i));
+                }
+            }),
+        }
+    }
+
+    fn sexp_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_sexp(vec![true.into(), false.into()].into_iter()),
+            ion_type: IonType::SExpression,
+            ops: vec![AsSequence],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_sequence().unwrap();
+                let expected: Vec<E> = vec![true.into(), false.into()];
+                // assert the length of s-expression
+                assert_eq!(2, actual.len());
+                for i in 0..actual.len() {
+                    // assert the s-expression elements one-by-one
+                    assert_eq!(Some(&expected[i]), actual.get(i));
+                }
+            }),
+        }
+    }
+
+    fn struct_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![(
+                    E::Builder::symbol_token(Some("greetings"), None, None),
+                    E::Builder::new_string("hello"),
+                )]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct().unwrap();
+                assert_eq!(
+                    actual.get("greetings".to_string()),
+                    Some(&E::Builder::new_string("hello"))
+                );
+            }),
         }
     }
 
@@ -711,6 +808,14 @@ mod generic_value_tests {
     #[case::borrowed_blob(blob_case::<BorrowedElement>())]
     #[case::owned_clob(clob_case::<OwnedElement>())]
     #[case::borrowed_clob(clob_case::<BorrowedElement>())]
+    #[case::owned_list(list_case::<OwnedElement>())]
+    #[case::borrowed_list(list_case::<BorrowedElement>())]
+    #[case::owned_sexp(sexp_case::<OwnedElement>())]
+    #[case::borrowed_sexp(sexp_case::<BorrowedElement>())]
+    #[case::owned_struct(struct_case::<OwnedElement>())]
+    #[case::borrowed_struct(struct_case::<BorrowedElement>())]
+    #[case::owned_symbol(symbol_case::<OwnedElement>())]
+    #[case::borrowed_symbol(symbol_case::<BorrowedElement>())]
     fn element_accessors<E: Element>(#[case] input_case: Case<E>)
     where
         E: Debug + PartialEq,

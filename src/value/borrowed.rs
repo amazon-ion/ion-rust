@@ -16,6 +16,7 @@ use crate::IonType;
 use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::iter::FromIterator;
+use std::rc::Rc;
 
 /// A borrowed implementation of [`ImportSource`].
 #[derive(Debug, Copy, Clone)]
@@ -144,6 +145,7 @@ impl<'val> Builder for BorrowedElement<'val> {
     type SymbolToken = BorrowedSymbolToken<'val>;
     type Sequence = BorrowedSequence<'val>;
     type Struct = BorrowedStruct<'val>;
+    type ImportSource = BorrowedImportSource<'val>;
 
     fn new_null(e_type: IonType) -> Self::Element {
         BorrowedValue::Null(e_type).into()
@@ -155,6 +157,14 @@ impl<'val> Builder for BorrowedElement<'val> {
 
     fn new_string(str: &'static str) -> Self::Element {
         BorrowedValue::String(str).into()
+    }
+
+    fn symbol_token(
+        text: Option<&'static str>,
+        local_sid: Option<usize>,
+        source: Option<Self::ImportSource>,
+    ) -> Self::SymbolToken {
+        BorrowedSymbolToken::new(text, local_sid, source)
     }
 
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element {
@@ -189,16 +199,22 @@ impl<'val> Builder for BorrowedElement<'val> {
         BorrowedValue::Blob(bytes).into()
     }
 
-    fn new_list(seq: Self::Sequence) -> Self::Element {
-        BorrowedValue::List(seq).into()
+    fn new_list<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element {
+        BorrowedValue::List(seq.into_iter().collect()).into()
     }
 
-    fn new_sexp(seq: Self::Sequence) -> Self::Element {
-        BorrowedValue::SExpression(seq).into()
+    fn new_sexp<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element {
+        BorrowedValue::SExpression(seq.into_iter().collect()).into()
     }
 
-    fn new_struct(structure: Self::Struct) -> Self::Element {
-        BorrowedValue::Struct(structure).into()
+    fn new_struct<
+        K: Into<Self::SymbolToken>,
+        V: Into<Self::Element>,
+        I: IntoIterator<Item = (K, V)>,
+    >(
+        structure: I,
+    ) -> Self::Element {
+        BorrowedValue::Struct(structure.into_iter().collect()).into()
     }
 }
 
@@ -805,7 +821,7 @@ mod borrowed_value_tests {
             }
         ),
         case::list(
-            BorrowedElement::new_list(vec![true.into(), false.into()].into_iter().collect()),
+            BorrowedElement::new_list(vec![true.into(), false.into()].into_iter()),
             IonType::List,
             AsSequence,
             &|e: &BorrowedElement| {
@@ -813,7 +829,7 @@ mod borrowed_value_tests {
             }
         ),
         case::sexp(
-            BorrowedElement::new_sexp(vec![true.into(), false.into()].into_iter().collect()),
+            BorrowedElement::new_sexp(vec![true.into(), false.into()].into_iter()),
             IonType::SExpression,
             AsSequence,
             &|e: &BorrowedElement| {
@@ -821,7 +837,7 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello".into())))].into_iter())),
+            BorrowedElement::new_struct(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello".into())))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -829,7 +845,7 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_not_equal(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello".into())))].into_iter())),
+            BorrowedElement::new_struct(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello".into())))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -837,7 +853,7 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_local_sid(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter())),
+            BorrowedElement::new_struct(vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -846,7 +862,7 @@ mod borrowed_value_tests {
         ),
         // SymbolToken with local SID and no text are equivalent to each other and to SID $0 
         case::struct_with_different_local_sids(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter())),
+            BorrowedElement::new_struct(vec![(local_sid_token(21), BorrowedValue::String("hello".into()))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -854,7 +870,7 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_import_source(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter())),
+            BorrowedElement::new_struct(vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -862,7 +878,7 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_import_source_not_equal(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter())),
+            BorrowedElement::new_struct(vec![(local_sid_token(21).with_source("hello_table", 2), BorrowedValue::String("hello".into()))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -870,12 +886,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_multiple_fields(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(
+            BorrowedElement::new_struct(
                 vec![
                     ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
                     ("name", BorrowedElement::from(BorrowedValue::String("Ion".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -891,12 +907,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_multiple_fields_not_equal(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(
+            BorrowedElement::new_struct(
                 vec![
                     ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
                     ("name", BorrowedElement::from(BorrowedValue::String("Ion".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -912,12 +928,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_multiple_unordred_fields(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(
+            BorrowedElement::new_struct(
                 vec![
                     ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
                     ("name", BorrowedElement::from(BorrowedValue::String("Ion".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -933,12 +949,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_text_and_duplicates(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(
+            BorrowedElement::new_struct(
                 vec![
                     ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
                     ("greetings", BorrowedElement::from(BorrowedValue::String("world".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -954,12 +970,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_text_and_unordered_duplicates(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(
-            vec![
-                ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
-                ("greetings", BorrowedElement::from(BorrowedValue::String("world".into()))),
-            ].into_iter()
-            )),
+            BorrowedElement::new_struct(
+                vec![
+                    ("greetings", BorrowedElement::from(BorrowedValue::String("hello".into()))),
+                    ("greetings", BorrowedElement::from(BorrowedValue::String("world".into()))),
+                ].into_iter()
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {
@@ -975,12 +991,12 @@ mod borrowed_value_tests {
             }
         ),
         case::struct_with_no_text_and_unordered_duplicates(
-            BorrowedElement::new_struct(BorrowedStruct::from_iter(
+            BorrowedElement::new_struct(
                 vec![
                     (local_sid_token(21), BorrowedElement::from(BorrowedValue::String("hello".into()))),
                     (local_sid_token(21), BorrowedElement::from(BorrowedValue::String("world".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &BorrowedElement| {

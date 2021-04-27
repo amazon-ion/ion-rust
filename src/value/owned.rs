@@ -147,6 +147,7 @@ impl Builder for OwnedElement {
     type SymbolToken = OwnedSymbolToken;
     type Sequence = OwnedSequence;
     type Struct = OwnedStruct;
+    type ImportSource = OwnedImportSource;
 
     fn new_null(e_type: IonType) -> Self::Element {
         OwnedValue::Null(e_type).into()
@@ -158,6 +159,14 @@ impl Builder for OwnedElement {
 
     fn new_string(str: &'static str) -> Self::Element {
         OwnedValue::String(str.into()).into()
+    }
+
+    fn symbol_token(
+        text: Option<&'static str>,
+        local_sid: Option<usize>,
+        source: Option<Self::ImportSource>,
+    ) -> Self::SymbolToken {
+        OwnedSymbolToken::new(Some(Rc::from(text.unwrap())), local_sid, source)
     }
 
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element {
@@ -192,16 +201,22 @@ impl Builder for OwnedElement {
         OwnedValue::Blob(bytes.into()).into()
     }
 
-    fn new_list(seq: Self::Sequence) -> Self::Element {
-        OwnedValue::List(seq).into()
+    fn new_list<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element {
+        OwnedValue::List(seq.into_iter().collect()).into()
     }
 
-    fn new_sexp(seq: Self::Sequence) -> Self::Element {
-        OwnedValue::SExpression(seq).into()
+    fn new_sexp<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element {
+        OwnedValue::SExpression(seq.into_iter().collect()).into()
     }
 
-    fn new_struct(structure: Self::Struct) -> Self::Element {
-        OwnedValue::Struct(structure).into()
+    fn new_struct<
+        K: Into<Self::SymbolToken>,
+        V: Into<Self::Element>,
+        I: IntoIterator<Item = (K, V)>,
+    >(
+        structure: I,
+    ) -> Self::Element {
+        OwnedValue::Struct(structure.into_iter().collect()).into()
     }
 }
 
@@ -807,7 +822,7 @@ mod value_tests {
             }
         ),
         case::list(
-            OwnedElement::new_list(vec![true.into(), false.into()].into_iter().collect()),
+            OwnedElement::new_list(vec![true.into(), false.into()].into_iter()),
             IonType::List,
             AsSequence,
             &|e: &OwnedElement| {
@@ -815,7 +830,7 @@ mod value_tests {
             }
         ),
         case::sexp(
-            OwnedElement::new_sexp(vec![true.into(), false.into()].into_iter().collect()),
+            OwnedElement::new_sexp(vec![true.into(), false.into()].into_iter()),
             IonType::SExpression,
             AsSequence,
             &|e: &OwnedElement| {
@@ -823,7 +838,7 @@ mod value_tests {
             }
         ),
         case::struct_(
-            OwnedElement::new_struct(OwnedStruct::from_iter(vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter())),
+            OwnedElement::new_struct(vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -831,7 +846,7 @@ mod value_tests {
             }
         ),
         case::struct_not_equal(
-            OwnedElement::new_struct(OwnedStruct::from_iter(vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter())),
+            OwnedElement::new_struct(vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -839,7 +854,7 @@ mod value_tests {
             }
         ),
         case::struct_with_local_sid(
-            OwnedElement::new_struct(OwnedStruct::from_iter(vec![(local_sid_token(21), OwnedValue::String("hello".into()))].into_iter())),
+            OwnedElement::new_struct(vec![(local_sid_token(21), OwnedValue::String("hello".into()))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -848,7 +863,7 @@ mod value_tests {
         ),
         // SymbolToken with local SID and no text are equivalent to each other and to SID $0 
         case::struct_with_different_local_sids(
-            OwnedElement::new_struct(OwnedStruct::from_iter(vec![(local_sid_token(21), OwnedValue::String("hello".into()))].into_iter())),
+            OwnedElement::new_struct(vec![(local_sid_token(21), OwnedValue::String("hello".into()))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -856,7 +871,7 @@ mod value_tests {
             }
         ),
         case::struct_with_import_source(
-            OwnedElement::new_struct(OwnedStruct::from_iter(vec![(local_sid_token(21).with_source("hello_table", 2), OwnedValue::String("hello".into()))].into_iter())),
+            OwnedElement::new_struct(vec![(local_sid_token(21).with_source("hello_table", 2), OwnedValue::String("hello".into()))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -864,7 +879,7 @@ mod value_tests {
             }
         ),
         case::struct_with_import_source_not_equal(
-            OwnedElement::new_struct(OwnedStruct::from_iter(vec![(local_sid_token(21).with_source("hello_table", 2), OwnedValue::String("hello".into()))].into_iter())),
+            OwnedElement::new_struct(vec![(local_sid_token(21).with_source("hello_table", 2), OwnedValue::String("hello".into()))].into_iter()),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -872,12 +887,12 @@ mod value_tests {
             }
         ),
         case::struct_with_multiple_fields(
-            OwnedElement::new_struct(OwnedStruct::from_iter(
+            OwnedElement::new_struct(
                 vec![
                     ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
                     ("name", OwnedElement::from(OwnedValue::String("Ion".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -893,12 +908,12 @@ mod value_tests {
             }
         ),
         case::struct_with_multiple_fields_not_equal(
-            OwnedElement::new_struct(OwnedStruct::from_iter(
+            OwnedElement::new_struct(
                 vec![
                     ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
                     ("name", OwnedElement::from(OwnedValue::String("Ion".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -914,12 +929,12 @@ mod value_tests {
             }
         ),
         case::struct_with_multiple_unordred_fields(
-            OwnedElement::new_struct(OwnedStruct::from_iter(
+            OwnedElement::new_struct(
                 vec![
                     ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
                     ("name", OwnedElement::from(OwnedValue::String("Ion".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -935,12 +950,12 @@ mod value_tests {
             }
         ),
         case::struct_with_text_and_duplicates(
-            OwnedElement::new_struct(OwnedStruct::from_iter(
+            OwnedElement::new_struct(
                 vec![
                     ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
                     ("greetings", OwnedElement::from(OwnedValue::String("world".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -956,12 +971,12 @@ mod value_tests {
             }
         ),
         case::struct_with_text_and_unordered_duplicates(
-            OwnedElement::new_struct(OwnedStruct::from_iter(
+            OwnedElement::new_struct(
                 vec![
                     ("greetings", OwnedElement::from(OwnedValue::String("hello".into()))), 
                     ("greetings", OwnedElement::from(OwnedValue::String("world".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
@@ -977,12 +992,12 @@ mod value_tests {
             }
         ),
         case::struct_with_no_text_and_unordered_duplicates(
-            OwnedElement::new_struct(OwnedStruct::from_iter(
+            OwnedElement::new_struct(
                 vec![
                     (local_sid_token(21), OwnedElement::from(OwnedValue::String("hello".into()))), 
                     (local_sid_token(21), OwnedElement::from(OwnedValue::String("world".into()))),
                 ].into_iter()
-            )),
+            ),
             IonType::Struct,
             AsStruct,
             &|e: &OwnedElement| {
