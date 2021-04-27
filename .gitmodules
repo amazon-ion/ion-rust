@@ -4,3 +4,6 @@
 [submodule "ionc"]
 	path = ion-c-sys/ion-c
 	url = https://github.com/amzn/ion-c.git
+[submodule "ion-hash-test"]
+	path = ion-hash/ion-hash-test
+	url = https://github.com/amzn/ion-hash-test.git
