@@ -68,21 +68,6 @@ impl<'val> BorrowedSymbolToken<'val> {
             source,
         }
     }
-
-    fn with_text_borrowed(mut self, text: &'static str) -> Self {
-        self.text = Some(text);
-        self
-    }
-
-    fn with_local_sid_borrrowed(mut self, local_sid: SymbolId) -> Self {
-        self.local_sid = Some(local_sid);
-        self
-    }
-
-    fn with_source_borrowed(mut self, table: &'static str, sid: SymbolId) -> Self {
-        self.source = Some(BorrowedImportSource::new(table, sid));
-        self
-    }
 }
 
 /// Constructs an [`BorrowedSymbolToken`] with unknown text and a local ID.
@@ -135,15 +120,19 @@ impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
     }
 
     fn with_text(self, text: &'static str) -> Self {
-        self.with_text_borrowed(text)
+        BorrowedSymbolToken::new(Some(text), self.local_sid, self.source)
     }
 
     fn with_local_sid(self, local_sid: SymbolId) -> Self {
-        self.with_local_sid_borrrowed(local_sid)
+        BorrowedSymbolToken::new(self.text, Some(local_sid), self.source)
     }
 
     fn with_source(self, table: &'static str, sid: SymbolId) -> Self {
-        self.with_source_borrowed(table, sid)
+        BorrowedSymbolToken::new(
+            self.text,
+            self.local_sid,
+            Some(BorrowedImportSource::new(table, sid)),
+        )
     }
 }
 
