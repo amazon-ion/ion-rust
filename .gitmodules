@@ -3,4 +3,4 @@
 	url = https://github.com/amzn/ion-tests.git
 [submodule "ionc"]
 	path = ion-c-sys/ion-c
-	url = https://github.com/amzn/ion-c
+	url = https://github.com/amzn/ion-c.git
