@@ -71,20 +71,17 @@ impl OwnedSymbolToken {
         }
     }
 
-    /// Decorates the [`OwnedSymbolToken`] with text.
-    pub fn with_text<T: Into<Rc<str>>>(mut self, text: T) -> Self {
-        self.text = Some(text.into());
+    fn with_text_owned(mut self, text: &'static str) -> Self {
+        self.text = Some(Rc::from(text));
         self
     }
 
-    /// Decorates the [`OwnedSymbolToken`] with a local ID.
-    pub fn with_local_sid(mut self, local_sid: SymbolId) -> Self {
+    fn with_local_sid_owned(mut self, local_sid: SymbolId) -> Self {
         self.local_sid = Some(local_sid);
         self
     }
 
-    /// Decorates the [`OwnedSymbolToken`] with an [`OwnedImportSource`].
-    pub fn with_source<T: Into<Rc<str>>>(mut self, table: T, sid: SymbolId) -> Self {
+    fn with_source_owned(mut self, table: &'static str, sid: SymbolId) -> Self {
         self.source = Some(OwnedImportSource::new(table, sid));
         self
     }
@@ -139,6 +136,18 @@ impl SymbolToken for OwnedSymbolToken {
     fn source(&self) -> Option<&Self::ImportSource> {
         self.source.as_ref()
     }
+
+    fn with_text(self, text: &'static str) -> Self {
+        self.with_text_owned(text)
+    }
+
+    fn with_local_sid(self, local_sid: SymbolId) -> Self {
+        self.with_local_sid_owned(local_sid)
+    }
+
+    fn with_source(self, table: &'static str, sid: SymbolId) -> Self {
+        self.with_source_owned(table, sid)
+    }
 }
 
 /// An owned implementation of [`Builder`].
@@ -161,12 +170,12 @@ impl Builder for OwnedElement {
         OwnedValue::String(str.into()).into()
     }
 
-    fn symbol_token(
-        text: Option<&'static str>,
-        local_sid: Option<usize>,
-        source: Option<Self::ImportSource>,
-    ) -> Self::SymbolToken {
-        OwnedSymbolToken::new(Some(Rc::from(text.unwrap())), local_sid, source)
+    fn text_token(text: &'static str) -> Self::SymbolToken {
+        OwnedSymbolToken::new(Some(Rc::from(text)), None, None)
+    }
+
+    fn local_sid_token(local_sid: usize) -> Self::SymbolToken {
+        OwnedSymbolToken::new(None, Some(local_sid), None)
     }
 
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element {

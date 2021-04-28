@@ -161,6 +161,15 @@ pub trait SymbolToken {
 
     /// The source of this token, which may be `None` if the symbol is locally defined.
     fn source(&self) -> Option<&Self::ImportSource>;
+
+    /// Decorates the [`SymbolToken`] with text.
+    fn with_text(self, text: &'static str) -> Self;
+
+    /// Decorates the [`SymbolToken`] with a local ID.
+    fn with_local_sid(self, local_sid: SymbolId) -> Self;
+
+    /// Decorates the [`SymbolToken`] with an [`ImportSource`].
+    fn with_source(self, table: &'static str, sid: SymbolId) -> Self;
 }
 
 /// Provides convenient integer accessors for integer values that are like [`AnyInt`]
@@ -415,13 +424,8 @@ pub trait Sequence {
 
 /// Represents the _value_ of `struct` of Ion elements.
 pub trait Struct {
-    type FieldName: SymbolToken;
+    type FieldName: SymbolToken + ?Sized;
     type Element: Element + ?Sized;
-
-    /// construct a new Sequence from iterator of elements
-    // fn new<K: Into<Self::FieldName>, V: Into<Self::Element>, I: IntoIterator<Item = (K, V)>>(
-    //     seq: I,
-    // ) -> Self;
 
     /// The fields of the structure.
     ///
@@ -501,60 +505,57 @@ pub trait Builder {
     type Struct: Struct<FieldName = Self::SymbolToken, Element = Self::Element> + ?Sized;
     type ImportSource: ImportSource;
 
-    /// Build a `null` from IonType using Builder
+    /// Builds a `null` from IonType using Builder.
     fn new_null(e_type: IonType) -> Self::Element;
 
-    /// Build a `bool` using Builder
+    /// Builds a `bool` using Builder.
     fn new_bool(bool: bool) -> Self::Element;
 
-    /// Build a `string` using Builder
+    /// Builds a `string` using Builder.
     fn new_string(str: &'static str) -> Self::Element;
 
-    /// Build a `SymbolToken` using Builder
-    fn symbol_token(
-        text: Option<&'static str>,
-        local_sid: Option<SymbolId>,
-        source: Option<Self::ImportSource>,
-    ) -> Self::SymbolToken;
+    /// Builds `SymbolToken` from text using Builder.
+    fn text_token(text: &'static str) -> Self::SymbolToken;
 
-    /// Build a `symbol` from SymbolToken using Builder
+    /// Builds `SymbolToken` from local sid using Builder.
+    fn local_sid_token(local_sid: SymbolId) -> Self::SymbolToken;
+
+    /// Builds a `symbol` from SymbolToken using Builder.
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element;
 
-    /// Build a `i64` using Builder
+    /// Builds a `i64` using Builder.
     fn new_i64(int: i64) -> Self::Element;
 
-    /// Build a `big int` using Builder
+    /// Builds a `big int` using Builder.
     fn new_big_int(big_int: BigInt) -> Self::Element;
 
-    /// Build a `decimal` using Builder
+    /// Builds a `decimal` using Builder.
     fn new_decimal(decimal: Decimal) -> Self::Element;
 
-    /// Build a `timestamp` using Builder
+    /// Builds a `timestamp` using Builder.
     fn new_timestamp(timestamp: Timestamp) -> Self::Element;
 
-    /// Build a `f64` using Builder
+    /// Builds a `f64` using Builder.
     fn new_f64(float: f64) -> Self::Element;
 
-    /// Build a `clob` using Builder
+    /// Builds a `clob` using Builder.
     fn new_clob(bytes: &'static [u8]) -> Self::Element;
 
-    /// Build a `blob` using Builder
+    /// Builds a `blob` using Builder.
     fn new_blob(bytes: &'static [u8]) -> Self::Element;
 
-    /// Build a `list` from Sequence using Builder
+    /// Builds a `list` from Sequence using Builder.
     fn new_list<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element;
 
-    /// Build a `sexp` from Sequence using Builder
+    /// Builds a `sexp` from Sequence using Builder.
     fn new_sexp<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element;
 
-    /// Build a `struct` from Struct using Builder
-    fn new_struct<
+    /// Builds a `struct` from Struct using Builder.
+    fn new_struct<K, V, I>(structure: I) -> Self::Element
+    where
         K: Into<Self::SymbolToken>,
         V: Into<Self::Element>,
-        I: IntoIterator<Item = (K, V)>,
-    >(
-        structure: I,
-    ) -> Self::Element;
+        I: IntoIterator<Item = (K, V)>;
 }
 
 #[cfg(test)]
@@ -696,7 +697,7 @@ mod generic_value_tests {
         E: Debug + PartialEq,
     {
         Case {
-            elem: E::Builder::new_symbol(E::Builder::symbol_token(Some("foo"), None, None)),
+            elem: E::Builder::new_symbol(E::Builder::text_token("foo").with_local_sid(10)),
             ion_type: IonType::Symbol,
             ops: vec![AsSym, AsStr],
             op_assert: Box::new(|e: &E| assert_eq!(Some("foo"), e.as_sym().unwrap().text())),
@@ -770,7 +771,7 @@ mod generic_value_tests {
         Case {
             elem: E::Builder::new_struct(
                 vec![(
-                    E::Builder::symbol_token(Some("greetings"), None, None),
+                    E::Builder::text_token("greetings"),
                     E::Builder::new_string("hello"),
                 )]
                 .into_iter(),
@@ -786,6 +787,8 @@ mod generic_value_tests {
             }),
         }
     }
+
+    // TODO add more tests to remove the separate Owned/Borrowed tests and only keep generic tests
 
     #[rstest]
     #[case::owned_null(null_case::<OwnedElement>())]

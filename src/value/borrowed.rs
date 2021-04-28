@@ -16,7 +16,6 @@ use crate::IonType;
 use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::iter::FromIterator;
-use std::rc::Rc;
 
 /// A borrowed implementation of [`ImportSource`].
 #[derive(Debug, Copy, Clone)]
@@ -70,20 +69,17 @@ impl<'val> BorrowedSymbolToken<'val> {
         }
     }
 
-    /// Decorates the [`BorrowedSymbolToken`] with text.
-    pub fn with_text(mut self, text: &'val str) -> Self {
+    fn with_text_borrowed(mut self, text: &'static str) -> Self {
         self.text = Some(text);
         self
     }
 
-    /// Decorates the [`BorrowedSymbolToken`] with a local ID.
-    pub fn with_local_sid(mut self, local_sid: SymbolId) -> Self {
+    fn with_local_sid_borrrowed(mut self, local_sid: SymbolId) -> Self {
         self.local_sid = Some(local_sid);
         self
     }
 
-    /// Decorates the [`BorrowedSymbolToken`] with an [`BorrowedImportSource`].
-    pub fn with_source(mut self, table: &'val str, sid: SymbolId) -> Self {
+    fn with_source_borrowed(mut self, table: &'static str, sid: SymbolId) -> Self {
         self.source = Some(BorrowedImportSource::new(table, sid));
         self
     }
@@ -137,6 +133,18 @@ impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
     fn source(&self) -> Option<&Self::ImportSource> {
         self.source.as_ref()
     }
+
+    fn with_text(self, text: &'static str) -> Self {
+        self.with_text_borrowed(text)
+    }
+
+    fn with_local_sid(self, local_sid: SymbolId) -> Self {
+        self.with_local_sid_borrrowed(local_sid)
+    }
+
+    fn with_source(self, table: &'static str, sid: SymbolId) -> Self {
+        self.with_source_borrowed(table, sid)
+    }
 }
 
 /// A borrowed implementation of [`Builder`].
@@ -159,12 +167,12 @@ impl<'val> Builder for BorrowedElement<'val> {
         BorrowedValue::String(str).into()
     }
 
-    fn symbol_token(
-        text: Option<&'static str>,
-        local_sid: Option<usize>,
-        source: Option<Self::ImportSource>,
-    ) -> Self::SymbolToken {
-        BorrowedSymbolToken::new(text, local_sid, source)
+    fn text_token(text: &'static str) -> Self::SymbolToken {
+        BorrowedSymbolToken::new(Some(text), None, None)
+    }
+
+    fn local_sid_token(local_sid: usize) -> Self::SymbolToken {
+        BorrowedSymbolToken::new(None, Some(local_sid), None)
     }
 
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element {
