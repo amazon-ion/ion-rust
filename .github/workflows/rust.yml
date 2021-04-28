@@ -14,9 +14,10 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-      - name: Remove msys64
+      - name: Remove MSys64 MingW64 Binaries
         if: runner.os == 'Windows'
-        run: Remove-Item -LiteralPath "C:\msys64\" -Force -Recurse
+        # remove this because there is a bad libclang.dll that confuses bindgen
+        run: Remove-Item -LiteralPath "C:\msys64\mingw64\bin" -Force -Recurse
       - name: Install Dependencies
         if: runner.os == 'Windows'
         run: choco install llvm -y
