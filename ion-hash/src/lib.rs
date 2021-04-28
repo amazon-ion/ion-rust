@@ -19,7 +19,25 @@
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::{value::Element, IonType};
 
-use sha2::{digest::Output, Digest, Sha256};
+use sha2::{Digest, Sha256};
+
+pub trait IonHashDigest {
+    fn update(&mut self, bytes: impl AsRef<[u8]>);
+    fn finalize(self) -> Vec<u8>;
+}
+
+impl<D> IonHashDigest for D
+where
+    D: Digest,
+{
+    fn update(&mut self, bytes: impl AsRef<[u8]>) {
+        Digest::update(self, bytes);
+    }
+
+    fn finalize(self) -> Vec<u8> {
+        Digest::finalize(self).into_iter().collect()
+    }
+}
 
 // A `try`-like macro to workaround the Element API ergonomics. This API
 // requires checking the type and then calling the appropriate getter function
@@ -37,7 +55,7 @@ macro_rules! t {
 
 /// Utility to hash an [`Element`] using SHA-256 as the hash function.
 pub fn sha256<E: Element>(elem: &E) -> IonResult<Vec<u8>> {
-    let mut hasher = IonHasher::new(Sha256::new());
+    let hasher = IonHasher::new(Sha256::new());
     let result = hasher.hash_element(elem)?;
     Ok(Vec::from(result.as_slice()))
 }
@@ -51,8 +69,10 @@ impl Markers {
     const E: u8 = 0x0E;
     /// single byte escape
     const ESC: u8 = 0x0C;
-    /// type qualifier octet consisting of a four-bit type code T followed by a four-bit qualifier Q
-    /// (this varies per type)
+
+    // type qualifier octet consisting of a four-bit type code T followed by a four-bit qualifier Q
+    // (this varies per type)
+    const TQ_NULL: u8 = 0x0F;
     const TQ_STRING: u8 = 0x80;
 }
 
@@ -63,31 +83,31 @@ impl Markers {
 /// [`Digest`] algorithm.
 pub struct IonHasher<D>
 where
-    D: Digest,
+    D: IonHashDigest,
 {
     hasher: D,
 }
 
 impl<D> IonHasher<D>
 where
-    D: Digest,
+    D: IonHashDigest,
 {
-    fn new(hasher: D) -> Self {
+    pub fn new(hasher: D) -> Self {
         Self { hasher }
     }
 
     /// Computes the Ion hash over an [`Element`] recursively using this
     /// hasher's [`Digest`]
-    fn hash_element<E: Element + ?Sized>(&mut self, elem: &E) -> IonResult<Output<D>> {
+    pub fn hash_element<E: Element + ?Sized>(mut self, elem: &E) -> IonResult<Vec<u8>> {
         let serialized_bytes = match elem.ion_type() {
-            IonType::Null => todo!(),
+            IonType::Null => self.hash_null(),
             IonType::Boolean => todo!(),
             IonType::Integer => todo!(),
             IonType::Float => todo!(),
             IonType::Decimal => todo!(),
             IonType::Timestamp => todo!(),
             IonType::Symbol => todo!(),
-            IonType::String => self.visit_string(t!(elem.as_str())),
+            IonType::String => self.hash_string(t!(elem.as_str())),
             IonType::Clob => todo!(),
             IonType::Blob => todo!(),
             IonType::List => todo!(),
@@ -98,10 +118,14 @@ where
         // TODO: Annotations
 
         self.hasher.update(serialized_bytes);
-        Ok(self.hasher.finalize_reset())
+        Ok(self.hasher.finalize())
     }
 
-    fn visit_string(&mut self, value: &str) -> Vec<u8> {
+    fn hash_null(&mut self) -> Vec<u8> {
+        vec![Markers::B, Markers::TQ_NULL, Markers::E]
+    }
+
+    fn hash_string(&mut self, value: &str) -> Vec<u8> {
         let representation = value.as_bytes();
         let mut serialized_bytes = vec![Markers::B, Markers::TQ_STRING];
         serialized_bytes.extend(ion_hash_escape(representation));
