@@ -171,6 +171,7 @@ use crate::types::SymbolId;
 use crate::IonType;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
+use std::fmt::Debug;
 
 pub mod borrowed;
 pub mod loader;
@@ -240,6 +241,15 @@ pub trait SymbolToken {
 
     /// The source of this token, which may be `None` if the symbol is locally defined.
     fn source(&self) -> Option<&Self::ImportSource>;
+
+    /// Decorates the [`SymbolToken`] with text.
+    fn with_text(self, text: &'static str) -> Self;
+
+    /// Decorates the [`SymbolToken`] with a local ID.
+    fn with_local_sid(self, local_sid: SymbolId) -> Self;
+
+    /// Decorates the [`SymbolToken`] with an [`ImportSource`].
+    fn with_source(self, table: &'static str, sid: SymbolId) -> Self;
 }
 
 /// Provides convenient integer accessors for integer values that are like [`AnyInt`]
@@ -338,10 +348,13 @@ impl Eq for AnyInt {}
 
 /// Represents a either a borrowed or owned Ion datum.  There are/will be specific APIs for
 /// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
-pub trait Element {
-    type SymbolToken: SymbolToken + ?Sized;
-    type Sequence: Sequence<Element = Self> + ?Sized;
-    type Struct: Struct<FieldName = Self::SymbolToken, Element = Self> + ?Sized;
+pub trait Element
+where
+    Self: From<i64> + From<bool> + From<Decimal> + From<Timestamp> + From<f64> + From<BigInt>,
+{
+    type SymbolToken: SymbolToken + Debug + PartialEq;
+    type Sequence: Sequence<Element = Self> + ?Sized + Debug + PartialEq;
+    type Struct: Struct<FieldName = Self::SymbolToken, Element = Self> + ?Sized + Debug + PartialEq;
     type Builder: Builder<Element = Self> + ?Sized;
 
     /// The type of data this element represents.
@@ -567,20 +580,366 @@ pub trait Struct {
 
 pub trait Builder {
     type Element: Element + ?Sized;
+    type SymbolToken: SymbolToken + PartialEq;
     type Sequence: Sequence<Element = Self::Element> + ?Sized;
+    type Struct: Struct<FieldName = Self::SymbolToken, Element = Self::Element> + ?Sized;
+    type ImportSource: ImportSource;
 
-    /// Build a `null` from IonType using Builder
+    /// Builds a `null` from IonType using Builder.
     fn new_null(e_type: IonType) -> Self::Element;
 
-    /// Build a `clob` using Builder
+    /// Builds a `bool` using Builder.
+    fn new_bool(bool: bool) -> Self::Element;
+
+    /// Builds a `string` using Builder.
+    fn new_string(str: &'static str) -> Self::Element;
+
+    /// Builds `SymbolToken` from text using Builder.
+    fn text_token(text: &'static str) -> Self::SymbolToken;
+
+    /// Builds `SymbolToken` from local sid using Builder.
+    fn local_sid_token(local_sid: SymbolId) -> Self::SymbolToken;
+
+    /// Builds a `symbol` from SymbolToken using Builder.
+    fn new_symbol(sym: Self::SymbolToken) -> Self::Element;
+
+    /// Builds a `i64` using Builder.
+    fn new_i64(int: i64) -> Self::Element;
+
+    /// Builds a `big int` using Builder.
+    fn new_big_int(big_int: BigInt) -> Self::Element;
+
+    /// Builds a `decimal` using Builder.
+    fn new_decimal(decimal: Decimal) -> Self::Element;
+
+    /// Builds a `timestamp` using Builder.
+    fn new_timestamp(timestamp: Timestamp) -> Self::Element;
+
+    /// Builds a `f64` using Builder.
+    fn new_f64(float: f64) -> Self::Element;
+
+    /// Builds a `clob` using Builder.
     fn new_clob(bytes: &'static [u8]) -> Self::Element;
 
-    /// Build a `blob` using Builder
+    /// Builds a `blob` using Builder.
     fn new_blob(bytes: &'static [u8]) -> Self::Element;
 
-    /// Build a `list` from Sequence using Builder
-    fn new_list(seq: Self::Sequence) -> Self::Element;
+    /// Builds a `list` from Sequence using Builder.
+    fn new_list<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element;
 
-    /// Build a `sexp` from Sequence using Builder
-    fn new_sexp(seq: Self::Sequence) -> Self::Element;
+    /// Builds a `sexp` from Sequence using Builder.
+    fn new_sexp<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element;
+
+    /// Builds a `struct` from Struct using Builder.
+    fn new_struct<K, V, I>(structure: I) -> Self::Element
+    where
+        K: Into<Self::SymbolToken>,
+        V: Into<Self::Element>,
+        I: IntoIterator<Item = (K, V)>;
+}
+
+#[cfg(test)]
+mod generic_value_tests {
+    use super::*;
+    use crate::types::timestamp::Timestamp;
+    use crate::value::borrowed::*;
+    use crate::value::owned::*;
+    use crate::value::{Element, IntAccess};
+    use crate::IonType;
+    use chrono::*;
+    use rstest::*;
+    use std::iter::{once, Once};
+
+    /// Makes a timestamp from an RFC-3339 string and panics if it can't
+    fn make_timestamp<T: AsRef<str>>(text: T) -> Timestamp {
+        DateTime::parse_from_rfc3339(text.as_ref()).unwrap().into()
+    }
+
+    /// Models the operations on `Element` that we want to test.
+    #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+    enum ElemOp {
+        IsNull,
+        AsBool,
+        AsAnyInt,
+        AsF64,
+        AsDecimal,
+        AsTimestamp,
+        AsStr,
+        AsSym,
+        AsBytes,
+        AsSequence,
+        AsStruct,
+    }
+
+    impl IntoIterator for ElemOp {
+        type Item = ElemOp;
+        type IntoIter = <Once<ElemOp> as IntoIterator>::IntoIter;
+
+        fn into_iter(self) -> Self::IntoIter {
+            once(self)
+        }
+    }
+
+    use std::collections::HashSet;
+    use std::fmt::Debug;
+    use ElemOp::*;
+
+    type ElemAssertFunc<E> = dyn Fn(&E) -> ();
+
+    struct Case<E: Element> {
+        elem: E,
+        ion_type: IonType,
+        ops: Vec<ElemOp>,
+        op_assert: Box<dyn Fn(&E)>,
+    }
+
+    fn null_case<E: Element>() -> Case<E> {
+        Case {
+            elem: E::Builder::new_null(IonType::Null),
+            ion_type: IonType::Null,
+            ops: vec![IsNull],
+            op_assert: Box::new(|e: &E| assert_eq!(true, e.is_null())),
+        }
+    }
+
+    fn bool_case<E: Element>() -> Case<E> {
+        Case {
+            elem: true.into(),
+            ion_type: IonType::Boolean,
+            ops: vec![AsBool],
+            op_assert: Box::new(|e: &E| assert_eq!(Some(true), e.as_bool())),
+        }
+    }
+
+    fn i64_case<E: Element>() -> Case<E> {
+        Case {
+            elem: 100.into(),
+            ion_type: IonType::Integer,
+            ops: vec![AsAnyInt],
+            op_assert: Box::new(|e: &E| assert_eq!(Some(&AnyInt::I64(100)), e.as_any_int())),
+        }
+    }
+
+    fn big_int_case<E: Element>() -> Case<E> {
+        Case {
+            elem: BigInt::from(100).into(),
+            ion_type: IonType::Integer,
+            ops: vec![AsAnyInt],
+            op_assert: Box::new(|e: &E| {
+                assert_eq!(Some(&AnyInt::BigInt(BigInt::from(100))), e.as_any_int())
+            }),
+        }
+    }
+
+    fn f64_case<E: Element>() -> Case<E> {
+        Case {
+            elem: 16.0.into(),
+            ion_type: IonType::Float,
+            ops: vec![AsF64],
+            op_assert: Box::new(|e: &E| assert_eq!(Some(16.0), e.as_f64())),
+        }
+    }
+
+    fn timestamp_case<E: Element>() -> Case<E> {
+        Case {
+            elem: make_timestamp("2014-10-16T12:01:00-00:00").into(),
+            ion_type: IonType::Timestamp,
+            ops: vec![AsTimestamp],
+            op_assert: Box::new(|e: &E| {
+                assert_eq!(
+                    Some(&make_timestamp("2014-10-16T12:01:00+00:00")),
+                    e.as_timestamp()
+                )
+            }),
+        }
+    }
+
+    fn decimal_case<E: Element>() -> Case<E> {
+        Case {
+            elem: Decimal::new(8, 3).into(),
+            ion_type: IonType::Decimal,
+            ops: vec![AsDecimal],
+            op_assert: Box::new(|e: &E| assert_eq!(Some(&Decimal::new(80, 2)), e.as_decimal())),
+        }
+    }
+
+    fn string_case<E: Element>() -> Case<E> {
+        Case {
+            elem: E::Builder::new_string("hello"),
+            ion_type: IonType::String,
+            ops: vec![AsStr],
+            op_assert: Box::new(|e: &E| assert_eq!(Some("hello"), e.as_str())),
+        }
+    }
+
+    fn symbol_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_symbol(E::Builder::text_token("foo").with_local_sid(10)),
+            ion_type: IonType::Symbol,
+            ops: vec![AsSym, AsStr],
+            op_assert: Box::new(|e: &E| assert_eq!(Some("foo"), e.as_sym().unwrap().text())),
+        }
+    }
+
+    fn blob_case<E: Element>() -> Case<E> {
+        Case {
+            elem: E::Builder::new_blob(b"hello"),
+            ion_type: IonType::Blob,
+            ops: vec![AsBytes],
+            op_assert: Box::new(|e: &E| assert_eq!(Some("hello".as_bytes()), e.as_bytes())),
+        }
+    }
+
+    fn clob_case<E: Element>() -> Case<E> {
+        Case {
+            elem: E::Builder::new_clob(b"goodbye"),
+            ion_type: IonType::Clob,
+            ops: vec![AsBytes],
+            op_assert: Box::new(|e: &E| assert_eq!(Some("goodbye".as_bytes()), e.as_bytes())),
+        }
+    }
+
+    fn list_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_list(vec![true.into(), false.into()].into_iter()),
+            ion_type: IonType::List,
+            ops: vec![AsSequence],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_sequence().unwrap();
+                let expected: Vec<E> = vec![true.into(), false.into()];
+                // assert the length of list
+                assert_eq!(2, actual.len());
+                for i in 0..actual.len() {
+                    // assert the list elements one-by-one
+                    assert_eq!(Some(&expected[i]), actual.get(i));
+                }
+            }),
+        }
+    }
+
+    fn sexp_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_sexp(vec![true.into(), false.into()].into_iter()),
+            ion_type: IonType::SExpression,
+            ops: vec![AsSequence],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_sequence().unwrap();
+                let expected: Vec<E> = vec![true.into(), false.into()];
+                // assert the length of s-expression
+                assert_eq!(2, actual.len());
+                for i in 0..actual.len() {
+                    // assert the s-expression elements one-by-one
+                    assert_eq!(Some(&expected[i]), actual.get(i));
+                }
+            }),
+        }
+    }
+
+    fn struct_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![(
+                    E::Builder::text_token("greetings"),
+                    E::Builder::new_string("hello"),
+                )]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct().unwrap();
+                assert_eq!(
+                    actual.get("greetings".to_string()),
+                    Some(&E::Builder::new_string("hello"))
+                );
+            }),
+        }
+    }
+
+    // TODO add more tests to remove the separate Owned/Borrowed tests and only keep generic tests
+
+    #[rstest]
+    #[case::owned_null(null_case::<OwnedElement>())]
+    #[case::borrowed_null(null_case::<BorrowedElement>())]
+    #[case::owned_bool(bool_case::<OwnedElement>())]
+    #[case::borrowed_bool(bool_case::<BorrowedElement>())]
+    #[case::owned_i64(i64_case::<OwnedElement>())]
+    #[case::borrowed_i64(i64_case::<BorrowedElement>())]
+    #[case::owned_big_int(big_int_case::<OwnedElement>())]
+    #[case::borrowed_big_int(big_int_case::<BorrowedElement>())]
+    #[case::owned_f64(f64_case::<OwnedElement>())]
+    #[case::borrowed_f64(f64_case::<BorrowedElement>())]
+    #[case::owned_decimal(decimal_case::<OwnedElement>())]
+    #[case::borrowed_decimal(decimal_case::<BorrowedElement>())]
+    #[case::owned_timestamp(timestamp_case::<OwnedElement>())]
+    #[case::borrowed_timestamp(timestamp_case::<BorrowedElement>())]
+    #[case::owned_string(string_case::<OwnedElement>())]
+    #[case::borrowed_string(string_case::<BorrowedElement>())]
+    #[case::owned_blob(blob_case::<OwnedElement>())]
+    #[case::borrowed_blob(blob_case::<BorrowedElement>())]
+    #[case::owned_clob(clob_case::<OwnedElement>())]
+    #[case::borrowed_clob(clob_case::<BorrowedElement>())]
+    #[case::owned_list(list_case::<OwnedElement>())]
+    #[case::borrowed_list(list_case::<BorrowedElement>())]
+    #[case::owned_sexp(sexp_case::<OwnedElement>())]
+    #[case::borrowed_sexp(sexp_case::<BorrowedElement>())]
+    #[case::owned_struct(struct_case::<OwnedElement>())]
+    #[case::borrowed_struct(struct_case::<BorrowedElement>())]
+    #[case::owned_symbol(symbol_case::<OwnedElement>())]
+    #[case::borrowed_symbol(symbol_case::<BorrowedElement>())]
+    fn element_accessors<E: Element>(#[case] input_case: Case<E>)
+    where
+        E: Debug + PartialEq,
+    {
+        // table of negative assertions for each operation
+        let neg_table: Vec<(ElemOp, &ElemAssertFunc<E>)> = vec![
+            (IsNull, &|e| assert_eq!(false, e.is_null())),
+            (AsBool, &|e| assert_eq!(None, e.as_bool())),
+            (AsAnyInt, &|e| {
+                assert_eq!(None, e.as_any_int());
+                assert_eq!(None, e.as_i64());
+                assert_eq!(None, e.as_big_int());
+            }),
+            (AsF64, &|e| assert_eq!(None, e.as_f64())),
+            (AsDecimal, &|e| assert_eq!(None, e.as_decimal())),
+            (AsTimestamp, &|e| assert_eq!(None, e.as_timestamp())),
+            (AsStr, &|e| assert_eq!(None, e.as_str())),
+            (AsSym, &|e| assert_eq!(None, e.as_sym())),
+            (AsBytes, &|e| assert_eq!(None, e.as_bytes())),
+            (AsSequence, &|e| assert_eq!(None, e.as_sequence())),
+            (AsStruct, &|e| assert_eq!(None, e.as_struct())),
+        ];
+
+        // produce the table of assertions to operate on, replacing the one specified by
+        // the test case
+        let valid_ops: HashSet<ElemOp> = input_case.ops.into_iter().collect();
+        let op_assertions: Vec<&ElemAssertFunc<E>> = neg_table
+            .into_iter()
+            .filter(|(op, _)| !valid_ops.contains(op))
+            .map(|(_, neg_assert)| neg_assert)
+            .chain(once(input_case.op_assert.as_ref()))
+            .collect();
+
+        // construct an element to test
+        assert_eq!(input_case.ion_type, input_case.elem.ion_type());
+
+        for assert in op_assertions {
+            assert(&input_case.elem);
+        }
+
+        // assert that a value element as-is is equal to itself
+        assert_eq!(input_case.elem, input_case.elem);
+    }
 }
