@@ -131,7 +131,11 @@ impl SymbolToken for OwnedSymbolToken {
     }
 
     fn with_source(self, table: &'static str, sid: SymbolId) -> Self {
-        OwnedSymbolToken::new(self.text, self.local_sid, Some(OwnedImportSource::new(table, sid)))
+        OwnedSymbolToken::new(
+            self.text,
+            self.local_sid,
+            Some(OwnedImportSource::new(table, sid)),
+        )
     }
 }
 
