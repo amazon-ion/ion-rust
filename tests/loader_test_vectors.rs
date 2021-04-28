@@ -40,11 +40,7 @@ const LOAD_ONE_EQUIVS_SKIP_LIST: &[&str] = &[
 ];
 
 /// Files that should only be skipped in equivalence file testing
-const EQUIVS_SKIP_LIST: &[&str] = &[
-    // ion-c seems to have a problem with negative binary literals (amzn/ion-c#235)
-    "ion-tests/iontestdata/good/equivs/binaryInts.ion",
-    "ion-tests/iontestdata/good/equivs/intsWithUnderscores.ion",
-];
+const EQUIVS_SKIP_LIST: &[&str] = &[];
 
 /// Files that should only be skipped in non-equivalence file testing
 const NON_EQUIVS_SKIP_LIST: &[&str] = &[
