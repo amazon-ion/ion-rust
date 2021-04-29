@@ -655,6 +655,100 @@ mod generic_value_tests {
         DateTime::parse_from_rfc3339(text.as_ref()).unwrap().into()
     }
 
+    struct CaseSym<E: Element> {
+        eq_annotations: Vec<E::SymbolToken>,
+        ne_annotations: Vec<E::SymbolToken>,
+    }
+
+    fn sym_text_case<E: Element>() -> CaseSym<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        // SymbolTokens with same text are equivalent
+        CaseSym {
+            eq_annotations: vec![
+                E::Builder::text_token("foo"),
+                E::Builder::text_token("foo").with_local_sid(10),
+                E::Builder::text_token("foo")
+                    .with_local_sid(10)
+                    .with_source("greetings", 2),
+            ],
+            ne_annotations: vec![
+                E::Builder::text_token("bar"),
+                E::Builder::local_sid_token(10).with_source("greetings", 1),
+                E::Builder::local_sid_token(10).with_source("hello_table", 2),
+                E::Builder::local_sid_token(10),
+            ],
+        }
+    }
+
+    fn sym_local_sid_case<E: Element>() -> CaseSym<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        // local sids with no text are equivalent to each other and to SID $0
+        CaseSym {
+            eq_annotations: vec![
+                E::Builder::local_sid_token(200),
+                E::Builder::local_sid_token(100),
+            ],
+            ne_annotations: vec![
+                E::Builder::local_sid_token(200).with_source("greetings", 2),
+                E::Builder::text_token("foo").with_local_sid(200),
+            ],
+        }
+    }
+
+    fn sym_source_case<E: Element>() -> CaseSym<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        // SymbolTokens with no text are equivalent only if their source is equivalent
+        CaseSym {
+            eq_annotations: vec![
+                E::Builder::local_sid_token(200).with_source("greetings", 1),
+                E::Builder::local_sid_token(100).with_source("greetings", 1),
+            ],
+            ne_annotations: vec![
+                E::Builder::local_sid_token(200).with_source("greetings", 2),
+                E::Builder::local_sid_token(200).with_source("hello_table", 1),
+                E::Builder::local_sid_token(200),
+                E::Builder::text_token("greetings"),
+                // due to the transitivity rule this is not equivalent to any member from above vector,
+                // even though it has the same import source
+                E::Builder::local_sid_token(100)
+                    .with_source("greetings", 1)
+                    .with_text("foo"),
+            ],
+        }
+    }
+
+    /// Each case is a set of tokens that are the same, and a set of tokens that are not ever equal to the first.
+    /// This should test symmetry/transitivity/commutativity
+    #[rstest]
+    #[case::owned_sym_text(sym_text_case::<OwnedElement>())]
+    #[case::borrowed_sym_text(sym_text_case::<BorrowedElement>())]
+    #[case::owned_sym_local_sid(sym_local_sid_case::<OwnedElement>())]
+    #[case::borrowed_sym_local_sid(sym_local_sid_case::<BorrowedElement>())]
+    #[case::owned_sym_source(sym_source_case::<OwnedElement>())]
+    #[case::borrowed_sym_source(sym_source_case::<BorrowedElement>())]
+    fn symbol_token_eq<E: Element>(#[case] input: CaseSym<E>) {
+        // check if equivalent vector contains set of tokens that are all equal
+        for eq_this_token in &input.eq_annotations {
+            for eq_other_token in &input.eq_annotations {
+                assert_eq!(eq_this_token, eq_other_token);
+            }
+        }
+
+        // check if non_equivalent vector contains a set of tokens that are not ever equal
+        // to the equivalent set tokens.
+        for eq_token in &input.eq_annotations {
+            for non_eq_token in &input.ne_annotations {
+                assert_ne!(eq_token, non_eq_token);
+            }
+        }
+    }
+
     /// Models the operations on `Element` that we want to test.
     #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
     enum ElemOp {
