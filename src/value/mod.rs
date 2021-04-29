@@ -395,6 +395,9 @@ where
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
     fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a>;
 
+    /// Return an `Element` with given annotations
+    fn with_annotations(self, annotations: Vec<Self::SymbolToken>) -> Self;
+
     /// Returns whether this element is a `null` value
     fn is_null(&self) -> bool;
 
@@ -653,6 +656,86 @@ mod generic_value_tests {
     /// Makes a timestamp from an RFC-3339 string and panics if it can't
     fn make_timestamp<T: AsRef<str>>(text: T) -> Timestamp {
         DateTime::parse_from_rfc3339(text.as_ref()).unwrap().into()
+    }
+
+    struct CaseAnnotations<E: Element> {
+        elem: E,
+        annotations: Vec<E::SymbolToken>,
+    }
+
+    fn annotations_text_case<E: Element>() -> CaseAnnotations<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        CaseAnnotations {
+            elem: E::Builder::new_i64(10).with_annotations(vec![
+                E::Builder::text_token("foo"),
+                E::Builder::text_token("bar"),
+                E::Builder::text_token("baz"),
+            ]),
+            annotations: vec![
+                E::Builder::text_token("foo"),
+                E::Builder::text_token("bar"),
+                E::Builder::text_token("baz"),
+            ],
+        }
+    }
+
+    fn annotations_local_sid_case<E: Element>() -> CaseAnnotations<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        CaseAnnotations {
+            elem: E::Builder::new_i64(10).with_annotations(vec![
+                E::Builder::local_sid_token(21),
+                E::Builder::local_sid_token(22),
+            ]),
+            annotations: vec![
+                E::Builder::local_sid_token(21),
+                E::Builder::local_sid_token(22),
+            ],
+        }
+    }
+
+    fn annotations_source_case<E: Element>() -> CaseAnnotations<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        CaseAnnotations {
+            elem: E::Builder::new_i64(10).with_annotations(vec![
+                E::Builder::local_sid_token(21).with_source("greetings", 1),
+                E::Builder::local_sid_token(22).with_source("greetings", 2),
+            ]),
+            annotations: vec![
+                E::Builder::local_sid_token(21).with_source("greetings", 1),
+                E::Builder::local_sid_token(22).with_source("greetings", 2),
+            ],
+        }
+    }
+
+    fn no_annotations_case<E: Element>() -> CaseAnnotations<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        CaseAnnotations {
+            elem: E::Builder::new_i64(10),
+            annotations: vec![],
+        }
+    }
+
+    #[rstest]
+    #[case::owned_annotations_text(annotations_text_case::<OwnedElement>())]
+    #[case::borrowed_annotations_text(annotations_text_case::<BorrowedElement>())]
+    #[case::owned_annotations_local_sid(annotations_local_sid_case::<OwnedElement>())]
+    #[case::borrowed_annotations_local_sid(annotations_local_sid_case::<BorrowedElement>())]
+    #[case::owned_annotations_source(annotations_source_case::<OwnedElement>())]
+    #[case::borrowed_annotations_source(annotations_source_case::<BorrowedElement>())]
+    #[case::owned_no_annotations(no_annotations_case::<OwnedElement>())]
+    #[case::borrowed_no_annotations(no_annotations_case::<BorrowedElement>())]
+    fn annotations_with_element<E: Element>(#[case] input: CaseAnnotations<E>) {
+        let actual: Vec<&E::SymbolToken> = input.elem.annotations().map(|tok| tok).collect();
+        let expected: Vec<&E::SymbolToken> = input.annotations.iter().collect();
+        assert_eq!(actual, expected);
     }
 
     struct CaseSym<E: Element> {

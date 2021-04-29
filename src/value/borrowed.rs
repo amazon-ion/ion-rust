@@ -507,6 +507,10 @@ impl<'val> Element for BorrowedElement<'val> {
         Box::new(self.annotations.iter())
     }
 
+    fn with_annotations(self, annotations: Vec<Self::SymbolToken>) -> Self {
+        BorrowedElement::new(annotations, self.value)
+    }
+
     fn is_null(&self) -> bool {
         match &self.value {
             BorrowedValue::Null(_) => true,
