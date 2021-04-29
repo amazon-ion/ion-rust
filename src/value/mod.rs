@@ -784,6 +784,62 @@ mod generic_value_tests {
         }
     }
 
+    fn symbol_with_local_sid_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_symbol(E::Builder::local_sid_token(10)),
+            ion_type: IonType::Symbol,
+            ops: vec![AsSym, AsStr],
+            op_assert: Box::new(|e: &E| assert_eq!(Some(10), e.as_sym().unwrap().local_sid())),
+        }
+    }
+
+    fn symbol_with_import_source_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_symbol(
+                E::Builder::local_sid_token(10).with_source("greetings", 1),
+            ),
+            ion_type: IonType::Symbol,
+            ops: vec![AsSym, AsStr],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_sym();
+                let expected = E::Builder::new_symbol(
+                    E::Builder::local_sid_token(10).with_source("greetings", 1),
+                );
+                assert_eq!(actual, expected.as_sym());
+            }),
+        }
+    }
+
+    fn symbol_with_import_source_and_text_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
+        Case {
+            elem: E::Builder::new_symbol(
+                E::Builder::local_sid_token(10)
+                    .with_source("greetings", 1)
+                    .with_text("foo"),
+            ),
+            ion_type: IonType::Symbol,
+            ops: vec![AsSym, AsStr],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_sym();
+                let expected = E::Builder::new_symbol(
+                    E::Builder::local_sid_token(10)
+                        .with_source("greetings", 1)
+                        .with_text("foo"),
+                );
+                assert_eq!(actual, expected.as_sym());
+            }),
+        }
+    }
+
     fn blob_case<E: Element>() -> Case<E> {
         Case {
             elem: E::Builder::new_blob(b"hello"),
@@ -861,13 +917,345 @@ mod generic_value_tests {
             op_assert: Box::new(|e: &E| {
                 let actual = e.as_struct().unwrap();
                 assert_eq!(
-                    actual.get("greetings".to_string()),
+                    actual.get("greetings"),
                     Some(&E::Builder::new_string("hello"))
                 );
             }),
         }
     }
 
+    fn struct_with_local_sid_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![(
+                    E::Builder::local_sid_token(21),
+                    E::Builder::new_string("hello"),
+                )]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let expected = E::Builder::new_struct(
+                    vec![(
+                        E::Builder::local_sid_token(21),
+                        E::Builder::new_string("hello"),
+                    )]
+                    .into_iter(),
+                );
+                assert_eq!(actual, expected.as_struct());
+            }),
+        }
+    }
+
+    // SymbolToken with local SID and no text are equivalent to each other and to SID $0
+    fn struct_with_different_local_sid_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![(
+                    E::Builder::local_sid_token(21),
+                    E::Builder::new_string("hello"),
+                )]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let expected = E::Builder::new_struct(
+                    vec![(
+                        E::Builder::local_sid_token(22),
+                        E::Builder::new_string("hello"),
+                    )]
+                    .into_iter(),
+                );
+                assert_eq!(actual, expected.as_struct());
+            }),
+        }
+    }
+
+    fn struct_with_import_source_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![(
+                    E::Builder::local_sid_token(21).with_source("hello_table", 2),
+                    E::Builder::new_string("hello"),
+                )]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let expected = E::Builder::new_struct(
+                    vec![(
+                        E::Builder::local_sid_token(21).with_source("hello_table", 2),
+                        E::Builder::new_string("hello"),
+                    )]
+                    .into_iter(),
+                );
+                assert_eq!(actual, expected.as_struct());
+            }),
+        }
+    }
+
+    fn struct_with_import_source_not_equal_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![(
+                    E::Builder::local_sid_token(21).with_source("hello_table", 2),
+                    E::Builder::new_string("hello"),
+                )]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let expected = E::Builder::new_struct(
+                    vec![(
+                        E::Builder::local_sid_token(21).with_source("hey_table", 2),
+                        E::Builder::new_string("hello"),
+                    )]
+                    .into_iter(),
+                );
+                assert_ne!(actual, expected.as_struct());
+            }),
+        }
+    }
+
+    fn struct_with_multiple_fields_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::Builder::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::Builder::text_token("name"),
+                        E::Builder::new_string("Ion"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct().unwrap();
+                // expected struct has unordered struct
+                let unordered_struct = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::Builder::text_token("name"),
+                            E::Builder::new_string("Ion"),
+                        ),
+                        (
+                            E::Builder::text_token("greetings"),
+                            E::Builder::new_string("hello"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = unordered_struct.as_struct().unwrap();
+                assert_eq!(actual.get("name"), expected.get("name"));
+                assert_eq!(actual.get("greetings"), expected.get("greetings"));
+                assert_eq!(actual, expected);
+            }),
+        }
+    }
+
+    fn struct_with_multiple_fields_not_equal_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::Builder::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::Builder::text_token("name"),
+                        E::Builder::new_string("Ion"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct().unwrap();
+                // expected struct with different value for field name: "greetings"
+                let not_equal_struct = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::Builder::text_token("greetings"),
+                            E::Builder::new_string("hey"),
+                        ),
+                        (
+                            E::Builder::text_token("name"),
+                            E::Builder::new_string("Ion"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = not_equal_struct.as_struct().unwrap();
+                assert_eq!(actual.get("name"), expected.get("name"));
+                assert_ne!(actual.get("greetings"), expected.get("greetings"));
+                assert_ne!(actual, expected);
+            }),
+        }
+    }
+
+    fn struct_with_text_and_duplicates_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::Builder::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::Builder::text_token("greetings"),
+                        E::Builder::new_string("world"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let struct_with_duplicates = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::Builder::text_token("greetings"),
+                            E::Builder::new_string("hello"),
+                        ),
+                        (
+                            E::Builder::text_token("greetings"),
+                            E::Builder::new_string("world"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = struct_with_duplicates.as_struct();
+                assert_eq!(actual, expected);
+            }),
+        }
+    }
+
+    fn struct_with_unordered_text_and_duplicates_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::Builder::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::Builder::text_token("greetings"),
+                        E::Builder::new_string("world"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let unordered_struct = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::Builder::text_token("greetings"),
+                            E::Builder::new_string("world"),
+                        ),
+                        (
+                            E::Builder::text_token("greetings"),
+                            E::Builder::new_string("hello"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = unordered_struct.as_struct();
+                assert_eq!(actual, expected);
+            }),
+        }
+    }
+
+    fn struct_with_unordered_no_text_and_duplicates_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::Builder::local_sid_token(21),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::Builder::local_sid_token(21),
+                        E::Builder::new_string("world"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let unordered_struct = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::Builder::local_sid_token(21),
+                            E::Builder::new_string("world"),
+                        ),
+                        (
+                            E::Builder::local_sid_token(21),
+                            E::Builder::new_string("hello"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = unordered_struct.as_struct();
+                assert_eq!(actual, expected);
+            }),
+        }
+    }
     // TODO add more tests to remove the separate Owned/Borrowed tests and only keep generic tests
 
     #[rstest]
@@ -899,6 +1287,30 @@ mod generic_value_tests {
     #[case::borrowed_struct(struct_case::<BorrowedElement>())]
     #[case::owned_symbol(symbol_case::<OwnedElement>())]
     #[case::borrowed_symbol(symbol_case::<BorrowedElement>())]
+    #[case::owned_symbol_with_local_sid(symbol_with_local_sid_case::<OwnedElement>())]
+    #[case::borrowed_symbol_with_local_sid(symbol_with_local_sid_case::<BorrowedElement>())]
+    #[case::owned_symbol_with_import_source(symbol_with_import_source_case::<OwnedElement>())]
+    #[case::borrowed_symbol_with_import_source(symbol_with_import_source_case::<BorrowedElement>())]
+    #[case::owned_symbol_with_import_source_and_text(symbol_with_import_source_and_text_case::<OwnedElement>())]
+    #[case::borrowed_symbol_with_import_source_and_text(symbol_with_import_source_and_text_case::<BorrowedElement>())]
+    #[case::owned_struct_with_local_sid(struct_with_local_sid_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_local_sid(struct_with_local_sid_case::<BorrowedElement>())]
+    #[case::owned_struct_with_different_local_sid(struct_with_different_local_sid_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_different_local_sid(struct_with_different_local_sid_case::<BorrowedElement>())]
+    #[case::owned_struct_with_import_source(struct_with_import_source_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_import_source(struct_with_import_source_case::<BorrowedElement>())]
+    #[case::owned_struct_with_import_source_not_equal(struct_with_import_source_not_equal_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_import_source_not_equal(struct_with_import_source_not_equal_case::<BorrowedElement>())]
+    #[case::owned_struct_with_multiple_fields(struct_with_multiple_fields_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_multiple_fields(struct_with_multiple_fields_case::<BorrowedElement>())]
+    #[case::owned_struct_with_multiple_fields_not_equal(struct_with_multiple_fields_not_equal_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_multiple_fields_not_equal(struct_with_multiple_fields_not_equal_case::<BorrowedElement>())]
+    #[case::owned_struct_with_text_and_duplicates(struct_with_text_and_duplicates_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_text_and_duplicates(struct_with_text_and_duplicates_case::<BorrowedElement>())]
+    #[case::owned_struct_with_unordered_text_and_duplicates(struct_with_unordered_text_and_duplicates_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_unordered_text_and_duplicates(struct_with_unordered_text_and_duplicates_case::<BorrowedElement>())]
+    #[case::owned_struct_with_unordered_no_text_and_duplicates(struct_with_unordered_no_text_and_duplicates_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_unordered_no_text_and_duplicates(struct_with_unordered_no_text_and_duplicates_case::<BorrowedElement>())]
     fn element_accessors<E: Element>(#[case] input_case: Case<E>)
     where
         E: Debug + PartialEq,
