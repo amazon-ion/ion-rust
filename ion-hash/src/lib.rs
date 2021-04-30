@@ -19,8 +19,11 @@
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::{value::Element, IonType};
 
+// TODO: Make sha2 an optional dependency.
 use sha2::{Digest, Sha256};
 
+// TODO: Consider using the `digest` crate. This is a stop-gap to focus on
+// wiring up ion-hash-test.
 pub trait IonHashDigest {
     fn update(&mut self, bytes: impl AsRef<[u8]>);
     fn finalize(self) -> Vec<u8>;
@@ -54,6 +57,7 @@ macro_rules! t {
 }
 
 /// Utility to hash an [`Element`] using SHA-256 as the hash function.
+// TODO: Make this conditional on some feature flag
 pub fn sha256<E: Element>(elem: &E) -> IonResult<Vec<u8>> {
     let hasher = IonHasher::new(Sha256::new());
     let result = hasher.hash_element(elem)?;

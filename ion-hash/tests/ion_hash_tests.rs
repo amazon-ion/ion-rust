@@ -4,41 +4,22 @@ use ion_hash::{self, IonHashDigest, IonHasher};
 use ion_rs::result::IonResult;
 use ion_rs::value::loader::{loader, Loader};
 use ion_rs::value::*;
-use std::{
-    fs::read,
-    sync::{Arc, Mutex},
-};
+use std::fs::read;
 
 #[derive(Default, Clone)]
 struct TestDigest {
-    inner: Arc<Mutex<TestDigestInner>>,
-}
-
-#[derive(Default)]
-struct TestDigestInner {
     updates: Vec<u8>,
-    digest: Vec<u8>,
-}
-
-impl TestDigest {
-    fn inspect(&self) -> (Vec<u8>, Vec<u8>) {
-        let inner = self.inner.lock().unwrap();
-        (inner.updates.clone(), inner.digest.clone())
-    }
 }
 
 impl IonHashDigest for TestDigest {
     fn update(&mut self, bytes: impl AsRef<[u8]>) {
-        let mut inner = self.inner.lock().unwrap();
         for b in bytes.as_ref() {
-            inner.updates.push(*b);
-            inner.digest.push(*b);
+            self.updates.push(*b);
         }
     }
 
     fn finalize(self) -> Vec<u8> {
-        let inner = self.inner.lock().unwrap();
-        inner.digest.clone()
+        self.updates.clone()
     }
 }
 
@@ -75,10 +56,7 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
 
     let digest = TestDigest::default();
     let hasher = IonHasher::new(digest.clone());
-    let _result = hasher.hash_element(ion)?;
-
-    let (recorded_updates, recorded_digest) = digest.inspect();
-    let mut recorded_updates = recorded_updates.into_iter();
+    let result = hasher.hash_element(ion)?;
 
     for it in identity.iter() {
         let method = it
@@ -97,14 +75,12 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
 
         match method {
             "update" => {
-                let first = recorded_updates
-                    .nth(0)
-                    .expect("no more calls to `update` were made");
-
-                assert_eq!(&bytes[..], &[first]);
+                // TODO: We currently don't assert on intermediate updates. It's
+                // not clear if this is actually valuable, other than helping
+                // diagnose bugs.
             }
             "digest" => {
-                assert_eq!(bytes, recorded_digest);
+                assert_eq!(bytes, result);
             }
             other => unimplemented!("{} is not yet implemented", other),
         }
