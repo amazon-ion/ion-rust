@@ -404,7 +404,7 @@ where
     fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a>;
 
     /// Return an `Element` with given annotations
-    fn with_annotations(self, annotations: Vec<Self::SymbolToken>) -> Self;
+    fn with_annotations<I: IntoIterator<Item = Self::SymbolToken>>(self, annotations: I) -> Self;
 
     /// Returns whether this element is a `null` value
     fn is_null(&self) -> bool;
@@ -650,7 +650,7 @@ mod generic_value_tests {
     use crate::value::borrowed::*;
     use crate::value::owned::*;
     use crate::value::{Element, IntAccess};
-    use crate::IonType;
+    use crate::{value, IonType};
     use chrono::*;
     use rstest::*;
     use std::iter::{once, Once};
@@ -858,6 +858,7 @@ mod generic_value_tests {
 
     use std::collections::HashSet;
     use std::fmt::Debug;
+    use std::str::FromStr;
     use ElemOp::*;
 
     type ElemAssertFunc<E> = dyn Fn(&E) -> ();
@@ -878,64 +879,106 @@ mod generic_value_tests {
         }
     }
 
-    fn bool_case<E: Element>() -> Case<E> {
+    fn bool_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
         Case {
             elem: true.into(),
             ion_type: IonType::Boolean,
             ops: vec![AsBool],
-            op_assert: Box::new(|e: &E| assert_eq!(Some(true), e.as_bool())),
+            op_assert: Box::new(|e: &E| {
+                let expected = &E::Builder::new_bool(true);
+                assert_eq!(Some(true), e.as_bool());
+                assert_eq!(expected, e);
+            }),
         }
     }
 
-    fn i64_case<E: Element>() -> Case<E> {
+    fn i64_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
         Case {
             elem: 100.into(),
             ion_type: IonType::Integer,
             ops: vec![AsAnyInt],
-            op_assert: Box::new(|e: &E| assert_eq!(Some(&AnyInt::I64(100)), e.as_any_int())),
+            op_assert: Box::new(|e: &E| {
+                let expected = &E::Builder::new_i64(100);
+                assert_eq!(Some(&AnyInt::I64(100)), e.as_any_int());
+                assert_eq!(Some(100), e.as_i64());
+                assert_eq!(None, e.as_big_int());
+                assert_eq!(expected, e);
+            }),
         }
     }
 
-    fn big_int_case<E: Element>() -> Case<E> {
+    fn big_int_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
         Case {
             elem: BigInt::from(100).into(),
             ion_type: IonType::Integer,
             ops: vec![AsAnyInt],
             op_assert: Box::new(|e: &E| {
-                assert_eq!(Some(&AnyInt::BigInt(BigInt::from(100))), e.as_any_int())
+                let expected = &E::Builder::new_big_int(BigInt::from(100));
+                assert_eq!(Some(&AnyInt::BigInt(BigInt::from(100))), e.as_any_int());
+                assert_eq!(BigInt::from_str("100").unwrap(), *e.as_big_int().unwrap());
+                assert_eq!(expected, e);
             }),
         }
     }
 
-    fn f64_case<E: Element>() -> Case<E> {
+    fn f64_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
         Case {
             elem: 16.0.into(),
             ion_type: IonType::Float,
             ops: vec![AsF64],
-            op_assert: Box::new(|e: &E| assert_eq!(Some(16.0), e.as_f64())),
+            op_assert: Box::new(|e: &E| {
+                let expected = &E::Builder::new_f64(16.0);
+                assert_eq!(Some(16.0), e.as_f64());
+                assert_eq!(expected, e);
+            }),
         }
     }
 
-    fn timestamp_case<E: Element>() -> Case<E> {
+    fn timestamp_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
         Case {
             elem: make_timestamp("2014-10-16T12:01:00-00:00").into(),
             ion_type: IonType::Timestamp,
             ops: vec![AsTimestamp],
             op_assert: Box::new(|e: &E| {
+                let expected =
+                    &E::Builder::new_timestamp(make_timestamp("2014-10-16T12:01:00+00:00"));
                 assert_eq!(
                     Some(&make_timestamp("2014-10-16T12:01:00+00:00")),
                     e.as_timestamp()
-                )
+                );
+                assert_eq!(expected, e);
             }),
         }
     }
 
-    fn decimal_case<E: Element>() -> Case<E> {
+    fn decimal_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+    {
         Case {
             elem: Decimal::new(8, 3).into(),
             ion_type: IonType::Decimal,
             ops: vec![AsDecimal],
-            op_assert: Box::new(|e: &E| assert_eq!(Some(&Decimal::new(80, 2)), e.as_decimal())),
+            op_assert: Box::new(|e: &E| {
+                let expected = &E::Builder::new_decimal(Decimal::new(8, 3));
+                assert_eq!(Some(&Decimal::new(80, 2)), e.as_decimal());
+                assert_eq!(expected, e);
+            }),
         }
     }
 
@@ -957,7 +1000,10 @@ mod generic_value_tests {
             elem: E::Builder::new_symbol(E::SymbolToken::text_token("foo").with_local_sid(10)),
             ion_type: IonType::Symbol,
             ops: vec![AsSym, AsStr],
-            op_assert: Box::new(|e: &E| assert_eq!(Some("foo"), e.as_sym().unwrap().text())),
+            op_assert: Box::new(|e: &E| {
+                assert_eq!(Some("foo"), e.as_sym().unwrap().text());
+                assert_eq!(Some("foo"), e.as_str());
+            }),
         }
     }
 
@@ -978,6 +1024,7 @@ mod generic_value_tests {
     where
         E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
+        <<E as value::Element>::SymbolToken as value::SymbolToken>::ImportSource: Debug + PartialEq,
     {
         Case {
             elem: E::Builder::new_symbol(
@@ -990,6 +1037,14 @@ mod generic_value_tests {
                 let expected = E::Builder::new_symbol(
                     E::SymbolToken::local_sid_token(10).with_source("greetings", 1),
                 );
+                let actual_source = actual.unwrap().source();
+                let expected_source = expected.as_sym().unwrap().source();
+                assert_eq!(expected_source, actual_source);
+                assert_eq!(
+                    expected_source.unwrap().table(),
+                    actual_source.unwrap().table()
+                );
+                assert_eq!(expected_source.unwrap().sid(), actual_source.unwrap().sid());
                 assert_eq!(actual, expected.as_sym());
             }),
         }
@@ -1055,6 +1110,7 @@ mod generic_value_tests {
                     // assert the list elements one-by-one
                     assert_eq!(Some(&expected[i]), actual.get(i));
                 }
+                assert_eq!(false, actual.is_empty());
             }),
         }
     }
@@ -1223,6 +1279,51 @@ mod generic_value_tests {
     }
 
     fn struct_with_multiple_fields_case<E: Element>() -> Case<E>
+    where
+        E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::SymbolToken::text_token("name"),
+                        E::Builder::new_string("Ion"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct().unwrap();
+                // expected struct has unordered struct
+                let unordered_struct = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::SymbolToken::text_token("greetings"),
+                            E::Builder::new_string("hello"),
+                        ),
+                        (
+                            E::SymbolToken::text_token("name"),
+                            E::Builder::new_string("Ion"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = unordered_struct.as_struct().unwrap();
+                assert_eq!(actual.get("name"), expected.get("name"));
+                assert_eq!(actual.get("greetings"), expected.get("greetings"));
+                assert_eq!(actual, expected);
+            }),
+        }
+    }
+
+    fn struct_with_unordered_multiple_fields_case<E: Element>() -> Case<E>
     where
         E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
@@ -1484,6 +1585,8 @@ mod generic_value_tests {
     #[case::borrowed_struct_with_import_source_not_equal(struct_with_import_source_not_equal_case::<BorrowedElement>())]
     #[case::owned_struct_with_multiple_fields(struct_with_multiple_fields_case::<OwnedElement>())]
     #[case::borrowed_struct_with_multiple_fields(struct_with_multiple_fields_case::<BorrowedElement>())]
+    #[case::owned_struct_with_unordered_multiple_fields(struct_with_unordered_multiple_fields_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_unordered_multiple_fields(struct_with_unordered_multiple_fields_case::<BorrowedElement>())]
     #[case::owned_struct_with_multiple_fields_not_equal(struct_with_multiple_fields_not_equal_case::<OwnedElement>())]
     #[case::borrowed_struct_with_multiple_fields_not_equal(struct_with_multiple_fields_not_equal_case::<BorrowedElement>())]
     #[case::owned_struct_with_text_and_duplicates(struct_with_text_and_duplicates_case::<OwnedElement>())]
