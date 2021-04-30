@@ -16,31 +16,12 @@
 //! # }
 //! ```
 
+use digest::{Digest, Output};
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::{value::Element, IonType};
 
 // TODO: Make sha2 an optional dependency.
-use sha2::{Digest, Sha256};
-
-// TODO: Consider using the `digest` crate. This is a stop-gap to focus on
-// wiring up ion-hash-test.
-pub trait IonHashDigest {
-    fn update(&mut self, bytes: impl AsRef<[u8]>);
-    fn finalize(self) -> Vec<u8>;
-}
-
-impl<D> IonHashDigest for D
-where
-    D: Digest,
-{
-    fn update(&mut self, bytes: impl AsRef<[u8]>) {
-        Digest::update(self, bytes);
-    }
-
-    fn finalize(self) -> Vec<u8> {
-        Digest::finalize(self).into_iter().collect()
-    }
-}
+use sha2::Sha256;
 
 // A `try`-like macro to workaround the Element API ergonomics. This API
 // requires checking the type and then calling the appropriate getter function
@@ -87,14 +68,14 @@ impl Markers {
 /// [`Digest`] algorithm.
 pub struct IonHasher<D>
 where
-    D: IonHashDigest,
+    D: Digest,
 {
     hasher: D,
 }
 
 impl<D> IonHasher<D>
 where
-    D: IonHashDigest,
+    D: Digest,
 {
     pub fn new(hasher: D) -> Self {
         Self { hasher }
@@ -102,7 +83,7 @@ where
 
     /// Computes the Ion hash over an [`Element`] recursively using this
     /// hasher's [`Digest`]
-    pub fn hash_element<E: Element + ?Sized>(mut self, elem: &E) -> IonResult<Vec<u8>> {
+    pub fn hash_element<E: Element + ?Sized>(mut self, elem: &E) -> IonResult<Output<D>> {
         let serialized_bytes = match elem.ion_type() {
             IonType::Null => self.hash_null(),
             IonType::Boolean => todo!(),

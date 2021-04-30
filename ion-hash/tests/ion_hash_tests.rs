@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use ion_hash::{self, IonHashDigest, IonHasher};
+use digest::{consts::U64, generic_array::GenericArray, Digest, Output};
+use ion_hash::{self, IonHasher};
 use ion_rs::result::IonResult;
 use ion_rs::value::loader::{loader, Loader};
 use ion_rs::value::*;
@@ -8,18 +9,58 @@ use std::fs::read;
 
 #[derive(Default, Clone)]
 struct TestDigest {
-    updates: Vec<u8>,
+    updates: GenericArray<u8, U64>,
+    position: usize,
 }
 
-impl IonHashDigest for TestDigest {
-    fn update(&mut self, bytes: impl AsRef<[u8]>) {
-        for b in bytes.as_ref() {
-            self.updates.push(*b);
+impl Digest for TestDigest {
+    type OutputSize = U64;
+
+    fn new() -> Self {
+        Self {
+            updates: GenericArray::default(),
+            position: 0,
         }
     }
 
-    fn finalize(self) -> Vec<u8> {
-        self.updates.clone()
+    fn update(&mut self, bytes: impl AsRef<[u8]>) {
+        for b in bytes.as_ref() {
+            self.updates[self.position] = *b;
+            self.position += 1;
+        }
+    }
+
+    fn chain(self, _data: impl AsRef<[u8]>) -> Self
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
+
+    fn finalize(self) -> Output<Self> {
+        self.updates
+    }
+
+    fn finalize_reset(&mut self) -> Output<Self> {
+        let output = self.updates;
+        self.updates = GenericArray::default();
+        self.position = 0;
+        output
+    }
+
+    fn reset(&mut self) {
+        self.updates = GenericArray::default();
+        self.position = 0;
+    }
+
+    fn output_size() -> usize {
+        64
+    }
+
+    fn digest(data: &[u8]) -> Output<Self> {
+        let mut myself = Self::new();
+        myself.update(data);
+        myself.finalize()
     }
 }
 
@@ -80,7 +121,9 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
                 // diagnose bugs.
             }
             "digest" => {
-                assert_eq!(bytes, result);
+                for (i, byte) in bytes.iter().enumerate() {
+                    assert_eq!(*byte, result[i]);
+                }
             }
             other => unimplemented!("{} is not yet implemented", other),
         }
