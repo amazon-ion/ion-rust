@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use digest::{consts::U64, generic_array::GenericArray, Digest, Output};
+use digest::{consts::U256, generic_array::GenericArray, Digest, Output};
 use ion_hash::{self, IonHasher};
 use ion_rs::result::IonResult;
 use ion_rs::value::loader::{loader, Loader};
@@ -9,12 +9,13 @@ use std::fs::read;
 
 #[derive(Default, Clone)]
 struct TestDigest {
-    updates: GenericArray<u8, U64>,
+    updates: GenericArray<u8, U256>,
     position: usize,
 }
 
 impl Digest for TestDigest {
-    type OutputSize = U64;
+    // Pick a number bigger than the biggest test case digest expectation.
+    type OutputSize = U256;
 
     fn new() -> Self {
         Self {
@@ -54,7 +55,7 @@ impl Digest for TestDigest {
     }
 
     fn output_size() -> usize {
-        64
+        256
     }
 
     fn digest(data: &[u8]) -> Output<Self> {
@@ -65,29 +66,31 @@ impl Digest for TestDigest {
 }
 
 #[test]
-fn the_first_test() -> IonResult<()> {
-    let example = br#"
-{ ion:null,           expect:{ identity:(update::(0x0b) update::(0x0f) update::(0x0e) digest::(0x0b 0x0f 0x0e)),
-                                    md5:(digest::(0x0f 0x50 0xc5 0xe5 0xe8 0x77 0xb4 0x45 0x1a 0xa9 0xfe 0x77 0xc3 0x76 0xcd 0xe4)) } }"#;
-    let elems = loader().load_all(example)?;
+fn ion_hash_tests() -> IonResult<()> {
+    test_file("tests/ion_hash_tests.ion")
+}
+
+fn test_file(file_name: &str) -> IonResult<()> {
+    let data = read(file_name)?;
+    let elems = loader().load_all(&data)?;
     test_all(elems)
 }
 
 fn test_all<E: Element>(elems: Vec<E>) -> IonResult<()> {
-    for case in elems {
+    for (i, case) in elems.iter().enumerate() {
         let case = case.as_struct().expect("test cases are structs");
         // TODO: support binary ion
         let ion = case.get("ion").expect("test cases have an `ion` value");
         let expect = case
             .get("expect")
             .expect("test cases have an `expect` value");
-        test_case(ion, expect)?;
+        test_case(i, ion, expect)?;
     }
 
     Ok(())
 }
 
-fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
+fn test_case<E: Element>(case_number: usize, ion: &E, strukt: &E) -> IonResult<()> {
     let strukt = strukt.as_struct().expect("`expect` should be a struct");
     let identity = strukt
         .get("identity")
@@ -97,6 +100,15 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
 
     let digest = TestDigest::default();
     let hasher = IonHasher::new(digest.clone());
+    let annotations: Vec<_> = ion
+        .annotations()
+        .map(|it| it.text().unwrap().to_string())
+        .collect();
+    let test_case_name = match &annotations[..] {
+        [] => format!("unannotated-test-case #{}", case_number), // FIXME: Use Dumper to print the case name
+        [single] => single.clone(),
+        _ => unimplemented!(),
+    };
     let result = hasher.hash_element(ion)?;
 
     for it in identity.iter() {
@@ -122,7 +134,11 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
             }
             "digest" => {
                 for (i, byte) in bytes.iter().enumerate() {
-                    assert_eq!(*byte, result[i]);
+                    assert_eq!(
+                        *byte, result[i],
+                        "case: {}; byte {} failed to match",
+                        test_case_name, i
+                    );
                 }
             }
             other => unimplemented!("{} is not yet implemented", other),
@@ -130,16 +146,4 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
     }
 
     Ok(())
-}
-
-// FIXME: This file doesn't load.
-//#[test]
-fn _ion_hash_tests() -> IonResult<()> {
-    _test_file("ion-hash-test/ion_hash_tests.ion")
-}
-
-fn _test_file(file_name: &str) -> IonResult<()> {
-    let data = read(file_name)?;
-    let elems = loader().load_all(&data)?;
-    test_all(elems)
 }

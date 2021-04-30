@@ -84,9 +84,9 @@ where
     /// Computes the Ion hash over an [`Element`] recursively using this
     /// hasher's [`Digest`]
     pub fn hash_element<E: Element + ?Sized>(mut self, elem: &E) -> IonResult<Output<D>> {
-        let serialized_bytes = match elem.ion_type() {
+        match elem.ion_type() {
             IonType::Null => self.hash_null(),
-            IonType::Boolean => todo!(),
+            IonType::Boolean => self.hash_bool(elem.as_bool()),
             IonType::Integer => todo!(),
             IonType::Float => todo!(),
             IonType::Decimal => todo!(),
@@ -102,20 +102,30 @@ where
 
         // TODO: Annotations
 
-        self.hasher.update(serialized_bytes);
         Ok(self.hasher.finalize())
     }
 
-    fn hash_null(&mut self) -> Vec<u8> {
-        vec![Markers::B, Markers::TQ_NULL, Markers::E]
+    fn hash_null(&mut self) {
+        self.hasher.update([Markers::B]);
+        self.hasher.update([Markers::TQ_NULL]);
+        self.hasher.update([Markers::E]);
     }
 
-    fn hash_string(&mut self, value: &str) -> Vec<u8> {
+    fn hash_bool(&mut self, value: Option<bool>) {
+        self.hasher.update([Markers::B]);
+        self.hasher.update([match value {
+            Some(false) => 0x10,
+            Some(true) => 0x11,
+            None => 0x1F,
+        }]);
+        self.hasher.update([Markers::E]);
+    }
+
+    fn hash_string(&mut self, value: &str) {
+        self.hasher.update([Markers::B, Markers::TQ_STRING]);
         let representation = value.as_bytes();
-        let mut serialized_bytes = vec![Markers::B, Markers::TQ_STRING];
-        serialized_bytes.extend(ion_hash_escape(representation));
-        serialized_bytes.push(Markers::E);
-        serialized_bytes
+        self.hasher.update(ion_hash_escape(representation));
+        self.hasher.update([Markers::E]);
     }
 }
 
@@ -130,21 +140,4 @@ fn ion_hash_escape(representation: &[u8]) -> Vec<u8> {
     }
 
     out
-}
-
-// TODO: Use the ion-hash test suite
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use hex_literal::hex;
-    use ion_rs::value::owned::*;
-
-    #[test]
-    fn ion_hash_sha256_string() -> IonResult<()> {
-        let expected = hex!("82c4010bfc9cace7f645c0a951243b9b122cb5ba21b60b3f71ea79c513c39342");
-        let hello_world = OwnedElement::new(vec![], OwnedValue::String("hello world".to_string()));
-        let computed = sha256(&hello_world)?;
-        assert_eq!(expected, &computed[..]);
-        Ok(())
-    }
 }
