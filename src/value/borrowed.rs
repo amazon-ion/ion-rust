@@ -134,6 +134,14 @@ impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
             Some(BorrowedImportSource::new(table, sid)),
         )
     }
+
+    fn text_token(text: &'static str) -> Self {
+        BorrowedSymbolToken::new(Some(text), None, None)
+    }
+
+    fn local_sid_token(local_sid: usize) -> Self {
+        BorrowedSymbolToken::new(None, Some(local_sid), None)
+    }
 }
 
 /// A borrowed implementation of [`Builder`].
@@ -154,14 +162,6 @@ impl<'val> Builder for BorrowedElement<'val> {
 
     fn new_string(str: &'static str) -> Self::Element {
         BorrowedValue::String(str).into()
-    }
-
-    fn text_token(text: &'static str) -> Self::SymbolToken {
-        BorrowedSymbolToken::new(Some(text), None, None)
-    }
-
-    fn local_sid_token(local_sid: usize) -> Self::SymbolToken {
-        BorrowedSymbolToken::new(None, Some(local_sid), None)
     }
 
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element {

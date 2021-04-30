@@ -137,6 +137,14 @@ impl SymbolToken for OwnedSymbolToken {
             Some(OwnedImportSource::new(table, sid)),
         )
     }
+
+    fn text_token(text: &'static str) -> Self {
+        OwnedSymbolToken::new(Some(Rc::from(text)), None, None)
+    }
+
+    fn local_sid_token(local_sid: usize) -> Self {
+        OwnedSymbolToken::new(None, Some(local_sid), None)
+    }
 }
 
 /// An owned implementation of [`Builder`].
@@ -157,14 +165,6 @@ impl Builder for OwnedElement {
 
     fn new_string(str: &'static str) -> Self::Element {
         OwnedValue::String(str.into()).into()
-    }
-
-    fn text_token(text: &'static str) -> Self::SymbolToken {
-        OwnedSymbolToken::new(Some(Rc::from(text)), None, None)
-    }
-
-    fn local_sid_token(local_sid: usize) -> Self::SymbolToken {
-        OwnedSymbolToken::new(None, Some(local_sid), None)
     }
 
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element {

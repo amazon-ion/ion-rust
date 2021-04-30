@@ -250,6 +250,14 @@ pub trait SymbolToken {
 
     /// Decorates the [`SymbolToken`] with an [`ImportSource`].
     fn with_source(self, table: &'static str, sid: SymbolId) -> Self;
+
+    /// Constructs an [`SymbolToken`] with just text.
+    /// A common case for text and synthesizing tokens.
+    fn text_token(text: &'static str) -> Self;
+
+    /// Constructs an [`SymbolToken`] with unknown text and a local ID.
+    /// A common case for binary parsing (though technically relevant in text).
+    fn local_sid_token(local_sid: SymbolId) -> Self;
 }
 
 /// Provides convenient integer accessors for integer values that are like [`AnyInt`]
@@ -597,12 +605,6 @@ pub trait Builder {
     /// Builds a `string` using Builder.
     fn new_string(str: &'static str) -> Self::Element;
 
-    /// Builds `SymbolToken` from text using Builder.
-    fn text_token(text: &'static str) -> Self::SymbolToken;
-
-    /// Builds `SymbolToken` from local sid using Builder.
-    fn local_sid_token(local_sid: SymbolId) -> Self::SymbolToken;
-
     /// Builds a `symbol` from SymbolToken using Builder.
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element;
 
@@ -663,20 +665,17 @@ mod generic_value_tests {
         annotations: Vec<E::SymbolToken>,
     }
 
-    fn annotations_text_case<E: Element>() -> CaseAnnotations<E>
-    where
-        E::Builder: Builder<SymbolToken = E::SymbolToken>,
-    {
+    fn annotations_text_case<E: Element>() -> CaseAnnotations<E> {
         CaseAnnotations {
             elem: E::Builder::new_i64(10).with_annotations(vec![
-                E::Builder::text_token("foo"),
-                E::Builder::text_token("bar"),
-                E::Builder::text_token("baz"),
+                E::SymbolToken::text_token("foo"),
+                E::SymbolToken::text_token("bar"),
+                E::SymbolToken::text_token("baz"),
             ]),
             annotations: vec![
-                E::Builder::text_token("foo"),
-                E::Builder::text_token("bar"),
-                E::Builder::text_token("baz"),
+                E::SymbolToken::text_token("foo"),
+                E::SymbolToken::text_token("bar"),
+                E::SymbolToken::text_token("baz"),
             ],
         }
     }
@@ -687,12 +686,12 @@ mod generic_value_tests {
     {
         CaseAnnotations {
             elem: E::Builder::new_i64(10).with_annotations(vec![
-                E::Builder::local_sid_token(21),
-                E::Builder::local_sid_token(22),
+                E::SymbolToken::local_sid_token(21),
+                E::SymbolToken::local_sid_token(22),
             ]),
             annotations: vec![
-                E::Builder::local_sid_token(21),
-                E::Builder::local_sid_token(22),
+                E::SymbolToken::local_sid_token(21),
+                E::SymbolToken::local_sid_token(22),
             ],
         }
     }
@@ -703,12 +702,12 @@ mod generic_value_tests {
     {
         CaseAnnotations {
             elem: E::Builder::new_i64(10).with_annotations(vec![
-                E::Builder::local_sid_token(21).with_source("greetings", 1),
-                E::Builder::local_sid_token(22).with_source("greetings", 2),
+                E::SymbolToken::local_sid_token(21).with_source("greetings", 1),
+                E::SymbolToken::local_sid_token(22).with_source("greetings", 2),
             ]),
             annotations: vec![
-                E::Builder::local_sid_token(21).with_source("greetings", 1),
-                E::Builder::local_sid_token(22).with_source("greetings", 2),
+                E::SymbolToken::local_sid_token(21).with_source("greetings", 1),
+                E::SymbolToken::local_sid_token(22).with_source("greetings", 2),
             ],
         }
     }
@@ -750,17 +749,17 @@ mod generic_value_tests {
         // SymbolTokens with same text are equivalent
         CaseSym {
             eq_annotations: vec![
-                E::Builder::text_token("foo"),
-                E::Builder::text_token("foo").with_local_sid(10),
-                E::Builder::text_token("foo")
+                E::SymbolToken::text_token("foo"),
+                E::SymbolToken::text_token("foo").with_local_sid(10),
+                E::SymbolToken::text_token("foo")
                     .with_local_sid(10)
                     .with_source("greetings", 2),
             ],
             ne_annotations: vec![
-                E::Builder::text_token("bar"),
-                E::Builder::local_sid_token(10).with_source("greetings", 1),
-                E::Builder::local_sid_token(10).with_source("hello_table", 2),
-                E::Builder::local_sid_token(10),
+                E::SymbolToken::text_token("bar"),
+                E::SymbolToken::local_sid_token(10).with_source("greetings", 1),
+                E::SymbolToken::local_sid_token(10).with_source("hello_table", 2),
+                E::SymbolToken::local_sid_token(10),
             ],
         }
     }
@@ -772,12 +771,12 @@ mod generic_value_tests {
         // local sids with no text are equivalent to each other and to SID $0
         CaseSym {
             eq_annotations: vec![
-                E::Builder::local_sid_token(200),
-                E::Builder::local_sid_token(100),
+                E::SymbolToken::local_sid_token(200),
+                E::SymbolToken::local_sid_token(100),
             ],
             ne_annotations: vec![
-                E::Builder::local_sid_token(200).with_source("greetings", 2),
-                E::Builder::text_token("foo").with_local_sid(200),
+                E::SymbolToken::local_sid_token(200).with_source("greetings", 2),
+                E::SymbolToken::text_token("foo").with_local_sid(200),
             ],
         }
     }
@@ -789,17 +788,17 @@ mod generic_value_tests {
         // SymbolTokens with no text are equivalent only if their source is equivalent
         CaseSym {
             eq_annotations: vec![
-                E::Builder::local_sid_token(200).with_source("greetings", 1),
-                E::Builder::local_sid_token(100).with_source("greetings", 1),
+                E::SymbolToken::local_sid_token(200).with_source("greetings", 1),
+                E::SymbolToken::local_sid_token(100).with_source("greetings", 1),
             ],
             ne_annotations: vec![
-                E::Builder::local_sid_token(200).with_source("greetings", 2),
-                E::Builder::local_sid_token(200).with_source("hello_table", 1),
-                E::Builder::local_sid_token(200),
-                E::Builder::text_token("greetings"),
+                E::SymbolToken::local_sid_token(200).with_source("greetings", 2),
+                E::SymbolToken::local_sid_token(200).with_source("hello_table", 1),
+                E::SymbolToken::local_sid_token(200),
+                E::SymbolToken::text_token("greetings"),
                 // due to the transitivity rule this is not equivalent to any member from above vector,
                 // even though it has the same import source
-                E::Builder::local_sid_token(100)
+                E::SymbolToken::local_sid_token(100)
                     .with_source("greetings", 1)
                     .with_text("foo"),
             ],
@@ -952,9 +951,10 @@ mod generic_value_tests {
     fn symbol_case<E: Element>() -> Case<E>
     where
         E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
-            elem: E::Builder::new_symbol(E::Builder::text_token("foo").with_local_sid(10)),
+            elem: E::Builder::new_symbol(E::SymbolToken::text_token("foo").with_local_sid(10)),
             ion_type: IonType::Symbol,
             ops: vec![AsSym, AsStr],
             op_assert: Box::new(|e: &E| assert_eq!(Some("foo"), e.as_sym().unwrap().text())),
@@ -964,9 +964,10 @@ mod generic_value_tests {
     fn symbol_with_local_sid_case<E: Element>() -> Case<E>
     where
         E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
-            elem: E::Builder::new_symbol(E::Builder::local_sid_token(10)),
+            elem: E::Builder::new_symbol(E::SymbolToken::local_sid_token(10)),
             ion_type: IonType::Symbol,
             ops: vec![AsSym, AsStr],
             op_assert: Box::new(|e: &E| assert_eq!(Some(10), e.as_sym().unwrap().local_sid())),
@@ -976,17 +977,18 @@ mod generic_value_tests {
     fn symbol_with_import_source_case<E: Element>() -> Case<E>
     where
         E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
             elem: E::Builder::new_symbol(
-                E::Builder::local_sid_token(10).with_source("greetings", 1),
+                E::SymbolToken::local_sid_token(10).with_source("greetings", 1),
             ),
             ion_type: IonType::Symbol,
             ops: vec![AsSym, AsStr],
             op_assert: Box::new(|e: &E| {
                 let actual = e.as_sym();
                 let expected = E::Builder::new_symbol(
-                    E::Builder::local_sid_token(10).with_source("greetings", 1),
+                    E::SymbolToken::local_sid_token(10).with_source("greetings", 1),
                 );
                 assert_eq!(actual, expected.as_sym());
             }),
@@ -996,10 +998,11 @@ mod generic_value_tests {
     fn symbol_with_import_source_and_text_case<E: Element>() -> Case<E>
     where
         E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
             elem: E::Builder::new_symbol(
-                E::Builder::local_sid_token(10)
+                E::SymbolToken::local_sid_token(10)
                     .with_source("greetings", 1)
                     .with_text("foo"),
             ),
@@ -1008,7 +1011,7 @@ mod generic_value_tests {
             op_assert: Box::new(|e: &E| {
                 let actual = e.as_sym();
                 let expected = E::Builder::new_symbol(
-                    E::Builder::local_sid_token(10)
+                    E::SymbolToken::local_sid_token(10)
                         .with_source("greetings", 1)
                         .with_text("foo"),
                 );
@@ -1080,11 +1083,12 @@ mod generic_value_tests {
     fn struct_case<E: Element>() -> Case<E>
     where
         E: Debug + PartialEq,
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
             elem: E::Builder::new_struct(
                 vec![(
-                    E::Builder::text_token("greetings"),
+                    E::SymbolToken::text_token("greetings"),
                     E::Builder::new_string("hello"),
                 )]
                 .into_iter(),
@@ -1109,7 +1113,7 @@ mod generic_value_tests {
         Case {
             elem: E::Builder::new_struct(
                 vec![(
-                    E::Builder::local_sid_token(21),
+                    E::SymbolToken::local_sid_token(21),
                     E::Builder::new_string("hello"),
                 )]
                 .into_iter(),
@@ -1120,7 +1124,7 @@ mod generic_value_tests {
                 let actual = e.as_struct();
                 let expected = E::Builder::new_struct(
                     vec![(
-                        E::Builder::local_sid_token(21),
+                        E::SymbolToken::local_sid_token(21),
                         E::Builder::new_string("hello"),
                     )]
                     .into_iter(),
@@ -1139,7 +1143,7 @@ mod generic_value_tests {
         Case {
             elem: E::Builder::new_struct(
                 vec![(
-                    E::Builder::local_sid_token(21),
+                    E::SymbolToken::local_sid_token(21),
                     E::Builder::new_string("hello"),
                 )]
                 .into_iter(),
@@ -1150,7 +1154,7 @@ mod generic_value_tests {
                 let actual = e.as_struct();
                 let expected = E::Builder::new_struct(
                     vec![(
-                        E::Builder::local_sid_token(22),
+                        E::SymbolToken::local_sid_token(22),
                         E::Builder::new_string("hello"),
                     )]
                     .into_iter(),
@@ -1168,7 +1172,7 @@ mod generic_value_tests {
         Case {
             elem: E::Builder::new_struct(
                 vec![(
-                    E::Builder::local_sid_token(21).with_source("hello_table", 2),
+                    E::SymbolToken::local_sid_token(21).with_source("hello_table", 2),
                     E::Builder::new_string("hello"),
                 )]
                 .into_iter(),
@@ -1179,7 +1183,7 @@ mod generic_value_tests {
                 let actual = e.as_struct();
                 let expected = E::Builder::new_struct(
                     vec![(
-                        E::Builder::local_sid_token(21).with_source("hello_table", 2),
+                        E::SymbolToken::local_sid_token(21).with_source("hello_table", 2),
                         E::Builder::new_string("hello"),
                     )]
                     .into_iter(),
@@ -1197,7 +1201,7 @@ mod generic_value_tests {
         Case {
             elem: E::Builder::new_struct(
                 vec![(
-                    E::Builder::local_sid_token(21).with_source("hello_table", 2),
+                    E::SymbolToken::local_sid_token(21).with_source("hello_table", 2),
                     E::Builder::new_string("hello"),
                 )]
                 .into_iter(),
@@ -1208,7 +1212,7 @@ mod generic_value_tests {
                 let actual = e.as_struct();
                 let expected = E::Builder::new_struct(
                     vec![(
-                        E::Builder::local_sid_token(21).with_source("hey_table", 2),
+                        E::SymbolToken::local_sid_token(21).with_source("hey_table", 2),
                         E::Builder::new_string("hello"),
                     )]
                     .into_iter(),
@@ -1227,11 +1231,11 @@ mod generic_value_tests {
             elem: E::Builder::new_struct(
                 vec![
                     (
-                        E::Builder::text_token("greetings"),
+                        E::SymbolToken::text_token("greetings"),
                         E::Builder::new_string("hello"),
                     ),
                     (
-                        E::Builder::text_token("name"),
+                        E::SymbolToken::text_token("name"),
                         E::Builder::new_string("Ion"),
                     ),
                 ]
@@ -1245,11 +1249,11 @@ mod generic_value_tests {
                 let unordered_struct = E::Builder::new_struct(
                     vec![
                         (
-                            E::Builder::text_token("name"),
+                            E::SymbolToken::text_token("name"),
                             E::Builder::new_string("Ion"),
                         ),
                         (
-                            E::Builder::text_token("greetings"),
+                            E::SymbolToken::text_token("greetings"),
                             E::Builder::new_string("hello"),
                         ),
                     ]
@@ -1272,11 +1276,11 @@ mod generic_value_tests {
             elem: E::Builder::new_struct(
                 vec![
                     (
-                        E::Builder::text_token("greetings"),
+                        E::SymbolToken::text_token("greetings"),
                         E::Builder::new_string("hello"),
                     ),
                     (
-                        E::Builder::text_token("name"),
+                        E::SymbolToken::text_token("name"),
                         E::Builder::new_string("Ion"),
                     ),
                 ]
@@ -1290,11 +1294,11 @@ mod generic_value_tests {
                 let not_equal_struct = E::Builder::new_struct(
                     vec![
                         (
-                            E::Builder::text_token("greetings"),
+                            E::SymbolToken::text_token("greetings"),
                             E::Builder::new_string("hey"),
                         ),
                         (
-                            E::Builder::text_token("name"),
+                            E::SymbolToken::text_token("name"),
                             E::Builder::new_string("Ion"),
                         ),
                     ]
@@ -1317,11 +1321,11 @@ mod generic_value_tests {
             elem: E::Builder::new_struct(
                 vec![
                     (
-                        E::Builder::text_token("greetings"),
+                        E::SymbolToken::text_token("greetings"),
                         E::Builder::new_string("hello"),
                     ),
                     (
-                        E::Builder::text_token("greetings"),
+                        E::SymbolToken::text_token("greetings"),
                         E::Builder::new_string("world"),
                     ),
                 ]
@@ -1334,11 +1338,11 @@ mod generic_value_tests {
                 let struct_with_duplicates = E::Builder::new_struct(
                     vec![
                         (
-                            E::Builder::text_token("greetings"),
+                            E::SymbolToken::text_token("greetings"),
                             E::Builder::new_string("hello"),
                         ),
                         (
-                            E::Builder::text_token("greetings"),
+                            E::SymbolToken::text_token("greetings"),
                             E::Builder::new_string("world"),
                         ),
                     ]
@@ -1359,11 +1363,11 @@ mod generic_value_tests {
             elem: E::Builder::new_struct(
                 vec![
                     (
-                        E::Builder::text_token("greetings"),
+                        E::SymbolToken::text_token("greetings"),
                         E::Builder::new_string("hello"),
                     ),
                     (
-                        E::Builder::text_token("greetings"),
+                        E::SymbolToken::text_token("greetings"),
                         E::Builder::new_string("world"),
                     ),
                 ]
@@ -1376,11 +1380,11 @@ mod generic_value_tests {
                 let unordered_struct = E::Builder::new_struct(
                     vec![
                         (
-                            E::Builder::text_token("greetings"),
+                            E::SymbolToken::text_token("greetings"),
                             E::Builder::new_string("world"),
                         ),
                         (
-                            E::Builder::text_token("greetings"),
+                            E::SymbolToken::text_token("greetings"),
                             E::Builder::new_string("hello"),
                         ),
                     ]
@@ -1401,11 +1405,11 @@ mod generic_value_tests {
             elem: E::Builder::new_struct(
                 vec![
                     (
-                        E::Builder::local_sid_token(21),
+                        E::SymbolToken::local_sid_token(21),
                         E::Builder::new_string("hello"),
                     ),
                     (
-                        E::Builder::local_sid_token(21),
+                        E::SymbolToken::local_sid_token(21),
                         E::Builder::new_string("world"),
                     ),
                 ]
@@ -1418,11 +1422,11 @@ mod generic_value_tests {
                 let unordered_struct = E::Builder::new_struct(
                     vec![
                         (
-                            E::Builder::local_sid_token(21),
+                            E::SymbolToken::local_sid_token(21),
                             E::Builder::new_string("world"),
                         ),
                         (
-                            E::Builder::local_sid_token(21),
+                            E::SymbolToken::local_sid_token(21),
                             E::Builder::new_string("hello"),
                         ),
                     ]
