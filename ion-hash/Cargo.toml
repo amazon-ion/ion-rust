@@ -22,7 +22,5 @@ edition = "2018"
 [dependencies]
 ion-rs = { path = "../", version = "0.5" }
 ion-c-sys = { path = "../ion-c-sys", version = "0.4" }
-sha2 = { version = "0.9.3" }
-
-[dev-dependencies]
-hex-literal = "0.3.1"
+digest = "0.9.0"
+sha2 = "0.9.3"
