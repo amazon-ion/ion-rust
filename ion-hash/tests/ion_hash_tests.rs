@@ -7,6 +7,18 @@ use ion_rs::value::loader::{loader, Loader};
 use ion_rs::value::*;
 use std::fs::read;
 
+// This type exists purely to facilitate testing with ion-hash-test. See that
+// package for details on how the tests are structured.
+//
+// In a nutshell, the purpose of the tests are to ensure that the Ion Hash
+// implementation correctly normalizes and represents the Ion values. The
+// purpose is _not_ to test the hashing function! So.. `updates` track the byte
+// representations of values we incorporate into the hash.
+//
+// The `Digest` trait specifies a fixed length output. We pick a `N` that is
+// bigger than the largest "identity hash" test case. Note that this means tests
+// may have to deal with trailing zeros (e.g. the identity hash might be 56
+// bytes long, with 200 trailing zeros in the fixed-length array).
 #[derive(Default, Clone)]
 struct TestDigest {
     updates: GenericArray<u8, U256>,
@@ -100,15 +112,7 @@ fn test_case<E: Element>(case_number: usize, ion: &E, strukt: &E) -> IonResult<(
 
     let digest = TestDigest::default();
     let hasher = IonHasher::new(digest.clone());
-    let annotations: Vec<_> = ion
-        .annotations()
-        .map(|it| it.text().unwrap().to_string())
-        .collect();
-    let test_case_name = match &annotations[..] {
-        [] => format!("unannotated-test-case #{}", case_number), // FIXME: Use Dumper to print the case name
-        [single] => single.clone(),
-        _ => unimplemented!(),
-    };
+    let test_case_name = test_case_name(ion, case_number);
     let result = hasher.hash_element(ion)?;
 
     for it in identity.iter() {
@@ -133,6 +137,9 @@ fn test_case<E: Element>(case_number: usize, ion: &E, strukt: &E) -> IonResult<(
                 // diagnose bugs.
             }
             "digest" => {
+                // See the comment on [`TestDigest`]: to avoid dealing with
+                // trailing zeros (due to the fixed length array), we compare
+                // byte-for-byte.
                 for (i, byte) in bytes.iter().enumerate() {
                     assert_eq!(
                         *byte, result[i],
@@ -146,4 +153,20 @@ fn test_case<E: Element>(case_number: usize, ion: &E, strukt: &E) -> IonResult<(
     }
 
     Ok(())
+}
+
+/// Test cases may be annotated with a test name. Or, not! If they aren't, the
+/// name of the test is the Ion text representation of the input value.
+// TODO: Once `dumper` lands, use it to generate test names for un-annotated
+// test cases. For now, they're simply numbered.
+fn test_case_name<E: Element>(ion: &E, case_number: usize) -> String {
+    let annotations: Vec<_> = ion
+        .annotations()
+        .map(|it| it.text().unwrap().to_string())
+        .collect();
+    match &annotations[..] {
+        [] => format!("unannotated-test-case #{}", case_number), // FIXME: Use Dumper to print the case name
+        [single] => single.clone(),
+        _ => unimplemented!(),
+    }
 }
