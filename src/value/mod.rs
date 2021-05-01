@@ -178,7 +178,7 @@ pub mod loader;
 pub mod owned;
 
 /// The shared symbol table source of a given [`SymbolToken`].
-pub trait ImportSource {
+pub trait ImportSource: Debug + PartialEq {
     /// The name of the shared symbol table that the token is from.
     fn table(&self) -> &str;
 
@@ -228,7 +228,7 @@ pub trait ImportSource {
 /// which is not a typical (but certainly valid) usage pattern.
 ///
 /// [symbol-data-model]: https://amzn.github.io/ion-docs/docs/symbols.html#data-model
-pub trait SymbolToken {
+pub trait SymbolToken: Debug + PartialEq {
     type ImportSource: ImportSource + ?Sized;
 
     /// The text of the token, which may be `None` if no text is associated with the token
@@ -358,7 +358,14 @@ impl Eq for AnyInt {}
 /// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
 pub trait Element
 where
-    Self: From<i64> + From<bool> + From<Decimal> + From<Timestamp> + From<f64> + From<BigInt>,
+    Self: From<i64>
+        + From<bool>
+        + From<Decimal>
+        + From<Timestamp>
+        + From<f64>
+        + From<BigInt>
+        + Debug
+        + PartialEq,
 {
     type SymbolToken: SymbolToken + Debug + PartialEq;
     type Sequence: Sequence<Element = Self> + ?Sized + Debug + PartialEq;
@@ -490,7 +497,7 @@ where
 }
 
 /// Represents the _value_ of sequences of Ion elements (i.e. `list` and `sexp`).
-pub trait Sequence {
+pub trait Sequence: Debug + PartialEq {
     type Element: Element + ?Sized;
 
     /// The children of the sequence.
@@ -514,7 +521,7 @@ pub trait Sequence {
 }
 
 /// Represents the _value_ of `struct` of Ion elements.
-pub trait Struct {
+pub trait Struct: Debug + PartialEq {
     type FieldName: SymbolToken + ?Sized;
     type Element: Element + ?Sized;
 
@@ -879,10 +886,7 @@ mod generic_value_tests {
         }
     }
 
-    fn bool_case<E: Element>() -> Case<E>
-    where
-        E: Debug + PartialEq,
-    {
+    fn bool_case<E: Element>() -> Case<E> {
         Case {
             elem: true.into(),
             ion_type: IonType::Boolean,
@@ -895,10 +899,7 @@ mod generic_value_tests {
         }
     }
 
-    fn i64_case<E: Element>() -> Case<E>
-    where
-        E: Debug + PartialEq,
-    {
+    fn i64_case<E: Element>() -> Case<E> {
         Case {
             elem: 100.into(),
             ion_type: IonType::Integer,
@@ -913,10 +914,7 @@ mod generic_value_tests {
         }
     }
 
-    fn big_int_case<E: Element>() -> Case<E>
-    where
-        E: Debug + PartialEq,
-    {
+    fn big_int_case<E: Element>() -> Case<E> {
         Case {
             elem: BigInt::from(100).into(),
             ion_type: IonType::Integer,
@@ -930,10 +928,7 @@ mod generic_value_tests {
         }
     }
 
-    fn f64_case<E: Element>() -> Case<E>
-    where
-        E: Debug + PartialEq,
-    {
+    fn f64_case<E: Element>() -> Case<E> {
         Case {
             elem: 16.0.into(),
             ion_type: IonType::Float,
@@ -946,10 +941,7 @@ mod generic_value_tests {
         }
     }
 
-    fn timestamp_case<E: Element>() -> Case<E>
-    where
-        E: Debug + PartialEq,
-    {
+    fn timestamp_case<E: Element>() -> Case<E> {
         Case {
             elem: make_timestamp("2014-10-16T12:01:00-00:00").into(),
             ion_type: IonType::Timestamp,
@@ -966,10 +958,7 @@ mod generic_value_tests {
         }
     }
 
-    fn decimal_case<E: Element>() -> Case<E>
-    where
-        E: Debug + PartialEq,
-    {
+    fn decimal_case<E: Element>() -> Case<E> {
         Case {
             elem: Decimal::new(8, 3).into(),
             ion_type: IonType::Decimal,
@@ -993,7 +982,6 @@ mod generic_value_tests {
 
     fn symbol_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1009,7 +997,6 @@ mod generic_value_tests {
 
     fn symbol_with_local_sid_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1022,7 +1009,6 @@ mod generic_value_tests {
 
     fn symbol_with_import_source_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
         <<E as value::Element>::SymbolToken as value::SymbolToken>::ImportSource: Debug + PartialEq,
     {
@@ -1052,7 +1038,6 @@ mod generic_value_tests {
 
     fn symbol_with_import_source_and_text_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1093,10 +1078,7 @@ mod generic_value_tests {
         }
     }
 
-    fn list_case<E: Element>() -> Case<E>
-    where
-        E: Debug + PartialEq,
-    {
+    fn list_case<E: Element>() -> Case<E> {
         Case {
             elem: E::Builder::new_list(vec![true.into(), false.into()].into_iter()),
             ion_type: IonType::List,
@@ -1115,10 +1097,7 @@ mod generic_value_tests {
         }
     }
 
-    fn sexp_case<E: Element>() -> Case<E>
-    where
-        E: Debug + PartialEq,
-    {
+    fn sexp_case<E: Element>() -> Case<E> {
         Case {
             elem: E::Builder::new_sexp(vec![true.into(), false.into()].into_iter()),
             ion_type: IonType::SExpression,
@@ -1138,7 +1117,6 @@ mod generic_value_tests {
 
     fn struct_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1163,7 +1141,6 @@ mod generic_value_tests {
 
     fn struct_with_local_sid_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1193,7 +1170,6 @@ mod generic_value_tests {
     // SymbolToken with local SID and no text are equivalent to each other and to SID $0
     fn struct_with_different_local_sid_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1222,7 +1198,6 @@ mod generic_value_tests {
 
     fn struct_with_import_source_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1251,7 +1226,6 @@ mod generic_value_tests {
 
     fn struct_with_import_source_not_equal_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1280,7 +1254,6 @@ mod generic_value_tests {
 
     fn struct_with_multiple_fields_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1325,7 +1298,6 @@ mod generic_value_tests {
 
     fn struct_with_unordered_multiple_fields_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1370,7 +1342,6 @@ mod generic_value_tests {
 
     fn struct_with_multiple_fields_not_equal_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1415,7 +1386,6 @@ mod generic_value_tests {
 
     fn struct_with_text_and_duplicates_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1457,7 +1427,6 @@ mod generic_value_tests {
 
     fn struct_with_unordered_text_and_duplicates_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1499,7 +1468,6 @@ mod generic_value_tests {
 
     fn struct_with_unordered_no_text_and_duplicates_case<E: Element>() -> Case<E>
     where
-        E: Debug + PartialEq,
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
         Case {
@@ -1595,10 +1563,7 @@ mod generic_value_tests {
     #[case::borrowed_struct_with_unordered_text_and_duplicates(struct_with_unordered_text_and_duplicates_case::<BorrowedElement>())]
     #[case::owned_struct_with_unordered_no_text_and_duplicates(struct_with_unordered_no_text_and_duplicates_case::<OwnedElement>())]
     #[case::borrowed_struct_with_unordered_no_text_and_duplicates(struct_with_unordered_no_text_and_duplicates_case::<BorrowedElement>())]
-    fn element_accessors<E: Element>(#[case] input_case: Case<E>)
-    where
-        E: Debug + PartialEq,
-    {
+    fn element_accessors<E: Element>(#[case] input_case: Case<E>) {
         // table of negative assertions for each operation
         let neg_table: Vec<(ElemOp, &ElemAssertFunc<E>)> = vec![
             (IsNull, &|e| assert_eq!(false, e.is_null())),
