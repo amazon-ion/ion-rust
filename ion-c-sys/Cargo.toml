@@ -20,6 +20,7 @@ version = "0.4.10"
 edition = "2018"
 
 [dependencies]
+ion-c-sys-macros = { version = "0.1", path = "../ion-c-sys-macros" }
 paste = "1.0"
 num-bigint = "0.3"
 bigdecimal = "0.2"

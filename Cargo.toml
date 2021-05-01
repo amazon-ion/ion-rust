@@ -22,6 +22,7 @@ edition = "2018"
 [workspace]
 members = [
   "ion-c-sys",
+  "ion-c-sys-macros",
   "ion-hash"
 ]
 
