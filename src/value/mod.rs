@@ -12,6 +12,8 @@
 //!   (e.g. storing a `&str` in the value versus a fully owned `String`).
 //! * The [`loader`] module provides API and implementation to load Ion data into [`Element`]
 //!   instances.
+//! * The [`dumper`] module provides API and implementation to serialize Ion data from [`Element`]
+//!   instances.
 //!
 //! ## Examples
 //! In general, users will use the [`Loader`](loader::Loader) trait to load in data:
@@ -89,6 +91,32 @@
 //! #
 //! #    Ok(())
 //! # }
+//! ```
+//!
+//! To serialize data, users can use the [`Dumper`](dumper::Dumper) trait to serialize data
+//! from [`Element`] to binary or text Ion:
+//!
+//! ```
+//! use ion_rs::result::IonResult;
+//! use ion_rs::value::Element;
+//! use ion_rs::value::loader::{loader, Loader};
+//! use ion_rs::value::dumper::{Dumper, Format};
+//!
+//! // a fixed buffer length to write to
+//! const BUF_SIZE: usize = 8 * 1024 * 1024;
+//!
+//! fn main() -> IonResult<()> {
+//!     let elems = loader().load_all(b"null true 1")?;
+//!
+//!     let mut buf = vec![0u8; BUF_SIZE];
+//!     let mut dumper = Format::Binary.try_dumper_for_slice(&mut buf)?;
+//!     dumper.write_all(elems.iter())?;
+//!
+//!     let output = dumper.finish()?;
+//!     assert_eq!(&[0xE0, 0x01, 0x00, 0xEA, 0x0F, 0x11, 0x21, 0x01], output);    
+//!     
+//!     Ok(())
+//! }
 //! ```
 //!
 //! Users should use the traits in this module to make their code work
@@ -174,6 +202,7 @@ use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
 pub mod borrowed;
+pub mod dumper;
 pub mod loader;
 pub mod owned;
 
@@ -370,7 +399,7 @@ where
     type SymbolToken: SymbolToken + Debug + PartialEq;
     type Sequence: Sequence<Element = Self> + ?Sized + Debug + PartialEq;
     type Struct: Struct<FieldName = Self::SymbolToken, Element = Self> + ?Sized + Debug + PartialEq;
-    type Builder: Builder<Element = Self> + ?Sized;
+    type Builder: Builder<SymbolToken = Self::SymbolToken, Element = Self> + ?Sized;
 
     /// The type of data this element represents.
     fn ion_type(&self) -> IonType;
