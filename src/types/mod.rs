@@ -67,6 +67,27 @@ impl TryFrom<ION_TYPE> for IonType {
     }
 }
 
+impl Into<ION_TYPE> for IonType {
+    fn into(self) -> ION_TYPE {
+        use IonType::*;
+        match self {
+            Null => ion_c_sys::ION_TYPE_NULL,
+            Boolean => ion_c_sys::ION_TYPE_BOOL,
+            Integer => ion_c_sys::ION_TYPE_INT,
+            Float => ion_c_sys::ION_TYPE_FLOAT,
+            Decimal => ion_c_sys::ION_TYPE_DECIMAL,
+            Timestamp => ion_c_sys::ION_TYPE_TIMESTAMP,
+            Symbol => ion_c_sys::ION_TYPE_SYMBOL,
+            String => ion_c_sys::ION_TYPE_STRING,
+            Clob => ion_c_sys::ION_TYPE_CLOB,
+            Blob => ion_c_sys::ION_TYPE_BLOB,
+            List => ion_c_sys::ION_TYPE_LIST,
+            SExpression => ion_c_sys::ION_TYPE_SEXP,
+            Struct => ion_c_sys::ION_TYPE_STRUCT,
+        }
+    }
+}
+
 #[cfg(test)]
 mod type_test {
     use super::*;
