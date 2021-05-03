@@ -363,7 +363,8 @@ impl<'val> PartialEq for BorrowedStruct<'val> {
                 .iter()
                 .find(|(other_k, other_v)| my_k == other_k && my_v == other_v)
                 .is_some()
-        })
+        }) && self.text_fields.len() == other.text_fields.len()
+            && self.no_text_fields.len() == other.no_text_fields.len()
     }
 }
 

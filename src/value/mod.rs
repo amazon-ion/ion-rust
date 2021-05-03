@@ -1340,6 +1340,46 @@ mod generic_value_tests {
         }
     }
 
+    fn struct_with_different_length_multiple_fields_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::SymbolToken::text_token("name"),
+                        E::Builder::new_string("Ion"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct().unwrap();
+                // expected struct has different length
+                let unordered_struct = E::Builder::new_struct(
+                    vec![(
+                        E::SymbolToken::text_token("name"),
+                        E::Builder::new_string("Ion"),
+                    )]
+                    .into_iter(),
+                );
+                let expected = unordered_struct.as_struct().unwrap();
+                assert_eq!(actual.get("name"), expected.get("name"));
+                // expected struct doesn't contain field with field name "greetings"
+                assert_ne!(actual.get("greetings"), expected.get("greetings"));
+                assert_ne!(actual, expected);
+                assert_ne!(expected, actual);
+            }),
+        }
+    }
+
     fn struct_with_multiple_fields_not_equal_case<E: Element>() -> Case<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
@@ -1555,6 +1595,8 @@ mod generic_value_tests {
     #[case::borrowed_struct_with_multiple_fields(struct_with_multiple_fields_case::<BorrowedElement>())]
     #[case::owned_struct_with_unordered_multiple_fields(struct_with_unordered_multiple_fields_case::<OwnedElement>())]
     #[case::borrowed_struct_with_unordered_multiple_fields(struct_with_unordered_multiple_fields_case::<BorrowedElement>())]
+    #[case::owned_struct_with_different_length_multiple_fields(struct_with_different_length_multiple_fields_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_different_length_multiple_fields(struct_with_different_length_multiple_fields_case::<BorrowedElement>())]
     #[case::owned_struct_with_multiple_fields_not_equal(struct_with_multiple_fields_not_equal_case::<OwnedElement>())]
     #[case::borrowed_struct_with_multiple_fields_not_equal(struct_with_multiple_fields_not_equal_case::<BorrowedElement>())]
     #[case::owned_struct_with_text_and_duplicates(struct_with_text_and_duplicates_case::<OwnedElement>())]
