@@ -23,7 +23,7 @@ pub trait Dumper {
     /// Serializes a single [`Element`] as a top-level value.
     fn write<E: Element>(&mut self, element: &E) -> IonResult<()>;
 
-    /// Serializes a collection of [`Element`] into a buffer as top-level values.
+    /// Serializes a collection of [`Element`] as a series of top-level values.
     ///
     /// This will return [`Err`] if writing any element causes a failure.
     fn write_all<'a, E: Element + 'a, I: IntoIterator<Item = &'a E>>(
@@ -39,7 +39,7 @@ pub trait Dumper {
     /// Consumes this [`Dumper`] flushing/finishing/closing it and returns
     /// the underlying output sink.
     ///
-    /// If a previous write operation return [`Err`], this method should also return [`Err`].
+    /// If a previous write operation returned [`Err`], this method should also return [`Err`].
     fn finish(self) -> IonResult<Self::Output>;
 }
 
