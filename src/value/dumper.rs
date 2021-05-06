@@ -61,10 +61,10 @@ pub struct IonCWriterFixedDumper<'a> {
 pub type FixedDumper<'a> = IonCWriterFixedDumper<'a>;
 
 impl<'a> IonCWriterFixedDumper<'a> {
-    fn new(buf: &'a mut [u8], mode: Format) -> IonResult<Self> {
+    fn new(buf: &'a mut [u8], format: Format) -> IonResult<Self> {
         let data = buf.as_ptr();
         let mut options: ION_WRITER_OPTIONS = Default::default();
-        match mode {
+        match format {
             Text(kind) => {
                 options.output_as_binary = 0;
                 match kind {
@@ -237,7 +237,7 @@ impl Format {
 
     // TODO eliminate fixed buffer size limitation
 
-    /// Creates a [`Dumper`] for the mode manages its output into a fixed output buffer.
+    /// Creates a [`Dumper`] for the format over a slice.
     ///
     /// Returns [`Err`] if the [`Dumper`] cannot be constructed.
     pub fn try_dumper_for_slice(self, slice: &mut [u8]) -> IonResult<FixedDumper> {
@@ -264,6 +264,13 @@ mod dumper_tests {
         from_utf8(slice).unwrap_or("<INVALID UTF-8>")
     }
 
+    #[inline]
+    fn ion_binary(data: &[u8]) -> Vec<u8> {
+        let mut buf = vec![0xE0, 0x01, 0x00, 0xEA];
+        buf.extend_from_slice(data);
+        buf
+    }
+
     // fixed buffer length to serialize to
     const TEST_BUF_LEN: usize = 4 * 1024 * 1024;
 
@@ -277,7 +284,7 @@ mod dumper_tests {
         // element to dump
         element: E,
         // binary to expect
-        binary: &'static [u8],
+        binary: Vec<u8>,
         // text to expect
         text: &'static [u8],
         // pretty text to expect
@@ -287,7 +294,7 @@ mod dumper_tests {
     fn null_case<E: Element>() -> TestCase<E> {
         TestCase {
             element: E::Builder::new_null(IonType::Integer),
-            binary: &[0xE0, 0x01, 0x00, 0xEA, 0x2F],
+            binary: ion_binary(&[0x2F]),
             text: b"null.int",
             pretty: b"null.int",
         }
@@ -296,7 +303,7 @@ mod dumper_tests {
     fn bool_case<E: Element>() -> TestCase<E> {
         TestCase {
             element: E::Builder::new_bool(true),
-            binary: &[0xE0, 0x01, 0x00, 0xEA, 0x11],
+            binary: ion_binary(&[0x11]),
             text: b"true",
             pretty: b"true",
         }
@@ -305,7 +312,7 @@ mod dumper_tests {
     fn int_case<E: Element>() -> TestCase<E> {
         TestCase {
             element: E::Builder::new_i64(5),
-            binary: &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x05],
+            binary: ion_binary(&[0x21, 0x05]),
             text: b"5",
             pretty: b"5",
         }
@@ -314,9 +321,7 @@ mod dumper_tests {
     fn float_case<E: Element>() -> TestCase<E> {
         TestCase {
             element: E::Builder::new_f64(-1.0),
-            binary: &[
-                0xE0, 0x01, 0x00, 0xEA, 0x48, 0xBF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            ],
+            binary: ion_binary(&[0x48, 0xBF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
             text: b"-1e+0",
             pretty: b"-1e+0",
         }
@@ -325,7 +330,7 @@ mod dumper_tests {
     fn decimal_case<E: Element>() -> TestCase<E> {
         TestCase {
             element: E::Builder::new_decimal(Decimal::new(16, -1)),
-            binary: &[0xE0, 0x01, 0x00, 0xEA, 0x52, 0xC1, 0x10],
+            binary: ion_binary(&[0x52, 0xC1, 0x10]),
             text: b"1.6",
             pretty: b"1.6",
         }
@@ -334,7 +339,7 @@ mod dumper_tests {
     fn timestamp_case<E: Element>() -> TestCase<E> {
         TestCase {
             element: E::Builder::new_timestamp(Timestamp::with_year(2007).build().unwrap()),
-            binary: &[0xE0, 0x01, 0x00, 0xEA, 0x63, 0xC0, 0x0F, 0xD7],
+            binary: ion_binary(&[0x63, 0xC0, 0x0F, 0xD7]),
             text: b"2007T",
             pretty: b"2007T",
         }
@@ -344,7 +349,7 @@ mod dumper_tests {
         TestCase {
             // note that 'name' is in the system symbol table so should not emit LST
             element: E::Builder::new_symbol(E::SymbolToken::text_token("name")),
-            binary: &[0xE0, 0x01, 0x00, 0xEA, 0x71, 0x04],
+            binary: ion_binary(&[0x71, 0x04]),
             text: b"name",
             pretty: b"name",
         }
@@ -353,7 +358,7 @@ mod dumper_tests {
     fn string_case<E: Element>() -> TestCase<E> {
         TestCase {
             element: E::Builder::new_string("hello"),
-            binary: b"\xE0\x01\x00\xEA\x85hello",
+            binary: ion_binary(b"\x85hello"),
             text: br#""hello""#,
             pretty: br#""hello""#,
         }
@@ -362,7 +367,7 @@ mod dumper_tests {
     fn clob_case<E: Element>() -> TestCase<E> {
         TestCase {
             element: E::Builder::new_clob(b"moon"),
-            binary: b"\xE0\x01\x00\xEA\x94moon",
+            binary: ion_binary(b"\x94moon"),
             text: br#"{{"moon"}}"#,
             pretty: br#"{{"moon"}}"#,
         }
@@ -371,7 +376,7 @@ mod dumper_tests {
     fn blob_case<E: Element>() -> TestCase<E> {
         TestCase {
             element: E::Builder::new_blob(b"earth"),
-            binary: b"\xE0\x01\x00\xEA\xA5earth",
+            binary: ion_binary(b"\xA5earth"),
             text: b"{{ZWFydGg=}}",
             pretty: b"{{ZWFydGg=}}",
         }
@@ -382,9 +387,7 @@ mod dumper_tests {
             element: E::Builder::new_list(vec![E::Builder::new_list(
                 vec![1, 2, 3].into_iter().map(|x| E::Builder::new_i64(x)),
             )]),
-            binary: &[
-                0xE0, 0x01, 0x00, 0xEA, 0xB7, 0xB6, 0x21, 0x01, 0x21, 0x02, 0x21, 0x03,
-            ],
+            binary: ion_binary(&[0xB7, 0xB6, 0x21, 0x01, 0x21, 0x02, 0x21, 0x03]),
             text: b"[[1,2,3]]",
             pretty: b"\
 [
@@ -407,9 +410,7 @@ mod dumper_tests {
                         .map(|x| E::Builder::new_string(x)),
                 ),
             ]),
-            binary: &[
-                0xE0, 0x01, 0x00, 0xEA, 0xC9, 0x71, 0x04, 0xC6, 0x81, 0x61, 0x81, 0x62, 0x81, 0x63,
-            ],
+            binary: ion_binary(&[0xC9, 0x71, 0x04, 0xC6, 0x81, 0x61, 0x81, 0x62, 0x81, 0x63]),
             text: br#"(name ("a" "b" "c"))"#,
             pretty: b"\
 (
@@ -430,7 +431,7 @@ mod dumper_tests {
                     .into_iter()
                     .map(|(k, v)| (E::SymbolToken::text_token(k), E::Builder::new_i64(v))),
             ),
-            binary: &[0xE0, 0x01, 0x00, 0xEA, 0xD3, 0x84, 0x21, 0x01],
+            binary: ion_binary(&[0xD3, 0x84, 0x21, 0x01]),
             text: b"{name:1}",
             pretty: b"\
 {
@@ -440,34 +441,34 @@ mod dumper_tests {
     }
 
     #[rstest]
-    #[case::b_null(null_case::<BorrowedElement>())]
-    #[case::o_null(null_case::<OwnedElement>())]
-    #[case::b_bool(bool_case::<BorrowedElement>())]
-    #[case::o_bool(bool_case::<OwnedElement>())]
-    #[case::b_int(int_case::<BorrowedElement>())]
-    #[case::o_int(int_case::<OwnedElement>())]
-    #[case::b_float(float_case::<BorrowedElement>())]
-    #[case::o_float(float_case::<OwnedElement>())]
-    #[case::b_decimal(decimal_case::<BorrowedElement>())]
-    #[case::o_decimal(decimal_case::<OwnedElement>())]
-    #[case::b_timestamp(timestamp_case::<BorrowedElement>())]
-    #[case::o_timestamp(timestamp_case::<OwnedElement>())]
-    #[case::b_symbol(symbol_case::<BorrowedElement>())]
-    #[case::o_symbol(symbol_case::<OwnedElement>())]
-    #[case::b_string(string_case::<BorrowedElement>())]
-    #[case::o_string(string_case::<OwnedElement>())]
-    #[case::b_clob(clob_case::<BorrowedElement>())]
-    #[case::o_clob(clob_case::<OwnedElement>())]
-    #[case::b_blob(blob_case::<BorrowedElement>())]
-    #[case::o_blob(blob_case::<OwnedElement>())]
-    #[case::b_list(list_case::<BorrowedElement>())]
-    #[case::o_list(list_case::<OwnedElement>())]
-    #[case::b_sexp(sexp_case::<BorrowedElement>())]
-    #[case::o_sexp(sexp_case::<OwnedElement>())]
-    #[case::b_struct(struct_case::<BorrowedElement>())]
-    #[case::o_struct(struct_case::<OwnedElement>())]
+    #[case::borrowed_null(null_case::<BorrowedElement>())]
+    #[case::owned_null(null_case::<OwnedElement>())]
+    #[case::borrowed_bool(bool_case::<BorrowedElement>())]
+    #[case::owned_bool(bool_case::<OwnedElement>())]
+    #[case::borrowed_int(int_case::<BorrowedElement>())]
+    #[case::owned_int(int_case::<OwnedElement>())]
+    #[case::borrowed_float(float_case::<BorrowedElement>())]
+    #[case::owned_float(float_case::<OwnedElement>())]
+    #[case::borrowed_decimal(decimal_case::<BorrowedElement>())]
+    #[case::owned_decimal(decimal_case::<OwnedElement>())]
+    #[case::borrowed_timestamp(timestamp_case::<BorrowedElement>())]
+    #[case::owned_timestamp(timestamp_case::<OwnedElement>())]
+    #[case::borrowed_symbol(symbol_case::<BorrowedElement>())]
+    #[case::owned_symbol(symbol_case::<OwnedElement>())]
+    #[case::borrowed_string(string_case::<BorrowedElement>())]
+    #[case::owned_string(string_case::<OwnedElement>())]
+    #[case::borrowed_clob(clob_case::<BorrowedElement>())]
+    #[case::owned_clob(clob_case::<OwnedElement>())]
+    #[case::borrowed_blob(blob_case::<BorrowedElement>())]
+    #[case::owned_blob(blob_case::<OwnedElement>())]
+    #[case::borrowed_list(list_case::<BorrowedElement>())]
+    #[case::owned_list(list_case::<OwnedElement>())]
+    #[case::borrowed_sexp(sexp_case::<BorrowedElement>())]
+    #[case::owned_sexp(sexp_case::<OwnedElement>())]
+    #[case::borrowed_struct(struct_case::<BorrowedElement>())]
+    #[case::owned_struct(struct_case::<OwnedElement>())]
     fn simple<E: Element>(#[case] test_case: TestCase<E>) -> IonResult<()> {
-        assert_dump(test_case.binary, &test_case.element, |buf| {
+        assert_dump(&test_case.binary[..], &test_case.element, |buf| {
             Binary.try_dumper_for_slice(buf)
         })?;
 
