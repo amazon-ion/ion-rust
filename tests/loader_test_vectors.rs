@@ -1,12 +1,16 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 use ion_rs::result::{decoding_error, IonError, IonResult};
+use ion_rs::value::dumper::{Dumper, FixedDumper, Format, TextKind};
 use ion_rs::value::loader::{loader, Loader};
 use ion_rs::value::owned::OwnedElement;
 use ion_rs::value::{Element, Sequence, SymbolToken};
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 use test_generator::test_resources;
+
+/// Buffer size for our writing tests around round-tripping
+const WRITE_BUF_LENGTH: usize = 16 * 1024 * 1024;
 
 /// Files that should always be skipped for some reason.
 const ALL_SKIP_LIST: &[&str] = &[
@@ -37,6 +41,17 @@ const ALL_SKIP_LIST: &[&str] = &[
 const LOAD_ONE_EQUIVS_SKIP_LIST: &[&str] = &[
     // we need a structural equality (IonEq) for these (amzn/ion-rust#220)
     "ion-tests/iontestdata/good/floatSpecials.ion",
+];
+
+/// Files that should not be tested for equivalence in round-trip testing
+const ROUND_TRIP_SKIP_LIST: &[&str] = &[
+    // we need a structural equality (IonEq) for these (amzn/ion-rust#220)
+    "ion-tests/iontestdata/good/float32.10n",
+    "ion-tests/iontestdata/good/floatSpecials.ion",
+    "ion-tests/iontestdata/good/non-equivs/floats.ion",
+    // appears to be a bug with Ion C or ion-c-sys (specifically binary) (amzn/ion-rust#235)
+    "ion-tests/iontestdata/good/equivs/bigInts.ion",
+    "ion-tests/iontestdata/good/subfieldUInt.ion",
 ];
 
 /// Files that should only be skipped in equivalence file testing
@@ -119,6 +134,42 @@ fn load_file<L: Loader>(loader: &L, file_name: &str) -> IonResult<Vec<OwnedEleme
     result
 }
 
+/// Asserts the given elements can be round-tripped and equivalent, then returns the new elements.
+fn assert_round_trip<F>(
+    source_elements: &Vec<OwnedElement>,
+    make_dumper: F,
+) -> IonResult<Vec<OwnedElement>>
+where
+    F: FnOnce(&mut [u8]) -> IonResult<FixedDumper>,
+{
+    let mut buf = vec![0u8; WRITE_BUF_LENGTH];
+    let mut dumper = make_dumper(&mut buf)?;
+    dumper.write_all(source_elements)?;
+    let output = dumper.finish()?;
+    let new_elements = loader().load_all(output)?;
+    assert_eq!(*source_elements, new_elements);
+    Ok(new_elements)
+}
+
+fn assert_three_way_round_trip<F1, F2>(
+    file_name: &str,
+    first_dumper: F1,
+    second_dumper: F2,
+) -> IonResult<()>
+where
+    F1: FnOnce(&mut [u8]) -> IonResult<FixedDumper>,
+    F2: FnOnce(&mut [u8]) -> IonResult<FixedDumper>,
+{
+    let source_elements = load_file(&loader(), file_name)?;
+    if contains_path(ROUND_TRIP_SKIP_LIST, file_name) {
+        return Ok(());
+    }
+    let first_dump_elements = assert_round_trip(&source_elements, first_dumper)?;
+    let second_dump_elements = assert_round_trip(&first_dump_elements, second_dumper)?;
+    assert_eq!(source_elements, second_dump_elements);
+    Ok(())
+}
+
 fn assert_file<T, F: FnOnce() -> IonResult<T>>(skip_list: &[&str], file_name: &str, asserter: F) {
     // TODO if frehberg/test-generator#7 gets implemented we could do a proper ignore
 
@@ -134,8 +185,74 @@ fn assert_file<T, F: FnOnce() -> IonResult<T>>(skip_list: &[&str], file_name: &s
 
 #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
 #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-fn good(file_name: &str) {
-    assert_file(ALL_SKIP_LIST, file_name, || load_file(&loader(), file_name));
+fn good_roundtrip_text_binary(file_name: &str) {
+    assert_file(ALL_SKIP_LIST, file_name, || {
+        assert_three_way_round_trip(
+            file_name,
+            |slice| Format::Text(TextKind::Compact).try_dumper_for_slice(slice),
+            |slice| Format::Binary.try_dumper_for_slice(slice),
+        )
+    });
+}
+
+#[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+#[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+fn good_roundtrip_binary_text(file_name: &str) {
+    assert_file(ALL_SKIP_LIST, file_name, || {
+        assert_three_way_round_trip(
+            file_name,
+            |slice| Format::Binary.try_dumper_for_slice(slice),
+            |slice| Format::Text(TextKind::Compact).try_dumper_for_slice(slice),
+        )
+    });
+}
+
+#[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+#[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+fn good_roundtrip_text_pretty(file_name: &str) {
+    assert_file(ALL_SKIP_LIST, file_name, || {
+        assert_three_way_round_trip(
+            file_name,
+            |slice| Format::Text(TextKind::Compact).try_dumper_for_slice(slice),
+            |slice| Format::Text(TextKind::Pretty).try_dumper_for_slice(slice),
+        )
+    });
+}
+
+#[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+#[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+fn good_roundtrip_pretty_text(file_name: &str) {
+    assert_file(ALL_SKIP_LIST, file_name, || {
+        assert_three_way_round_trip(
+            file_name,
+            |slice| Format::Text(TextKind::Pretty).try_dumper_for_slice(slice),
+            |slice| Format::Text(TextKind::Compact).try_dumper_for_slice(slice),
+        )
+    });
+}
+
+#[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+#[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+fn good_roundtrip_pretty_binary(file_name: &str) {
+    assert_file(ALL_SKIP_LIST, file_name, || {
+        assert_three_way_round_trip(
+            file_name,
+            |slice| Format::Text(TextKind::Pretty).try_dumper_for_slice(slice),
+            |slice| Format::Binary.try_dumper_for_slice(slice),
+        )
+    });
+}
+
+#[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+#[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+fn good_roundtrip_binary_pretty(file_name: &str) {
+    assert_file(ALL_SKIP_LIST, file_name, || {
+        assert_three_way_round_trip(
+            file_name,
+            |slice| Format::Binary.try_dumper_for_slice(slice),
+            |slice| Format::Text(TextKind::Pretty).try_dumper_for_slice(slice),
+        )
+    });
 }
 
 #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
