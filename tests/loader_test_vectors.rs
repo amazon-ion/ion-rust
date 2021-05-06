@@ -50,8 +50,6 @@ const NON_EQUIVS_SKIP_LIST: &[&str] = &[
     "ion-tests/iontestdata/good/non-equivs/floats.ion",
     // these have symbols with unknown text (amzn/ion-rust#219)
     "ion-tests/iontestdata/good/non-equivs/symbolTablesUnknownText.ion",
-    // this is a bug in our PartialEq (amzn/ion-rust#216)
-    "ion-tests/iontestdata/good/non-equivs/structs.ion",
 ];
 
 /// Concatenates two slices of string slices together.
