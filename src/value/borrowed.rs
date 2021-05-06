@@ -273,6 +273,31 @@ pub struct BorrowedStruct<'val> {
     no_text_fields: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
 }
 
+impl<'val> BorrowedStruct<'val> {
+    fn eq_text_fields(&self, other: &Self) -> bool {
+        // check if both the text_fields have same (field_name,value) pairs
+        self.text_fields.iter().all(|(key, value)| {
+            value.iter().all(|(_my_s, my_v)| {
+                other
+                    .get_all(key)
+                    .find(|other_v| my_v == *other_v)
+                    .is_some()
+            }) && value.len() == other.get_all(key).count()
+        })
+    }
+
+    fn eq_no_text_fields(&self, other: &Self) -> bool {
+        // check if both the no_text_fields are same values
+        self.no_text_fields.iter().all(|(my_k, my_v)| {
+            other
+                .no_text_fields
+                .iter()
+                .find(|(other_k, other_v)| my_k == other_k && my_v == other_v)
+                .is_some()
+        })
+    }
+}
+
 impl<'val, K, V> FromIterator<(K, V)> for BorrowedStruct<'val>
 where
     K: Into<BorrowedSymbolToken<'val>>,
@@ -348,23 +373,11 @@ impl<'val> Struct for BorrowedStruct<'val> {
 
 impl<'val> PartialEq for BorrowedStruct<'val> {
     fn eq(&self, other: &Self) -> bool {
-        // check if both the text_fields have same (field_name,value) pairs
-        self.text_fields.iter().all(|(key, value)| {
-            value.iter().all(|(_my_s, my_v)| {
-                other
-                    .get_all(key)
-                    .find(|other_v| my_v == *other_v)
-                    .is_some()
-            })
-        }) && self.no_text_fields.iter().all(|(my_k, my_v)| {
-            // check if both the no_text_fields have same values
-            other
-                .no_text_fields
-                .iter()
-                .find(|(other_k, other_v)| my_k == other_k && my_v == other_v)
-                .is_some()
-        }) && self.text_fields.len() == other.text_fields.len()
-            && self.no_text_fields.len() == other.no_text_fields.len()
+        // check if both test_fields and no_text_fields have same length
+        self.text_fields.len() == other.text_fields.len() && self.no_text_fields.len() == other.no_text_fields.len()
+        // check if text_fields and no_text_fields are equal
+        && self.eq_text_fields(other) && other.eq_text_fields(self)
+            && self.eq_no_text_fields(other) && other.eq_no_text_fields(self)
     }
 }
 
