@@ -16,7 +16,7 @@ exclude = [
     "**/ion-tests/iontestdata/**",
     "*.pdf"
 ]
-version = "0.4.8"
+version = "0.4.9"
 edition = "2018"
 
 [dependencies]

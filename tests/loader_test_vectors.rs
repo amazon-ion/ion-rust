@@ -5,6 +5,7 @@ use ion_rs::value::dumper::{Dumper, FixedDumper, Format, TextKind};
 use ion_rs::value::loader::{loader, Loader};
 use ion_rs::value::owned::OwnedElement;
 use ion_rs::value::{Element, Sequence, SymbolToken};
+use pretty_hex::*;
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 use test_generator::test_resources;
@@ -147,7 +148,7 @@ where
     dumper.write_all(source_elements)?;
     let output = dumper.finish()?;
     let new_elements = loader().load_all(output)?;
-    assert_eq!(*source_elements, new_elements);
+    assert_eq!(*source_elements, new_elements, "{:?}", output.hex_dump());
     Ok(new_elements)
 }
 
