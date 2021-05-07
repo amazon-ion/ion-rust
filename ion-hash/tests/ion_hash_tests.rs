@@ -3,7 +3,7 @@
 use digest::{consts::U256, generic_array::GenericArray, Digest, Output};
 use ion_hash::{self, IonHasher};
 use ion_rs::result::IonResult;
-use ion_rs::value::loader::{loader, Loader};
+use ion_rs::value::reader::{element_reader, ElementReader};
 use ion_rs::value::*;
 use std::fs::read;
 
@@ -84,7 +84,7 @@ fn ion_hash_tests() -> IonResult<()> {
 
 fn test_file(file_name: &str) -> IonResult<()> {
     let data = read(file_name)?;
-    let elems = loader().load_all(&data)?;
+    let elems = element_reader().read_all(&data)?;
     test_all(elems)
 }
 

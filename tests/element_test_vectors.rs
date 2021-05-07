@@ -1,9 +1,9 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 use ion_rs::result::{decoding_error, IonError, IonResult};
-use ion_rs::value::dumper::{Dumper, FixedDumper, Format, TextKind};
-use ion_rs::value::loader::{loader, Loader};
 use ion_rs::value::owned::OwnedElement;
+use ion_rs::value::reader::{element_reader, ElementReader};
+use ion_rs::value::writer::{ElementWriter, Format, SliceElementWriter, TextKind};
 use ion_rs::value::{Element, Sequence, SymbolToken};
 use pretty_hex::*;
 use std::fs::read;
@@ -38,8 +38,8 @@ const ALL_SKIP_LIST: &[&str] = &[
     "ion-tests/iontestdata/good/typecodes/T7-small.10n",
 ];
 
-/// Files that should not be tested for equivalence with load_one against load_all
-const LOAD_ONE_EQUIVS_SKIP_LIST: &[&str] = &[
+/// Files that should not be tested for equivalence with read_one against read_all
+const READ_ONE_EQUIVS_SKIP_LIST: &[&str] = &[
     // we need a structural equality (IonEq) for these (amzn/ion-rust#220)
     "ion-tests/iontestdata/good/floatSpecials.ion",
 ];
@@ -91,20 +91,20 @@ fn contains_path(paths: &[&str], file_name: &str) -> bool {
         .is_some()
 }
 
-fn load_file<L: Loader>(loader: &L, file_name: &str) -> IonResult<Vec<OwnedElement>> {
+fn read_file<R: ElementReader>(reader: &R, file_name: &str) -> IonResult<Vec<OwnedElement>> {
     // TODO have a better API that doesn't require buffering into memory everything...
     let data = read(file_name)?;
-    let result = loader.load_all(&data);
+    let result = reader.read_all(&data);
 
-    // do some simple single value loading tests
-    let single_result = loader.load_one(&data);
+    // do some simple single value reading tests
+    let single_result = reader.read_one(&data);
     match &result {
         Ok(elems) => {
             if elems.len() == 1 {
                 match single_result {
                     Ok(elem) => {
                         // only compare if we know equality to work
-                        if !contains_path(LOAD_ONE_EQUIVS_SKIP_LIST, file_name) {
+                        if !contains_path(READ_ONE_EQUIVS_SKIP_LIST, file_name) {
                             assert_eq!(elems[0], elem)
                         }
                     }
@@ -127,7 +127,7 @@ fn load_file<L: Loader>(loader: &L, file_name: &str) -> IonResult<Vec<OwnedEleme
         }
         Err(_) => assert!(
             single_result.is_err(),
-            "Expected error from load_one: {:?}",
+            "Expected error from read_one: {:?}",
             single_result
         ),
     };
@@ -138,36 +138,36 @@ fn load_file<L: Loader>(loader: &L, file_name: &str) -> IonResult<Vec<OwnedEleme
 /// Asserts the given elements can be round-tripped and equivalent, then returns the new elements.
 fn assert_round_trip<F>(
     source_elements: &Vec<OwnedElement>,
-    make_dumper: F,
+    make_writer: F,
 ) -> IonResult<Vec<OwnedElement>>
 where
-    F: FnOnce(&mut [u8]) -> IonResult<FixedDumper>,
+    F: FnOnce(&mut [u8]) -> IonResult<SliceElementWriter>,
 {
     let mut buf = vec![0u8; WRITE_BUF_LENGTH];
-    let mut dumper = make_dumper(&mut buf)?;
-    dumper.write_all(source_elements)?;
-    let output = dumper.finish()?;
-    let new_elements = loader().load_all(output)?;
+    let mut writer = make_writer(&mut buf)?;
+    writer.write_all(source_elements)?;
+    let output = writer.finish()?;
+    let new_elements = element_reader().read_all(output)?;
     assert_eq!(*source_elements, new_elements, "{:?}", output.hex_dump());
     Ok(new_elements)
 }
 
 fn assert_three_way_round_trip<F1, F2>(
     file_name: &str,
-    first_dumper: F1,
-    second_dumper: F2,
+    first_writer: F1,
+    second_writer: F2,
 ) -> IonResult<()>
 where
-    F1: FnOnce(&mut [u8]) -> IonResult<FixedDumper>,
-    F2: FnOnce(&mut [u8]) -> IonResult<FixedDumper>,
+    F1: FnOnce(&mut [u8]) -> IonResult<SliceElementWriter>,
+    F2: FnOnce(&mut [u8]) -> IonResult<SliceElementWriter>,
 {
-    let source_elements = load_file(&loader(), file_name)?;
+    let source_elements = read_file(&element_reader(), file_name)?;
     if contains_path(ROUND_TRIP_SKIP_LIST, file_name) {
         return Ok(());
     }
-    let first_dump_elements = assert_round_trip(&source_elements, first_dumper)?;
-    let second_dump_elements = assert_round_trip(&first_dump_elements, second_dumper)?;
-    assert_eq!(source_elements, second_dump_elements);
+    let first_write_elements = assert_round_trip(&source_elements, first_writer)?;
+    let second_write_elements = assert_round_trip(&first_write_elements, second_writer)?;
+    assert_eq!(source_elements, second_write_elements);
     Ok(())
 }
 
@@ -190,8 +190,8 @@ fn good_roundtrip_text_binary(file_name: &str) {
     assert_file(ALL_SKIP_LIST, file_name, || {
         assert_three_way_round_trip(
             file_name,
-            |slice| Format::Text(TextKind::Compact).try_dumper_for_slice(slice),
-            |slice| Format::Binary.try_dumper_for_slice(slice),
+            |slice| Format::Text(TextKind::Compact).element_writer_for_slice(slice),
+            |slice| Format::Binary.element_writer_for_slice(slice),
         )
     });
 }
@@ -202,8 +202,8 @@ fn good_roundtrip_binary_text(file_name: &str) {
     assert_file(ALL_SKIP_LIST, file_name, || {
         assert_three_way_round_trip(
             file_name,
-            |slice| Format::Binary.try_dumper_for_slice(slice),
-            |slice| Format::Text(TextKind::Compact).try_dumper_for_slice(slice),
+            |slice| Format::Binary.element_writer_for_slice(slice),
+            |slice| Format::Text(TextKind::Compact).element_writer_for_slice(slice),
         )
     });
 }
@@ -214,8 +214,8 @@ fn good_roundtrip_text_pretty(file_name: &str) {
     assert_file(ALL_SKIP_LIST, file_name, || {
         assert_three_way_round_trip(
             file_name,
-            |slice| Format::Text(TextKind::Compact).try_dumper_for_slice(slice),
-            |slice| Format::Text(TextKind::Pretty).try_dumper_for_slice(slice),
+            |slice| Format::Text(TextKind::Compact).element_writer_for_slice(slice),
+            |slice| Format::Text(TextKind::Pretty).element_writer_for_slice(slice),
         )
     });
 }
@@ -226,8 +226,8 @@ fn good_roundtrip_pretty_text(file_name: &str) {
     assert_file(ALL_SKIP_LIST, file_name, || {
         assert_three_way_round_trip(
             file_name,
-            |slice| Format::Text(TextKind::Pretty).try_dumper_for_slice(slice),
-            |slice| Format::Text(TextKind::Compact).try_dumper_for_slice(slice),
+            |slice| Format::Text(TextKind::Pretty).element_writer_for_slice(slice),
+            |slice| Format::Text(TextKind::Compact).element_writer_for_slice(slice),
         )
     });
 }
@@ -238,8 +238,8 @@ fn good_roundtrip_pretty_binary(file_name: &str) {
     assert_file(ALL_SKIP_LIST, file_name, || {
         assert_three_way_round_trip(
             file_name,
-            |slice| Format::Text(TextKind::Pretty).try_dumper_for_slice(slice),
-            |slice| Format::Binary.try_dumper_for_slice(slice),
+            |slice| Format::Text(TextKind::Pretty).element_writer_for_slice(slice),
+            |slice| Format::Binary.element_writer_for_slice(slice),
         )
     });
 }
@@ -250,8 +250,8 @@ fn good_roundtrip_binary_pretty(file_name: &str) {
     assert_file(ALL_SKIP_LIST, file_name, || {
         assert_three_way_round_trip(
             file_name,
-            |slice| Format::Binary.try_dumper_for_slice(slice),
-            |slice| Format::Text(TextKind::Pretty).try_dumper_for_slice(slice),
+            |slice| Format::Binary.element_writer_for_slice(slice),
+            |slice| Format::Text(TextKind::Pretty).element_writer_for_slice(slice),
         )
     });
 }
@@ -260,14 +260,14 @@ fn good_roundtrip_binary_pretty(file_name: &str) {
 #[test_resources("ion-tests/iontestdata/bad/**/*.10n")]
 fn bad(file_name: &str) {
     assert_file(ALL_SKIP_LIST, file_name, || {
-        match load_file(&loader(), file_name) {
+        match read_file(&element_reader(), file_name) {
             Ok(items) => panic!("Expected error, got: {:?}", items),
             Err(_) => Ok(()),
         }
     });
 }
 
-/// Parses the elements of a given sequence as text Ion data and tests a grouping on the loaded
+/// Parses the elements of a given sequence as text Ion data and tests a grouping on the read
 /// documents.
 ///
 /// For example, for the given group:
@@ -282,15 +282,15 @@ fn bad(file_name: &str) {
 /// This will parse each string as a [`Vec`] of [`Element`] and apply the `group_assert` function
 /// for every pair of the parsed data including the identity case (a parsed document is
 /// compared against itself).
-fn load_group_embedded<L, S, F>(loader: &L, raw_group: &S, group_assert: &F) -> IonResult<()>
+fn read_group_embedded<R, S, F>(reader: &R, raw_group: &S, group_assert: &F) -> IonResult<()>
 where
-    L: Loader,
+    R: ElementReader,
     S: Sequence,
     F: Fn(&Vec<OwnedElement>, &Vec<OwnedElement>) -> (),
 {
     let group_res: IonResult<Vec<_>> = raw_group
         .iter()
-        .map(|elem| loader.load_all(elem.as_str().unwrap().as_bytes()))
+        .map(|elem| reader.read_all(elem.as_str().unwrap().as_bytes()))
         .collect();
     let group = group_res?;
     for this in group.iter() {
@@ -302,7 +302,7 @@ where
 }
 
 /// Parses a document that has top-level `list`/`sexp` values that represent a *group*.
-/// If this top-level value is annotated with `embedded_documents`, then [`load_group_embedded`]
+/// If this top-level value is annotated with `embedded_documents`, then [`read_group_embedded`]
 /// is executed for that grouping.  Otherwise, the `value_assert` function is invoked for
 /// every pair of values in a group including the identity case (a value in a group is compared
 /// against itself).
@@ -320,18 +320,18 @@ where
 ///
 /// This would have two groups, one with direct values that will be compared and another
 /// with embedded Ion text that will be parsed and compared.
-fn load_group<L, F1, F2>(
-    loader: L,
+fn read_group<R, F1, F2>(
+    reader: R,
     file_name: &str,
     value_assert: F1,
     group_assert: F2,
 ) -> IonResult<()>
 where
-    L: Loader,
+    R: ElementReader,
     F1: Fn(&OwnedElement, &OwnedElement) -> (),
     F2: Fn(&Vec<OwnedElement>, &Vec<OwnedElement>) -> (),
 {
-    let group_lists = load_file(&loader, file_name)?;
+    let group_lists = read_file(&reader, file_name)?;
     for group_list in group_lists.iter() {
         // every grouping set is a list/sexp
         // look for the embedded annotation to parse/test as the underlying value
@@ -341,7 +341,7 @@ where
             .is_some();
         match (group_list.as_sequence(), is_embedded) {
             (Some(group), true) => {
-                load_group_embedded(&loader, group, &group_assert)?;
+                read_group_embedded(&reader, group, &group_assert)?;
             }
             (Some(group), false) => {
                 for this in group.iter() {
@@ -361,8 +361,8 @@ where
 fn equivs(file_name: &str) {
     let skip_list = concat(ALL_SKIP_LIST, EQUIVS_SKIP_LIST);
     assert_file(&skip_list[..], file_name, || {
-        load_group(
-            loader(),
+        read_group(
+            element_reader(),
             file_name,
             |this, that| assert_eq!(this, that),
             |this_group, that_group| assert_eq!(this_group, that_group),
@@ -377,8 +377,8 @@ fn equivs(file_name: &str) {
 fn non_equivs(file_name: &str) {
     let skip_list = concat(ALL_SKIP_LIST, NON_EQUIVS_SKIP_LIST);
     assert_file(&skip_list[..], file_name, || {
-        load_group(
-            loader(),
+        read_group(
+            element_reader(),
             file_name,
             |this, that| {
                 if std::ptr::eq(this, that) {

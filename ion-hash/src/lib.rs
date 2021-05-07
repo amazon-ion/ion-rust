@@ -4,11 +4,11 @@
 //!
 //! ## Examples
 //! ```rust
-//! use ion_rs::value::loader::{self, Loader};
+//! use ion_rs::value::reader::{self, ElementReader};
 //! use ion_rs::result::IonResult;
 //!
 //! # fn main() -> IonResult<()> {
-//!   let loader = loader::loader();
+//!   let loader = reader::element_reader();
 //!   let elem = loader.iterate_over(b"\"hello world\"")?.next().unwrap()?;
 //!   let digest = ion_hash::sha256(&elem);
 //!   println!("{:?}", digest);

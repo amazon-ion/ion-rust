@@ -10,23 +10,23 @@
 //! * The [`borrowed`] module provides an implementation of values that are tied to some
 //!   associated lifetime and borrow a reference to their underlying data in some way
 //!   (e.g. storing a `&str` in the value versus a fully owned `String`).
-//! * The [`loader`] module provides API and implementation to load Ion data into [`Element`]
+//! * The [`reader`] module provides API and implementation to read Ion data into [`Element`]
 //!   instances.
-//! * The [`dumper`] module provides API and implementation to serialize Ion data from [`Element`]
+//! * The [`writer`] module provides API and implementation to write Ion data from [`Element`]
 //!   instances.
 //!
 //! ## Examples
-//! In general, users will use the [`Loader`](loader::Loader) trait to load in data:
+//! In general, users will use the [`ElementReader`](reader::ElementReader) trait to read in data:
 //!
 //! ```
 //! use ion_rs::IonType;
 //! use ion_rs::result::IonResult;
 //! use ion_rs::value::{Element, Struct};
-//! use ion_rs::value::loader::loader;
-//! use ion_rs::value::loader::Loader;
+//! use ion_rs::value::reader::element_reader;
+//! use ion_rs::value::reader::ElementReader;
 //!
 //! fn main() -> IonResult<()> {
-//!     let mut iter = loader().iterate_over(br#""hello!""#)?;
+//!     let mut iter = element_reader().iterate_over(br#""hello!""#)?;
 //!     if let Some(Ok(elem)) = iter.next() {
 //!         assert_eq!(IonType::String, elem.ion_type());
 //!         assert_eq!("hello!", elem.as_str().unwrap());
@@ -38,18 +38,18 @@
 //! }
 //! ```
 //!
-//! [`Loader::load_all`](loader::Loader::load_all) is a convenient way to put all of the
+//! [`ElementReader::read_all`](reader::ElementReader::read_all) is a convenient way to put all of the
 //! parsed [`Element`] into a [`Vec`], with a single [`IonError`](crate::result::IonError) wrapper:
 //!
 //! ```
 //! # use ion_rs::IonType;
 //! # use ion_rs::result::IonResult;
 //! # use ion_rs::value::{Element, Struct};
-//! # use ion_rs::value::loader::loader;
-//! # use ion_rs::value::loader::Loader;
+//! # use ion_rs::value::reader::element_reader;
+//! # use ion_rs::value::reader::ElementReader;
 //! # fn main() -> IonResult<()> {
 //! #
-//! let elems = loader().load_all(br#""hello" world"#)?;
+//! let elems = element_reader().read_all(br#""hello" world"#)?;
 //! assert_eq!(2, elems.len());
 //! assert_eq!(IonType::String, elems[0].ion_type());
 //! assert_eq!("hello", elems[0].as_str().unwrap());
@@ -60,7 +60,7 @@
 //! # }
 //! ```
 //!
-//! [`Loader::load_one`](loader::Loader::load_one) is another convenient way to parse a single
+//! [`ElementReader::read_one`](reader::ElementReader::read_one) is another convenient way to parse a single
 //! top-level element into a [`Element`].  This method will return an error if the data has
 //! a parsing error or if there is more than one [`Element`] in the stream:
 //!
@@ -68,51 +68,51 @@
 //! # use ion_rs::IonType;
 //! # use ion_rs::result::IonResult;
 //! # use ion_rs::value::{Element, IntAccess, Struct};
-//! # use ion_rs::value::loader::loader;
-//! # use ion_rs::value::loader::Loader;
+//! # use ion_rs::value::reader::element_reader;
+//! # use ion_rs::value::reader::ElementReader;
 //! # fn main() -> IonResult<()> {
 //! #
-//! // load a single value from binary: 42
-//! let elem = loader().load_one(&[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x2A])?;
+//! // read a single value from binary: 42
+//! let elem = element_reader().read_one(&[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x2A])?;
 //! assert_eq!(IonType::Integer, elem.ion_type());
 //! assert_eq!(42, elem.as_i64().unwrap());
 //!
-//! // cannot load two values in a stream this way: 42 0
-//! assert!(loader().load_one(&[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x2A, 0x20]).is_err());
+//! // cannot read two values in a stream this way: 42 0
+//! assert!(element_reader().read_one(&[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x2A, 0x20]).is_err());
 //!
-//! // cannot load an empty stream (binary IVM only)
-//! assert!(loader().load_one(&[0xE0, 0x01, 0x00, 0xEA]).is_err());
+//! // cannot read an empty stream (binary IVM only)
+//! assert!(element_reader().read_one(&[0xE0, 0x01, 0x00, 0xEA]).is_err());
 //!
 //! // normal malformed binary is a failure!
-//! assert!(loader().load_one(&[0xE0, 0x01, 0x00, 0xEA, 0xF0]).is_err());
+//! assert!(element_reader().read_one(&[0xE0, 0x01, 0x00, 0xEA, 0xF0]).is_err());
 //!
 //! // also an error if malformed data happens after valid single value
-//! assert!(loader().load_one(&[0xE0, 0x01, 0x00, 0xEA, 0x20, 0x30]).is_err());
+//! assert!(element_reader().read_one(&[0xE0, 0x01, 0x00, 0xEA, 0x20, 0x30]).is_err());
 //! #
 //! #    Ok(())
 //! # }
 //! ```
 //!
-//! To serialize data, users can use the [`Dumper`](dumper::Dumper) trait to serialize data
+//! To serialize data, users can use the [`ElementWriter`](writer::ElementWriter) trait to serialize data
 //! from [`Element`] to binary or text Ion:
 //!
 //! ```
 //! use ion_rs::result::IonResult;
 //! use ion_rs::value::Element;
-//! use ion_rs::value::loader::{loader, Loader};
-//! use ion_rs::value::dumper::{Dumper, Format};
+//! use ion_rs::value::reader::{element_reader, ElementReader};
+//! use ion_rs::value::writer::{ElementWriter, Format};
 //!
 //! // a fixed buffer length to write to
 //! const BUF_SIZE: usize = 8 * 1024 * 1024;
 //!
 //! fn main() -> IonResult<()> {
-//!     let elems = loader().load_all(b"null true 1")?;
+//!     let elems = element_reader().read_all(b"null true 1")?;
 //!
 //!     let mut buf = vec![0u8; BUF_SIZE];
-//!     let mut dumper = Format::Binary.try_dumper_for_slice(&mut buf)?;
-//!     dumper.write_all(elems.iter())?;
+//!     let mut writer = Format::Binary.element_writer_for_slice(&mut buf)?;
+//!     writer.write_all(elems.iter())?;
 //!
-//!     let output = dumper.finish()?;
+//!     let output = writer.finish()?;
 //!     assert_eq!(&[0xE0, 0x01, 0x00, 0xEA, 0x0F, 0x11, 0x21, 0x01], output);    
 //!     
 //!     Ok(())
@@ -202,9 +202,9 @@ use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
 pub mod borrowed;
-pub mod dumper;
-pub mod loader;
 pub mod owned;
+pub mod reader;
+pub mod writer;
 
 /// The shared symbol table source of a given [`SymbolToken`].
 pub trait ImportSource: Debug + PartialEq {
