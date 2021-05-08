@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use crate::{
     binary::{nibbles::nibbles_from_byte, IonTypeCode},
     result::IonResult,
@@ -21,8 +23,8 @@ impl Header {
     /// type code + length code combination is illegal, an error will be returned.
     pub fn from_byte(byte: u8) -> IonResult<Header> {
         let (type_code, length_code) = nibbles_from_byte(byte);
-        let ion_type_code = IonTypeCode::from(type_code)?;
-        let ion_type = ion_type_code.into_ion_type().ok();
+        let ion_type_code = IonTypeCode::try_from(type_code)?;
+        let ion_type = IonType::try_from(ion_type_code).ok();
         Ok(Header {
             ion_type,
             ion_type_code,
