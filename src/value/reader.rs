@@ -230,7 +230,7 @@ mod reader_tests {
     use crate::value::{AnyInt, Element};
     use crate::IonType;
     use bigdecimal::BigDecimal;
-    use ion_c_sys::result::IonCError;
+    use ion_c_sys::result::{IonCError, Position};
     use ion_c_sys::{
         ion_error_code_IERR_INVALID_BINARY, ion_error_code_IERR_INVALID_STATE,
         ion_error_code_IERR_NULL_VALUE,
@@ -442,7 +442,9 @@ mod reader_tests {
             $10
         "#,
         vec![
-            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE).into())
+            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE)
+                .with_position(Position::text(124, 4, 8))
+                .into())
         ]
     )]
     #[case::unknown_shared_symbol_field_name(
@@ -454,19 +456,25 @@ mod reader_tests {
             {$10:5}
         "#,
         vec![
-            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE).into())
+            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE)
+                .with_position(Position::text(157, 1, 5))
+                .into())
         ]
     )]
     #[case::illegal_negative_zero_int(
         &[0xE0, 0x01, 0x00, 0xEA, 0x30],
         vec![
-            Err(IonCError::from(ion_error_code_IERR_INVALID_BINARY).into())
+            Err(IonCError::from(ion_error_code_IERR_INVALID_BINARY)
+                .with_position(Position::binary(5))
+                .into())
         ]
     )]
     #[case::illegal_fcode(
         &[0xE0, 0x01, 0x00, 0xEA, 0xF0],
         vec![
-            Err(IonCError::from(ion_error_code_IERR_INVALID_STATE).into())
+            Err(IonCError::from(ion_error_code_IERR_INVALID_STATE)
+                .with_position(Position::binary(5))
+                .into())
         ]
     )]
     /// Like read_and_compare, but against results (which makes it easier to test for errors).
