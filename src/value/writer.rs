@@ -14,8 +14,8 @@ pub use Format::*;
 pub use TextKind::*;
 
 /// Serializes [`Element`] instances into some kind of output sink.
-pub trait Dumper {
-    /// The output of the dumper when finishing, it could be a managed buffer,
+pub trait ElementWriter {
+    /// The output of the writer when finishing, it could be a managed buffer,
     /// some concept of a stream, metadata about a file, or something appropriate
     /// for the destination.
     type Output;
@@ -36,20 +36,20 @@ pub trait Dumper {
         Ok(())
     }
 
-    /// Consumes this [`Dumper`] flushing/finishing/closing it and returns
+    /// Consumes this [`ElementWriter`] flushing/finishing/closing it and returns
     /// the underlying output sink.
     ///
     /// If a previous write operation returned [`Err`], this method should also return [`Err`].
     fn finish(self) -> IonResult<Self::Output>;
 }
 
-/// Implementation of a [`Dumper`] to a fixed slice.
+/// Implementation of a [`ElementWriter`] to a slice.
 ///
-/// Note that users should not take a dependency on this type--it is exposed
+/// Note that users should not take a dependency on this type name--it is exposed
 /// because an opaque type makes using this with the associated lifetimes of the
-/// output difficult.  A type alias [`FixedDumper`] is a better reference for this
+/// output difficult.  A type alias [`SliceElementWriter`] is a better reference for this
 /// would be opaque type.
-pub struct IonCWriterFixedDumper<'a> {
+pub struct IonCSliceElementWriter<'a> {
     /// Raw pointer to the slice we write to--this is borrowed by the Ion C writer
     /// opaquely, so we retain it such that we can return the written data as a
     /// slice reference in `finish`.
@@ -58,9 +58,9 @@ pub struct IonCWriterFixedDumper<'a> {
     error: Option<IonError>,
 }
 
-pub type FixedDumper<'a> = IonCWriterFixedDumper<'a>;
+pub type SliceElementWriter<'a> = IonCSliceElementWriter<'a>;
 
-impl<'a> IonCWriterFixedDumper<'a> {
+impl<'a> IonCSliceElementWriter<'a> {
     fn new(buf: &'a mut [u8], format: Format) -> IonResult<Self> {
         let data = buf.as_ptr();
         let mut options: ION_WRITER_OPTIONS = Default::default();
@@ -189,7 +189,7 @@ impl<'a> IonCWriterFixedDumper<'a> {
     }
 }
 
-impl<'a> Dumper for IonCWriterFixedDumper<'a> {
+impl<'a> ElementWriter for IonCSliceElementWriter<'a> {
     type Output = &'a [u8];
 
     #[inline]
@@ -224,7 +224,7 @@ pub enum TextKind {
     Pretty,
 }
 
-/// Basic configuration options for [`Dumper`] instances.
+/// Basic configuration options for [`ElementWriter`] instances.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Format {
     Text(TextKind),
@@ -235,20 +235,20 @@ pub enum Format {
 impl Format {
     // TODO some APIs to make the building more "fluent"
 
-    // TODO eliminate fixed buffer size limitation
+    // TODO eliminate limitation around reading only from slices
 
-    /// Creates a [`Dumper`] for the format over a slice.
+    /// Creates a [`ElementWriter`] for the format over a slice.
     ///
-    /// Returns [`Err`] if the [`Dumper`] cannot be constructed.
-    pub fn try_dumper_for_slice(self, slice: &mut [u8]) -> IonResult<FixedDumper> {
-        IonCWriterFixedDumper::new(slice, self)
+    /// Returns [`Err`] if the [`ElementWriter`] cannot be constructed.
+    pub fn element_writer_for_slice(self, slice: &mut [u8]) -> IonResult<SliceElementWriter> {
+        IonCSliceElementWriter::new(slice, self)
     }
 
     // TODO into files, cursors, or other such things
 }
 
 #[cfg(test)]
-mod dumper_tests {
+mod writer_tests {
     use super::*;
     use crate::result::IonResult;
     use crate::types::decimal::Decimal;
@@ -277,11 +277,11 @@ mod dumper_tests {
     // these are reasonably basic unit tests to verify the basics of direct encoding (byte-for-byte)
     // we're going to lean a lot more on the test vector round-tripping to get more coverage
     // but those won't expect particular encodings and this can make sure some basic sanity
-    // of dumper is doing what is intended (e.g. text mode outputting binary, or pretty not
+    // of element writer is doing what is intended (e.g. text mode outputting binary, or pretty not
     // generating pretty output)
 
     struct TestCase<E: Element> {
-        // element to dump
+        // element to write
         element: E,
         // binary to expect
         binary: Vec<u8>,
@@ -468,31 +468,31 @@ mod dumper_tests {
     #[case::borrowed_struct(struct_case::<BorrowedElement>())]
     #[case::owned_struct(struct_case::<OwnedElement>())]
     fn simple<E: Element>(#[case] test_case: TestCase<E>) -> IonResult<()> {
-        assert_dump(&test_case.binary[..], &test_case.element, |buf| {
-            Binary.try_dumper_for_slice(buf)
+        assert_write(&test_case.binary[..], &test_case.element, |buf| {
+            Binary.element_writer_for_slice(buf)
         })?;
 
-        assert_dump(test_case.text, &test_case.element, |buf| {
-            Text(Compact).try_dumper_for_slice(buf)
+        assert_write(test_case.text, &test_case.element, |buf| {
+            Text(Compact).element_writer_for_slice(buf)
         })?;
 
-        assert_dump(test_case.pretty, &test_case.element, |buf| {
-            Text(Pretty).try_dumper_for_slice(buf)
+        assert_write(test_case.pretty, &test_case.element, |buf| {
+            Text(Pretty).element_writer_for_slice(buf)
         })?;
         Ok(())
     }
 
-    fn assert_dump<E, F>(expected: &[u8], element: &E, make_dumper: F) -> IonResult<()>
+    fn assert_write<E, F>(expected: &[u8], element: &E, make_writer: F) -> IonResult<()>
     where
         E: Element,
         // XXX note that this generic trait bounds requires something like GAT to make it
-        //     work on `Dumper<Output = &'? [u8]` correctly and is the reason this is exposed
-        F: FnOnce(&mut [u8]) -> IonResult<FixedDumper>,
+        //     work on `ElementWriter<Output = &'? [u8]` correctly and is the reason this is exposed
+        F: FnOnce(&mut [u8]) -> IonResult<SliceElementWriter>,
     {
         let mut buf = vec![0u8; TEST_BUF_LEN];
-        let mut dumper = make_dumper(&mut buf)?;
-        dumper.write(element)?;
-        let output = dumper.finish()?;
+        let mut writer = make_writer(&mut buf)?;
+        writer.write(element)?;
+        let output = writer.finish()?;
         assert_eq!(
             expected,
             output,
