@@ -216,9 +216,16 @@ pub trait ImportSource: Debug + PartialEq {
 }
 
 /// A view of a symbolic token.
-/// This can be either a symbol value itself, an annotation, or an field name.
-/// A token may have `text`, a symbol `id`, or both.
-/// here text as `None` represents SID $0
+///
+/// This can be either a content associated with a symbol value itself, an annotation,
+/// or a field name.
+///
+/// A token may have `text`, a symbol `id`, both, or neither.  Optionally, a token may have
+/// some shared import `source` from whence it came.
+///
+/// Symbol `$0`, for example, is represented with a symbol that has no `source`
+/// and no `text`, and whose `local_id` is `0` (but could also have some other `local_id` implying
+/// that a symbol with *unknown text* was defined in some local context.  
 ///
 /// ## `PartialEq` Implementation Notes
 /// Implementations of [`SymbolToken`] that implement [`PartialEq`] should do so without
