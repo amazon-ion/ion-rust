@@ -17,25 +17,17 @@
 //! ```
 
 use digest::{Digest, Output};
-use ion_rs::result::{illegal_operation, IonResult};
+use ion_rs::{
+    result::IonResult,
+    value::writer::{ElementWriter, Format},
+};
 use ion_rs::{value::Element, IonType};
 
 // TODO: Make sha2 an optional dependency.
 use sha2::Sha256;
+use type_qualifier::TypeQualifier;
 
-// A `try`-like macro to workaround the Element API ergonomics. This API
-// requires checking the type and then calling the appropriate getter function
-// (which returns a None if you got it wrong). This macro turns the `None` into
-// an `IonError`.
-// TODO: Remove this once the Element API is reworked.
-macro_rules! t {
-    ($getter:expr) => {
-        match $getter {
-            Some(value) => value,
-            None => illegal_operation("Missing expected value")?,
-        }
-    };
-}
+mod type_qualifier;
 
 /// Utility to hash an [`Element`] using SHA-256 as the hash function.
 // TODO: Make this conditional on some feature flag
@@ -54,11 +46,6 @@ impl Markers {
     const E: u8 = 0x0E;
     /// single byte escape
     const ESC: u8 = 0x0C;
-
-    // type qualifier octet consisting of a four-bit type code T followed by a four-bit qualifier Q
-    // (this varies per type)
-    const TQ_NULL: u8 = 0x0F;
-    const TQ_STRING: u8 = 0x80;
 }
 
 // TODO: In the fullness of time, we will have a IonHashReader and a
@@ -84,48 +71,47 @@ where
     /// Computes the Ion hash over an [`Element`] recursively using this
     /// hasher's [`Digest`]
     pub fn hash_element<E: Element + ?Sized>(mut self, elem: &E) -> IonResult<Output<D>> {
+        self.mark_begin();
         match elem.ion_type() {
-            IonType::Null => self.hash_null(),
-            IonType::Boolean => self.hash_bool(elem.as_bool()),
-            IonType::Integer => todo!(),
-            IonType::Float => todo!(),
-            IonType::Decimal => todo!(),
-            IonType::Timestamp => todo!(),
-            IonType::Symbol => todo!(),
-            IonType::String => self.hash_string(t!(elem.as_str())),
-            IonType::Clob => todo!(),
-            IonType::Blob => todo!(),
-            IonType::List => todo!(),
-            IonType::SExpression => todo!(),
-            IonType::Struct => todo!(),
+            IonType::Null | IonType::Boolean => self.hash_no_repr(elem),
+            IonType::Integer
+            | IonType::Float
+            | IonType::Decimal
+            | IonType::Timestamp
+            | IonType::Symbol
+            | IonType::String
+            | IonType::Clob
+            | IonType::Blob => self.hash_scalar(elem)?,
+            IonType::List | IonType::SExpression | IonType::Struct => todo!(),
         };
+        self.mark_end();
 
         // TODO: Annotations
 
         Ok(self.hasher.finalize())
     }
 
-    fn hash_null(&mut self) {
+    #[inline]
+    fn mark_begin(&mut self) {
         self.hasher.update([Markers::B]);
-        self.hasher.update([Markers::TQ_NULL]);
+    }
+
+    #[inline]
+    fn mark_end(&mut self) {
         self.hasher.update([Markers::E]);
     }
 
-    fn hash_bool(&mut self, value: Option<bool>) {
-        self.hasher.update([Markers::B]);
-        self.hasher.update([match value {
-            Some(false) => 0x10,
-            Some(true) => 0x11,
-            None => 0x1F,
-        }]);
-        self.hasher.update([Markers::E]);
+    fn hash_no_repr<E: Element + ?Sized>(&mut self, elem: &E) {
+        let tq = TypeQualifier::from_element(elem);
+        self.hasher.update(tq.into_bytes());
     }
 
-    fn hash_string(&mut self, value: &str) {
-        self.hasher.update([Markers::B, Markers::TQ_STRING]);
-        let representation = value.as_bytes();
-        self.hasher.update(ion_hash_escape(representation));
-        self.hasher.update([Markers::E]);
+    fn hash_scalar<E: Element + ?Sized>(&mut self, elem: &E) -> IonResult<()> {
+        self.hash_no_repr(elem);
+        let repr = binary_repr(elem)?;
+        self.hasher.update(ion_hash_escape(&repr[..]));
+
+        Ok(())
     }
 }
 
@@ -140,4 +126,23 @@ fn ion_hash_escape(representation: &[u8]) -> Vec<u8> {
     }
 
     out
+}
+
+// TODO: Use the one below after some refactoring (it currently doesn't support
+// just writing the inner representation).
+fn binary_repr<E: Element + ?Sized>(elem: &E) -> IonResult<Vec<u8>> {
+    Ok(match elem.ion_type() {
+        IonType::String => Vec::from(elem.as_str().unwrap().as_bytes()),
+        _ => todo!(),
+    })
+}
+
+fn _binary_repr<E: Element + ?Sized>(elem: &E) -> IonResult<Vec<u8>> {
+    // TODO: Fix this once the writer API supports non-fixed-size buffers.
+    let mut buf = vec![0u8; 4096];
+    let mut writer = Format::Binary.element_writer_for_slice(&mut buf)?;
+    writer.write(elem)?;
+    let len = writer.finish()?.len();
+    buf.truncate(len);
+    Ok(buf)
 }

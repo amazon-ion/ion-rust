@@ -96,3 +96,29 @@ impl TryFrom<u8> for IonTypeCode {
         Ok(ion_type_code)
     }
 }
+
+/// Turns an [`IonTypeCode`] into a byte. This does not use `From` so that it
+/// can be a `const fn`.
+impl IonTypeCode {
+    pub const fn to_u8(self) -> u8 {
+        use IonTypeCode::*;
+        match self {
+            NullOrWhitespace => 0,
+            Boolean => 1,
+            PositiveInteger => 2,
+            NegativeInteger => 3,
+            Float => 4,
+            Decimal => 5,
+            Timestamp => 6,
+            Symbol => 7,
+            String => 8,
+            Clob => 9,
+            Blob => 10,
+            List => 11,
+            SExpression => 12,
+            Struct => 13,
+            Annotation => 14,
+            Reserved => 15,
+        }
+    }
+}
