@@ -225,7 +225,7 @@ pub trait ImportSource: Debug + PartialEq {
 ///
 /// Symbol `$0`, for example, is represented with a symbol that has no `source`
 /// and no `text`, and whose `local_id` is `0` (but could also have some other `local_id` implying
-/// that a symbol with *unknown text* was defined in some local context.  
+/// that a symbol with *unknown text* was defined in some local context).
 ///
 /// ## `PartialEq` Implementation Notes
 /// Implementations of [`SymbolToken`] that implement [`PartialEq`] should do so without
