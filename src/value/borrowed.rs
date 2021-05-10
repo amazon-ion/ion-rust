@@ -373,7 +373,7 @@ impl<'val> Struct for BorrowedStruct<'val> {
 
 impl<'val> PartialEq for BorrowedStruct<'val> {
     fn eq(&self, other: &Self) -> bool {
-        // check if both test_fields and no_text_fields have same length
+        // check if both text_fields and no_text_fields have same length
         self.text_fields.len() == other.text_fields.len() && self.no_text_fields.len() == other.no_text_fields.len()
         // check if text_fields and no_text_fields are equal
         && self.eq_text_fields(other) && other.eq_text_fields(self)

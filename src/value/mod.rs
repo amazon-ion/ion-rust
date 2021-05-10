@@ -838,8 +838,11 @@ mod generic_value_tests {
         }
     }
 
+    // A struct that defines input case for `struct_accessors` method
     struct CaseStruct<E: Element> {
+        // set of struct elements that are the same
         eq_annotations: Vec<E>,
+        // set of struct elements that are never equal to `eq_annotations`
         ne_annotations: Vec<E>,
     }
 
@@ -1074,6 +1077,18 @@ mod generic_value_tests {
                     ]
                     .into_iter(),
                 ),
+                // structs with sources
+                E::Builder::new_struct(
+                    vec![
+                        (
+                            E::SymbolToken::text_token("a").with_source("hello_table", 22),
+                            E::Builder::new_i64(1),
+                        ),
+                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
+                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
+                    ]
+                    .into_iter(),
+                ),
             ],
             ne_annotations: vec![
                 // structs with different length
@@ -1101,6 +1116,18 @@ mod generic_value_tests {
                 E::Builder::new_struct(
                     vec![
                         (E::SymbolToken::text_token("a"), E::Builder::new_i64(2)),
+                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
+                    ]
+                    .into_iter(),
+                ),
+                // structs with no texts but sources
+                E::Builder::new_struct(
+                    vec![
+                        (
+                            E::SymbolToken::local_sid_token(22).with_source("hello_table", 22),
+                            E::Builder::new_i64(1),
+                        ),
+                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
                         (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
                     ]
                     .into_iter(),
