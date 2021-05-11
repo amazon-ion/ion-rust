@@ -838,11 +838,11 @@ mod generic_value_tests {
         }
     }
 
-    // A struct that defines input case for `struct_accessors` method
+    /// A struct that defines input case for `struct_accessors` method
     struct CaseStruct<E: Element> {
-        // set of struct elements that are the same
+        /// set of struct elements that are the same
         eq_annotations: Vec<E>,
-        // set of struct elements that are never equal to `eq_annotations`
+        /// set of struct elements that are never equal to `eq_annotations`
         ne_annotations: Vec<E>,
     }
 
