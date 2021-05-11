@@ -153,8 +153,18 @@
 //!
 //! ```
 //! use ion_rs::value::{Element, SymbolToken};
-//! use ion_rs::value::borrowed::{BorrowedValue, BorrowedElement, local_sid_token as borrowed_local_sid_token, text_token as borrowed_text_token};
-//! use ion_rs::value::owned::{OwnedValue, OwnedElement, local_sid_token as owned_local_sid_token, text_token as owned_text_token};
+//! use ion_rs::value::borrowed::{
+//!     BorrowedValue,
+//!     BorrowedElement,
+//!     local_sid_token as borrowed_local_sid_token,
+//!     text_token as borrowed_text_token
+//! };
+//! use ion_rs::value::owned::{
+//!     OwnedValue,
+//!     OwnedElement,
+//!     local_sid_token as owned_local_sid_token,
+//!     text_token as owned_text_token
+//! };
 //!
 //! fn extract_annotations<T: Element>(elem: &T) -> Vec<Option<String>> {
 //!     elem.annotations().map(
@@ -224,8 +234,16 @@ pub trait ImportSource: Debug + PartialEq {
 /// some shared import `source` from whence it came.
 ///
 /// Symbol `$0`, for example, is represented with a symbol that has no `source`
-/// and no `text`, and whose `local_id` is `0` (but could also have some other `local_id` implying
+/// and no `text`, and whose `local_sid` is `0` (but could also have some other `local_sid` implying
 /// that a symbol with *unknown text* was defined in some local context).
+///
+/// Note that it is context dependent whether a symbol token implementation has had its applicable
+/// context available to it (e.g. the local symbol table).  A low-level implementation of a
+/// symbol token from a raw Ion binary parser, for example, may have symbol tokens in which *only*
+/// the `local_sid` defined because it only deals with the raw encoding of Ion.  A high-level
+/// implementation that end users would generally use could have an symbol tokens that have their
+/// context applied (or available) such that they return their `text` and/or `source` if the
+/// applicable context had/has that information.
 ///
 /// ## `PartialEq` Implementation Notes
 /// Implementations of [`SymbolToken`] that implement [`PartialEq`] should do so without
@@ -269,6 +287,10 @@ pub trait SymbolToken: Debug + PartialEq {
 
     /// The text of the token, which may be `None` if no text is associated with the token
     /// (e.g. lack of a shared symbol table import for a given SID).
+    ///
+    /// An implementation is allowed to return `None` if the text is explicitly known to be
+    /// *undefined* (e.g. `$0`) or the context that would allow it to be defined has not been
+    /// applied or is not available.
     fn text(&self) -> Option<&str>;
 
     /// The ID of the token, which may be `None` if no ID is associated with the token
@@ -276,6 +298,10 @@ pub trait SymbolToken: Debug + PartialEq {
     fn local_sid(&self) -> Option<SymbolId>;
 
     /// The source of this token, which may be `None` if the symbol is locally defined.
+    ///
+    /// An implementation is allowed to return `None` if the source is explicitly known to be
+    /// *undefined* (e.g. a locally defined symbol) or the context that would allow the source
+    /// to be defined has not been applied or is not available.
     fn source(&self) -> Option<&Self::ImportSource>;
 
     /// Decorates the [`SymbolToken`] with text.
