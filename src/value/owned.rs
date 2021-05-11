@@ -380,6 +380,10 @@ impl PartialEq for OwnedStruct {
         // check if both text_fields and no_text_fields have same length
         self.text_fields.len() == other.text_fields.len() && self.no_text_fields.len() == other.no_text_fields.len()
             // check if text_fields and no_text_fields are equal
+            // we need to test equality in both directions for both text_fields and no_text_fields
+            // A good example for this is annotated vs not annotated values in struct
+            //  { a:4, a:4 } vs. { a:4, a:a::4 } // returns true
+            //  { a:4, a:a::4 } vs. { a:4, a:4 } // returns false
             && self.eq_text_fields(other) && other.eq_text_fields(self)
             && self.eq_no_text_fields(other) && other.eq_no_text_fields(self)
     }
