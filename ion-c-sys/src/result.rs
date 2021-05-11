@@ -10,11 +10,45 @@ use std::fmt;
 use std::num::TryFromIntError;
 
 /// IonC Error code and its associated error message.
+///
+/// `position` is populated when errors come from readers. See [`Position`] for
+/// more information.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct IonCError {
     pub code: i32,
     pub message: &'static str,
     pub additional: &'static str,
+    pub position: Position,
+}
+
+/// Represents a position in a data source. For example, consider a file
+/// containing Ion data that is being parsed using an [`IonCReader`].
+///
+/// If a position is set, `bytes` will always be hydrated while `lines` and
+/// `offset` will only be populated for text readers.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Position {
+    Unknown,
+    Offset(i64),
+    OffsetLineColumn(i64, LineColumn),
+}
+
+// see above
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct LineColumn(pub i32, pub i32);
+
+impl Position {
+    /// Make a new position based on Ion text data. `line` and `offset` are
+    /// known for text sources.
+    pub fn text(bytes: i64, line: i32, offset: i32) -> Position {
+        Position::OffsetLineColumn(bytes, LineColumn(line, offset))
+    }
+
+    /// Make a new position based on Ion binary data. Only the byte offset is
+    /// known.
+    pub fn binary(bytes: i64) -> Position {
+        Position::Offset(bytes)
+    }
 }
 
 impl IonCError {
@@ -36,6 +70,7 @@ impl IonCError {
                         code,
                         message,
                         additional,
+                        position: Position::Unknown,
                     }
                 }
             }
@@ -43,8 +78,15 @@ impl IonCError {
                 code,
                 message: "Unknown Ion C Error Code",
                 additional,
+                position: Position::Unknown,
             },
         }
+    }
+
+    /// Adds a `Position` to an existing `IonCError`.
+    pub fn with_position(mut self, pos: Position) -> Self {
+        self.position = pos;
+        self
     }
 }
 

@@ -2,6 +2,7 @@
 
 //! Provides higher-level APIs for Ion C's `hREADER`.
 
+use ion_c_sys_macros::position_error;
 use std::convert::{TryFrom, TryInto};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -334,6 +335,9 @@ pub trait IonCReader {
     /// # }
     /// ```
     fn read_bytes(&mut self) -> IonCResult<Vec<u8>>;
+
+    /// Returns the current position. TODO: blah blah.
+    fn pos(&self) -> IonCResult<Position>;
 }
 
 /// Wrapper over `hREADER` to make it easier to use readers in IonC correctly.
@@ -367,8 +371,8 @@ impl<'a> IonCReaderHandle<'a> {
         })
     }
 }
-
 impl<'a> IonCReader for IonCReaderHandle<'a> {
+    #[position_error]
     #[inline]
     fn next(&mut self) -> IonCResult<ION_TYPE> {
         let mut tid = ptr::null_mut();
@@ -377,6 +381,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(tid)
     }
 
+    #[position_error]
     #[inline]
     fn get_type(&self) -> IonCResult<ION_TYPE> {
         let mut tid = ptr::null_mut();
@@ -385,16 +390,19 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(tid)
     }
 
+    #[position_error]
     #[inline]
     fn step_in(&mut self) -> IonCResult<()> {
         ionc!(ion_reader_step_in(self.reader))
     }
 
+    #[position_error]
     #[inline]
     fn step_out(&mut self) -> IonCResult<()> {
         ionc!(ion_reader_step_out(self.reader))
     }
 
+    #[position_error]
     #[inline]
     fn depth(&self) -> IonCResult<i32> {
         let mut depth = 0;
@@ -403,6 +411,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(depth)
     }
 
+    #[position_error]
     #[inline]
     fn is_null(&self) -> IonCResult<bool> {
         let mut is_null = 0;
@@ -411,6 +420,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(is_null != 0)
     }
 
+    #[position_error]
     #[inline]
     fn is_in_struct(&self) -> IonCResult<bool> {
         let mut is_in_struct = 0;
@@ -419,6 +429,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(is_in_struct != 0)
     }
 
+    #[position_error]
     #[inline]
     fn get_field_name(&mut self) -> IonCResult<StrSliceRef> {
         let mut field = ION_STRING::default();
@@ -450,6 +461,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(StrSlicesRef::new(self, annotations))
     }
 
+    #[position_error]
     #[inline]
     fn read_bool(&mut self) -> IonCResult<bool> {
         let mut value = 0;
@@ -458,6 +470,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(value != 0)
     }
 
+    #[position_error]
     #[inline]
     fn read_i64(&mut self) -> IonCResult<i64> {
         let mut value = 0;
@@ -466,6 +479,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(value)
     }
 
+    #[position_error]
     #[inline]
     fn read_bigint(&mut self) -> IonCResult<BigInt> {
         let mut value = ION_INT::default();
@@ -474,6 +488,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(value.try_to_bigint()?)
     }
 
+    #[position_error]
     #[inline]
     fn read_f64(&mut self) -> IonCResult<f64> {
         let mut value = 0.0;
@@ -482,6 +497,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(value)
     }
 
+    #[position_error]
     #[inline]
     fn read_bigdecimal(&mut self) -> IonCResult<BigDecimal> {
         let mut value = ION_DECIMAL::default();
@@ -490,6 +506,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(value.try_to_bigdecimal()?)
     }
 
+    #[position_error]
     #[inline]
     fn read_datetime(&mut self) -> IonCResult<IonDateTime> {
         let mut value = ION_TIMESTAMP::default();
@@ -498,6 +515,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(value.try_to_iondt()?)
     }
 
+    #[position_error]
     #[inline]
     fn read_string(&mut self) -> IonCResult<StrSliceRef> {
         let mut value = ION_STRING::default();
@@ -508,6 +526,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         Ok(StrSliceRef::new(self, str_ref))
     }
 
+    #[position_error]
     #[inline]
     fn read_bytes(&mut self) -> IonCResult<Vec<u8>> {
         let mut len = 0;
@@ -533,6 +552,57 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
             Ok(buf)
         }
     }
+
+    // *NOT* annotated with `#[position_error]` - if reading the current
+    // position is an error, then we don't want to include the position in the
+    // error!
+    //
+    // This method is actually implemented in `reader_current_pos`. Otherwise,
+    // various reader trait methods require additional borrows.
+    #[inline]
+    fn pos(&self) -> IonCResult<Position> {
+        reader_current_pos(&self.reader)
+    }
+}
+
+/// Asks `reader` for its current position and includes it in `err`.
+///
+/// If the position is already known, then this method does nothing. If reading
+/// the position returns an error, then this method also does nothing!
+///
+/// This method is defined on the reader handle directly because of partial
+/// borrow requirements in the implementation of the `Reader` trait.
+pub fn include_current_position(reader: &hREADER, err: IonCError) -> IonCError {
+    if !std::matches!(err.position, Position::Unknown) {
+        return err;
+    }
+
+    let pos = match reader_current_pos(reader) {
+        Ok(pos) => pos.into(),
+        Err(_) => return err, // the original, not the one from failing to read the pos
+    };
+
+    err.with_position(pos)
+}
+
+#[inline]
+fn reader_current_pos(reader: &hREADER) -> IonCResult<Position> {
+    let mut bytes: i64 = -1;
+    let mut line = -1;
+    let mut offset = -1;
+    ionc!(ion_reader_get_position(
+        *reader,
+        &mut bytes,
+        &mut line,
+        &mut offset
+    ))?;
+
+    Ok(match (bytes, line, offset) {
+        (b, -1, -1) if b > 0 => Position::Offset(b),
+        (b, l, o) if b > 0 && l > 0 && o > 0 => Position::OffsetLineColumn(b, LineColumn(l, o)),
+        // Should never happen!
+        _ => Position::Unknown,
+    })
 }
 
 impl<'a> TryFrom<&'a [u8]> for IonCReaderHandle<'a> {
@@ -575,5 +645,27 @@ impl Drop for IonCReaderHandle<'_> {
         if !self.reader.is_null() {
             ionc!(ion_reader_close(self.reader)).unwrap()
         }
+    }
+}
+
+#[cfg(test)]
+mod reader_tests {
+    use super::*;
+
+    #[test]
+    fn position_error() -> IonCResult<()> {
+        let data = r#"{foo:"bar",baz:"#;
+        let mut reader = IonCReaderHandle::try_from(data)?;
+        reader.next()?;
+
+        // `baz` has a field but not value - boom!
+        let err = match reader.next() {
+            Err(e) => e,
+            Ok(t) => panic!("expected an error, found a {:?}", t),
+        };
+
+        assert_eq!(err.position, Position::text(15, 1, 16));
+
+        Ok(())
     }
 }

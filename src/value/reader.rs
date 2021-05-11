@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Provides utility to load Ion data into [`Element`](super::Element) from different sources such
+//! Provides APIs to read Ion data into [`Element`](super::Element) from different sources such
 //! as slices or files.
 
 use crate::result::{decoding_error, IonResult};
@@ -17,7 +17,7 @@ use super::owned::text_token;
 //      we could make it generic with generic associated types or just have a lifetime
 //      scoped implementation
 
-/// Loads Ion data into [`Element`](super::Element) instances.
+/// Reads Ion data into [`Element`](super::Element) instances.
 ///
 /// ## Notes
 /// Users of this trait should not assume any particular implementation of [`Element`](super::Element).
@@ -26,7 +26,7 @@ use super::owned::text_token;
 ///
 /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
 /// [et]:https://rust-lang.github.io/rfcs/2071-impl-trait-existential-types.html
-pub trait Loader {
+pub trait ElementReader {
     /// Parses Ion over a given slice of data and yields each top-level value as
     /// an [`Element`](super::Element) instance.
     ///
@@ -44,7 +44,7 @@ pub trait Loader {
     /// Parses given Ion over a given slice into an [`Vec`] returning an
     /// [`IonError`](crate::result::IonError) if any error occurs during the parse.
     #[inline]
-    fn load_all(&self, data: &[u8]) -> IonResult<Vec<OwnedElement>> {
+    fn read_all(&self, data: &[u8]) -> IonResult<Vec<OwnedElement>> {
         self.iterate_over(data)?.collect()
     }
 
@@ -52,7 +52,7 @@ pub trait Loader {
     /// Returns [`IonError`](crate::result::IonError) if any error occurs during the parse
     /// or there is more than one top-level [`Element`](super::Element) in the data.
     #[inline]
-    fn load_one(&self, data: &[u8]) -> IonResult<OwnedElement> {
+    fn read_one(&self, data: &[u8]) -> IonResult<OwnedElement> {
         let mut iter = self.iterate_over(data)?;
         match iter.next() {
             Some(Ok(elem)) => {
@@ -200,9 +200,9 @@ impl<'a> Iterator for IonCReaderIterator<'a> {
     }
 }
 
-struct IonCLoader {}
+struct IonCElementReader;
 
-impl Loader for IonCLoader {
+impl ElementReader for IonCElementReader {
     fn iterate_over<'a, 'b>(
         &'a self,
         data: &'b [u8],
@@ -216,13 +216,13 @@ impl Loader for IonCLoader {
     }
 }
 
-/// Returns an implementation defined [`Loader`] instance.
-pub fn loader() -> impl Loader {
-    IonCLoader {}
+/// Returns an implementation defined [`ElementReader`] instance.
+pub fn element_reader() -> impl ElementReader {
+    IonCElementReader {}
 }
 
 #[cfg(test)]
-mod loader_tests {
+mod reader_tests {
     use super::*;
     use crate::types::timestamp::Timestamp as TS;
     use crate::value::owned::OwnedValue::*;
@@ -230,7 +230,7 @@ mod loader_tests {
     use crate::value::{AnyInt, Element};
     use crate::IonType;
     use bigdecimal::BigDecimal;
-    use ion_c_sys::result::IonCError;
+    use ion_c_sys::result::{IonCError, Position};
     use ion_c_sys::{
         ion_error_code_IERR_INVALID_BINARY, ion_error_code_IERR_INVALID_STATE,
         ion_error_code_IERR_NULL_VALUE,
@@ -238,20 +238,6 @@ mod loader_tests {
     use num_bigint::BigInt;
     use rstest::*;
     use std::str::FromStr;
-
-    #[inline]
-    fn load_all(input: &[u8]) -> IonResult<Vec<OwnedElement>> {
-        loader().iterate_over(input)?.collect()
-    }
-
-    #[inline]
-    fn single(input: &[u8]) -> IonResult<OwnedElement> {
-        let loader = loader();
-        let mut iter = loader.iterate_over(input)?;
-        let first = iter.next().unwrap();
-        assert_eq!(None, iter.next());
-        first
-    }
 
     #[rstest]
     #[case::nulls(
@@ -430,18 +416,18 @@ mod loader_tests {
             })
             .collect(),
     )]
-    fn load_and_compare(
+    fn read_and_compare(
         #[case] input: &[u8],
         #[case] expected: Vec<OwnedElement>,
     ) -> IonResult<()> {
-        let actual = load_all(input)?;
+        let actual = element_reader().read_all(input)?;
         assert_eq!(expected, actual);
         Ok(())
     }
 
     #[test]
-    fn load_nan() -> IonResult<()> {
-        let actual = single(b"nan")?;
+    fn read_nan() -> IonResult<()> {
+        let actual = element_reader().read_one(b"nan")?;
         assert!(actual.as_f64().unwrap().is_nan());
         Ok(())
     }
@@ -456,7 +442,9 @@ mod loader_tests {
             $10
         "#,
         vec![
-            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE).into())
+            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE)
+                .with_position(Position::text(124, 4, 8))
+                .into())
         ]
     )]
     #[case::unknown_shared_symbol_field_name(
@@ -468,27 +456,33 @@ mod loader_tests {
             {$10:5}
         "#,
         vec![
-            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE).into())
+            Err(IonCError::from(ion_error_code_IERR_NULL_VALUE)
+                .with_position(Position::text(157, 1, 5))
+                .into())
         ]
     )]
     #[case::illegal_negative_zero_int(
         &[0xE0, 0x01, 0x00, 0xEA, 0x30],
         vec![
-            Err(IonCError::from(ion_error_code_IERR_INVALID_BINARY).into())
+            Err(IonCError::from(ion_error_code_IERR_INVALID_BINARY)
+                .with_position(Position::binary(5))
+                .into())
         ]
     )]
     #[case::illegal_fcode(
         &[0xE0, 0x01, 0x00, 0xEA, 0xF0],
         vec![
-            Err(IonCError::from(ion_error_code_IERR_INVALID_STATE).into())
+            Err(IonCError::from(ion_error_code_IERR_INVALID_STATE)
+                .with_position(Position::binary(5))
+                .into())
         ]
     )]
-    /// Like load_and_compare, but against results (which makes it easier to test for errors).
-    fn load_expect(
+    /// Like read_and_compare, but against results (which makes it easier to test for errors).
+    fn read_and_expect(
         #[case] input: &[u8],
         #[case] expected: Vec<IonResult<OwnedElement>>,
     ) -> IonResult<()> {
-        let actual: Vec<_> = loader().iterate_over(input)?.collect();
+        let actual: Vec<_> = element_reader().iterate_over(input)?.collect();
         assert_eq!(expected, actual);
         Ok(())
     }

@@ -16,19 +16,20 @@ exclude = [
     "**/ion-tests/iontestdata/**",
     "*.pdf"
 ]
-version = "0.4.8"
+version = "0.4.10"
 edition = "2018"
 
 [dependencies]
-paste = "1.0.0"
-num-bigint = "0.3.0"
-bigdecimal = "0.2.0"
-chrono = "0.4.13"
+ion-c-sys-macros = { version = "0.1", path = "../ion-c-sys-macros" }
+paste = "1.0"
+num-bigint = "0.3"
+bigdecimal = "0.2"
+chrono = "0.4"
 
 [build-dependencies]
-cmake = "0.1.45"
-bindgen = "0.58.1"
+cmake = "0.1"
+bindgen = "0.58"
 
 [dev-dependencies]
-rstest = "0.7.0"
-rstest_reuse = "0.1.2"
+rstest = "0.9"
+rstest_reuse = "0.1"
