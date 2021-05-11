@@ -874,422 +874,6 @@ mod generic_value_tests {
         }
     }
 
-    /// A struct that defines input case for `struct_accessors` method
-    struct CaseStruct<E: Element> {
-        /// set of struct elements that are the same
-        eq_annotations: Vec<E>,
-        /// set of struct elements that are never equal to `eq_annotations`
-        ne_annotations: Vec<E>,
-    }
-
-    fn struct_with_local_sid_case<E: Element>() -> CaseStruct<E>
-    where
-        E::Builder: Builder<SymbolToken = E::SymbolToken>,
-    {
-        CaseStruct {
-            eq_annotations: vec![
-                E::Builder::new_struct(
-                    vec![(
-                        E::SymbolToken::local_sid_token(21),
-                        E::Builder::new_string("hello"),
-                    )]
-                    .into_iter(),
-                ),
-                // SymbolToken with local SID and no text are equivalent to each other and to SID $0
-                E::Builder::new_struct(
-                    vec![(
-                        E::SymbolToken::local_sid_token(22),
-                        E::Builder::new_string("hello"),
-                    )]
-                    .into_iter(),
-                ),
-            ],
-            ne_annotations: vec![
-                // structs with different symbol token values
-                E::Builder::new_struct(
-                    vec![(
-                        E::SymbolToken::local_sid_token(21).with_text("foo"),
-                        E::Builder::new_string("hello"),
-                    )]
-                    .into_iter(),
-                ),
-                // struct with annotated value
-                E::Builder::new_struct(
-                    vec![(
-                        E::SymbolToken::local_sid_token(21),
-                        E::Builder::new_string("hello")
-                            .with_annotations(vec![E::SymbolToken::text_token("foo")]),
-                    )]
-                    .into_iter(),
-                ),
-                // struct with different value for (field,value) pair
-                E::Builder::new_struct(
-                    vec![(E::SymbolToken::local_sid_token(21), E::Builder::new_i64(10))]
-                        .into_iter(),
-                ),
-                // structs with different fields length
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::local_sid_token(21),
-                            E::Builder::new_string("hello"),
-                        ),
-                        (
-                            E::SymbolToken::local_sid_token(21),
-                            E::Builder::new_string("hi"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-            ],
-        }
-    }
-
-    fn struct_with_import_source_case<E: Element>() -> CaseStruct<E>
-    where
-        E::Builder: Builder<SymbolToken = E::SymbolToken>,
-    {
-        CaseStruct {
-            eq_annotations: vec![
-                E::Builder::new_struct(
-                    vec![(
-                        E::SymbolToken::local_sid_token(21).with_source("hello_table", 2),
-                        E::Builder::new_string("hello"),
-                    )]
-                    .into_iter(),
-                ),
-                // SymbolToken with local SID and no text are equivalent to each other and to SID $0
-                E::Builder::new_struct(
-                    vec![(
-                        E::SymbolToken::local_sid_token(22).with_source("hello_table", 2),
-                        E::Builder::new_string("hello"),
-                    )]
-                    .into_iter(),
-                ),
-            ],
-            ne_annotations: vec![
-                // structs with different symbol token sources
-                E::Builder::new_struct(
-                    vec![(
-                        E::SymbolToken::local_sid_token(21).with_source("hey_table", 2),
-                        E::Builder::new_string("hello"),
-                    )]
-                    .into_iter(),
-                ),
-                // structs with different fields length
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::local_sid_token(21).with_source("hello_table", 2),
-                            E::Builder::new_string("hello"),
-                        ),
-                        (
-                            E::SymbolToken::local_sid_token(21),
-                            E::Builder::new_string("hi"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-            ],
-        }
-    }
-
-    fn struct_with_multiple_fields_case<E: Element>() -> CaseStruct<E>
-    where
-        E::Builder: Builder<SymbolToken = E::SymbolToken>,
-    {
-        CaseStruct {
-            eq_annotations: vec![
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("name"),
-                            E::Builder::new_string("Ion"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with different order of fields
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("name"),
-                            E::Builder::new_string("Ion"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-            ],
-            ne_annotations: vec![
-                // structs with different length and duplicates
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("name"),
-                            E::Builder::new_string("Ion"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with different fields length and duplicates
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("name"),
-                            E::Builder::new_string("Ion"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("bye"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with different fields length
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("name"),
-                            E::Builder::new_string("Ion"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("message"),
-                            E::Builder::new_string("bye"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-            ],
-        }
-    }
-
-    fn struct_with_duplicates_in_multiple_fields_case<E: Element>() -> CaseStruct<E>
-    where
-        E::Builder: Builder<SymbolToken = E::SymbolToken>,
-    {
-        CaseStruct {
-            eq_annotations: vec![
-                E::Builder::new_struct(
-                    vec![
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with different symbol token sids
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("a").with_local_sid(21),
-                            E::Builder::new_i64(1),
-                        ),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with sources
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("a").with_source("hello_table", 22),
-                            E::Builder::new_i64(1),
-                        ),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                    ]
-                    .into_iter(),
-                ),
-            ],
-            ne_annotations: vec![
-                // structs with different length
-                E::Builder::new_struct(
-                    vec![
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with annotated values
-                E::Builder::new_struct(
-                    vec![
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                        (
-                            E::SymbolToken::text_token("a"),
-                            E::Builder::new_i64(1)
-                                .with_annotations(vec![E::SymbolToken::text_token("a")]),
-                        ),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with different value for duplicates
-                E::Builder::new_struct(
-                    vec![
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(2)),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with no texts but sources
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::local_sid_token(22).with_source("hello_table", 22),
-                            E::Builder::new_i64(1),
-                        ),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                        (E::SymbolToken::text_token("a"), E::Builder::new_i64(1)),
-                    ]
-                    .into_iter(),
-                ),
-            ],
-        }
-    }
-
-    fn struct_with_duplicate_fieldnames_case<E: Element>() -> CaseStruct<E>
-    where
-        E::Builder: Builder<SymbolToken = E::SymbolToken>,
-    {
-        CaseStruct {
-            eq_annotations: vec![
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("world"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with unordered fields
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("world"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-            ],
-            ne_annotations: vec![
-                // structs with different length and duplicates
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("world"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hey"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with annotated values
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("world")
-                                .with_annotations(vec![E::SymbolToken::text_token("foo")]),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-                // structs with different length
-                E::Builder::new_struct(
-                    vec![
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("hello"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("greetings"),
-                            E::Builder::new_string("world"),
-                        ),
-                        (
-                            E::SymbolToken::text_token("name"),
-                            E::Builder::new_string("hello"),
-                        ),
-                    ]
-                    .into_iter(),
-                ),
-            ],
-        }
-    }
-
-    #[rstest]
-    #[case::owned_struct_with_local_sid(struct_with_local_sid_case::<OwnedElement>())]
-    #[case::borrowed_struct_with_local_sid(struct_with_local_sid_case::<BorrowedElement>())]
-    #[case::owned_struct_with_import_source(struct_with_import_source_case::<OwnedElement>())]
-    #[case::borrowed_struct_with_import_source(struct_with_import_source_case::<BorrowedElement>())]
-    #[case::owned_struct_with_multiple_fields(struct_with_multiple_fields_case::<OwnedElement>())]
-    #[case::borrowed_struct_with_multiple_fields(struct_with_multiple_fields_case::<BorrowedElement>())]
-    #[case::owned_struct_with_duplicates_in_multiple_fields(struct_with_duplicates_in_multiple_fields_case::<OwnedElement>())]
-    #[case::borrowed_struct_with_duplicates_in_multiple_fields(struct_with_duplicates_in_multiple_fields_case::<BorrowedElement>())]
-    #[case::owned_struct_with_duplicate_fieldnames(struct_with_duplicate_fieldnames_case::<OwnedElement>())]
-    #[case::borrowed_struct_with_duplicate_fieldnames(struct_with_duplicate_fieldnames_case::<BorrowedElement>())]
-    fn struct_accessors<E: Element>(#[case] input: CaseStruct<E>) {
-        // check if equivalent vector contains set of structs that are all equal
-        for eq_this_struct in &input.eq_annotations {
-            for eq_other_struct in &input.eq_annotations {
-                assert_eq!(eq_this_struct, eq_other_struct);
-            }
-        }
-
-        // check if non_equivalent vector contains a set of structs that are not ever equal
-        // to the equivalent set structs.
-        for eq_struct in &input.eq_annotations {
-            for non_eq_struct in &input.ne_annotations {
-                assert_ne!(eq_struct, non_eq_struct);
-            }
-        }
-    }
-
     /// Models the operations on `Element` that we want to test.
     #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
     enum ElemOp {
@@ -1316,6 +900,7 @@ mod generic_value_tests {
     }
 
     use std::collections::HashSet;
+    use std::fmt::Debug;
     use std::str::FromStr;
     use ElemOp::*;
 
@@ -1589,6 +1174,374 @@ mod generic_value_tests {
             }),
         }
     }
+
+    fn struct_with_local_sid_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![(
+                    E::SymbolToken::local_sid_token(21),
+                    E::Builder::new_string("hello"),
+                )]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let expected = E::Builder::new_struct(
+                    vec![(
+                        E::SymbolToken::local_sid_token(21),
+                        E::Builder::new_string("hello"),
+                    )]
+                    .into_iter(),
+                );
+                assert_eq!(actual, expected.as_struct());
+            }),
+        }
+    }
+
+    // SymbolToken with local SID and no text are equivalent to each other and to SID $0
+    fn struct_with_different_local_sid_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![(
+                    E::SymbolToken::local_sid_token(21),
+                    E::Builder::new_string("hello"),
+                )]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let expected = E::Builder::new_struct(
+                    vec![(
+                        E::SymbolToken::local_sid_token(22),
+                        E::Builder::new_string("hello"),
+                    )]
+                    .into_iter(),
+                );
+                assert_eq!(actual, expected.as_struct());
+            }),
+        }
+    }
+
+    fn struct_with_import_source_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![(
+                    E::SymbolToken::local_sid_token(21).with_source("hello_table", 2),
+                    E::Builder::new_string("hello"),
+                )]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let expected = E::Builder::new_struct(
+                    vec![(
+                        E::SymbolToken::local_sid_token(21).with_source("hello_table", 2),
+                        E::Builder::new_string("hello"),
+                    )]
+                    .into_iter(),
+                );
+                assert_eq!(actual, expected.as_struct());
+            }),
+        }
+    }
+
+    fn struct_with_import_source_not_equal_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![(
+                    E::SymbolToken::local_sid_token(21).with_source("hello_table", 2),
+                    E::Builder::new_string("hello"),
+                )]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let expected = E::Builder::new_struct(
+                    vec![(
+                        E::SymbolToken::local_sid_token(21).with_source("hey_table", 2),
+                        E::Builder::new_string("hello"),
+                    )]
+                    .into_iter(),
+                );
+                assert_ne!(actual, expected.as_struct());
+            }),
+        }
+    }
+
+    fn struct_with_multiple_fields_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::SymbolToken::text_token("name"),
+                        E::Builder::new_string("Ion"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct().unwrap();
+                // expected struct has unordered struct
+                let unordered_struct = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::SymbolToken::text_token("greetings"),
+                            E::Builder::new_string("hello"),
+                        ),
+                        (
+                            E::SymbolToken::text_token("name"),
+                            E::Builder::new_string("Ion"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = unordered_struct.as_struct().unwrap();
+                assert_eq!(actual.get("name"), expected.get("name"));
+                assert_eq!(actual.get("greetings"), expected.get("greetings"));
+                assert_eq!(actual, expected);
+            }),
+        }
+    }
+
+    fn struct_with_unordered_multiple_fields_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::SymbolToken::text_token("name"),
+                        E::Builder::new_string("Ion"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct().unwrap();
+                // expected struct has unordered struct
+                let unordered_struct = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::SymbolToken::text_token("name"),
+                            E::Builder::new_string("Ion"),
+                        ),
+                        (
+                            E::SymbolToken::text_token("greetings"),
+                            E::Builder::new_string("hello"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = unordered_struct.as_struct().unwrap();
+                assert_eq!(actual.get("name"), expected.get("name"));
+                assert_eq!(actual.get("greetings"), expected.get("greetings"));
+                assert_eq!(actual, expected);
+            }),
+        }
+    }
+
+    fn struct_with_multiple_fields_not_equal_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::SymbolToken::text_token("name"),
+                        E::Builder::new_string("Ion"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct().unwrap();
+                // expected struct with different value for field name: "greetings"
+                let not_equal_struct = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::SymbolToken::text_token("greetings"),
+                            E::Builder::new_string("hey"),
+                        ),
+                        (
+                            E::SymbolToken::text_token("name"),
+                            E::Builder::new_string("Ion"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = not_equal_struct.as_struct().unwrap();
+                assert_eq!(actual.get("name"), expected.get("name"));
+                assert_ne!(actual.get("greetings"), expected.get("greetings"));
+                assert_ne!(actual, expected);
+            }),
+        }
+    }
+
+    fn struct_with_text_and_duplicates_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("world"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let struct_with_duplicates = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::SymbolToken::text_token("greetings"),
+                            E::Builder::new_string("hello"),
+                        ),
+                        (
+                            E::SymbolToken::text_token("greetings"),
+                            E::Builder::new_string("world"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = struct_with_duplicates.as_struct();
+                assert_eq!(actual, expected);
+            }),
+        }
+    }
+
+    fn struct_with_unordered_text_and_duplicates_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("world"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let unordered_struct = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::SymbolToken::text_token("greetings"),
+                            E::Builder::new_string("world"),
+                        ),
+                        (
+                            E::SymbolToken::text_token("greetings"),
+                            E::Builder::new_string("hello"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = unordered_struct.as_struct();
+                assert_eq!(actual, expected);
+            }),
+        }
+    }
+
+    fn struct_with_unordered_no_text_and_duplicates_case<E: Element>() -> Case<E>
+    where
+        E::Builder: Builder<SymbolToken = E::SymbolToken>,
+    {
+        Case {
+            elem: E::Builder::new_struct(
+                vec![
+                    (
+                        E::SymbolToken::local_sid_token(21),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::SymbolToken::local_sid_token(21),
+                        E::Builder::new_string("world"),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            ion_type: IonType::Struct,
+            ops: vec![AsStruct],
+            op_assert: Box::new(|e: &E| {
+                let actual = e.as_struct();
+                let unordered_struct = E::Builder::new_struct(
+                    vec![
+                        (
+                            E::SymbolToken::local_sid_token(21),
+                            E::Builder::new_string("world"),
+                        ),
+                        (
+                            E::SymbolToken::local_sid_token(21),
+                            E::Builder::new_string("hello"),
+                        ),
+                    ]
+                    .into_iter(),
+                );
+                let expected = unordered_struct.as_struct();
+                assert_eq!(actual, expected);
+            }),
+        }
+    }
     // TODO add more tests to remove the separate Owned/Borrowed tests and only keep generic tests
 
     #[rstest]
@@ -1626,6 +1579,26 @@ mod generic_value_tests {
     #[case::borrowed_symbol_with_import_source(symbol_with_import_source_case::<BorrowedElement>())]
     #[case::owned_symbol_with_import_source_and_text(symbol_with_import_source_and_text_case::<OwnedElement>())]
     #[case::borrowed_symbol_with_import_source_and_text(symbol_with_import_source_and_text_case::<BorrowedElement>())]
+    #[case::owned_struct_with_local_sid(struct_with_local_sid_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_local_sid(struct_with_local_sid_case::<BorrowedElement>())]
+    #[case::owned_struct_with_different_local_sid(struct_with_different_local_sid_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_different_local_sid(struct_with_different_local_sid_case::<BorrowedElement>())]
+    #[case::owned_struct_with_import_source(struct_with_import_source_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_import_source(struct_with_import_source_case::<BorrowedElement>())]
+    #[case::owned_struct_with_import_source_not_equal(struct_with_import_source_not_equal_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_import_source_not_equal(struct_with_import_source_not_equal_case::<BorrowedElement>())]
+    #[case::owned_struct_with_multiple_fields(struct_with_multiple_fields_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_multiple_fields(struct_with_multiple_fields_case::<BorrowedElement>())]
+    #[case::owned_struct_with_unordered_multiple_fields(struct_with_unordered_multiple_fields_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_unordered_multiple_fields(struct_with_unordered_multiple_fields_case::<BorrowedElement>())]
+    #[case::owned_struct_with_multiple_fields_not_equal(struct_with_multiple_fields_not_equal_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_multiple_fields_not_equal(struct_with_multiple_fields_not_equal_case::<BorrowedElement>())]
+    #[case::owned_struct_with_text_and_duplicates(struct_with_text_and_duplicates_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_text_and_duplicates(struct_with_text_and_duplicates_case::<BorrowedElement>())]
+    #[case::owned_struct_with_unordered_text_and_duplicates(struct_with_unordered_text_and_duplicates_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_unordered_text_and_duplicates(struct_with_unordered_text_and_duplicates_case::<BorrowedElement>())]
+    #[case::owned_struct_with_unordered_no_text_and_duplicates(struct_with_unordered_no_text_and_duplicates_case::<OwnedElement>())]
+    #[case::borrowed_struct_with_unordered_no_text_and_duplicates(struct_with_unordered_no_text_and_duplicates_case::<BorrowedElement>())]
     fn element_accessors<E: Element>(#[case] input_case: Case<E>) {
         // table of negative assertions for each operation
         let neg_table: Vec<(ElemOp, &ElemAssertFunc<E>)> = vec![
