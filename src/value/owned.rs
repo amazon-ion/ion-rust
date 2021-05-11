@@ -276,31 +276,6 @@ pub struct OwnedStruct {
     no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
 }
 
-impl OwnedStruct {
-    fn eq_text_fields(&self, other: &Self) -> bool {
-        // check if both the text_fields have same (field_name,value) pairs
-        self.text_fields.iter().all(|(key, value)| {
-            value.iter().all(|(_my_s, my_v)| {
-                other
-                    .get_all(key)
-                    .find(|other_v| my_v == *other_v)
-                    .is_some()
-            }) && value.len() == other.get_all(key).count()
-        })
-    }
-
-    fn eq_no_text_fields(&self, other: &Self) -> bool {
-        // check if both the no_text_fields are same values
-        self.no_text_fields.iter().all(|(my_k, my_v)| {
-            other
-                .no_text_fields
-                .iter()
-                .find(|(other_k, other_v)| my_k == other_k && my_v == other_v)
-                .is_some()
-        })
-    }
-}
-
 impl<K, V> FromIterator<(K, V)> for OwnedStruct
 where
     K: Into<OwnedSymbolToken>,
@@ -377,15 +352,22 @@ impl Struct for OwnedStruct {
 
 impl PartialEq for OwnedStruct {
     fn eq(&self, other: &Self) -> bool {
-        // check if both text_fields and no_text_fields have same length
-        self.text_fields.len() == other.text_fields.len() && self.no_text_fields.len() == other.no_text_fields.len()
-            // check if text_fields and no_text_fields are equal
-            // we need to test equality in both directions for both text_fields and no_text_fields
-            // A good example for this is annotated vs not annotated values in struct
-            //  { a:4, a:4 } vs. { a:4, a:a::4 } // returns true
-            //  { a:4, a:a::4 } vs. { a:4, a:4 } // returns false
-            && self.eq_text_fields(other) && other.eq_text_fields(self)
-            && self.eq_no_text_fields(other) && other.eq_no_text_fields(self)
+        // check if both the text_fields have same (field_name,value) pairs
+        self.text_fields.iter().all(|(key, value)| {
+            value.iter().all(|(_my_s, my_v)| {
+                other
+                    .get_all(key)
+                    .find(|other_v| my_v == *other_v)
+                    .is_some()
+            })
+        }) && self.no_text_fields.iter().all(|(my_k, my_v)| {
+            // check if both the no_text_fields have same values
+            other
+                .no_text_fields
+                .iter()
+                .find(|(other_k, other_v)| my_k == other_k && my_v == other_v)
+                .is_some()
+        })
     }
 }
 
