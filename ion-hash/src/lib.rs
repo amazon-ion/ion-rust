@@ -128,8 +128,9 @@ fn ion_hash_escape(representation: &[u8]) -> Vec<u8> {
     out
 }
 
-// TODO: Use the one below after some refactoring (it currently doesn't support
-// just writing the inner representation).
+// TODO: Finish ion-rust's binary writer and factor it such that the binary
+// representations can be written by the "raw" writer (ref. the Java
+// implementation).
 fn binary_repr<E: Element + ?Sized>(elem: &E) -> Option<Vec<u8>> {
     match elem.ion_type() {
         IonType::Null | IonType::Boolean => todo!(),
