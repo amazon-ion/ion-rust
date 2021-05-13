@@ -17,16 +17,15 @@
 //! ```
 
 use digest::{Digest, Output};
-use ion_rs::{
-    result::IonResult,
-    value::writer::{ElementWriter, Format},
-};
+use ion_rs::result::IonResult;
 use ion_rs::{value::Element, IonType};
 
 // TODO: Make sha2 an optional dependency.
+use representation::Representation;
 use sha2::Sha256;
 use type_qualifier::TypeQualifier;
 
+mod representation;
 mod type_qualifier;
 
 /// Utility to hash an [`Element`] using SHA-256 as the hash function.
@@ -108,8 +107,9 @@ where
 
     fn hash_scalar<E: Element + ?Sized>(&mut self, elem: &E) -> IonResult<()> {
         self.hash_no_repr(elem);
-        let repr = binary_repr(elem)?;
-        self.hasher.update(ion_hash_escape(&repr[..]));
+        if let Some(repr) = binary_repr(elem) {
+            self.hasher.update(ion_hash_escape(&repr[..]));
+        }
 
         Ok(())
     }
@@ -130,19 +130,14 @@ fn ion_hash_escape(representation: &[u8]) -> Vec<u8> {
 
 // TODO: Use the one below after some refactoring (it currently doesn't support
 // just writing the inner representation).
-fn binary_repr<E: Element + ?Sized>(elem: &E) -> IonResult<Vec<u8>> {
-    Ok(match elem.ion_type() {
-        IonType::String => Vec::from(elem.as_str().unwrap().as_bytes()),
-        _ => todo!(),
-    })
-}
-
-fn _binary_repr<E: Element + ?Sized>(elem: &E) -> IonResult<Vec<u8>> {
-    // TODO: Fix this once the writer API supports non-fixed-size buffers.
-    let mut buf = vec![0u8; 4096];
-    let mut writer = Format::Binary.element_writer_for_slice(&mut buf)?;
-    writer.write(elem)?;
-    let len = writer.finish()?.len();
-    buf.truncate(len);
-    Ok(buf)
+fn binary_repr<E: Element + ?Sized>(elem: &E) -> Option<Vec<u8>> {
+    match elem.ion_type() {
+        IonType::Null | IonType::Boolean => todo!(),
+        IonType::Integer => elem.as_any_int().repr(),
+        IonType::Float | IonType::Decimal | IonType::Timestamp | IonType::Symbol => todo!(),
+        IonType::String => elem.as_str().repr(),
+        IonType::Clob | IonType::Blob | IonType::List | IonType::SExpression | IonType::Struct => {
+            todo!()
+        }
+    }
 }

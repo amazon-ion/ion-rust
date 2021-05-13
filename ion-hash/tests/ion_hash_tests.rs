@@ -137,9 +137,25 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
                 // diagnose bugs.
             }
             "digest" => {
-                let actual = &result[0..bytes.len()];
+                // Because `TestDigest` uses generic array (fixed size,
+                // intialized with zeros) and isn't doing real hashing, we land
+                // up an array that has our result filled in to N bytes and then
+                // a bunch of trailing zeros. We want to ignore those, since
+                // they're not relevant.
+                let ignore_trailing_zeros = result
+                    .iter()
+                    .rposition(|b| *b != 0)
+                    .map(|p| p + 1)
+                    .unwrap_or(bytes.len());
+                let result_slice = &result[0..ignore_trailing_zeros];
+
+                // Convert into hex repr to make assertion failures look like
+                // the test case definitions.
+                let expected = format!("{:02X?}", bytes);
+                let actual = format!("{:02X?}", result_slice);
+
                 assert_eq!(
-                    bytes, actual,
+                    expected, actual,
                     "case: {}; bytes failed to match",
                     test_case_name
                 );

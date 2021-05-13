@@ -31,15 +31,15 @@ impl TypeQualifier {
     /// This code implements the TQ computation logically, but leans on `const
     /// fn` to have the same runtime performance as if we wrote a jump table out
     /// by hand.
-    pub(crate) fn from_element<E>(element: &E) -> TypeQualifier
+    pub(crate) fn from_element<E>(elem: &E) -> TypeQualifier
     where
         E: Element + ?Sized,
     {
         use IonTypeCode::*;
-        match element.ion_type() {
+        match elem.ion_type() {
             IonType::Null => combine(NullOrWhitespace, 0x0F),
             IonType::Boolean => {
-                let q = match element.as_bool() {
+                let q = match elem.as_bool() {
                     None => 0x0F,
                     Some(b) => match b {
                         false => 0x00,
@@ -49,7 +49,7 @@ impl TypeQualifier {
                 combine(Boolean, q)
             }
             IonType::Integer => {
-                let any = element.as_any_int();
+                let any = elem.as_any_int();
                 let t = match is_anyint_positive(any) {
                     true => IonTypeCode::PositiveInteger,
                     false => IonTypeCode::NegativeInteger,
@@ -64,7 +64,13 @@ impl TypeQualifier {
             IonType::Decimal => Decimal,
             IonType::Timestamp => Timestamp,
             IonType::Symbol => Symbol,*/
-            IonType::String => combine(String, 0x00),
+            IonType::String => {
+                let q = match elem.as_str() {
+                    Some(_) => 0x00,
+                    None => 0x0F,
+                };
+                combine(String, q)
+            }
             /*IonType::Clob => Clob,
             IonType::Blob => Blob,
             IonType::List => List,
