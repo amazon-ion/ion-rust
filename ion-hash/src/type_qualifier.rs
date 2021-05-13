@@ -30,9 +30,9 @@ impl TypeQualifier {
     /// laid out in the spec. In many cases, the `T` is determined by the Ion
     /// binary type code.
     ///
-    /// This code implements the TQ computation logically, but leans on `const
-    /// fn` to have the same runtime performance as if we wrote a jump table out
-    /// by hand.
+    /// As much as possible, we use `const fn` to implement lookups logically.
+    /// The code is authored to read like the spec, without sacrificing
+    /// performance.
     pub(crate) fn from_element<E>(elem: &E) -> TypeQualifier
     where
         E: Element + ?Sized,
