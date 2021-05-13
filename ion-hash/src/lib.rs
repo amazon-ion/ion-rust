@@ -21,7 +21,6 @@ use ion_rs::result::IonResult;
 use ion_rs::{value::Element, IonType};
 
 // TODO: Make sha2 an optional dependency.
-use representation::Representation;
 use sha2::Sha256;
 use type_qualifier::TypeQualifier;
 
@@ -80,7 +79,7 @@ where
             | IonType::Symbol
             | IonType::String
             | IonType::Clob
-            | IonType::Blob => self.hash_scalar(elem)?,
+            | IonType::Blob => self.hash_scalar(elem),
             IonType::List | IonType::SExpression | IonType::Struct => todo!(),
         };
         self.mark_end();
@@ -105,13 +104,11 @@ where
         self.hasher.update(tq.as_bytes());
     }
 
-    fn hash_scalar<E: Element + ?Sized>(&mut self, elem: &E) -> IonResult<()> {
+    fn hash_scalar<E: Element + ?Sized>(&mut self, elem: &E) {
         self.hash_no_repr(elem);
-        if let Some(repr) = binary_repr(elem) {
+        if let Some(repr) = representation::binary_repr(elem) {
             self.hasher.update(ion_hash_escape(&repr[..]));
         }
-
-        Ok(())
     }
 }
 
@@ -126,19 +123,4 @@ fn ion_hash_escape(representation: &[u8]) -> Vec<u8> {
     }
 
     out
-}
-
-// TODO: Finish ion-rust's binary writer and factor it such that the binary
-// representations can be written by the "raw" writer (ref. the Java
-// implementation).
-fn binary_repr<E: Element + ?Sized>(elem: &E) -> Option<Vec<u8>> {
-    match elem.ion_type() {
-        IonType::Null | IonType::Boolean => todo!(),
-        IonType::Integer => elem.as_any_int().repr(),
-        IonType::Float | IonType::Decimal | IonType::Timestamp | IonType::Symbol => todo!(),
-        IonType::String => elem.as_str().repr(),
-        IonType::Clob | IonType::Blob | IonType::List | IonType::SExpression | IonType::Struct => {
-            todo!()
-        }
-    }
 }
