@@ -1,5 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+use std::slice;
+
 ///! Implements "type qualifiers" (TQ) as per the [spec][spec].
 ///!
 ///! [spec]: https://amzn.github.io/ion-hash/docs/spec.html.
@@ -81,8 +83,8 @@ impl TypeQualifier {
     }
 
     /// Convenient transform to feed to a `Digest`.
-    pub(crate) fn into_bytes(self) -> [u8; 1] {
-        [self.0]
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        slice::from_ref(&self.0)
     }
 }
 

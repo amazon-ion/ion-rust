@@ -102,7 +102,7 @@ where
 
     fn hash_no_repr<E: Element + ?Sized>(&mut self, elem: &E) {
         let tq = TypeQualifier::from_element(elem);
-        self.hasher.update(tq.into_bytes());
+        self.hasher.update(tq.as_bytes());
     }
 
     fn hash_scalar<E: Element + ?Sized>(&mut self, elem: &E) -> IonResult<()> {

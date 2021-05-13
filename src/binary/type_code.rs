@@ -100,7 +100,6 @@ impl TryFrom<u8> for IonTypeCode {
 /// Turns an [`IonTypeCode`] into a byte. This does not use `From` so that it
 /// can be a `const fn`.
 impl IonTypeCode {
-    pub const fn to_u8(self) -> u8 {
         use IonTypeCode::*;
         match self {
             NullOrWhitespace => 0,
