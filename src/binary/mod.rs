@@ -12,4 +12,4 @@ mod var_int;
 mod var_uint;
 pub mod writer;
 
-pub(crate) use type_code::IonTypeCode;
+pub use type_code::IonTypeCode;

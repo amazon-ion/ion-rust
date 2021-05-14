@@ -89,20 +89,20 @@ fn test_file(file_name: &str) -> IonResult<()> {
 }
 
 fn test_all<E: Element>(elems: Vec<E>) -> IonResult<()> {
-    for (i, case) in elems.iter().enumerate() {
+    for case in &elems {
         let case = case.as_struct().expect("test cases are structs");
         // TODO: support binary ion
         let ion = case.get("ion").expect("test cases have an `ion` value");
         let expect = case
             .get("expect")
             .expect("test cases have an `expect` value");
-        test_case(i, ion, expect)?;
+        test_case(ion, expect)?;
     }
 
     Ok(())
 }
 
-fn test_case<E: Element>(case_number: usize, ion: &E, strukt: &E) -> IonResult<()> {
+fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
     let strukt = strukt.as_struct().expect("`expect` should be a struct");
     let identity = strukt
         .get("identity")
@@ -112,7 +112,7 @@ fn test_case<E: Element>(case_number: usize, ion: &E, strukt: &E) -> IonResult<(
 
     let digest = TestDigest::default();
     let hasher = IonHasher::new(digest.clone());
-    let test_case_name = test_case_name(ion, case_number);
+    let test_case_name = test_case_name(ion)?;
     let result = hasher.hash_element(ion)?;
 
     for it in identity.iter() {
@@ -137,16 +137,28 @@ fn test_case<E: Element>(case_number: usize, ion: &E, strukt: &E) -> IonResult<(
                 // diagnose bugs.
             }
             "digest" => {
-                // See the comment on [`TestDigest`]: to avoid dealing with
-                // trailing zeros (due to the fixed length array), we compare
-                // byte-for-byte.
-                for (i, byte) in bytes.iter().enumerate() {
-                    assert_eq!(
-                        *byte, result[i],
-                        "case: {}; byte {} failed to match",
-                        test_case_name, i
-                    );
-                }
+                // Because `TestDigest` uses generic array (fixed size,
+                // intialized with zeros) and isn't doing real hashing, we land
+                // up an array that has our result filled in to N bytes and then
+                // a bunch of trailing zeros. We want to ignore those, since
+                // they're not relevant.
+                let ignore_trailing_zeros = result
+                    .iter()
+                    .rposition(|b| *b != 0)
+                    .map(|p| p + 1)
+                    .unwrap_or(bytes.len());
+                let result_slice = &result[0..ignore_trailing_zeros];
+
+                // Convert into hex repr to make assertion failures look like
+                // the test case definitions.
+                let expected = format!("{:02X?}", bytes);
+                let actual = format!("{:02X?}", result_slice);
+
+                assert_eq!(
+                    expected, actual,
+                    "case: {}; bytes failed to match",
+                    test_case_name
+                );
             }
             other => unimplemented!("{} is not yet implemented", other),
         }
@@ -159,14 +171,23 @@ fn test_case<E: Element>(case_number: usize, ion: &E, strukt: &E) -> IonResult<(
 /// name of the test is the Ion text representation of the input value.
 // TODO: Once `dumper` lands, use it to generate test names for un-annotated
 // test cases. For now, they're simply numbered.
-fn test_case_name<E: Element>(ion: &E, case_number: usize) -> String {
+fn test_case_name<E: Element>(ion: &E) -> IonResult<String> {
     let annotations: Vec<_> = ion
         .annotations()
         .map(|it| it.text().unwrap().to_string())
         .collect();
     match &annotations[..] {
-        [] => format!("unannotated-test-case #{}", case_number), // FIXME: Use Dumper to print the case name
-        [single] => single.clone(),
+        [] => {
+            use ion_rs::value::writer::{ElementWriter, Format, TextKind};
+
+            let mut buf = vec![0u8; 4096];
+            let mut writer = Format::Text(TextKind::Compact).element_writer_for_slice(&mut buf)?;
+            writer.write(ion)?;
+            let result = writer.finish()?;
+
+            Ok(String::from_utf8_lossy(result).to_string())
+        }
+        [single] => Ok(single.clone()),
         _ => unimplemented!(),
     }
 }
