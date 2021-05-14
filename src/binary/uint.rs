@@ -48,12 +48,8 @@ impl UInt {
 
     /// Encodes the provided `magnitude` as a UInt and writes it to the provided `sink`.
     pub fn write_u64<W: Write>(sink: &mut W, magnitude: u64) -> IonResult<usize> {
-        // leading_zeros() uses an intrinsic to calculate this quickly
-        let empty_leading_bytes: u32 = magnitude.leading_zeros() >> 3; // Divide by 8 to get byte count
-        let first_occupied_byte = empty_leading_bytes as usize;
-
-        let magnitude_bytes: [u8; mem::size_of::<u64>()] = magnitude.to_be_bytes();
-        let bytes_to_write: &[u8] = &magnitude_bytes[first_occupied_byte..];
+        let magnitude_bytes = magnitude_to_bytes(magnitude);
+        let bytes_to_write = magnitude_bytes.as_ref();
 
         sink.write_all(bytes_to_write)?;
         Ok(bytes_to_write.len())
@@ -70,6 +66,45 @@ impl UInt {
     #[inline(always)]
     pub fn size_in_bytes(&self) -> usize {
         self.size_in_bytes
+    }
+}
+
+/// The result of the [`magnitude_to_bytes`] function. The fields are private;
+/// users must go through `as_ref()` to see the slice that ignores leading
+/// zeros.
+///
+/// This type exists to avoid heap allocation.
+pub struct U64Magnitude {
+    magnitude_bytes: [u8; mem::size_of::<u64>()],
+    first_occupied_byte: usize,
+}
+
+impl AsRef<[u8]> for U64Magnitude {
+    fn as_ref(&self) -> &[u8] {
+        &self.magnitude_bytes[self.first_occupied_byte..]
+    }
+}
+
+/// Returns the magnitude as big-endian bytes.
+///
+/// ```
+/// use ion_rs::binary::uint;
+/// use std::convert::AsRef;
+///
+/// let repr = uint::magnitude_to_bytes(5u64);
+/// assert_eq!(&[0x05], repr.as_ref());
+/// ```
+pub fn magnitude_to_bytes(magnitude: u64) -> U64Magnitude {
+    // We can divide the number of leading zero bits by 8
+    // to to get the number of leading zero bytes.
+    let empty_leading_bytes: u32 = magnitude.leading_zeros() >> 3;
+    let first_occupied_byte = empty_leading_bytes as usize;
+
+    let magnitude_bytes: [u8; mem::size_of::<u64>()] = magnitude.to_be_bytes();
+
+    U64Magnitude {
+        magnitude_bytes,
+        first_occupied_byte,
     }
 }
 

@@ -15,6 +15,8 @@ use crate::result::{illegal_operation, IonResult};
 use crate::types::SymbolId;
 use crate::IonType;
 
+use super::uint;
+
 // Ion's length prefixing requires that elements in a stream be encoded out of order.
 // For example, to write the annotated list $ion::["foo", "bar"], the writer must:
 //   1. Encode "foo"
@@ -406,29 +408,21 @@ impl<W: Write> BinarySystemWriter<W> {
     /// Writes an Ion integer with the specified value.
     pub fn write_i64(&mut self, value: i64) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            let is_positive: bool = value >= 0;
-            let magnitude: u64 = value.abs() as u64;
+            let magnitude = value.abs() as u64;
+            let magnitude_bytes = uint::magnitude_to_bytes(magnitude);
+            let bytes_to_write = magnitude_bytes.as_ref();
 
-            // We can divide the number of leading zero bits by 8
-            // to to get the number of leading zero bytes.
-            let empty_leading_bytes: u32 = magnitude.leading_zeros() >> 3;
-            let first_occupied_byte = empty_leading_bytes as usize;
-
-            let magnitude_bytes: [u8; mem::size_of::<u64>()] = magnitude.to_be_bytes();
-            let bytes_to_write: &[u8] = &magnitude_bytes[first_occupied_byte..];
-
+            // The encoded length will never be larger than 8 bytes, so it will
+            // always fit in the Int's type descriptor byte.
             let encoded_length = bytes_to_write.len();
-
-            // The encoded length will never be larger than 8 bytes, so it will always fit in
-            // the Int's type descriptor byte.
-
-            let type_descriptor: u8 = if is_positive {
+            let type_descriptor: u8 = if value >= 0 {
                 0x20 | (encoded_length as u8)
             } else {
                 0x30 | (encoded_length as u8)
             };
             enc_buffer.push(type_descriptor);
             enc_buffer.extend_from_slice(bytes_to_write);
+
             Ok(())
         })
     }
