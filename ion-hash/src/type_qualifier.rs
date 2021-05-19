@@ -62,8 +62,8 @@ impl TypeQualifier {
                 };
                 combine(t, q)
             }
-            /*IonType::Float => Float,
-            IonType::Decimal => Decimal,
+            IonType::Float => combine(Float, 0x00),
+            /*IonType::Decimal => Decimal,
             IonType::Timestamp => Timestamp,
             IonType::Symbol => Symbol,*/
             IonType::String => {

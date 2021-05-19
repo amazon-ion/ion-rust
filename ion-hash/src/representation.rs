@@ -19,7 +19,8 @@ pub(crate) fn binary_repr<E: Element + ?Sized>(elem: &E) -> BinaryRepr {
     match elem.ion_type() {
         IonType::Null | IonType::Boolean => todo!(),
         IonType::Integer => elem.as_any_int().repr(),
-        IonType::Float | IonType::Decimal | IonType::Timestamp | IonType::Symbol => todo!(),
+        IonType::Float => elem.as_f64().repr(),
+        IonType::Decimal | IonType::Timestamp | IonType::Symbol => todo!(),
         IonType::String => elem.as_str().repr(),
         IonType::Clob | IonType::Blob | IonType::List | IonType::SExpression | IonType::Struct => {
             todo!()
@@ -58,6 +59,39 @@ impl Representation for Option<&str> {
         match self {
             Some(s) => Some(s.as_bytes().into()),
             None => None,
+        }
+    }
+}
+
+impl Representation for Option<f64> {
+    /// Floats are encoded as big-endian octets of their IEEE-754 bit patterns,
+    /// except for special cases: +-zero, +-inf and nan.
+    fn repr(&self) -> BinaryRepr {
+        match self {
+            None => None,
+            Some(v) => {
+                // This matches positive and negative zero.
+                if *v == 0.0 {
+                    return if v.is_sign_positive() {
+                        None
+                    } else {
+                        Some(vec![0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                    };
+                }
+                if v.is_infinite() {
+                    return if v.is_sign_positive() {
+                        Some(vec![0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                    } else {
+                        Some(vec![0xFF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                    };
+                }
+
+                if v.is_nan() {
+                    return Some(vec![0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+                }
+
+                Some(v.to_be_bytes().into())
+            }
         }
     }
 }
