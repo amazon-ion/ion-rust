@@ -69,9 +69,8 @@ impl UInt {
     }
 }
 
-/// The result of the [`magnitude_to_bytes`] function. The fields are private;
-/// users must go through `as_ref()` to see the slice that ignores leading
-/// zeros.
+/// The big-endian, compact slice of bytes for a `u64`.  Leading zero octets are
+/// not part of the representation.
 ///
 /// This type exists to avoid heap allocation.
 pub struct U64Magnitude {
