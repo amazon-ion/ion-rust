@@ -70,7 +70,7 @@ impl DecodedUInt {
 }
 
 /// The big-endian, compact slice of bytes for a `u64`. Leading zero octets are
-/// not part of the representation.
+/// not part of the representation.
 #[derive(Copy, Clone, Debug)]
 pub struct EncodedUInt {
     be_bytes: [u8; mem::size_of::<u64>()],
