@@ -8,7 +8,7 @@ use chrono::{DateTime, Datelike, FixedOffset, Timelike};
 
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::int::Int;
-use crate::binary::uint::UInt;
+use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::result::{illegal_operation, IonResult};
@@ -409,8 +409,8 @@ impl<W: Write> BinarySystemWriter<W> {
     pub fn write_i64(&mut self, value: i64) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
             let magnitude = value.abs() as u64;
-            let magnitude_bytes = uint::magnitude_to_bytes(magnitude);
-            let bytes_to_write = magnitude_bytes.as_ref();
+            let encoded = uint::encode_uint(magnitude);
+            let bytes_to_write = encoded.as_ref();
 
             // The encoded length will never be larger than 8 bytes, so it will
             // always fit in the Int's type descriptor byte.
@@ -550,7 +550,7 @@ impl<W: Write> BinarySystemWriter<W> {
             let nanoseconds = utc.nanosecond();
             const SCALE: i64 = -9; // "Scale" (used by BigDecimal) is -1 * exponent
             VarInt::write_i64(&mut writer, SCALE)?;
-            UInt::write_u64(&mut writer, nanoseconds as u64)?;
+            DecodedUInt::write_u64(&mut writer, nanoseconds as u64)?;
 
             let encoded_length = writer.get_ref().position() as usize;
 
@@ -575,7 +575,7 @@ impl<W: Write> BinarySystemWriter<W> {
             const SYMBOL_BUFFER_SIZE: usize = mem::size_of::<u64>();
             let mut buffer = [0u8; SYMBOL_BUFFER_SIZE];
             let mut writer = io::Cursor::new(&mut buffer).writer();
-            let encoded_length = UInt::write_u64(&mut writer, symbol_id as u64)?;
+            let encoded_length = DecodedUInt::write_u64(&mut writer, symbol_id as u64)?;
 
             let type_descriptor: u8;
             if encoded_length <= MAX_INLINE_LENGTH {

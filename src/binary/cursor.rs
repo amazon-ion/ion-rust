@@ -12,7 +12,7 @@ use crate::{
         constants::v1_0::length_codes,
         header::{create_header_byte_jump_table, Header},
         int::Int,
-        uint::UInt,
+        uint::DecodedUInt,
         var_int::VarInt,
         var_uint::VarUInt,
         IonTypeCode,
@@ -836,14 +836,14 @@ where
     // Useful when the entire value (all bytes after the type/length header) are represented by
     // a single UInt. (i.e. Integer and Symbol)
     #[inline(always)]
-    fn read_value_as_uint(&mut self) -> IonResult<UInt> {
+    fn read_value_as_uint(&mut self) -> IonResult<DecodedUInt> {
         let number_of_bytes = self.cursor.value.value_length;
         self.read_uint(number_of_bytes)
     }
 
     #[inline(always)]
-    fn read_uint(&mut self, number_of_bytes: usize) -> IonResult<UInt> {
-        let uint = UInt::read(&mut self.data_source, number_of_bytes)?;
+    fn read_uint(&mut self, number_of_bytes: usize) -> IonResult<DecodedUInt> {
+        let uint = DecodedUInt::read(&mut self.data_source, number_of_bytes)?;
         self.cursor.bytes_read += uint.size_in_bytes();
         Ok(uint)
     }
