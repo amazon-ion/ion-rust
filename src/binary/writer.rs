@@ -8,12 +8,14 @@ use chrono::{DateTime, Datelike, FixedOffset, Timelike};
 
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::int::Int;
-use crate::binary::uint::UInt;
+use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::result::{illegal_operation, IonResult};
 use crate::types::SymbolId;
 use crate::IonType;
+
+use super::uint;
 
 // Ion's length prefixing requires that elements in a stream be encoded out of order.
 // For example, to write the annotated list $ion::["foo", "bar"], the writer must:
@@ -406,29 +408,21 @@ impl<W: Write> BinarySystemWriter<W> {
     /// Writes an Ion integer with the specified value.
     pub fn write_i64(&mut self, value: i64) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            let is_positive: bool = value >= 0;
-            let magnitude: u64 = value.abs() as u64;
+            let magnitude = value.abs() as u64;
+            let encoded = uint::encode_uint(magnitude);
+            let bytes_to_write = encoded.as_bytes();
 
-            // We can divide the number of leading zero bits by 8
-            // to to get the number of leading zero bytes.
-            let empty_leading_bytes: u32 = magnitude.leading_zeros() >> 3;
-            let first_occupied_byte = empty_leading_bytes as usize;
-
-            let magnitude_bytes: [u8; mem::size_of::<u64>()] = magnitude.to_be_bytes();
-            let bytes_to_write: &[u8] = &magnitude_bytes[first_occupied_byte..];
-
+            // The encoded length will never be larger than 8 bytes, so it will
+            // always fit in the Int's type descriptor byte.
             let encoded_length = bytes_to_write.len();
-
-            // The encoded length will never be larger than 8 bytes, so it will always fit in
-            // the Int's type descriptor byte.
-
-            let type_descriptor: u8 = if is_positive {
+            let type_descriptor: u8 = if value >= 0 {
                 0x20 | (encoded_length as u8)
             } else {
                 0x30 | (encoded_length as u8)
             };
             enc_buffer.push(type_descriptor);
             enc_buffer.extend_from_slice(bytes_to_write);
+
             Ok(())
         })
     }
@@ -556,7 +550,7 @@ impl<W: Write> BinarySystemWriter<W> {
             let nanoseconds = utc.nanosecond();
             const SCALE: i64 = -9; // "Scale" (used by BigDecimal) is -1 * exponent
             VarInt::write_i64(&mut writer, SCALE)?;
-            UInt::write_u64(&mut writer, nanoseconds as u64)?;
+            DecodedUInt::write_u64(&mut writer, nanoseconds as u64)?;
 
             let encoded_length = writer.get_ref().position() as usize;
 
@@ -581,7 +575,7 @@ impl<W: Write> BinarySystemWriter<W> {
             const SYMBOL_BUFFER_SIZE: usize = mem::size_of::<u64>();
             let mut buffer = [0u8; SYMBOL_BUFFER_SIZE];
             let mut writer = io::Cursor::new(&mut buffer).writer();
-            let encoded_length = UInt::write_u64(&mut writer, symbol_id as u64)?;
+            let encoded_length = DecodedUInt::write_u64(&mut writer, symbol_id as u64)?;
 
             let type_descriptor: u8;
             if encoded_length <= MAX_INLINE_LENGTH {

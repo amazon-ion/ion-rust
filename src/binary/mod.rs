@@ -7,7 +7,7 @@ mod header;
 mod int;
 mod nibbles;
 mod type_code;
-mod uint;
+pub mod uint;
 mod var_int;
 mod var_uint;
 pub mod writer;

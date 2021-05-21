@@ -7,10 +7,10 @@
 //! and not speed.
 
 use ion_rs::{
+    binary,
     value::{AnyInt, Element},
     IonType,
 };
-use num_bigint::BigInt;
 
 // TODO: Finish ion-rust's binary writer and factor it such that the binary
 // representations can be written by the "raw" writer (ref. the Java
@@ -39,16 +39,16 @@ pub trait Representation {
 
 impl Representation for Option<&AnyInt> {
     fn repr(&self) -> BinaryRepr {
-        fn bigint_repr(b: &BigInt) -> Vec<u8> {
-            b.magnitude().to_bytes_be()
-        }
-
         match self {
             Some(AnyInt::I64(v)) => match v {
                 0 => None,
-                _ => Some(bigint_repr(&BigInt::from(*v))),
+                _ => {
+                    let magnitude = v.abs() as u64;
+                    let encoded = binary::uint::encode_uint(magnitude);
+                    Some(encoded.as_bytes().into())
+                }
             },
-            Some(AnyInt::BigInt(b)) => Some(bigint_repr(b)),
+            Some(AnyInt::BigInt(b)) => Some(b.magnitude().to_bytes_be()),
             None => None,
         }
     }
