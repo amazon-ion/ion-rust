@@ -45,7 +45,7 @@ impl Representation for Option<&AnyInt> {
                 _ => {
                     let magnitude = v.abs() as u64;
                     let encoded = binary::uint::encode_uint(magnitude);
-                    Some(encoded.as_ref().into())
+                    Some(encoded.as_bytes().into())
                 }
             },
             Some(AnyInt::BigInt(b)) => Some(b.magnitude().to_bytes_be()),
