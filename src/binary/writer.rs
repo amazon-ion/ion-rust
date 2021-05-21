@@ -410,7 +410,7 @@ impl<W: Write> BinarySystemWriter<W> {
         self.write_scalar(|enc_buffer| {
             let magnitude = value.abs() as u64;
             let encoded = uint::encode_uint(magnitude);
-            let bytes_to_write = encoded.as_ref();
+            let bytes_to_write = encoded.as_bytes();
 
             // The encoded length will never be larger than 8 bytes, so it will
             // always fit in the Int's type descriptor byte.
