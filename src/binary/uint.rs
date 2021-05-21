@@ -69,8 +69,11 @@ impl DecodedUInt {
     }
 }
 
-/// The big-endian, compact slice of bytes for a `u64`. Leading zero octets are
-/// not part of the representation.
+/// The big-endian, compact slice of bytes for a UInt (`u64`). Leading zero
+/// octets are not part of the representation. See the [spec] for more
+/// information.
+///
+/// [spec]: https://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields
 #[derive(Copy, Clone, Debug)]
 pub struct EncodedUInt {
     be_bytes: [u8; mem::size_of::<u64>()],
