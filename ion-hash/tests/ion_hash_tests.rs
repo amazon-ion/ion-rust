@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use digest::{consts::U8, generic_array::GenericArray, Digest, Output};
+use digest::{consts::U8, generic_array::GenericArray};
+use digest::{FixedOutput, Reset, Update};
 use ion_hash::{self, IonHasher};
 use ion_rs::result::IonResult;
 use ion_rs::value::reader::{element_reader, ElementReader};
@@ -35,59 +36,28 @@ struct TestDigestInner {
     updates: Vec<u8>,
 }
 
-impl Digest for TestDigest {
-    // This is not really used other than to satisfy the trait. See the comments
-    // on [`TestDigest`].
-    type OutputSize = U8;
-
-    fn new() -> Self {
-        Self {
-            inner: Rc::new(RefCell::new(TestDigestInner {
-                updates: Vec::new(),
-            })),
-        }
-    }
-
+impl Update for TestDigest {
     fn update(&mut self, bytes: impl AsRef<[u8]>) {
         let mut inner = self.inner.borrow_mut();
         inner.updates.extend(bytes.as_ref());
     }
+}
 
-    fn chain(self, _data: impl AsRef<[u8]>) -> Self
-    where
-        Self: Sized,
-    {
-        todo!()
-    }
+impl FixedOutput for TestDigest {
+    // This is not really used other than to satisfy the trait. See the comments
+    // on [`TestDigest`].
+    type OutputSize = U8;
 
-    /// The output of this method should be ignored. This implementation **does
-    /// not support fixed size results**.
-    fn finalize(self) -> Output<Self> {
-        GenericArray::default()
-    }
+    // Nothing - see top level comment.
+    fn finalize_into(self, _out: &mut GenericArray<u8, Self::OutputSize>) {}
 
-    /// While this method does correctly reset the internal state, the result of
-    /// this method should be ignored for the same reason as noted in
-    /// [`finalize`].
-    fn finalize_reset(&mut self) -> Output<Self> {
-        let mut inner = self.inner.borrow_mut();
-        inner.updates.clear();
-        GenericArray::default()
-    }
+    // Nothing - see top level comment.
+    fn finalize_into_reset(&mut self, _out: &mut GenericArray<u8, Self::OutputSize>) {}
+}
 
+impl Reset for TestDigest {
     fn reset(&mut self) {
-        self.finalize_reset();
-    }
-
-    fn output_size() -> usize {
-        8
-    }
-
-    /// The output of this method should be ignored (see `[finalize]`).
-    fn digest(data: &[u8]) -> Output<Self> {
-        let mut myself = Self::new();
-        myself.update(data);
-        myself.finalize()
+        self.inner.borrow_mut().updates.clear();
     }
 }
 

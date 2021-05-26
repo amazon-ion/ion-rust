@@ -6,6 +6,8 @@
 //! instead. This implementation fills in that gap, and is focused on coverage
 //! and not speed.
 
+use crate::Markers;
+use digest::{Digest, Update};
 use ion_rs::{
     binary,
     value::{AnyInt, Element},
@@ -15,83 +17,87 @@ use ion_rs::{
 // TODO: Finish ion-rust's binary writer and factor it such that the binary
 // representations can be written by the "raw" writer (ref. the Java
 // implementation).
-pub(crate) fn binary_repr<E: Element + ?Sized>(elem: &E) -> BinaryRepr {
+pub(crate) fn write_repr<E: Element + ?Sized, D: Digest + Update>(elem: &E, hasher: &mut D) {
+    let mut hasher = escaping(hasher);
+
     match elem.ion_type() {
         IonType::Null | IonType::Boolean => todo!(),
-        IonType::Integer => elem.as_any_int().repr(),
-        IonType::Float => elem.as_f64().repr(),
+        IonType::Integer => write_repr_integer(elem.as_any_int(), &mut hasher),
+        IonType::Float => write_repr_float(elem.as_f64(), &mut hasher),
         IonType::Decimal | IonType::Timestamp | IonType::Symbol => todo!(),
-        IonType::String => elem.as_str().repr(),
+        IonType::String => write_repr_string(elem.as_str(), &mut hasher),
         IonType::Clob | IonType::Blob | IonType::List | IonType::SExpression | IonType::Struct => {
-            todo!()
+            panic!("type {} is not yet supported", elem.ion_type())
         }
     }
 }
 
-// TODO: Don't allocate all the time!
-type BinaryRepr = Option<Vec<u8>>;
-
-/// An extension trait for getting the binary representation of the various
-/// types as defined in the spec.
-pub trait Representation {
-    fn repr(&self) -> BinaryRepr;
+/// Wraps an existing `Update` in an escaping one, which replaces each marker
+/// byte M with ESC || M.
+fn escaping<'a, U: Update>(inner: &'a mut U) -> UpdateEscaping<'a, U> {
+    UpdateEscaping(inner)
 }
 
-impl Representation for Option<&AnyInt> {
-    fn repr(&self) -> BinaryRepr {
-        match self {
-            Some(AnyInt::I64(v)) => match v {
-                0 => None,
-                _ => {
-                    let magnitude = v.abs() as u64;
-                    let encoded = binary::uint::encode_uint(magnitude);
-                    Some(encoded.as_bytes().into())
-                }
-            },
-            Some(AnyInt::BigInt(b)) => Some(b.magnitude().to_bytes_be()),
-            None => None,
-        }
-    }
-}
+struct UpdateEscaping<'a, U: Update>(&'a mut U);
 
-impl Representation for Option<&str> {
-    fn repr(&self) -> BinaryRepr {
-        match self {
-            Some(s) => Some(s.as_bytes().into()),
-            None => None,
-        }
-    }
-}
-
-impl Representation for Option<f64> {
-    /// Floats are encoded as big-endian octets of their IEEE-754 bit patterns,
-    /// except for special cases: +-zero, +-inf and nan.
-    fn repr(&self) -> BinaryRepr {
-        match self {
-            None => None,
-            Some(v) => {
-                // This matches positive and negative zero.
-                if *v == 0.0 {
-                    return if v.is_sign_positive() {
-                        None
-                    } else {
-                        Some(vec![0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-                    };
-                }
-                if v.is_infinite() {
-                    return if v.is_sign_positive() {
-                        Some(vec![0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-                    } else {
-                        Some(vec![0xFF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-                    };
-                }
-
-                if v.is_nan() {
-                    return Some(vec![0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-                }
-
-                Some(v.to_be_bytes().into())
+impl<'a, U: Update> Update for UpdateEscaping<'a, U> {
+    fn update(&mut self, data: impl AsRef<[u8]>) {
+        for byte in data.as_ref() {
+            if let Markers::B | Markers::E | Markers::ESC = *byte {
+                self.0.update([0x0C]);
             }
+            self.0.update([*byte]);
+        }
+    }
+}
+
+fn write_repr_integer<U: Update>(value: Option<&AnyInt>, hasher: &mut UpdateEscaping<'_, U>) {
+    match value {
+        Some(AnyInt::I64(v)) => match v {
+            0 => {}
+            _ => {
+                let magnitude = v.abs() as u64;
+                let encoded = binary::uint::encode_uint(magnitude);
+                hasher.update(encoded.as_bytes())
+            }
+        },
+        Some(AnyInt::BigInt(b)) => hasher.update(&b.magnitude().to_bytes_be()[..]),
+        None => {}
+    }
+}
+
+fn write_repr_string<U: Update>(value: Option<&str>, hasher: &mut UpdateEscaping<'_, U>) {
+    match value {
+        Some(s) => hasher.update(s.as_bytes()),
+        None => {}
+    }
+}
+
+/// Floats are encoded as big-endian octets of their IEEE-754 bit patterns,
+/// except for special cases: +-zero, +-inf and nan.
+fn write_repr_float<U: Update>(value: Option<f64>, hasher: &mut UpdateEscaping<'_, U>) {
+    match value {
+        None => {}
+        Some(v) => {
+            // This matches positive and negative zero.
+            if v == 0.0 {
+                return if !v.is_sign_positive() {
+                    hasher.update(&[0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                };
+            }
+            if v.is_infinite() {
+                return if v.is_sign_positive() {
+                    hasher.update(&[0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                } else {
+                    hasher.update(&[0xFF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                };
+            }
+
+            if v.is_nan() {
+                return hasher.update(&[0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+            }
+
+            hasher.update(&v.to_be_bytes())
         }
     }
 }

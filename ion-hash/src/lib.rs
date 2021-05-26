@@ -16,7 +16,7 @@
 //! # }
 //! ```
 
-use digest::{Digest, Output};
+use digest::{Digest, FixedOutput, Output, Reset, Update};
 use ion_rs::result::IonResult;
 use ion_rs::{value::Element, IonType};
 
@@ -51,16 +51,20 @@ impl Markers {
 // hash. For now, we provide a standalone hasher using the Element API.
 /// Provides Ion hash over arbitrary [`Element`] instances with a given
 /// [`Digest`] algorithm.
+///
+/// The trait bounds are over the various subtraits that make up the `Digest`
+/// trait. The reason for this is we can't go from `Digest` to subtrait (e.g.
+/// `Update`) but can go the other way around!
 pub struct IonHasher<D>
 where
-    D: Digest,
+    D: Update + FixedOutput + Reset + Clone + Default,
 {
     hasher: D,
 }
 
 impl<D> IonHasher<D>
 where
-    D: Digest,
+    D: Update + FixedOutput + Reset + Clone + Default,
 {
     pub fn new(hasher: D) -> Self {
         Self { hasher }
@@ -86,7 +90,7 @@ where
 
         // TODO: Annotations
 
-        Ok(self.hasher.finalize())
+        Ok(self.hasher.finalize_fixed())
     }
 
     #[inline]
@@ -106,21 +110,6 @@ where
 
     fn hash_scalar<E: Element + ?Sized>(&mut self, elem: &E) {
         self.hash_no_repr(elem);
-        if let Some(repr) = representation::binary_repr(elem) {
-            self.hasher.update(ion_hash_escape(&repr[..]));
-        }
+        representation::write_repr(elem, &mut self.hasher);
     }
-}
-
-/// Replaces each marker byte M with ESC || M.
-fn ion_hash_escape(representation: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(representation.len());
-    for byte in representation {
-        if let Markers::B | Markers::E | Markers::ESC = *byte {
-            out.push(0x0C);
-        }
-        out.push(*byte);
-    }
-
-    out
 }
