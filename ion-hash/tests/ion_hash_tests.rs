@@ -1,72 +1,12 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use digest::{consts::U8, generic_array::GenericArray};
-use digest::{FixedOutput, Reset, Update};
-use ion_hash::{self, IonHasher};
-use ion_rs::result::IonResult;
+use digest::Digest;
+use ion_hash;
+use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::value::reader::{element_reader, ElementReader};
 use ion_rs::value::*;
-use std::{cell::RefCell, fs::read, rc::Rc};
-
-// This type exists purely to facilitate testing with ion-hash-test. See that
-// package for details on how the tests are structured.
-//
-// In a nutshell, the purpose of the tests are to ensure that the Ion Hash
-// implementation correctly normalizes and represents the Ion values. The
-// purpose is _not_ to test the hashing function! So.. `updates` track the byte
-// representations of values we incorporate into the hash.
-//
-// The `Digest` trait specifies a fixed length output. Because our tests aren't
-// really doing any hashing (they're just tracking the bytes sent to `update`),
-// we don't have a fixed length output! Instead, we have the tests look at a Vec
-// that tracks what was fed into `update`. This means that the result of calling
-// `finalize` is garbage.
-//
-// Because [`IonHasher`] wants to own the `Digest`, we use `Rc<RefCell<T>>` to
-// allow for cloning. This, in turn, allows our tests to retain access to the
-// mock. Why is this important? Because concrete access to the mock allows
-// access to the variable size update vec!
-#[derive(Default, Clone)]
-struct TestDigest {
-    inner: Rc<RefCell<TestDigestInner>>,
-}
-
-#[derive(Default)]
-struct TestDigestInner {
-    updates: Vec<u8>,
-}
-
-impl Update for TestDigest {
-    fn update(&mut self, bytes: impl AsRef<[u8]>) {
-        let mut inner = self.inner.borrow_mut();
-        inner.updates.extend(bytes.as_ref());
-    }
-}
-
-impl FixedOutput for TestDigest {
-    // This is not really used other than to satisfy the trait. See the comments
-    // on [`TestDigest`].
-    type OutputSize = U8;
-
-    // Nothing - see top level comment.
-    fn finalize_into(self, _out: &mut GenericArray<u8, Self::OutputSize>) {}
-
-    // Nothing - see top level comment.
-    fn finalize_into_reset(&mut self, _out: &mut GenericArray<u8, Self::OutputSize>) {}
-}
-
-impl Reset for TestDigest {
-    fn reset(&mut self) {
-        self.inner.borrow_mut().updates.clear();
-    }
-}
-
-impl TestDigest {
-    fn inspect_updates(&self) -> Vec<u8> {
-        let inner = self.inner.borrow();
-        inner.updates.clone()
-    }
-}
+use sha2::Sha256;
+use std::fs::read;
 
 #[test]
 fn ion_hash_tests() -> IonResult<()> {
@@ -94,32 +34,59 @@ fn test_all<E: Element>(elems: Vec<E>) -> IonResult<()> {
 }
 
 fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
+    let test_case_name = test_case_name(ion)?;
     let strukt = strukt.as_struct().expect("`expect` should be a struct");
+    let expected = compute_expected_hash(strukt)?;
+    let result = ion_hash::sha256(ion)?;
+    assert_eq!(
+        &expected[..],
+        &result[..],
+        "test case {} failed",
+        test_case_name
+    );
+
+    Ok(())
+}
+
+fn compute_expected_hash<S: Struct + ?Sized>(strukt: &S) -> IonResult<Vec<u8>> {
     let identity = strukt
         .get("identity")
         .expect("`expect` should have a field called `identity`")
         .as_sequence()
         .expect("`identity` should be a sexp");
 
-    let digest = TestDigest::default();
-    let hasher = IonHasher::new(digest.clone());
-    let test_case_name = test_case_name(ion)?;
-
-    // We completely ignore the result here! See [`TestDigest`] for why!
-    let _ = hasher.hash_element(ion)?;
-    // .. instead, we use the result that's waiting in our mock digest
-    // implementation.
-    let result = digest.inspect_updates();
-
-    for it in identity.iter() {
-        let method = it
+    // The Ion hash tests are written as a series of mock style expectations.
+    // Consider the first test:
+    //
+    //     { ion:null, expect:{
+    //        identity:(update::(0x0b) update::(0x0f) update::(0x0e) digest::(0x0b 0x0f 0x0e)),
+    //
+    // The 'identity' case says that the underlying hasher should receive 3x
+    // calls to the `update` method (with the specified bytes) and then 1x call
+    // to the `digest` method.
+    //
+    // The nice thing about these tests is they help with debugging. If an
+    // implementation got the wrong answer, you can dig through how it got there
+    // and see which steps were wrong.
+    //
+    // The Rust `digest` trait is organized around fixed size hashers. This
+    // makes implementing an identity hasher tricky (since the result is
+    // variable sized).
+    //
+    // So, instead of doing mock-style assertions, we instead use a real hasher.
+    // We use the expectations to drive that hasher to produce a result, and
+    // remember it. Then we take the Ion hash (using the same algorithm) and it
+    // should have that same result!
+    let mut preflight = Sha256::new();
+    if let Some(ref expectation) = identity.iter().last() {
+        let method = expectation
             .annotations()
             .next()
             .expect("identity sexps have one annotation")
             .text()
             .expect("identity sexps contain elements with text annotations");
 
-        let bytes: Vec<_> = it
+        let bytes: Vec<_> = expectation
             .as_sequence()
             .expect("identity sexps have sub-sexps")
             .iter()
@@ -127,30 +94,17 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
             .collect();
 
         match method {
-            "update" => {
-                // TODO: We currently don't assert on intermediate updates. It's
-                // not clear if this is actually valuable, other than helping
-                // diagnose bugs.
-            }
-            "digest" => {
-                let result_slice = &result[..];
-
-                // Convert into hex repr to make assertion failures look like
-                // the test case definitions.
-                let expected = format!("{:02X?}", bytes);
-                let actual = format!("{:02X?}", result_slice);
-
-                assert_eq!(
-                    expected, actual,
-                    "case: {}; bytes failed to match",
-                    test_case_name
-                );
-            }
-            other => unimplemented!("{} is not yet implemented", other),
+            "digest" | "final_digest" => preflight.update(bytes),
+            _ => illegal_operation(format!(
+                "the last expectation should be a `digest` or `final_digest`, but as {}",
+                method,
+            ))?,
         }
+    } else {
+        illegal_operation("there were no expectations in this test case")?;
     }
 
-    Ok(())
+    Ok(preflight.finalize().to_vec())
 }
 
 /// Test cases may be annotated with a test name. Or, not! If they aren't, the

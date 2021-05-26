@@ -85,8 +85,9 @@ where
             | IonType::Symbol
             | IonType::String
             | IonType::Clob
-            | IonType::Blob => self.hash_scalar(elem),
-            IonType::List | IonType::SExpression | IonType::Struct => todo!(),
+            | IonType::Blob
+            | IonType::Struct => self.hash(elem),
+            IonType::List | IonType::SExpression => todo!(),
         };
         self.mark_end();
 
@@ -110,8 +111,8 @@ where
         self.hasher.update(tq.as_bytes());
     }
 
-    fn hash_scalar<E: Element + ?Sized>(&mut self, elem: &E) {
+    fn hash<E: Element + ?Sized>(&mut self, elem: &E) {
         self.hash_no_repr(elem);
-        representation::write_repr(elem, &mut self.hasher);
+        representation::update_with_representation(elem, &mut self.hasher);
     }
 }

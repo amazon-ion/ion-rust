@@ -7,7 +7,7 @@
 //! and not speed.
 
 use crate::Markers;
-use digest::{Digest, Update};
+use digest::{FixedOutput, Update};
 use ion_rs::{
     binary,
     value::{AnyInt, Element},
@@ -17,30 +17,46 @@ use ion_rs::{
 // TODO: Finish ion-rust's binary writer and factor it such that the binary
 // representations can be written by the "raw" writer (ref. the Java
 // implementation).
-pub(crate) fn write_repr<E: Element + ?Sized, D: Digest + Update>(elem: &E, hasher: &mut D) {
-    let mut hasher = escaping(hasher);
+pub(crate) fn update_with_representation<E: Element + ?Sized, D: Update + FixedOutput + Default>(
+    elem: &E,
+    hasher: &mut D,
+) {
+    let mut escaping = escaping(hasher);
+    write_repr(elem, &mut escaping);
+}
 
+fn write_repr<E: Element + ?Sized, D: Update + FixedOutput + Default>(
+    elem: &E,
+    hasher: &mut EscapingDigest<'_, D>,
+) {
     match elem.ion_type() {
         IonType::Null | IonType::Boolean => {} // these types have no representation
-        IonType::Integer => write_repr_integer(elem.as_any_int(), &mut hasher),
-        IonType::Float => write_repr_float(elem.as_f64(), &mut hasher),
+        IonType::Integer => write_repr_integer(elem.as_any_int(), hasher),
+        IonType::Float => write_repr_float(elem.as_f64(), hasher),
         IonType::Decimal | IonType::Timestamp | IonType::Symbol => todo!(),
-        IonType::String => write_repr_string(elem.as_str(), &mut hasher),
-        IonType::Clob | IonType::Blob | IonType::List | IonType::SExpression | IonType::Struct => {
+        IonType::String => write_repr_string(elem.as_str(), hasher),
+        IonType::Clob | IonType::Blob | IonType::List | IonType::SExpression => {
             panic!("type {} is not yet supported", elem.ion_type())
         }
+        IonType::Struct => panic!("type {} is not yet supported", elem.ion_type()), // coming soon! write_repr_struct(elem.as_struct(), hasher),
     }
 }
 
 /// Wraps an existing `Update` in an escaping one, which replaces each marker
 /// byte M with ESC || M.
-fn escaping<'a, U: Update>(inner: &'a mut U) -> UpdateEscaping<'a, U> {
-    UpdateEscaping(inner)
+fn escaping<'a, D>(inner: &'a mut D) -> EscapingDigest<'a, D>
+where
+    D: Update,
+{
+    EscapingDigest(inner)
 }
 
-struct UpdateEscaping<'a, U: Update>(&'a mut U);
+struct EscapingDigest<'a, D: Update>(&'a mut D);
 
-impl<'a, U: Update> Update for UpdateEscaping<'a, U> {
+impl<'a, D> Update for EscapingDigest<'a, D>
+where
+    D: Update,
+{
     fn update(&mut self, data: impl AsRef<[u8]>) {
         for byte in data.as_ref() {
             if let Markers::B | Markers::E | Markers::ESC = *byte {
@@ -51,7 +67,7 @@ impl<'a, U: Update> Update for UpdateEscaping<'a, U> {
     }
 }
 
-fn write_repr_integer<U: Update>(value: Option<&AnyInt>, hasher: &mut UpdateEscaping<'_, U>) {
+fn write_repr_integer<D: Update>(value: Option<&AnyInt>, hasher: &mut EscapingDigest<'_, D>) {
     match value {
         Some(AnyInt::I64(v)) => match v {
             0 => {}
@@ -68,7 +84,7 @@ fn write_repr_integer<U: Update>(value: Option<&AnyInt>, hasher: &mut UpdateEsca
 
 /// Floats are encoded as big-endian octets of their IEEE-754 bit patterns,
 /// except for special cases: +-zero, +-inf and nan.
-fn write_repr_float<U: Update>(value: Option<f64>, hasher: &mut UpdateEscaping<'_, U>) {
+fn write_repr_float<D: Update>(value: Option<f64>, hasher: &mut EscapingDigest<'_, D>) {
     match value {
         None => {}
         Some(v) => {
@@ -95,7 +111,7 @@ fn write_repr_float<U: Update>(value: Option<f64>, hasher: &mut UpdateEscaping<'
     }
 }
 
-fn write_repr_string<U: Update>(value: Option<&str>, hasher: &mut UpdateEscaping<'_, U>) {
+fn write_repr_string<D: Update>(value: Option<&str>, hasher: &mut EscapingDigest<'_, D>) {
     match value {
         Some(s) => hasher.update(s.as_bytes()),
         None => {}
