@@ -77,7 +77,7 @@ where
     pub fn hash_element<E: Element + ?Sized>(mut self, elem: &E) -> IonResult<Output<D>> {
         self.mark_begin();
         match elem.ion_type() {
-            IonType::Null | IonType::Boolean => self.hash_no_repr(elem),
+            IonType::Null | IonType::Boolean => self.hash_type(elem),
             IonType::Integer
             | IonType::Float
             | IonType::Decimal
@@ -106,13 +106,13 @@ where
         self.hasher.update([Markers::E]);
     }
 
-    fn hash_no_repr<E: Element + ?Sized>(&mut self, elem: &E) {
+    fn hash_type<E: Element + ?Sized>(&mut self, elem: &E) {
         let tq = TypeQualifier::from_element(elem);
         self.hasher.update(tq.as_bytes());
     }
 
     fn hash<E: Element + ?Sized>(&mut self, elem: &E) {
-        self.hash_no_repr(elem);
+        self.hash_type(elem);
         representation::update_with_representation(elem, &mut self.hasher);
     }
 }
