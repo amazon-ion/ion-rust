@@ -82,6 +82,15 @@ fn write_repr_integer<D: Update>(value: Option<&AnyInt>, hasher: &mut EscapingDi
     }
 }
 
+/// Ion hash defines representations for some special values.
+struct Floats;
+impl Floats {
+    const NEGATIVE_ZERO: [u8; 8] = [0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    const POSITIVE_INFINITY: [u8; 8] = [0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    const NEGATIVE_INFINITY: [u8; 8] = [0xFF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    const NAN: [u8; 8] = [0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+}
+
 /// Floats are encoded as big-endian octets of their IEEE-754 bit patterns,
 /// except for special cases: +-zero, +-inf and nan.
 fn write_repr_float<D: Update>(value: Option<f64>, hasher: &mut EscapingDigest<'_, D>) {
@@ -91,19 +100,19 @@ fn write_repr_float<D: Update>(value: Option<f64>, hasher: &mut EscapingDigest<'
             // This matches positive and negative zero.
             if v == 0.0 {
                 return if !v.is_sign_positive() {
-                    hasher.update(&[0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                    hasher.update(Floats::NEGATIVE_ZERO);
                 };
             }
             if v.is_infinite() {
                 return if v.is_sign_positive() {
-                    hasher.update(&[0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                    hasher.update(Floats::POSITIVE_INFINITY)
                 } else {
-                    hasher.update(&[0xFF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                    hasher.update(Floats::NEGATIVE_INFINITY)
                 };
             }
 
             if v.is_nan() {
-                return hasher.update(&[0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+                return hasher.update(Floats::NAN);
             }
 
             hasher.update(&v.to_be_bytes())
