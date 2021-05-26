@@ -21,7 +21,7 @@ pub(crate) fn write_repr<E: Element + ?Sized, D: Digest + Update>(elem: &E, hash
     let mut hasher = escaping(hasher);
 
     match elem.ion_type() {
-        IonType::Null | IonType::Boolean => todo!(),
+        IonType::Null | IonType::Boolean => {} // these types have no representation
         IonType::Integer => write_repr_integer(elem.as_any_int(), &mut hasher),
         IonType::Float => write_repr_float(elem.as_f64(), &mut hasher),
         IonType::Decimal | IonType::Timestamp | IonType::Symbol => todo!(),
@@ -66,13 +66,6 @@ fn write_repr_integer<U: Update>(value: Option<&AnyInt>, hasher: &mut UpdateEsca
     }
 }
 
-fn write_repr_string<U: Update>(value: Option<&str>, hasher: &mut UpdateEscaping<'_, U>) {
-    match value {
-        Some(s) => hasher.update(s.as_bytes()),
-        None => {}
-    }
-}
-
 /// Floats are encoded as big-endian octets of their IEEE-754 bit patterns,
 /// except for special cases: +-zero, +-inf and nan.
 fn write_repr_float<U: Update>(value: Option<f64>, hasher: &mut UpdateEscaping<'_, U>) {
@@ -99,5 +92,12 @@ fn write_repr_float<U: Update>(value: Option<f64>, hasher: &mut UpdateEscaping<'
 
             hasher.update(&v.to_be_bytes())
         }
+    }
+}
+
+fn write_repr_string<U: Update>(value: Option<&str>, hasher: &mut UpdateEscaping<'_, U>) {
+    match value {
+        Some(s) => hasher.update(s.as_bytes()),
+        None => {}
     }
 }
