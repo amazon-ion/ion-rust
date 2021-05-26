@@ -52,9 +52,11 @@ impl Markers {
 /// Provides Ion hash over arbitrary [`Element`] instances with a given
 /// [`Digest`] algorithm.
 ///
-/// The trait bounds are over the various subtraits that make up the `Digest`
-/// trait. The reason for this is we can't go from `Digest` to subtrait (e.g.
-/// `Update`) but can go the other way around!
+/// Note that [`Digest`] *does not imply* the following traits directly, but is
+/// a *convenience* trait for these other traits with a blanked implementation.
+/// This is the reason for this is we can't go from [`Digest`] to these
+/// traits (e.g. [`Update`]) but because of a blanket implementation, we can go
+/// the other way.
 pub struct IonHasher<D>
 where
     D: Update + FixedOutput + Reset + Clone + Default,
