@@ -77,7 +77,7 @@ impl TypeQualifier {
             IonType::Blob => Blob,
             IonType::List => List,
             IonType::SExpression => SExpression,*/
-            IonType::Struct => combine(Struct, 0),
+            /*IonType::Struct => combine(Struct, 0),*/
             _ => todo!(),
         }
     }
