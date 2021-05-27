@@ -1,4 +1,6 @@
-use crate::result::{decoding_error, IonResult};
+use std::convert::TryFrom;
+
+use crate::result::{decoding_error, IonError};
 use crate::types::IonType;
 
 /// Represents the type information found in the header byte of each binary Ion value.
@@ -13,7 +15,7 @@ use crate::types::IonType;
 /// [Typed Value Formats](http://amzn.github.io/ion-docs/docs/binary.html#typed-value-formats)
 /// section of the spec for more information.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub(crate) enum IonTypeCode {
+pub enum IonTypeCode {
     NullOrWhitespace, // 0
     Boolean,          // 1
     PositiveInteger,  // 2
@@ -32,11 +34,13 @@ pub(crate) enum IonTypeCode {
     Reserved,         // 15
 }
 
-impl IonTypeCode {
+impl TryFrom<IonTypeCode> for IonType {
+    type Error = IonError;
+
     /// Attempts to convert the system-level IonTypeCode into the corresponding user-level IonType.
-    pub fn into_ion_type(self) -> IonResult<IonType> {
-        use self::IonTypeCode::*;
-        let ion_type = match self {
+    fn try_from(ion_type_code: IonTypeCode) -> Result<Self, Self::Error> {
+        use IonTypeCode::*;
+        let ion_type = match ion_type_code {
             NullOrWhitespace => IonType::Null,
             Boolean => IonType::Boolean,
             PositiveInteger | NegativeInteger => IonType::Integer,
@@ -53,17 +57,21 @@ impl IonTypeCode {
             _ => {
                 return decoding_error(format!(
                     "Attempted to make an IonType from an invalid type code: {:?}",
-                    self
+                    ion_type_code
                 ));
             }
         };
         Ok(ion_type)
     }
+}
+
+impl TryFrom<u8> for IonTypeCode {
+    type Error = IonError;
 
     /// Attempts to convert the provided byte into an IonTypeCode. Any value greater than 15
     /// will result in an Error.
-    pub fn from(type_code: u8) -> IonResult<IonTypeCode> {
-        use self::IonTypeCode::*;
+    fn try_from(type_code: u8) -> Result<Self, Self::Error> {
+        use IonTypeCode::*;
         let ion_type_code = match type_code {
             0 => NullOrWhitespace,
             1 => Boolean,
@@ -86,5 +94,30 @@ impl IonTypeCode {
             }
         };
         Ok(ion_type_code)
+    }
+}
+
+impl IonTypeCode {
+    /// Constant function to convert an [`IonTypeCode`] into a `u8`.
+    pub const fn to_u8(self) -> u8 {
+        use IonTypeCode::*;
+        match self {
+            NullOrWhitespace => 0,
+            Boolean => 1,
+            PositiveInteger => 2,
+            NegativeInteger => 3,
+            Float => 4,
+            Decimal => 5,
+            Timestamp => 6,
+            Symbol => 7,
+            String => 8,
+            Clob => 9,
+            Blob => 10,
+            List => 11,
+            SExpression => 12,
+            Struct => 13,
+            Annotation => 14,
+            Reserved => 15,
+        }
     }
 }

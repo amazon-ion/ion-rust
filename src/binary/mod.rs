@@ -7,9 +7,9 @@ mod header;
 mod int;
 mod nibbles;
 mod type_code;
-mod uint;
+pub mod uint;
 mod var_int;
 mod var_uint;
 pub mod writer;
 
-pub(crate) use type_code::IonTypeCode;
+pub use type_code::IonTypeCode;

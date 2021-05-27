@@ -16,26 +16,16 @@
 //! # }
 //! ```
 
-use digest::{Digest, Output};
-use ion_rs::result::{illegal_operation, IonResult};
+use digest::{Digest, FixedOutput, Output, Reset, Update};
+use ion_rs::result::IonResult;
 use ion_rs::{value::Element, IonType};
 
 // TODO: Make sha2 an optional dependency.
 use sha2::Sha256;
+use type_qualifier::TypeQualifier;
 
-// A `try`-like macro to workaround the Element API ergonomics. This API
-// requires checking the type and then calling the appropriate getter function
-// (which returns a None if you got it wrong). This macro turns the `None` into
-// an `IonError`.
-// TODO: Remove this once the Element API is reworked.
-macro_rules! t {
-    ($getter:expr) => {
-        match $getter {
-            Some(value) => value,
-            None => illegal_operation("Missing expected value")?,
-        }
-    };
-}
+mod representation;
+mod type_qualifier;
 
 /// Utility to hash an [`Element`] using SHA-256 as the hash function.
 // TODO: Make this conditional on some feature flag
@@ -54,11 +44,6 @@ impl Markers {
     const E: u8 = 0x0E;
     /// single byte escape
     const ESC: u8 = 0x0C;
-
-    // type qualifier octet consisting of a four-bit type code T followed by a four-bit qualifier Q
-    // (this varies per type)
-    const TQ_NULL: u8 = 0x0F;
-    const TQ_STRING: u8 = 0x80;
 }
 
 // TODO: In the fullness of time, we will have a IonHashReader and a
@@ -66,16 +51,22 @@ impl Markers {
 // hash. For now, we provide a standalone hasher using the Element API.
 /// Provides Ion hash over arbitrary [`Element`] instances with a given
 /// [`Digest`] algorithm.
+///
+/// Note that [`Digest`] *does not imply* the following traits directly, but is
+/// a *convenience* trait for these other traits with a blanked implementation.
+/// This is the reason for this is we can't go from [`Digest`] to these
+/// traits (e.g. [`Update`]) but because of a blanket implementation, we can go
+/// the other way.
 pub struct IonHasher<D>
 where
-    D: Digest,
+    D: Update + FixedOutput + Reset + Clone + Default,
 {
     hasher: D,
 }
 
 impl<D> IonHasher<D>
 where
-    D: Digest,
+    D: Update + FixedOutput + Reset + Clone + Default,
 {
     pub fn new(hasher: D) -> Self {
         Self { hasher }
@@ -84,60 +75,44 @@ where
     /// Computes the Ion hash over an [`Element`] recursively using this
     /// hasher's [`Digest`]
     pub fn hash_element<E: Element + ?Sized>(mut self, elem: &E) -> IonResult<Output<D>> {
+        self.mark_begin();
         match elem.ion_type() {
-            IonType::Null => self.hash_null(),
-            IonType::Boolean => self.hash_bool(elem.as_bool()),
-            IonType::Integer => todo!(),
-            IonType::Float => todo!(),
-            IonType::Decimal => todo!(),
-            IonType::Timestamp => todo!(),
-            IonType::Symbol => todo!(),
-            IonType::String => self.hash_string(t!(elem.as_str())),
-            IonType::Clob => todo!(),
-            IonType::Blob => todo!(),
-            IonType::List => todo!(),
-            IonType::SExpression => todo!(),
-            IonType::Struct => todo!(),
+            IonType::Null | IonType::Boolean => self.hash_type(elem),
+            IonType::Integer
+            | IonType::Float
+            | IonType::Decimal
+            | IonType::Timestamp
+            | IonType::Symbol
+            | IonType::String
+            | IonType::Clob
+            | IonType::Blob
+            | IonType::Struct => self.hash(elem),
+            IonType::List | IonType::SExpression => todo!(),
         };
+        self.mark_end();
 
         // TODO: Annotations
 
-        Ok(self.hasher.finalize())
+        Ok(self.hasher.finalize_fixed())
     }
 
-    fn hash_null(&mut self) {
+    #[inline]
+    fn mark_begin(&mut self) {
         self.hasher.update([Markers::B]);
-        self.hasher.update([Markers::TQ_NULL]);
+    }
+
+    #[inline]
+    fn mark_end(&mut self) {
         self.hasher.update([Markers::E]);
     }
 
-    fn hash_bool(&mut self, value: Option<bool>) {
-        self.hasher.update([Markers::B]);
-        self.hasher.update([match value {
-            Some(false) => 0x10,
-            Some(true) => 0x11,
-            None => 0x1F,
-        }]);
-        self.hasher.update([Markers::E]);
+    fn hash_type<E: Element + ?Sized>(&mut self, elem: &E) {
+        let tq = TypeQualifier::from_element(elem);
+        self.hasher.update(tq.as_bytes());
     }
 
-    fn hash_string(&mut self, value: &str) {
-        self.hasher.update([Markers::B, Markers::TQ_STRING]);
-        let representation = value.as_bytes();
-        self.hasher.update(ion_hash_escape(representation));
-        self.hasher.update([Markers::E]);
+    fn hash<E: Element + ?Sized>(&mut self, elem: &E) {
+        self.hash_type(elem);
+        representation::update_with_representation(elem, &mut self.hasher);
     }
-}
-
-/// Replaces each marker byte M with ESC || M.
-fn ion_hash_escape(representation: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(representation.len());
-    for byte in representation {
-        if let Markers::B | Markers::E | Markers::ESC = *byte {
-            out.push(0x0C);
-        }
-        out.push(*byte);
-    }
-
-    out
 }
