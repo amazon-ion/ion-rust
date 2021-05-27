@@ -11,7 +11,7 @@ pub mod timestamp;
 
 use crate::result::{illegal_operation, IonError};
 use ion_c_sys::ION_TYPE;
-use std::convert::TryFrom;
+use std::{convert::TryFrom, fmt};
 
 /// Represents the Ion data type of a given value. To learn more about each data type,
 /// read [the Ion Data Model](http://amzn.github.io/ion-docs/docs/spec.html#the-ion-data-model)
@@ -31,6 +31,30 @@ pub enum IonType {
     List,
     SExpression,
     Struct,
+}
+
+impl fmt::Display for IonType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                IonType::Null => "null",
+                IonType::Boolean => "boolean",
+                IonType::Integer => "integer",
+                IonType::Float => "float",
+                IonType::Decimal => "decimal",
+                IonType::Timestamp => "timestamp",
+                IonType::Symbol => "symbol",
+                IonType::String => "string",
+                IonType::Clob => "clob",
+                IonType::Blob => "blob",
+                IonType::List => "list",
+                IonType::SExpression => "sexp",
+                IonType::Struct => "struct",
+            }
+        )
+    }
 }
 
 impl IonType {
