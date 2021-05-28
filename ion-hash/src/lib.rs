@@ -61,9 +61,21 @@ where
     D: Update + FixedOutput + Reset + Clone + Default,
 {
     let mut hasher = D::default();
-    mark_begin(&mut hasher);
+    update_serialized_bytes(elem, &mut hasher)?;
+    Ok(hasher.finalize_fixed())
+}
+
+/// Implements the "serialized bytes" transform as described in the spec. The
+/// bytes are written to `hasher` (as opposed to returned) for performance
+/// reasons (avoid allocations for DSTs).
+fn update_serialized_bytes<E, D>(elem: &E, hasher: &mut D) -> IonResult<()>
+where
+    E: Element + ?Sized,
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
+    mark_begin(hasher);
     match elem.ion_type() {
-        IonType::Null | IonType::Boolean => update_type_qualifier(elem, &mut hasher),
+        IonType::Null | IonType::Boolean => update_type_qualifier(elem, hasher),
         IonType::Integer
         | IonType::Float
         | IonType::Decimal
@@ -72,14 +84,14 @@ where
         | IonType::String
         | IonType::Clob
         | IonType::Blob
-        | IonType::Struct => update_type_qualifier_and_representation(elem, &mut hasher)?,
-        IonType::List | IonType::SExpression => todo!(),
+        | IonType::Struct
+        | IonType::List
+        | IonType::SExpression => update_type_qualifier_and_representation(elem, hasher)?,
     };
-    mark_end(&mut hasher);
-
     // TODO: Annotations
+    mark_end(hasher);
 
-    Ok(hasher.finalize_fixed())
+    Ok(())
 }
 
 #[inline]
