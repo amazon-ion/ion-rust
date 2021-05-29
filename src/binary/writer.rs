@@ -15,7 +15,7 @@ use crate::result::{illegal_operation, IonResult};
 use crate::types::SymbolId;
 use crate::IonType;
 
-use super::timestamp::write_datetime;
+use super::timestamp::TimestampBinaryExt;
 use super::uint;
 
 // Ion's length prefixing requires that elements in a stream be encoded out of order.
@@ -521,7 +521,11 @@ impl<W: Write> BinarySystemWriter<W> {
 
     /// Writes an Ion timestamp with the specified value.
     pub fn write_datetime(&mut self, value: &DateTime<FixedOffset>) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| write_datetime(value, enc_buffer))
+        self.write_scalar(|enc_buffer| {
+            // TODO: Avoid the requirement to clone to make a `Timestamp`.
+            let timestamp = value.clone().into();
+            enc_buffer.write_timestamp(&timestamp)
+        })
     }
 
     pub fn write_symbol_id(&mut self, symbol_id: SymbolId) -> IonResult<()> {
