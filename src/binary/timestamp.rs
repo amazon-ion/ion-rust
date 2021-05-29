@@ -1,18 +1,42 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+use std::io::{self, Write};
+
 use bytes::BufMut;
 use chrono::{DateTime, Datelike, FixedOffset, Timelike};
-use std::io::{self, Write};
+use smallvec::SmallVec;
 
 use crate::{
     binary::{uint::DecodedUInt, var_int::VarInt, var_uint::VarUInt, writer::MAX_INLINE_LENGTH},
     result::IonResult,
 };
 
-/// NOTE: Currently, this function always writes a timestamp with nanosecond precision.
 // TODO: Provide a `write_datetime_with_precision` method.
 pub fn write_datetime<W: Write>(value: &DateTime<FixedOffset>, sink: &mut W) -> IonResult<()> {
-    const TIMESTAMP_BUFFER_SIZE: usize = 16;
+    let encoded = encode_datetime(value)?;
+
+    // Write the type descriptor, length, and then flush our stack buffer.
+    let type_descriptor: u8;
+    if encoded.len() <= MAX_INLINE_LENGTH {
+        type_descriptor = 0x60 | encoded.len() as u8;
+        sink.write(&[type_descriptor])?;
+    } else {
+        type_descriptor = 0x6E;
+        sink.write(&[type_descriptor])?;
+        VarUInt::write_u64(sink, encoded.len() as u64)?;
+    }
+
+    sink.write(&encoded[..])?;
+
+    Ok(())
+}
+
+const TIMESTAMP_BUFFER_SIZE: usize = 16;
+
+/// NOTE: Currently, this function always encodes with nanosecond precision.
+pub fn encode_datetime(
+    value: &DateTime<FixedOffset>,
+) -> IonResult<SmallVec<[u8; TIMESTAMP_BUFFER_SIZE]>> {
     const SECONDS_PER_MINUTE: f32 = 60f32;
     let mut buffer = [0u8; TIMESTAMP_BUFFER_SIZE];
     let mut writer = io::Cursor::new(&mut buffer).writer();
@@ -42,19 +66,8 @@ pub fn write_datetime<W: Write>(value: &DateTime<FixedOffset>, sink: &mut W) -> 
     DecodedUInt::write_u64(&mut writer, nanoseconds as u64)?;
 
     let encoded_length = writer.get_ref().position() as usize;
+    let slice = &writer.into_inner().into_inner()[..encoded_length];
+    let encoded = SmallVec::from(slice);
 
-    // Write the type descriptor, length, and then flush our stack buffer.
-    let type_descriptor: u8;
-    if encoded_length <= MAX_INLINE_LENGTH {
-        type_descriptor = 0x60 | encoded_length as u8;
-        sink.write(&[type_descriptor])?;
-    } else {
-        type_descriptor = 0x6E;
-        sink.write(&[type_descriptor])?;
-        VarUInt::write_u64(sink, encoded_length as u64)?;
-    }
-    let raw_buffer = writer.into_inner().into_inner();
-    sink.write(&raw_buffer[..encoded_length])?;
-
-    Ok(())
+    Ok(encoded)
 }
