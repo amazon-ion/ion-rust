@@ -4,7 +4,7 @@ use std::{io, mem};
 
 use bigdecimal::{BigDecimal, Signed, ToPrimitive};
 use bytes::BufMut;
-use chrono::{DateTime, Datelike, FixedOffset, Timelike};
+use chrono::{DateTime, FixedOffset};
 
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::int::Int;
@@ -15,6 +15,7 @@ use crate::result::{illegal_operation, IonResult};
 use crate::types::SymbolId;
 use crate::IonType;
 
+use super::timestamp::write_datetime;
 use super::uint;
 
 // Ion's length prefixing requires that elements in a stream be encoded out of order.
@@ -138,7 +139,7 @@ pub struct BinarySystemWriter<W: Write> {
 
 // The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
 // Larger length values will need to be written as a VarUInt following the type descriptor.
-const MAX_INLINE_LENGTH: usize = 13;
+pub(crate) const MAX_INLINE_LENGTH: usize = 13;
 
 // The number of IoRanges needed to write out an annotations wrapper, not including the IoRange
 // belonging to the wrapped value. (One IoRange for each of: the annotations sequence, the length
@@ -519,55 +520,8 @@ impl<W: Write> BinarySystemWriter<W> {
     }
 
     /// Writes an Ion timestamp with the specified value.
-    /// NOTE: Currently, this function always writes a timestamp with nanosecond precision.
-    // TODO: Provide a `write_datetime_with_precision` method.
     pub fn write_datetime(&mut self, value: &DateTime<FixedOffset>) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            const TIMESTAMP_BUFFER_SIZE: usize = 16;
-            const SECONDS_PER_MINUTE: f32 = 60f32;
-            let mut buffer = [0u8; TIMESTAMP_BUFFER_SIZE];
-            let mut writer = io::Cursor::new(&mut buffer).writer();
-
-            // Each component of the timestamp is in UTC time. Readers then apply the offset minutes
-            // to derive the localized time.
-            let utc = value.naive_utc();
-
-            // Ion encodes offsets in minutes while DateTime stores it in seconds.
-            let offset_seconds = value.offset().utc_minus_local();
-            let offset_minutes = (offset_seconds as f32 / SECONDS_PER_MINUTE).round() as i64;
-            VarInt::write_i64(&mut writer, offset_minutes)?;
-
-            VarUInt::write_u64(&mut writer, utc.year() as u64)?;
-            VarUInt::write_u64(&mut writer, utc.month() as u64)?;
-            VarUInt::write_u64(&mut writer, utc.day() as u64)?;
-            VarUInt::write_u64(&mut writer, utc.hour() as u64)?;
-            VarUInt::write_u64(&mut writer, utc.minute() as u64)?;
-            VarUInt::write_u64(&mut writer, utc.second() as u64)?;
-
-            // This implementation always writes the datetime out with nanosecond precision.
-            // The nanoseconds are an integer, which means that our exponent is always 9
-            // and our coefficient is the number of nanoseconds.
-            let nanoseconds = utc.nanosecond();
-            const SCALE: i64 = -9; // "Scale" (used by BigDecimal) is -1 * exponent
-            VarInt::write_i64(&mut writer, SCALE)?;
-            DecodedUInt::write_u64(&mut writer, nanoseconds as u64)?;
-
-            let encoded_length = writer.get_ref().position() as usize;
-
-            // Write the type descriptor, length, and then flush our stack buffer.
-            let type_descriptor: u8;
-            if encoded_length <= MAX_INLINE_LENGTH {
-                type_descriptor = 0x60 | encoded_length as u8;
-                enc_buffer.push(type_descriptor);
-            } else {
-                type_descriptor = 0x6E;
-                enc_buffer.push(type_descriptor);
-                VarUInt::write_u64(enc_buffer, encoded_length as u64)?;
-            }
-            let raw_buffer = writer.into_inner().into_inner();
-            enc_buffer.extend_from_slice(&raw_buffer[..encoded_length]);
-            Ok(())
-        })
+        self.write_scalar(|enc_buffer| write_datetime(value, enc_buffer))
     }
 
     pub fn write_symbol_id(&mut self, symbol_id: SymbolId) -> IonResult<()> {
