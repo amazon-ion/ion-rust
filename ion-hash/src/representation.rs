@@ -147,7 +147,7 @@ where
             match s.text() {
                 Some(s) => write_repr_string(Some(s), hasher),
                 None => {
-                    // TODO: Throw an error if this is not $0
+                    // FIXME: Throw an error if this is not $0
                     {}
                 }
             }
