@@ -165,8 +165,8 @@ fn write_repr_string<D: Update>(value: Option<&str>, hasher: &mut EscapingDigest
 
 fn write_repr_blob<D: Update>(value: Option<&[u8]>, hasher: &mut EscapingDigest<'_, D>) {
     match value {
-        Some(bytes) => hasher.update(bytes),
-        None => {}
+        Some(bytes) if bytes.len() > 0 => hasher.update(bytes),
+        _ => {}
     }
 }
 
