@@ -24,13 +24,8 @@ const ALL_SKIP_LIST: &[&str] = &[
     "ion-tests/iontestdata/good/typecodes/T7-large.10n",
     "ion-tests/iontestdata/good/typecodes/type_6_length_0.10n",
     // these appear to have a problem specific to how we're calling ion-c (amzn/ion-rust#218)
-    "ion-tests/iontestdata/good/equivs/intsLargeNegative1.10n",
-    "ion-tests/iontestdata/good/equivs/intsLargePositive1.10n",
-    "ion-tests/iontestdata/good/intLongMaxValuePlusOne.10n",
     "ion-tests/iontestdata/good/item1.10n",
     "ion-tests/iontestdata/good/subfieldVarInt.ion",
-    "ion-tests/iontestdata/good/typecodes/T2.10n",
-    "ion-tests/iontestdata/good/typecodes/T3.10n",
     // these are symbols with unknown text (amzn/ion-rust#219)
     "ion-tests/iontestdata/good/symbolExplicitZero.10n",
     "ion-tests/iontestdata/good/symbolImplicitZero.10n",
