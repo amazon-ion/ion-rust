@@ -3,7 +3,7 @@ use bytes::BigEndian;
 use bytes::ByteOrder;
 use chrono::offset::FixedOffset;
 use chrono::prelude::*;
-use delegate::delegate;
+use delegate_attr::delegate;
 
 use crate::binary::constants::v1_0::IVM;
 use crate::cursor::{Cursor, StreamItem};
@@ -683,32 +683,34 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
 const EMPTY_SLICE_U8: &[u8] = &[];
 const EMPTY_SLICE_USIZE: &[usize] = &[];
 
+#[delegate(self.cursor.value)]
+impl<T> BinaryIonCursor<io::Cursor<T>>
+where
+    T: AsRef<[u8]>,
+{
+    pub fn field_id_length(&self) -> Option<usize>;
+    pub fn field_id_offset(&self) -> Option<usize>;
+    pub fn field_id_range(&self) -> Option<Range<usize>>;
+
+    pub fn annotations_length(&self) -> Option<usize>;
+    pub fn annotations_offset(&self) -> Option<usize>;
+    pub fn annotations_range(&self) -> Option<Range<usize>>;
+
+    pub fn header_length(&self) -> usize;
+    pub fn header_offset(&self) -> usize;
+    pub fn header_range(&self) -> Range<usize>;
+
+    pub fn value_length(&self) -> usize;
+    pub fn value_offset(&self) -> usize;
+    pub fn value_range(&self) -> Range<usize>;
+}
+
 /// Additional functionality that's only available if the data source is in-memory, such as a
 /// Vec<u8> or &[u8]).
 impl<T> BinaryIonCursor<io::Cursor<T>>
 where
     T: AsRef<[u8]>,
 {
-    delegate! {
-        to self.cursor.value {
-            pub fn field_id_length(&self) -> Option<usize>;
-            pub fn field_id_offset(&self) -> Option<usize>;
-            pub fn field_id_range(&self) -> Option<Range<usize>>;
-
-            pub fn annotations_length(&self) -> Option<usize>;
-            pub fn annotations_offset(&self) -> Option<usize>;
-            pub fn annotations_range(&self) -> Option<Range<usize>>;
-
-            pub fn header_length(&self) -> usize;
-            pub fn header_offset(&self) -> usize;
-            pub fn header_range(&self) -> Range<usize>;
-
-            pub fn value_length(&self) -> usize;
-            pub fn value_offset(&self) -> usize;
-            pub fn value_range(&self) -> Range<usize>;
-        }
-    }
-
     /// Returns a slice containing the entirety of this encoded value, including its field ID
     /// (if present), its annotations (if present), its header, and the encoded value itself.
     /// Calling this function does not advance the cursor.

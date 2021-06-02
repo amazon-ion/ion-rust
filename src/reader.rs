@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
-use delegate::delegate;
+use delegate_attr::delegate;
 
 use crate::constants::v1_0::system_symbol_ids;
 use crate::cursor::StreamItem::*;
@@ -176,69 +176,65 @@ impl<C: Cursor> Reader<C> {
     pub fn symbol_table(&self) -> &SymbolTable {
         &self.symbol_table
     }
+}
 
-    // The Reader needs to expose many of the same functions as the Cursor, but only some of those
-    // need to be re-defined to allow for system value processing. Any method listed here will be
-    // delegated to self.cursor directly.
-    delegate! {
-        to self.cursor {
-            pub fn is_null(&self) -> bool;
-            pub fn ion_version(&self) -> (u8, u8);
-            pub fn ion_type(&self) -> Option<IonType>;
-            pub fn annotation_ids(&self) -> &[SymbolId];
-            pub fn field_id(&self) -> Option<SymbolId>;
-            pub fn read_null(&mut self) -> IonResult<Option<IonType>>;
-            pub fn read_bool(&mut self) -> IonResult<Option<bool>>;
-            pub fn read_i64(&mut self) -> IonResult<Option<i64>>;
-            pub fn read_f32(&mut self) -> IonResult<Option<f32>>;
-            pub fn read_f64(&mut self) -> IonResult<Option<f64>>;
-            pub fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>>;
-            pub fn read_string(&mut self) -> IonResult<Option<String>>;
-            pub fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>>;
-            pub fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
-            pub fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
-            pub fn read_datetime(&mut self) -> IonResult<Option<DateTime<FixedOffset>>>;
-            pub fn step_in(&mut self) -> IonResult<()>;
-            pub fn step_out(&mut self) -> IonResult<()>;
-            pub fn depth(&self) -> usize;
+// The Reader needs to expose many of the same functions as the Cursor, but only some of those
+// need to be re-defined to allow for system value processing. Any method listed here will be
+// delegated to self.cursor directly.
+#[delegate(self.cursor)]
+impl<C: Cursor> Reader<C> {
+    pub fn is_null(&self) -> bool;
+    pub fn ion_version(&self) -> (u8, u8);
+    pub fn ion_type(&self) -> Option<IonType>;
+    pub fn annotation_ids(&self) -> &[SymbolId];
+    pub fn field_id(&self) -> Option<SymbolId>;
+    pub fn read_null(&mut self) -> IonResult<Option<IonType>>;
+    pub fn read_bool(&mut self) -> IonResult<Option<bool>>;
+    pub fn read_i64(&mut self) -> IonResult<Option<i64>>;
+    pub fn read_f32(&mut self) -> IonResult<Option<f32>>;
+    pub fn read_f64(&mut self) -> IonResult<Option<f64>>;
+    pub fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>>;
+    pub fn read_string(&mut self) -> IonResult<Option<String>>;
+    pub fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>>;
+    pub fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
+    pub fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
+    pub fn read_datetime(&mut self) -> IonResult<Option<DateTime<FixedOffset>>>;
+    pub fn step_in(&mut self) -> IonResult<()>;
+    pub fn step_out(&mut self) -> IonResult<()>;
+    pub fn depth(&self) -> usize;
 
-            pub fn string_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&str) -> U;
-            pub fn string_bytes_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
+    pub fn string_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&str) -> U;
+    pub fn string_bytes_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
 
-            pub fn clob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
-            pub fn blob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
-        }
-    }
+    pub fn clob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
+    pub fn blob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U;
 }
 
 /// Functionality that is only available if the data source we're reading from is in-memory, like
 /// a Vec<u8> or &[u8].
+#[delegate(self.cursor)]
 impl<T: AsRef<[u8]>> Reader<BinaryIonCursor<io::Cursor<T>>> {
-    delegate! {
-        to self.cursor {
-            pub fn raw_bytes(&self) -> Option<&[u8]>;
-            pub fn raw_field_id_bytes(&self) -> Option<&[u8]>;
-            pub fn raw_header_bytes(&self) -> Option<&[u8]>;
-            pub fn raw_value_bytes(&self) -> Option<&[u8]>;
-            pub fn raw_annotations_bytes(&self) -> Option<&[u8]>;
+    pub fn raw_bytes(&self) -> Option<&[u8]>;
+    pub fn raw_field_id_bytes(&self) -> Option<&[u8]>;
+    pub fn raw_header_bytes(&self) -> Option<&[u8]>;
+    pub fn raw_value_bytes(&self) -> Option<&[u8]>;
+    pub fn raw_annotations_bytes(&self) -> Option<&[u8]>;
 
-            pub fn field_id_length(&self) -> Option<usize>;
-            pub fn field_id_offset(&self) -> Option<usize>;
-            pub fn field_id_range(&self) -> Option<Range<usize>>;
+    pub fn field_id_length(&self) -> Option<usize>;
+    pub fn field_id_offset(&self) -> Option<usize>;
+    pub fn field_id_range(&self) -> Option<Range<usize>>;
 
-            pub fn annotations_length(&self) -> Option<usize>;
-            pub fn annotations_offset(&self) -> Option<usize>;
-            pub fn annotations_range(&self) -> Option<Range<usize>>;
+    pub fn annotations_length(&self) -> Option<usize>;
+    pub fn annotations_offset(&self) -> Option<usize>;
+    pub fn annotations_range(&self) -> Option<Range<usize>>;
 
-            pub fn header_length(&self) -> usize;
-            pub fn header_offset(&self) -> usize;
-            pub fn header_range(&self) -> Range<usize>;
+    pub fn header_length(&self) -> usize;
+    pub fn header_offset(&self) -> usize;
+    pub fn header_range(&self) -> Range<usize>;
 
-            pub fn value_length(&self) -> usize;
-            pub fn value_offset(&self) -> usize;
-            pub fn value_range(&self) -> Range<usize>;
-        }
-    }
+    pub fn value_length(&self) -> usize;
+    pub fn value_offset(&self) -> usize;
+    pub fn value_range(&self) -> Range<usize>;
 }
 
 #[cfg(test)]
