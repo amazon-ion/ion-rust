@@ -143,14 +143,12 @@ where
     S: SymbolToken + ?Sized,
 {
     match value {
-        Some(s) => {
-            match s.text() {
-                Some(s) => write_repr_string(Some(s), hasher),
-                None => {
-                    todo!("hash SymbolToken without text")
-                }
+        Some(s) => match s.text() {
+            Some(s) => write_repr_string(Some(s), hasher),
+            None => {
+                todo!("hash SymbolToken without text")
             }
-        }
+        },
         None => {}
     }
 }
