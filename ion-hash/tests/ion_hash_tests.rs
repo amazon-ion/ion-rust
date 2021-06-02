@@ -1,12 +1,109 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use digest::Digest;
+use digest::consts::U4096;
+use digest::{FixedOutput, Reset, Update};
 use ion_hash;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::value::reader::{element_reader, ElementReader};
 use ion_rs::value::*;
-use sha2::Sha256;
 use std::fs::read;
+use std::iter::FromIterator;
+
+#[derive(Default, Clone)]
+struct IdentityDigest(Vec<u8>);
+
+impl IdentityDigest {
+    fn output_size() -> usize {
+        4096usize
+    }
+}
+
+impl Update for IdentityDigest {
+    fn update(&mut self, data: impl AsRef<[u8]>) {
+        // When we we get the finalized output of another `IdentityDigest`, it's
+        // going to have a ton of trailing zeros. Sometimes Ion Hash actually
+        // does call update with trailing zeros (e.g. float negative zero). So
+        // we have a problem: when should we use the data verbatim and when
+        // should we strip the trailing zeros that are *only there because of
+        // the fixed output trait*? The hack is to strip trailing zeroes if we
+        // get called with something that looks like it came from the result of
+        // another IdentityDigest. Note that `>=` is used here due to escaping
+        // (which ironically, means the output isn't fixed size).
+        let data = data.as_ref();
+        let actual_update = if data.len() >= IdentityDigest::output_size() {
+            without_trailing_zeros(data)
+        } else {
+            data
+        };
+        self.0.extend(actual_update);
+    }
+}
+
+impl FixedOutput for IdentityDigest {
+    type OutputSize = U4096;
+
+    fn finalize_into(self, out: &mut digest::generic_array::GenericArray<u8, Self::OutputSize>) {
+        for (i, byte) in self.0.iter().enumerate() {
+            out[i] = *byte;
+        }
+    }
+
+    fn finalize_into_reset(
+        &mut self,
+        out: &mut digest::generic_array::GenericArray<u8, Self::OutputSize>,
+    ) {
+        for (i, byte) in self.0.iter().enumerate() {
+            out[i] = *byte;
+        }
+        self.reset();
+    }
+}
+
+impl Reset for IdentityDigest {
+    fn reset(&mut self) {
+        self.0.clear();
+    }
+}
+
+fn without_trailing_zeros(data: &[u8]) -> &[u8] {
+    if data.len() == 0 {
+        return data;
+    }
+
+    let index = data
+        .as_ref()
+        .iter()
+        .rposition(|byte| *byte != 0x00)
+        .unwrap();
+
+    &data[0..=index]
+}
+
+const IGNORE_LIST: &[&'static str] = &[
+    // These struct tests contain types that aren't yet supported
+    r#"{annotated_value:hello::{},clob:{{"hello"}},bool:false,struct:{},int:5,symbol:hello,timestamp:2017-01-01T00:00:00-00:00,list:[1,2,3],sexp:(1 2 3),float:4.9406564584124654418e-324,'null':null,string:"hello",blob:{{aGVsbG8=}},neg_int:-6,decimal:123.45}"#,
+    r#"{a:{d:[1,2,3],b:{c:5}},e:6}"#,
+    // Uses md5 (not identity)
+    r#"{Metrics:{'Event.Catchup':[{Value:0,Unit:ms}],'FanoutCache.Time':[{Value:1,Unit:ms}]}}"#,
+];
+
+fn should_ignore(test_name: &str) -> bool {
+    /// Some tests don't have names (in Ion annotations) and are named after the
+    /// Ion text representation of the case itself. We turn that (name) into a
+    /// String (see `test_case_name`) in a non-deterministic way (e.g. struct
+    /// field ordering is random). This method does some normalization for the
+    /// sake of comparing two test names!
+    fn normalize(name: &str) -> String {
+        let mut chars: Vec<_> = name.chars().filter(|ch| !ch.is_whitespace()).collect();
+        chars.sort();
+        String::from_iter(chars.iter())
+    }
+
+    let normalized_test_name = normalize(test_name);
+    IGNORE_LIST
+        .iter()
+        .any(|ignore| normalize(ignore) == normalized_test_name)
+}
 
 #[test]
 fn ion_hash_tests() -> IonResult<()> {
@@ -35,12 +132,26 @@ fn test_all<E: Element>(elems: Vec<E>) -> IonResult<()> {
 
 fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
     let test_case_name = test_case_name(ion)?;
+
+    if should_ignore(&test_case_name) {
+        println!("skipping: {}", test_case_name);
+        return Ok(());
+    }
+
+    // Uncomment me if you're trying to debug a panic!
+    // eprintln!("running: {}", test_case_name);
+
     let strukt = strukt.as_struct().expect("`expect` should be a struct");
-    let expected = compute_expected_hash(strukt)?;
-    let result = ion_hash::sha256(ion)?;
+    let expected = expected_hash(strukt)?;
+
+    let result = ion_hash::hash_element::<E, IdentityDigest>(ion)?;
+
+    // Ignore trailing empty bytes caused by the identity digest producing a
+    // variable sized result. Without this, any test failure will write lots of
+    // stuff to your console which can be annoying since it takes forever.
     assert_eq!(
-        &expected[..],
-        &result[..],
+        without_trailing_zeros(&expected[..]),
+        without_trailing_zeros(&result[..]),
         "test case {} failed",
         test_case_name
     );
@@ -48,37 +159,14 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
     Ok(())
 }
 
-fn compute_expected_hash<S: Struct + ?Sized>(strukt: &S) -> IonResult<Vec<u8>> {
-    let identity = strukt
-        .get("identity")
-        .expect("`expect` should have a field called `identity`")
-        .as_sequence()
-        .expect("`identity` should be a sexp");
+fn expected_hash<S: Struct + ?Sized>(strukt: &S) -> IonResult<Vec<u8>> {
+    let identity = if let Some(identity) = strukt.get("identity") {
+        identity.as_sequence().expect("`identity` should be a sexp")
+    } else {
+        illegal_operation("only identity tests are implemented")?
+    };
 
-    // The Ion hash tests are written as a series of mock style expectations.
-    // Consider the first test:
-    //
-    //     { ion:null, expect:{
-    //        identity:(update::(0x0b) update::(0x0f) update::(0x0e) digest::(0x0b 0x0f 0x0e)),
-    //
-    // The 'identity' case says that the underlying hasher should receive 3x
-    // calls to the `update` method (with the specified bytes) and then 1x call
-    // to the `digest` method.
-    //
-    // The nice thing about these tests is they help with debugging. If an
-    // implementation got the wrong answer, you can dig through how it got there
-    // and see which steps were wrong.
-    //
-    // The Rust `digest` trait is organized around fixed size hashers. This
-    // makes implementing an identity hasher tricky (since the result is
-    // variable sized).
-    //
-    // So, instead of doing mock-style assertions, we instead use a real hasher.
-    // We use the expectations to drive that hasher to produce a result, and
-    // remember it. Then we take the Ion hash (using the same algorithm) and it
-    // should have that same result!
-    let mut preflight = Sha256::new();
-    if let Some(ref expectation) = identity.iter().last() {
+    if let Some(expectation) = identity.iter().last() {
         let method = expectation
             .annotations()
             .next()
@@ -94,17 +182,12 @@ fn compute_expected_hash<S: Struct + ?Sized>(strukt: &S) -> IonResult<Vec<u8>> {
             .collect();
 
         match method {
-            "digest" | "final_digest" => preflight.update(bytes),
-            _ => illegal_operation(format!(
-                "the last expectation should be a `digest` or `final_digest`, but as {}",
-                method,
-            ))?,
+            "digest" | "final_digest" => return Ok(bytes),
+            _ => illegal_operation(format!("unknown expectation `{}`", method))?,
         }
     } else {
-        illegal_operation("there were no expectations in this test case")?;
+        illegal_operation(format!("expected at least expectation!"))?
     }
-
-    Ok(preflight.finalize().to_vec())
 }
 
 /// Test cases may be annotated with a test name. Or, not! If they aren't, the
