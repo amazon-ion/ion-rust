@@ -11,14 +11,19 @@ use crate::{
     types::timestamp::{Precision, Timestamp},
 };
 
+const ENCODED_BUFFER_SIZE: usize = 16;
+
 /// Extends [`Timestamp`] to support [Ion binary].
 ///
 /// [Ion binary]: https://amzn.github.io/ion-docs/docs/binary.html#6-timestamp
-impl Timestamp {
-    const BUFFER_SIZE: usize = 16;
+pub trait TimestampBinaryExt {
+    fn encode_binary(&self) -> IonResult<ArrayVec<u8, { ENCODED_BUFFER_SIZE }>>;
+    fn write_binary<W: Write>(&self, sink: &mut W) -> IonResult<()>;
+}
 
+impl TimestampBinaryExt for Timestamp {
     /// NOTE: Currently, this function always encodes with nanosecond precision.
-    pub fn encode_binary(&self) -> IonResult<ArrayVec<u8, { Timestamp::BUFFER_SIZE }>> {
+    fn encode_binary(&self) -> IonResult<ArrayVec<u8, { ENCODED_BUFFER_SIZE }>> {
         const SECONDS_PER_MINUTE: f32 = 60f32;
         let mut sink = ArrayVec::new_const();
         // Each component of the timestamp is in UTC time. Readers then apply the offset minutes
@@ -57,33 +62,24 @@ impl Timestamp {
 
         Ok(sink)
     }
-}
 
-pub trait TimestampBinaryExt {
-    fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()>;
-}
-
-impl<W> TimestampBinaryExt for W
-where
-    W: Write,
-{
     /// Write a timestamp. Encodes the timestamp and prepends an appropriate
     /// type decriptor.
-    fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
-        let encoded = value.encode_binary()?;
+    fn write_binary<W: Write>(&self, sink: &mut W) -> IonResult<()> {
+        let encoded = self.encode_binary()?;
 
-        // Write the type descriptor, length, and then flush our stack buffer.
+        // Write the type descriptor and length.
         let type_descriptor: u8;
         if encoded.len() <= MAX_INLINE_LENGTH {
             type_descriptor = 0x60 | encoded.len() as u8;
-            self.write(&[type_descriptor])?;
+            sink.write(&[type_descriptor])?;
         } else {
             type_descriptor = 0x6E;
-            self.write(&[type_descriptor])?;
-            VarUInt::write_u64(self, encoded.len() as u64)?;
+            sink.write(&[type_descriptor])?;
+            VarUInt::write_u64(sink, encoded.len() as u64)?;
         }
 
-        self.write(&encoded[..])?;
+        sink.write(&encoded[..])?;
 
         Ok(())
     }

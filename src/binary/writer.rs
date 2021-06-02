@@ -12,6 +12,7 @@ use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::result::{illegal_operation, IonResult};
+use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::IonType;
 
@@ -526,8 +527,8 @@ impl<W: Write> BinarySystemWriter<W> {
             // Timestamp. In #273 we discuss traits that will avoid this clone.
             // However, this API (`write_datetime`) is probably also not quite
             // right.
-            let timestamp = value.clone().into();
-            enc_buffer.write_timestamp(&timestamp)
+            let timestamp: Timestamp = value.clone().into();
+            timestamp.write_binary(enc_buffer)
         })
     }
 
