@@ -169,6 +169,15 @@ fn write_repr_blob<D: Update>(value: Option<&[u8]>, hasher: &mut EscapingDigest<
     }
 }
 
+/// Iterates over a `Struct`, computing the "field hash" of each field
+/// (key-value pair). The field hash is defined in the spec as:
+///
+/// ```text
+/// H(field) -> h(s(fieldname) || s(fieldvalue))
+/// ```
+///
+/// The resulting `Vec` is not sorted (i.e. is in the same order as the field
+/// iterator).
 fn write_repr_struct<D, S, F, E>(
     value: Option<&S>,
     hasher: &mut EscapingDigest<'_, D>,
@@ -195,15 +204,6 @@ where
     Ok(())
 }
 
-/// Iterates over a `Struct`, computing the "field hash" of each field
-/// (key-value pair). The field hash is defined in the spec as:
-///
-/// ```text
-/// H(field) -> h(s(fieldname) || s(fieldvalue))
-/// ```
-///
-/// The resulting `Vec` is not sorted (i.e. is in the same order as the field
-/// iterator).
 fn struct_field_hash<D, F, E>(key: &F, value: &E) -> IonResult<Output<D>>
 where
     D: Update + FixedOutput + Reset + Clone + Default,
