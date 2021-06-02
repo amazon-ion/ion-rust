@@ -2,9 +2,9 @@
 
 use std::io::{self, Write};
 
+use arrayvec::ArrayVec;
 use bytes::BufMut;
 use chrono::{Datelike, Timelike};
-use smallvec::SmallVec;
 
 use crate::{
     binary::{uint::DecodedUInt, var_int::VarInt, var_uint::VarUInt, writer::MAX_INLINE_LENGTH},
@@ -19,9 +19,21 @@ impl Timestamp {
     const BUFFER_SIZE: usize = 16;
 
     /// NOTE: Currently, this function always encodes with nanosecond precision.
-    pub fn encode_binary(&self) -> IonResult<SmallVec<[u8; Timestamp::BUFFER_SIZE]>> {
+    pub fn encode_binary(&self) -> IonResult<ArrayVec<u8, { Timestamp::BUFFER_SIZE }>> {
         const SECONDS_PER_MINUTE: f32 = 60f32;
-        let mut buffer = [0u8; Timestamp::BUFFER_SIZE];
+        let mut buffer = ArrayVec::new_const();
+        // When we pass our buffer into the cursor, it will use the buffer as a
+        // slice and refuse to write past `len`. Our `len` is 0, so that's no
+        // good. We set our len to capacity so that `std::io::Write::write_all`
+        // will not think it's out of capacity. Later, we clamp the len back
+        // down to the number of bytes written.
+        //
+        // Alternatively, we could use a second buffer here and then copy the
+        // data back over. Or, we could fill the buffer with 0s (slowly
+        // increasing len by 1 until capacity).
+        unsafe {
+            buffer.set_len(Timestamp::BUFFER_SIZE);
+        }
         let mut writer = io::Cursor::new(&mut buffer).writer();
 
         // Each component of the timestamp is in UTC time. Readers then apply the offset minutes
@@ -58,10 +70,12 @@ impl Timestamp {
         }
 
         let encoded_length = writer.get_ref().position() as usize;
-        let slice = &writer.into_inner().into_inner()[..encoded_length];
-        let encoded = SmallVec::from(slice);
+        // See previous unsafe note.
+        unsafe {
+            buffer.set_len(encoded_length);
+        }
 
-        Ok(encoded)
+        Ok(buffer)
     }
 }
 
