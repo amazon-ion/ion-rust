@@ -522,7 +522,10 @@ impl<W: Write> BinarySystemWriter<W> {
     /// Writes an Ion timestamp with the specified value.
     pub fn write_datetime(&mut self, value: &DateTime<FixedOffset>) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            // TODO: Avoid the requirement to clone to make a `Timestamp`.
+            // TODO: Currently this clones the Chrono type so we can make a
+            // Timestamp. In #273 we discuss traits that will avoid this clone.
+            // However, this API (`write_datetime`) is probably also not quite
+            // right.
             let timestamp = value.clone().into();
             enc_buffer.write_timestamp(&timestamp)
         })
