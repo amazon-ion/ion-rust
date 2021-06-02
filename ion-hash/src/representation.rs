@@ -147,8 +147,7 @@ where
             match s.text() {
                 Some(s) => write_repr_string(Some(s), hasher),
                 None => {
-                    // FIXME: Throw an error if this is not $0
-                    {}
+                    todo!("hash SymbolToken without text")
                 }
             }
         }
