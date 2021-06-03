@@ -85,6 +85,9 @@ const IGNORE_LIST: &[&'static str] = &[
     r#"{a:{d:[1,2,3],b:{c:5}},e:6}"#,
     // Uses md5 (not identity)
     r#"{Metrics:{'Event.Catchup':[{Value:0,Unit:ms}],'FanoutCache.Time':[{Value:1,Unit:ms}]}}"#,
+    // timestamp bugs
+    r#"2000-01-01T00:00:00.0Z"#,
+    r#"2000-01-01T00:00:00.00Z"#,
 ];
 
 fn should_ignore(test_name: &str) -> bool {
@@ -119,19 +122,50 @@ fn test_file(file_name: &str) -> IonResult<()> {
 fn test_all<E: Element>(elems: Vec<E>) -> IonResult<()> {
     for case in &elems {
         let case = case.as_struct().expect("test cases are structs");
-        // TODO: support binary ion
-        let ion = case.get("ion").expect("test cases have an `ion` value");
         let expect = case
             .get("expect")
             .expect("test cases have an `expect` value");
-        test_case(ion, expect)?;
+
+        // The case example can be text or binary but not both. Text is already
+        // decoded at this point.
+        //
+        // Implementation note: the arms call into `test_case` directly (vs.
+        // returning an `Element`) because of ownership. In the text case, we
+        // already have a decoded, borrowed Element. In the binary case, we
+        // first need to decode one and thus need to store the decoded Element
+        // somewhere. Thus, the two cases have different types: `&E` vs `E`.
+        // While we could clone the text case, it's just as simple to just
+        // inline the call to `test_case` and avoid the clone.
+        match (case.get("ion"), case.get("10n")) {
+            (Some(text), None) => test_case(text, expect)?,
+            (None, Some(binary)) => {
+                // The sexp contains a binary value without the BVM.
+                let value = seq_to_bytes(binary);
+                // TODO: the binary IVM is pub(crate) in ion-rust
+                let mut bytes = vec![0xE0, 0x01, 0x00, 0xEA];
+                bytes.extend(value);
+
+                let loaded = element_reader().read_all(&bytes)?;
+                let elem = loaded
+                    .into_iter()
+                    .nth(0)
+                    .expect("10n test case should have a single element");
+                test_case(&elem, expect)?;
+            }
+            _ => unreachable!("test cases have one of `ion` or `10n`"),
+        };
     }
 
     Ok(())
 }
 
-fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
-    let test_case_name = test_case_name(ion)?;
+/// A single test case. `input` is the input to ion-hash, while `expect` is a
+/// "program" that we use to validate ion-hash computed the right result.
+// There are two generics here due to the difference between text and binary
+// cases. Binary cases need another call to `element_reader` and the calling
+// function might be generic over `Element`.
+fn test_case<E1: Element, E2: Element>(input: &E1, expect: &E2) -> IonResult<()> {
+    let test_case_name = test_case_name(input)?;
 
     if should_ignore(&test_case_name) {
         println!("skipping: {}", test_case_name);
@@ -141,10 +175,10 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
     // Uncomment me if you're trying to debug a panic!
     // eprintln!("running: {}", test_case_name);
 
-    let strukt = strukt.as_struct().expect("`expect` should be a struct");
+    let strukt = expect.as_struct().expect("`expect` should be a struct");
     let expected = expected_hash(strukt)?;
 
-    let result = ion_hash::hash_element::<E, IdentityDigest>(ion)?;
+    let result = ion_hash::hash_element::<E1, IdentityDigest>(input)?;
 
     // Ignore trailing empty bytes caused by the identity digest producing a
     // variable sized result. Without this, any test failure will write lots of
@@ -174,12 +208,7 @@ fn expected_hash<S: Struct + ?Sized>(strukt: &S) -> IonResult<Vec<u8>> {
             .text()
             .expect("identity sexps contain elements with text annotations");
 
-        let bytes: Vec<_> = expectation
-            .as_sequence()
-            .expect("identity sexps have sub-sexps")
-            .iter()
-            .map(|it| it.as_i64().expect("sub-exps have bytes") as u8)
-            .collect();
+        let bytes = seq_to_bytes(expectation);
 
         match method {
             "digest" | "final_digest" => return Ok(bytes),
@@ -213,4 +242,14 @@ fn test_case_name<E: Element>(ion: &E) -> IonResult<String> {
         [single] => Ok(single.clone()),
         _ => unimplemented!(),
     }
+}
+
+/// The test file is full of byte arrays represented as SExps of hex-formatted
+/// bytes. This method extracts the bytes into a Vec.
+fn seq_to_bytes<E: Element>(elem: &E) -> Vec<u8> {
+    elem.as_sequence()
+        .expect("expected a sequence")
+        .iter()
+        .map(|it| it.as_i64().expect("expected a sequence of bytes") as u8)
+        .collect()
 }
