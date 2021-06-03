@@ -50,8 +50,7 @@ where
             let offset_minutes = (offset_seconds as f32 / SECONDS_PER_MINUTE).round() as i64;
             VarInt::write_i64(self, offset_minutes)?;
         } else {
-            // TODO: negative zero is hardcoded, see #278.
-            self.write(&[0xC0])?;
+            VarInt::write_negative_zero(self)?;
         }
 
         VarUInt::write_u64(self, utc.year() as u64)?;
