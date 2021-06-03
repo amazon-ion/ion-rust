@@ -16,7 +16,7 @@ use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::IonType;
 
-use super::timestamp::TimestampBinaryExt;
+use super::timestamp::TimestampBinaryEncoder;
 use super::uint;
 
 // Ion's length prefixing requires that elements in a stream be encoded out of order.
@@ -528,7 +528,7 @@ impl<W: Write> BinarySystemWriter<W> {
             // However, this API (`write_datetime`) is probably also not quite
             // right.
             let timestamp: Timestamp = value.clone().into();
-            timestamp.write_binary(enc_buffer)
+            enc_buffer.encode_timestamp_value(&timestamp)
         })
     }
 

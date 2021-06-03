@@ -11,75 +11,89 @@ use crate::{
     types::timestamp::{Precision, Timestamp},
 };
 
-const ENCODED_BUFFER_SIZE: usize = 16;
+const MAX_TIMESTAMP_LENGTH: usize = 16;
 
 /// Extends [`Timestamp`] to support [Ion binary].
 ///
 /// [Ion binary]: https://amzn.github.io/ion-docs/docs/binary.html#6-timestamp
-pub trait TimestampBinaryExt {
-    fn encode_binary(&self) -> IonResult<ArrayVec<u8, { ENCODED_BUFFER_SIZE }>>;
-    fn write_binary<W: Write>(&self, sink: &mut W) -> IonResult<()>;
+// TODO: Change these methods to return the number of bytes written.
+pub trait TimestampBinaryEncoder {
+    /// Encodes the content of a [`Timestamp`] as per the Ion binary encoding.
+    /// Returns the length of the encoded bytes.
+    ///
+    /// This does not encode the type descriptor nor the associated length.
+    /// Prefer [`TimestampBinaryEncoder::encode_timestamp_value`] for that.
+    fn encode_timestamp(&mut self, timestamp: &Timestamp) -> IonResult<()>;
+
+    /// Encodes a [`Timestamp`] as an Ion value with the type descriptor and length.
+    /// Returns the length of the encoded bytes.
+    fn encode_timestamp_value(&mut self, timestamp: &Timestamp) -> IonResult<()>;
 }
 
-impl TimestampBinaryExt for Timestamp {
+impl<W> TimestampBinaryEncoder for W
+where
+    W: Write,
+{
     /// NOTE: Currently, this function always encodes with nanosecond precision.
-    fn encode_binary(&self) -> IonResult<ArrayVec<u8, { ENCODED_BUFFER_SIZE }>> {
+    fn encode_timestamp(&mut self, timestamp: &Timestamp) -> IonResult<()> {
         const SECONDS_PER_MINUTE: f32 = 60f32;
-        let mut sink = ArrayVec::new_const();
+
         // Each component of the timestamp is in UTC time. Readers then apply the offset minutes
         // to derive the localized time.
-        let utc = self.date_time;
+        let utc = timestamp.date_time;
 
         // Ion encodes offsets in minutes while DateTime stores it in seconds.
-        let offset_seconds = self.offset.map(|o| o.utc_minus_local()).unwrap_or(0);
+        let offset_seconds = timestamp.offset.map(|o| o.utc_minus_local()).unwrap_or(0);
         let offset_minutes = (offset_seconds as f32 / SECONDS_PER_MINUTE).round() as i64;
-        VarInt::write_i64(&mut sink, offset_minutes)?;
-        VarUInt::write_u64(&mut sink, utc.year() as u64)?;
+        VarInt::write_i64(self, offset_minutes)?;
+        VarUInt::write_u64(self, utc.year() as u64)?;
 
         // So far, we've written required fields. The rest are optional!
-        if self.precision > Precision::Year {
-            VarUInt::write_u64(&mut sink, utc.month() as u64)?;
-            if self.precision > Precision::Month {
-                VarUInt::write_u64(&mut sink, utc.day() as u64)?;
-                if self.precision > Precision::Day {
-                    VarUInt::write_u64(&mut sink, utc.hour() as u64)?;
-                    VarUInt::write_u64(&mut sink, utc.minute() as u64)?;
-                    if self.precision > Precision::HourAndMinute {
-                        VarUInt::write_u64(&mut sink, utc.second() as u64)?;
+        if timestamp.precision > Precision::Year {
+            VarUInt::write_u64(self, utc.month() as u64)?;
+            if timestamp.precision > Precision::Month {
+                VarUInt::write_u64(self, utc.day() as u64)?;
+                if timestamp.precision > Precision::Day {
+                    VarUInt::write_u64(self, utc.hour() as u64)?;
+                    VarUInt::write_u64(self, utc.minute() as u64)?;
+                    if timestamp.precision > Precision::HourAndMinute {
+                        VarUInt::write_u64(self, utc.second() as u64)?;
                     }
-                    if self.precision > Precision::Second {
+                    if timestamp.precision > Precision::Second {
                         // This implementation always writes the datetime out with nanosecond precision.
                         // The nanoseconds are an integer, which means that our exponent is always 9
                         // and our coefficient is the number of nanoseconds.
                         let nanoseconds = utc.nanosecond();
                         const SCALE: i64 = -9; // "Scale" (used by BigDecimal) is -1 * exponent
-                        VarInt::write_i64(&mut sink, SCALE)?;
-                        DecodedUInt::write_u64(&mut sink, nanoseconds as u64)?;
+                        VarInt::write_i64(self, SCALE)?;
+                        DecodedUInt::write_u64(self, nanoseconds as u64)?;
                     }
                 }
             }
         }
 
-        Ok(sink)
+        Ok(())
     }
 
-    /// Write a timestamp. Encodes the timestamp and prepends an appropriate
-    /// type decriptor.
-    fn write_binary<W: Write>(&self, sink: &mut W) -> IonResult<()> {
-        let encoded = self.encode_binary()?;
+    fn encode_timestamp_value(&mut self, timestamp: &Timestamp) -> IonResult<()> {
+        // First encode the timestamp. We need to know the encoded length before
+        // we can compute and write out the type descriptor.
+        let mut encoded: ArrayVec<u8, MAX_TIMESTAMP_LENGTH> = ArrayVec::new();
+        encoded.encode_timestamp(timestamp)?;
 
         // Write the type descriptor and length.
         let type_descriptor: u8;
         if encoded.len() <= MAX_INLINE_LENGTH {
             type_descriptor = 0x60 | encoded.len() as u8;
-            sink.write(&[type_descriptor])?;
+            self.write(&[type_descriptor])?;
         } else {
             type_descriptor = 0x6E;
-            sink.write(&[type_descriptor])?;
-            VarUInt::write_u64(sink, encoded.len() as u64)?;
+            self.write(&[type_descriptor])?;
+            VarUInt::write_u64(self, encoded.len() as u64)?;
         }
 
-        sink.write(&encoded[..])?;
+        // Now we can write out the encoded timestamp!
+        self.write(&encoded[..])?;
 
         Ok(())
     }
