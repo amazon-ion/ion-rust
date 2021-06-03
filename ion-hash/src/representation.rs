@@ -7,14 +7,13 @@
 //! and not speed.
 
 use crate::{
-    mark_begin, mark_end, type_qualifier::type_qualifier_symbol,
-    update_type_qualifier_and_representation, Markers,
+    mark_begin, mark_end, type_qualifier::type_qualifier_symbol, update_serialized_bytes, Markers,
 };
 use digest::{FixedOutput, Output, Reset, Update};
 use ion_rs::{
     binary,
-    result::{illegal_operation, IonResult},
-    value::{AnyInt, Element, Struct, SymbolToken},
+    result::IonResult,
+    value::{AnyInt, Element, Sequence, Struct, SymbolToken},
     IonType,
 };
 
@@ -43,9 +42,7 @@ where
         IonType::Symbol => write_repr_symbol(elem.as_sym(), hasher),
         IonType::String => write_repr_string(elem.as_str(), hasher),
         IonType::Clob | IonType::Blob => write_repr_blob(elem.as_bytes(), hasher),
-        IonType::List | IonType::SExpression => {
-            illegal_operation(format!("type {} is not yet supported", elem.ion_type()))?
-        }
+        IonType::List | IonType::SExpression => write_repr_seq(elem.as_sequence(), hasher)?,
         IonType::Struct => write_repr_struct(elem.as_struct(), hasher)?,
     }
 
@@ -56,16 +53,18 @@ where
 /// byte M with ESC || M.
 fn escaping<'a, D>(inner: &'a mut D) -> EscapingDigest<'a, D>
 where
-    D: Update,
+    D: Update + FixedOutput + Reset + Clone + Default,
 {
     EscapingDigest(inner)
 }
 
-struct EscapingDigest<'a, D: Update>(&'a mut D);
+struct EscapingDigest<'a, D>(&'a mut D)
+where
+    D: Update + FixedOutput + Reset + Clone + Default;
 
 impl<'a, D> Update for EscapingDigest<'a, D>
 where
-    D: Update,
+    D: Update + FixedOutput + Reset + Clone + Default,
 {
     /// Escapes various markers as per the spec. Allocates a temporary array to
     /// do so.
@@ -84,7 +83,13 @@ where
     }
 }
 
-fn write_repr_integer<D: Update>(value: Option<&AnyInt>, hasher: &mut EscapingDigest<'_, D>) {
+// TODO: All these methods should be moved behind some type (e.g. a trait)
+// because of the repeated &mut hasher arg.
+
+fn write_repr_integer<D>(value: Option<&AnyInt>, hasher: &mut EscapingDigest<'_, D>)
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
     match value {
         Some(AnyInt::I64(v)) => match v {
             0 => {}
@@ -110,7 +115,10 @@ impl Floats {
 
 /// Floats are encoded as big-endian octets of their IEEE-754 bit patterns,
 /// except for special cases: +-zero, +-inf and nan.
-fn write_repr_float<D: Update>(value: Option<f64>, hasher: &mut EscapingDigest<'_, D>) {
+fn write_repr_float<D>(value: Option<f64>, hasher: &mut EscapingDigest<'_, D>)
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
     match value {
         None => {}
         Some(v) => {
@@ -139,7 +147,7 @@ fn write_repr_float<D: Update>(value: Option<f64>, hasher: &mut EscapingDigest<'
 
 fn write_repr_symbol<D, S>(value: Option<&S>, hasher: &mut EscapingDigest<'_, D>)
 where
-    D: Update,
+    D: Update + FixedOutput + Reset + Clone + Default,
     S: SymbolToken + ?Sized,
 {
     match value {
@@ -153,18 +161,38 @@ where
     }
 }
 
-fn write_repr_string<D: Update>(value: Option<&str>, hasher: &mut EscapingDigest<'_, D>) {
+fn write_repr_string<D>(value: Option<&str>, hasher: &mut EscapingDigest<'_, D>)
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
     match value {
         Some(s) if s.len() > 0 => hasher.update(s.as_bytes()),
         _ => {}
     }
 }
 
-fn write_repr_blob<D: Update>(value: Option<&[u8]>, hasher: &mut EscapingDigest<'_, D>) {
+fn write_repr_blob<D>(value: Option<&[u8]>, hasher: &mut EscapingDigest<'_, D>)
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
     match value {
         Some(bytes) if bytes.len() > 0 => hasher.update(bytes),
         _ => {}
     }
+}
+
+fn write_repr_seq<D, S>(value: Option<&S>, hasher: &mut EscapingDigest<'_, D>) -> IonResult<()>
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+    S: Sequence + ?Sized,
+{
+    if let Some(seq) = value {
+        for elem in seq.iter() {
+            update_serialized_bytes(elem, hasher.0)?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Iterates over a `Struct`, computing the "field hash" of each field
@@ -224,9 +252,7 @@ where
     mark_end(&mut hasher);
 
     // value
-    mark_begin(&mut hasher);
-    update_type_qualifier_and_representation(value, &mut hasher)?;
-    mark_end(&mut hasher);
+    update_serialized_bytes(value, &mut hasher)?;
 
     Ok(hasher.finalize_fixed())
 }
