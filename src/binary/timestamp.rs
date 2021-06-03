@@ -13,7 +13,7 @@ use crate::{
 
 const MAX_TIMESTAMP_LENGTH: usize = 16;
 
-/// Extends [`Timestamp`] to support [Ion binary].
+/// Provides support to write [`Timestamp`] into [Ion binary].
 ///
 /// [Ion binary]: https://amzn.github.io/ion-docs/docs/binary.html#6-timestamp
 // TODO: Change these methods to return the number of bytes written.
