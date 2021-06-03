@@ -13,6 +13,7 @@ use crate::{
 };
 use digest::{FixedOutput, Output, Reset, Update};
 use ion_rs::binary::{self, timestamp::TimestampBinaryEncoder};
+use ion_rs::types::decimal::Decimal;
 use ion_rs::{
     result::IonResult,
     types::timestamp::Timestamp,
@@ -41,7 +42,7 @@ where
         IonType::Null | IonType::Boolean => {} // these types have no representation
         IonType::Integer => write_repr_integer(elem.as_any_int(), hasher),
         IonType::Float => write_repr_float(elem.as_f64(), hasher),
-        IonType::Decimal => todo!(),
+        IonType::Decimal => write_repr_decimal(elem.as_decimal(), hasher),
         IonType::Timestamp => write_repr_timestamp(elem.as_timestamp(), hasher)?,
         IonType::Symbol => write_repr_symbol(elem.as_sym(), hasher),
         IonType::String => write_repr_string(elem.as_str(), hasher),
@@ -163,6 +164,19 @@ where
             }
 
             hasher.update(&v.to_be_bytes())
+        }
+    }
+}
+
+/// Stub for nulls only..
+fn write_repr_decimal<D>(value: Option<&Decimal>, _hasher: &mut EscapingDigest<'_, D>)
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
+    match value {
+        None => {}
+        Some(_) => {
+            unimplemented!("decimals aren't yet supported");
         }
     }
 }
