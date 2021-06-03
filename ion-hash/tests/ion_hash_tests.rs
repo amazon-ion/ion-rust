@@ -150,8 +150,8 @@ fn test_case<E: Element>(ion: &E, strukt: &E) -> IonResult<()> {
     // variable sized result. Without this, any test failure will write lots of
     // stuff to your console which can be annoying since it takes forever.
     assert_eq!(
-        without_trailing_zeros(&expected[..]),
-        without_trailing_zeros(&result[..]),
+        format!("{:02x?}", without_trailing_zeros(&expected[..])),
+        format!("{:02x?}", without_trailing_zeros(&result[..])),
         "test case {} failed",
         test_case_name
     );

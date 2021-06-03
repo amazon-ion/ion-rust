@@ -42,10 +42,18 @@ where
         // to derive the localized time.
         let utc = timestamp.date_time;
 
-        // Ion encodes offsets in minutes while DateTime stores it in seconds.
-        let offset_seconds = timestamp.offset.map(|o| o.utc_minus_local()).unwrap_or(0);
-        let offset_minutes = (offset_seconds as f32 / SECONDS_PER_MINUTE).round() as i64;
-        VarInt::write_i64(self, offset_minutes)?;
+        // Write out the offset (minutes difference from UTC). If the offset is
+        // unknown, negative zero is used.
+        if let Some(offset) = timestamp.offset {
+            // Ion encodes offsets in minutes while DateTime stores it in seconds.
+            let offset_seconds = offset.local_minus_utc();
+            let offset_minutes = (offset_seconds as f32 / SECONDS_PER_MINUTE).round() as i64;
+            VarInt::write_i64(self, offset_minutes)?;
+        } else {
+            // TODO: negative zero is hardcoded, see #278.
+            self.write(&[0xC0])?;
+        }
+
         VarUInt::write_u64(self, utc.year() as u64)?;
 
         // So far, we've written required fields. The rest are optional!

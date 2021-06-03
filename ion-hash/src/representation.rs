@@ -6,13 +6,16 @@
 //! instead. This implementation fills in that gap, and is focused on coverage
 //! and not speed.
 
+use std::io::{self, Write};
+
 use crate::{
     mark_begin, mark_end, type_qualifier::type_qualifier_symbol, update_serialized_bytes, Markers,
 };
 use digest::{FixedOutput, Output, Reset, Update};
+use ion_rs::binary::{self, timestamp::TimestampBinaryEncoder};
 use ion_rs::{
-    binary,
     result::IonResult,
+    types::timestamp::Timestamp,
     value::{AnyInt, Element, Sequence, Struct, SymbolToken},
     IonType,
 };
@@ -38,7 +41,8 @@ where
         IonType::Null | IonType::Boolean => {} // these types have no representation
         IonType::Integer => write_repr_integer(elem.as_any_int(), hasher),
         IonType::Float => write_repr_float(elem.as_f64(), hasher),
-        IonType::Decimal | IonType::Timestamp => todo!(),
+        IonType::Decimal => todo!(),
+        IonType::Timestamp => write_repr_timestamp(elem.as_timestamp(), hasher)?,
         IonType::Symbol => write_repr_symbol(elem.as_sym(), hasher),
         IonType::String => write_repr_string(elem.as_str(), hasher),
         IonType::Clob | IonType::Blob => write_repr_blob(elem.as_bytes(), hasher),
@@ -80,6 +84,24 @@ where
         }
 
         self.0.update(escaped);
+    }
+}
+
+/// The ion-rust crate uses the `io::Write` trait as a sink for writing
+/// representations. This implementation provides compatibility with the
+/// `Digest` trait (represented as a set of "sub"-traits). We have no need of an
+/// intermediate buffer!
+impl<'a, D> Write for EscapingDigest<'a, D>
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.update(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -143,6 +165,21 @@ where
             hasher.update(&v.to_be_bytes())
         }
     }
+}
+
+fn write_repr_timestamp<D>(
+    value: Option<&Timestamp>,
+    hasher: &mut EscapingDigest<'_, D>,
+) -> IonResult<()>
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
+    match value {
+        None => {}
+        Some(timestamp) => hasher.encode_timestamp(timestamp)?,
+    };
+
+    Ok(())
 }
 
 fn write_repr_symbol<D, S>(value: Option<&S>, hasher: &mut EscapingDigest<'_, D>)
