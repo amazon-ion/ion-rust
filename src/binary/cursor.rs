@@ -688,21 +688,21 @@ impl<T> BinaryIonCursor<io::Cursor<T>>
 where
     T: AsRef<[u8]>,
 {
-    pub fn field_id_length(&self) -> Option<usize>;
-    pub fn field_id_offset(&self) -> Option<usize>;
-    pub fn field_id_range(&self) -> Option<Range<usize>>;
+    pub fn field_id_length(&self) -> Option<usize> {}
+    pub fn field_id_offset(&self) -> Option<usize> {}
+    pub fn field_id_range(&self) -> Option<Range<usize>> {}
 
-    pub fn annotations_length(&self) -> Option<usize>;
-    pub fn annotations_offset(&self) -> Option<usize>;
-    pub fn annotations_range(&self) -> Option<Range<usize>>;
+    pub fn annotations_length(&self) -> Option<usize> {}
+    pub fn annotations_offset(&self) -> Option<usize> {}
+    pub fn annotations_range(&self) -> Option<Range<usize>> {}
 
-    pub fn header_length(&self) -> usize;
-    pub fn header_offset(&self) -> usize;
-    pub fn header_range(&self) -> Range<usize>;
+    pub fn header_length(&self) -> usize {}
+    pub fn header_offset(&self) -> usize {}
+    pub fn header_range(&self) -> Range<usize> {}
 
-    pub fn value_length(&self) -> usize;
-    pub fn value_offset(&self) -> usize;
-    pub fn value_range(&self) -> Range<usize>;
+    pub fn value_length(&self) -> usize {}
+    pub fn value_offset(&self) -> usize {}
+    pub fn value_range(&self) -> Range<usize> {}
 }
 
 /// Additional functionality that's only available if the data source is in-memory, such as a
