@@ -6,6 +6,7 @@ pub(crate) mod cursor;
 mod header;
 mod int;
 mod nibbles;
+pub mod timestamp;
 mod type_code;
 pub mod uint;
 mod var_int;
