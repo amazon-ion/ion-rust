@@ -75,10 +75,10 @@ fn number_of_digits(value: u32) -> u32 {
 /// of an arbitrary unit.
 #[derive(Debug, Clone)]
 pub struct Timestamp {
-    date_time: NaiveDateTime,
-    offset: Option<FixedOffset>,
-    precision: Precision,
-    fractional_seconds: Option<Mantissa>,
+    pub(crate) date_time: NaiveDateTime,
+    pub(crate) offset: Option<FixedOffset>,
+    pub(crate) precision: Precision,
+    pub(crate) fractional_seconds: Option<Mantissa>,
 }
 
 // TODO: Timestamp does not yet provide useful accessors for its individual fields. It can be

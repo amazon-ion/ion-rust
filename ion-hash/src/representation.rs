@@ -6,68 +6,90 @@
 //! instead. This implementation fills in that gap, and is focused on coverage
 //! and not speed.
 
-use crate::Markers;
-use digest::{FixedOutput, Update};
+use crate::{
+    mark_begin, mark_end, type_qualifier::type_qualifier_symbol, update_serialized_bytes, Markers,
+};
+use digest::{FixedOutput, Output, Reset, Update};
 use ion_rs::{
     binary,
-    value::{AnyInt, Element},
+    result::IonResult,
+    value::{AnyInt, Element, Sequence, Struct, SymbolToken},
     IonType,
 };
 
 // TODO: Finish ion-rust's binary writer and factor it such that the binary
 // representations can be written by the "raw" writer (ref. the Java
 // implementation).
-pub(crate) fn update_with_representation<E: Element + ?Sized, D: Update + FixedOutput + Default>(
-    elem: &E,
-    hasher: &mut D,
-) {
+pub(crate) fn update_with_representation<E, D>(elem: &E, hasher: &mut D) -> IonResult<()>
+where
+    E: Element + ?Sized,
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
     let mut escaping = escaping(hasher);
-    write_repr(elem, &mut escaping);
+    write_repr(elem, &mut escaping)
 }
 
-fn write_repr<E: Element + ?Sized, D: Update + FixedOutput + Default>(
-    elem: &E,
-    hasher: &mut EscapingDigest<'_, D>,
-) {
+fn write_repr<E, D>(elem: &E, hasher: &mut EscapingDigest<'_, D>) -> IonResult<()>
+where
+    E: Element + ?Sized,
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
     match elem.ion_type() {
         IonType::Null | IonType::Boolean => {} // these types have no representation
         IonType::Integer => write_repr_integer(elem.as_any_int(), hasher),
         IonType::Float => write_repr_float(elem.as_f64(), hasher),
-        IonType::Decimal | IonType::Timestamp | IonType::Symbol => todo!(),
+        IonType::Decimal | IonType::Timestamp => todo!(),
+        IonType::Symbol => write_repr_symbol(elem.as_sym(), hasher),
         IonType::String => write_repr_string(elem.as_str(), hasher),
-        IonType::Clob | IonType::Blob | IonType::List | IonType::SExpression => {
-            panic!("type {} is not yet supported", elem.ion_type())
-        }
-        IonType::Struct => panic!("type {} is not yet supported", elem.ion_type()), // coming soon! write_repr_struct(elem.as_struct(), hasher),
+        IonType::Clob | IonType::Blob => write_repr_blob(elem.as_bytes(), hasher),
+        IonType::List | IonType::SExpression => write_repr_seq(elem.as_sequence(), hasher)?,
+        IonType::Struct => write_repr_struct(elem.as_struct(), hasher)?,
     }
+
+    Ok(())
 }
 
 /// Wraps an existing `Update` in an escaping one, which replaces each marker
 /// byte M with ESC || M.
 fn escaping<'a, D>(inner: &'a mut D) -> EscapingDigest<'a, D>
 where
-    D: Update,
+    D: Update + FixedOutput + Reset + Clone + Default,
 {
     EscapingDigest(inner)
 }
 
-struct EscapingDigest<'a, D: Update>(&'a mut D);
+struct EscapingDigest<'a, D>(&'a mut D)
+where
+    D: Update + FixedOutput + Reset + Clone + Default;
 
 impl<'a, D> Update for EscapingDigest<'a, D>
 where
-    D: Update,
+    D: Update + FixedOutput + Reset + Clone + Default,
 {
+    /// Escapes various markers as per the spec. Allocates a temporary array to
+    /// do so.
     fn update(&mut self, data: impl AsRef<[u8]>) {
+        let mut escaped = vec![];
+
         for byte in data.as_ref() {
             if let Markers::B | Markers::E | Markers::ESC = *byte {
-                self.0.update([0x0C]);
+                escaped.extend(&[Markers::ESC, *byte]);
+            } else {
+                escaped.extend(&[*byte]);
             }
-            self.0.update([*byte]);
         }
+
+        self.0.update(escaped);
     }
 }
 
-fn write_repr_integer<D: Update>(value: Option<&AnyInt>, hasher: &mut EscapingDigest<'_, D>) {
+// TODO: All these methods should be moved behind some type (e.g. a trait)
+// because of the repeated &mut hasher arg.
+
+fn write_repr_integer<D>(value: Option<&AnyInt>, hasher: &mut EscapingDigest<'_, D>)
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
     match value {
         Some(AnyInt::I64(v)) => match v {
             0 => {}
@@ -93,7 +115,10 @@ impl Floats {
 
 /// Floats are encoded as big-endian octets of their IEEE-754 bit patterns,
 /// except for special cases: +-zero, +-inf and nan.
-fn write_repr_float<D: Update>(value: Option<f64>, hasher: &mut EscapingDigest<'_, D>) {
+fn write_repr_float<D>(value: Option<f64>, hasher: &mut EscapingDigest<'_, D>)
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
     match value {
         None => {}
         Some(v) => {
@@ -120,9 +145,114 @@ fn write_repr_float<D: Update>(value: Option<f64>, hasher: &mut EscapingDigest<'
     }
 }
 
-fn write_repr_string<D: Update>(value: Option<&str>, hasher: &mut EscapingDigest<'_, D>) {
+fn write_repr_symbol<D, S>(value: Option<&S>, hasher: &mut EscapingDigest<'_, D>)
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+    S: SymbolToken + ?Sized,
+{
     match value {
-        Some(s) => hasher.update(s.as_bytes()),
+        Some(s) => match s.text() {
+            Some(s) => write_repr_string(Some(s), hasher),
+            None => {
+                todo!("hash SymbolToken without text")
+            }
+        },
         None => {}
     }
+}
+
+fn write_repr_string<D>(value: Option<&str>, hasher: &mut EscapingDigest<'_, D>)
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
+    match value {
+        Some(s) if s.len() > 0 => hasher.update(s.as_bytes()),
+        _ => {}
+    }
+}
+
+fn write_repr_blob<D>(value: Option<&[u8]>, hasher: &mut EscapingDigest<'_, D>)
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+{
+    match value {
+        Some(bytes) if bytes.len() > 0 => hasher.update(bytes),
+        _ => {}
+    }
+}
+
+fn write_repr_seq<D, S>(value: Option<&S>, hasher: &mut EscapingDigest<'_, D>) -> IonResult<()>
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+    S: Sequence + ?Sized,
+{
+    if let Some(seq) = value {
+        for elem in seq.iter() {
+            update_serialized_bytes(elem, hasher.0)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Iterates over a `Struct`, computing the "field hash" of each field
+/// (key-value pair). The field hash is defined in the spec as:
+///
+/// ```text
+/// H(field) -> h(s(fieldname) || s(fieldvalue))
+/// ```
+///
+/// The resulting `Vec` is not sorted (i.e. is in the same order as the field
+/// iterator).
+fn write_repr_struct<D, S, F, E>(
+    value: Option<&S>,
+    hasher: &mut EscapingDigest<'_, D>,
+) -> IonResult<()>
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+    S: Struct<FieldName = F, Element = E> + ?Sized,
+    F: SymbolToken + ?Sized,
+    E: Element + ?Sized,
+{
+    if let Some(strukt) = value {
+        let mut hashes: Vec<_> = strukt
+            .iter()
+            .map(|(key, value)| struct_field_hash::<D, _, _>(key, value))
+            .collect::<IonResult<_>>()?;
+
+        hashes.sort();
+
+        for hash in hashes {
+            hasher.update(hash);
+        }
+    }
+
+    Ok(())
+}
+
+fn struct_field_hash<D, F, E>(key: &F, value: &E) -> IonResult<Output<D>>
+where
+    D: Update + FixedOutput + Reset + Clone + Default,
+    F: SymbolToken + ?Sized,
+    E: Element + ?Sized,
+{
+    let mut hasher = D::default();
+
+    // TODO: This is duplicated code, because a SymbolToken is not an
+    // Element. Will dedup this in a future commit!
+
+    // key
+    mark_begin(&mut hasher);
+    let tq = type_qualifier_symbol(Some(key));
+    hasher.update(tq.as_bytes());
+    {
+        let mut inner_esc = escaping(&mut hasher);
+        write_repr_symbol(Some(key), &mut inner_esc);
+    }
+    mark_end(&mut hasher);
+
+    // value
+    update_serialized_bytes(value, &mut hasher)?;
+
+    Ok(hasher.finalize_fixed())
 }
