@@ -36,6 +36,7 @@ thiserror = "1.0"
 nom = "6.1"
 num-bigint = "0.3"
 num-traits = "0.2"
+arrayvec = "0.7"
 
 # NB: We use the tree dependency here for development and CI.
 #     Note that when publishing you should update the version
