@@ -294,6 +294,20 @@ mod reader_tests {
             .map(|v| AnyInt::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap()))
         ).map(|ai| Integer(ai).into()).collect(),
     )]
+    #[case::int64_threshold_as_big_int(
+        &[0xE0, 0x01, 0x00, 0xEA, 0x28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+        vec![
+            "18446744073709551615",
+        ].into_iter()
+        .map(|v| AnyInt::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Integer(ai).into()).collect(),
+    )]
+    #[case::int64_threshold_as_int64(
+        &[0xE0, 0x01, 0x00, 0xEA, 0x38, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        vec![
+            "-9223372036854775808",
+        ].into_iter()
+        .map(|v| AnyInt::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Integer(ai).into()).collect(),
+    )]
     #[case::floats(
         // TODO NaN is Ion Data Model equivalent to itself but not PartialEq
         br#"
