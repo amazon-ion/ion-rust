@@ -134,7 +134,7 @@ impl VarInt {
         Ok(())
     }
 
-    /// Effectively the same as `write_i64` if a i64 could represent -0.
+    /// Effectively the same as `write_i64` if an i64 could represent -0.
     pub fn write_negative_zero<W: Write>(sink: &mut W) -> IonResult<usize> {
         Ok(sink.write(&[VARINT_NEGATIVE_ZERO])?)
     }
