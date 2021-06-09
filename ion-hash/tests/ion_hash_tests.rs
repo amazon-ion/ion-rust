@@ -149,7 +149,7 @@ fn test_all<E: Element>(elems: Vec<E>) -> IonResult<()> {
                 let elem = loaded
                     .into_iter()
                     .nth(0)
-                    .expect("10n test case should have a single element");
+                    .expect("10n test case should have a single element (there were none)");
                 test_case(&elem, expect)?;
             }
             _ => unreachable!("test case structs must have either an `ion` field or  an `10n` field"),
