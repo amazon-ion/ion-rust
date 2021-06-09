@@ -152,7 +152,7 @@ fn test_all<E: Element>(elems: Vec<E>) -> IonResult<()> {
                     .expect("10n test case should have a single element");
                 test_case(&elem, expect)?;
             }
-            _ => unreachable!("test cases have one of `ion` or `10n`"),
+            _ => unreachable!("test case structs must have either an `ion` field or  an `10n` field"),
         };
     }
 
