@@ -7,7 +7,7 @@ use std::slice;
 ///! [spec]: https://amzn.github.io/ion-hash/docs/spec.html.
 use ion_rs::{
     binary::IonTypeCode,
-    types::timestamp::Timestamp,
+    types::{decimal::Decimal, timestamp::Timestamp},
     value::{AnyInt, Element, Sequence, Struct, SymbolToken},
     IonType,
 };
@@ -47,7 +47,7 @@ impl TypeQualifier {
             IonType::Boolean => type_qualifier_boolean(elem.as_bool()),
             IonType::Integer => type_qualifier_integer(elem.as_any_int()),
             IonType::Float => type_qualifier_float(elem.as_f64()),
-            /*IonType::Decimal => Decimal, */
+            IonType::Decimal => type_qualifier_decimal(elem.as_decimal()),
             IonType::Timestamp => type_qualifier_timestamp(elem.as_timestamp()),
             IonType::Symbol => type_qualifier_symbol(elem.as_sym()),
             IonType::String => type_qualifier_string(elem.as_str()),
@@ -56,7 +56,6 @@ impl TypeQualifier {
             IonType::List => type_qualifier_list(elem.as_sequence()),
             IonType::SExpression => type_qualifier_sexp(elem.as_sequence()),
             IonType::Struct => type_qualifier_struct(elem.as_struct()),
-            other => unimplemented!("TypeQualifier is not implemented for {}", other),
         }
     }
 
@@ -110,6 +109,10 @@ pub(crate) fn type_qualifier_integer(any: Option<&AnyInt>) -> TypeQualifier {
 
 pub(crate) fn type_qualifier_float(value: Option<f64>) -> TypeQualifier {
     combine(IonTypeCode::Float, qualify_nullness(value))
+}
+
+pub(crate) fn type_qualifier_decimal(value: Option<&Decimal>) -> TypeQualifier {
+    combine(IonTypeCode::Decimal, qualify_nullness(value))
 }
 
 pub(crate) fn type_qualifier_timestamp(value: Option<&Timestamp>) -> TypeQualifier {
