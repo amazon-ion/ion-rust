@@ -16,7 +16,7 @@ const MAX_TIMESTAMP_LENGTH: usize = 16;
 /// Provides support to write [`Timestamp`] into [Ion binary].
 ///
 /// [Ion binary]: https://amzn.github.io/ion-docs/docs/binary.html#6-timestamp
-// TODO: Change these methods to return the number of bytes written.
+// TODO: Change these methods to return the number of bytes written. #283
 pub trait TimestampBinaryEncoder {
     /// Encodes the content of a [`Timestamp`] as per the Ion binary encoding.
     /// Returns the length of the encoded bytes.

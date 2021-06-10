@@ -1,8 +1,11 @@
+// Copyright Amazon.com, Inc. or its affiliates.
+
 //! This module provides the necessary structures and logic to read values from a binary Ion
 //! data stream.
 
 pub(crate) mod constants;
 pub(crate) mod cursor;
+pub mod decimal;
 mod header;
 mod int;
 mod nibbles;

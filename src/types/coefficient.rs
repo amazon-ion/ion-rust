@@ -4,7 +4,7 @@ use num_traits::Zero;
 use crate::result::{illegal_operation, IonError};
 use crate::types::magnitude::Magnitude;
 use std::convert::TryFrom;
-use std::ops::MulAssign;
+use std::ops::{MulAssign, Neg};
 
 /// Indicates whether the Coefficient's magnitude is less than 0 (negative) or not (positive).
 /// When the magnitude is zero, the Sign can be used to distinguish between -0 and 0.
@@ -50,6 +50,21 @@ impl Coefficient {
             (Sign::Negative, Magnitude::U64(0)) => true,
             (Sign::Negative, Magnitude::BigUInt(b)) if b.is_zero() => true,
             _ => false,
+        }
+    }
+
+    /// If the value can fit in an i64, return it as such. This is useful for
+    /// inline representations.
+    pub(crate) fn as_i64(&self) -> Option<i64> {
+        match self.magnitude {
+            Magnitude::U64(unsigned) => match i64::try_from(unsigned) {
+                Ok(signed) => match self.sign {
+                    Sign::Negative => Some(signed.neg()), // cannot overflow (never `MIN`)
+                    Sign::Positive => Some(signed),
+                },
+                Err(_) => None,
+            },
+            Magnitude::BigUInt(_) => None,
         }
     }
 }
