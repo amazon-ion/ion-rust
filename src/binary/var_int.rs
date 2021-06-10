@@ -21,6 +21,8 @@ const HIGHEST_BIT_VALUE: u8 = 0b1000_0000;
 const BITS_PER_BYTE: usize = 8;
 const BITS_PER_U64: usize = mem::size_of::<u64>() * BITS_PER_BYTE;
 
+const VARINT_NEGATIVE_ZERO: u8 = 0xC0;
+
 #[derive(Debug)]
 pub struct VarInt {
     size_in_bytes: usize,
@@ -130,6 +132,11 @@ impl VarInt {
         // possible.
         sink.write_all(&buffer[VAR_INT_BUFFER_SIZE - bytes_required..])?;
         Ok(())
+    }
+
+    /// Effectively the same as `write_i64` if an i64 could represent -0.
+    pub fn write_negative_zero<W: Write>(sink: &mut W) -> IonResult<usize> {
+        Ok(sink.write(&[VARINT_NEGATIVE_ZERO])?)
     }
 
     /// Returns the value of the signed integer
