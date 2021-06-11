@@ -71,7 +71,10 @@ impl Magnitude {
 
 impl From<BigUint> for Magnitude {
     fn from(value: BigUint) -> Self {
-        Magnitude::BigUInt(value)
+        match value.to_u64() {
+            Some(unsigned) => Magnitude::U64(unsigned),
+            None => Magnitude::BigUInt(value),
+        }
     }
 }
 

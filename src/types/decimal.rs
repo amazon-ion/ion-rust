@@ -161,7 +161,10 @@ impl From<BigDecimal> for Decimal {
         let (big_int_coefficient, negative_exponent) = value.as_bigint_and_exponent();
         // Discard the BigInt coefficient's sign before converting it to a BigUint to ensure
         // the conversion succeeds.
-        let magnitude: BigUint = big_int_coefficient.abs().to_biguint().unwrap();
+        let magnitude: BigUint = big_int_coefficient
+            .abs()
+            .to_biguint()
+            .expect("abs() would have prevented a negative number");
         // From the BigInt docs: "Note that a positive exponent indicates a negative power of 10."
         let exponent = -negative_exponent;
 

@@ -20,8 +20,8 @@ pub enum Sign {
 // [Magnitude].
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Coefficient {
-    sign: Sign,
-    magnitude: Magnitude,
+    pub(crate) sign: Sign,
+    pub(crate) magnitude: Magnitude,
 }
 
 impl Coefficient {
