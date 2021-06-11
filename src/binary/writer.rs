@@ -2,20 +2,20 @@ use std::io::Write;
 use std::ops::Range;
 use std::{io, mem};
 
-use bigdecimal::{BigDecimal, Signed, ToPrimitive};
+use bigdecimal::BigDecimal;
 use bytes::BufMut;
 use chrono::{DateTime, FixedOffset};
 
 use crate::binary::constants::v1_0::IVM;
-use crate::binary::int::Int;
 use crate::binary::uint::DecodedUInt;
-use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::result::{illegal_operation, IonResult};
+use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::IonType;
 
+use super::decimal::DecimalBinaryEncoder;
 use super::timestamp::TimestampBinaryEncoder;
 use super::uint;
 
@@ -460,63 +460,10 @@ impl<W: Write> BinarySystemWriter<W> {
     /// Writes an Ion decimal with the specified value.
     pub fn write_big_decimal(&mut self, value: &BigDecimal) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            const DECIMAL_BUFFER_SIZE: usize = 16;
-            let mut raw_buffer: [u8; DECIMAL_BUFFER_SIZE] = [0u8; DECIMAL_BUFFER_SIZE];
-            // Wrap the byte array, providing it with an implementation of io::Write.
-            let mut buffer = io::Cursor::new(&mut raw_buffer).writer();
-            let (coefficient, negative_exponent) = value.as_bigint_and_exponent();
-
-            // From the BigInt docs: "Note that a positive exponent indicates a negative power of 10."
-            let exponent = -negative_exponent;
-
-            VarInt::write_i64(&mut buffer, exponent)?;
-
-            if let Some(small_coefficient) = coefficient.to_i64() {
-                // If the coefficient is small enough to safely fit in an i64, use that to avoid
-                // allocating.
-                let _ = Int::write_i64(&mut buffer, small_coefficient)?;
-            } else {
-                // Otherwise, use BigDecimal's to_bytes_be() to allocate a Vec<u8> with the necessary
-                // representation.
-                let (_coefficient_sign, mut coefficient_bytes) = coefficient.to_bytes_be();
-                let first_byte: &mut u8 = &mut coefficient_bytes[0];
-                let first_bit_is_zero: bool = *first_byte & 0b1000_0000 == 0;
-                if coefficient.is_negative() {
-                    // If the first bit is unset, it's now the sign bit. Set it to 1.
-                    if first_bit_is_zero {
-                        *first_byte |= 0b1000_0000;
-                    } else {
-                        // Otherwise, we need to write out an extra leading byte with a sign bit set
-                        buffer.write_all(&[0b1000_0000])?;
-                    }
-                } else {
-                    // If the first bit is unset, it's now the sign bit.
-                    if first_bit_is_zero {
-                        // Do nothing; zero is the correct sign bit for a non-negative coefficient.
-                    } else {
-                        // Otherwise, we need to write out an extra leading byte with an unset sign bit
-                        buffer.write_all(&[0b0000_0000])?;
-                    }
-                }
-                buffer.write_all(coefficient_bytes.as_slice())?;
-            }
-
-            let encoded_length = buffer.get_ref().position() as usize;
-
-            let type_descriptor: u8;
-            if encoded_length <= MAX_INLINE_LENGTH {
-                type_descriptor = 0x50 | encoded_length as u8;
-                enc_buffer.push(type_descriptor);
-            } else {
-                type_descriptor = 0x5E;
-                enc_buffer.push(type_descriptor);
-                VarUInt::write_u64(enc_buffer, encoded_length as u64)?;
-            }
-
-            let raw_buffer = buffer.into_inner().into_inner();
-            enc_buffer.extend_from_slice(&raw_buffer[..encoded_length as usize]);
-
-            Ok(())
+            // TODO: Currently clones. Revisit this API, similar to the comment
+            // on `write_datetime`.
+            let decimal: Decimal = value.clone().into();
+            enc_buffer.encode_decimal_value(&decimal)
         })
     }
 

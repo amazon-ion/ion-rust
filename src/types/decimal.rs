@@ -12,8 +12,8 @@ use std::convert::{TryFrom, TryInto};
 #[derive(Clone, Debug)]
 pub struct Decimal {
     // A Coefficient is a Sign/Magnitude pair supporting integers of arbitrary size
-    coefficient: Coefficient,
-    exponent: i64,
+    pub(crate) coefficient: Coefficient,
+    pub(crate) exponent: i64,
 }
 
 impl Decimal {
