@@ -71,6 +71,7 @@ impl Magnitude {
 
 impl From<BigUint> for Magnitude {
     fn from(value: BigUint) -> Self {
+        // prefer a compact representation for the magnitude
         match value.to_u64() {
             Some(unsigned) => Magnitude::U64(unsigned),
             None => Magnitude::BigUInt(value),
