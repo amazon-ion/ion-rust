@@ -85,9 +85,6 @@ const IGNORE_LIST: &[&'static str] = &[
     r#"{a:{d:[1,2,3],b:{c:5}},e:6}"#,
     // Uses md5 (not identity)
     r#"{Metrics:{'Event.Catchup':[{Value:0,Unit:ms}],'FanoutCache.Time':[{Value:1,Unit:ms}]}}"#,
-    // timestamps, broken because we always write out fractional seconds as nanoseconds
-    r#"2000-01-01T00:00:00.0Z"#,
-    r#"2000-01-01T00:00:00.00Z"#,
 ];
 
 fn should_ignore(test_name: &str) -> bool {

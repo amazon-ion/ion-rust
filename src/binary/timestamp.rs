@@ -1,14 +1,20 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use std::io::Write;
+use std::{io::Write, ops::Neg};
 
 use arrayvec::ArrayVec;
 use chrono::{Datelike, Timelike};
 
 use crate::{
-    binary::{uint::DecodedUInt, var_int::VarInt, var_uint::VarUInt, writer::MAX_INLINE_LENGTH},
+    binary::{
+        decimal::DecimalBinaryEncoder, var_int::VarInt, var_uint::VarUInt,
+        writer::MAX_INLINE_LENGTH,
+    },
     result::IonResult,
-    types::timestamp::{Precision, Timestamp},
+    types::{
+        decimal::Decimal,
+        timestamp::{Mantissa, Precision, Timestamp},
+    },
 };
 
 const MAX_TIMESTAMP_LENGTH: usize = 16;
@@ -67,13 +73,25 @@ where
                         VarUInt::write_u64(self, utc.second() as u64)?;
                     }
                     if timestamp.precision > Precision::Second {
-                        // This implementation always writes the datetime out with nanosecond precision.
-                        // The nanoseconds are an integer, which means that our exponent is always 9
-                        // and our coefficient is the number of nanoseconds.
-                        let nanoseconds = utc.nanosecond();
-                        const SCALE: i64 = -9; // "Scale" (used by BigDecimal) is -1 * exponent
-                        VarInt::write_i64(self, SCALE)?;
-                        DecodedUInt::write_u64(self, nanoseconds as u64)?;
+                        // It's not possible to have a precision of fractional
+                        // seconds and then not have any!
+                        if let Some(ref mantissa) = timestamp.fractional_seconds {
+                            // TODO: Both branches encode directly due to one
+                            // branch owning vs borrowing the decimal
+                            // representation. #286 should provide a fix.
+                            match mantissa {
+                                Mantissa::Digits(precision) => {
+                                    // Consider the following case: `2000-01-01T00:00:00.123Z`.
+                                    // That's 123 millis, or 123,000,000 nanos.
+                                    // Our mantissa is 0.123, or 123d-3.
+                                    let scaled = utc.nanosecond() / 10u32.pow(9 - *precision); // 123,000,000 -> 123
+                                    let exponent = (*precision as i64).neg(); // -3
+                                    let fractional = Decimal::new(scaled, exponent); // 123d-3
+                                    self.encode_decimal(&fractional)?;
+                                }
+                                Mantissa::Arbitrary(decimal) => self.encode_decimal(decimal)?,
+                            };
+                        }
                     }
                 }
             }
