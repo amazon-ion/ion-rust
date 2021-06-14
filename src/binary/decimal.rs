@@ -3,14 +3,26 @@
 use std::io::Write;
 
 use arrayvec::ArrayVec;
+use bigdecimal::Zero;
 
 use crate::{
     binary::{int::Int, var_int::VarInt, var_uint::VarUInt, writer::MAX_INLINE_LENGTH},
     result::IonResult,
-    types::{coefficient::Sign, decimal::Decimal, magnitude::Magnitude},
+    types::{
+        coefficient::{Coefficient, Sign},
+        decimal::Decimal,
+        magnitude::Magnitude,
+    },
 };
 
 const DECIMAL_BUFFER_SIZE: usize = 16;
+const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
+    coefficient: Coefficient {
+        sign: Sign::Positive,
+        magnitude: Magnitude::U64(0),
+    },
+    exponent: 0,
+};
 
 /// Provides support to write [`Decimal`] into [Ion binary].
 ///
@@ -34,12 +46,22 @@ where
     W: Write,
 {
     fn encode_decimal(&mut self, decimal: &Decimal) -> IonResult<()> {
+        // 0d0 has no representation, as per the spec.
+        if decimal == &DECIMAL_POSITIVE_ZERO {
+            return Ok(());
+        }
+
         VarInt::write_i64(self, decimal.exponent)?;
 
+        // If the coefficient is small enough to safely fit in an i64, use that to avoid
+        // allocating.
         if let Some(small_coefficient) = decimal.coefficient.as_i64() {
-            // If the coefficient is small enough to safely fit in an i64, use that to avoid
-            // allocating.
-            let _ = Int::write_i64(self, small_coefficient)?;
+            // From the spec: "The subfield should not be present (that is, it
+            // has zero length) when the coefficient’s value is (positive)
+            // zero."
+            if !small_coefficient.is_zero() {
+                let _ = Int::write_i64(self, small_coefficient)?;
+            }
         } else {
             // Otherwise, allocate a Vec<u8> with the necessary representation.
             let mut coefficient_bytes = match decimal.coefficient.magnitude() {
@@ -92,5 +114,19 @@ where
         self.write(&encoded[..])?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod binary_decimal_tests {
+    use super::*;
+
+    /// This test ensures that we implement PartialEq correctly for the special
+    /// decimal value 0d0.
+    #[test]
+    fn decimal_0d0_is_a_special_zero_value() {
+        assert_eq!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 0));
+        assert_ne!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 10));
+        assert_ne!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 100));
     }
 }
