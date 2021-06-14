@@ -46,6 +46,7 @@ where
     W: Write,
 {
     fn encode_decimal(&mut self, decimal: &Decimal) -> IonResult<()> {
+        // 0d0 has no representation, as per the spec.
         if decimal == &DECIMAL_POSITIVE_ZERO {
             return Ok(());
         }
@@ -113,5 +114,19 @@ where
         self.write(&encoded[..])?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod binary_decimal_tests {
+    use super::*;
+
+    /// This test ensures that we implement PartialEq correctly for the special
+    /// decimal value 0d0.
+    #[test]
+    fn decimal_0d0_is_a_special_zero_value() {
+        assert_eq!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 0));
+        assert_ne!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 10));
+        assert_ne!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 100));
     }
 }
