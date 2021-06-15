@@ -27,31 +27,32 @@ const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
 /// Provides support to write [`Decimal`] into [Ion binary].
 ///
 /// [Ion binary]: https://amzn.github.io/ion-docs/docs/binary.html#5-decimal
-// TODO: Change these methods to return the number of bytes written. #283
 pub trait DecimalBinaryEncoder {
     /// Encodes the content of a [`Decimal`] as per the Ion binary encoding.
     /// Returns the length of the encoded bytes.
     ///
     /// This does not encode the type descriptor nor the associated length.
     /// Prefer [`DecimalBinaryEncoder::encode_decimal_value`] for that.
-    fn encode_decimal(&mut self, decimal: &Decimal) -> IonResult<()>;
+    fn encode_decimal(&mut self, decimal: &Decimal) -> IonResult<usize>;
 
     /// Encodes a [`Decimal`] as an Ion value with the type descriptor and
     /// length. Returns the length of the encoded bytes.
-    fn encode_decimal_value(&mut self, decimal: &Decimal) -> IonResult<()>;
+    fn encode_decimal_value(&mut self, decimal: &Decimal) -> IonResult<usize>;
 }
 
 impl<W> DecimalBinaryEncoder for W
 where
     W: Write,
 {
-    fn encode_decimal(&mut self, decimal: &Decimal) -> IonResult<()> {
+    fn encode_decimal(&mut self, decimal: &Decimal) -> IonResult<usize> {
         // 0d0 has no representation, as per the spec.
         if decimal == &DECIMAL_POSITIVE_ZERO {
-            return Ok(());
+            return Ok(0);
         }
 
-        VarInt::write_i64(self, decimal.exponent)?;
+        let mut bytes_written: usize = 0;
+
+        bytes_written += VarInt::write_i64(self, decimal.exponent)?;
 
         // If the coefficient is small enough to safely fit in an i64, use that to avoid
         // allocating.
@@ -60,7 +61,7 @@ where
             // has zero length) when the coefficient’s value is (positive)
             // zero."
             if !small_coefficient.is_zero() {
-                let _ = Int::write_i64(self, small_coefficient)?;
+                bytes_written += Int::write_i64(self, small_coefficient)?;
             }
         } else {
             // Otherwise, allocate a Vec<u8> with the necessary representation.
@@ -78,6 +79,7 @@ where
                 } else {
                     // Otherwise, we need to write out an extra leading byte with a sign bit set
                     self.write_all(&[0b1000_0000])?;
+                    bytes_written += 1;
                 }
             } else {
                 // If the first bit is unset, it's now the sign bit.
@@ -86,15 +88,18 @@ where
                 } else {
                     // Otherwise, we need to write out an extra leading byte with an unset sign bit
                     self.write_all(&[0b0000_0000])?;
+                    bytes_written += 1;
                 }
             }
             self.write_all(coefficient_bytes.as_slice())?;
+            bytes_written += coefficient_bytes.len();
         }
 
-        Ok(())
+        Ok(bytes_written)
     }
 
-    fn encode_decimal_value(&mut self, decimal: &Decimal) -> IonResult<()> {
+    fn encode_decimal_value(&mut self, decimal: &Decimal) -> IonResult<usize> {
+        let mut bytes_written: usize = 0;
         // First encode the decimal. We need to know the encoded length before
         // we can compute and write out the type descriptor.
         let mut encoded: ArrayVec<u8, DECIMAL_BUFFER_SIZE> = ArrayVec::new();
@@ -104,22 +109,26 @@ where
         if encoded.len() <= MAX_INLINE_LENGTH {
             type_descriptor = 0x50 | encoded.len() as u8;
             self.write(&[type_descriptor])?;
+            bytes_written += 1;
         } else {
             type_descriptor = 0x5E;
             self.write(&[type_descriptor])?;
-            VarUInt::write_u64(self, encoded.len() as u64)?;
+            bytes_written += 1;
+            bytes_written += VarUInt::write_u64(self, encoded.len() as u64)?;
         }
 
         // Now we can write out the encoded decimal!
         self.write(&encoded[..])?;
+        bytes_written += encoded.len();
 
-        Ok(())
+        Ok(bytes_written)
     }
 }
 
 #[cfg(test)]
 mod binary_decimal_tests {
     use super::*;
+    use rstest::*;
 
     /// This test ensures that we implement PartialEq correctly for the special
     /// decimal value 0d0.
@@ -128,5 +137,16 @@ mod binary_decimal_tests {
         assert_eq!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 0));
         assert_ne!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 10));
         assert_ne!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 100));
+    }
+
+    #[rstest]
+    #[case::exactly_zero(Decimal::new(0, 0), 1)]
+    #[case::zero_with_nonzero_exp(Decimal::new(0, 10), 2)]
+    #[case::meaning_of_life(Decimal::new(42, 0), 3)]
+    fn bytes_written(#[case] input: Decimal, #[case] expected: usize) -> IonResult<()> {
+        let mut buf = vec![];
+        let written = buf.encode_decimal_value(&input)?;
+        assert_eq!(written, expected);
+        Ok(())
     }
 }

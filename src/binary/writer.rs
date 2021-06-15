@@ -463,7 +463,8 @@ impl<W: Write> BinarySystemWriter<W> {
             // TODO: Currently clones. Revisit this API, similar to the comment
             // on `write_datetime`.
             let decimal: Decimal = value.clone().into();
-            enc_buffer.encode_decimal_value(&decimal)
+            let _ = enc_buffer.encode_decimal_value(&decimal);
+            Ok(())
         })
     }
 

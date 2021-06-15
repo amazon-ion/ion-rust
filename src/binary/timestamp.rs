@@ -155,7 +155,6 @@ mod binary_timestamp_tests {
         let mut buf = vec![];
         let written = buf.encode_timestamp_value(&timestamp)?;
         assert_eq!(expected, written);
-
         Ok(())
     }
 }
