@@ -64,7 +64,8 @@ impl VarUInt {
         })
     }
 
-    /// Encodes the given unsigned int value as a VarUInt and writes it to the sink.
+    /// Encodes the given unsigned int value as a VarUInt and writes it to the
+    /// sink, returning the number of bytes written.
     pub fn write_u64<W: Write>(sink: &mut W, mut magnitude: u64) -> IonResult<usize> {
         // A u64 is 8 bytes of data. The VarUInt encoding will add a continuation bit to every byte,
         // growing the data size by 8 more bits. Therefore, the largest encoded size of a u64 is

@@ -475,7 +475,8 @@ impl<W: Write> BinarySystemWriter<W> {
             // However, this API (`write_datetime`) is probably also not quite
             // right.
             let timestamp: Timestamp = value.clone().into();
-            enc_buffer.encode_timestamp_value(&timestamp)
+            let _ = enc_buffer.encode_timestamp_value(&timestamp);
+            Ok(())
         })
     }
 
