@@ -65,7 +65,6 @@ impl VarUInt {
     }
 
     /// Encodes the given unsigned int value as a VarUInt and writes it to the sink.
-    #[rustfmt::skip]
     pub fn write_u64<W: Write>(sink: &mut W, mut magnitude: u64) -> IonResult<usize> {
         // A u64 is 8 bytes of data. The VarUInt encoding will add a continuation bit to every byte,
         // growing the data size by 8 more bits. Therefore, the largest encoded size of a u64 is
@@ -73,6 +72,7 @@ impl VarUInt {
         const VAR_UINT_BUFFER_SIZE: usize = 9;
 
         // Create a buffer to store the encoded value.
+        #[rustfmt::skip]
         let mut buffer: [u8; VAR_UINT_BUFFER_SIZE] = [
             0, 0, 0, 0, 0, 0, 0, 0, 0b1000_0000
             //                        ^-- Set the 'end' flag of the final byte to 1
@@ -80,7 +80,7 @@ impl VarUInt {
 
         if magnitude == 0 {
             sink.write(&[0b1000_0000])?;
-            return Ok(1)
+            return Ok(1);
         }
 
         // The encoding process moves right-to-left, from the last byte in the buffer to the first.
