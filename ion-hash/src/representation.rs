@@ -18,11 +18,11 @@ use ion_rs::{
     IonType,
 };
 
-pub(crate) trait RepresentationEncoder<E>
-where
-    E: Element + ?Sized,
-{
-    fn update_with_representation(&mut self, elem: &E) -> IonResult<()> {
+pub(crate) trait RepresentationEncoder {
+    fn update_with_representation<E>(&mut self, elem: &E) -> IonResult<()>
+    where
+        E: Element + ?Sized,
+    {
         match elem.ion_type() {
             IonType::Null | IonType::Boolean => {} // these types have no representation
             IonType::Integer => self.write_repr_integer(elem.as_any_int())?,
@@ -51,15 +51,15 @@ where
     fn write_repr_seq<S>(&mut self, value: Option<&S>) -> IonResult<()>
     where
         S: Sequence + ?Sized;
-    fn write_repr_struct<S, F>(&mut self, value: Option<&S>) -> IonResult<()>
+    fn write_repr_struct<E, S, F>(&mut self, value: Option<&S>) -> IonResult<()>
     where
+        E: Element + ?Sized,
         S: Struct<FieldName = F, Element = E> + ?Sized,
         F: SymbolToken + ?Sized;
 }
 
-impl<E, D> RepresentationEncoder<E> for ElementHasher<D>
+impl<D> RepresentationEncoder for ElementHasher<D>
 where
-    E: Element + ?Sized,
     D: Update + FixedOutput + Reset + Clone + Default,
 {
     fn write_repr_integer(&mut self, value: Option<&AnyInt>) -> IonResult<()> {
@@ -144,7 +144,7 @@ where
     {
         match value {
             Some(s) => match s.text() {
-                Some(s) => RepresentationEncoder::<E>::write_repr_string(self, Some(s))?, // FIXME: Why must E be explicit here?
+                Some(s) => self.write_repr_string(Some(s))?,
                 None => {
                     todo!("hash SymbolToken without text")
                 }
@@ -195,8 +195,9 @@ where
     ///
     /// The resulting `Vec` is not sorted (i.e. is in the same order as the field
     /// iterator).
-    fn write_repr_struct<S, F>(&mut self, value: Option<&S>) -> IonResult<()>
+    fn write_repr_struct<E, S, F>(&mut self, value: Option<&S>) -> IonResult<()>
     where
+        E: Element + ?Sized,
         S: Struct<FieldName = F, Element = E> + ?Sized,
         F: SymbolToken + ?Sized,
     {
@@ -229,7 +230,7 @@ where
     hasher.mark_begin();
     let tq = type_qualifier_symbol(Some(key));
     hasher.digest.update(tq.as_bytes());
-    RepresentationEncoder::<E>::write_repr_symbol(&mut hasher, Some(key))?; // Not sure why I need this syntax.
+    hasher.write_repr_symbol(Some(key))?; // Not sure why I need this syntax.
     hasher.mark_end();
 
     // value
