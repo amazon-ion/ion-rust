@@ -2,7 +2,7 @@
 
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
-use ion_hash::ElementHasher;
+use ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::value::reader::{element_reader, ElementReader};
 use ion_rs::value::*;
