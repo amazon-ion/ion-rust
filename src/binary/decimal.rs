@@ -146,6 +146,7 @@ mod binary_decimal_tests {
     fn bytes_written(#[case] input: Decimal, #[case] expected: usize) -> IonResult<()> {
         let mut buf = vec![];
         let written = buf.encode_decimal_value(&input)?;
+        assert_eq!(buf.len(), expected);
         assert_eq!(written, expected);
         Ok(())
     }

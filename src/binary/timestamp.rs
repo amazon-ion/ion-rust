@@ -71,28 +71,28 @@ where
                     bytes_written += VarUInt::write_u64(self, utc.minute() as u64)?;
                     if timestamp.precision > Precision::HourAndMinute {
                         bytes_written += VarUInt::write_u64(self, utc.second() as u64)?;
-                    }
-                    if timestamp.precision > Precision::Second {
-                        // It's not possible to have a precision of fractional
-                        // seconds and then not have any!
-                        if let Some(ref mantissa) = timestamp.fractional_seconds {
-                            // TODO: Both branches encode directly due to one
-                            // branch owning vs borrowing the decimal
-                            // representation. #286 should provide a fix.
-                            match mantissa {
-                                Mantissa::Digits(precision) => {
-                                    // Consider the following case: `2000-01-01T00:00:00.123Z`.
-                                    // That's 123 millis, or 123,000,000 nanos.
-                                    // Our mantissa is 0.123, or 123d-3.
-                                    let scaled = utc.nanosecond() / 10u32.pow(9 - *precision); // 123,000,000 -> 123
-                                    let exponent = (*precision as i64).neg(); // -3
-                                    let fractional = Decimal::new(scaled, exponent); // 123d-3
-                                    bytes_written += self.encode_decimal(&fractional)?;
-                                }
-                                Mantissa::Arbitrary(decimal) => {
-                                    bytes_written += self.encode_decimal(decimal)?;
-                                }
-                            };
+                        if timestamp.precision > Precision::Second {
+                            // It's not possible to have a precision of fractional
+                            // seconds and then not have any!
+                            if let Some(ref mantissa) = timestamp.fractional_seconds {
+                                // TODO: Both branches encode directly due to one
+                                // branch owning vs borrowing the decimal
+                                // representation. #286 should provide a fix.
+                                match mantissa {
+                                    Mantissa::Digits(precision) => {
+                                        // Consider the following case: `2000-01-01T00:00:00.123Z`.
+                                        // That's 123 millis, or 123,000,000 nanos.
+                                        // Our mantissa is 0.123, or 123d-3.
+                                        let scaled = utc.nanosecond() / 10u32.pow(9 - *precision); // 123,000,000 -> 123
+                                        let exponent = (*precision as i64).neg(); // -3
+                                        let fractional = Decimal::new(scaled, exponent); // 123d-3
+                                        bytes_written += self.encode_decimal(&fractional)?;
+                                    }
+                                    Mantissa::Arbitrary(decimal) => {
+                                        bytes_written += self.encode_decimal(decimal)?;
+                                    }
+                                };
+                            }
                         }
                     }
                 }
@@ -108,7 +108,7 @@ where
         // First encode the timestamp. We need to know the encoded length before
         // we can compute and write out the type descriptor.
         let mut encoded: ArrayVec<u8, MAX_TIMESTAMP_LENGTH> = ArrayVec::new();
-        bytes_written += encoded.encode_timestamp(timestamp)?;
+        encoded.encode_timestamp(timestamp)?;
 
         // Write the type descriptor and length.
         let type_descriptor: u8;
@@ -140,12 +140,12 @@ mod binary_timestamp_tests {
     // These tests show how varying levels of precision affects number of bytes
     // written (for binary encoding of timestamps).
     #[rstest]
-    #[case::y2k_utc("2000-01-01T00:00:00+00:00", 19)]
-    #[case::seconds_utc("2021-01-08T14:12:36+00:00", 19)]
-    #[case::seconds_tz("2021-01-08T14:12:36-05:00", 21)]
-    #[case::millis_tz("2021-01-08T14:12:36.888-05:00", 30)]
-    #[case::micros_tz("2021-01-08T14:12:36.888888-05:00", 30)]
-    #[case::nanos_tz("2021-01-08T14:12:36.888888888-05:00", 30)]
+    #[case::y2k_utc("2000-01-01T00:00:00+00:00", 10)] // FIXME: Wrong! Should be 9.
+    #[case::seconds_utc("2021-01-08T14:12:36+00:00", 10)]
+    #[case::seconds_tz("2021-01-08T14:12:36-05:00", 11)]
+    #[case::millis_tz("2021-01-08T14:12:36.888-05:00", 16)]
+    #[case::micros_tz("2021-01-08T14:12:36.888888-05:00", 16)]
+    #[case::nanos_tz("2021-01-08T14:12:36.888888888-05:00", 16)]
     fn timestamp_encoding_bytes_written(
         #[case] input: &str,
         #[case] expected: usize,
@@ -154,7 +154,8 @@ mod binary_timestamp_tests {
         let timestamp = chrono.into();
         let mut buf = vec![];
         let written = buf.encode_timestamp_value(&timestamp)?;
-        assert_eq!(expected, written);
+        assert_eq!(buf.len(), expected);
+        assert_eq!(written, expected);
         Ok(())
     }
 }
