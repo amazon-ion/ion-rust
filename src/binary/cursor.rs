@@ -1466,12 +1466,12 @@ mod tests {
     }
 
     #[test]
-    #[rustfmt::skip]
     fn test_clear_annotations() -> IonResult<()> {
         // Verifies that byte offset bookkeeping is correct when the cursor reads a field with
         // annotations, then a field with no annotations, and finally a value with neither a
         // field ID nor annotations.
 
+        #[rustfmt::skip]
         let ion_data = &[
             0xee, 0x98, 0x81, 0x83, // $ion_symbol_table::
             0xde, 0x94,             // {                    // 20-byte struct
@@ -1552,7 +1552,10 @@ mod tests {
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), None);
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[37..=37]));
-        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[37..37] /* empty */));
+        assert_eq!(
+            cursor.raw_value_bytes(),
+            Some(&ion_data[37..37] /* empty */)
+        );
         assert_eq!(cursor.read_bool()?, Some(false));
 
         Ok(())

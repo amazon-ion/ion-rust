@@ -177,7 +177,9 @@ where
 {
     match value {
         None => {}
-        Some(decimal) => hasher.encode_decimal(decimal)?,
+        Some(decimal) => {
+            let _ = hasher.encode_decimal(decimal)?;
+        }
     };
 
     Ok(())
@@ -192,7 +194,9 @@ where
 {
     match value {
         None => {}
-        Some(timestamp) => hasher.encode_timestamp(timestamp)?,
+        Some(timestamp) => {
+            let _ = hasher.encode_timestamp(timestamp)?;
+        }
     };
 
     Ok(())

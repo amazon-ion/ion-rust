@@ -76,14 +76,15 @@ impl VarInt {
         })
     }
 
-    #[rustfmt::skip]
-    pub fn write_i64<W: Write>(sink: &mut W, value: i64) -> IonResult<()> {
+    /// Writes an `i64` to `sink`, returning the number of bytes written.
+    pub fn write_i64<W: Write>(sink: &mut W, value: i64) -> IonResult<usize> {
         // An i64 is 8 bytes of data. The VarInt encoding will add one continuation bit per byte
         // as well as a sign bit, for a total of 9 extra bits. Therefore, the largest encoding
         // of an i64 will be just over 9 bytes.
         const VAR_INT_BUFFER_SIZE: usize = 10;
 
         // Create a buffer to store the encoded value.
+        #[rustfmt::skip]
         let mut buffer: [u8; VAR_INT_BUFFER_SIZE] = [
             0, 0, 0, 0, 0,
             0, 0, 0, 0, 0b1000_0000
@@ -111,7 +112,10 @@ impl VarInt {
         // We're using right shifting to isolate the least significant bits in our magnitude
         // in each iteration of the loop, so we'll move from right to left in our encoding buffer.
         // The rightmost byte has already been flagged as the final byte.
-        for buffer_byte in buffer[VAR_INT_BUFFER_SIZE - bytes_required..].iter_mut().rev() {
+        for buffer_byte in buffer[VAR_INT_BUFFER_SIZE - bytes_required..]
+            .iter_mut()
+            .rev()
+        {
             bytes_remaining -= 1;
             if bytes_remaining > 0 {
                 // This isn't the leftmost byte, so we can store 7 magnitude bits.
@@ -130,8 +134,9 @@ impl VarInt {
 
         // Write the data from our encoding buffer to the provided sink in as few operations as
         // possible.
-        sink.write_all(&buffer[VAR_INT_BUFFER_SIZE - bytes_required..])?;
-        Ok(())
+        let encoded_bytes = &buffer[VAR_INT_BUFFER_SIZE - bytes_required..];
+        sink.write_all(encoded_bytes)?;
+        Ok(encoded_bytes.len())
     }
 
     /// Effectively the same as `write_i64` if an i64 could represent -0.
