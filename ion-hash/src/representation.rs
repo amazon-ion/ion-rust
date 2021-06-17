@@ -6,8 +6,8 @@
 //! instead. This implementation fills in that gap, and is focused on coverage
 //! and not speed.
 
+use crate::element_hasher::ElementHasher;
 use crate::type_qualifier::type_qualifier_symbol;
-use crate::ElementHasher;
 use digest::{FixedOutput, Output, Reset, Update};
 use ion_rs::binary::{self, decimal::DecimalBinaryEncoder, timestamp::TimestampBinaryEncoder};
 use ion_rs::types::decimal::Decimal;
