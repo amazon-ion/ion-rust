@@ -18,19 +18,21 @@
 
 use digest::{FixedOutput, Output, Reset, Update};
 use ion_rs::result::IonResult;
-use ion_rs::{value::Element, IonType};
+use ion_rs::value::Element;
 
 // TODO: Make sha2 an optional dependency.
 use sha2::Sha256;
-use type_qualifier::TypeQualifier;
 
+use element_hasher::ElementHasher;
+
+mod element_hasher;
 mod representation;
 mod type_qualifier;
 
 /// Utility to hash an [`Element`] using SHA-256 as the hash function.
 // TODO: Make this conditional on some feature flag
 pub fn sha256<E: Element + ?Sized>(elem: &E) -> IonResult<Output<Sha256>> {
-    hash_element::<E, Sha256>(elem)
+    Sha256::hash_element(elem)
 }
 
 /// Bytes markers as per the spec.
@@ -44,76 +46,35 @@ impl Markers {
     const ESC: u8 = 0x0C;
 }
 
-// TODO: In the fullness of time, we will have a IonHashReader and a
-// IonHashWriter. This will allow reading/writing a value *while* computing a
-// hash. For now, we provide a standalone hasher using the Element API.
-/// Provides Ion hash over arbitrary [`Element`] instances with a given
-/// [`Digest`] algorithm.
+/// This trait mostly exists to extend the [`Digest`] trait to support Ion Hash.
+/// See [`hash_element`].
+pub trait IonHasher<E>
+where
+    E: Element + ?Sized,
+{
+    type Output;
+
+    /// Returns the Ion Hash of the given [`Element`].
+    fn hash_element(elem: &E) -> IonResult<Self::Output>;
+}
+
+/// Implements [`IonHasher`] for any type that implements `Digest`.
 ///
-/// Note that [`Digest`] *does not imply* the following traits directly, but is
-/// a *convenience* trait for these other traits with a blanked implementation.
-/// This is the reason for this is we can't go from [`Digest`] to these
-/// traits (e.g. [`Update`]) but because of a blanket implementation, we can go
-/// the other way.
-pub fn hash_element<E, D>(elem: &E) -> IonResult<Output<D>>
+/// Note: the `Digest` trait is implemented for types that implement a set of
+/// traits. You should read the `D` generic as `Digest`. The reason we list the
+/// subtraits here is that implementors have much less work to do if they
+/// implment the subtraits only, as the blanket impls in the `digest` crate take
+/// care of assembly.
+impl<E, D> IonHasher<E> for D
 where
     E: Element + ?Sized,
     D: Update + FixedOutput + Reset + Clone + Default,
 {
-    let mut hasher = D::default();
-    update_serialized_bytes(elem, &mut hasher)?;
-    Ok(hasher.finalize_fixed())
-}
+    type Output = digest::Output<D>;
 
-/// Implements the "serialized bytes" transform as described in the spec. The
-/// bytes are written to `hasher` (as opposed to returned) for performance
-/// reasons (avoid allocations for DSTs).
-fn update_serialized_bytes<E, D>(elem: &E, hasher: &mut D) -> IonResult<()>
-where
-    E: Element + ?Sized,
-    D: Update + FixedOutput + Reset + Clone + Default,
-{
-    mark_begin(hasher);
-    match elem.ion_type() {
-        IonType::Null | IonType::Boolean => update_type_qualifier(elem, hasher),
-        IonType::Integer
-        | IonType::Float
-        | IonType::Decimal
-        | IonType::Timestamp
-        | IonType::Symbol
-        | IonType::String
-        | IonType::Clob
-        | IonType::Blob
-        | IonType::Struct
-        | IonType::List
-        | IonType::SExpression => update_type_qualifier_and_representation(elem, hasher)?,
-    };
-    // TODO: Annotations
-    mark_end(hasher);
-
-    Ok(())
-}
-
-#[inline]
-fn mark_begin<U: Update>(hasher: &mut U) {
-    hasher.update([Markers::B]);
-}
-
-#[inline]
-fn mark_end<U: Update>(hasher: &mut U) {
-    hasher.update([Markers::E]);
-}
-
-fn update_type_qualifier<E: Element + ?Sized, U: Update>(elem: &E, hasher: &mut U) {
-    let tq = TypeQualifier::from_element(elem);
-    hasher.update(tq.as_bytes());
-}
-
-fn update_type_qualifier_and_representation<E, D>(elem: &E, hasher: &mut D) -> IonResult<()>
-where
-    E: Element + ?Sized,
-    D: Update + FixedOutput + Reset + Clone + Default,
-{
-    update_type_qualifier(elem, hasher);
-    representation::update_with_representation(elem, hasher)
+    /// Provides Ion hash over arbitrary [`Element`] instances with a given
+    /// [`Digest`] algorithm.
+    fn hash_element(elem: &E) -> IonResult<Self::Output> {
+        ElementHasher::new(D::default()).hash_element(elem)
+    }
 }

@@ -2,7 +2,7 @@
 
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
-use ion_hash;
+use ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::value::reader::{element_reader, ElementReader};
 use ion_rs::value::*;
@@ -177,7 +177,7 @@ fn test_case<E1: Element, E2: Element>(input: &E1, expect: &E2) -> IonResult<()>
     let strukt = expect.as_struct().expect("`expect` should be a struct");
     let expected = expected_hash(strukt)?;
 
-    let result = ion_hash::hash_element::<E1, IdentityDigest>(input)?;
+    let result = IdentityDigest::hash_element(input)?;
 
     // Ignore trailing empty bytes caused by the identity digest producing a
     // variable sized result. Without this, any test failure will write lots of
