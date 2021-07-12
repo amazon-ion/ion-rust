@@ -85,7 +85,7 @@ fn qualify_nullness<T>(value: Option<T>) -> u8 {
 }
 
 pub(crate) fn type_qualifier_null() -> TypeQualifier {
-    combine(IonTypeCode::NullOrWhitespace, 0x0F)
+    combine(IonTypeCode::NullOrNop, 0x0F)
 }
 
 pub(crate) fn type_qualifier_boolean(value: Option<bool>) -> TypeQualifier {
