@@ -299,7 +299,6 @@ mod tests {
 
         // TODO: IonResult should have a distinct `IncompleteData` error case
         //       https://github.com/amzn/ion-rust/issues/299
-        println!("{:?}", result);
         assert!(matches!(result, Err(IonError::DecodingError { .. })));
     }
 }
