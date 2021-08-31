@@ -1,5 +1,6 @@
-use crate::result::IonResult;
 use std::io::BufRead;
+
+use crate::result::{decoding_error, IonResult, IonError};
 
 /// Optimized read operations for parsing Ion.
 ///
@@ -56,6 +57,11 @@ impl<T: BufRead> IonDataSource for T {
         let mut bytes_skipped = 0;
         while bytes_skipped < number_of_bytes {
             let buffer = self.fill_buf()?;
+            if buffer.is_empty() {
+                // TODO: IonResult should have a distinct `IncompleteData` error case
+                //       https://github.com/amzn/ion-rust/issues/299
+                return decoding_error("Unexpected end of stream.");
+            }
             let bytes_in_buffer = buffer.len();
             let bytes_to_skip = (number_of_bytes - bytes_skipped).min(bytes_in_buffer);
             self.consume(bytes_to_skip);
@@ -110,6 +116,12 @@ impl<T: BufRead> IonDataSource for T {
             let buffer = self.fill_buf()?;
             number_of_buffered_bytes = buffer.len();
 
+            if number_of_buffered_bytes == 0 {
+                // TODO: IonResult should have a distinct `IncompleteData` error case
+                //       https://github.com/amzn/ion-rust/issues/299
+                return decoding_error("Unexpected end of stream.");
+            }
+
             // Iterate over the bytes already in the buffer, calling the provided lambda on each
             // one.
             for byte in buffer {
@@ -144,6 +156,13 @@ impl<T: BufRead> IonDataSource for T {
         // Get a reference to the data source's input buffer, refilling it if it's empty.
         let buffer = self.fill_buf()?;
 
+        // If the buffer is still empty, we've run out of data.
+        if buffer.is_empty() && number_of_bytes > 0 {
+            // TODO: IonResult should have a distinct `IncompleteData` error case
+            //       https://github.com/amzn/ion-rust/issues/299
+            return decoding_error("Unexpected end of stream.");
+        }
+
         // If the requested value is already in our input buffer, there's no need to copy it out
         // into a separate buffer. We can return a slice of the input buffer and consume() that
         // number of bytes.
@@ -166,15 +185,22 @@ impl<T: BufRead> IonDataSource for T {
         };
 
         // Fill the fallback buffer with bytes from the data source
-        self.read_exact(buffer)?;
-        slice_processor(buffer)
+        match self.read_exact(buffer) {
+            Ok(()) => slice_processor(buffer),
+            Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+                // TODO: IonResult should have a distinct `IncompleteData` error case
+                //       https://github.com/amzn/ion-rust/issues/299
+                decoding_error("Unexpected end of stream."),
+            Err(io_error) => Err(IonError::IoError {source: io_error})
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::IonDataSource;
     use std::io::BufReader;
+    use crate::result::IonError;
+    use super::IonDataSource;
 
     fn test_data(buffer_size: usize, data: &'static [u8]) -> impl IonDataSource {
         BufReader::with_capacity(buffer_size, data)
@@ -221,5 +247,59 @@ mod tests {
             .read_slice(4, &mut Vec::new(), processor)
             .unwrap();
         assert_eq!(10, sum);
+    }
+
+    #[test]
+    fn test_eof_during_skip_bytes() {
+        let mut data_source = test_data(2, &[1, 2, 3, 4, 5]);
+
+        // We expect to encounter an end-of-file error because we're skipping more bytes than
+        // we have in input.
+        let result = data_source.skip_bytes(42);
+
+        // TODO: IonResult should have a distinct `IncompleteData` error case
+        //       https://github.com/amzn/ion-rust/issues/299
+        assert!(matches!(result, Err(IonError::DecodingError{..})));
+    }
+
+    #[test]
+    fn test_eof_during_read_next_byte_while() {
+        let mut data_source = test_data(2, &[1, 2, 3, 4, 5]);
+        let mut sum: u64 = 0;
+        // This processor reads until it finds a 6, which our data does not contain.
+        let processor = &mut |byte: u8| {
+            sum += byte as u64;
+            byte != 6
+        };
+        // We expect to encounter an end-of-file error because the data ends before the processor
+        // is satisfied.
+        let result = data_source.read_next_byte_while(processor);
+
+        // TODO: IonResult should have a distinct `IncompleteData` error case
+        //       https://github.com/amzn/ion-rust/issues/299
+        assert!(matches!(result, Err(IonError::DecodingError{..})));
+    }
+
+    #[test]
+    fn test_eof_during_read_slice() {
+        let mut data_source = test_data(2, &[1, 2, 3, 4, 5]);
+        let mut fallback_buffer = vec![];
+        // This trivial processor will report the length of the slice it's passed.
+        // It will not be used because we expect to encounter an error before then.
+        let processor = &mut |bytes: &[u8]| {
+            Ok(bytes.len())
+        };
+        // We expect to encounter an end-of-file error because the input buffer doesn't have
+        // enough data.
+        let result = data_source.read_slice(
+            42, // Number of bytes requested from input
+            &mut fallback_buffer,
+            processor
+        );
+
+        // TODO: IonResult should have a distinct `IncompleteData` error case
+        //       https://github.com/amzn/ion-rust/issues/299
+        println!("{:?}", result);
+        assert!(matches!(result, Err(IonError::DecodingError{..})));
     }
 }
