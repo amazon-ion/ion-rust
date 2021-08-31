@@ -9,6 +9,9 @@ pub type IonResult<T> = Result<T, IonError>;
 /// Represents the different types of high-level failures that might occur when reading Ion data.
 #[derive(Debug, Error)]
 pub enum IonError {
+    // TODO: Add an `IncompleteData` error variant that provides position information,
+    //       what was being read, the number of bytes needed, etc.
+    //       See: https://github.com/amzn/ion-rust/issues/299
     /// Indicates that an IO error was encountered while reading or writing.
     #[error("{source:?}")]
     IoError {
