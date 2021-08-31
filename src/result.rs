@@ -12,7 +12,6 @@ pub enum IonError {
     // TODO: Add an `IncompleteData` error variant that provides position information,
     //       what was being read, the number of bytes needed, etc.
     //       See: https://github.com/amzn/ion-rust/issues/299
-
     /// Indicates that an IO error was encountered while reading or writing.
     #[error("{source:?}")]
     IoError {
