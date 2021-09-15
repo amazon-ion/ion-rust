@@ -44,22 +44,40 @@ impl Decimal {
         }
     }
 
-    // Used in the implementation of Ord, which compares the sign of each decimal before
-    // comparing the combined value of their exponents/magnitudes.
+    // Determines whether the first decimal value is greater than, equal to, or less than
+    // the second decimal value.
+    // TODO: This currently uses the rules for Ion equivalence to determine if two values are equal.
+    //       This leads to potentially surprising behavior around zeros; in particular, -0 and 0
+    //       are not equal, and zeros with different exponents are not equal. We need to offer a
+    //       separate method for testing Ion equivalence.
+    //       See: https://github.com/amzn/ion-rust/issues/220
     fn compare(d1: &Decimal, d2: &Decimal) -> Ordering {
         // Even if the exponents are wildly different, disagreement in the coefficient's signs
-        // still tells which value is bigger. This approach causes `-0` to be considered less than
-        // `0`, which may seem a bit quirky. However, according to the Ion data model, `-0` is not
-        // equal to `0`, so saying that it's less than zero is a reasonable conclusion.
+        // still tells us which value is bigger. (This approach causes `-0` to be considered less
+        // than `0`; see the to-do comment on this method.)
         let sign_cmp = d1.coefficient.sign().cmp(&d2.coefficient.sign());
         if sign_cmp != Ordering::Equal {
             return sign_cmp;
         }
 
+        // If the signs are the same, compare their magnitudes.
+        let ordering = Decimal::compare_magnitudes(d1, d2);
+
+        if d1.coefficient.sign() == Sign::Positive {
+            // If the values are both positive, use the magnitudes' ordering.
+            ordering
+        } else {
+            // If the values are both negative, reverse the magnitudes' ordering.
+            // For example: -100 has a greater magnitude (i.e. absolute value) than -99,
+            //              but -99 is the larger number.
+            ordering.reverse()
+        }
+    }
+
+    // Compare the magnitudes (absolute values) of the provided decimal values.
+    fn compare_magnitudes(d1: &Decimal, d2: &Decimal) -> Ordering {
         // If the exponents match, we can compare the two coefficients directly.
         if d1.exponent == d2.exponent {
-            // We've already confirmed that the coefficients' signs match, so we can skip to
-            // comparing their magnitudes.
             return d1.coefficient.magnitude().cmp(&d2.coefficient.magnitude());
         }
 
@@ -81,22 +99,28 @@ impl Decimal {
             return d1.exponent.cmp(&d2.exponent);
         }
 
-        // Scale up the magnitude associated with a lesser exponent and compare it with the
-        // other magnitude.
-        if d1.exponent < d2.exponent {
-            Self::compare_scaled_magnitudes(d1, d2)
+        // Scale and compare the coefficients
+        if d1.exponent > d2.exponent {
+            Self::compare_scaled_coefficients(d1, d2)
         } else {
-            Self::compare_scaled_magnitudes(d2, d1)
+            Self::compare_scaled_coefficients(d2, d1).reverse()
         }
     }
 
-    // d1 must have a smaller exponent than d2
-    fn compare_scaled_magnitudes(d1: &Decimal, d2: &Decimal) -> Ordering {
-        let exponent_delta = d2.exponent - d1.exponent;
-        let mut adjusted_magnitude: BigUint = d2.coefficient.magnitude().to_biguint().unwrap();
-        adjusted_magnitude *= 10u64.pow(exponent_delta as u32);
-        let cmp = Magnitude::BigUInt(adjusted_magnitude).cmp(&d1.coefficient.magnitude());
-        cmp
+    // Scales up the coefficient associated with a greater exponent and compares it with the
+    // other coefficient. `d1` must have a larger exponent than `d2`.
+    fn compare_scaled_coefficients(d1: &Decimal, d2: &Decimal) -> Ordering {
+        let exponent_delta = d1.exponent - d2.exponent;
+        // d1 has a larger exponent, so scale up its coefficient to match d2's exponent.
+        // For example, when comparing these values of d1 and d2:
+        //     d1 =  8 * 10^3
+        //     d2 = 80 * 10^2
+        // d1 has the larger exponent (3). We need to scale its coefficient up to d2's 10^2 scale.
+        // We do this by multiplying it times 10^exponent_delta, which is 1 in this case.
+        // This lets us compare 80 and 80, determining that the decimals are equal.
+        let mut scaled_coefficient: BigUint = d1.coefficient.magnitude().to_biguint().unwrap();
+        scaled_coefficient *= 10u64.pow(exponent_delta as u32);
+        Magnitude::BigUInt(scaled_coefficient).cmp(&d2.coefficient.magnitude())
     }
 }
 
@@ -161,10 +185,7 @@ impl From<BigDecimal> for Decimal {
         let (big_int_coefficient, negative_exponent) = value.as_bigint_and_exponent();
         // Discard the BigInt coefficient's sign before converting it to a BigUint to ensure
         // the conversion succeeds.
-        let magnitude: BigUint = big_int_coefficient
-            .abs()
-            .to_biguint()
-            .expect("abs() would have prevented a negative number");
+        let magnitude: BigUint = big_int_coefficient.abs().to_biguint().unwrap();
         // From the BigInt docs: "Note that a positive exponent indicates a negative power of 10."
         let exponent = -negative_exponent;
 
@@ -185,37 +206,69 @@ impl TryFrom<Decimal> for BigDecimal {
 
 #[cfg(test)]
 mod decimal_tests {
-    use crate::result::IonError;
+    use crate::result::IonResult;
     use crate::types::coefficient::{Coefficient, Sign};
     use crate::types::decimal::Decimal;
     use bigdecimal::BigDecimal;
     use num_traits::ToPrimitive;
+    use std::cmp::Ordering;
     use std::convert::TryInto;
+    use std::str::FromStr;
+
+    use rstest::*;
 
     #[test]
-    fn test_decimal_eq() {
-        assert_eq!(Decimal::new(80, 2), Decimal::new(8, 3));
-        assert_eq!(Decimal::new(124, -2), Decimal::new(1240, -3));
-        assert_eq!(Decimal::new(0, 0), Decimal::new(0, 0));
-        assert_ne!(Decimal::new(0, -2), Decimal::new(0, 3));
+    fn test_decimal_eq_negative_zeros() {
         assert_eq!(Decimal::negative_zero(), Decimal::negative_zero());
         assert_ne!(
             Decimal::negative_zero_with_exponent(2),
             Decimal::negative_zero_with_exponent(7)
         );
-        assert_ne!(Decimal::new(0, 2), Decimal::new(0, 5));
         assert_ne!(
             Decimal::new(0, 0),
             Decimal::new(Coefficient::new(Sign::Negative, 0), 0)
         );
     }
 
-    #[test]
-    fn test_decimal_ord() {
-        assert!(Decimal::new(80, 3) > Decimal::new(-80, 3));
-        assert!(Decimal::new(80, 3) > Decimal::new(8, 3));
-        assert!(Decimal::new(80, 4) > Decimal::new(80, 3));
-        assert!(Decimal::new(1240, -3) > Decimal::new(124, -3))
+    #[rstest]
+    // Each tuple is a coefficient/exponent pair that will be used to construct a Decimal.
+    // The boolean indicates whether the two Decimals are expected to be equal.
+    #[case((80, 2), (80, 2), true)]
+    #[case((124, -2), (1240, -3), true)]
+    #[case((0, 0), (0, 0), true)]
+    #[case((0, -2), (0, 3), false)]
+    #[case((0, 2), (0, 5), false)]
+    fn test_decimal_eq<I: Into<Coefficient>>(
+        #[case] components1: (I, i64),
+        #[case] components2: (I, i64),
+        #[case] is_equal: bool,
+    ) {
+        let decimal1 = Decimal::new(components1.0.into(), components1.1);
+        let decimal2 = Decimal::new(components2.0.into(), components2.1);
+        assert_eq!(decimal1 == decimal2, is_equal);
+    }
+
+    #[rstest]
+    // Each tuple is a coefficient/exponent pair that will be used to construct a Decimal
+    #[case((80, 3), Ordering::Equal, (80, 3))]
+    #[case((80, 3), Ordering::Greater, (-80, 3))]
+    #[case((80, 3), Ordering::Greater, (8, 3))]
+    #[case((80, 4), Ordering::Greater, (8, 3))]
+    #[case((-80, 4), Ordering::Equal, (-80, 4))]
+    #[case((-80, 4), Ordering::Less, (-8, 3))]
+    #[case((-80, 4), Ordering::Equal, (-8, 5))]
+    #[case((-1000, -1), Ordering::Less, (-99_999_999_999i64, -9))]
+    #[case((1000, -1), Ordering::Greater, (99_999_999_999i64, -9))]
+    fn test_decimal_ord<I: Into<Coefficient>>(
+        #[case] components1: (I, i64),
+        #[case] ordering: Ordering,
+        #[case] components2: (I, i64),
+    ) {
+        let decimal1 = Decimal::new(components1.0.into(), components1.1);
+        let decimal2 = Decimal::new(components2.0.into(), components2.1);
+        assert_eq!(decimal1.cmp(&decimal2), ordering);
+        // Make sure the inverse relationship holds
+        assert_eq!(decimal2.cmp(&decimal1), ordering.reverse());
     }
 
     #[test]
@@ -228,15 +281,15 @@ mod decimal_tests {
         // Any form of negative zero will fail to be converted.
 
         let decimal = Decimal::negative_zero();
-        let conversion_result: Result<BigDecimal, IonError> = decimal.try_into();
+        let conversion_result: IonResult<BigDecimal> = decimal.try_into();
         assert!(conversion_result.is_err());
 
         let decimal = Decimal::negative_zero_with_exponent(6);
-        let conversion_result: Result<BigDecimal, IonError> = decimal.try_into();
+        let conversion_result: IonResult<BigDecimal> = decimal.try_into();
         assert!(conversion_result.is_err());
 
         let decimal = Decimal::negative_zero_with_exponent(-6);
-        let conversion_result: Result<BigDecimal, IonError> = decimal.try_into();
+        let conversion_result: IonResult<BigDecimal> = decimal.try_into();
         assert!(conversion_result.is_err());
     }
 
