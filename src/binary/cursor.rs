@@ -523,6 +523,10 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         self.clob_ref_map(|c| c.into())
     }
 
+    // This method will return year-, month-, and day-precision timestamps as UTC DateTimes
+    // with smaller time units (hour, minute, etc) zeroed out. Longer term, this method
+    // will be replaced by a `read_timestamp` method that returns a proper Timestamp.
+    // TODO: https://github.com/amzn/ion-rust/issues/308
     fn read_datetime(&mut self) -> IonResult<Option<DateTime<FixedOffset>>> {
         read_safety_checks!(self, IonType::Timestamp);
 
@@ -531,8 +535,9 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         let offset_minutes = self.read_var_int()?.value();
         let year = self.read_var_uint()?.value();
 
-        let mut month = 0;
-        let mut day = 0;
+        // Month and day are both 1-indexed while the other fields are 0-indexed
+        let mut month = 1;
+        let mut day = 1;
         let mut hour = 0;
         let mut minute = 0;
         let mut second = 0;
@@ -1150,6 +1155,19 @@ mod tests {
         let mut cursor = ion_cursor_for(&[0x68, 0x80, 0x0F, 0xD0, 0x81, 0x81, 0x80, 0x80, 0x80]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
         let naive_datetime = NaiveDate::from_ymd(2000 as i32, 1 as u32, 1 as u32)
+            .and_hms(0 as u32, 0 as u32, 0 as u32);
+        let offset = FixedOffset::west(0);
+        let datetime = offset.from_utc_datetime(&naive_datetime);
+        assert_eq!(cursor.read_datetime()?, Some(datetime));
+        Ok(())
+    }
+
+    #[test]
+    // See: https://github.com/amzn/ion-rust/issues/306
+    fn test_read_timestamp_year_only() -> IonResult<()> {
+        let mut cursor = ion_cursor_for(&[0x63, 0xC0, 0x0F, 0xC6]);
+        assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
+        let naive_datetime = NaiveDate::from_ymd(1990 as i32, 1 as u32, 1 as u32)
             .and_hms(0 as u32, 0 as u32, 0 as u32);
         let offset = FixedOffset::west(0);
         let datetime = offset.from_utc_datetime(&naive_datetime);
