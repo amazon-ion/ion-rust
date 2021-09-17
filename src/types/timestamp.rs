@@ -623,7 +623,6 @@ impl_time_unit_setter_for!(HourAndMinuteSetter);
 impl_time_unit_setter_for!(SecondSetter);
 impl_time_unit_setter_for!(FractionalSecondSetter);
 
-// This method should only be called after verif
 fn downconvert_to_naive_datetime_with_nanoseconds(timestamp: &Timestamp) -> NaiveDateTime {
     if timestamp.precision == Precision::FractionalSeconds {
         // DateTime always uses nanosecond precision. If our Timestamp uses a Decimal for
