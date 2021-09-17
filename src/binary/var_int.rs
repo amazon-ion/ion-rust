@@ -27,6 +27,9 @@ const VARINT_NEGATIVE_ZERO: u8 = 0xC0;
 pub struct VarInt {
     size_in_bytes: usize,
     value: VarIntStorage,
+    // [VarIntStorage] is not capable of natively representing negative zero. We track the sign
+    // of the value separately so we can distinguish between 0 and -0.
+    is_negative: bool
 }
 
 const MAGNITUDE_BITS_IN_FINAL_BYTE: usize = 6;
@@ -51,6 +54,7 @@ impl VarInt {
             return Ok(VarInt {
                 size_in_bytes: 1,
                 value: magnitude * sign,
+                is_negative: !is_positive
             });
         }
 
@@ -73,6 +77,7 @@ impl VarInt {
         Ok(VarInt {
             size_in_bytes: encoded_size_in_bytes,
             value: magnitude * sign,
+            is_negative: !is_positive
         })
     }
 
@@ -144,7 +149,16 @@ impl VarInt {
         Ok(sink.write(&[VARINT_NEGATIVE_ZERO])?)
     }
 
-    /// Returns the value of the signed integer
+    /// Returns `true` if the VarInt is negative zero.
+    pub fn is_negative_zero(&self) -> bool {
+        // `self.value` can natively represent any negative integer _except_ -0.
+        // To check for negative zero, we need to also look at the sign bit that was encoded
+        // in the stream.
+        self.value == 0 && self.is_negative
+    }
+
+    /// Returns the value of the signed integer. If the [VarInt] is negative zero, this method
+    /// will return `0`. Use the [is_negative_zero] method to check for negative zero explicitly.
     #[inline(always)]
     pub fn value(&self) -> VarIntStorage {
         self.value

@@ -213,7 +213,6 @@ mod decimal_tests {
     use num_traits::ToPrimitive;
     use std::cmp::Ordering;
     use std::convert::TryInto;
-    use std::str::FromStr;
 
     use rstest::*;
 
