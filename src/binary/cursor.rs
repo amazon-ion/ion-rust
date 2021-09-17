@@ -23,9 +23,9 @@ use crate::{
 };
 use std::io;
 
-use std::ops::Range;
-use crate::types::timestamp::Timestamp;
 use crate::types::decimal::Decimal;
+use crate::types::timestamp::Timestamp;
+use std::ops::Range;
 
 /// Information about the value over which the Cursor is currently positioned.
 #[derive(Clone, Debug)]
@@ -548,8 +548,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         let month = self.read_var_uint()?.value() as u32;
         let builder = builder.with_month(month);
         if self.finished_reading_value() {
-            let timestamp =  builder
-                .build()?;
+            let timestamp = builder.build()?;
             return Ok(Some(timestamp));
         }
 
@@ -605,9 +604,8 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
             self.read_int(coefficient_size_in_bytes)?.value()
         };
 
-        let builder = builder.with_fractional_seconds(
-            Decimal::new(subsecond_coefficient, subsecond_exponent)
-        );
+        let builder = builder
+            .with_fractional_seconds(Decimal::new(subsecond_coefficient, subsecond_exponent));
         let timestamp = if is_known_offset {
             builder.build_at_offset(offset_minutes)
         } else {
@@ -1123,9 +1121,9 @@ mod tests {
     use crate::binary::cursor::BinaryIonCursor;
     use crate::cursor::{Cursor, StreamItem, StreamItem::*};
     use crate::result::IonResult;
+    use crate::types::timestamp::Timestamp;
     use crate::types::IonType;
     use std::convert::TryInto;
-    use crate::types::timestamp::Timestamp;
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 
@@ -1276,8 +1274,7 @@ mod tests {
     fn test_read_timestamp() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x68, 0x80, 0x0F, 0xD0, 0x81, 0x81, 0x80, 0x80, 0x80]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
-        let expected = Timestamp::with_ymd_hms(2000, 1, 1,0, 0, 0)
-            .build_at_offset(0)?;
+        let expected = Timestamp::with_ymd_hms(2000, 1, 1, 0, 0, 0).build_at_offset(0)?;
         assert_eq!(cursor.read_timestamp()?, Some(expected));
         Ok(())
     }
@@ -1311,9 +1308,7 @@ mod tests {
 
     #[test]
     fn test_read_timestamp_year_month_day_hour_minute() -> IonResult<()> {
-        let mut cursor = ion_cursor_for(
-            &[0x67, 0x80, 0x0F, 0xE2, 0x86, 0x83, 0x8F, 0xA1]
-        );
+        let mut cursor = ion_cursor_for(&[0x67, 0x80, 0x0F, 0xE2, 0x86, 0x83, 0x8F, 0xA1]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
         let expected = Timestamp::with_ymd(2018, 6, 3)
             .with_hour_and_minute(15, 33)
@@ -1324,9 +1319,7 @@ mod tests {
 
     #[test]
     fn test_read_timestamp_year_month_day_hour_minute_second() -> IonResult<()> {
-        let mut cursor = ion_cursor_for(
-            &[0x68, 0x80, 0x0F, 0xE2, 0x86, 0x83, 0x8F, 0xA1, 0x8B]
-        );
+        let mut cursor = ion_cursor_for(&[0x68, 0x80, 0x0F, 0xE2, 0x86, 0x83, 0x8F, 0xA1, 0x8B]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
         let expected = Timestamp::with_ymd(2018, 6, 3)
             .with_hms(15, 33, 11)
@@ -1337,9 +1330,9 @@ mod tests {
 
     #[test]
     fn test_read_timestamp_year_month_day_hour_minute_second_ms() -> IonResult<()> {
-        let mut cursor = ion_cursor_for(
-            &[0x6B, 0x80, 0x0F, 0xE2, 0x86, 0x83, 0x8F, 0xA1, 0x8B, 0xC3, 0x02, 0x29]
-        );
+        let mut cursor = ion_cursor_for(&[
+            0x6B, 0x80, 0x0F, 0xE2, 0x86, 0x83, 0x8F, 0xA1, 0x8B, 0xC3, 0x02, 0x29,
+        ]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
         let expected = Timestamp::with_ymd(2018, 6, 3)
             .with_hms(15, 33, 11)

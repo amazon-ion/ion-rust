@@ -1,9 +1,9 @@
 use crate::data_source::IonDataSource;
 use crate::result::IonResult;
+use crate::types::timestamp::Timestamp;
 use crate::types::{IonType, SymbolId};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
-use crate::types::timestamp::Timestamp;
 
 /**
  * This trait captures the format-agnostic parser functionality needed to navigate within an Ion
@@ -110,7 +110,10 @@ pub trait Cursor {
 
     /// If the current value is a timestamp, returns its value as a DateTime<FixedOffset>;
     /// otherwise, returns None.
-    #[deprecated(since="0.6.1", note="Please use the `read_timestamp` method instead.")]
+    #[deprecated(
+        since = "0.6.1",
+        note = "Please use the `read_timestamp` method instead."
+    )]
     fn read_datetime(&mut self) -> IonResult<Option<DateTime<FixedOffset>>>;
 
     /// If the current value is a container (i.e. a struct, list, or s-expression), positions the

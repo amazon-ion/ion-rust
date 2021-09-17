@@ -29,7 +29,7 @@ pub struct VarInt {
     value: VarIntStorage,
     // [VarIntStorage] is not capable of natively representing negative zero. We track the sign
     // of the value separately so we can distinguish between 0 and -0.
-    is_negative: bool
+    is_negative: bool,
 }
 
 const MAGNITUDE_BITS_IN_FINAL_BYTE: usize = 6;
@@ -54,7 +54,7 @@ impl VarInt {
             return Ok(VarInt {
                 size_in_bytes: 1,
                 value: magnitude * sign,
-                is_negative: !is_positive
+                is_negative: !is_positive,
             });
         }
 
@@ -77,7 +77,7 @@ impl VarInt {
         Ok(VarInt {
             size_in_bytes: encoded_size_in_bytes,
             value: magnitude * sign,
-            is_negative: !is_positive
+            is_negative: !is_positive,
         })
     }
 
