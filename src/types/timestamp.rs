@@ -1,10 +1,10 @@
 use crate::result::{illegal_operation, illegal_operation_raw, IonError, IonResult};
 use crate::types::decimal::Decimal;
+use crate::types::magnitude::Magnitude;
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use ion_c_sys::timestamp::{IonDateTime, TSOffsetKind, TSPrecision};
 use std::convert::TryInto;
 use std::fmt::Debug;
-use crate::types::magnitude::Magnitude;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd)]
@@ -151,7 +151,7 @@ impl Timestamp {
                 };
                 let nanoseconds = (*magnitude as f64 * 10f64.powi(exponent_delta as i32)) as u32;
                 Some(nanoseconds)
-            },
+            }
             // This Timestamp's precision is too low to have a fractional seconds field.
             None => None,
         }
@@ -632,9 +632,7 @@ fn downconvert_to_naive_datetime_with_nanoseconds(timestamp: &Timestamp) -> Naiv
         // chrono's expectations.
         let nanoseconds = timestamp.fractional_seconds_as_nanoseconds().unwrap();
         // Copy `self.date_time` and set the copy's nanoseconds to this new value.
-        let adjusted_datetime = timestamp.date_time
-            .with_nanosecond(nanoseconds)
-            .unwrap(); // Modifying the nanoseconds should never be invalid.
+        let adjusted_datetime = timestamp.date_time.with_nanosecond(nanoseconds).unwrap(); // Modifying the nanoseconds should never be invalid.
         adjusted_datetime
     } else {
         // NaiveDateTime implements `Copy`
