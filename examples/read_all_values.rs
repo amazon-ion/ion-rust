@@ -52,7 +52,7 @@ fn read_all_values<R: IonDataSource>(cursor: &mut BinaryIonCursor<R>) -> IonResu
                         let _decimal = cursor.read_big_decimal()?.unwrap();
                     }
                     Timestamp => {
-                        let _timestamp = cursor.read_datetime()?.unwrap();
+                        let _timestamp = cursor.read_timestamp()?.unwrap();
                     }
                     Boolean => {
                         let _boolean = cursor.read_bool()?.unwrap();
