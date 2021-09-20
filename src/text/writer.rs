@@ -519,7 +519,10 @@ mod tests {
             .with_hms(15, 45, 11)
             .build_at_offset(2 * 60)
             .expect("building timestamp failed");
-        writer_test(|w| w.write_timestamp(&timestamp), "2000-08-22T15:45:11+02:00\n");
+        writer_test(
+            |w| w.write_timestamp(&timestamp),
+            "2000-08-22T15:45:11+02:00\n",
+        );
     }
 
     #[test]
