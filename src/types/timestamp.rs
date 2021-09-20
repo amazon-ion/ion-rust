@@ -1,5 +1,6 @@
 use crate::result::{illegal_operation, illegal_operation_raw, IonError, IonResult};
 use crate::types::decimal::Decimal;
+use crate::types::magnitude::Magnitude;
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use ion_c_sys::timestamp::{IonDateTime, TSOffsetKind, TSPrecision};
 use std::convert::TryInto;
@@ -100,6 +101,62 @@ impl Timestamp {
         timestamp
     }
 
+    /// If the precision is [Precision::FractionalSeconds], returns a Decimal representation
+    /// of this Timestamp's fractional seconds; otherwise, returns None.
+    ///
+    /// For example, a Timestamp with 553 milliseconds would return a Decimal with
+    /// coefficient 553, exponent -3.
+    fn fractional_seconds_as_decimal(&self) -> Option<Decimal> {
+        // This function is used when comparing two Timestamps with different Mantissa representations.
+        use Mantissa::*;
+        match self.fractional_seconds.as_ref() {
+            // This timestamp stores its fractional seconds in its `date_time` field.
+            // We'll need to convert the date_time's nanoseconds to a Decimal and return it.
+            Some(Digits(number_of_digits)) => {
+                let coefficient = first_n_digits_of(*number_of_digits, self.date_time.nanosecond());
+                let exponent = -1 * ((coefficient as f64).log10().ceil() as i64);
+                Some(Decimal::new(coefficient, exponent))
+            }
+            // This timestamp already stores its fractional seconds as a Decimal; return a clone.
+            Some(Arbitrary(decimal)) => Some(decimal.clone()),
+            // This Timestamp's precision is too low to have a fractional seconds field.
+            None => None,
+        }
+    }
+
+    /// If the precision is [Precision::FractionalSeconds], returns a u32 representing
+    /// this Timestamp's fractional seconds in nanoseconds; otherwise, returns None.
+    ///
+    /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
+    /// number of nanoseconds, losing precision. Similarly, a Timestamp with milliseconds would
+    /// also return a number of nanoseconds, erroneously gaining precision.
+    fn fractional_seconds_as_nanoseconds(&self) -> Option<u32> {
+        // This function is used when converting a Timestamp to a DateTime<FixedOffset> or
+        // NaiveDateTime.
+        use Mantissa::*;
+        match self.fractional_seconds.as_ref() {
+            // This timestamp already stores its fractional seconds in its `date_time` field.
+            // We can ignore the `number_of_digits` (which tracks its precision) and simply return
+            // `self.date_time`'s nanoseconds.
+            Some(Digits(_number_of_digits)) => Some(self.date_time.nanosecond()),
+            // This timestamp stores its fractional seconds as a Decimal. Down-convert it to a u32.
+            Some(Arbitrary(decimal)) => {
+                const NANOSECONDS_EXPONENT: i64 = -9;
+                let exponent_delta = decimal.exponent - NANOSECONDS_EXPONENT;
+                let magnitude = match decimal.coefficient.magnitude() {
+                    Magnitude::U64(magnitude) => magnitude,
+                    Magnitude::BigUInt(_magnitude) => {
+                        todo!("convert decimal fractional seconds with BigUInt magnitudes to nanoseconds")
+                    }
+                };
+                let nanoseconds = (*magnitude as f64 * 10f64.powi(exponent_delta as i32)) as u32;
+                Some(nanoseconds)
+            }
+            // This Timestamp's precision is too low to have a fractional seconds field.
+            None => None,
+        }
+    }
+
     /// Tests the fractional seconds fields of two timestamps for equality. This function will
     /// only be called if both Timestamps have a precision of [Precision::FractionalSeconds].
     fn fractional_seconds_equal(&self, other: &Timestamp) -> bool {
@@ -121,18 +178,11 @@ impl Timestamp {
                 d1 == d2
             }
             (Some(Arbitrary(d1)), Some(Arbitrary(d2))) => d1.eq(d2),
-            //TODO: I believe that the public API makes it impossible for a user to create a
-            //      Timestamp with a Mantissa::Arbitrary(_) unless it is required. If this is
-            //      correct, the following two cases can be reduced to `false`, as two Timestamps
-            //      using different Mantissa variants are inherently unequal. Both of these
-            //      branches currently allocate, so this would be a worthwhile optimization.
-            (Some(Digits(d1)), Some(Arbitrary(d2))) => {
-                let upgraded: Decimal = (*d1).into();
-                upgraded.eq(d2)
+            (Some(Digits(_d1)), Some(Arbitrary(d2))) => {
+                d2.eq(&self.fractional_seconds_as_decimal().unwrap())
             }
-            (Some(Arbitrary(d1)), Some(Digits(d2))) => {
-                let upgraded: Decimal = (*d2).into();
-                d1.eq(&upgraded)
+            (Some(Arbitrary(d1)), Some(Digits(_d2))) => {
+                d1.eq(&other.fractional_seconds_as_decimal().unwrap())
             }
         }
     }
@@ -573,6 +623,50 @@ impl_time_unit_setter_for!(HourAndMinuteSetter);
 impl_time_unit_setter_for!(SecondSetter);
 impl_time_unit_setter_for!(FractionalSecondSetter);
 
+fn downconvert_to_naive_datetime_with_nanoseconds(timestamp: &Timestamp) -> NaiveDateTime {
+    if timestamp.precision == Precision::FractionalSeconds {
+        // DateTime always uses nanosecond precision. If our Timestamp uses a Decimal for
+        // its fractional seconds, attempt to convert it to a number of nanoseconds.
+        // This operation may add or lose precision, but is necessary to conform with
+        // chrono's expectations.
+        let nanoseconds = timestamp.fractional_seconds_as_nanoseconds().unwrap();
+        // Copy `self.date_time` and set the copy's nanoseconds to this new value.
+        let adjusted_datetime = timestamp.date_time.with_nanosecond(nanoseconds).unwrap(); // Modifying the nanoseconds should never be invalid.
+        adjusted_datetime
+    } else {
+        // NaiveDateTime implements `Copy`
+        timestamp.date_time
+    }
+}
+
+// Allows a Timestamp with an unknown offset to be converted to a NaiveDateTime.
+impl TryInto<NaiveDateTime> for Timestamp {
+    type Error = IonError;
+
+    fn try_into(self) -> Result<NaiveDateTime, Self::Error> {
+        if self.offset.is_some() {
+            return illegal_operation(
+                "cannot convert a Timestamp with a known offset into a NaiveDateTime",
+            );
+        }
+        Ok(downconvert_to_naive_datetime_with_nanoseconds(&self))
+    }
+}
+
+impl TryInto<DateTime<FixedOffset>> for Timestamp {
+    type Error = IonError;
+
+    fn try_into(self) -> Result<DateTime<FixedOffset>, Self::Error> {
+        if self.offset.is_none() {
+            return illegal_operation(
+                "cannot convert a Timestamp with an unknown offset into a DateTime<FixedOffset>",
+            );
+        }
+        let date_time = downconvert_to_naive_datetime_with_nanoseconds(&self);
+        Ok(self.offset.unwrap().from_utc_datetime(&date_time))
+    }
+}
+
 // Allows a NaiveDateTime to be converted to a Timestamp with an unknown offset.
 impl From<NaiveDateTime> for Timestamp {
     fn from(date_time: NaiveDateTime) -> Self {
@@ -679,6 +773,8 @@ impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
 mod timestamp_tests {
     use crate::result::IonResult;
     use crate::types::timestamp::{Mantissa, Precision, Timestamp};
+    use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+    use std::convert::TryInto;
 
     #[test]
     fn test_timestamps_with_same_ymd_hms_millis_at_known_offset_are_equal() -> IonResult<()> {
@@ -884,6 +980,82 @@ mod timestamp_tests {
         let timestamp1 = Timestamp::with_year(2021).build();
         let timestamp2 = Timestamp::with_year(2022).build();
         assert_ne!(timestamp1, timestamp2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_try_into_naive_datetime() -> IonResult<()> {
+        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset()?;
+        let naive_datetime: NaiveDateTime = timestamp.try_into()?;
+        let expected = NaiveDate::from_ymd(2021, 4, 6).and_hms(10, 15, 0);
+        assert_eq!(expected, naive_datetime);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_try_into_naive_datetime_fractional_seconds() -> IonResult<()> {
+        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+            .with_milliseconds(449)
+            .build_at_unknown_offset()?;
+        let datetime: NaiveDateTime = timestamp.try_into()?;
+        let naive_datetime = NaiveDate::from_ymd(2021, 4, 6)
+            .and_hms(10, 15, 0)
+            .with_nanosecond(449000000)
+            .unwrap();
+        assert_eq!(datetime, naive_datetime);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_try_into_naive_datetime_error() -> IonResult<()> {
+        let timestamp = Timestamp::with_ymd_hms(2021, 1, 1, 0, 0, 0).build_at_offset(0)?;
+        //     ^---- This timestamp has a known offset, so we cannot convert it into a NaiveDateTime
+        let result: IonResult<NaiveDateTime> = timestamp.try_into();
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_try_into_fixed_offset_datetime() -> IonResult<()> {
+        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60)?;
+        //                    ^-- Timestamp's offset API takes minutes
+        let datetime: DateTime<FixedOffset> = timestamp.try_into()?;
+        // chrono's FixedOffset takes seconds ----------v
+        let expected_offset = FixedOffset::east(-5 * 60 * 60);
+        let naive_datetime = NaiveDate::from_ymd(2021, 4, 6).and_hms(10, 15, 0);
+        let expected_datetime = expected_offset
+            .from_local_datetime(&naive_datetime)
+            .unwrap();
+        assert_eq!(datetime, expected_datetime);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_try_into_fixed_offset_datetime_fractional_seconds() -> IonResult<()> {
+        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+            .with_milliseconds(449)
+            .build_at_offset(-5 * 60)?;
+        //                    ^-- Timestamp's offset API takes minutes
+        let datetime: DateTime<FixedOffset> = timestamp.try_into()?;
+        // chrono's FixedOffset takes seconds ----------v
+        let expected_offset = FixedOffset::east(-5 * 60 * 60);
+        let naive_datetime = NaiveDate::from_ymd(2021, 4, 6)
+            .and_hms(10, 15, 0)
+            .with_nanosecond(449000000)
+            .unwrap();
+        let expected_datetime = expected_offset
+            .from_local_datetime(&naive_datetime)
+            .unwrap();
+        assert_eq!(datetime, expected_datetime);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_try_into_datetime_fixedoffset_error() -> IonResult<()> {
+        let timestamp = Timestamp::with_ymd_hms(2021, 1, 1, 0, 0, 0).build_at_unknown_offset()?;
+        //     ^---- This timestamp has an unknown offset, so we cannot convert it into a DateTime<FixedOffset>
+        let result: IonResult<DateTime<FixedOffset>> = timestamp.try_into();
+        assert!(result.is_err());
         Ok(())
     }
 
