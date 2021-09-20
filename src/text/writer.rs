@@ -1,7 +1,9 @@
 use crate::result::{illegal_operation, IonResult};
+use crate::types::timestamp::{Precision, Timestamp};
 use crate::IonType;
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
+use std::convert::TryInto;
 use std::io::{BufWriter, Write};
 
 pub struct TextWriter<W: Write> {
@@ -247,7 +249,97 @@ impl<W: Write> TextWriter<W> {
         })
     }
 
+    // Helper method for [write_timestamp]. Writes the timestamp to output using +/-HH:MM format.
+    fn write_offset(output: &mut BufWriter<W>, offset_minutes: Option<i32>) -> IonResult<()> {
+        if offset_minutes.is_none() {
+            write!(output, "-00:00")?;
+            return Ok(());
+        }
+        let offset_minutes = offset_minutes.unwrap();
+
+        const MINUTES_PER_HOUR: i32 = 60;
+        // Split the offset into a sign and magnitude for formatting
+        let sign = if offset_minutes >= 0 { "+" } else { "-" };
+        let offset_minutes = offset_minutes.abs();
+        let hours = offset_minutes / MINUTES_PER_HOUR;
+        let minutes = offset_minutes % MINUTES_PER_HOUR;
+        write!(output, "{}{:0>2}:{:0>2}", sign, hours, minutes)?;
+        Ok(())
+    }
+
+    /// Writes the provided Timestamp as an Ion timestamp.
+    pub fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
+        // A space to format the offset
+        self.write_scalar(|output| {
+            let (offset_minutes, datetime) = if let Some(minutes) = value.offset {
+                // Create a datetime with the appropriate offset that we can use for formatting.
+                let datetime: DateTime<FixedOffset> = value.clone().try_into()?;
+                // Convert the offset to minutes --v
+                (Some(minutes.local_minus_utc() / 60), datetime)
+            } else {
+                // Our timestamp has an unknown offset. Per the spec, this means it makes no
+                // assertions about *where* it was recorded, but its fields are still in UTC.
+                // Create a UTC datetime that we can use for formatting.
+                let datetime: NaiveDateTime = value.clone().try_into()?;
+                let datetime: DateTime<FixedOffset> =
+                    FixedOffset::east(0).from_utc_datetime(&datetime);
+                (None, datetime)
+            };
+
+            write!(output, "{:0>4}", datetime.year())?;
+            //                     ^-- 0-padded, right aligned, 4-digit year
+            if value.precision == Precision::Year {
+                write!(output, "T")?;
+                return Ok(());
+            }
+
+            write!(output, "-{:0>2}", datetime.month())?;
+            //                   ^-- delimiting hyphen and 0-padded, right aligned, 2-digit month
+            if value.precision == Precision::Month {
+                write!(output, "T")?;
+                return Ok(());
+            }
+
+            write!(output, "-{:0>2}", datetime.day())?;
+            //                   ^-- delimiting hyphen and 0-padded, right aligned, 2-digit day
+            if value.precision == Precision::Day {
+                write!(output, "T")?;
+                return Ok(());
+            }
+
+            write!(output, "T{:0>2}:{:0>2}", datetime.hour(), datetime.minute())?;
+            //                   ^-- delimiting T, formatted hour, delimiting colon, formatted minute
+            if value.precision == Precision::HourAndMinute {
+                Self::write_offset(output, offset_minutes)?;
+                return Ok(());
+            }
+
+            write!(output, ":{:0>2}", datetime.second())?;
+            //                   ^-- delimiting colon, formatted second
+            if value.precision == Precision::Second {
+                Self::write_offset(output, offset_minutes)?;
+                return Ok(());
+            }
+
+            // We want the fractional seconds to show as many decimal places as are interesting.
+            // Here we format the string as nanoseconds and then eliminate any trailing zeros.
+            //TODO: The initial conversion to datetime will discard precision greater than nanoseconds.
+            //TODO: Eliminate this allocation.
+            let fractional_text = format!("{:0>9}", datetime.nanosecond());
+            let fractional_text = fractional_text.trim_end_matches("0");
+
+            write!(output, ".{}", fractional_text)?;
+            //               ^-- delimiting decimal point, formatted fractional seconds
+            Self::write_offset(output, offset_minutes)?;
+            Ok(())
+        })
+    }
+
     /// Writes the provided DateTime value as an Ion timestamp.
+    #[deprecated(
+        since = "0.6.1",
+        note = "Please use the `write_timestamp` method instead."
+    )]
     pub fn write_datetime(&mut self, value: &DateTime<FixedOffset>) -> IonResult<()> {
         self.write_scalar(|output| {
             write!(output, "{}", value.to_rfc3339())?;
@@ -315,6 +407,7 @@ impl<W: Write> TextWriter<W> {
 mod tests {
     use crate::result::IonResult;
     use crate::text::writer::TextWriter;
+    use crate::types::timestamp::Timestamp;
     use crate::IonType;
     use bigdecimal::BigDecimal;
     use chrono::{FixedOffset, NaiveDate, TimeZone};
@@ -384,6 +477,7 @@ mod tests {
 
     #[test]
     fn write_datetime_epoch() {
+        #![allow(deprecated)] // `write_datetime` is deprecated
         let naive_datetime = NaiveDate::from_ymd(2000 as i32, 1 as u32, 1 as u32)
             .and_hms(0 as u32, 0 as u32, 0 as u32);
         let offset = FixedOffset::west(0);
@@ -391,6 +485,62 @@ mod tests {
         writer_test(
             |w| w.write_datetime(&datetime),
             "2000-01-01T00:00:00+00:00\n",
+        );
+    }
+
+    #[test]
+    fn write_timestamp_with_year() {
+        let timestamp = Timestamp::with_year(2000)
+            .build()
+            .expect("building timestamp failed");
+        writer_test(|w| w.write_timestamp(&timestamp), "2000T\n");
+    }
+
+    #[test]
+    fn write_timestamp_with_month() {
+        let timestamp = Timestamp::with_year(2000)
+            .with_month(8)
+            .build()
+            .expect("building timestamp failed");
+        writer_test(|w| w.write_timestamp(&timestamp), "2000-08T\n");
+    }
+
+    #[test]
+    fn write_timestamp_with_ymd() {
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
+            .build()
+            .expect("building timestamp failed");
+        writer_test(|w| w.write_timestamp(&timestamp), "2000-08-22T\n");
+    }
+
+    #[test]
+    fn write_timestamp_with_ymd_hms() {
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
+            .with_hms(15, 45, 11)
+            .build_at_offset(2 * 60)
+            .expect("building timestamp failed");
+        writer_test(|w| w.write_timestamp(&timestamp), "2000-08-22T15:45:11+02:00\n");
+    }
+
+    #[test]
+    fn write_timestamp_with_ymd_hms_millis() {
+        let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
+            .build_at_offset(-5 * 60)
+            .expect("building timestamp failed");
+        writer_test(
+            |w| w.write_timestamp(&timestamp),
+            "2000-08-22T15:45:11.931-05:00\n",
+        );
+    }
+
+    #[test]
+    fn write_timestamp_with_ymd_hms_millis_unknown_offset() {
+        let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
+            .build_at_unknown_offset()
+            .expect("building timestamp failed");
+        writer_test(
+            |w| w.write_timestamp(&timestamp),
+            "2000-08-22T15:45:11.931-00:00\n",
         );
     }
 
