@@ -14,6 +14,9 @@ const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<IntStorage>();
 pub struct Int {
     size_in_bytes: usize,
     value: IntStorage,
+    // [IntStorage] is not capable of natively representing negative zero. We track the sign
+    // of the value separately so we can distinguish between 0 and -0.
+    is_negative: bool
 }
 
 impl Int {
@@ -23,6 +26,7 @@ impl Int {
             return Ok(Int {
                 size_in_bytes: 0,
                 value: 0,
+                is_negative: false
             });
         } else if length > MAX_INT_SIZE_IN_BYTES {
             return decoding_error(format!(
@@ -53,6 +57,7 @@ impl Int {
         Ok(Int {
             size_in_bytes: length,
             value: magnitude * sign,
+            is_negative: sign == -1
         })
     }
 
@@ -74,6 +79,14 @@ impl Int {
 
         sink.write_all(bytes_to_write)?;
         Ok(bytes_to_write.len())
+    }
+
+    /// Returns `true` if the Int is negative zero.
+    pub fn is_negative_zero(&self) -> bool {
+        // `self.value` can natively represent any negative integer _except_ -0.
+        // To check for negative zero, we need to also look at the sign bit that was encoded
+        // in the stream.
+        self.value == 0 && self.is_negative
     }
 
     /// Returns the value of the signed integer.

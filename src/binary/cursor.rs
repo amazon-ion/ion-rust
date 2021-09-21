@@ -433,6 +433,27 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         })
     }
 
+    fn read_decimal(&mut self) -> IonResult<Option<Decimal>> {
+        read_safety_checks!(self, IonType::Decimal);
+
+        if self.cursor.value.value_length == 0 {
+            return Ok(Some(Decimal::new(0, 0)));
+        }
+
+        let exponent_var_int = self.read_var_int()?;
+        let coefficient_size_in_bytes =
+            self.cursor.value.value_length - exponent_var_int.size_in_bytes();
+
+        let exponent = exponent_var_int.value() as i64;
+        let coefficient = self.read_int(coefficient_size_in_bytes)?;
+
+        if coefficient.is_negative_zero() {
+            return Ok(Some(Decimal::negative_zero_with_exponent(exponent)));
+        }
+
+        Ok(Some(Decimal::new(coefficient.value(), exponent)))
+    }
+
     fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>> {
         read_safety_checks!(self, IonType::Decimal);
 
@@ -1124,6 +1145,7 @@ mod tests {
     use crate::types::timestamp::Timestamp;
     use crate::types::IonType;
     use std::convert::TryInto;
+    use crate::types::decimal::Decimal;
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 
@@ -1217,7 +1239,46 @@ mod tests {
     }
 
     #[test]
+    fn test_read_decimal_zero() -> IonResult<()> {
+        let mut cursor = ion_cursor_for(&[0x50]);
+        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
+        assert_eq!(
+            cursor.read_decimal()?,
+            Some(Decimal::new(0, 0))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_decimal_negative_zero() -> IonResult<()> {
+        let mut cursor = ion_cursor_for(&[0x52, 0x80, 0x80]);
+        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
+        assert_eq!(
+            cursor.read_decimal()?,
+            Some(Decimal::negative_zero())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_decimal_positive_exponent() -> IonResult<()> {
+        let mut cursor = ion_cursor_for(&[0x52, 0x81, 0x02]);
+        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
+        assert_eq!(cursor.read_big_decimal()?, Some(20.into()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_decimal_negative_exponent() -> IonResult<()> {
+        let mut cursor = ion_cursor_for(&[0x52, 0xC1, 0x02]);
+        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
+        assert_eq!(cursor.read_decimal()?, Some(Decimal::new(2, -1)));
+        Ok(())
+    }
+
+    #[test]
     fn test_read_big_decimal_zero() -> IonResult<()> {
+        #![allow(deprecated)] // `read_big_decimal` is deprecated
         let mut cursor = ion_cursor_for(&[0x50]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
         assert_eq!(
@@ -1229,6 +1290,7 @@ mod tests {
 
     #[test]
     fn test_read_big_decimal_positive_exponent() -> IonResult<()> {
+        #![allow(deprecated)] // `read_big_decimal` is deprecated
         let mut cursor = ion_cursor_for(&[0x52, 0x81, 0x02]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
         assert_eq!(cursor.read_big_decimal()?, Some(20.into()));
@@ -1237,6 +1299,7 @@ mod tests {
 
     #[test]
     fn test_read_big_decimal_negative_exponent() -> IonResult<()> {
+        #![allow(deprecated)] // `read_big_decimal` is deprecated
         let mut cursor = ion_cursor_for(&[0x52, 0xC1, 0x02]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
         assert_eq!(cursor.read_big_decimal()?, Some(0.2f64.try_into().unwrap()));
