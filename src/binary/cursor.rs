@@ -1258,7 +1258,7 @@ mod tests {
     fn test_read_decimal_positive_exponent() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x52, 0x81, 0x02]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(cursor.read_big_decimal()?, Some(20.into()));
+        assert_eq!(cursor.read_decimal()?, Some(20.into()));
         Ok(())
     }
 
