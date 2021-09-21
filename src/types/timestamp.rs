@@ -1,7 +1,9 @@
 use crate::result::{illegal_operation, illegal_operation_raw, IonError, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::magnitude::Magnitude;
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use chrono::{
+    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
+};
 use ion_c_sys::timestamp::{IonDateTime, TSOffsetKind, TSPrecision};
 use std::convert::TryInto;
 use std::fmt::Debug;
@@ -300,6 +302,7 @@ impl PartialEq for Timestamp {
 // See the unit tests for usage examples.
 #[derive(Debug, Clone, Default)]
 struct TimestampBuilder {
+    fields_are_utc: bool,
     precision: Precision,
     offset: Option<i32>,
     year: u16,
@@ -381,34 +384,82 @@ impl TimestampBuilder {
         Ok(datetime)
     }
 
+    // A [NaiveDateTime] has no offset. This function attempts to apply the provided offset to the
+    // NaiveDateTime, producing a DateTime<FixedOffset>. If the offset is invalid or the combination
+    // of offset and datetime would produce an invalid Timestamp, this function will return Err.
+    fn apply_offset(
+        offset_minutes: i32,
+        fields_are_utc: bool,
+        datetime: NaiveDateTime,
+    ) -> IonResult<DateTime<FixedOffset>> {
+        // The chrono APIs express their DateTime offsets in seconds, but the Ion APIs use minutes.
+        const SECONDS_PER_MINUTE: i32 = 60;
+        let offset_seconds = offset_minutes * SECONDS_PER_MINUTE;
+        let offset = FixedOffset::east_opt(offset_seconds).ok_or_else(|| {
+            illegal_operation_raw(format!(
+                "specified offset ({} minutes) is invalid",
+                offset_minutes
+            ))
+        })?;
+
+        // If the fields of the datetime are UTC, constructing a DateTime<FixedOffset> is guaranteed
+        // to succeed. Return it directly.
+        if fields_are_utc {
+            return Ok(offset.from_utc_datetime(&datetime));
+        }
+
+        // Otherwise, apply the offset to our (local) NaiveDateTime and make sure the resulting
+        // DateTime<FixedOffset> is valid.
+        return match offset.from_local_datetime(&datetime) {
+            LocalResult::None => {
+                illegal_operation(
+                    format!(
+                        "specified offset/datetime pair is invalid (offset={}, datetime={})",
+                        offset_minutes,
+                        datetime
+                    )
+                )
+            },
+            LocalResult::Single(datetime) => Ok(datetime),
+            LocalResult::Ambiguous(_min, _max) => {
+                illegal_operation(
+                    format!(
+                        "specified offset/datetime pair produces an ambiguous timestamp (offset={}, datetime={})",
+                        offset_minutes,
+                        datetime
+                    )
+                )
+            }
+        };
+    }
+
     /// Attempt to construct a [Timestamp] using the values configured on the [TimestampBuilder].
     /// If any of the individual fields are invalid (for example, a `month` value that is greater
     /// than `12`) or if the resulting timestamp would represent a non-existent point in time
     /// (like those bypassed by daylight saving time), this method will return an `Err(IonError)`.
     fn build(mut self) -> IonResult<Timestamp> {
-        if let Some(offset) = self.offset {
-            // Our builder stores the offset in minutes difference from UTC.
-            // We're about to convert to the chrono type which uses seconds.
-            // Both values consider positive to mean Eastern Hemisphere.
-            let offset = FixedOffset::east_opt(offset * 60).ok_or_else(|| {
-                illegal_operation_raw(format!("specified offset ('{}') is invalid", offset))
-            })?;
-            let mut datetime: DateTime<FixedOffset> = offset.ymd(0, 1, 1).and_hms_nano(0, 0, 0, 0);
-            datetime = self.configure_datetime(datetime)?;
-            let mut timestamp = Timestamp::from_datetime(datetime, self.precision);
-            if self.precision == Precision::FractionalSeconds {
-                timestamp.fractional_seconds = self.fractional_seconds;
-            }
-            Ok(timestamp)
+        // Start with a clean slate NaiveDateTime that we can configure. (These are cheap to copy.)
+        let mut datetime: NaiveDateTime = NaiveDate::from_ymd(0, 1, 1).and_hms_nano(0, 0, 0, 0);
+        // Set all of the time fields on the datetime using the data from our TimestampBuilder
+        datetime = self.configure_datetime(datetime)?;
+        // If the timestamp we're building has a known offset...
+        let mut timestamp: Timestamp = if let Some(offset_minutes) = self.offset {
+            // ...apply the offset to our NaiveDateTime, producing a DateTime<FixedOffset>
+            let datetime_with_offset: DateTime<FixedOffset> =
+                Self::apply_offset(offset_minutes, self.fields_are_utc, datetime)?;
+            // ...and convert the DateTime<FixedOffset> into a full Timestamp.
+            Timestamp::from_datetime(datetime_with_offset, self.precision)
         } else {
-            let mut datetime: NaiveDateTime = NaiveDate::from_ymd(0, 1, 1).and_hms_nano(0, 0, 0, 0);
-            datetime = self.configure_datetime(datetime)?;
-            let mut timestamp = Timestamp::from_datetime(datetime, self.precision);
-            if self.precision == Precision::FractionalSeconds {
-                timestamp.fractional_seconds = self.fractional_seconds;
-            }
-            Ok(timestamp)
+            // Otherwise, there's not a known offset. We can directly convert our NaiveDateTime
+            // into a full Timestamp.
+            Timestamp::from_datetime(datetime, self.precision)
+        };
+
+        // Copy the fractional seconds from the builder to the Timestamp.
+        if self.precision == Precision::FractionalSeconds {
+            timestamp.fractional_seconds = self.fractional_seconds;
         }
+        Ok(timestamp)
     }
 }
 
@@ -532,6 +583,13 @@ impl SecondSetter {
         self.into_builder().build()
     }
 
+    /// Like [build_at_offset], but the fields provided for each time unit are understood
+    /// to be in UTC rather than in the local time of the specified offset.
+    pub fn build_utc_fields_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
+        self.builder.fields_are_utc = true;
+        self.build_at_offset(offset_minutes)
+    }
+
     pub fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
         self.builder.offset = None;
         self.into_builder().build()
@@ -595,6 +653,13 @@ impl FractionalSecondSetter {
     pub fn build_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
         self.builder.offset = Some(offset_minutes);
         self.into_builder().build()
+    }
+
+    /// Like [build_at_offset], but the fields provided for each time unit are understood
+    /// to be in UTC rather than in the local time of the specified offset.
+    pub fn build_utc_fields_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
+        self.builder.fields_are_utc = true;
+        self.build_at_offset(offset_minutes)
     }
 
     pub fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
@@ -799,6 +864,30 @@ mod timestamp_tests {
         let builder = Timestamp::with_ymd_hms(2021, 2, 5, 16, 43, 51);
         let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
         let timestamp2 = builder.clone().build_at_offset(5 * 60)?;
+        assert_eq!(timestamp1, timestamp2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamps_from_utc_and_local_hm_fields_at_same_offset_are_equal() -> IonResult<()> {
+        // Builder 1 specifies its time fields in the local time of the specified offset
+        let builder1 = Timestamp::with_ymd(2021, 2, 5).with_hour_and_minute(11, 43);
+        let timestamp1 = builder1.build_at_offset(-5 * 60)?;
+        // Builder 2 specifies its time fields in UTC and expects the offset to be applied afterwards
+        let builder2 = Timestamp::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
+        let timestamp2 = builder2.build_utc_fields_at_offset(-5 * 60)?;
+        assert_eq!(timestamp1, timestamp2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamps_from_utc_and_local_hms_fields_at_same_offset_are_equal() -> IonResult<()> {
+        // Builder 1 specifies its time fields in the local time of the specified offset
+        let builder1 = Timestamp::with_ymd_hms(2021, 2, 5, 11, 43, 51);
+        let timestamp1 = builder1.build_at_offset(-5 * 60)?;
+        // Builder 2 specifies its time fields in UTC and expects the offset to be applied afterwards
+        let builder2 = Timestamp::with_ymd_hms(2021, 2, 5, 16, 43, 51);
+        let timestamp2 = builder2.build_utc_fields_at_offset(-5 * 60)?;
         assert_eq!(timestamp1, timestamp2);
         Ok(())
     }

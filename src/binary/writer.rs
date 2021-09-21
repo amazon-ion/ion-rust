@@ -469,6 +469,10 @@ impl<W: Write> BinarySystemWriter<W> {
     }
 
     /// Writes an Ion timestamp with the specified value.
+    #[deprecated(
+        since = "0.6.1",
+        note = "Please use the `write_timestamp` method instead."
+    )]
     pub fn write_datetime(&mut self, value: &DateTime<FixedOffset>) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
             // TODO: Currently this clones the Chrono type so we can make a
@@ -476,7 +480,15 @@ impl<W: Write> BinarySystemWriter<W> {
             // However, this API (`write_datetime`) is probably also not quite
             // right.
             let timestamp: Timestamp = value.clone().into();
-            let _ = enc_buffer.encode_timestamp_value(&timestamp);
+            let _ = enc_buffer.encode_timestamp_value(&timestamp)?;
+            Ok(())
+        })
+    }
+
+    /// Writes an Ion timestamp with the specified value.
+    pub fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            let _ = enc_buffer.encode_timestamp_value(&value)?;
             Ok(())
         })
     }
@@ -777,9 +789,9 @@ impl<W: Write> BinarySystemWriter<W> {
 mod writer_tests {
     use std::fmt::Debug;
 
-    use chrono::ParseResult;
-
     use crate::{BinaryIonCursor, Reader};
+
+    use rstest::*;
 
     use super::*;
 
@@ -831,7 +843,10 @@ mod writer_tests {
                     assert_eq!(reader.next()?, Some((ion_type, false)));
                     let reader_value = read_fn(reader)?
                         .expect("Reader expected another value but the stream was empty.");
-                    assert_eq!(reader_value, *value);
+                    assert_eq!(
+                        reader_value, *value,
+                        "Value read back in (left) was not equal to the original value (right)"
+                    );
                 }
                 Ok(())
             },
@@ -902,26 +917,44 @@ mod writer_tests {
         )
     }
 
-    #[test]
-    fn binary_writer_timestamps() -> IonResult<()> {
-        let iso_8601_strings = [
-            "2000-01-01T00:00:00+00:00",
-            "2021-01-08T14:12:36+00:00",
-            "2021-01-08T14:12:36-05:00",
-            "2021-01-08T14:12:36.888-05:00",
-            "2021-01-08T14:12:36.888888-05:00",
-            "2021-01-08T14:12:36.888888888-05:00",
-        ];
-        let values: Vec<DateTime<FixedOffset>> = iso_8601_strings
-            .iter()
-            .map(|s| DateTime::parse_from_rfc3339(s))
-            .map(ParseResult::unwrap)
-            .collect();
+    #[rstest]
+    #[case("2000-01-01T00:00:00+00:00")]
+    #[case("2021-01-08T14:12:36+00:00")]
+    #[case("2021-01-08T14:12:36-05:00")]
+    #[case("2021-01-08T14:12:36.888-05:00")]
+    #[case("2021-01-08T14:12:36.888888-05:00")]
+    #[case("2021-01-08T14:12:36.888888888-05:00")]
+    fn binary_writer_datetimes(#[case] rfc3339_datetime: &str) -> IonResult<()> {
+        let datetime = DateTime::parse_from_rfc3339(rfc3339_datetime).unwrap();
         binary_writer_scalar_test(
-            &values,
+            &[datetime],
             IonType::Timestamp,
-            |writer, v| writer.write_datetime(v),
+            |writer, v| {
+                #[allow(deprecated)] // `write_datetime` is deprecated
+                writer.write_datetime(v)
+            },
             |reader| reader.read_datetime(),
+        )
+    }
+
+    #[rstest]
+    #[case::year(Timestamp::with_year(2021).build().unwrap())]
+    #[case::year_month(Timestamp::with_year(2021).with_month(1).build().unwrap())]
+    #[case::year_month_day(Timestamp::with_ymd(2021, 1, 8).build().unwrap())]
+    #[case::ymd_hm_unknown(Timestamp::with_ymd(2021, 1, 8).with_hour_and_minute(14, 12).build_at_unknown_offset().unwrap())]
+    #[case::ymd_hm_est(Timestamp::with_ymd(2021, 1, 8).with_hour_and_minute(14, 12).build_at_offset(-5 * 60).unwrap())]
+    #[case::ymd_hms_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).build_at_unknown_offset().unwrap())]
+    #[case::ymd_hms_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).build_at_offset(-5 * 60).unwrap())]
+    #[case::ymd_hms_millis_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_milliseconds(888).build_at_unknown_offset().unwrap())]
+    #[case::ymd_hms_millis_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_milliseconds(888).build_at_offset(-5 * 60).unwrap())]
+    #[case::ymd_hms_nanos_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_nanoseconds(888888888).build_at_unknown_offset().unwrap())]
+    #[case::ymd_hms_nanos_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_nanoseconds(888888888).build_at_offset(-5 * 60).unwrap())]
+    fn binary_writer_timestamps(#[case] timestamp: Timestamp) -> IonResult<()> {
+        binary_writer_scalar_test(
+            &[timestamp],
+            IonType::Timestamp,
+            |writer, v| writer.write_timestamp(v),
+            |reader| reader.read_timestamp(),
         )
     }
 
