@@ -16,7 +16,7 @@ pub struct Int {
     value: IntStorage,
     // [IntStorage] is not capable of natively representing negative zero. We track the sign
     // of the value separately so we can distinguish between 0 and -0.
-    is_negative: bool
+    is_negative: bool,
 }
 
 impl Int {
@@ -26,7 +26,7 @@ impl Int {
             return Ok(Int {
                 size_in_bytes: 0,
                 value: 0,
-                is_negative: false
+                is_negative: false,
             });
         } else if length > MAX_INT_SIZE_IN_BYTES {
             return decoding_error(format!(
@@ -57,7 +57,7 @@ impl Int {
         Ok(Int {
             size_in_bytes: length,
             value: magnitude * sign,
-            is_negative: sign == -1
+            is_negative: sign == -1,
         })
     }
 

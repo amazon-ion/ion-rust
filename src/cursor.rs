@@ -1,10 +1,10 @@
 use crate::data_source::IonDataSource;
 use crate::result::IonResult;
+use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::{IonType, SymbolId};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
-use crate::types::decimal::Decimal;
 
 /**
  * This trait captures the format-agnostic parser functionality needed to navigate within an Ion
@@ -64,8 +64,8 @@ pub trait Cursor {
     /// If the current value is a decimal, returns its value as a BigDecimal; otherwise,
     /// returns None.
     #[deprecated(
-        since="0.6.1",
-        note="Please use the `read_decimal` method instead."
+        since = "0.6.1",
+        note = "Please use the `read_decimal` method instead."
     )]
     fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>>;
 

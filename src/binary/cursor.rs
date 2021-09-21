@@ -1142,10 +1142,10 @@ mod tests {
     use crate::binary::cursor::BinaryIonCursor;
     use crate::cursor::{Cursor, StreamItem, StreamItem::*};
     use crate::result::IonResult;
+    use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::types::IonType;
     use std::convert::TryInto;
-    use crate::types::decimal::Decimal;
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 
@@ -1242,10 +1242,7 @@ mod tests {
     fn test_read_decimal_zero() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x50]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(
-            cursor.read_decimal()?,
-            Some(Decimal::new(0, 0))
-        );
+        assert_eq!(cursor.read_decimal()?, Some(Decimal::new(0, 0)));
         Ok(())
     }
 
@@ -1253,10 +1250,7 @@ mod tests {
     fn test_read_decimal_negative_zero() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x52, 0x80, 0x80]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(
-            cursor.read_decimal()?,
-            Some(Decimal::negative_zero())
-        );
+        assert_eq!(cursor.read_decimal()?, Some(Decimal::negative_zero()));
         Ok(())
     }
 
