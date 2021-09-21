@@ -1,7 +1,9 @@
 use crate::result::{illegal_operation, illegal_operation_raw, IonError, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::magnitude::Magnitude;
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike, LocalResult};
+use chrono::{
+    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
+};
 use ion_c_sys::timestamp::{IonDateTime, TSOffsetKind, TSPrecision};
 use std::convert::TryInto;
 use std::fmt::Debug;
@@ -388,12 +390,16 @@ impl TimestampBuilder {
     fn apply_offset(
         offset_minutes: i32,
         fields_are_utc: bool,
-        datetime: NaiveDateTime) -> IonResult<DateTime<FixedOffset>> {
+        datetime: NaiveDateTime,
+    ) -> IonResult<DateTime<FixedOffset>> {
         // The chrono APIs express their DateTime offsets in seconds, but the Ion APIs use minutes.
         const SECONDS_PER_MINUTE: i32 = 60;
         let offset_seconds = offset_minutes * SECONDS_PER_MINUTE;
         let offset = FixedOffset::east_opt(offset_seconds).ok_or_else(|| {
-            illegal_operation_raw(format!("specified offset ({} minutes) is invalid", offset_minutes))
+            illegal_operation_raw(format!(
+                "specified offset ({} minutes) is invalid",
+                offset_minutes
+            ))
         })?;
 
         // If the fields of the datetime are UTC, constructing a DateTime<FixedOffset> is guaranteed
@@ -424,7 +430,7 @@ impl TimestampBuilder {
                     )
                 )
             }
-        }
+        };
     }
 
     /// Attempt to construct a [Timestamp] using the values configured on the [TimestampBuilder].
@@ -433,18 +439,14 @@ impl TimestampBuilder {
     /// (like those bypassed by daylight saving time), this method will return an `Err(IonError)`.
     fn build(mut self) -> IonResult<Timestamp> {
         // Start with a clean slate NaiveDateTime that we can configure. (These are cheap to copy.)
-        let mut datetime: NaiveDateTime = NaiveDate::from_ymd(0, 1, 1)
-            .and_hms_nano(0, 0, 0, 0);
+        let mut datetime: NaiveDateTime = NaiveDate::from_ymd(0, 1, 1).and_hms_nano(0, 0, 0, 0);
         // Set all of the time fields on the datetime using the data from our TimestampBuilder
         datetime = self.configure_datetime(datetime)?;
         // If the timestamp we're building has a known offset...
         let mut timestamp: Timestamp = if let Some(offset_minutes) = self.offset {
             // ...apply the offset to our NaiveDateTime, producing a DateTime<FixedOffset>
-            let datetime_with_offset: DateTime<FixedOffset> = Self::apply_offset(
-                offset_minutes,
-                self.fields_are_utc,
-                datetime
-            )?;
+            let datetime_with_offset: DateTime<FixedOffset> =
+                Self::apply_offset(offset_minutes, self.fields_are_utc, datetime)?;
             // ...and convert the DateTime<FixedOffset> into a full Timestamp.
             Timestamp::from_datetime(datetime_with_offset, self.precision)
         } else {

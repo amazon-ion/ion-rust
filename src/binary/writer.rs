@@ -844,8 +844,7 @@ mod writer_tests {
                     let reader_value = read_fn(reader)?
                         .expect("Reader expected another value but the stream was empty.");
                     assert_eq!(
-                        reader_value,
-                        *value,
+                        reader_value, *value,
                         "Value read back in (left) was not equal to the original value (right)"
                     );
                 }
