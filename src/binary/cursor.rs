@@ -592,7 +592,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         let builder = builder.with_hour_and_minute(hour, minute);
         if self.finished_reading_value() {
             let timestamp = if is_known_offset {
-                builder.build_at_offset(offset_minutes)
+                builder.build_utc_fields_at_offset(offset_minutes)
             } else {
                 builder.build_at_unknown_offset()
             }?;
@@ -605,7 +605,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         let builder = builder.with_second(second);
         if self.finished_reading_value() {
             let timestamp = if is_known_offset {
-                builder.build_at_offset(offset_minutes)
+                builder.build_utc_fields_at_offset(offset_minutes)
             } else {
                 builder.build_at_unknown_offset()
             }?;
@@ -628,7 +628,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         let builder = builder
             .with_fractional_seconds(Decimal::new(subsecond_coefficient, subsecond_exponent));
         let timestamp = if is_known_offset {
-            builder.build_at_offset(offset_minutes)
+            builder.build_utc_fields_at_offset(offset_minutes)
         } else {
             builder.build_at_unknown_offset()
         }?;

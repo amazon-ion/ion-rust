@@ -44,18 +44,23 @@ where
         const SECONDS_PER_MINUTE: f32 = 60f32;
         let mut bytes_written: usize = 0;
 
-        // Each component of the timestamp is in UTC time. Readers then apply the offset minutes
-        // to derive the localized time.
+        // Each unit of the binary-encoded timestamp (hour, minute, etc) is written in UTC.
+        // The reader is expected to apply the encoded offset (in minutes) to derive the local time.
+
+        // [Timestamp]s are modeled as a UTC NaiveDateTime and an optional FixedOffset.
+        // We can use the UTC NaiveDateTime to query for the individual time fields (year, month,
+        // etc) that we need to write out.
         let utc = timestamp.date_time;
 
         // Write out the offset (minutes difference from UTC). If the offset is
         // unknown, negative zero is used.
         if let Some(offset) = timestamp.offset {
-            // Ion encodes offsets in minutes while DateTime stores it in seconds.
+            // Ion encodes offsets in minutes while chrono's DateTime stores it in seconds.
             let offset_seconds = offset.local_minus_utc();
             let offset_minutes = (offset_seconds as f32 / SECONDS_PER_MINUTE).round() as i64;
             bytes_written += VarInt::write_i64(self, offset_minutes)?;
         } else {
+            // The offset is unknown. Write negative zero.
             bytes_written += VarInt::write_negative_zero(self)?;
         }
 
