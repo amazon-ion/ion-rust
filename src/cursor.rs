@@ -1,5 +1,6 @@
 use crate::data_source::IonDataSource;
 use crate::result::IonResult;
+use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::{IonType, SymbolId};
 use bigdecimal::BigDecimal;
@@ -56,8 +57,16 @@ pub trait Cursor {
     /// If the current value is a float, returns its value as an f64; otherwise, returns None.
     fn read_f64(&mut self) -> IonResult<Option<f64>>;
 
-    /// If the current value is a decimal, returns its value as an BigDecimal; otherwise,
+    /// If the current value is a decimal, returns its value as a [Decimal]; otherwise,
     /// returns None.
+    fn read_decimal(&mut self) -> IonResult<Option<Decimal>>;
+
+    /// If the current value is a decimal, returns its value as a BigDecimal; otherwise,
+    /// returns None.
+    #[deprecated(
+        since = "0.6.1",
+        note = "Please use the `read_decimal` method instead."
+    )]
     fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>>;
 
     /// If the current value is a string, returns its value as a String; otherwise, returns None.
