@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use bigdecimal::{BigDecimal, Signed};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 
-use crate::result::{IonError, illegal_operation};
+use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::magnitude::Magnitude;
 use std::convert::{TryFrom, TryInto};
@@ -278,7 +278,7 @@ mod decimal_tests {
     use crate::types::coefficient::{Coefficient, Sign};
     use crate::types::decimal::Decimal;
     use bigdecimal::BigDecimal;
-    use num_traits::{ToPrimitive, Float};
+    use num_traits::{Float, ToPrimitive};
     use std::cmp::Ordering;
     use std::convert::TryInto;
 
@@ -349,10 +349,7 @@ mod decimal_tests {
     #[case(-1.5f64, Decimal::new(-15, -1))]
     #[case(3.141592659f64, Decimal::new(3141592659i64, -9))]
     #[case(-3.141592659f64, Decimal::new(-3141592659i64, -9))]
-    fn test_decimal_try_from_f64_ok(
-        #[case] value: f64,
-        #[case] expected: Decimal
-    ) {
+    fn test_decimal_try_from_f64_ok(#[case] value: f64, #[case] expected: Decimal) {
         let actual: Decimal = value.try_into().unwrap();
         assert_eq!(actual, expected);
     }
@@ -361,9 +358,7 @@ mod decimal_tests {
     #[case::positive_infinity(f64::infinity())]
     #[case::negative_infinity(f64::neg_infinity())]
     #[case::nan(f64::nan())]
-    fn test_decimal_try_from_f64_err(
-        #[case] value: f64
-    ) {
+    fn test_decimal_try_from_f64_err(#[case] value: f64) {
         let conversion_result: IonResult<Decimal> = value.try_into();
         assert!(conversion_result.is_err());
     }

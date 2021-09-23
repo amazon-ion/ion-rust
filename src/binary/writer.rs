@@ -802,8 +802,8 @@ mod writer_tests {
     use rstest::*;
 
     use super::*;
-    use std::convert::TryInto;
     use num_traits::Float;
+    use std::convert::TryInto;
 
     type TestWriter<'a> = BinarySystemWriter<&'a mut Vec<u8>>;
     type TestReader<'a> = Reader<BinaryIonCursor<std::io::Cursor<&'a [u8]>>>;

@@ -11,10 +11,10 @@ use crate::cursor::StreamItem::*;
 use crate::result::IonResult;
 use crate::symbol_table::SymbolTable;
 use crate::system_event_handler::SystemEventHandler;
+use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::{BinaryIonCursor, Cursor, IonType};
-use crate::types::decimal::Decimal;
 
 /// A streaming Ion reader that resolves symbol IDs into the appropriate text.
 ///
