@@ -6,6 +6,7 @@ use std::io::Write;
 
 type IntStorage = i64;
 const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<IntStorage>();
+const INT_NEGATIVE_ZERO: u8 = 0x80;
 
 /// Represents a fixed-length signed integer. See the
 /// [UInt and Int Fields](http://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields)
@@ -81,6 +82,16 @@ impl Int {
         Ok(bytes_to_write.len())
     }
 
+    /// Encodes a negative zero as an `Int` and writes it to the privided `sink`.
+    /// Returns the number of bytes written.
+    ///
+    /// This method is similar to [write_i64]. However, because an i64 cannot represent a negative
+    /// zero, a separate method is required.
+    pub fn write_negative_zero<W: Write>(sink: &mut W) -> IonResult<usize> {
+        sink.write_all(&[INT_NEGATIVE_ZERO])?;
+        Ok(1)
+    }
+
     /// Returns `true` if the Int is negative zero.
     pub fn is_negative_zero(&self) -> bool {
         // `self.value` can natively represent any negative integer _except_ -0.
@@ -134,6 +145,7 @@ mod tests {
         let int = Int::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(int.size_in_bytes(), 1);
         assert_eq!(int.value(), 0);
+        assert!(int.is_negative_zero());
     }
 
     #[test]
@@ -142,6 +154,7 @@ mod tests {
         let int = Int::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(int.size_in_bytes(), 1);
         assert_eq!(int.value(), 0);
+        assert!(!int.is_negative_zero());
     }
 
     #[test]
@@ -185,6 +198,14 @@ mod tests {
     #[test]
     fn test_write_int_zero() -> IonResult<()> {
         write_int_test(0, &[0b0000_0000])
+    }
+
+    #[test]
+    fn test_write_int_negative_zero() -> IonResult<()> {
+        let mut buffer: Vec<u8> = vec![];
+        Int::write_negative_zero(&mut buffer)?;
+        assert_eq!(buffer.as_slice(), &[0b1000_0000]);
+        Ok(())
     }
 
     #[test]

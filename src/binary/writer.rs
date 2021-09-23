@@ -458,6 +458,14 @@ impl<W: Write> BinarySystemWriter<W> {
     }
 
     /// Writes an Ion decimal with the specified value.
+    pub fn write_decimal(&mut self, value: &Decimal) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            let _ = enc_buffer.encode_decimal_value(&value);
+            Ok(())
+        })
+    }
+
+    /// Writes an Ion decimal with the specified value.
     pub fn write_big_decimal(&mut self, value: &BigDecimal) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
             // TODO: Currently clones. Revisit this API, similar to the comment
@@ -794,6 +802,8 @@ mod writer_tests {
     use rstest::*;
 
     use super::*;
+    use std::convert::TryInto;
+    use num_traits::Float;
 
     type TestWriter<'a> = BinarySystemWriter<&'a mut Vec<u8>>;
     type TestReader<'a> = Reader<BinaryIonCursor<std::io::Cursor<&'a [u8]>>>;
@@ -958,8 +968,27 @@ mod writer_tests {
         )
     }
 
+    #[rstest]
+    #[case(24.601)]
+    #[case(-24.601)]
+    #[case(1.7)]
+    #[case(-1.7)]
+    #[case(1.0)]
+    #[case(-1.0)]
+    #[case::positive_zero(0.0)]
+    #[case::negative_zero(f64::neg_zero())]
+    fn binary_writer_decimals(#[case] value: f64) -> IonResult<()> {
+        let decimal: Decimal = value.try_into().unwrap();
+        binary_writer_scalar_test(
+            &[decimal],
+            IonType::Decimal,
+            |writer, v| writer.write_decimal(v),
+            |reader| reader.read_decimal(),
+        )
+    }
+
     #[test]
-    fn binary_writer_decimals() -> IonResult<()> {
+    fn binary_writer_big_decimals() -> IonResult<()> {
         use bigdecimal::FromPrimitive;
         let float_values = [-24.601, -1.7, -1.0, -0.0, 0.0, 1.0, 1.7, 24.601];
         let values: Vec<BigDecimal> = float_values
