@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use bigdecimal::{BigDecimal, Signed};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 
-use crate::result::IonError;
+use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::magnitude::Magnitude;
 use std::convert::{TryFrom, TryInto};
@@ -174,6 +174,74 @@ macro_rules! impl_decimal_from_signed_primitive_integer {
 }
 impl_decimal_from_signed_primitive_integer!(i8, i16, i32, i64, isize);
 
+impl TryFrom<f32> for Decimal {
+    type Error = IonError;
+
+    fn try_from(value: f32) -> Result<Self, Self::Error> {
+        // Defer to the f64 implementation of `TryInto`
+        (value as f64).try_into()
+    }
+}
+
+impl TryFrom<f64> for Decimal {
+    type Error = IonError;
+    /// Attempts to create a Decimal from an f64. Returns an Error if the f64 being
+    /// converted is a special value, including:
+    ///   * Infinity
+    ///   * Negative infinity
+    ///   * NaN (not-a-number)
+    /// Otherwise, returns Ok.
+    ///
+    /// Because Decimal can represent negative zero, f64::neg_zero() IS supported.
+    ///
+    /// NOTE: While the resulting decimal will be a very close approximation of the original f64's
+    ///       value, this is an inherently lossy operation. Floating point values do not encode a
+    ///       precision. When converting an f64 to a Decimal, a precision for the new Decimal must
+    ///       be chosen somewhat arbitrarily. Do NOT rely on the precision of the resulting Decimal.
+    ///       This implementation may change without notice.
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        if value.is_infinite() {
+            if value.is_sign_negative() {
+                return illegal_operation("Cannot convert f64 negative infinity to Decimal.");
+            } else {
+                return illegal_operation("Cannot convert f64 infinity to Decimal.");
+            }
+        } else if value.is_nan() {
+            return illegal_operation("Cannot convert f64 NaN (not-a-number) to Decimal.");
+        }
+
+        // You can't use the `log10` operation on a zero value, so check for these cases explicitly.
+        if value == 0f64 {
+            //    ^- Positive and negative zero are mathematically equivalent,
+            //       so we can use `==` here to check for both.
+            if value.is_sign_negative() {
+                return Ok(Decimal::negative_zero());
+            }
+            return Ok(Decimal::new(0, 0));
+        }
+
+        // If the f64 is an integer value, we can convert it to a decimal trivially.
+        // The `fract()` method returns the fractional part of the value. If fract() returns zero,
+        // then `value` is an integer.
+        if value.fract() == 0f64 {
+            // The `trunc()` method returns the integer part of the value.
+            // We can use i64's Into implementation to convert it to a Decimal.
+            // This will produce a Decimal with an exponent of zero.
+            return Ok((value.trunc() as i64).into());
+        }
+
+        // If the f64 is not a round number, attempt to preserve as many decimal places of precision
+        // as possible.
+
+        // f64::DIGITS is the number of base 10 digits of fractional precision in an f64: 15
+        const PRECISION: u32 = f64::DIGITS;
+        let coefficient = value * 10f64.powi(PRECISION as i32);
+        let exponent = -1 * PRECISION as i64;
+
+        Ok(Decimal::new(coefficient as i64, exponent))
+    }
+}
+
 /// Make a Decimal from a BigDecimal. This is a lossless operation.
 impl From<BigDecimal> for Decimal {
     fn from(value: BigDecimal) -> Self {
@@ -210,7 +278,7 @@ mod decimal_tests {
     use crate::types::coefficient::{Coefficient, Sign};
     use crate::types::decimal::Decimal;
     use bigdecimal::BigDecimal;
-    use num_traits::ToPrimitive;
+    use num_traits::{Float, ToPrimitive};
     use std::cmp::Ordering;
     use std::convert::TryInto;
 
@@ -268,6 +336,31 @@ mod decimal_tests {
         assert_eq!(decimal1.cmp(&decimal2), ordering);
         // Make sure the inverse relationship holds
         assert_eq!(decimal2.cmp(&decimal1), ordering.reverse());
+    }
+
+    #[rstest]
+    #[case(0f64, Decimal::new(0, 0))]
+    #[case(f64::neg_zero(), Decimal::negative_zero())]
+    #[case(1f64, Decimal::new(1, 0))]
+    #[case(-1f64, Decimal::new(-1, 0))]
+    #[case(10f64, Decimal::new(1, 1))]
+    #[case(100f64, Decimal::new(1, 2))]
+    #[case(1.5f64, Decimal::new(15, -1))]
+    #[case(-1.5f64, Decimal::new(-15, -1))]
+    #[case(3.141592659f64, Decimal::new(3141592659i64, -9))]
+    #[case(-3.141592659f64, Decimal::new(-3141592659i64, -9))]
+    fn test_decimal_try_from_f64_ok(#[case] value: f64, #[case] expected: Decimal) {
+        let actual: Decimal = value.try_into().unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    #[case::positive_infinity(f64::infinity())]
+    #[case::negative_infinity(f64::neg_infinity())]
+    #[case::nan(f64::nan())]
+    fn test_decimal_try_from_f64_err(#[case] value: f64) {
+        let conversion_result: IonResult<Decimal> = value.try_into();
+        assert!(conversion_result.is_err());
     }
 
     #[test]
