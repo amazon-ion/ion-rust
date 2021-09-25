@@ -1,6 +1,8 @@
 pub(in crate::text) mod parsers;
 pub mod reader;
 pub mod writer;
+mod text_buffer;
+mod text_data_source;
 
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;

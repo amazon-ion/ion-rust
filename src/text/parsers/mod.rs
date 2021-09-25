@@ -20,6 +20,8 @@ pub(crate) mod string;
 pub(crate) mod symbol;
 pub(crate) mod text_support;
 pub(crate) mod timestamp;
+pub(crate) mod containers;
+pub(crate) mod top_level;
 
 // ===== The functions below are used by several modules and live here for common access. =====
 

@@ -1,65 +1,33 @@
-use nom::branch::alt;
-use nom::combinator::opt;
-use nom::sequence::preceded;
 use nom::Err::Incomplete;
-use nom::IResult;
 
-use crate::result::IonResult;
-use crate::text::parsers::blob::parse_blob;
-use crate::text::parsers::boolean::parse_boolean;
-use crate::text::parsers::clob::parse_clob;
-use crate::text::parsers::decimal::parse_decimal;
-use crate::text::parsers::float::parse_float;
-use crate::text::parsers::integer::parse_integer;
-use crate::text::parsers::null::parse_null;
-use crate::text::parsers::string::parse_string;
-use crate::text::parsers::symbol::parse_symbol;
-use crate::text::parsers::timestamp::parse_timestamp;
-use crate::text::parsers::whitespace;
+use crate::result::{decoding_error, IonResult};
+use crate::text::parsers::top_level;
+use crate::text::text_buffer::TextBuffer;
+use crate::text::text_data_source::TextIonDataSource;
 use crate::text::TextStreamItem;
 
 // TODO: Implement a full text reader.
-//       This implementation is a placeholder. It currently capable of reading a single top-level scalar
-//       of any type. It cannot iterate, step in/out, or handle annotations.
-//       It currently operates an an input of [String]. A full implementation will instead have
-//       an input source implementing [io::BufRead] and pull in several lines of text at a time,
-//       appending more to the working String when an attempt at parsing a value returns
-//       `nom::error::Incomplete(_)`.
-//       For other String streaming alternatives, see:
-//       See: https://crates.io/crates/encoding_rs_io
+//       This implementation is a placeholder. It is currently capable of reading a stream of top-level
+//       scalar values of any type. It cannot:
+//       * Step in/out
+//       * Read annotations
+//       * Skip comments
+//       * Report the end of the stream
 
-pub struct TextReader {
-    input: String,
+pub struct TextReader<T: TextIonDataSource> {
+    buffer: TextBuffer<T::TextSource>,
     current_item: Option<TextStreamItem>,
-    bytes_read: usize,
+    bytes_read: usize
 }
 
-impl TextReader {
-    fn new(input: String) -> TextReader {
+impl <T: TextIonDataSource> TextReader<T> {
+    fn new(input: T) -> TextReader<T> {
+        let text_source = input.to_text_ion_data_source();
         TextReader {
-            input,
+            buffer: TextBuffer::new(text_source),
             current_item: None,
             bytes_read: 0,
         }
-    }
-
-    fn stream_item(input: &str) -> IResult<&str, TextStreamItem> {
-        alt((
-            parse_null,
-            parse_boolean,
-            parse_integer,
-            parse_float,
-            parse_decimal,
-            parse_timestamp,
-            parse_string,
-            parse_symbol,
-            parse_blob,
-            parse_clob,
-        ))(input)
-    }
-
-    fn top_level_value(input: &str) -> IResult<&str, TextStreamItem> {
-        preceded(opt(whitespace), Self::stream_item)(input)
     }
 
     pub fn bytes_read(&self) -> usize {
@@ -69,37 +37,109 @@ impl TextReader {
     //TODO: TextStreamItem is an internal data type and should not be part of the public API.
     //      This method is currently private and only usable in this module's unit tests.
     fn next(&mut self) -> IonResult<TextStreamItem> {
-        let input = &self.input[self.bytes_read..];
-        let length_before_parse = input.len();
-        let (remaining_text, item) = match Self::top_level_value(input) {
-            Err(Incomplete(needed)) => {
-                panic!("Incomplete data: {:?}", needed);
-                // TODO: 'Incomplete' indicates that the current input string ends with a partial
-                //       value. In most cases, this just means we need to read more text from input
-                //       and append it to the end of the input string before trying again.
-            }
-            Ok((remaining_text, item)) => (remaining_text, item),
-            Err(_) => {
-                panic!("Could not parse provided input.");
-            }
+        let stream_item = 'parse: loop {
+            // Note the number of bytes currently in the text buffer
+            let length_before_parse = self.buffer.remaining_text().len();
+            // Invoke the top_level_value() parser; this will attempt to recognize the next item
+            // in the stream and return a &str slice containing the remaining, not-yet-parsed text.
+            match top_level::top_level_value(self.buffer.remaining_text()) {
+                // If `top_level_value` returns 'Incomplete', there wasn't enough text in the buffer
+                // to match the next item. No syntax errors have been encountered (yet?), but we
+                // need to load more text into the buffer before we try to parse it again.
+                Err(Incomplete(_needed)) => {
+                    // Ask the buffer to load another line of text.
+                    // TODO: Currently this loads a single line at a time for easier testing.
+                    //       We may wish to bump it to a higher number of lines at a time (8?)
+                    //       for efficiency once we're confident in the correctness.
+                    if self.buffer.load_next_line()? == 0 {
+                        // If load_next_line() returns Ok(0), we've reached end of our input.
+                        // TODO: If we reach the end of our input and everything left in the buffer
+                        //       is whitespace or a comment, we should report EOF instead of an error.
+                        return decoding_error(
+                            format!("Unexpected end of input on line {}", self.buffer.lines_loaded())
+                        );
+                    }
+                    continue;
+                }
+                Ok((remaining_text, item)) => {
+                    let length_after_parse = remaining_text.len();
+                    let bytes_consumed = length_before_parse - length_after_parse;
+                    self.buffer.consume(bytes_consumed);
+                    self.bytes_read += bytes_consumed;
+                    break 'parse item;
+                },
+                Err(e) => {
+                    // Return an error that contains the text currently in the buffer (i.e. what we
+                    // were attempting to parse with `top_level_value`.)
+                    // TODO: We probably don't want to surface the nom error directly.
+                    return decoding_error(
+                        format!(
+                            "Parsing error occurred near line {}: '{}': '{}'",
+                            self.buffer.lines_loaded(),
+                            self.buffer.remaining_text(),
+                            e
+                        )
+                    );
+                }
+            };
         };
-        self.bytes_read += length_before_parse - remaining_text.len();
-        Ok(item)
+
+        Ok(stream_item)
     }
 }
 
 #[cfg(test)]
 mod reader_tests {
+    use crate::IonType;
     use crate::result::IonResult;
+    use crate::text::parsers::top_level::stream_item;
     use crate::text::parsers::unit_test_support::parse_unwrap;
     use crate::text::reader::TextReader;
     use crate::text::TextStreamItem;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::IonType;
+
+    #[test]
+    fn test_text_read_multiple_top_level_values() {
+        let ion_data = r#"
+            null
+            true
+            5
+            5e0
+            5.5
+            2021-09-25T
+            foo
+            "hello"
+            {}
+            []
+            ()
+        "#;
+        let mut reader = TextReader::new(ion_data);
+        let mut next_is = |expected| {
+            assert_eq!(reader.next().unwrap(), expected);
+        };
+        next_is(TextStreamItem::Null(IonType::Null));
+        next_is(TextStreamItem::Boolean(true));
+        next_is(TextStreamItem::Integer(5));
+        next_is(TextStreamItem::Float(5.0f64));
+        next_is(TextStreamItem::Decimal(Decimal::new(55, -1)));
+        next_is(TextStreamItem::Timestamp(
+            Timestamp::with_ymd(2021, 9, 25)
+            .build()
+            .unwrap())
+        );
+        next_is(TextStreamItem::Symbol("foo".to_string()));
+        next_is(TextStreamItem::String("hello".to_string()));
+        next_is(TextStreamItem::StructStart);
+        next_is(TextStreamItem::StructEnd);
+        next_is(TextStreamItem::ListStart);
+        next_is(TextStreamItem::ListEnd);
+        next_is(TextStreamItem::SExpressionStart);
+        next_is(TextStreamItem::SExpressionEnd);
+    }
 
     fn top_level_value_test(ion_text: &str, expected: TextStreamItem) {
-        let mut reader = TextReader::new(ion_text.to_owned());
+        let mut reader = TextReader::new(ion_text);
         let item = reader.next().unwrap();
         assert_eq!(item, expected);
     }
@@ -134,7 +174,7 @@ mod reader_tests {
     #[test]
     fn test_detect_stream_item_types() {
         let expect_type = |text: &str, expected_ion_type: IonType| {
-            let value = parse_unwrap(TextReader::stream_item, text);
+            let value = parse_unwrap(stream_item, text);
             assert_eq!(expected_ion_type, value.ion_type().unwrap());
         };
 
