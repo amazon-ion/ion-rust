@@ -63,10 +63,16 @@ impl<T: TextIonDataSource> TextReader<T> {
                     continue;
                 }
                 Ok((remaining_text, item)) => {
+                    // Our parser successfully matched a stream item.
+                    // Note the length of the text that remains after parsing.
                     let length_after_parse = remaining_text.len();
+                    // The difference in length tells us how many bytes were part of the
+                    // text representation of the value that we found.
                     let bytes_consumed = length_before_parse - length_after_parse;
+                    // Discard `bytes_consumed` bytes from the TextBuffer.
                     self.buffer.consume(bytes_consumed);
                     self.bytes_read += bytes_consumed;
+                    // Break out of the read/parse loop, returning the stream item that we matched.
                     break 'parse item;
                 }
                 Err(e) => {
