@@ -17,7 +17,7 @@ impl TextIonDataSource for String {
     }
 }
 
-impl <'a> TextIonDataSource for &'a str {
+impl<'a> TextIonDataSource for &'a str {
     type TextSource = io::Cursor<Self>;
 
     fn to_text_ion_data_source(self) -> Self::TextSource {
@@ -25,7 +25,7 @@ impl <'a> TextIonDataSource for &'a str {
     }
 }
 
-impl <'a> TextIonDataSource for &'a &[u8] {
+impl<'a> TextIonDataSource for &'a &[u8] {
     type TextSource = io::Cursor<Self>;
 
     fn to_text_ion_data_source(self) -> Self::TextSource {
@@ -33,7 +33,7 @@ impl <'a> TextIonDataSource for &'a &[u8] {
     }
 }
 
-impl <T: io::Read> TextIonDataSource for BufReader<T> {
+impl<T: io::Read> TextIonDataSource for BufReader<T> {
     type TextSource = Self;
 
     fn to_text_ion_data_source(self) -> Self::TextSource {

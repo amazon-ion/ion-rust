@@ -17,10 +17,10 @@ use crate::text::TextStreamItem;
 pub struct TextReader<T: TextIonDataSource> {
     buffer: TextBuffer<T::TextSource>,
     current_item: Option<TextStreamItem>,
-    bytes_read: usize
+    bytes_read: usize,
 }
 
-impl <T: TextIonDataSource> TextReader<T> {
+impl<T: TextIonDataSource> TextReader<T> {
     fn new(input: T) -> TextReader<T> {
         let text_source = input.to_text_ion_data_source();
         TextReader {
@@ -55,9 +55,10 @@ impl <T: TextIonDataSource> TextReader<T> {
                         // If load_next_line() returns Ok(0), we've reached end of our input.
                         // TODO: If we reach the end of our input and everything left in the buffer
                         //       is whitespace or a comment, we should report EOF instead of an error.
-                        return decoding_error(
-                            format!("Unexpected end of input on line {}", self.buffer.lines_loaded())
-                        );
+                        return decoding_error(format!(
+                            "Unexpected end of input on line {}",
+                            self.buffer.lines_loaded()
+                        ));
                     }
                     continue;
                 }
@@ -67,19 +68,17 @@ impl <T: TextIonDataSource> TextReader<T> {
                     self.buffer.consume(bytes_consumed);
                     self.bytes_read += bytes_consumed;
                     break 'parse item;
-                },
+                }
                 Err(e) => {
                     // Return an error that contains the text currently in the buffer (i.e. what we
                     // were attempting to parse with `top_level_value`.)
                     // TODO: We probably don't want to surface the nom error directly.
-                    return decoding_error(
-                        format!(
-                            "Parsing error occurred near line {}: '{}': '{}'",
-                            self.buffer.lines_loaded(),
-                            self.buffer.remaining_text(),
-                            e
-                        )
-                    );
+                    return decoding_error(format!(
+                        "Parsing error occurred near line {}: '{}': '{}'",
+                        self.buffer.lines_loaded(),
+                        self.buffer.remaining_text(),
+                        e
+                    ));
                 }
             };
         };
@@ -90,7 +89,6 @@ impl <T: TextIonDataSource> TextReader<T> {
 
 #[cfg(test)]
 mod reader_tests {
-    use crate::IonType;
     use crate::result::IonResult;
     use crate::text::parsers::top_level::stream_item;
     use crate::text::parsers::unit_test_support::parse_unwrap;
@@ -98,6 +96,7 @@ mod reader_tests {
     use crate::text::TextStreamItem;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
+    use crate::IonType;
 
     #[test]
     fn test_text_read_multiple_top_level_values() {
@@ -124,10 +123,8 @@ mod reader_tests {
         next_is(TextStreamItem::Float(5.0f64));
         next_is(TextStreamItem::Decimal(Decimal::new(55, -1)));
         next_is(TextStreamItem::Timestamp(
-            Timestamp::with_ymd(2021, 9, 25)
-            .build()
-            .unwrap())
-        );
+            Timestamp::with_ymd(2021, 9, 25).build().unwrap(),
+        ));
         next_is(TextStreamItem::Symbol("foo".to_string()));
         next_is(TextStreamItem::String("hello".to_string()));
         next_is(TextStreamItem::StructStart);

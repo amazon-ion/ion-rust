@@ -1,7 +1,7 @@
 use nom::branch::alt;
 use nom::combinator::opt;
-use nom::IResult;
 use nom::sequence::preceded;
+use nom::IResult;
 
 use crate::text::parsers::blob::parse_blob;
 use crate::text::parsers::boolean::parse_boolean;
@@ -31,7 +31,7 @@ pub(crate) fn stream_item(input: &str) -> IResult<&str, TextStreamItem> {
         parse_blob,
         parse_clob,
         parse_container_start,
-        parse_container_end
+        parse_container_end,
     ))(input)
 }
 

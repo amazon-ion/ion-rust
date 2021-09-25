@@ -1,5 +1,5 @@
-use std::io::BufRead;
 use std::io;
+use std::io::BufRead;
 
 /// A text buffer that pulls more bytes from the input source as needed.
 ///
@@ -24,8 +24,7 @@ pub(crate) struct TextBuffer<R: BufRead> {
     is_exhausted: bool,
 }
 
-impl <R: BufRead> TextBuffer<R> {
-
+impl<R: BufRead> TextBuffer<R> {
     /// Constructs a new LineBuffer that will pull lines of text from the provided input.
     pub fn new(input: R) -> Self {
         Self {
@@ -33,7 +32,7 @@ impl <R: BufRead> TextBuffer<R> {
             line: String::with_capacity(128),
             line_offset: 0,
             line_number: 0,
-            is_exhausted: false
+            is_exhausted: false,
         }
     }
 
