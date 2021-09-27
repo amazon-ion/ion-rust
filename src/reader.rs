@@ -11,6 +11,7 @@ use crate::cursor::StreamItem::*;
 use crate::result::IonResult;
 use crate::symbol_table::SymbolTable;
 use crate::system_event_handler::SystemEventHandler;
+use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::{BinaryIonCursor, Cursor, IonType};
@@ -197,6 +198,7 @@ impl<C: Cursor> Reader<C> {
             pub fn read_i64(&mut self) -> IonResult<Option<i64>>;
             pub fn read_f32(&mut self) -> IonResult<Option<f32>>;
             pub fn read_f64(&mut self) -> IonResult<Option<f64>>;
+            pub fn read_decimal(&mut self) -> IonResult<Option<Decimal>>;
             pub fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>>;
             pub fn read_string(&mut self) -> IonResult<Option<String>>;
             pub fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>>;

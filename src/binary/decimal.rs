@@ -54,6 +54,11 @@ where
 
         bytes_written += VarInt::write_i64(self, decimal.exponent)?;
 
+        if decimal.coefficient.is_negative_zero() {
+            bytes_written += Int::write_negative_zero(self)?;
+            return Ok(bytes_written);
+        }
+
         // If the coefficient is small enough to safely fit in an i64, use that to avoid
         // allocating.
         if let Some(small_coefficient) = decimal.coefficient.as_i64() {

@@ -144,9 +144,14 @@ impl VarInt {
         Ok(encoded_bytes.len())
     }
 
-    /// Effectively the same as `write_i64` if an i64 could represent -0.
+    /// Encodes a negative zero as an `VarInt` and writes it to the privided `sink`.
+    /// Returns the number of bytes written.
+    ///
+    /// This method is similar to [write_i64]. However, because an i64 cannot represent a negative
+    /// zero, a separate method is required.
     pub fn write_negative_zero<W: Write>(sink: &mut W) -> IonResult<usize> {
-        Ok(sink.write(&[VARINT_NEGATIVE_ZERO])?)
+        sink.write_all(&[VARINT_NEGATIVE_ZERO])?;
+        Ok(1)
     }
 
     /// Returns `true` if the VarInt is negative zero.
