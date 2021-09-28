@@ -1,5 +1,7 @@
 pub(in crate::text) mod parsers;
 pub mod reader;
+mod text_buffer;
+mod text_data_source;
 pub mod writer;
 
 use crate::types::decimal::Decimal;

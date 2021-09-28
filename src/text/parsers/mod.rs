@@ -11,6 +11,7 @@ use nom::IResult;
 pub(crate) mod blob;
 pub(crate) mod boolean;
 pub(crate) mod clob;
+pub(crate) mod containers;
 pub(crate) mod decimal;
 pub(crate) mod float;
 pub(crate) mod integer;
@@ -20,6 +21,7 @@ pub(crate) mod string;
 pub(crate) mod symbol;
 pub(crate) mod text_support;
 pub(crate) mod timestamp;
+pub(crate) mod top_level;
 
 // ===== The functions below are used by several modules and live here for common access. =====
 
