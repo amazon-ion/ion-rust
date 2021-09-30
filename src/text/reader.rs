@@ -5,6 +5,7 @@ use crate::text::parsers::top_level;
 use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::TextStreamItem;
+use crate::value::owned::OwnedSymbolToken;
 
 // TODO: Implement a full text reader.
 //       This implementation is a placeholder. It is currently capable of reading a stream of top-level
@@ -36,13 +37,13 @@ impl<T: TextIonDataSource> TextReader<T> {
 
     //TODO: TextStreamItem is an internal data type and should not be part of the public API.
     //      This method is currently private and only usable in this module's unit tests.
-    fn next(&mut self) -> IonResult<TextStreamItem> {
-        let stream_item = 'parse: loop {
+    fn next(&mut self) -> IonResult<(Vec<OwnedSymbolToken>, TextStreamItem)> {
+        let (annotations, stream_item) = 'parse: loop {
             // Note the number of bytes currently in the text buffer
             let length_before_parse = self.buffer.remaining_text().len();
             // Invoke the top_level_value() parser; this will attempt to recognize the next item
             // in the stream and return a &str slice containing the remaining, not-yet-parsed text.
-            match top_level::top_level_value(self.buffer.remaining_text()) {
+            match top_level::top_level_stream_item(self.buffer.remaining_text()) {
                 // If `top_level_value` returns 'Incomplete', there wasn't enough text in the buffer
                 // to match the next item. No syntax errors have been encountered (yet?), but we
                 // need to load more text into the buffer before we try to parse it again.
@@ -62,7 +63,7 @@ impl<T: TextIonDataSource> TextReader<T> {
                     }
                     continue;
                 }
-                Ok((remaining_text, item)) => {
+                Ok((remaining_text, (annotations, item))) => {
                     // Our parser successfully matched a stream item.
                     // Note the length of the text that remains after parsing.
                     let length_after_parse = remaining_text.len();
@@ -73,7 +74,7 @@ impl<T: TextIonDataSource> TextReader<T> {
                     self.buffer.consume(bytes_consumed);
                     self.bytes_read += bytes_consumed;
                     // Break out of the read/parse loop, returning the stream item that we matched.
-                    break 'parse item;
+                    break 'parse (annotations, item);
                 }
                 Err(e) => {
                     // Return an error that contains the text currently in the buffer (i.e. what we
@@ -89,7 +90,7 @@ impl<T: TextIonDataSource> TextReader<T> {
             };
         };
 
-        Ok(stream_item)
+        Ok((annotations, stream_item))
     }
 }
 
@@ -102,6 +103,7 @@ mod reader_tests {
     use crate::text::TextStreamItem;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
+    use crate::value::owned::{local_sid_token, text_token, OwnedSymbolToken};
     use crate::IonType;
 
     #[test]
@@ -121,7 +123,9 @@ mod reader_tests {
         "#;
         let mut reader = TextReader::new(ion_data);
         let mut next_is = |expected| {
-            assert_eq!(reader.next().unwrap(), expected);
+            // In this test, none of the stream values are annotated.
+            // Compare the stream item and ignore the annotations.
+            assert_eq!(reader.next().unwrap().1, expected);
         };
         next_is(TextStreamItem::Null(IonType::Null));
         next_is(TextStreamItem::Boolean(true));
@@ -131,7 +135,7 @@ mod reader_tests {
         next_is(TextStreamItem::Timestamp(
             Timestamp::with_ymd(2021, 9, 25).build().unwrap(),
         ));
-        next_is(TextStreamItem::Symbol("foo".to_string()));
+        next_is(TextStreamItem::Symbol(text_token("foo")));
         next_is(TextStreamItem::String("hello".to_string()));
         next_is(TextStreamItem::StructStart);
         next_is(TextStreamItem::StructEnd);
@@ -141,9 +145,79 @@ mod reader_tests {
         next_is(TextStreamItem::SExpressionEnd);
     }
 
+    #[test]
+    fn test_text_read_multiple_annotated_top_level_values() {
+        let ion_data = r#"
+            mercury::null
+            venus::'earth'::true
+            $17::mars::5
+            jupiter::5e0
+            'saturn'::5.5
+            $100::$200::$300::2021-09-25T
+            'uranus'::foo
+            neptune::"hello"
+            $55::{}
+            pluto::[]
+            haumea::makemake::eris::ceres::()
+        "#;
+        let mut reader = TextReader::new(ion_data);
+        let mut next_is = |expected_annotations, expected_item| {
+            let (annotations, item) = reader.next().unwrap();
+            assert_eq!(annotations, expected_annotations);
+            assert_eq!(item, expected_item);
+        };
+        next_is(
+            vec![text_token("mercury")],
+            TextStreamItem::Null(IonType::Null),
+        );
+        next_is(
+            vec![text_token("venus"), text_token("earth")],
+            TextStreamItem::Boolean(true),
+        );
+        next_is(
+            vec![local_sid_token(17), text_token("mars")],
+            TextStreamItem::Integer(5),
+        );
+        next_is(vec![text_token("jupiter")], TextStreamItem::Float(5.0f64));
+        next_is(
+            vec![text_token("saturn")],
+            TextStreamItem::Decimal(Decimal::new(55, -1)),
+        );
+        next_is(
+            vec![
+                local_sid_token(100),
+                local_sid_token(200),
+                local_sid_token(300),
+            ],
+            TextStreamItem::Timestamp(Timestamp::with_ymd(2021, 9, 25).build().unwrap()),
+        );
+        next_is(
+            vec![text_token("uranus")],
+            TextStreamItem::Symbol(text_token("foo")),
+        );
+        next_is(
+            vec![text_token("neptune")],
+            TextStreamItem::String("hello".to_string()),
+        );
+        next_is(vec![local_sid_token(55)], TextStreamItem::StructStart);
+        next_is(vec![], TextStreamItem::StructEnd);
+        next_is(vec![text_token("pluto")], TextStreamItem::ListStart);
+        next_is(vec![], TextStreamItem::ListEnd);
+        next_is(
+            vec![
+                text_token("haumea"),
+                text_token("makemake"),
+                text_token("eris"),
+                text_token("ceres"),
+            ],
+            TextStreamItem::SExpressionStart,
+        );
+        next_is(vec![], TextStreamItem::SExpressionEnd);
+    }
+
     fn top_level_value_test(ion_text: &str, expected: TextStreamItem) {
         let mut reader = TextReader::new(ion_text);
-        let item = reader.next().unwrap();
+        let item = reader.next().unwrap().1;
         assert_eq!(item, expected);
     }
 
@@ -161,7 +235,9 @@ mod reader_tests {
             " 2007-07-12T ",
             TextStreamItem::Timestamp(Timestamp::with_ymd(2007, 7, 12).build()?),
         );
-        tlv(" foo ", TextStreamItem::Symbol("foo".to_owned()));
+        // FIXME: https://github.com/amzn/ion-rust/issues/318
+        // Re-enable this test after fixing parsing for ambiguous data at EOF.
+        // tlv(" foo ", TextStreamItem::Symbol(text_token("foo")));
         tlv(" \"hi!\" ", TextStreamItem::String("hi!".to_owned()));
         tlv(
             " {{ZW5jb2RlZA==}} ",

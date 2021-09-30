@@ -6,6 +6,7 @@ pub mod writer;
 
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
+use crate::value::owned::OwnedSymbolToken;
 use crate::IonType;
 
 /// Represents a single item encountered in a text Ion stream. The enum includes variants for each
@@ -20,8 +21,7 @@ pub(crate) enum TextStreamItem {
     Timestamp(Timestamp),
     // TODO: String(&str) will be possible if/when we add reusable buffers to the TextReader.
     String(String),
-    // TODO: This will be a Symbol(SymbolToken) when the SymbolToken API is implemented.
-    Symbol(String),
+    Symbol(OwnedSymbolToken),
     // TODO: [BC]lob(&[u8]) will be possible if/when we add reusable buffers to the TextReader.
     Blob(Vec<u8>),
     Clob(Vec<u8>),
