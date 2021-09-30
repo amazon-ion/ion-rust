@@ -31,7 +31,7 @@ pub(crate) enum TextStreamItem {
     SExpressionEnd,
     StructStart,
     StructEnd,
-    EndOfStream
+    EndOfStream,
 }
 
 impl TextStreamItem {

@@ -127,30 +127,33 @@ impl<T: TextIonDataSource> TextReader<T> {
         //
         // Attempt to parse the updated buffer.
         match top_level_stream_item(self.buffer.remaining_text()) {
-            Ok(("\n", (annotations, TextStreamItem::Integer(0))))
-            if annotations.len() == 0 => {
+            Ok(("\n", (annotations, TextStreamItem::Integer(0)))) if annotations.len() == 0 => {
                 // We found the unannotated zero that we appended to the end of the buffer.
                 // The "\n" in this pattern is the unparsed text left in the buffer,
                 // which indicates that our 0 was parsed.
                 Ok((Vec::new(), TextStreamItem::EndOfStream))
-            },
+            }
             Ok((_remaining_text, (annotations, item))) => {
                 // We found something else. The zero is still in the buffer; we can leave it there.
                 // The reader's `is_eof` flag has been set, so the text buffer will never be used
                 // again. Return the value we found.
                 Ok((annotations, item))
-            },
-            Err(Incomplete(_needed)) => return decoding_error(format!(
-                "Unexpected end of input on line {}: '{}'",
-                self.buffer.lines_loaded(),
-                &self.buffer.remaining_text()[..original_length] // Don't show the extra `\n0\n`
-            )),
-            Err(e) => return decoding_error(format!(
-                "Parsing error occurred near line {}: '{}': '{}'",
-                self.buffer.lines_loaded(),
-                &self.buffer.remaining_text()[..original_length], // Don't show the extra `\n0\n`
-                e
-            ))
+            }
+            Err(Incomplete(_needed)) => {
+                return decoding_error(format!(
+                    "Unexpected end of input on line {}: '{}'",
+                    self.buffer.lines_loaded(),
+                    &self.buffer.remaining_text()[..original_length] // Don't show the extra `\n0\n`
+                ))
+            }
+            Err(e) => {
+                return decoding_error(format!(
+                    "Parsing error occurred near line {}: '{}': '{}'",
+                    self.buffer.lines_loaded(),
+                    &self.buffer.remaining_text()[..original_length], // Don't show the extra `\n0\n`
+                    e
+                ))
+            }
         }
     }
 }
