@@ -167,7 +167,7 @@ mod reader_tests {
     use crate::text::TextStreamItem;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::value::owned::{local_sid_token, text_token, OwnedSymbolToken};
+    use crate::value::owned::{local_sid_token, text_token};
     use crate::IonType;
 
     #[test]
