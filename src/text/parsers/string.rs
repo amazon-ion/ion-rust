@@ -38,7 +38,6 @@ fn long_string(input: &str) -> IResult<&str, TextStreamItem> {
             peek(not(tag("'''"))),
         ),
         |text| {
-            println!("Long string parts: {:?}", &text);
             TextStreamItem::String(text.join(""))
         },
     )(input)

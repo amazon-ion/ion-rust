@@ -277,6 +277,11 @@ mod reader_tests {
             TextStreamItem::SExpressionStart,
         );
         next_is(vec![], TextStreamItem::SExpressionEnd);
+        // No more values in the stream
+        next_is(vec![], TextStreamItem::EndOfStream);
+        // Continuing to ask for the next value continues to result in EndOfStream
+        next_is(vec![], TextStreamItem::EndOfStream);
+        next_is(vec![], TextStreamItem::EndOfStream);
     }
 
     fn top_level_value_test(ion_text: &str, expected: TextStreamItem) {
@@ -314,9 +319,17 @@ mod reader_tests {
 
     #[test]
     fn test_detect_stream_item_types() {
-        let expect_type = |text: &str, expected_ion_type: IonType| {
+        let expect_option_type = |text: &str, expected: Option<IonType>| {
             let value = parse_unwrap(stream_item, text);
-            assert_eq!(expected_ion_type, value.ion_type().unwrap());
+            assert_eq!(expected, value.ion_type());
+        };
+
+        let expect_type = |text: &str, expected_ion_type: IonType| {
+            expect_option_type(text, Some(expected_ion_type))
+        };
+
+        let expect_no_type = |text: &str| {
+            expect_option_type(text, None)
         };
 
         expect_type("null ", IonType::Null);
@@ -343,5 +356,10 @@ mod reader_tests {
         expect_type("2021-02-08T12:30:02-00:00 ", IonType::Timestamp);
         expect_type("2021-02-08T12:30:02.111-00:00 ", IonType::Timestamp);
         expect_type("{{\"hello\"}}", IonType::Clob);
+
+                              // End of...
+        expect_no_type("} "); // struct
+        expect_no_type("] "); // list
+        expect_no_type(") "); // s-expression
     }
 }

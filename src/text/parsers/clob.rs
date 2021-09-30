@@ -46,7 +46,6 @@ fn long_clob(input: &str) -> IResult<&str, TextStreamItem> {
             peek(not(tag("'''"))),
         ),
         |text| {
-            println!("Long string parts: {:?}", &text);
             let mut text_vec = Vec::new();
             for value in text {
                 text_vec.extend(value);
