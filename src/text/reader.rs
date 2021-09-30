@@ -43,7 +43,7 @@ impl<T: TextIonDataSource> TextReader<T> {
         if self.is_eof {
             return Ok((Vec::new(), TextStreamItem::EndOfStream));
         }
-        
+
         let (annotations, stream_item) = 'parse: loop {
             // Note the number of bytes currently in the text buffer
             let length_before_parse = self.buffer.remaining_text().len();
