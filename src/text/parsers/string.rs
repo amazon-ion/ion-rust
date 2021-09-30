@@ -37,9 +37,7 @@ fn long_string(input: &str) -> IResult<&str, TextStreamItem> {
             )),
             peek(not(tag("'''"))),
         ),
-        |text| {
-            TextStreamItem::String(text.join(""))
-        },
+        |text| TextStreamItem::String(text.join("")),
     )(input)
 }
 

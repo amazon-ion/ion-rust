@@ -328,9 +328,7 @@ mod reader_tests {
             expect_option_type(text, Some(expected_ion_type))
         };
 
-        let expect_no_type = |text: &str| {
-            expect_option_type(text, None)
-        };
+        let expect_no_type = |text: &str| expect_option_type(text, None);
 
         expect_type("null ", IonType::Null);
         expect_type("null.timestamp ", IonType::Timestamp);
@@ -357,7 +355,7 @@ mod reader_tests {
         expect_type("2021-02-08T12:30:02.111-00:00 ", IonType::Timestamp);
         expect_type("{{\"hello\"}}", IonType::Clob);
 
-                              // End of...
+        // End of...
         expect_no_type("} "); // struct
         expect_no_type("] "); // list
         expect_no_type(") "); // s-expression
