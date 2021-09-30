@@ -144,7 +144,7 @@ impl<T: TextIonDataSource> TextReader<T> {
                     "Unexpected end of input on line {}: '{}'",
                     self.buffer.lines_loaded(),
                     &self.buffer.remaining_text()[..original_length] // Don't show the extra `\n0\n`
-                ))
+                ));
             }
             Err(e) => {
                 return decoding_error(format!(
@@ -152,7 +152,7 @@ impl<T: TextIonDataSource> TextReader<T> {
                     self.buffer.lines_loaded(),
                     &self.buffer.remaining_text()[..original_length], // Don't show the extra `\n0\n`
                     e
-                ))
+                ));
             }
         }
     }
