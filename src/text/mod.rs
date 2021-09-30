@@ -31,11 +31,13 @@ pub(crate) enum TextStreamItem {
     SExpressionEnd,
     StructStart,
     StructEnd,
+    EndOfStream
 }
 
 impl TextStreamItem {
     /// Returns the IonType associated with the TextStreamItem in question. If the TextStreamItem
-    /// represents the end of a container, [ion_type] will return [None].
+    /// does not represent a scalar value or the beginning of a container, [ion_type] will return
+    /// [None].
     pub fn ion_type(&self) -> Option<IonType> {
         let ion_type = match self {
             TextStreamItem::Null(ion_type) => *ion_type,
@@ -51,7 +53,7 @@ impl TextStreamItem {
             TextStreamItem::ListStart => IonType::List,
             TextStreamItem::SExpressionStart => IonType::SExpression,
             TextStreamItem::StructStart => IonType::Struct,
-            _ => return None, // The remaining items are container ends
+            _ => return None, // The remaining items are container ends, EndOfStream, etc.
         };
         Some(ion_type)
     }
