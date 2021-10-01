@@ -207,6 +207,42 @@ mod reader_tests {
         next_is(TextStreamItem::ListEnd);
         next_is(TextStreamItem::SExpressionStart);
         next_is(TextStreamItem::SExpressionEnd);
+        next_is(TextStreamItem::EndOfStream);
+    }
+
+    #[test]
+    fn test_read_multiple_top_level_values_with_comments() {
+        let ion_data = r#"
+            /*
+                Arrokoth is a trans-Neptunian object in the Kuiper belt.
+                It is a contact binary composed of two plenetesimals joined
+                along their major axes.
+            */
+            "(486958) 2014 MU69" // Original designation
+            2014-06-26T // Date of discovery
+            km::36 // width
+        "#;
+
+        let mut reader = TextReader::new(ion_data);
+        let mut next_is = |expected_annotations, expected_item| {
+            let (annotations, item) = reader.next().unwrap();
+            assert_eq!(annotations, expected_annotations);
+            assert_eq!(item, expected_item);
+        };
+
+        next_is(vec![], TextStreamItem::Comment);
+        next_is(
+            vec![],
+            TextStreamItem::String(String::from("(486958) 2014 MU69")),
+        );
+        next_is(vec![], TextStreamItem::Comment);
+        next_is(
+            vec![],
+            TextStreamItem::Timestamp(Timestamp::with_ymd(2014, 6, 26).build().unwrap()),
+        );
+        next_is(vec![], TextStreamItem::Comment);
+        next_is(vec![text_token("km")], TextStreamItem::Integer(36));
+        next_is(vec![], TextStreamItem::Comment);
     }
 
     #[test]

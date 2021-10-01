@@ -11,6 +11,7 @@ use nom::IResult;
 pub(crate) mod blob;
 pub(crate) mod boolean;
 pub(crate) mod clob;
+mod comments;
 pub(crate) mod containers;
 pub(crate) mod decimal;
 pub(crate) mod float;
