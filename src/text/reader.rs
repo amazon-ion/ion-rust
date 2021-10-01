@@ -161,8 +161,6 @@ impl<T: TextIonDataSource> TextReader<T> {
 #[cfg(test)]
 mod reader_tests {
     use crate::result::IonResult;
-    use crate::text::parsers::top_level::stream_item;
-    use crate::text::parsers::unit_test_support::parse_unwrap;
     use crate::text::reader::TextReader;
     use crate::text::TextStreamItem;
     use crate::types::decimal::Decimal;
@@ -351,49 +349,5 @@ mod reader_tests {
             TextStreamItem::Clob(Vec::from("hello".as_bytes())),
         );
         Ok(())
-    }
-
-    #[test]
-    fn test_detect_stream_item_types() {
-        let expect_option_type = |text: &str, expected: Option<IonType>| {
-            let value = parse_unwrap(stream_item, text);
-            assert_eq!(expected, value.ion_type());
-        };
-
-        let expect_type = |text: &str, expected_ion_type: IonType| {
-            expect_option_type(text, Some(expected_ion_type))
-        };
-
-        let expect_no_type = |text: &str| expect_option_type(text, None);
-
-        expect_type("null ", IonType::Null);
-        expect_type("null.timestamp ", IonType::Timestamp);
-        expect_type("null.list ", IonType::List);
-        expect_type("true ", IonType::Boolean);
-        expect_type("false ", IonType::Boolean);
-        expect_type("5 ", IonType::Integer);
-        expect_type("-5 ", IonType::Integer);
-        expect_type("5.0 ", IonType::Decimal);
-        expect_type("-5.0 ", IonType::Decimal);
-        expect_type("5.0d0 ", IonType::Decimal);
-        expect_type("-5.0d0 ", IonType::Decimal);
-        expect_type("5.0e0 ", IonType::Float);
-        expect_type("-5.0e1_024 ", IonType::Float);
-        expect_type("\"foo\"", IonType::String);
-        expect_type("'''foo''' 1", IonType::String);
-        expect_type("foo ", IonType::Symbol);
-        expect_type("'foo bar baz' ", IonType::Symbol);
-        expect_type("2021T ", IonType::Timestamp);
-        expect_type("2021-02T ", IonType::Timestamp);
-        expect_type("2021-02-08T ", IonType::Timestamp);
-        expect_type("2021-02-08T12:30Z ", IonType::Timestamp);
-        expect_type("2021-02-08T12:30:02-00:00 ", IonType::Timestamp);
-        expect_type("2021-02-08T12:30:02.111-00:00 ", IonType::Timestamp);
-        expect_type("{{\"hello\"}}", IonType::Clob);
-
-        // End of...
-        expect_no_type("} "); // struct
-        expect_no_type("] "); // list
-        expect_no_type(") "); // s-expression
     }
 }

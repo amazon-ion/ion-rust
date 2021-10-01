@@ -8,6 +8,7 @@ use nom::character::streaming::{one_of, satisfy};
 use nom::combinator::peek;
 use nom::IResult;
 
+pub(crate) mod annotations;
 pub(crate) mod blob;
 pub(crate) mod boolean;
 pub(crate) mod clob;
@@ -18,6 +19,7 @@ pub(crate) mod float;
 pub(crate) mod integer;
 pub(crate) mod null;
 pub(crate) mod numeric_support;
+pub(crate) mod stream_item;
 pub(crate) mod string;
 pub(crate) mod symbol;
 pub(crate) mod text_support;
