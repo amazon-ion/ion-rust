@@ -1,7 +1,7 @@
 use nom::Err::Incomplete;
 
 use crate::result::{decoding_error, IonResult};
-use crate::text::parsers::top_level;
+use crate::text::parsers::top_level::top_level_stream_item;
 use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::TextStreamItem;
@@ -19,6 +19,7 @@ pub struct TextReader<T: TextIonDataSource> {
     buffer: TextBuffer<T::TextSource>,
     current_item: Option<TextStreamItem>,
     bytes_read: usize,
+    is_eof: bool,
 }
 
 impl<T: TextIonDataSource> TextReader<T> {
@@ -28,6 +29,7 @@ impl<T: TextIonDataSource> TextReader<T> {
             buffer: TextBuffer::new(text_source),
             current_item: None,
             bytes_read: 0,
+            is_eof: false,
         }
     }
 
@@ -38,12 +40,16 @@ impl<T: TextIonDataSource> TextReader<T> {
     //TODO: TextStreamItem is an internal data type and should not be part of the public API.
     //      This method is currently private and only usable in this module's unit tests.
     fn next(&mut self) -> IonResult<(Vec<OwnedSymbolToken>, TextStreamItem)> {
+        if self.is_eof {
+            return Ok((Vec::new(), TextStreamItem::EndOfStream));
+        }
+
         let (annotations, stream_item) = 'parse: loop {
             // Note the number of bytes currently in the text buffer
             let length_before_parse = self.buffer.remaining_text().len();
             // Invoke the top_level_value() parser; this will attempt to recognize the next item
             // in the stream and return a &str slice containing the remaining, not-yet-parsed text.
-            match top_level::top_level_stream_item(self.buffer.remaining_text()) {
+            match top_level_stream_item(self.buffer.remaining_text()) {
                 // If `top_level_value` returns 'Incomplete', there wasn't enough text in the buffer
                 // to match the next item. No syntax errors have been encountered (yet?), but we
                 // need to load more text into the buffer before we try to parse it again.
@@ -53,13 +59,12 @@ impl<T: TextIonDataSource> TextReader<T> {
                     //       We may wish to bump it to a higher number of lines at a time (8?)
                     //       for efficiency once we're confident in the correctness.
                     if self.buffer.load_next_line()? == 0 {
-                        // If load_next_line() returns Ok(0), we've reached end of our input.
-                        // TODO: If we reach the end of our input and everything left in the buffer
-                        //       is whitespace or a comment, we should report EOF instead of an error.
-                        return decoding_error(format!(
-                            "Unexpected end of input on line {}",
-                            self.buffer.lines_loaded()
-                        ));
+                        // If load_next_line() returns Ok(0), we've reached the end of our input.
+                        self.is_eof = true;
+                        // The buffer had an `Incomplete` value in it; now that we know we're at EOF,
+                        // we can determine whether the buffer's contents should actually be
+                        // considered complete.
+                        return self.parse_stream_item_at_eof();
                     }
                     continue;
                 }
@@ -79,7 +84,8 @@ impl<T: TextIonDataSource> TextReader<T> {
                 Err(e) => {
                     // Return an error that contains the text currently in the buffer (i.e. what we
                     // were attempting to parse with `top_level_value`.)
-                    // TODO: We probably don't want to surface the nom error directly.
+                    // TODO: We probably don't want to surface the nom error (`e`) directly, but it's
+                    //       useful for debugging.
                     return decoding_error(format!(
                         "Parsing error occurred near line {}: '{}': '{}'",
                         self.buffer.lines_loaded(),
@@ -92,6 +98,64 @@ impl<T: TextIonDataSource> TextReader<T> {
 
         Ok((annotations, stream_item))
     }
+
+    // Parses the contents of the text buffer again with the knowledge that we're at the end of the
+    // input stream. This allows us to resolve a number of ambiguous cases.
+    // For a detailed description of the problem that this addresses, please see:
+    // https://github.com/amzn/ion-rust/issues/318
+    fn parse_stream_item_at_eof(&mut self) -> IonResult<(Vec<OwnedSymbolToken>, TextStreamItem)> {
+        // Get a reference to the buffer's backing String. We're at EOF, so we'll never use this
+        // text buffer again; we can modify it without risk. Re-using this buffer avoids allocating
+        // a new string for EOF, which is guaranteed to happen once per stream.
+        let buffer = self.buffer.inner();
+        // Make a note of the buffer's length; we're about to modify it.
+        let original_length = buffer.len();
+        // Append a newline and an arbitrary value (here: 0) to the buffer.
+        buffer.push_str("\n0\n");
+        // If the buffer contained a value, the newline will indicate that the contents of the
+        // buffer were complete. For example:
+        // * the integer `7` becomes `7\n`; it wasn't the first digit in a truncated `755`.
+        // * the boolean `true` becomes `false\n`; it wasn't actually half of the
+        //   identifier `falseTeeth`.
+        //
+        // If the buffer contained a value that's written in segments, the extra `0` will indicate
+        // that no more segments are coming. For example:
+        // * `foo::bar` becomes `foo::bar\n0\n`; the parser can see that 'bar' is a value, not
+        //    another annotation in the sequence.
+        // * `'''long-form string'''` becomes `'''long-form string'''\n0\n`; the parser can see that
+        //   there aren't any more long-form string segments in the sequence.
+        //
+        // Attempt to parse the updated buffer.
+        match top_level_stream_item(self.buffer.remaining_text()) {
+            Ok(("\n", (annotations, TextStreamItem::Integer(0)))) if annotations.len() == 0 => {
+                // We found the unannotated zero that we appended to the end of the buffer.
+                // The "\n" in this pattern is the unparsed text left in the buffer,
+                // which indicates that our 0 was parsed.
+                Ok((Vec::new(), TextStreamItem::EndOfStream))
+            }
+            Ok((_remaining_text, (annotations, item))) => {
+                // We found something else. The zero is still in the buffer; we can leave it there.
+                // The reader's `is_eof` flag has been set, so the text buffer will never be used
+                // again. Return the value we found.
+                Ok((annotations, item))
+            }
+            Err(Incomplete(_needed)) => {
+                return decoding_error(format!(
+                    "Unexpected end of input on line {}: '{}'",
+                    self.buffer.lines_loaded(),
+                    &self.buffer.remaining_text()[..original_length] // Don't show the extra `\n0\n`
+                ));
+            }
+            Err(e) => {
+                return decoding_error(format!(
+                    "Parsing error occurred near line {}: '{}': '{}'",
+                    self.buffer.lines_loaded(),
+                    &self.buffer.remaining_text()[..original_length], // Don't show the extra `\n0\n`
+                    e
+                ));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -103,7 +167,7 @@ mod reader_tests {
     use crate::text::TextStreamItem;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::value::owned::{local_sid_token, text_token, OwnedSymbolToken};
+    use crate::value::owned::{local_sid_token, text_token};
     use crate::IonType;
 
     #[test]
@@ -213,6 +277,11 @@ mod reader_tests {
             TextStreamItem::SExpressionStart,
         );
         next_is(vec![], TextStreamItem::SExpressionEnd);
+        // No more values in the stream
+        next_is(vec![], TextStreamItem::EndOfStream);
+        // Continuing to ask for the next value continues to result in EndOfStream
+        next_is(vec![], TextStreamItem::EndOfStream);
+        next_is(vec![], TextStreamItem::EndOfStream);
     }
 
     fn top_level_value_test(ion_text: &str, expected: TextStreamItem) {
@@ -235,9 +304,7 @@ mod reader_tests {
             " 2007-07-12T ",
             TextStreamItem::Timestamp(Timestamp::with_ymd(2007, 7, 12).build()?),
         );
-        // FIXME: https://github.com/amzn/ion-rust/issues/318
-        // Re-enable this test after fixing parsing for ambiguous data at EOF.
-        // tlv(" foo ", TextStreamItem::Symbol(text_token("foo")));
+        tlv(" foo ", TextStreamItem::Symbol(text_token("foo")));
         tlv(" \"hi!\" ", TextStreamItem::String("hi!".to_owned()));
         tlv(
             " {{ZW5jb2RlZA==}} ",
@@ -252,10 +319,16 @@ mod reader_tests {
 
     #[test]
     fn test_detect_stream_item_types() {
-        let expect_type = |text: &str, expected_ion_type: IonType| {
+        let expect_option_type = |text: &str, expected: Option<IonType>| {
             let value = parse_unwrap(stream_item, text);
-            assert_eq!(expected_ion_type, value.ion_type().unwrap());
+            assert_eq!(expected, value.ion_type());
         };
+
+        let expect_type = |text: &str, expected_ion_type: IonType| {
+            expect_option_type(text, Some(expected_ion_type))
+        };
+
+        let expect_no_type = |text: &str| expect_option_type(text, None);
 
         expect_type("null ", IonType::Null);
         expect_type("null.timestamp ", IonType::Timestamp);
@@ -281,5 +354,10 @@ mod reader_tests {
         expect_type("2021-02-08T12:30:02-00:00 ", IonType::Timestamp);
         expect_type("2021-02-08T12:30:02.111-00:00 ", IonType::Timestamp);
         expect_type("{{\"hello\"}}", IonType::Clob);
+
+        // End of...
+        expect_no_type("} "); // struct
+        expect_no_type("] "); // list
+        expect_no_type(") "); // s-expression
     }
 }

@@ -101,6 +101,13 @@ impl<R: BufRead> TextBuffer<R> {
         Ok(total_bytes_read)
     }
 
+    /// Provides direct access to the [TextBuffer]'s backing [String]. This can be used to edit the
+    /// input text before it is processed. Note that lines added or removed when using this method
+    /// will not be reflected in subsequent calls to [lines_loaded].
+    pub fn inner(&mut self) -> &mut String {
+        &mut self.line
+    }
+
     /// Removes the part of the current line that has already been consumed and moves any remaining
     /// text back to the beginning of the buffer.
     fn restack_remaining_text(&mut self) {
