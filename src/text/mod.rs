@@ -54,8 +54,14 @@ impl TextStreamItem {
             TextStreamItem::ListStart => IonType::List,
             TextStreamItem::SExpressionStart => IonType::SExpression,
             TextStreamItem::StructStart => IonType::Struct,
-            _ => return None, // The remaining items are container ends, EndOfStream, etc.
+            _ => return None, // The remaining items are container ends, Comment, EndOfStream, etc.
         };
         Some(ion_type)
+    }
+
+    // Returns [true] if the stream item being returned represents either a scalar value or the
+    // beginning of a container.
+    pub fn is_value(&self) -> bool {
+        self.ion_type().is_some()
     }
 }
