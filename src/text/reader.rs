@@ -161,8 +161,6 @@ impl<T: TextIonDataSource> TextReader<T> {
 #[cfg(test)]
 mod reader_tests {
     use crate::result::IonResult;
-    use crate::text::parsers::top_level::stream_item;
-    use crate::text::parsers::unit_test_support::parse_unwrap;
     use crate::text::reader::TextReader;
     use crate::text::TextStreamItem;
     use crate::types::decimal::Decimal;

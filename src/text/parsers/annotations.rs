@@ -1,13 +1,13 @@
+use nom::bytes::streaming::tag;
+use nom::character::streaming::multispace0;
+use nom::combinator::map_opt;
+use nom::multi::many1;
+use nom::sequence::{delimited, preceded};
+use nom::IResult;
+
 use crate::text::parsers::symbol::parse_symbol;
 use crate::text::TextStreamItem;
 use crate::value::owned::OwnedSymbolToken;
-use nom::branch::alt;
-use nom::bytes::streaming::tag;
-use nom::character::complete::multispace0;
-use nom::combinator::map_opt;
-use nom::multi::many1;
-use nom::sequence::{delimited, pair, preceded};
-use nom::{IResult, Parser};
 
 /// Matches a series of '::'-delimited symbols used to annotate a value.
 pub(crate) fn parse_annotations(input: &str) -> IResult<&str, Vec<OwnedSymbolToken>> {
@@ -37,10 +37,12 @@ fn annotation_delimiter(input: &str) -> IResult<&str, &str> {
 
 #[cfg(test)]
 mod parse_annotations_tests {
-    use super::*;
+    use rstest::*;
+
     use crate::types::SymbolId;
     use crate::value::owned::{local_sid_token, text_token};
-    use rstest::*;
+
+    use super::*;
 
     #[rstest]
     #[case::identifier_no_spaces("foo::", "foo")]

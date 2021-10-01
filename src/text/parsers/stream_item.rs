@@ -1,12 +1,8 @@
-use crate::text::parsers::annotations::parse_annotations;
 use nom::branch::alt;
-use nom::bytes::streaming::tag;
-use nom::character::complete::multispace0;
-use nom::combinator::map_opt;
-use nom::multi::many1;
-use nom::sequence::{delimited, pair, preceded};
-use nom::{IResult, Parser};
+use nom::sequence::pair;
+use nom::IResult;
 
+use crate::text::parsers::annotations::parse_annotations;
 use crate::text::parsers::blob::parse_blob;
 use crate::text::parsers::boolean::parse_boolean;
 use crate::text::parsers::clob::parse_clob;

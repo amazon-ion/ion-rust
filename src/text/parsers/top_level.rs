@@ -1,25 +1,9 @@
-use crate::text::parsers::annotations::parse_annotations;
+use crate::text::parsers::stream_item::{annotated_stream_item, stream_item};
 use nom::branch::alt;
-use nom::bytes::streaming::tag;
 use nom::character::complete::multispace0;
-use nom::combinator::map_opt;
-use nom::multi::many1;
-use nom::sequence::{delimited, pair, preceded};
+use nom::sequence::preceded;
 use nom::{IResult, Parser};
 
-use crate::text::parsers::blob::parse_blob;
-use crate::text::parsers::boolean::parse_boolean;
-use crate::text::parsers::clob::parse_clob;
-use crate::text::parsers::comments::parse_comment;
-use crate::text::parsers::containers::{parse_container_end, parse_container_start};
-use crate::text::parsers::decimal::parse_decimal;
-use crate::text::parsers::float::parse_float;
-use crate::text::parsers::integer::parse_integer;
-use crate::text::parsers::null::parse_null;
-use crate::text::parsers::stream_item::{annotated_stream_item, stream_item};
-use crate::text::parsers::string::parse_string;
-use crate::text::parsers::symbol::parse_symbol;
-use crate::text::parsers::timestamp::parse_timestamp;
 use crate::text::TextStreamItem;
 use crate::value::owned::OwnedSymbolToken;
 
@@ -45,12 +29,13 @@ pub(crate) fn top_level_stream_item(
 
 #[cfg(test)]
 mod parse_stream_item_tests {
-    use super::*;
-    use crate::text::parsers::unit_test_support::parse_unwrap;
-    use crate::types::SymbolId;
-    use crate::value::owned::{local_sid_token, text_token};
-    use crate::IonType;
     use rstest::*;
+
+    use crate::text::parsers::unit_test_support::parse_unwrap;
+    use crate::value::owned::text_token;
+    use crate::IonType;
+
+    use super::*;
 
     // Unit test helper; converts strings into OwnedSymbolTokens
     fn text_tokens(strs: &[&str]) -> Vec<OwnedSymbolToken> {
