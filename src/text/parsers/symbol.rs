@@ -1,11 +1,12 @@
+use crate::text::parsers::containers::recognize_s_expression_end;
 use crate::text::parsers::stop_character;
 use crate::text::parsers::text_support::{escaped_char, escaped_newline, StringFragment};
 use crate::text::TextStreamItem;
 use crate::value::owned::{local_sid_token, text_token};
 use nom::branch::alt;
-use nom::bytes::streaming::is_not;
 use nom::bytes::streaming::tag;
-use nom::character::streaming::{char, digit1, one_of, satisfy};
+use nom::bytes::streaming::{is_a, is_not};
+use nom::character::streaming::{char, digit1, multispace0, one_of, satisfy};
 use nom::combinator::{map, map_opt, map_res, not, peek, recognize, verify};
 use nom::multi::{fold_many0, many0_count};
 use nom::sequence::{delimited, pair, preceded, terminated};
@@ -96,6 +97,34 @@ fn identifier_trailing_character(input: &str) -> IResult<&str, char> {
 /// Matches characters that are legal in an identifier, though not necessarily at the beginning.
 fn identifier_trailing_characters(input: &str) -> IResult<&str, &str> {
     recognize(many0_count(identifier_trailing_character))(input)
+}
+
+/// Matches an operator (e.g. `++` or `@`) and returns the resulting [String]
+/// as a [TextStreamItem::Symbol]. This symbol syntax is only recognized inside of an s-expression.
+pub(crate) fn parse_operator(input: &str) -> IResult<&str, TextStreamItem> {
+    // This function is used by the [s_expression_item] parser in the [containers] module.
+
+    // The 'recognizer' below  is a parser responsible for identifying the &str slice at the
+    // beginning of input that represents an operator. The `map` operation that follows uses
+    // this parser's output to construct the necessary TextStreamItem.
+    let recognizer = delimited(
+        // Other parsers don't have their own leading whitespace matcher because the overarching
+        // top_level_stream_item parser takes care of this. When matching an s-expression, this
+        // parser is given precedence over the other parsers; because of this, it must consume
+        // the whitespace on its own.
+        multispace0,
+        // `is_a` matches the longest leading string comprised of one or more of the given characters
+        is_a("!#%&*+-./;<=>?@^`|~"),
+        // The operator must be followed either by whitespace or the end of the s-expression.
+        alt((
+            peek(recognize(one_of(" \r\n\t"))),
+            peek(recognize(recognize_s_expression_end)),
+        )),
+    );
+    // The above `recognizer` outputs a &str; this operation turns that &str into a Symbol.
+    map(recognizer, |op_text| {
+        TextStreamItem::Symbol(text_token(op_text))
+    })(input)
 }
 
 /// Matches a symbol ID in the format `$ID` (For example, `$0` or `$42`.)
@@ -209,7 +238,24 @@ mod symbol_parsing_tests {
     #[should_panic]
     //              v--- Symbol IDs cannot have underscores in them
     #[case::bad("$17_305 ", 17_305)]
-    fn text_parse_symbol_ids(#[case] text: &str, #[case] expected: SymbolId) {
+    fn test_parse_symbol_ids(#[case] text: &str, #[case] expected: SymbolId) {
         parse_sid_equals(text, expected);
+    }
+
+    #[rstest]
+    #[case("-> ", "->")]
+    #[case("->)", "->")]
+    #[case("++ ", "++")]
+    #[case("++)", "++")]
+    #[case("... ", "...")]
+    #[case("...)", "...")]
+    #[case("// ", "//")]
+    #[case("//)", "//")]
+    fn test_parse_operators(#[case] text: &str, #[case] expected: &str) {
+        parse_test_ok(
+            parse_operator,
+            text,
+            TextStreamItem::Symbol(text_token(expected)),
+        )
     }
 }

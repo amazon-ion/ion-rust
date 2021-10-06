@@ -1,15 +1,25 @@
-use crate::text::TextStreamItem;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_not, tag, take_until};
-use nom::combinator::map;
+use nom::character::streaming::multispace1;
+use nom::combinator::recognize;
+use nom::multi::many0_count;
 use nom::sequence::{delimited, preceded};
 use nom::IResult;
 
+/// Matches any number of consecutive `/* multiline */` or `// rest-of-line` comments with any
+/// amount of leading or trailing whitespace.
+pub(crate) fn whitespace_or_comments(input: &str) -> IResult<&str, &str> {
+    recognize(many0_count(alt((
+        // At least one character of whitespace...
+        multispace1,
+        // ...or a comment of any format.
+        comment,
+    ))))(input)
+}
+
 /// Matches a `/* multiline */` or `// rest-of-line` comment.
-pub(crate) fn parse_comment(input: &str) -> IResult<&str, TextStreamItem> {
-    map(alt((rest_of_line_comment, multiline_comment)), |_text| {
-        TextStreamItem::Comment
-    })(input)
+pub(crate) fn comment(input: &str) -> IResult<&str, &str> {
+    alt((rest_of_line_comment, multiline_comment))(input)
 }
 
 /// Matches a rest-of-line comment. Returns the text of the comment without the leading "//".
@@ -39,7 +49,6 @@ fn multiline_comment(input: &str) -> IResult<&str, &str> {
 #[cfg(test)]
 pub(crate) mod comment_parser_tests {
     use super::*;
-    use crate::text::TextStreamItem;
     use rstest::*;
 
     #[rstest]
@@ -61,11 +70,22 @@ pub(crate) mod comment_parser_tests {
     }
 
     #[rstest]
-    #[case("//hello!\n")]
-    #[case("//😎 😎 😎\n")]
-    #[case("/*hello!*/")]
-    #[case("/*foo\nbar\nbaz*/")]
-    fn test_parse_comment(#[case] text: &str) {
-        assert_eq!(parse_comment(text).unwrap().1, TextStreamItem::Comment);
+    #[case("//hello!\n", "hello!")]
+    #[case("//😎 😎 😎\n", "😎 😎 😎")]
+    #[case("/*hello!*/", "hello!")]
+    #[case("/*foo\nbar\nbaz*/", "foo\nbar\nbaz")]
+    fn test_parse_comment(#[case] text: &str, #[case] expected: &str) {
+        assert_eq!(comment(text).unwrap().1, expected);
+    }
+
+    #[rstest]
+    #[case(" //hello!\n0", "0")]
+    #[case(" //foo\n//bar\nbaz\n", "baz\n")]
+    #[case(" /*hello!*/5", "5")]
+    #[case(" /*foo\nbar\nbaz*/\n//foo\ntrue", "true")]
+    fn test_parse_whitespace_or_comments(#[case] text: &str, #[case] remaining: &str) {
+        // The unwrap() requires the parser to succeed. We're comparing the remaining unmatched
+        // part of the input because it's shorter.
+        assert_eq!(whitespace_or_comments(text).unwrap().0, remaining);
     }
 }
