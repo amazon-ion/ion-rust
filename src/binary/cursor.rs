@@ -367,8 +367,8 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
             };
             if header.is_nop() {
                 return decoding_error(&format!(
-                    // What helpful context could we include here?
-                    "Can't have NOP padding inside an annotation wrapper"
+                    "The annotation wrapper starting at byte {} contains NOP padding, which is illegal.",
+                    self.cursor.bytes_read
                 ));
             }
             self.cursor.value.header = header;
