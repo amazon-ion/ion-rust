@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use crate::{
-    binary::{nibbles::nibbles_from_byte, IonTypeCode},
+    binary::{constants::v1_0::length_codes, nibbles::nibbles_from_byte, IonTypeCode},
     result::IonResult,
     types::IonType,
 };
@@ -30,6 +30,10 @@ impl Header {
             ion_type_code,
             length_code,
         })
+    }
+
+    pub fn is_nop(&self) -> bool {
+        self.ion_type_code == IonTypeCode::NullOrNop && self.length_code != length_codes::NULL
     }
 }
 

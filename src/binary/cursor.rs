@@ -195,7 +195,7 @@ impl Default for EncodedValue {
             ion_type: IonType::Null,
             header: Header {
                 ion_type: None,
-                ion_type_code: IonTypeCode::NullOrWhitespace,
+                ion_type_code: IonTypeCode::NullOrNop,
                 length_code: length_codes::NULL,
             },
             field_id: None,
@@ -310,11 +310,47 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         };
         self.cursor.value.header = header;
 
+        // Skip over consecutive NOP padding, but don't handle nulls
+        if header.is_nop() {
+            let number_of_bytes = if header.length_code == length_codes::VAR_UINT {
+                self.read_standard_length()?
+            } else {
+                header.length_code as usize
+            };
+
+            // If we're in a container, validate that the NOP pad doesn't overrun the container end
+            if let Some(parent) = self.cursor.parents.last() {
+                // The NOP padding described starts on the byte *after* the NOP header
+                let nop_offset = self.cursor.bytes_read;
+                let nop_range = (nop_offset)..(nop_offset + number_of_bytes);
+                let container_range = parent.value_range();
+
+                if nop_range.end > container_range.end {
+                    // This NOP is malformed, let's assemble data for error reporting
+                    return decoding_error(&format!(
+                        "{bytes}-byte NOP padding on byte range {nop_range:?} is {over} \
+                        byte{s} past container content range {container_range:?}",
+                        bytes = number_of_bytes,
+                        nop_range = nop_range,
+                        over = nop_range.end - container_range.end,
+                        s = if number_of_bytes == 1 { "" } else { "s" },
+                        container_range = container_range,
+                    ));
+                }
+            }
+
+            self.skip_bytes(number_of_bytes)?;
+
+            //TODO: Find a way to do this non-recursively when we clean up/refactor next()
+            return self.next();
+        }
+
         self.clear_annotations();
         if header.ion_type_code == IonTypeCode::Annotation {
             if header.length_code == 0 {
                 // This is actually the first byte in an Ion Version Marker
-                // TODO: actually parse the IVM instead of assuming 1.0 and skipping it
+                //TODO: actually parse the IVM instead of assuming 1.0 and skipping it
+                // https://github.com/amzn/ion-rust/issues/324
                 self.cursor.ion_version = (1, 0);
                 self.skip_bytes(IVM.len() - 1)?;
                 return Ok(Some(StreamItem::VersionMarker(1, 0)));
@@ -327,6 +363,12 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
                 Some(header) => header,
                 None => return Ok(None),
             };
+            if header.is_nop() {
+                return decoding_error(&format!(
+                    "The annotation wrapper starting at byte {} contains NOP padding, which is illegal.",
+                    self.cursor.bytes_read
+                ));
+            }
             self.cursor.value.header = header;
         }
 
@@ -983,7 +1025,7 @@ where
 
         use IonTypeCode::*;
         let length = match header.ion_type_code {
-            NullOrWhitespace | Boolean => 0,
+            NullOrNop | Boolean => 0,
             PositiveInteger | NegativeInteger | Decimal | Timestamp | String | Symbol | List
             | SExpression | Clob | Blob => self.read_standard_length()?,
             Float => self.read_float_length()?,
@@ -1063,11 +1105,19 @@ where
     }
 
     fn skip_current_value(&mut self) -> IonResult<()> {
-        if self.cursor.index_at_depth == 0 {
-            Ok(())
-        } else {
-            let bytes_to_skip = self.cursor.value.value_end_exclusive() - self.cursor.bytes_read;
+        let position = self.cursor.bytes_read;
+        let end = self.cursor.value.value_end_exclusive();
+
+        // Don't skip a value if we haven't called `next()` at the current level
+        if self.cursor.index_at_depth > 0 {
+            // NOPs are not values, so bytes_read can be past the last consumed value (`end`).
+            // This is an artifact of consuming NOP sleds with recursive `next()`, and could be
+            // fixed with refactoring.
+            // `saturating_sub` avoids underflow by returning 0 if `position` > `end`.
+            let bytes_to_skip = end.saturating_sub(position);
             self.skip_bytes(bytes_to_skip)
+        } else {
+            Ok(())
         }
     }
 
@@ -1141,7 +1191,7 @@ mod tests {
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::BinaryIonCursor;
     use crate::cursor::{Cursor, StreamItem, StreamItem::*};
-    use crate::result::IonResult;
+    use crate::result::{IonError, IonResult};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::types::IonType;
@@ -1799,6 +1849,131 @@ mod tests {
             Some(&ion_data[37..37] /* empty */)
         );
         assert_eq!(cursor.read_bool()?, Some(false));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nop_pad_adjacent_to_top_level() -> IonResult<()> {
+        // name::false with a byte of NOP padding on either side of it
+        let mut cursor = ion_cursor_for(&[
+            0x00, // NOP code, 1 byte NOP
+            0xE3, // 3-byte annotations envelope
+            0x81, // * Annotations themselves take 1 byte
+            0x84, // * Annotation w/SID $4 ("name")
+            0x11, // boolean true
+            0x00, // NOP code, 1 byte NOP
+        ]);
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::Boolean, false)));
+        assert_eq!(cursor.next()?, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nop_pad_inside_annotation_wrapper() -> IonResult<()> {
+        let mut cursor = ion_cursor_for(&[
+            //0xE3 0x81 0x84 0x00 is the canonical "invalid annotated NOP" from the docs
+            0xE3, // 3-byte annotations envelope
+            0x81, // * Annotations themselves take 1 byte
+            0x84, // * Annotation w/SID $4 ("name")
+            0x00, // NOP code, 1 byte NOP
+        ]);
+
+        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nop_pad_in_struct() -> IonResult<()> {
+        // {$4: "a", <4 bytes of (NOP + 2 bytes padding)>}
+        let mut cursor = ion_cursor_for(&[
+            0xD7, // 7-byte struct
+            0x84, // single octet VarUInt, value 4 => field named "name"
+            0x81, // string of length 1
+            0x61, // "a"
+            0x80, // single octet VarUInt, value 0 => unknown symbol, also reserved for NOP padding in structs
+            0x02, // two bytes of NOP padding follow
+            0x01, 0x02, // not interpreted, this is padding
+        ]);
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+        cursor.step_in()?;
+        assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
+        assert_eq!(cursor.read_string()?, Some(String::from("a")));
+        assert_eq!(cursor.next()?, None);
+        cursor.step_out()?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nop_pad_in_struct_beginning() -> IonResult<()> {
+        // { <4 bytes of ($0: NOP + 2 bytes padding)>, $4: "a",}
+        let mut cursor = ion_cursor_for(&[
+            0xD7, // 7-byte struct
+            0x80, // single octet VarUInt, value 0 => unknown symbol, also reserved for NOP padding in structs
+            0x02, // two bytes of NOP padding follow
+            0x01, 0x02, // not interpreted, this is padding
+            0x84, // single octet VarUInt, value 4 => field named "name"
+            0x81, // string of length 1
+            0x61, // "a"
+        ]);
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+        cursor.step_in()?;
+        assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
+        assert_eq!(cursor.read_string()?, Some(String::from("a")));
+        assert_eq!(cursor.next()?, None);
+        cursor.step_out()?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nop_pad_larger_than_struct() -> IonResult<()> {
+        // {$4: "a", <4 bytes of (NOP + 2 bytes padding)>}
+        let mut cursor = ion_cursor_for(&[
+            0xD7, // 7-byte struct
+            0x84, // single octet VarUInt, value 4 => field named "name"
+            0x81, // string of length 1
+            0x61, // "a"
+            0x80, // single octet VarUInt, value 0 => unknown symbol, also reserved for NOP padding in structs
+            0x04, // "four" bytes of NOP padding follow, which would overrun the struct
+            0x01, 0x02, // not interpreted, this is padding
+        ]);
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+        cursor.step_in()?;
+        assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
+        assert_eq!(cursor.read_string()?, Some(String::from("a")));
+
+        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+
+        cursor.step_out()?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nop_pad_larger_than_list() -> IonResult<()> {
+        // {$4: "a", <4 bytes of (NOP + 2 bytes padding)>}
+        let mut cursor = ion_cursor_for(&[
+            // [0-3] IVM
+            0xB2, // [4] 2-byte list
+            0x20, // [5] single octet int, 0
+            0x01, // [6] "one" bytes of NOP padding follow, which would overrun the list
+        ]); // [7] is out of the container
+
+        assert_eq!(cursor.next()?, Some(Value(IonType::List, false)));
+        cursor.step_in()?;
+        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
+
+        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+
+        cursor.step_out()?;
 
         Ok(())
     }
