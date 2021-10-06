@@ -1967,7 +1967,6 @@ mod tests {
         cursor.step_in()?;
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
 
-        cursor.next()?;
         assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
 
         cursor.step_out()?;
