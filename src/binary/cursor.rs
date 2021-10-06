@@ -1105,10 +1105,15 @@ where
     }
 
     fn skip_current_value(&mut self) -> IonResult<()> {
-        if self.cursor.index_at_depth > 0
-            && self.cursor.bytes_read < self.cursor.value.value_end_exclusive()
-        {
-            let bytes_to_skip = self.cursor.value.value_end_exclusive() - self.cursor.bytes_read;
+        let pos = self.cursor.bytes_read;
+        let end = self.cursor.value.value_end_exclusive();
+
+        // Don't skip a value if we haven't called `next()` at the current level
+        if self.cursor.index_at_depth > 0 {
+            // NOPs are not values, so bytes_read can be past the last consumed value (`end`).
+            // This is an artifact of consuming NOP sleds with recursive `next()`, and could be
+            // fixed with refactoring.
+            let bytes_to_skip = end.saturating_sub(pos);
             self.skip_bytes(bytes_to_skip)
         } else {
             Ok(())
