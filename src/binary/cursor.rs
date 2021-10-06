@@ -328,15 +328,13 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
                 if nop_range.end > container_range.end {
                     // This NOP is malformed, let's assemble data for error reporting
                     return decoding_error(&format!(
-                        "{bytes}-byte NOP padding on byte range [{nop_start}, {nop_end}) is {over} \
-                        byte{s} past container content range [{container_start}, {container_end})",
+                        "{bytes}-byte NOP padding on byte range {nop_range:?} is {over} \
+                        byte{s} past container content range {container_range:?}",
                         bytes = number_of_bytes,
-                        nop_start = nop_range.start,
-                        nop_end = nop_range.end,
+                        nop_range = nop_range,
                         over = nop_range.end - container_range.end,
                         s = if number_of_bytes == 1 {""} else {"s"},
-                        container_start = container_range.start,
-                        container_end = container_range.end,
+                        container_range = container_range,
                     ));
                 }
             }
