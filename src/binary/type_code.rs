@@ -16,22 +16,22 @@ use crate::types::IonType;
 /// section of the spec for more information.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum IonTypeCode {
-    NullOrWhitespace, // 0
-    Boolean,          // 1
-    PositiveInteger,  // 2
-    NegativeInteger,  // 3
-    Float,            // 4
-    Decimal,          // 5
-    Timestamp,        // 6
-    Symbol,           // 7
-    String,           // 8
-    Clob,             // 9
-    Blob,             // 10
-    List,             // 11
-    SExpression,      // 12
-    Struct,           // 13
-    Annotation,       // 14
-    Reserved,         // 15
+    NullOrNop,       // 0
+    Boolean,         // 1
+    PositiveInteger, // 2
+    NegativeInteger, // 3
+    Float,           // 4
+    Decimal,         // 5
+    Timestamp,       // 6
+    Symbol,          // 7
+    String,          // 8
+    Clob,            // 9
+    Blob,            // 10
+    List,            // 11
+    SExpression,     // 12
+    Struct,          // 13
+    Annotation,      // 14
+    Reserved,        // 15
 }
 
 impl TryFrom<IonTypeCode> for IonType {
@@ -41,7 +41,7 @@ impl TryFrom<IonTypeCode> for IonType {
     fn try_from(ion_type_code: IonTypeCode) -> Result<Self, Self::Error> {
         use IonTypeCode::*;
         let ion_type = match ion_type_code {
-            NullOrWhitespace => IonType::Null,
+            NullOrNop => IonType::Null,
             Boolean => IonType::Boolean,
             PositiveInteger | NegativeInteger => IonType::Integer,
             Float => IonType::Float,
@@ -73,7 +73,7 @@ impl TryFrom<u8> for IonTypeCode {
     fn try_from(type_code: u8) -> Result<Self, Self::Error> {
         use IonTypeCode::*;
         let ion_type_code = match type_code {
-            0 => NullOrWhitespace,
+            0 => NullOrNop,
             1 => Boolean,
             2 => PositiveInteger,
             3 => NegativeInteger,
@@ -102,7 +102,7 @@ impl IonTypeCode {
     pub const fn to_u8(self) -> u8 {
         use IonTypeCode::*;
         match self {
-            NullOrWhitespace => 0,
+            NullOrNop => 0,
             Boolean => 1,
             PositiveInteger => 2,
             NegativeInteger => 3,
