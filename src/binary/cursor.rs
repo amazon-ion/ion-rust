@@ -333,7 +333,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
                         bytes = number_of_bytes,
                         nop_range = nop_range,
                         over = nop_range.end - container_range.end,
-                        s = if number_of_bytes == 1 {""} else {"s"},
+                        s = if number_of_bytes == 1 { "" } else { "s" },
                         container_range = container_range,
                     ));
                 }
