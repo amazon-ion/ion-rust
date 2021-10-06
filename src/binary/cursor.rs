@@ -1112,7 +1112,7 @@ where
         if self.cursor.index_at_depth > 0 {
             // NOPs are not values, so bytes_read can be past the last consumed value (`end`).
             // This is an artifact of consuming NOP sleds with recursive `next()`, and could be
-            // fixed with refactoring. 
+            // fixed with refactoring.
             // `saturating_sub` avoids underflow by returning 0 if `position` > `end`.
             let bytes_to_skip = end.saturating_sub(position);
             self.skip_bytes(bytes_to_skip)
