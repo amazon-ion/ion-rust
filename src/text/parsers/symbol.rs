@@ -145,7 +145,7 @@ fn symbol_id(input: &str) -> IResult<&str, TextStreamItem> {
                 // Each of the parsers passed to `alt` must have the same return type. `stop_character`
                 // returns a char instead of a &str, so we use `recognize()` to get a &str instead.
                 recognize(stop_character),
-                peek(tag("::")),
+                peek(tag(":")), // Field delimiter (":") or annotation delimiter ("::")
             )),
         ),
         |text| {

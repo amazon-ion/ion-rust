@@ -164,7 +164,7 @@ mod container_parsing_tests {
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::TextStreamItem;
     use crate::types::decimal::Decimal;
-    use crate::value::owned::text_token;
+    use crate::value::owned::{local_sid_token, text_token};
 
     use super::*;
 
@@ -269,16 +269,19 @@ mod container_parsing_tests {
     }
 
     #[rstest]
-    #[case("foo:")]
-    #[case("  foo  :")]
-    #[case("/* Here's a field name */  foo // And here's a delimiter\n:")]
-    #[case("'foo':")]
-    #[case("  'foo'  :")]
-    #[case("$10:")]
-    #[case("  $10  :")]
-    #[case("\"foo\":")]
-    #[case("  \"foo\"  :")]
-    fn test_parse_struct_field_name(#[case] text: &str) {
-        parse_test_err(parse_container_end, text)
+    #[case("foo:", text_token("foo"))]
+    #[case("  foo  :", text_token("foo"))]
+    #[case(
+        "/* Here's a field name */  foo // And here's a delimiter\n:",
+        text_token("foo")
+    )]
+    #[case("'foo':", text_token("foo"))]
+    #[case("  'foo'  :", text_token("foo"))]
+    #[case("$10:", local_sid_token(10))]
+    #[case("  $10  :", local_sid_token(10))]
+    #[case("\"foo\":", text_token("foo"))]
+    #[case("  \"foo\"  :", text_token("foo"))]
+    fn test_parse_struct_field_name(#[case] text: &str, #[case] expected: OwnedSymbolToken) {
+        assert_eq!(struct_field_name(text).unwrap().1, expected);
     }
 }
