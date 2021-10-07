@@ -5,7 +5,6 @@ use chrono::offset::FixedOffset;
 use chrono::prelude::*;
 use delegate::delegate;
 
-use crate::binary::constants::v1_0::IVM;
 use crate::cursor::{Cursor, StreamItem};
 use crate::{
     binary::{
@@ -312,11 +311,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
 
         // Skip over consecutive NOP padding, but don't handle nulls
         if header.is_nop() {
-            let number_of_bytes = if header.length_code == length_codes::VAR_UINT {
-                self.read_standard_length()?
-            } else {
-                header.length_code as usize
-            };
+            let number_of_bytes = self.read_standard_length()?;
 
             // If we're in a container, validate that the NOP pad doesn't overrun the container end
             if let Some(parent) = self.cursor.parents.last() {
@@ -349,14 +344,10 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         if header.ion_type_code == IonTypeCode::Annotation {
             if header.length_code == 0 {
                 // This is actually the first byte in an Ion Version Marker
-                //TODO: actually parse the IVM instead of assuming 1.0 and skipping it
-                // https://github.com/amzn/ion-rust/issues/324
-                self.cursor.ion_version = (1, 0);
-                self.skip_bytes(IVM.len() - 1)?;
-                return Ok(Some(StreamItem::VersionMarker(1, 0)));
+                return Ok(Some(self.read_ivm()?));
             }
             // We've found an annotated value. Read all of the annotation symbols leading
-            // up to the value.
+            // up to the value
             let _ = self.read_annotations()?;
             // Now read the next header representing the value itself.
             header = match self.read_next_value_header()? {
@@ -979,6 +970,24 @@ where
         }
     }
 
+    fn read_ivm(&mut self) -> IonResult<StreamItem> {
+        let (major, minor) = self.read_slice(3, |bytes| match *bytes {
+            [major, minor, 0xEA] => Ok((major, minor)),
+            [major, minor, other] => decoding_error(format!(
+                "Illegal IVM: 0xE0 0x{:X} 0x{:X} 0x{:X}",
+                major, minor, other
+            )),
+            _ => unreachable!(), // read_slice will always return the requested number of bytes
+        })?;
+
+        if !matches!((major, minor), (1, 0)) {
+            decoding_error(format!("Unsupported Ion version {:X}.{:X}", major, minor))
+        } else {
+            self.cursor.ion_version = (major, minor);
+            Ok(StreamItem::VersionMarker(major, minor))
+        }
+    }
+
     #[inline(always)]
     fn read_var_uint(&mut self) -> IonResult<VarUInt> {
         let var_uint = VarUInt::read(&mut self.data_source)?;
@@ -1220,6 +1229,30 @@ mod tests {
         assert_eq!(binary_cursor.next(), Ok(Some(VersionMarker(1, 0))));
         assert_eq!(binary_cursor.ion_version(), (1u8, 0u8));
         binary_cursor
+    }
+
+    #[test]
+    fn test_parse_ivm() -> IonResult<()> {
+        ion_cursor_for(&[]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_unsupported_version_in_ivm() -> IonResult<()> {
+        let data: [u8; 4] = [0xE0, 0x01, 0x01, 0xEA]; // Ion version 1.1 is not supported
+        let mut cursor = BinaryIonCursor::new(io::Cursor::new(data));
+        assert_eq!(cursor.ion_type(), None);
+        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_invalid_ivm() -> IonResult<()> {
+        let data: [u8; 4] = [0xE0, 0x01, 0x00, 0xE0]; // IVM should end '0xEA' not '0xE0'
+        let mut cursor = BinaryIonCursor::new(io::Cursor::new(data));
+        assert_eq!(cursor.ion_type(), None);
+        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+        Ok(())
     }
 
     #[test]
