@@ -140,7 +140,8 @@ fn symbol_id(input: &str) -> IResult<&str, TextStreamItem> {
             // Peek at the next character to make sure it's unrelated to the symbol ID.
             // The spec does not offer a formal definition of what ends a symbol ID.
             // This checks for either a stop_character (which performs its own `peek()`)
-            // or an annotation delimiter ('::').
+            // or a colon (":"), which could be a field delimiter (":") or the beginning of
+            // an annotation delimiter ('::').
             alt((
                 // Each of the parsers passed to `alt` must have the same return type. `stop_character`
                 // returns a char instead of a &str, so we use `recognize()` to get a &str instead.
