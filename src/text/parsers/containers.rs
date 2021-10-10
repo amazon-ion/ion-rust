@@ -35,17 +35,17 @@ pub(crate) fn s_expression_start(input: &str) -> IResult<&str, TextValue> {
     })(input)
 }
 
-/// Matches the end of a struct and returns a &str containing the delimiter.
+/// Matches the end of a struct and returns a `&str` containing the delimiter.
 pub(crate) fn struct_end(input: &str) -> IResult<&str, &str> {
     preceded(whitespace_or_comments, tag("}"))(input)
 }
 
-/// Matches the end of a list and returns a [TextValue::StructEnd].
+/// Matches the end of a list and returns a `&str` containing the delimiter.
 pub(crate) fn list_end(input: &str) -> IResult<&str, &str> {
     preceded(whitespace_or_comments, tag("]"))(input)
 }
 
-/// Matches the end of an s-expression and returns a &str containing the delimiter.
+/// Matches the end of an s-expression and returns a `&str` containing the delimiter.
 pub(crate) fn s_expression_end(input: &str) -> IResult<&str, &str> {
     preceded(whitespace_or_comments, tag(")"))(input)
 }
