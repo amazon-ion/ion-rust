@@ -1,6 +1,6 @@
 use crate::text::parsers::text_support::{escaped_char, escaped_newline, StringFragment};
 use crate::text::parsers::whitespace;
-use crate::text::TextStreamItem;
+use crate::text::text_value::TextValue;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_not, tag, take_until};
 use nom::character::streaming::char;
@@ -11,29 +11,29 @@ use nom::IResult;
 use std::str;
 
 /// Matches the text representation of a clob value and returns the resulting [Clob]
-/// as a [TextStreamItem::Clob].
-pub(crate) fn parse_clob(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Clob].
+pub(crate) fn parse_clob(input: &str) -> IResult<&str, TextValue> {
     map(delimited(tag("{{"), parse_clob_body, tag("}}")), |text| {
         text
     })(input)
 }
 
 /// Matches the body of a clob value (e.g. "Hello" in {{"Hello"}})
-fn parse_clob_body(input: &str) -> IResult<&str, TextStreamItem> {
+fn parse_clob_body(input: &str) -> IResult<&str, TextValue> {
     alt((short_clob, long_clob))(input)
 }
 
 /// Matches a short clob (e.g. `"Hello"`) and returns the resulting [Clob]
-/// as a [TextStreamItem::Clob].
-fn short_clob(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Clob].
+fn short_clob(input: &str) -> IResult<&str, TextValue> {
     map(delimited(char('"'), short_clob_body, char('"')), |text| {
-        TextStreamItem::Clob(text)
+        TextValue::Clob(text)
     })(input)
 }
 
 /// Matches a long clob (e.g. `'''Hello, '''\n'''World!'''`) and returns the resulting [Clob]
-/// as a [TextStreamItem::Clob].
-fn long_clob(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Clob].
+fn long_clob(input: &str) -> IResult<&str, TextValue> {
     // TODO: This parser allocates a Vec to hold each intermediate '''...''' string
     //       and then again to merge them into a finished product. These allocations
     //       could be removed with some refactoring.
@@ -50,7 +50,7 @@ fn long_clob(input: &str) -> IResult<&str, TextStreamItem> {
             for value in text {
                 text_vec.extend(value);
             }
-            TextStreamItem::Clob(text_vec)
+            TextValue::Clob(text_vec)
         },
     )(input)
 }
@@ -125,11 +125,11 @@ mod clob_parsing_tests {
 
     use crate::text::parsers::clob::parse_clob;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
-    use crate::text::TextStreamItem;
+    use crate::text::text_value::TextValue;
 
     fn parse_equals<A: AsRef<[u8]>>(text: &str, expected: A) {
         let data = Vec::from_iter(expected.as_ref().iter().copied());
-        parse_test_ok(parse_clob, text, TextStreamItem::Clob(data))
+        parse_test_ok(parse_clob, text, TextValue::Clob(data))
     }
 
     fn parse_fails(text: &str) {

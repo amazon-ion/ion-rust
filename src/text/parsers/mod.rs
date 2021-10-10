@@ -19,12 +19,12 @@ pub(crate) mod float;
 pub(crate) mod integer;
 pub(crate) mod null;
 pub(crate) mod numeric_support;
-pub(crate) mod stream_item;
 pub(crate) mod string;
 pub(crate) mod symbol;
 pub(crate) mod text_support;
 pub(crate) mod timestamp;
 pub(crate) mod top_level;
+pub(crate) mod value;
 
 // ===== The functions below are used by several modules and live here for common access. =====
 

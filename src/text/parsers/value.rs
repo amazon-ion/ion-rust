@@ -1,12 +1,12 @@
 use nom::branch::alt;
 use nom::sequence::pair;
-use nom::IResult;
+use nom::{IResult, Parser};
 
 use crate::text::parsers::annotations::parse_annotations;
 use crate::text::parsers::blob::parse_blob;
 use crate::text::parsers::boolean::parse_boolean;
 use crate::text::parsers::clob::parse_clob;
-use crate::text::parsers::containers::parse_container_start;
+use crate::text::parsers::containers::container_start;
 use crate::text::parsers::decimal::parse_decimal;
 use crate::text::parsers::float::parse_float;
 use crate::text::parsers::integer::parse_integer;
@@ -14,11 +14,10 @@ use crate::text::parsers::null::parse_null;
 use crate::text::parsers::string::parse_string;
 use crate::text::parsers::symbol::parse_symbol;
 use crate::text::parsers::timestamp::parse_timestamp;
-use crate::text::TextStreamItem;
-use crate::value::owned::OwnedSymbolToken;
+use crate::text::text_value::{AnnotatedTextValue, TextValue};
 
-/// Matches a TextStreamItem at the beginning of the given string.
-pub(crate) fn stream_item(input: &str) -> IResult<&str, TextStreamItem> {
+/// Matches a TextValue at the beginning of the given string.
+pub(crate) fn value(input: &str) -> IResult<&str, TextValue> {
     alt((
         parse_null,
         parse_boolean,
@@ -30,13 +29,13 @@ pub(crate) fn stream_item(input: &str) -> IResult<&str, TextStreamItem> {
         parse_symbol,
         parse_blob,
         parse_clob,
-        parse_container_start,
+        container_start,
     ))(input)
 }
 
-/// Matches a series of annotations and their associated TextStreamItem.
-pub(crate) fn annotated_stream_item(
-    input: &str,
-) -> IResult<&str, (Vec<OwnedSymbolToken>, TextStreamItem)> {
-    pair(parse_annotations, stream_item)(input)
+/// Matches a series of annotations and their associated TextValue.
+pub(crate) fn annotated_value(input: &str) -> IResult<&str, AnnotatedTextValue> {
+    pair(parse_annotations, value)
+        .map(|(annotations, value)| value.with_annotations(annotations))
+        .parse(input)
 }

@@ -12,13 +12,13 @@ use num_bigint::BigUint;
 
 use crate::result::IonError;
 use crate::text::parsers::{digit, stop_character, trim_zeros_expect_i32, trim_zeros_expect_u32};
-use crate::text::TextStreamItem;
+use crate::text::text_value::TextValue;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::{FractionalSecondSetter, Timestamp};
 
 /// Matches the text representation of a timestamp value and returns the resulting Timestamp
-/// as a [TextStreamItem::Timestamp].
-pub(crate) fn parse_timestamp(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Timestamp].
+pub(crate) fn parse_timestamp(input: &str) -> IResult<&str, TextValue> {
     alt((
         timestamp_precision_y,
         timestamp_precision_ym,
@@ -30,32 +30,32 @@ pub(crate) fn parse_timestamp(input: &str) -> IResult<&str, TextStreamItem> {
 }
 
 /// Matches the text representation of a timestamp value with year precision (e.g. `2018T`) and
-/// returns the resulting Timestamp as a [TextStreamItem::Timestamp].
-fn timestamp_precision_y(input: &str) -> IResult<&str, TextStreamItem> {
+/// returns the resulting Timestamp as a [TextValue::Timestamp].
+fn timestamp_precision_y(input: &str) -> IResult<&str, TextValue> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(year, pair(tag("T"), stop_character)),
         |year| {
             let timestamp = Timestamp::with_year(year).build()?;
-            Ok(TextStreamItem::Timestamp(timestamp))
+            Ok(TextValue::Timestamp(timestamp))
         },
     )(input)
 }
 
 /// Matches the text representation of a timestamp value with month precision (e.g. `2018-06T`) and
-/// returns the resulting Timestamp as a [TextStreamItem::Timestamp].
-fn timestamp_precision_ym(input: &str) -> IResult<&str, TextStreamItem> {
+/// returns the resulting Timestamp as a [TextValue::Timestamp].
+fn timestamp_precision_ym(input: &str) -> IResult<&str, TextValue> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(pair(year, month), pair(tag("T"), stop_character)),
         |(year, month)| {
             let timestamp = Timestamp::with_year(year).with_month(month).build()?;
-            Ok(TextStreamItem::Timestamp(timestamp))
+            Ok(TextValue::Timestamp(timestamp))
         },
     )(input)
 }
 
 /// Matches the text representation of a timestamp value with day precision (e.g. `2018-06-12T`) and
-/// returns the resulting Timestamp as a [TextStreamItem::Timestamp].
-fn timestamp_precision_ymd(input: &str) -> IResult<&str, TextStreamItem> {
+/// returns the resulting Timestamp as a [TextValue::Timestamp].
+fn timestamp_precision_ymd(input: &str) -> IResult<&str, TextValue> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(
             tuple((year, month, day)),
@@ -63,15 +63,15 @@ fn timestamp_precision_ymd(input: &str) -> IResult<&str, TextStreamItem> {
         ),
         |(year, month, day)| {
             let timestamp = Timestamp::with_ymd(year, month, day).build()?;
-            Ok(TextStreamItem::Timestamp(timestamp))
+            Ok(TextValue::Timestamp(timestamp))
         },
     )(input)
 }
 
 /// Matches the text representation of a timestamp value with minute precision
 /// (e.g. `2018-06-12T:23:57-05:00`) and returns the resulting Timestamp as
-/// a [TextStreamItem::Timestamp].
-fn timestamp_precision_ymd_hm(input: &str) -> IResult<&str, TextStreamItem> {
+/// a [TextValue::Timestamp].
+fn timestamp_precision_ymd_hm(input: &str) -> IResult<&str, TextValue> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(
             pair(tuple((year, month, day, hour_and_minute)), timezone_offset),
@@ -84,15 +84,15 @@ fn timestamp_precision_ymd_hm(input: &str) -> IResult<&str, TextStreamItem> {
             } else {
                 builder.build_at_unknown_offset()
             }?;
-            Ok(TextStreamItem::Timestamp(timestamp))
+            Ok(TextValue::Timestamp(timestamp))
         },
     )(input)
 }
 
 /// Matches the text representation of a timestamp value with second precision
 /// (e.g. `2018-06-12T:23:57:45-05:00`) and returns the resulting Timestamp as
-/// a [TextStreamItem::Timestamp].
-fn timestamp_precision_ymd_hms(input: &str) -> IResult<&str, TextStreamItem> {
+/// a [TextValue::Timestamp].
+fn timestamp_precision_ymd_hms(input: &str) -> IResult<&str, TextValue> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(
             pair(
@@ -108,15 +108,15 @@ fn timestamp_precision_ymd_hms(input: &str) -> IResult<&str, TextStreamItem> {
             } else {
                 builder.build_at_unknown_offset()
             }?;
-            Ok(TextStreamItem::Timestamp(timestamp))
+            Ok(TextValue::Timestamp(timestamp))
         },
     )(input)
 }
 
 /// Matches the text representation of a timestamp value with fractional second precision
 /// (e.g. `2018-06-12T:23:57:45.993-05:00`) and returns the resulting Timestamp as
-/// a [TextStreamItem::Timestamp].
-fn timestamp_precision_ymd_hms_fractional(input: &str) -> IResult<&str, TextStreamItem> {
+/// a [TextValue::Timestamp].
+fn timestamp_precision_ymd_hms_fractional(input: &str) -> IResult<&str, TextValue> {
     map_res::<_, _, _, _, IonError, _, _>(
         terminated(
             pair(
@@ -140,7 +140,7 @@ fn timestamp_precision_ymd_hms_fractional(input: &str) -> IResult<&str, TextStre
             } else {
                 builder.build_at_unknown_offset()?
             };
-            Ok(TextStreamItem::Timestamp(timestamp))
+            Ok(TextValue::Timestamp(timestamp))
         },
     )(input)
 }
@@ -284,12 +284,12 @@ mod reader_tests {
     use crate::result::IonResult;
     use crate::text::parsers::timestamp::parse_timestamp;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
-    use crate::text::TextStreamItem;
+    use crate::text::text_value::TextValue;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
 
     fn parse_equals(text: &str, expected: Timestamp) {
-        parse_test_ok(parse_timestamp, text, TextStreamItem::Timestamp(expected))
+        parse_test_ok(parse_timestamp, text, TextValue::Timestamp(expected))
     }
 
     fn parse_fails(text: &str) {

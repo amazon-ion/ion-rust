@@ -1,6 +1,6 @@
 use crate::text::parsers::numeric_support::base_10_integer_digits;
 use crate::text::parsers::stop_character;
-use crate::text::TextStreamItem;
+use crate::text::text_value::TextValue;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, tag, take_while1};
 use nom::character::streaming::char;
@@ -15,8 +15,8 @@ use std::num::ParseIntError;
 // decimal, the base-10 notation, or the fractional delimiter of a floating-point number.
 
 /// Matches the text representation of an integer in any supported notation (base-2, base-10, or
-/// base-16) and returns the resulting [i64] as a [TextStreamItem::Integer].
-pub(crate) fn parse_integer(input: &str) -> IResult<&str, TextStreamItem> {
+/// base-16) and returns the resulting [i64] as a [TextValue::Integer].
+pub(crate) fn parse_integer(input: &str) -> IResult<&str, TextValue> {
     terminated(
         alt((base_16_integer, base_2_integer, base_10_integer)),
         stop_character,
@@ -24,8 +24,8 @@ pub(crate) fn parse_integer(input: &str) -> IResult<&str, TextStreamItem> {
 }
 
 /// Matches a base-16 notation integer (e.g. `0xCAFE`, `0Xcafe`, or `-0xCa_Fe`) and returns the
-/// resulting [i64] as a [TextStreamItem::Integer].
-fn base_16_integer(input: &str) -> IResult<&str, TextStreamItem> {
+/// resulting [i64] as a [TextValue::Integer].
+fn base_16_integer(input: &str) -> IResult<&str, TextValue> {
     map_res(
         separated_pair(
             opt(char('-')),
@@ -35,7 +35,7 @@ fn base_16_integer(input: &str) -> IResult<&str, TextStreamItem> {
         |(maybe_sign, text_digits)| {
             parse_i64_with_radix(text_digits, 16)
                 .map(|i| if maybe_sign.is_some() { -i } else { i })
-                .map(|i| TextStreamItem::Integer(i))
+                .map(|i| TextValue::Integer(i))
         },
     )(input)
 }
@@ -57,8 +57,8 @@ fn take_base_16_digits1(input: &str) -> IResult<&str, &str> {
 }
 
 /// Matches a base-2 notation integer (e.g. `0b0`, `0B1`, or `-0b10_10`) and returns the resulting
-/// [i64] as a [TextStreamItem::Integer].
-fn base_2_integer(input: &str) -> IResult<&str, TextStreamItem> {
+/// [i64] as a [TextValue::Integer].
+fn base_2_integer(input: &str) -> IResult<&str, TextValue> {
     map_res(
         separated_pair(
             opt(char('-')),
@@ -68,7 +68,7 @@ fn base_2_integer(input: &str) -> IResult<&str, TextStreamItem> {
         |(maybe_sign, text_digits)| {
             parse_i64_with_radix(text_digits, 2)
                 .map(|i| if maybe_sign.is_some() { -i } else { i })
-                .map(|i| TextStreamItem::Integer(i))
+                .map(|i| TextValue::Integer(i))
         },
     )(input)
 }
@@ -84,11 +84,11 @@ fn base_2_integer_digits(input: &str) -> IResult<&str, &str> {
 }
 
 /// Matches a base-10 notation integer (e.g. `0`, `255`, or `-1_024`) and returns the resulting
-/// [i64] as a [TextStreamItem::Integer].
-fn base_10_integer(input: &str) -> IResult<&str, TextStreamItem> {
+/// [i64] as a [TextValue::Integer].
+fn base_10_integer(input: &str) -> IResult<&str, TextValue> {
     map_res(
         recognize(preceded(opt(char('-')), base_10_integer_digits)),
-        |text| parse_i64_with_radix(text, 10).map(|i| TextStreamItem::Integer(i)),
+        |text| parse_i64_with_radix(text, 10).map(|i| TextValue::Integer(i)),
     )(input)
 }
 
@@ -106,10 +106,10 @@ fn parse_i64_with_radix(text: &str, radix: u32) -> Result<i64, ParseIntError> {
 mod integer_parsing_tests {
     use crate::text::parsers::integer::parse_integer;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
-    use crate::text::TextStreamItem;
+    use crate::text::text_value::TextValue;
 
     fn parse_equals(text: &str, expected: i64) {
-        parse_test_ok(parse_integer, text, TextStreamItem::Integer(expected))
+        parse_test_ok(parse_integer, text, TextValue::Integer(expected))
     }
 
     fn parse_fails(text: &str) {

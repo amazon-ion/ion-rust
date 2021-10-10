@@ -12,14 +12,14 @@ use crate::text::parsers::numeric_support::{
     digits_before_dot, exponent_digits, floating_point_number_components,
 };
 use crate::text::parsers::stop_character;
-use crate::text::TextStreamItem;
+use crate::text::text_value::TextValue;
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::decimal::Decimal;
 use crate::types::magnitude::Magnitude;
 
 /// Matches the text representation of a decimal value and returns the resulting [Decimal]
-/// as a [TextStreamItem::Decimal].
-pub(crate) fn parse_decimal(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Decimal].
+pub(crate) fn parse_decimal(input: &str) -> IResult<&str, TextValue> {
     terminated(
         alt((decimal_with_exponent, decimal_without_exponent)),
         stop_character,
@@ -27,7 +27,7 @@ pub(crate) fn parse_decimal(input: &str) -> IResult<&str, TextStreamItem> {
 }
 
 /// Matches decimal values that have an exponent. (For example, `7d0`, `71d-1`, and `-71d-1`.)
-fn decimal_with_exponent(input: &str) -> IResult<&str, TextStreamItem> {
+fn decimal_with_exponent(input: &str) -> IResult<&str, TextValue> {
     map(
         pair(
             alt((
@@ -43,13 +43,13 @@ fn decimal_with_exponent(input: &str) -> IResult<&str, TextStreamItem> {
         ),
         |((sign, digits_before, digits_after), exponent)| {
             let decimal = decimal_from_text_components(sign, digits_before, digits_after, exponent);
-            TextStreamItem::Decimal(decimal)
+            TextValue::Decimal(decimal)
         },
     )(input)
 }
 
 /// Matches decimal values that do not have an exponent. (For example, `7.`, `7.1`, and `-7.1`.)
-fn decimal_without_exponent(input: &str) -> IResult<&str, TextStreamItem> {
+fn decimal_without_exponent(input: &str) -> IResult<&str, TextValue> {
     map(
         floating_point_number_components,
         |(sign, digits_before_dot, digits_after_dot)| {
@@ -59,7 +59,7 @@ fn decimal_without_exponent(input: &str) -> IResult<&str, TextStreamItem> {
                 digits_after_dot,
                 "0", // If no exponent is specified, we always start from 0
             );
-            TextStreamItem::Decimal(decimal)
+            TextValue::Decimal(decimal)
         },
     )(input)
 }
@@ -119,11 +119,11 @@ fn decimal_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, &str
 mod reader_tests {
     use crate::text::parsers::decimal::parse_decimal;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
-    use crate::text::TextStreamItem;
+    use crate::text::text_value::TextValue;
     use crate::types::decimal::Decimal;
 
     fn parse_equals(text: &str, expected: Decimal) {
-        parse_test_ok(parse_decimal, text, TextStreamItem::Decimal(expected))
+        parse_test_ok(parse_decimal, text, TextValue::Decimal(expected))
     }
 
     fn parse_fails(text: &str) {

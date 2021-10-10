@@ -3,12 +3,12 @@ use nom::IResult;
 
 use crate::result::{decoding_error, IonResult};
 use crate::text::parsers::containers::{
-    list_item_or_end, s_expression_item_or_end, struct_field_name_or_end, struct_stream_item,
+    list_value_or_end, s_expression_value_or_end, struct_field_name_or_end, struct_field_value,
 };
-use crate::text::parsers::top_level::top_level_stream_item;
+use crate::text::parsers::top_level::top_level_value;
 use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
-use crate::text::TextStreamItem;
+use crate::text::text_value::{AnnotatedTextValue, TextValue};
 use crate::value::owned::OwnedSymbolToken;
 
 // TODO: Implement a full text reader.
@@ -21,7 +21,7 @@ use crate::value::owned::OwnedSymbolToken;
 
 pub struct TextReader<T: TextIonDataSource> {
     buffer: TextBuffer<T::TextSource>,
-    current_item: Option<TextStreamItem>,
+    current_value: Option<TextValue>,
     bytes_read: usize,
     is_eof: bool,
 }
@@ -31,7 +31,7 @@ impl<T: TextIonDataSource> TextReader<T> {
         let text_source = input.to_text_ion_data_source();
         TextReader {
             buffer: TextBuffer::new(text_source),
-            current_item: None,
+            current_value: None,
             bytes_read: 0,
             is_eof: false,
         }
@@ -41,26 +41,24 @@ impl<T: TextIonDataSource> TextReader<T> {
         self.bytes_read
     }
 
-    //TODO: TextStreamItem is an internal data type and should not be part of the public API.
+    //TODO: TextValue is an internal data type and should not be part of the public API.
     //      This method is currently private and only usable in this module's unit tests.
-    fn next(&mut self) -> IonResult<Option<(Vec<OwnedSymbolToken>, TextStreamItem)>> {
+    fn next(&mut self) -> IonResult<Option<AnnotatedTextValue>> {
         // TODO: When the reader eventually tracks what containers we've stepped into or out of,
         //       this method will call the appropriate parser.
-        self.next_top_level_item()
+        self.next_top_level_value()
     }
 
     /// Assumes that the reader is at the top level and attempts to parse the next value or IVM in
     /// the stream.
-    fn next_top_level_item(
-        &mut self,
-    ) -> IonResult<Option<(Vec<OwnedSymbolToken>, TextStreamItem)>> {
-        match self.parse_next(top_level_stream_item) {
-            Ok(Some(item)) => Ok(Some(item)),
+    fn next_top_level_value(&mut self) -> IonResult<Option<AnnotatedTextValue>> {
+        match self.parse_next(top_level_value) {
+            Ok(Some(value)) => Ok(Some(value)),
             Ok(None) => {
                 // The top level is the only depth at which EOF is legal. If we encounter an EOF,
                 // double check that the buffer doesn't actually have a value in it. See the
-                // comments in [parse_stream_item_at_eof] for a detailed explanation of this.
-                self.parse_stream_item_at_eof()
+                // comments in [parse_value_at_eof] for a detailed explanation of this.
+                self.parse_value_at_eof()
             }
             Err(e) => Err(e),
         }
@@ -68,16 +66,14 @@ impl<T: TextIonDataSource> TextReader<T> {
 
     /// Assumes that the reader is inside a list and attempts to parse the next value.
     /// If the next token in the stream is an end-of-list delimiter (`]`), returns Ok(None).
-    fn next_list_item(&mut self) -> IonResult<Option<(Vec<OwnedSymbolToken>, TextStreamItem)>> {
-        self.parse_expected("a list", list_item_or_end)
+    fn next_list_value(&mut self) -> IonResult<Option<AnnotatedTextValue>> {
+        self.parse_expected("a list", list_value_or_end)
     }
 
     /// Assumes that the reader is inside an s-expression and attempts to parse the next value.
     /// If the next token in the stream is an end-of-s-expression delimiter (`)`), returns Ok(None).
-    fn next_s_expression_item(
-        &mut self,
-    ) -> IonResult<Option<(Vec<OwnedSymbolToken>, TextStreamItem)>> {
-        self.parse_expected("an s-expression", s_expression_item_or_end)
+    fn next_s_expression_value(&mut self) -> IonResult<Option<AnnotatedTextValue>> {
+        self.parse_expected("an s-expression", s_expression_value_or_end)
     }
 
     /// Assumes that the reader is inside an struct and attempts to parse the next field name.
@@ -91,11 +87,11 @@ impl<T: TextIonDataSource> TextReader<T> {
     /// parsed from input using [next_struct_field_name] and attempts to parse the next value.
     /// In this input position, only a value (or whitespace/comments) are legal. Anything else
     /// (including EOF) will result in a decoding error.
-    fn next_struct_item(&mut self) -> IonResult<(Vec<OwnedSymbolToken>, TextStreamItem)> {
+    fn next_struct_field_value(&mut self) -> IonResult<AnnotatedTextValue> {
         // Only called after a call to [next_struct_field_name] that returns Some(field_name).
         // It is not legal for a field name to be followed by a '}' or EOF.
         // If there isn't another value, returns an Err.
-        self.parse_expected("a struct field value", struct_stream_item)
+        self.parse_expected("a struct field value", struct_field_value)
     }
 
     /// Attempts to parse the next entity from the stream using the provided parser.
@@ -106,7 +102,7 @@ impl<T: TextIonDataSource> TextReader<T> {
         P: Fn(&str) -> IResult<&str, O>,
     {
         match self.parse_next(parser) {
-            Ok(Some(item)) => Ok(item),
+            Ok(Some(value)) => Ok(value),
             Ok(None) => decoding_error(format!(
                 "Unexpected end of input while reading {} on line {}: '{}'",
                 entity_name,
@@ -129,14 +125,14 @@ impl<T: TextIonDataSource> TextReader<T> {
             return Ok(None);
         }
 
-        let item = 'parse: loop {
+        let value = 'parse: loop {
             // Note the number of bytes currently in the text buffer
             let length_before_parse = self.buffer.remaining_text().len();
-            // Invoke the top_level_value() parser; this will attempt to recognize the next item
+            // Invoke the top_level_value() parser; this will attempt to recognize the next value
             // in the stream and return a &str slice containing the remaining, not-yet-parsed text.
             match parser(self.buffer.remaining_text()) {
                 // If `top_level_value` returns 'Incomplete', there wasn't enough text in the buffer
-                // to match the next item. No syntax errors have been encountered (yet?), but we
+                // to match the next value. No syntax errors have been encountered (yet?), but we
                 // need to load more text into the buffer before we try to parse it again.
                 Err(Incomplete(_needed)) => {
                     // Ask the buffer to load another line of text.
@@ -153,8 +149,8 @@ impl<T: TextIonDataSource> TextReader<T> {
                     }
                     continue;
                 }
-                Ok((remaining_text, item)) => {
-                    // Our parser successfully matched a stream item.
+                Ok((remaining_text, value)) => {
+                    // Our parser successfully matched a value.
                     // Note the length of the text that remains after parsing.
                     let length_after_parse = remaining_text.len();
                     // The difference in length tells us how many bytes were part of the
@@ -163,8 +159,8 @@ impl<T: TextIonDataSource> TextReader<T> {
                     // Discard `bytes_consumed` bytes from the TextBuffer.
                     self.buffer.consume(bytes_consumed);
                     self.bytes_read += bytes_consumed;
-                    // Break out of the read/parse loop, returning the stream item that we matched.
-                    break 'parse item;
+                    // Break out of the read/parse loop, returning the value that we matched.
+                    break 'parse value;
                 }
                 Err(e) => {
                     // Return an error that contains the text currently in the buffer (i.e. what we
@@ -181,7 +177,7 @@ impl<T: TextIonDataSource> TextReader<T> {
             };
         };
 
-        Ok(Some(item))
+        Ok(Some(value))
     }
 
     // Parses the contents of the text buffer again with the knowledge that we're at the end of the
@@ -190,9 +186,7 @@ impl<T: TextIonDataSource> TextReader<T> {
     // https://github.com/amzn/ion-rust/issues/318
     // This method should only be called when the reader is at the top level. An EOF at any other
     // depth is an error.
-    fn parse_stream_item_at_eof(
-        &mut self,
-    ) -> IonResult<Option<(Vec<OwnedSymbolToken>, TextStreamItem)>> {
+    fn parse_value_at_eof(&mut self) -> IonResult<Option<AnnotatedTextValue>> {
         // An arbitrary, cheap-to-parse Ion value that we append to the buffer when its contents at
         // EOF are ambiguous.
         const SENTINEL_ION_TEXT: &str = "\n0\n";
@@ -214,18 +208,20 @@ impl<T: TextIonDataSource> TextReader<T> {
         //   there aren't any more long-form string segments in the sequence.
         //
         // Attempt to parse the updated buffer.
-        let item = match top_level_stream_item(self.buffer.remaining_text()) {
-            Ok(("\n", (annotations, TextStreamItem::Integer(0)))) if annotations.len() == 0 => {
+        let value = match top_level_value(self.buffer.remaining_text()) {
+            Ok(("\n", value))
+                if value.annotations().len() == 0 && *value.value() == TextValue::Integer(0) =>
+            {
                 // We found the unannotated zero that we appended to the end of the buffer.
                 // The "\n" in this pattern is the unparsed text left in the buffer,
                 // which indicates that our 0 was parsed.
                 Ok(None)
             }
-            Ok((_remaining_text, (annotations, item))) => {
+            Ok((_remaining_text, value)) => {
                 // We found something else. The zero is still in the buffer; we can leave it there.
                 // The reader's `is_eof` flag has been set, so the text buffer will never be used
                 // again. Return the value we found.
-                Ok(Some((annotations, item)))
+                Ok(Some(value))
             }
             Err(Incomplete(_needed)) => {
                 decoding_error(format!(
@@ -253,19 +249,38 @@ impl<T: TextIonDataSource> TextReader<T> {
                 .truncate(length - SENTINEL_ION_TEXT.len());
         }
 
-        item
+        value
     }
 }
 
 #[cfg(test)]
 mod reader_tests {
-    use crate::result::IonResult;
     use crate::text::reader::TextReader;
-    use crate::text::TextStreamItem;
+    use crate::text::text_value::TextValue;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::value::owned::{local_sid_token, text_token};
     use crate::IonType;
+    use rstest::*;
+
+    #[rstest]
+    #[case(" null ", TextValue::Null(IonType::Null))]
+    #[case(" null.string ", TextValue::Null(IonType::String))]
+    #[case(" true ", TextValue::Boolean(true))]
+    #[case(" false ", TextValue::Boolean(false))]
+    #[case(" 738 ", TextValue::Integer(738))]
+    #[case(" 2.5e0 ", TextValue::Float(2.5))]
+    #[case(" 2.5 ", TextValue::Decimal(Decimal::new(25, -1)))]
+    #[case(" 2007-07-12T ", TextValue::Timestamp(Timestamp::with_ymd(2007, 7, 12).build().unwrap()))]
+    #[case(" foo ", TextValue::Symbol(text_token("foo")))]
+    #[case(" \"hi!\" ", TextValue::String("hi!".to_owned()))]
+    #[case(" {{ZW5jb2RlZA==}} ", TextValue::Blob(Vec::from("encoded".as_bytes())))]
+    #[case(" {{\"hello\"}} ", TextValue::Clob(Vec::from("hello".as_bytes())))]
+    fn test_read_single_top_level_values(#[case] text: &str, #[case] expected_value: TextValue) {
+        let mut reader = TextReader::new(text);
+        let actual_value = reader.next().unwrap().unwrap();
+        assert_eq!(actual_value, expected_value.without_annotations());
+    }
 
     #[test]
     fn test_text_read_multiple_top_level_values() {
@@ -283,67 +298,67 @@ mod reader_tests {
             ('''foo''')
         "#;
         let mut reader = TextReader::new(ion_data);
-        let mut next_is = |expected| {
+        let mut next_is = |expected: TextValue| {
             // In this test, none of the stream values are annotated.
-            // Compare the stream item and ignore the annotations.
-            assert_eq!(reader.next().unwrap().unwrap().1, expected);
+            // Compare the value and ignore the annotations.
+            assert_eq!(
+                reader.next().unwrap().unwrap(),
+                expected.without_annotations()
+            );
         };
-        next_is(TextStreamItem::Null(IonType::Null));
-        next_is(TextStreamItem::Boolean(true));
-        next_is(TextStreamItem::Integer(5));
-        next_is(TextStreamItem::Float(5.0f64));
-        next_is(TextStreamItem::Decimal(Decimal::new(55, -1)));
-        next_is(TextStreamItem::Timestamp(
+        next_is(TextValue::Null(IonType::Null));
+        next_is(TextValue::Boolean(true));
+        next_is(TextValue::Integer(5));
+        next_is(TextValue::Float(5.0f64));
+        next_is(TextValue::Decimal(Decimal::new(55, -1)));
+        next_is(TextValue::Timestamp(
             Timestamp::with_ymd(2021, 9, 25).build().unwrap(),
         ));
-        next_is(TextStreamItem::Symbol(text_token("foo")));
-        next_is(TextStreamItem::String("hello".to_string()));
+        next_is(TextValue::Symbol(text_token("foo")));
+        next_is(TextValue::String("hello".to_string()));
 
         // ===== CONTAINERS =====
         // This part of the test is a bit clunky because the reader does not yet support
-        // step_in() and step_out(). We're calling functions like `next_struct_item()` that will
+        // step_in() and step_out(). We're calling functions like `next_struct_value()` that will
         // eventually be private helper methods.
         // TODO: Replace these calls with step_in(), step_out(), field_name(), and next().
-        next_is(TextStreamItem::StructStart);
+        next_is(TextValue::StructStart);
         assert_eq!(
             reader.next_struct_field_name().unwrap().unwrap(),
             text_token("foo")
         );
         assert_eq!(
-            reader.next_struct_item().unwrap().1,
-            TextStreamItem::Symbol(text_token("bar"))
+            reader.next_struct_field_value().unwrap(),
+            TextValue::Symbol(text_token("bar"))
         );
         // The struct only has one field, so asking for the next field name returns `None`.
         assert_eq!(reader.next_struct_field_name(), Ok(None));
 
-        assert_eq!(reader.next().unwrap().unwrap().1, TextStreamItem::ListStart);
+        assert_eq!(reader.next().unwrap().unwrap(), TextValue::ListStart);
         assert_eq!(
-            reader.next_list_item().unwrap().unwrap().1,
-            TextStreamItem::String(String::from("foo"))
+            reader.next_list_value().unwrap().unwrap(),
+            TextValue::String(String::from("foo"))
         );
         assert_eq!(
-            reader.next_list_item().unwrap().unwrap().1,
-            TextStreamItem::String(String::from("bar"))
+            reader.next_list_value().unwrap().unwrap(),
+            TextValue::String(String::from("bar"))
         );
         // There are only two values in the list, so asking for the next one returns `None`
-        assert_eq!(reader.next_list_item(), Ok(None));
+        assert_eq!(reader.next_list_value(), Ok(None));
 
+        assert_eq!(reader.next().unwrap().unwrap(), TextValue::SExpressionStart);
         assert_eq!(
-            reader.next().unwrap().unwrap().1,
-            TextStreamItem::SExpressionStart
-        );
-        assert_eq!(
-            reader.next_s_expression_item().unwrap().unwrap().1,
-            TextStreamItem::String(String::from("foo"))
+            reader.next_s_expression_value().unwrap().unwrap(),
+            TextValue::String(String::from("foo"))
         );
         // There's only one value in the list, so asking for the next one returns `None`
-        assert_eq!(reader.next_s_expression_item(), Ok(None));
+        assert_eq!(reader.next_s_expression_value(), Ok(None));
 
         // There are no more top level values.
-        assert_eq!(reader.next_top_level_item(), Ok(None));
+        assert_eq!(reader.next_top_level_value(), Ok(None));
 
         // Asking for more still results in `None`
-        assert_eq!(reader.next_top_level_item(), Ok(None));
+        assert_eq!(reader.next_top_level_value(), Ok(None));
     }
 
     #[test]
@@ -360,21 +375,17 @@ mod reader_tests {
         "#;
 
         let mut reader = TextReader::new(ion_data);
-        let mut next_is = |expected_annotations, expected_item| {
-            let (annotations, item) = reader.next().unwrap().unwrap();
-            assert_eq!(annotations, expected_annotations);
-            assert_eq!(item, expected_item);
+        let mut next_is = |expected_value| {
+            let actual_value = reader.next().unwrap().unwrap();
+            assert_eq!(actual_value, expected_value);
         };
 
+        next_is(TextValue::String(String::from("(486958) 2014 MU69")).without_annotations());
         next_is(
-            vec![],
-            TextStreamItem::String(String::from("(486958) 2014 MU69")),
+            TextValue::Timestamp(Timestamp::with_ymd(2014, 6, 26).build().unwrap())
+                .without_annotations(),
         );
-        next_is(
-            vec![],
-            TextStreamItem::Timestamp(Timestamp::with_ymd(2014, 6, 26).build().unwrap()),
-        );
-        next_is(vec![text_token("km")], TextStreamItem::Integer(36));
+        next_is(TextValue::Integer(36).with_annotations("km"));
     }
 
     #[test]
@@ -393,149 +404,89 @@ mod reader_tests {
             haumea::makemake::eris::ceres::(++ -- &&&&&)
         "#;
         let mut reader = TextReader::new(ion_data);
-        let mut next_is = |expected_annotations, expected_item| {
-            let (annotations, item) = reader.next().unwrap().unwrap();
-            assert_eq!(annotations, expected_annotations);
-            assert_eq!(item, expected_item);
+        let mut next_is = |expected_value| {
+            let actual_value = reader.next().unwrap().unwrap();
+            assert_eq!(actual_value, expected_value);
         };
+        next_is(TextValue::Null(IonType::Null).with_annotations("mercury"));
+        next_is(TextValue::Boolean(true).with_annotations(&["venus", "earth"]));
+        next_is(TextValue::Integer(5).with_annotations(&[local_sid_token(17), text_token("mars")]));
+        next_is(TextValue::Float(5.0f64).with_annotations("jupiter"));
+        next_is(TextValue::Decimal(Decimal::new(55, -1)).with_annotations("saturn"));
         next_is(
-            vec![text_token("mercury")],
-            TextStreamItem::Null(IonType::Null),
+            TextValue::Timestamp(Timestamp::with_ymd(2021, 9, 25).build().unwrap())
+                .with_annotations(&[
+                    local_sid_token(100),
+                    local_sid_token(200),
+                    local_sid_token(300),
+                ]),
         );
-        next_is(
-            vec![text_token("venus"), text_token("earth")],
-            TextStreamItem::Boolean(true),
-        );
-        next_is(
-            vec![local_sid_token(17), text_token("mars")],
-            TextStreamItem::Integer(5),
-        );
-        next_is(vec![text_token("jupiter")], TextStreamItem::Float(5.0f64));
-        next_is(
-            vec![text_token("saturn")],
-            TextStreamItem::Decimal(Decimal::new(55, -1)),
-        );
-        next_is(
-            vec![
-                local_sid_token(100),
-                local_sid_token(200),
-                local_sid_token(300),
-            ],
-            TextStreamItem::Timestamp(Timestamp::with_ymd(2021, 9, 25).build().unwrap()),
-        );
-        next_is(
-            vec![text_token("uranus")],
-            TextStreamItem::Symbol(text_token("foo")),
-        );
-        next_is(
-            vec![text_token("neptune")],
-            TextStreamItem::String("hello".to_string()),
-        );
+        next_is(TextValue::Symbol(text_token("foo")).with_annotations("uranus"));
+        next_is(TextValue::String("hello".to_string()).with_annotations("neptune"));
 
         // ===== CONTAINERS =====
         // This part of the test is a bit clunky because the reader does not yet support
-        // step_in() and step_out(). We're calling functions like `next_struct_item()` that will
+        // step_in() and step_out(). We're calling functions like `next_struct_value()` that will
         // eventually be private helper methods.
         // TODO: Replace these calls with step_in(), step_out(), field_name(), and next().
         assert_eq!(
             reader.next().unwrap().unwrap(),
-            (vec![local_sid_token(55)], TextStreamItem::StructStart)
+            TextValue::StructStart.with_annotations(local_sid_token(55))
         );
         assert_eq!(
             reader.next_struct_field_name().unwrap().unwrap(),
             text_token("foo")
         );
         assert_eq!(
-            reader.next_struct_item().unwrap().1,
-            TextStreamItem::Symbol(text_token("bar"))
+            reader.next_struct_field_value().unwrap(),
+            TextValue::Symbol(text_token("bar")).without_annotations()
         );
         // There's only one field in the struct, so asking for another field name returns `None`
         assert_eq!(reader.next_struct_field_name(), Ok(None));
 
         assert_eq!(
             reader.next().unwrap().unwrap(),
-            (vec![text_token("pluto")], TextStreamItem::ListStart)
+            TextValue::ListStart.with_annotations("pluto")
         );
         assert_eq!(
-            reader.next_list_item().unwrap().unwrap().1,
-            TextStreamItem::Integer(1)
+            reader.next_list_value().unwrap().unwrap(),
+            TextValue::Integer(1).without_annotations()
         );
         assert_eq!(
-            reader.next_list_item().unwrap().unwrap().1,
-            TextStreamItem::Integer(2)
+            reader.next_list_value().unwrap().unwrap(),
+            TextValue::Integer(2).without_annotations()
         );
         assert_eq!(
-            reader.next_list_item().unwrap().unwrap().1,
-            TextStreamItem::Integer(3)
+            reader.next_list_value().unwrap().unwrap(),
+            TextValue::Integer(3).without_annotations()
         );
         // There are only three values in the list, so asking for the next one returns `None`
-        assert_eq!(reader.next_list_item(), Ok(None));
+        assert_eq!(reader.next_list_value(), Ok(None));
 
         assert_eq!(
             reader.next().unwrap().unwrap(),
-            (
-                vec![
-                    text_token("haumea"),
-                    text_token("makemake"),
-                    text_token("eris"),
-                    text_token("ceres"),
-                ],
-                TextStreamItem::SExpressionStart
-            )
+            TextValue::SExpressionStart.with_annotations(&["haumea", "makemake", "eris", "ceres"])
         );
 
         assert_eq!(
-            reader.next_s_expression_item().unwrap().unwrap().1,
-            TextStreamItem::Symbol(text_token("++"))
+            reader.next_s_expression_value().unwrap().unwrap(),
+            TextValue::Symbol(text_token("++")).without_annotations()
         );
         assert_eq!(
-            reader.next_s_expression_item().unwrap().unwrap().1,
-            TextStreamItem::Symbol(text_token("--"))
+            reader.next_s_expression_value().unwrap().unwrap(),
+            TextValue::Symbol(text_token("--")).without_annotations()
         );
         assert_eq!(
-            reader.next_s_expression_item().unwrap().unwrap().1,
-            TextStreamItem::Symbol(text_token("&&&&&"))
+            reader.next_s_expression_value().unwrap().unwrap(),
+            TextValue::Symbol(text_token("&&&&&")).without_annotations()
         );
         // There's only three values in the s-expression, so asking for the next one returns `None`
-        assert_eq!(reader.next_s_expression_item(), Ok(None));
+        assert_eq!(reader.next_s_expression_value(), Ok(None));
 
         // There are no more top level values.
-        assert_eq!(reader.next_top_level_item(), Ok(None));
+        assert_eq!(reader.next_top_level_value(), Ok(None));
 
         // Asking for more still results in `None`
-        assert_eq!(reader.next_top_level_item(), Ok(None));
-    }
-
-    fn top_level_value_test(ion_text: &str, expected: TextStreamItem) {
-        let mut reader = TextReader::new(ion_text);
-        let item = reader.next().unwrap().unwrap().1;
-        assert_eq!(item, expected);
-    }
-
-    #[test]
-    fn test_read_single_top_level_values() -> IonResult<()> {
-        let tlv = top_level_value_test;
-        tlv(" null ", TextStreamItem::Null(IonType::Null));
-        tlv(" null.string ", TextStreamItem::Null(IonType::String));
-        tlv(" true ", TextStreamItem::Boolean(true));
-        tlv(" false ", TextStreamItem::Boolean(false));
-        tlv(" 738 ", TextStreamItem::Integer(738));
-        tlv(" 2.5e0 ", TextStreamItem::Float(2.5));
-        tlv(" 2.5 ", TextStreamItem::Decimal(Decimal::new(25, -1)));
-        tlv(
-            " 2007-07-12T ",
-            TextStreamItem::Timestamp(Timestamp::with_ymd(2007, 7, 12).build()?),
-        );
-        tlv(" foo ", TextStreamItem::Symbol(text_token("foo")));
-        tlv(" \"hi!\" ", TextStreamItem::String("hi!".to_owned()));
-        tlv(
-            " {{ZW5jb2RlZA==}} ",
-            TextStreamItem::Blob(Vec::from("encoded".as_bytes())),
-        );
-        tlv(
-            " {{\"hello\"}} ",
-            TextStreamItem::Clob(Vec::from("hello".as_bytes())),
-        );
-        Ok(())
+        assert_eq!(reader.next_top_level_value(), Ok(None));
     }
 }

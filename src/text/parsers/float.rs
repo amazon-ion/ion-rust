@@ -2,7 +2,7 @@ use crate::text::parsers::numeric_support::{
     digits_before_dot, exponent_digits, floating_point_number,
 };
 use crate::text::parsers::stop_character;
-use crate::text::TextStreamItem;
+use crate::text::text_value::TextValue;
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::one_of;
@@ -13,8 +13,8 @@ use std::num::ParseFloatError;
 use std::str::FromStr;
 
 /// Matches the text representation of a float value and returns the resulting [f64]
-/// as a [TextStreamItem::Float].
-pub(crate) fn parse_float(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Float].
+pub(crate) fn parse_float(input: &str) -> IResult<&str, TextValue> {
     terminated(
         alt((float_special_value, float_numeric_value)),
         stop_character,
@@ -22,17 +22,15 @@ pub(crate) fn parse_float(input: &str) -> IResult<&str, TextStreamItem> {
 }
 
 /// Matches special IEEE-754 floating point values, including +/- infinity and NaN.
-fn float_special_value(input: &str) -> IResult<&str, TextStreamItem> {
-    map(tag("nan"), |_| TextStreamItem::Float(f64::NAN))
-        .or(map(tag("+inf"), |_| TextStreamItem::Float(f64::INFINITY)))
-        .or(map(tag("-inf"), |_| {
-            TextStreamItem::Float(f64::NEG_INFINITY)
-        }))
+fn float_special_value(input: &str) -> IResult<&str, TextValue> {
+    map(tag("nan"), |_| TextValue::Float(f64::NAN))
+        .or(map(tag("+inf"), |_| TextValue::Float(f64::INFINITY)))
+        .or(map(tag("-inf"), |_| TextValue::Float(f64::NEG_INFINITY)))
         .parse(input)
 }
 
 /// Matches numeric floating point values. (e.g. `7e0`, `7.1e0` or `71e-1`)
-fn float_numeric_value(input: &str) -> IResult<&str, TextStreamItem> {
+fn float_numeric_value(input: &str) -> IResult<&str, TextValue> {
     map_res::<_, _, _, _, ParseFloatError, _, _>(
         recognize(tuple((
             opt(tag("-")),
@@ -45,7 +43,7 @@ fn float_numeric_value(input: &str) -> IResult<&str, TextStreamItem> {
             if sanitized.ends_with('e') || sanitized.ends_with('E') {
                 sanitized.push_str("0");
             }
-            Ok(TextStreamItem::Float(f64::from_str(&sanitized)?))
+            Ok(TextValue::Float(f64::from_str(&sanitized)?))
         },
     )(input)
 }
@@ -58,11 +56,11 @@ fn float_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, &str> 
 mod float_parsing_tests {
     use crate::text::parsers::float::parse_float;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok, parse_unwrap};
-    use crate::text::TextStreamItem;
+    use crate::text::text_value::TextValue;
     use std::str::FromStr;
 
     fn parse_equals(text: &str, expected: f64) {
-        parse_test_ok(parse_float, text, TextStreamItem::Float(expected))
+        parse_test_ok(parse_float, text, TextValue::Float(expected))
     }
 
     fn parse_fails(text: &str) {
@@ -75,11 +73,11 @@ mod float_parsing_tests {
         parse_equals("-inf ", f64::NEG_INFINITY);
 
         // Can't test two NaNs for equality with assert_eq
-        let item = parse_unwrap(parse_float, "nan ");
-        if let TextStreamItem::Float(f) = item {
+        let value = parse_unwrap(parse_float, "nan ");
+        if let TextValue::Float(f) = value {
             assert!(f.is_nan());
         } else {
-            panic!("Expected NaN, but got: {:?}", item);
+            panic!("Expected NaN, but got: {:?}", value);
         }
     }
 
