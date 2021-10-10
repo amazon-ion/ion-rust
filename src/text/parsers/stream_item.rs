@@ -6,7 +6,7 @@ use crate::text::parsers::annotations::parse_annotations;
 use crate::text::parsers::blob::parse_blob;
 use crate::text::parsers::boolean::parse_boolean;
 use crate::text::parsers::clob::parse_clob;
-use crate::text::parsers::containers::{parse_container_end, parse_container_start};
+use crate::text::parsers::containers::parse_container_start;
 use crate::text::parsers::decimal::parse_decimal;
 use crate::text::parsers::float::parse_float;
 use crate::text::parsers::integer::parse_integer;
@@ -31,7 +31,6 @@ pub(crate) fn stream_item(input: &str) -> IResult<&str, TextStreamItem> {
         parse_blob,
         parse_clob,
         parse_container_start,
-        parse_container_end,
     ))(input)
 }
 

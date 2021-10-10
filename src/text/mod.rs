@@ -26,21 +26,16 @@ pub(crate) enum TextStreamItem {
     Blob(Vec<u8>),
     Clob(Vec<u8>),
     ListStart,
-    ListEnd,
     SExpressionStart,
-    SExpressionEnd,
     StructStart,
-    StructEnd,
-    Comment,
-    EndOfStream,
 }
 
 impl TextStreamItem {
     /// Returns the IonType associated with the TextStreamItem in question. If the TextStreamItem
     /// does not represent a scalar value or the beginning of a container, [ion_type] will return
     /// [None].
-    pub fn ion_type(&self) -> Option<IonType> {
-        let ion_type = match self {
+    pub fn ion_type(&self) -> IonType {
+        match self {
             TextStreamItem::Null(ion_type) => *ion_type,
             TextStreamItem::Boolean(_) => IonType::Boolean,
             TextStreamItem::Integer(_) => IonType::Integer,
@@ -54,14 +49,6 @@ impl TextStreamItem {
             TextStreamItem::ListStart => IonType::List,
             TextStreamItem::SExpressionStart => IonType::SExpression,
             TextStreamItem::StructStart => IonType::Struct,
-            _ => return None, // The remaining items are container ends, Comment, EndOfStream, etc.
-        };
-        Some(ion_type)
-    }
-
-    // Returns [true] if the stream item being returned represents either a scalar value or the
-    // beginning of a container.
-    pub fn is_value(&self) -> bool {
-        self.ion_type().is_some()
+        }
     }
 }

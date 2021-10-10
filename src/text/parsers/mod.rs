@@ -77,22 +77,26 @@ pub(crate) fn whitespace(input: &str) -> IResult<&str, &str> {
 #[cfg(test)]
 pub(crate) mod unit_test_support {
     use nom::{Finish, IResult};
-
-    use crate::text::TextStreamItem;
-
-    /// A type alias for the function signature used by each parsing module's entry point.
-    type TestParser = fn(&str) -> IResult<&str, TextStreamItem>;
+    use std::fmt::Debug;
 
     /// Uses `parser` to parse the provided `text` and then asserts that the output is equal
     /// to `expected`.
-    pub(crate) fn parse_test_ok(parser: TestParser, text: &str, expected: TextStreamItem) {
+    pub(crate) fn parse_test_ok<'a, T, P>(parser: P, text: &'a str, expected: T)
+    where
+        T: Debug + PartialEq,
+        P: Fn(&'a str) -> IResult<&'a str, T>,
+    {
         let actual = parse_unwrap(parser, text);
         assert_eq!(actual, expected);
     }
 
     /// Uses `parser` to parse the provided `text` expecting it to fail. If it succeeds, this
     /// method will panic and display the value that was read.
-    pub(crate) fn parse_test_err(parser: TestParser, text: &str) {
+    pub(crate) fn parse_test_err<'a, T, P>(parser: P, text: &'a str)
+    where
+        T: Debug,
+        P: Fn(&'a str) -> IResult<&'a str, T>,
+    {
         let parsed = parser(text);
         if parsed.is_ok() {
             panic!(
@@ -105,7 +109,11 @@ pub(crate) mod unit_test_support {
 
     /// Uses `parser` to parse the provided `text` and then unwraps the resulting value.
     /// If parsing fails, this method will panic.
-    pub(crate) fn parse_unwrap(parser: TestParser, text: &str) -> TextStreamItem {
+    pub(crate) fn parse_unwrap<'a, T, P>(parser: P, text: &'a str) -> T
+    where
+        T: Debug + PartialEq,
+        P: Fn(&'a str) -> IResult<&'a str, T>,
+    {
         let parsed = parser(text);
         if parsed.is_err() {
             panic!(

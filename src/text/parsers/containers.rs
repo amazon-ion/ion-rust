@@ -43,32 +43,19 @@ pub(crate) fn recognize_s_expression_start(input: &str) -> IResult<&str, TextStr
     })(input)
 }
 
-/// Matches the end of a container and returns a [TextStreamItem] indicating its type.
-pub(crate) fn parse_container_end(input: &str) -> IResult<&str, TextStreamItem> {
-    alt((
-        recognize_struct_end,
-        recognize_list_end,
-        recognize_s_expression_end,
-    ))(input)
-}
-
-/// Matches the end of a struct and returns a [TextStreamItem::StructEnd].
-pub(crate) fn recognize_struct_end(input: &str) -> IResult<&str, TextStreamItem> {
-    map(recognize(tag("}")), |_matched_text| {
-        TextStreamItem::StructEnd
-    })(input)
+/// Matches the end of a struct and returns a &str containing the delimiter.
+pub(crate) fn recognize_struct_end(input: &str) -> IResult<&str, &str> {
+    preceded(whitespace_or_comments, tag("}"))(input)
 }
 
 /// Matches the end of a list and returns a [TextStreamItem::StructEnd].
-pub(crate) fn recognize_list_end(input: &str) -> IResult<&str, TextStreamItem> {
-    map(recognize(tag("]")), |_matched_text| TextStreamItem::ListEnd)(input)
+pub(crate) fn recognize_list_end(input: &str) -> IResult<&str, &str> {
+    preceded(whitespace_or_comments, tag("]"))(input)
 }
 
-/// Matches the end of a list and returns a [TextStreamItem::StructEnd].
-pub(crate) fn recognize_s_expression_end(input: &str) -> IResult<&str, TextStreamItem> {
-    map(recognize(tag(")")), |_matched_text| {
-        TextStreamItem::SExpressionEnd
-    })(input)
+/// Matches the end of an s-expression and returns a &str containing the delimiter.
+pub(crate) fn recognize_s_expression_end(input: &str) -> IResult<&str, &str> {
+    preceded(whitespace_or_comments, tag(")"))(input)
 }
 
 /// Matches an optional series of annotations, a TextStreamItem, and a delimiting comma if present.
@@ -90,6 +77,16 @@ pub(crate) fn list_stream_item(
             alt((tag(","), peek(recognize(recognize_list_end)))),
         ),
     )(input)
+}
+
+/// Returns [None] if the next token in input is an end-of-list delimiter (`]`).
+/// Otherwise, matches and returns the next item in the list using [list_stream_item].
+pub(crate) fn list_item_or_end(
+    input: &str,
+) -> IResult<&str, Option<(Vec<OwnedSymbolToken>, TextStreamItem)>> {
+    map(recognize_list_end, |_end_marker| None)
+        .or(map(list_stream_item, |item| Some(item)))
+        .parse(input)
 }
 
 /// Matches a single item in an s-expression. S-expression items are the same as top-level items
@@ -117,6 +114,16 @@ pub(crate) fn s_expression_stream_item(
             peek(recognize(recognize_s_expression_end)),
         )),
     )(input)
+}
+
+/// Returns [None] if the next token in input is an end-of-s-expression delimiter (`)`).
+/// Otherwise, matches and returns the next item in the s-expression using [s_expression_stream_item].
+pub(crate) fn s_expression_item_or_end(
+    input: &str,
+) -> IResult<&str, Option<(Vec<OwnedSymbolToken>, TextStreamItem)>> {
+    map(recognize_s_expression_end, |_end_marker| None)
+        .or(map(s_expression_stream_item, |item| Some(item)))
+        .parse(input)
 }
 
 /// Matches a struct field name and returns it as an [OwnedSymbolToken].
@@ -157,6 +164,14 @@ pub(crate) fn struct_stream_item(
     )(input)
 }
 
+/// Returns [None] if the next token in input is an end-of-struct delimiter (`}`).
+/// Otherwise, matches and returns the next field name in the struct using [struct_field_name].
+pub(crate) fn struct_field_name_or_end(input: &str) -> IResult<&str, Option<OwnedSymbolToken>> {
+    map(recognize_struct_end, |_end_marker| None)
+        .or(map(struct_field_name, |item| Some(item)))
+        .parse(input)
+}
+
 #[cfg(test)]
 mod container_parsing_tests {
     use rstest::*;
@@ -188,25 +203,6 @@ mod container_parsing_tests {
     }
 
     #[rstest]
-    #[case::end_of_struct("}", TextStreamItem::StructEnd)]
-    #[case::end_of_list("]", TextStreamItem::ListEnd)]
-    #[case::end_of_s_expression(")", TextStreamItem::SExpressionEnd)]
-    fn test_parse_container_end_ok(#[case] text: &str, #[case] expected: TextStreamItem) {
-        parse_test_ok(parse_container_end, text, expected)
-    }
-
-    #[rstest]
-    #[case("5")]
-    #[case("true")]
-    #[case("foo")]
-    #[case("foo::{")]
-    #[case("\"hello\"")]
-    #[case("<")]
-    fn test_parse_container_end_err(#[case] text: &str) {
-        parse_test_err(parse_container_end, text)
-    }
-
-    #[rstest]
     #[case("5,", (vec![], TextStreamItem::Integer(5)))]
     #[case("foo::bar::5,", (vec![text_token("foo"), text_token("bar")], TextStreamItem::Integer(5)))]
     #[case("foo::bar,", (vec![text_token("foo")], TextStreamItem::Symbol(text_token("bar"))))]
@@ -222,7 +218,22 @@ mod container_parsing_tests {
         #[case] text: &str,
         #[case] expected: (Vec<OwnedSymbolToken>, TextStreamItem),
     ) {
-        assert_eq!(list_stream_item(text).unwrap().1, expected);
+        parse_test_ok(list_stream_item, text, expected);
+    }
+
+    #[rstest]
+    #[case("'++',", Some((vec![], TextStreamItem::Symbol(text_token("++")))))]
+    #[case("foo::'++',", Some((vec![text_token("foo")], TextStreamItem::Symbol(text_token("++")))))]
+    #[case("5    ,", Some((vec![], TextStreamItem::Integer(5))))]
+    #[case("5]", Some((vec![], TextStreamItem::Integer(5))))]
+    #[case("]", None)]
+    #[case("  ]", None)]
+    #[case(" /*comment*/  ]", None)]
+    fn test_parse_list_item_or_end(
+        #[case] text: &str,
+        #[case] expected: Option<(Vec<OwnedSymbolToken>, TextStreamItem)>,
+    ) {
+        parse_test_ok(list_item_or_end, text, expected);
     }
 
     #[rstest]
@@ -245,7 +256,21 @@ mod container_parsing_tests {
         #[case] text: &str,
         #[case] expected: (Vec<OwnedSymbolToken>, TextStreamItem),
     ) {
-        assert_eq!(s_expression_stream_item(text).unwrap().1, expected);
+        parse_test_ok(s_expression_stream_item, text, expected);
+    }
+
+    #[rstest]
+    #[case("++ ", Some((vec![], TextStreamItem::Symbol(text_token("++")))))]
+    #[case("foo::++ ", Some((vec![text_token("foo")], TextStreamItem::Symbol(text_token("++")))))]
+    #[case("5 ", Some((vec![], TextStreamItem::Integer(5))))]
+    #[case(")", None)]
+    #[case("  )", None)]
+    #[case(" /*comment*/  )", None)]
+    fn test_parse_s_expression_item_or_end(
+        #[case] text: &str,
+        #[case] expected: Option<(Vec<OwnedSymbolToken>, TextStreamItem)>,
+    ) {
+        parse_test_ok(s_expression_item_or_end, text, expected);
     }
 
     #[rstest]
@@ -265,7 +290,7 @@ mod container_parsing_tests {
         #[case] text: &str,
         #[case] expected: (Vec<OwnedSymbolToken>, TextStreamItem),
     ) {
-        assert_eq!(struct_stream_item(text).unwrap().1, expected);
+        parse_test_ok(struct_stream_item, text, expected);
     }
 
     #[rstest]
@@ -282,6 +307,20 @@ mod container_parsing_tests {
     #[case("\"foo\":", text_token("foo"))]
     #[case("  \"foo\"  :", text_token("foo"))]
     fn test_parse_struct_field_name(#[case] text: &str, #[case] expected: OwnedSymbolToken) {
-        assert_eq!(struct_field_name(text).unwrap().1, expected);
+        parse_test_ok(struct_field_name, text, expected);
+    }
+
+    #[rstest]
+    #[case("foo:", Some(text_token("foo")))]
+    #[case("  foo  :", Some(text_token("foo")))]
+    #[case("'foo':", Some(text_token("foo")))]
+    #[case("}", None)]
+    #[case("   }", None)]
+    #[case("/*comment*/}", None)]
+    fn test_parse_struct_field_name_or_end(
+        #[case] text: &str,
+        #[case] expected: Option<OwnedSymbolToken>,
+    ) {
+        parse_test_ok(struct_field_name_or_end, text, expected);
     }
 }
