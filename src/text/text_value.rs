@@ -14,6 +14,10 @@ impl AnnotatedTextValue {
         AnnotatedTextValue { annotations, value }
     }
 
+    pub(crate) fn ion_type(&self) -> IonType {
+        self.value.ion_type()
+    }
+
     pub(crate) fn value(&self) -> &TextValue {
         &self.value
     }

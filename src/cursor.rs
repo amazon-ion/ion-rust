@@ -5,6 +5,7 @@ use crate::types::timestamp::Timestamp;
 use crate::types::{IonType, SymbolId};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
+use crate::value::owned::OwnedSymbolToken;
 
 /**
  * This trait captures the format-agnostic parser functionality needed to navigate within an Ion
@@ -17,7 +18,6 @@ use chrono::{DateTime, FixedOffset};
  * calling that function again may return an Err. This is left to the discretion of the implementor.
  */
 pub trait Cursor {
-    type DataSource: IonDataSource;
     /// Returns the (major, minor) version of the Ion stream being read. If ion_version is called
     /// before an Ion Version Marker has been read, the version (1, 0) will be returned.
     fn ion_version(&self) -> (u8, u8);
