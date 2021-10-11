@@ -1,6 +1,6 @@
+use crate::text::parsers::comments::whitespace_or_comments;
 use crate::text::parsers::stream_item::{annotated_stream_item, stream_item};
 use nom::branch::alt;
-use nom::character::complete::multispace0;
 use nom::sequence::preceded;
 use nom::{IResult, Parser};
 
@@ -15,7 +15,7 @@ pub(crate) fn top_level_stream_item(
 ) -> IResult<&str, (Vec<OwnedSymbolToken>, TextStreamItem)> {
     preceded(
         // Allow any amount of whitespace followed by...
-        multispace0,
+        whitespace_or_comments,
         // either...
         alt((
             // An annotated value or...

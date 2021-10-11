@@ -228,19 +228,15 @@ mod reader_tests {
             assert_eq!(item, expected_item);
         };
 
-        next_is(vec![], TextStreamItem::Comment);
         next_is(
             vec![],
             TextStreamItem::String(String::from("(486958) 2014 MU69")),
         );
-        next_is(vec![], TextStreamItem::Comment);
         next_is(
             vec![],
             TextStreamItem::Timestamp(Timestamp::with_ymd(2014, 6, 26).build().unwrap()),
         );
-        next_is(vec![], TextStreamItem::Comment);
         next_is(vec![text_token("km")], TextStreamItem::Integer(36));
-        next_is(vec![], TextStreamItem::Comment);
     }
 
     #[test]

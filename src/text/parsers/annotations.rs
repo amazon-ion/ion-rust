@@ -1,8 +1,9 @@
+use crate::text::parsers::comments::whitespace_or_comments;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::multispace0;
 use nom::combinator::map_opt;
 use nom::multi::many1;
-use nom::sequence::{delimited, preceded};
+use nom::sequence::{delimited, pair, preceded};
 use nom::IResult;
 
 use crate::text::parsers::symbol::parse_symbol;
@@ -19,7 +20,11 @@ pub(crate) fn parse_annotations(input: &str) -> IResult<&str, Vec<OwnedSymbolTok
 pub(crate) fn parse_annotation(input: &str) -> IResult<&str, OwnedSymbolToken> {
     map_opt(
         // 0+ spaces, a symbol ('quoted', identifier, or $id), 0+ spaces, '::'
-        delimited(multispace0, parse_symbol, annotation_delimiter),
+        delimited(
+            whitespace_or_comments,
+            parse_symbol,
+            pair(whitespace_or_comments, annotation_delimiter),
+        ),
         |text_stream_item| {
             // This should always be true because `parse_symbol` would not have matched an
             // item if it were not a symbol.
