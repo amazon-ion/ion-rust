@@ -16,7 +16,7 @@ macro_rules! try_to {
 pub mod result;
 
 pub mod binary;
-pub mod cursor;
+pub mod system_reader;
 pub mod data_source;
 pub mod text;
 pub mod types;
@@ -28,7 +28,7 @@ mod symbol_table;
 mod system_event_handler;
 
 pub use binary::cursor::BinaryIonCursor;
-pub use cursor::Cursor;
+pub use system_reader::SystemReader;
 pub use data_source::IonDataSource;
 pub use reader::Reader;
 pub use symbol_table::SymbolTable;

@@ -7,20 +7,20 @@ use chrono::{DateTime, FixedOffset};
 use delegate::delegate;
 
 use crate::constants::v1_0::system_symbol_ids;
-use crate::cursor::StreamItem::*;
+use crate::system_reader::StreamItem::*;
 use crate::result::IonResult;
 use crate::symbol_table::SymbolTable;
 use crate::system_event_handler::SystemEventHandler;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
-use crate::{BinaryIonCursor, Cursor, IonType};
+use crate::{BinaryIonCursor, SystemReader, IonType};
 
 /// A streaming Ion reader that resolves symbol IDs into the appropriate text.
 ///
 /// Reader itself is format-agnostic; all format-specific logic is handled by the
 /// wrapped Cursor implementation.
-pub struct Reader<C: Cursor> {
+pub struct Reader<C: SystemReader> {
     cursor: C,
     symbol_table: SymbolTable,
     system_event_handler: Option<Box<dyn SystemEventHandler>>,
@@ -30,7 +30,7 @@ pub struct Reader<C: Cursor> {
 // macro, making it impossible to apply this #[allow(deprecated)] more narrowly. When `read_datetime`
 // is removed, this annotation should be removed too.
 #[allow(deprecated)]
-impl<C: Cursor> Reader<C> {
+impl<C: SystemReader> Reader<C> {
     pub fn new(cursor: C) -> Reader<C> {
         Reader {
             cursor,
@@ -255,7 +255,7 @@ mod tests {
 
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::BinaryIonCursor;
-    use crate::cursor::{Cursor, StreamItem::*};
+    use crate::system_reader::{SystemReader, StreamItem::*};
     use crate::result::IonResult;
     use crate::system_event_handler::SystemEventHandler;
     use crate::types::IonType;

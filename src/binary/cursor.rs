@@ -6,7 +6,7 @@ use chrono::prelude::*;
 use delegate::delegate;
 
 use crate::binary::constants::v1_0::IVM;
-use crate::cursor::{Cursor, StreamItem};
+use crate::system_reader::{SystemReader, StreamItem};
 use crate::{
     binary::{
         constants::v1_0::length_codes,
@@ -275,7 +275,7 @@ macro_rules! read_safety_checks {
     };
 }
 
-impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
+impl<R: IonDataSource> SystemReader for BinaryIonCursor<R> {
     fn ion_version(&self) -> (u8, u8) {
         self.cursor.ion_version
     }
@@ -1188,7 +1188,7 @@ mod tests {
 
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::BinaryIonCursor;
-    use crate::cursor::{Cursor, StreamItem, StreamItem::*};
+    use crate::system_reader::{SystemReader, StreamItem, StreamItem::*};
     use crate::result::{IonError, IonResult};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;

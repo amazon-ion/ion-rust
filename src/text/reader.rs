@@ -14,8 +14,8 @@ use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
 use crate::value::owned::OwnedSymbolToken;
-use crate::{Cursor, IonType};
-use crate::cursor::StreamItem;
+use crate::{SystemReader, IonType};
+use crate::system_reader::StreamItem;
 use crate::types::decimal::Decimal;
 use crate::types::SymbolId;
 use crate::types::timestamp::Timestamp;
@@ -352,7 +352,7 @@ impl<T: TextIonDataSource> TextReader<T> {
     }
 }
 
-impl <T: TextIonDataSource> Cursor for TextReader<T> {
+impl <T: TextIonDataSource> SystemReader for TextReader<T> {
 
     fn ion_version(&self) -> (u8, u8) {
         // TODO: The text reader does not yet have IVM support
@@ -579,8 +579,8 @@ mod reader_tests {
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::value::owned::{local_sid_token, text_token};
-    use crate::{Cursor, IonType};
-    use crate::cursor::StreamItem;
+    use crate::{SystemReader, IonType};
+    use crate::system_reader::StreamItem;
 
     fn next_type(reader: &mut TextReader<&str>, ion_type: IonType, is_null: bool) {
         assert_eq!(reader.next().unwrap().unwrap(), StreamItem::Value(ion_type, is_null));
