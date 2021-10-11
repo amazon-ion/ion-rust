@@ -977,7 +977,7 @@ where
                 "Illegal IVM: 0xE0 0x{:X} 0x{:X} 0x{:X}",
                 major, minor, other
             )),
-            _ => unreachable!(), // read_slice will always return the requested number of bytes
+            _ => unreachable!("read_slice did not return the requested number of bytes"),
         })?;
 
         if !matches!((major, minor), (1, 0)) {
