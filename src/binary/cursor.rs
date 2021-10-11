@@ -1855,14 +1855,14 @@ mod tests {
 
     #[test]
     fn test_nop_pad_adjacent_to_top_level() -> IonResult<()> {
-        // name::false with a byte of NOP padding on either side of it
+        // name::true with a byte of NOP padding on either side of it
         let mut cursor = ion_cursor_for(&[
             0x00, // NOP code, 1 byte NOP
             0xE3, // 3-byte annotations envelope
             0x81, // * Annotations themselves take 1 byte
             0x84, // * Annotation w/SID $4 ("name")
             0x11, // boolean true
-            0x00, // NOP code, 1 byte NOP
+            0x00, // NOP code, 1 byte NOP. Also NOP at EOF :)
         ]);
 
         assert_eq!(cursor.next()?, Some(Value(IonType::Boolean, false)));
@@ -1872,16 +1872,17 @@ mod tests {
     }
 
     #[test]
-    fn test_nop_pad_inside_annotation_wrapper() -> IonResult<()> {
+    fn test_nop_pad_with_varuint_len() -> IonResult<()> {
+        // 3 bytes of NOP padding followed by boolean true
         let mut cursor = ion_cursor_for(&[
-            //0xE3 0x81 0x84 0x00 is the canonical "invalid annotated NOP" from the docs
-            0xE3, // 3-byte annotations envelope
-            0x81, // * Annotations themselves take 1 byte
-            0x84, // * Annotation w/SID $4 ("name")
-            0x00, // NOP code, 1 byte NOP
+            0x0E, // NOP code, length to follow
+            0x81, // single octet VarUInt, 1 (so 1 byte of padding follows)
+            0xFF, // not a legal type code, but this is ignored padding
+            0x11, // boolean true
         ]);
 
-        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+        assert_eq!(cursor.next()?, Some(Value(IonType::Boolean, false)));
+        assert_eq!(cursor.next()?, None);
 
         Ok(())
     }
@@ -1933,8 +1934,23 @@ mod tests {
     }
 
     #[test]
+    fn test_nop_pad_not_allowed_inside_annotation_wrapper() -> IonResult<()> {
+        let mut cursor = ion_cursor_for(&[
+            //0xE3 0x81 0x84 0x00 is the canonical "invalid annotated NOP" from the docs
+            0xE3, // 3-byte annotations envelope
+            0x81, // * Annotations themselves take 1 byte
+            0x84, // * Annotation w/SID $4 ("name")
+            0x00, // NOP code, 1 byte NOP
+        ]);
+
+        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+
+        Ok(())
+    }
+
+    #[test]
     fn test_nop_pad_larger_than_struct() -> IonResult<()> {
-        // {$4: "a", <4 bytes of (NOP + 2 bytes padding)>}
+        // {$4: "a", <4 bytes of ($0: NOP claiming 4 bytes padding when only 2 will fit)>}
         let mut cursor = ion_cursor_for(&[
             0xD7, // 7-byte struct
             0x84, // single octet VarUInt, value 4 => field named "name"
@@ -1946,6 +1962,7 @@ mod tests {
         ]);
 
         assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+
         cursor.step_in()?;
         assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
         assert_eq!(cursor.read_string()?, Some(String::from("a")));
@@ -1968,6 +1985,7 @@ mod tests {
         ]); // [7] is out of the container
 
         assert_eq!(cursor.next()?, Some(Value(IonType::List, false)));
+
         cursor.step_in()?;
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
 
