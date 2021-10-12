@@ -5,19 +5,19 @@ use nom::combinator::map_opt;
 use nom::multi::many1;
 use nom::sequence::{delimited, pair, preceded};
 use nom::IResult;
+use crate::raw_symbol_token::RawSymbolToken;
 
 use crate::text::parsers::symbol::parse_symbol;
 use crate::text::text_value::TextValue;
-use crate::value::owned::OwnedSymbolToken;
 
 /// Matches a series of '::'-delimited symbols used to annotate a value.
-pub(crate) fn parse_annotations(input: &str) -> IResult<&str, Vec<OwnedSymbolToken>> {
+pub(crate) fn parse_annotations(input: &str) -> IResult<&str, Vec<RawSymbolToken>> {
     many1(parse_annotation)(input)
 }
 
 /// Matches a single symbol of any format (foo, 'foo', or $10) followed by a '::' delimiter.
 /// The delimiter can be preceded or trailed by any amount of whitespace.
-pub(crate) fn parse_annotation(input: &str) -> IResult<&str, OwnedSymbolToken> {
+pub(crate) fn parse_annotation(input: &str) -> IResult<&str, RawSymbolToken> {
     map_opt(
         // 0+ spaces, a symbol ('quoted', identifier, or $id), 0+ spaces, '::'
         delimited(
@@ -45,7 +45,7 @@ mod parse_annotations_tests {
     use rstest::*;
 
     use crate::types::SymbolId;
-    use crate::value::owned::{local_sid_token, text_token};
+    use crate::raw_symbol_token::{local_sid_token, text_token};
 
     use super::*;
 

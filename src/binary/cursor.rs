@@ -26,6 +26,7 @@ use std::io;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use std::ops::Range;
+use crate::raw_symbol_token::RawSymbolToken;
 
 /// Information about the value over which the Cursor is currently positioned.
 #[derive(Clone, Debug)]
@@ -43,7 +44,7 @@ struct EncodedValue {
     header: Header,
     is_null: bool,
     index_at_depth: usize,
-    field_id: Option<SymbolId>,
+    field_id: Option<RawSymbolToken>,
 
     // The `number_of_annotations` field stores the number of annotations associated with
     // the current value in the Ion stream.
@@ -250,7 +251,7 @@ pub struct CursorState {
     // All of the annotations on values in `parents` and the current value.
     // Having a single, reusable Vec reduces allocations and keeps the size of
     // the EncodedValue type (which is frequently moved) small.
-    annotations: Vec<SymbolId>,
+    annotations: Vec<RawSymbolToken>,
 }
 
 /// Verifies that the current value is of the expected type and that the bytes representing that
@@ -295,7 +296,7 @@ impl<R: IonDataSource> SystemReader for BinaryIonCursor<R> {
 
         // If we're in a struct, read the field id that must precede each value.
         self.cursor.value.field_id = if self.cursor.is_in_struct {
-            Some(self.read_field_id()?)
+            Some(RawSymbolToken::SymbolId(self.read_field_id()?))
         } else {
             self.cursor.value.field_id_length = 0;
             None
@@ -389,7 +390,7 @@ impl<R: IonDataSource> SystemReader for BinaryIonCursor<R> {
         self.cursor.value.is_null
     }
 
-    fn annotation_ids(&self) -> &[SymbolId] {
+    fn annotation_ids(&self) -> &[RawSymbolToken] {
         let num_annotations = self.cursor.value.number_of_annotations as usize;
         if num_annotations == 0 {
             return EMPTY_SLICE_USIZE;
@@ -399,8 +400,8 @@ impl<R: IonDataSource> SystemReader for BinaryIonCursor<R> {
         &self.cursor.annotations[start..end]
     }
 
-    fn field_id(&self) -> Option<SymbolId> {
-        self.cursor.value.field_id
+    fn field_name(&self) -> Option<&RawSymbolToken> {
+        self.cursor.value.field_id.as_ref()
     }
 
     fn read_null(&mut self) -> IonResult<Option<IonType>> {
@@ -551,11 +552,11 @@ impl<R: IonDataSource> SystemReader for BinaryIonCursor<R> {
     }
 
     #[inline(always)]
-    fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>> {
+    fn read_symbol(&mut self) -> IonResult<Option<RawSymbolToken>> {
         read_safety_checks!(self, IonType::Symbol);
 
         let symbol_id = self.read_value_as_uint()?.value() as usize;
-        Ok(Some(symbol_id))
+        Ok(Some(RawSymbolToken::SymbolId(symbol_id)))
     }
 
     fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
@@ -839,7 +840,7 @@ impl<R: IonDataSource> SystemReader for BinaryIonCursor<R> {
 }
 
 const EMPTY_SLICE_U8: &[u8] = &[];
-const EMPTY_SLICE_USIZE: &[usize] = &[];
+const EMPTY_SLICE_USIZE: &[RawSymbolToken] = &[];
 
 /// Additional functionality that's only available if the data source is in-memory, such as a
 /// Vec<u8> or &[u8]).
@@ -1140,7 +1141,7 @@ where
             let var_uint = self.read_var_uint()?;
             bytes_read += var_uint.size_in_bytes();
             let annotation_symbol_id = var_uint.value();
-            self.cursor.annotations.push(annotation_symbol_id);
+            self.cursor.annotations.push(RawSymbolToken::SymbolId(annotation_symbol_id));
         }
         let new_annotations_count = self.cursor.annotations.len() - num_annotations_before;
         self.cursor.value.number_of_annotations = new_annotations_count as u8;
@@ -1194,6 +1195,7 @@ mod tests {
     use crate::types::timestamp::Timestamp;
     use crate::types::IonType;
     use std::convert::TryInto;
+    use crate::raw_symbol_token::local_sid_token;
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 
@@ -1451,7 +1453,7 @@ mod tests {
     fn test_read_symbol_10() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x71, 0x0A]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Symbol, false)));
-        assert_eq!(cursor.read_symbol_id()?, Some(10usize));
+        assert_eq!(cursor.read_symbol()?, Some(local_sid_token(10)));
         Ok(())
     }
 
@@ -1592,13 +1594,13 @@ mod tests {
         assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
         cursor.step_in()?;
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_id(), Some(10usize));
+        assert_eq!(cursor.field_name(), Some(&local_sid_token(10)));
         assert_eq!(cursor.read_i64()?, Some(1i64));
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_id(), Some(11usize));
+        assert_eq!(cursor.field_name(), Some(&local_sid_token(11usize)));
         assert_eq!(cursor.read_i64()?, Some(2i64));
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_id(), Some(12usize));
+        assert_eq!(cursor.field_name(), Some(&local_sid_token(12usize)));
         assert_eq!(cursor.read_i64()?, Some(3i64));
         cursor.step_out()?;
         Ok(())
@@ -1625,7 +1627,7 @@ mod tests {
         cursor.step_in()?;
 
         assert_eq!(cursor.next()?, Some(Value(IonType::List, false)));
-        assert_eq!(cursor.field_id(), Some(11usize));
+        assert_eq!(cursor.field_name(), Some(&local_sid_token(11usize)));
         cursor.step_in()?;
 
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
@@ -1641,7 +1643,7 @@ mod tests {
         cursor.step_out()?; // Step out of list
 
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_id(), Some(10usize));
+        assert_eq!(cursor.field_name(), Some(&local_sid_token(10usize)));
         assert_eq!(cursor.read_i64()?, Some(1i64));
 
         assert_eq!(cursor.next()?, None); // End of the struct's values
@@ -1746,7 +1748,7 @@ mod tests {
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
-        assert_eq!(cursor.annotation_ids(), &[12]);
+        assert_eq!(cursor.annotation_ids(), &[local_sid_token(12)]);
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
         assert_eq!(
             cursor.raw_value_bytes(),

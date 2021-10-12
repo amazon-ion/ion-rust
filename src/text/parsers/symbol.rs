@@ -2,7 +2,7 @@ use crate::text::parsers::containers::s_expression_end;
 use crate::text::parsers::stop_character;
 use crate::text::parsers::text_support::{escaped_char, escaped_newline, StringFragment};
 use crate::text::text_value::TextValue;
-use crate::value::owned::{local_sid_token, text_token};
+use crate::raw_symbol_token::{local_sid_token, text_token};
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::bytes::streaming::{is_a, is_not};
@@ -160,7 +160,7 @@ mod symbol_parsing_tests {
     use super::*;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::types::SymbolId;
-    use crate::value::owned::local_sid_token;
+    use crate::raw_symbol_token::local_sid_token;
     use rstest::*;
 
     // Asserts that when parsed, the provided text produces a TextValue::Symbol

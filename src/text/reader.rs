@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 use nom::Err::Incomplete;
@@ -13,11 +12,10 @@ use crate::text::parsers::top_level::top_level_value;
 use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
-use crate::value::owned::OwnedSymbolToken;
 use crate::{SystemReader, IonType};
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::system_reader::StreamItem;
 use crate::types::decimal::Decimal;
-use crate::types::SymbolId;
 use crate::types::timestamp::Timestamp;
 
 // TODO: Implement a full text reader.
@@ -27,7 +25,7 @@ const INITIAL_PARENTS_CAPACITY: usize = 16;
 
 pub struct TextReader<T: TextIonDataSource> {
     buffer: TextBuffer<T::TextSource>,
-    current_field_name: Option<OwnedSymbolToken>,
+    current_field_name: Option<RawSymbolToken>,
     current_value: Option<AnnotatedTextValue>,
     bytes_read: usize,
     is_eof: bool,
@@ -144,10 +142,6 @@ impl<T: TextIonDataSource> TextReader<T> {
         Ok(())
     }
 
-    fn field_name(&self) -> Option<&OwnedSymbolToken> {
-        self.current_field_name.as_ref()
-    }
-
     /// Assumes that the reader is at the top level and attempts to parse the next value or IVM in
     /// the stream.
     fn next_top_level_value(&mut self) -> IonResult<Option<AnnotatedTextValue>> {
@@ -177,7 +171,7 @@ impl<T: TextIonDataSource> TextReader<T> {
 
     /// Assumes that the reader is inside an struct and attempts to parse the next field name.
     /// If the next token in the stream is an end-of-struct delimiter (`}`), returns Ok(None).
-    fn next_struct_field_name(&mut self) -> IonResult<Option<OwnedSymbolToken>> {
+    fn next_struct_field_name(&mut self) -> IonResult<Option<RawSymbolToken>> {
         // If there isn't another value, this returns Ok(None).
         self.parse_expected("a struct field name", struct_field_name_or_end)
     }
@@ -384,14 +378,13 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
             .unwrap_or(false)
     }
 
-    fn annotation_ids(&self) -> &[SymbolId] {
-        //TODO: Update trait to use `OwnedSymbolToken`
-        todo!()
+    // TODO: This should return an Option<> in case there isn't a current value.
+    fn annotation_ids(&self) -> &[RawSymbolToken] {
+        self.current_value.as_ref().map(|value| value.annotations()).unwrap()
     }
 
-    fn field_id(&self) -> Option<SymbolId> {
-        //TODO: Update trait to use `OwnedSymbolToken`
-        todo!()
+    fn field_name(&self) -> Option<&RawSymbolToken> {
+        self.current_field_name.as_ref()
     }
 
     fn read_null(&mut self) -> IonResult<Option<IonType>> {
@@ -474,11 +467,21 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
 
     fn string_bytes_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U {
         // TODO: This function format is a holdover from pre-NLL Rust. Change to read_str_bytes()
-        todo!()
+        match self.current_value
+            .as_ref()
+            .map(|current| current.value()) {
+            Some(TextValue::String(ref value)) => Ok(Some(f(value.as_bytes()))),
+            _ => Ok(None)
+        }
     }
 
-    fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>> {
-        todo!()
+    fn read_symbol(&mut self) -> IonResult<Option<RawSymbolToken>> {
+        match self.current_value
+            .as_ref()
+            .map(|current| current.value()) {
+            Some(TextValue::Symbol(ref value)) => Ok(Some(value.clone())),
+            _ => Ok(None)
+        }
     }
 
     fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
@@ -492,7 +495,12 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
 
     fn blob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U {
         // TODO: This function format is a holdover from pre-NLL Rust. Change to read_blob_slice()
-        todo!()
+        match self.current_value
+            .as_ref()
+            .map(|current| current.value()) {
+            Some(TextValue::Blob(ref value)) => Ok(Some(f(value.as_slice()))),
+            _ => Ok(None)
+        }
     }
 
     fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
@@ -506,7 +514,12 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
 
     fn clob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U {
         // TODO: This function format is a holdover from pre-NLL Rust. Change to read_clob_slice()
-        todo!()
+        match self.current_value
+            .as_ref()
+            .map(|current| current.value()) {
+            Some(TextValue::Clob(ref value)) => Ok(Some(f(value.as_slice()))),
+            _ => Ok(None)
+        }
     }
 
     fn read_timestamp(&mut self) -> IonResult<Option<Timestamp>> {
@@ -520,12 +533,12 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
 
     fn read_datetime(&mut self) -> IonResult<Option<DateTime<FixedOffset>>> {
         // TODO: This is deprecated. Remove it from the trait.
-        todo!()
+        unimplemented!("`read_datetime` is being removed; use `read_timestamp` instead")
     }
 
     fn step_in(&mut self) -> IonResult<()> {
         match &self.current_value {
-            Some(value) if value.value().ion_type().is_container() => {
+            Some(value) if value.ion_type().is_container() => {
                 self.parents
                     .push(ParentContainer::new(value.value().ion_type()));
                 self.current_value = None;
@@ -533,7 +546,7 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
             }
             Some(value) => illegal_operation(format!(
                 "Cannot step_in() to a {:?}",
-                value.value().ion_type()
+                value.ion_type()
             )),
             None => illegal_operation(format!(
                 "{} {}",
@@ -575,15 +588,20 @@ mod reader_tests {
 
     use crate::result::IonResult;
     use crate::text::reader::TextReader;
-    use crate::text::text_value::TextValue;
+    use crate::text::text_value::{IntoAnnotations, TextValue};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::value::owned::{local_sid_token, text_token};
+    use crate::raw_symbol_token::{local_sid_token, text_token};
     use crate::{SystemReader, IonType};
     use crate::system_reader::StreamItem;
 
     fn next_type(reader: &mut TextReader<&str>, ion_type: IonType, is_null: bool) {
         assert_eq!(reader.next().unwrap().unwrap(), StreamItem::Value(ion_type, is_null));
+    }
+
+    fn annotations_eq<I: IntoAnnotations>(reader: &mut TextReader<&str>, expected: I) {
+        let annotations = expected.into_annotations();
+        assert_eq!(reader.annotation_ids(), annotations.as_slice());
     }
 
     #[test]
@@ -669,23 +687,20 @@ mod reader_tests {
         assert_eq!(reader.read_timestamp()?.unwrap(), Timestamp::with_ymd(2021, 9, 25).build().unwrap());
 
         next_type(reader, IonType::Symbol, false);
-        // TODO: Read in symbol 'foo' after updating read_symbol to use OwnedSymbolToken
-        // assert_eq!(reader.read_symbol_id()?.unwrap(), text_token("foo"));
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("foo"));
 
         next_type(reader, IonType::String, false);
         assert_eq!(reader.read_string()?.unwrap(), "hello".to_string());
 
         // ===== CONTAINERS =====
-        // TODO: Calls to `next()` should return the IonType of the next value, not the value itself.
 
         // Reading a struct: {foo: bar}
         next_type(reader, IonType::Struct, false);
-        reader.step_in();
+        reader.step_in()?;
         next_type(reader, IonType::Symbol, false);
-        // TODO: Read in symbol 'bar' after updating read_symbol to use OwnedSymbolToken
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("bar"));
+        assert_eq!(*reader.field_name().unwrap(), text_token("foo"));
 
-        // TODO: Field name ... OwnedSymbolToken
-        // assert_eq!(*reader.field_name().unwrap(), text_token("foo"));
         assert_eq!(reader.next()?, None);
         reader.step_out()?;
 
@@ -754,67 +769,82 @@ mod reader_tests {
             $100::$200::$300::2021-09-25T
             'uranus'::foo
             neptune::"hello"
-            $55::{foo: bar}
-            pluto::[1, 2, 3]
+            $55::{foo: $21::bar}
+            pluto::[1, $77::2, 3]
             haumea::makemake::eris::ceres::(++ -- &&&&&)
         "#;
         // TODO: Check for annotations after OwnedSymbolToken
 
         let reader = &mut TextReader::new(ion_data);
         next_type(reader, IonType::Null, true);
+        annotations_eq(reader, &["mercury"]);
 
         next_type(reader, IonType::Boolean, false);
         assert_eq!(reader.read_bool()?.unwrap(), true);
+        annotations_eq(reader, &["venus", "earth"]);
 
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?.unwrap(), 5);
+        annotations_eq(reader, &[local_sid_token(17), text_token("mars")]);
 
         next_type(reader, IonType::Float, false);
         assert_eq!(reader.read_f64()?.unwrap(), 5.0f64);
+        annotations_eq(reader, &["jupiter"]);
 
         next_type(reader, IonType::Decimal, false);
         assert_eq!(reader.read_decimal()?.unwrap(), Decimal::new(55, -1));
+        annotations_eq(reader, &["saturn"]);
 
         next_type(reader, IonType::Timestamp, false);
         assert_eq!(reader.read_timestamp()?.unwrap(), Timestamp::with_ymd(2021, 9, 25).build().unwrap());
+        annotations_eq(reader, &[100, 200, 300]);
 
         next_type(reader, IonType::Symbol, false);
-        // TODO: Read in symbol 'foo' after updating read_symbol to use OwnedSymbolToken
-        // assert_eq!(reader.read_symbol_id()?.unwrap(), text_token("foo"));
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("foo"));
+        annotations_eq(reader, &["uranus"]);
 
         next_type(reader, IonType::String, false);
         assert_eq!(reader.read_string()?.unwrap(), "hello".to_string());
+        annotations_eq(reader, &["neptune"]);
 
         // ===== CONTAINERS =====
 
-        // Reading a struct: $55::{foo: bar}
+        // Reading a struct: $55::{foo: $21::bar}
         next_type(reader, IonType::Struct, false);
+        annotations_eq(reader, 55);
         reader.step_in()?;
         next_type(reader, IonType::Symbol, false);
-        // TODO: Read symbol after ... OwnedSymbolToken
-        // TODO: Read field ID after ... OwnedSymbolToken
+        assert_eq!(*reader.field_name().unwrap(), text_token("foo"));
+        annotations_eq(reader, 21);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("bar"));
         assert_eq!(reader.next()?, None);
         reader.step_out()?;
 
-        // Reading a list: pluto::[1, 2, 3]
+        // Reading a list: pluto::[1, $77::2, 3]
         next_type(reader, IonType::List, false);
         reader.step_in()?;
         next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.annotation_ids().len(), 0);
         assert_eq!(reader.read_i64()?.unwrap(), 1);
         next_type(reader, IonType::Integer, false);
+        annotations_eq(reader, &[77]);
         assert_eq!(reader.read_i64()?.unwrap(), 2);
         next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.annotation_ids().len(), 0);
         assert_eq!(reader.read_i64()?.unwrap(), 3);
         assert_eq!(reader.next()?, None);
         reader.step_out()?;
 
         // Reading an s-expression: haumea::makemake::eris::ceres::(++ -- &&&&&)
         next_type(reader, IonType::SExpression, false);
+        annotations_eq(reader, &["haumea", "makemake", "eris", "ceres"]);
         reader.step_in()?;
-        // TODO: Read the three symbols ... OST
         next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("++"));
         next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("--"));
         next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("&&&&&"));
         assert_eq!(reader.next()?, None);
         reader.step_out()?;
 

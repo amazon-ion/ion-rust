@@ -26,6 +26,7 @@ pub mod constants;
 mod reader;
 mod symbol_table;
 mod system_event_handler;
+mod raw_symbol_token;
 
 pub use binary::cursor::BinaryIonCursor;
 pub use system_reader::SystemReader;

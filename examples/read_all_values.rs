@@ -40,7 +40,7 @@ fn read_all_values<R: IonDataSource>(cursor: &mut BinaryIonCursor<R>) -> IonResu
                         let _text = cursor.string_ref_map(|_s| ())?.unwrap();
                     }
                     Symbol => {
-                        let _symbol_id = cursor.read_symbol_id()?.unwrap();
+                        let _symbol_id = cursor.read_symbol()?.unwrap();
                     }
                     Integer => {
                         let _int = cursor.read_i64()?.unwrap();

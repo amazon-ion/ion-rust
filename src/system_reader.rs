@@ -1,11 +1,10 @@
-use crate::data_source::IonDataSource;
 use crate::result::IonResult;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::types::{IonType, SymbolId};
+use crate::types::IonType;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
-use crate::value::owned::OwnedSymbolToken;
+use crate::raw_symbol_token::RawSymbolToken;
 
 /**
  * This trait captures the format-agnostic parser functionality needed to navigate within an Ion
@@ -35,11 +34,11 @@ pub trait SystemReader {
 
     /// Returns a slice containing all of the annotation symbol IDs for the current value.
     /// If there is no current value, returns an empty slice.
-    fn annotation_ids(&self) -> &[SymbolId];
+    fn annotation_ids(&self) -> &[RawSymbolToken];
 
-    /// If the current value is a field within a struct, returns the symbol ID of that
-    /// field's name; otherwise, returns None.
-    fn field_id(&self) -> Option<SymbolId>;
+    /// If the current value is a field within a struct, returns a [RawSymbolToken] containing
+    /// either the text or symbol ID specified for the field's name; otherwise, returns None.
+    fn field_name(&self) -> Option<&RawSymbolToken>;
 
     /// If the current value is a null, returns the Ion type of the null; otherwise,
     /// returns None.
@@ -90,8 +89,9 @@ pub trait SystemReader {
     where
         F: FnOnce(&[u8]) -> T;
 
-    /// If the current value is a symbol, returns its value as a SymbolId; otherwise, returns None.
-    fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>>;
+    /// If the current value is a symbol, returns its value as a RawSymbolToken; otherwise,
+    /// returns None.
+    fn read_symbol(&mut self) -> IonResult<Option<RawSymbolToken>>;
 
     /// If the current value is a blob, returns its value as a Vec<u8>; otherwise, returns None.
     fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
