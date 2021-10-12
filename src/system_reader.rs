@@ -1,10 +1,10 @@
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonResult;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::IonType;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
-use crate::raw_symbol_token::RawSymbolToken;
 
 /**
  * This trait captures the format-agnostic parser functionality needed to navigate within an Ion

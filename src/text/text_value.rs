@@ -1,8 +1,8 @@
+use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::IonType;
-use crate::raw_symbol_token::{text_token, RawSymbolToken, local_sid_token};
 use crate::types::SymbolId;
+use crate::IonType;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct AnnotatedTextValue {

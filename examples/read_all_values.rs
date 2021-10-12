@@ -1,6 +1,6 @@
-use ion_rs::system_reader::StreamItem;
 use ion_rs::result::IonResult;
-use ion_rs::{BinaryIonCursor, SystemReader, IonDataSource, IonType};
+use ion_rs::system_reader::StreamItem;
+use ion_rs::{BinaryIonCursor, IonDataSource, IonType, SystemReader};
 use std::fs::File;
 use std::process::exit;
 

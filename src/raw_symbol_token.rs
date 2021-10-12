@@ -7,7 +7,7 @@ use crate::types::SymbolId;
 #[derive(Debug, Clone, PartialEq)]
 pub enum RawSymbolToken {
     SymbolId(SymbolId),
-    Text(String)
+    Text(String),
 }
 
 impl RawSymbolToken {
@@ -15,7 +15,7 @@ impl RawSymbolToken {
         match self {
             RawSymbolToken::SymbolId(s) if *s == sid => true,
             RawSymbolToken::Text(t) if t == text => true,
-            _ => false
+            _ => false,
         }
     }
 

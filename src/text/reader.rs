@@ -3,7 +3,9 @@ use chrono::{DateTime, FixedOffset};
 use nom::Err::Incomplete;
 use nom::IResult;
 
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, illegal_operation, IonResult};
+use crate::system_reader::StreamItem;
 use crate::text::parent_level::ParentContainer;
 use crate::text::parsers::containers::{
     list_value_or_end, s_expression_value_or_end, struct_field_name_or_end, struct_field_value,
@@ -12,11 +14,9 @@ use crate::text::parsers::top_level::top_level_value;
 use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
-use crate::{SystemReader, IonType};
-use crate::raw_symbol_token::RawSymbolToken;
-use crate::system_reader::StreamItem;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
+use crate::{IonType, SystemReader};
 
 // TODO: Implement a full text reader.
 //       This implementation is a placeholder. It does not yet implement the Cursor trait.
@@ -131,12 +131,12 @@ impl<T: TextIonDataSource> TextReader<T> {
                 // To modify it, we'll need to get a mutable reference to the original.
                 self.parents.last_mut().unwrap().set_exhausted(true);
                 self.current_value = None;
-            },
+            }
             Ok(Some(value)) => {
                 // We successfully read a value. Set it as the current value.
                 self.current_value = Some(value);
-            },
-            Err(e) => return Err(e)
+            }
+            Err(e) => return Err(e),
         };
 
         Ok(())
@@ -346,8 +346,7 @@ impl<T: TextIonDataSource> TextReader<T> {
     }
 }
 
-impl <T: TextIonDataSource> SystemReader for TextReader<T> {
-
+impl<T: TextIonDataSource> SystemReader for TextReader<T> {
     fn ion_version(&self) -> (u8, u8) {
         // TODO: The text reader does not yet have IVM support
         (1, 0)
@@ -366,9 +365,7 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
     }
 
     fn ion_type(&self) -> Option<IonType> {
-        self.current_value
-            .as_ref()
-            .map(|v| v.ion_type())
+        self.current_value.as_ref().map(|v| v.ion_type())
     }
 
     fn is_null(&self) -> bool {
@@ -380,7 +377,10 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
 
     // TODO: This should return an Option<> in case there isn't a current value.
     fn annotation_ids(&self) -> &[RawSymbolToken] {
-        self.current_value.as_ref().map(|value| value.annotations()).unwrap()
+        self.current_value
+            .as_ref()
+            .map(|value| value.annotations())
+            .unwrap()
     }
 
     fn field_name(&self) -> Option<&RawSymbolToken> {
@@ -388,56 +388,44 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
     }
 
     fn read_null(&mut self) -> IonResult<Option<IonType>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Null(ion_type)) => Ok(Some(*ion_type)),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
     fn read_bool(&mut self) -> IonResult<Option<bool>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Boolean(value)) => Ok(Some(*value)),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
     fn read_i64(&mut self) -> IonResult<Option<i64>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Integer(value)) => Ok(Some(*value)),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
     fn read_f32(&mut self) -> IonResult<Option<f32>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Float(value)) => Ok(Some(*value as f32)),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
     fn read_f64(&mut self) -> IonResult<Option<f64>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Float(value)) => Ok(Some(*value)),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
     fn read_decimal(&mut self) -> IonResult<Option<Decimal>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Decimal(ref value)) => Ok(Some(value.clone())),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
@@ -447,87 +435,81 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
     }
 
     fn read_string(&mut self) -> IonResult<Option<String>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::String(ref value)) => Ok(Some(value.clone())),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
-    fn string_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&str) -> U {
+    fn string_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>>
+    where
+        F: FnOnce(&str) -> U,
+    {
         // TODO: This function format is a holdover from pre-NLL Rust. Change to read_str()
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::String(ref value)) => Ok(Some(f(value.as_str()))),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
-    fn string_bytes_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U {
+    fn string_bytes_map<F, U>(&mut self, f: F) -> IonResult<Option<U>>
+    where
+        F: FnOnce(&[u8]) -> U,
+    {
         // TODO: This function format is a holdover from pre-NLL Rust. Change to read_str_bytes()
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::String(ref value)) => Ok(Some(f(value.as_bytes()))),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
     fn read_symbol(&mut self) -> IonResult<Option<RawSymbolToken>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Symbol(ref value)) => Ok(Some(value.clone())),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
     fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Blob(ref value)) => Ok(Some(value.clone())),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
-    fn blob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U {
+    fn blob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>>
+    where
+        F: FnOnce(&[u8]) -> U,
+    {
         // TODO: This function format is a holdover from pre-NLL Rust. Change to read_blob_slice()
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Blob(ref value)) => Ok(Some(f(value.as_slice()))),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
     fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Clob(ref value)) => Ok(Some(value.clone())),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
-    fn clob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>> where F: FnOnce(&[u8]) -> U {
+    fn clob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>>
+    where
+        F: FnOnce(&[u8]) -> U,
+    {
         // TODO: This function format is a holdover from pre-NLL Rust. Change to read_clob_slice()
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Clob(ref value)) => Ok(Some(f(value.as_slice()))),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
     fn read_timestamp(&mut self) -> IonResult<Option<Timestamp>> {
-        match self.current_value
-            .as_ref()
-            .map(|current| current.value()) {
+        match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Timestamp(ref value)) => Ok(Some(value.clone())),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
@@ -544,10 +526,9 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
                 self.current_value = None;
                 Ok(())
             }
-            Some(value) => illegal_operation(format!(
-                "Cannot step_in() to a {:?}",
-                value.ion_type()
-            )),
+            Some(value) => {
+                illegal_operation(format!("Cannot step_in() to a {:?}", value.ion_type()))
+            }
             None => illegal_operation(format!(
                 "{} {}",
                 "Cannot `step_in`: the reader is not positioned on a value.",
@@ -586,17 +567,20 @@ impl <T: TextIonDataSource> SystemReader for TextReader<T> {
 mod reader_tests {
     use rstest::*;
 
+    use crate::raw_symbol_token::{local_sid_token, text_token};
     use crate::result::IonResult;
+    use crate::system_reader::StreamItem;
     use crate::text::reader::TextReader;
     use crate::text::text_value::{IntoAnnotations, TextValue};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::raw_symbol_token::{local_sid_token, text_token};
-    use crate::{SystemReader, IonType};
-    use crate::system_reader::StreamItem;
+    use crate::{IonType, SystemReader};
 
     fn next_type(reader: &mut TextReader<&str>, ion_type: IonType, is_null: bool) {
-        assert_eq!(reader.next().unwrap().unwrap(), StreamItem::Value(ion_type, is_null));
+        assert_eq!(
+            reader.next().unwrap().unwrap(),
+            StreamItem::Value(ion_type, is_null)
+        );
     }
 
     fn annotations_eq<I: IntoAnnotations>(reader: &mut TextReader<&str>, expected: I) {
@@ -644,7 +628,7 @@ mod reader_tests {
         next_type(
             reader,
             expected_value.ion_type(),
-            matches!(expected_value, TextValue::Null(_))
+            matches!(expected_value, TextValue::Null(_)),
         );
         // TODO: Redo (or remove?) this test. There's not an API that exposes the
         //       AnnotatedTextValue any more. We're directly accessing `current_value` as a hack.
@@ -684,7 +668,10 @@ mod reader_tests {
         assert_eq!(reader.read_decimal()?.unwrap(), Decimal::new(55, -1));
 
         next_type(reader, IonType::Timestamp, false);
-        assert_eq!(reader.read_timestamp()?.unwrap(), Timestamp::with_ymd(2021, 9, 25).build().unwrap());
+        assert_eq!(
+            reader.read_timestamp()?.unwrap(),
+            Timestamp::with_ymd(2021, 9, 25).build().unwrap()
+        );
 
         next_type(reader, IonType::Symbol, false);
         assert_eq!(reader.read_symbol()?.unwrap(), text_token("foo"));
@@ -747,11 +734,16 @@ mod reader_tests {
         let reader = &mut TextReader::new(ion_data);
 
         next_type(reader, IonType::String, false);
-        assert_eq!(reader.read_string()?.unwrap(), String::from("(486958) 2014 MU69"));
+        assert_eq!(
+            reader.read_string()?.unwrap(),
+            String::from("(486958) 2014 MU69")
+        );
 
         next_type(reader, IonType::Timestamp, false);
-        assert_eq!(reader.read_timestamp()?.unwrap(),
-                   Timestamp::with_ymd(2014, 6, 26).build().unwrap());
+        assert_eq!(
+            reader.read_timestamp()?.unwrap(),
+            Timestamp::with_ymd(2014, 6, 26).build().unwrap()
+        );
         // TODO: Check for 'km' annotation after change to OwnedSymbolToken
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?.unwrap(), 36);
@@ -796,7 +788,10 @@ mod reader_tests {
         annotations_eq(reader, &["saturn"]);
 
         next_type(reader, IonType::Timestamp, false);
-        assert_eq!(reader.read_timestamp()?.unwrap(), Timestamp::with_ymd(2021, 9, 25).build().unwrap());
+        assert_eq!(
+            reader.read_timestamp()?.unwrap(),
+            Timestamp::with_ymd(2021, 9, 25).build().unwrap()
+        );
         annotations_eq(reader, &[100, 200, 300]);
 
         next_type(reader, IonType::Symbol, false);

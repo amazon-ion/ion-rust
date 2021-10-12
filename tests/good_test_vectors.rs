@@ -142,7 +142,11 @@ fn read_all_values(reader: &mut Reader<BinaryIonCursor<BufReader<File>>>) -> Ion
             }
             Symbol => {
                 // The binary reader's tokens are always SIDs
-                let _symbol_id = reader.read_raw_symbol_token()?.unwrap().local_sid().unwrap();
+                let _symbol_id = reader
+                    .read_raw_symbol_token()?
+                    .unwrap()
+                    .local_sid()
+                    .unwrap();
             }
             Integer => {
                 let _int = reader.read_i64()?.unwrap();

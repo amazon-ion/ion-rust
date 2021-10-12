@@ -1,3 +1,4 @@
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::text::parsers::comments::whitespace_or_comments;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::multispace0;
@@ -5,7 +6,6 @@ use nom::combinator::map_opt;
 use nom::multi::many1;
 use nom::sequence::{delimited, pair, preceded};
 use nom::IResult;
-use crate::raw_symbol_token::RawSymbolToken;
 
 use crate::text::parsers::symbol::parse_symbol;
 use crate::text::text_value::TextValue;
@@ -44,8 +44,8 @@ fn annotation_delimiter(input: &str) -> IResult<&str, &str> {
 mod parse_annotations_tests {
     use rstest::*;
 
-    use crate::types::SymbolId;
     use crate::raw_symbol_token::{local_sid_token, text_token};
+    use crate::types::SymbolId;
 
     use super::*;
 

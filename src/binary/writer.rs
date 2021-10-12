@@ -802,9 +802,9 @@ mod writer_tests {
     use rstest::*;
 
     use super::*;
+    use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
     use num_traits::Float;
     use std::convert::TryInto;
-    use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
 
     type TestWriter<'a> = BinarySystemWriter<&'a mut Vec<u8>>;
     type TestReader<'a> = Reader<BinaryIonCursor<std::io::Cursor<&'a [u8]>>>;
@@ -1083,7 +1083,12 @@ mod writer_tests {
     }
 
     fn expect_symbol_id(reader: &mut TestReader, value: SymbolId) {
-        expect_scalar(reader, IonType::Symbol, |r| r.read_raw_symbol_token(), local_sid_token(value));
+        expect_scalar(
+            reader,
+            IonType::Symbol,
+            |r| r.read_raw_symbol_token(),
+            local_sid_token(value),
+        );
     }
 
     fn expect_string(reader: &mut TestReader, value: &str) {

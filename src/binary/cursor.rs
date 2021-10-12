@@ -6,7 +6,7 @@ use chrono::prelude::*;
 use delegate::delegate;
 
 use crate::binary::constants::v1_0::IVM;
-use crate::system_reader::{SystemReader, StreamItem};
+use crate::system_reader::{StreamItem, SystemReader};
 use crate::{
     binary::{
         constants::v1_0::length_codes,
@@ -23,10 +23,10 @@ use crate::{
 };
 use std::io;
 
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use std::ops::Range;
-use crate::raw_symbol_token::RawSymbolToken;
 
 /// Information about the value over which the Cursor is currently positioned.
 #[derive(Clone, Debug)]
@@ -1141,7 +1141,9 @@ where
             let var_uint = self.read_var_uint()?;
             bytes_read += var_uint.size_in_bytes();
             let annotation_symbol_id = var_uint.value();
-            self.cursor.annotations.push(RawSymbolToken::SymbolId(annotation_symbol_id));
+            self.cursor
+                .annotations
+                .push(RawSymbolToken::SymbolId(annotation_symbol_id));
         }
         let new_annotations_count = self.cursor.annotations.len() - num_annotations_before;
         self.cursor.value.number_of_annotations = new_annotations_count as u8;
@@ -1189,13 +1191,13 @@ mod tests {
 
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::BinaryIonCursor;
-    use crate::system_reader::{SystemReader, StreamItem, StreamItem::*};
+    use crate::raw_symbol_token::local_sid_token;
     use crate::result::{IonError, IonResult};
+    use crate::system_reader::{StreamItem, StreamItem::*, SystemReader};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::types::IonType;
     use std::convert::TryInto;
-    use crate::raw_symbol_token::local_sid_token;
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 

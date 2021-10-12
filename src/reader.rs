@@ -6,7 +6,6 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 use delegate::delegate;
 
-use crate::{BinaryIonCursor, IonType, SystemReader};
 use crate::constants::v1_0::system_symbol_ids;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonResult;
@@ -15,6 +14,7 @@ use crate::system_event_handler::SystemEventHandler;
 use crate::system_reader::StreamItem::*;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
+use crate::{BinaryIonCursor, IonType, SystemReader};
 
 /// A streaming Ion reader that resolves symbol IDs into the appropriate text.
 ///
@@ -67,10 +67,11 @@ impl<C: SystemReader> Reader<C> {
                         [symbol, ..]
                             if symbol.matches(
                                 system_symbol_ids::ION_SYMBOL_TABLE,
-                                "$ion_symbol_table"
-                            ) => {
-                                self.read_symbol_table()?;
-                            },
+                                "$ion_symbol_table",
+                            ) =>
+                        {
+                            self.read_symbol_table()?;
+                        }
                         _ => return Ok(Some((IonType::Struct, false))),
                     }
                 }
@@ -95,25 +96,27 @@ impl<C: SystemReader> Reader<C> {
                 // The field name is either SID 6 or the text 'imports' and the
                 // field value is a non-null symbol
                 (symbol, IonType::Symbol, false)
-                    if symbol.matches(system_symbol_ids::IMPORTS, "imports") => {
-                        // TODO: SST imports. This implementation only supports local symbol
-                        //       table imports and appends.
-                        let import_symbol = self.cursor.read_symbol()?.unwrap();
-                        if !import_symbol.matches(3, "$ion_symbol_table") {
-                            unimplemented!("Can't handle non-$ion_symbol_table imports value.");
-                        }
+                    if symbol.matches(system_symbol_ids::IMPORTS, "imports") =>
+                {
+                    // TODO: SST imports. This implementation only supports local symbol
+                    //       table imports and appends.
+                    let import_symbol = self.cursor.read_symbol()?.unwrap();
+                    if !import_symbol.matches(3, "$ion_symbol_table") {
+                        unimplemented!("Can't handle non-$ion_symbol_table imports value.");
+                    }
                     is_append = true;
-                },
+                }
                 // The field name is either SID 7 or the text 'imports' and the
                 // field value is a non-null list
                 (symbol, IonType::List, false)
-                    if symbol.matches(system_symbol_ids::SYMBOLS, "symbols") => {
-                        self.cursor.step_in()?;
-                        while let Some(Value(IonType::String, false)) = self.cursor.next()? {
-                            let text = self.cursor.read_string()?.unwrap();
-                            new_symbols.push(text);
-                        }
-                        self.cursor.step_out()?;
+                    if symbol.matches(system_symbol_ids::SYMBOLS, "symbols") =>
+                {
+                    self.cursor.step_in()?;
+                    while let Some(Value(IonType::String, false)) = self.cursor.next()? {
+                        let text = self.cursor.read_string()?.unwrap();
+                        new_symbols.push(text);
+                    }
+                    self.cursor.step_out()?;
                 }
                 something_else => {
                     unimplemented!("No support for {:?}", something_else);
@@ -182,7 +185,7 @@ impl<C: SystemReader> Reader<C> {
         match self.cursor.field_name() {
             Some(RawSymbolToken::SymbolId(sid)) => self.symbol_table.text_for(*sid),
             Some(RawSymbolToken::Text(text)) => Some(text.as_str()),
-            None => None
+            None => None,
         }
     }
 
@@ -190,14 +193,12 @@ impl<C: SystemReader> Reader<C> {
         self.cursor
             .annotation_ids()
             .iter()
-            .map(move |raw_token|
-                match raw_token {
-                    // TODO: This will panic if the SID has unknown text. Do we need two flavors
-                    //       of this method? `annotations` and `expect_annotations`?
-                    RawSymbolToken::SymbolId(sid) => self.symbol_table.text_for(*sid).unwrap(),
-                    RawSymbolToken::Text(text) => text.as_str()
-                }
-            )
+            .map(move |raw_token| match raw_token {
+                // TODO: This will panic if the SID has unknown text. Do we need two flavors
+                //       of this method? `annotations` and `expect_annotations`?
+                RawSymbolToken::SymbolId(sid) => self.symbol_table.text_for(*sid).unwrap(),
+                RawSymbolToken::Text(text) => text.as_str(),
+            })
     }
 
     pub fn symbol_table(&self) -> &SymbolTable {
@@ -289,13 +290,13 @@ impl<T: AsRef<[u8]>> Reader<BinaryIonCursor<io::Cursor<T>>> {
 mod tests {
     use std::io;
 
-    use crate::{Reader, SymbolTable};
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::BinaryIonCursor;
     use crate::result::IonResult;
     use crate::system_event_handler::SystemEventHandler;
     use crate::system_reader::{StreamItem::*, SystemReader};
     use crate::types::IonType;
+    use crate::{Reader, SymbolTable};
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 

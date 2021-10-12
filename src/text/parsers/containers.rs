@@ -1,10 +1,10 @@
+use crate::raw_symbol_token::RawSymbolToken;
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::one_of;
 use nom::combinator::{map, peek, recognize};
 use nom::sequence::{delimited, pair, preceded, terminated};
 use nom::{IResult, Parser};
-use crate::raw_symbol_token::RawSymbolToken;
 
 use crate::text::parsers::annotations::parse_annotations;
 use crate::text::parsers::comments::whitespace_or_comments;
@@ -159,10 +159,10 @@ pub(crate) fn struct_field_name_or_end(input: &str) -> IResult<&str, Option<RawS
 mod container_parsing_tests {
     use rstest::*;
 
+    use crate::raw_symbol_token::{local_sid_token, text_token};
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::text_value::TextValue;
     use crate::types::decimal::Decimal;
-    use crate::raw_symbol_token::{local_sid_token, text_token};
 
     use super::*;
 
