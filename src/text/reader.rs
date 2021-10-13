@@ -1,7 +1,8 @@
 use nom::Err::Incomplete;
 use nom::IResult;
 
-use crate::result::{decoding_error, IonResult};
+use crate::result::{decoding_error, illegal_operation, IonResult};
+use crate::text::parent_level::ParentContainer;
 use crate::text::parsers::containers::{
     list_value_or_end, s_expression_value_or_end, struct_field_name_or_end, struct_field_value,
 };
@@ -10,20 +11,20 @@ use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
 use crate::value::owned::OwnedSymbolToken;
+use crate::IonType;
 
 // TODO: Implement a full text reader.
-//       This implementation is a placeholder. It is currently capable of reading a stream of top-level
-//       scalar values of any type. It cannot:
-//       * Step in/out
-//       * Read annotations
-//       * Skip comments
-//       * Report the end of the stream
+//       This implementation is a placeholder. It does not yet implement the Cursor trait.
+
+const INITIAL_PARENTS_CAPACITY: usize = 16;
 
 pub struct TextReader<T: TextIonDataSource> {
     buffer: TextBuffer<T::TextSource>,
-    current_value: Option<TextValue>,
+    current_field_name: Option<OwnedSymbolToken>,
+    current_value: Option<AnnotatedTextValue>,
     bytes_read: usize,
     is_eof: bool,
+    parents: Vec<ParentContainer>,
 }
 
 impl<T: TextIonDataSource> TextReader<T> {
@@ -31,9 +32,11 @@ impl<T: TextIonDataSource> TextReader<T> {
         let text_source = input.to_text_ion_data_source();
         TextReader {
             buffer: TextBuffer::new(text_source),
+            current_field_name: None,
             current_value: None,
             bytes_read: 0,
             is_eof: false,
+            parents: Vec::with_capacity(INITIAL_PARENTS_CAPACITY),
         }
     }
 
@@ -41,12 +44,135 @@ impl<T: TextIonDataSource> TextReader<T> {
         self.bytes_read
     }
 
-    //TODO: TextValue is an internal data type and should not be part of the public API.
-    //      This method is currently private and only usable in this module's unit tests.
+    //TODO: This function should be a helper method called `load_next_value()`. `next()` would call
+    //      it and then query `self.current_value` to learn what IonType to return.
     fn next(&mut self) -> IonResult<Option<AnnotatedTextValue>> {
-        // TODO: When the reader eventually tracks what containers we've stepped into or out of,
-        //       this method will call the appropriate parser.
-        self.next_top_level_value()
+        // If the reader's current value is the beginning of a container and the user calls `next()`,
+        // We need to skip the entire container. We can do this by stepping into and then out of
+        // that container. `step_out()` has logic that will exhaust the remaining values.
+        let need_to_skip_container = self
+            .current_value
+            .as_ref()
+            .map(|v| v.value().ion_type().is_container())
+            .unwrap_or(false);
+
+        if need_to_skip_container {
+            self.step_in()?;
+            self.step_out()?;
+        }
+
+        if self.parents.is_empty() {
+            // The `parents` stack is empty. We're at the top level.
+
+            // If the reader has already found EOF (the end of the top level), there's no need to
+            // try to read more data. Return Ok(None).
+            if self.is_eof {
+                return Ok(None);
+            }
+            // Otherwise, try to read the next value.
+            let value = self.next_top_level_value();
+            match value {
+                Ok(None) => {
+                    // We hit EOF; make a note of it and clear the current value.
+                    self.is_eof = true;
+                    self.current_value = None;
+                }
+                Ok(Some(ref value)) => {
+                    // We read a value successfully; set it as our current value.
+                    // TODO: This currently clones the loaded value. This will not be necessary
+                    //       when `next()` returns an IonType instead of an AnnotatedTextValue.
+                    self.current_value = Some(value.clone());
+                }
+                _ => {}
+            };
+
+            return value;
+        }
+        // Otherwise, the `parents` stack is not empty. We're inside a container.
+
+        // The `ParentLevel` type is only a couple of stack-allocated bytes. It's very cheap to clone.
+        let parent = self.parents.last().unwrap().clone();
+        // If the reader had already found the end of this container, return Ok(None).
+        if parent.is_exhausted() {
+            return Ok(None);
+        }
+        // Otherwise, try to read the next value. The syntax we expect will depend on the
+        // IonType of the parent container.
+        let value = match parent.ion_type() {
+            IonType::List => self.next_list_value(),
+            IonType::SExpression => self.next_s_expression_value(),
+            IonType::Struct => {
+                // If the reader finds a field name...
+                if let Some(field_name) = self.next_struct_field_name()? {
+                    // ...remember it and return the field value that follows.
+                    self.current_field_name = Some(field_name);
+                    Ok(Some(self.next_struct_field_value()?))
+                } else {
+                    // Otherwise, this is the end of the struct.
+                    Ok(None)
+                }
+            }
+            other => unreachable!(
+                "The reader's `parents` stack contained a scalar value: {:?}",
+                other
+            ),
+        };
+
+        // If the parser returns Ok(None), we've just encountered the end of the container for
+        // the first time. Set `is_exhausted` so we won't try to parse more until `step_out()` is
+        // called.
+        if let Ok(None) = value {
+            // We previously used a copy of the last `ParentLevel` in the stack to simplify reading.
+            // To modify it, we'll need to get a mutable reference to the original.
+            self.parents.last_mut().unwrap().set_exhausted(true);
+        }
+
+        value
+    }
+
+    fn field_name(&self) -> Option<&OwnedSymbolToken> {
+        self.current_field_name.as_ref()
+    }
+
+    fn step_in(&mut self) -> IonResult<()> {
+        match &self.current_value {
+            Some(value) if value.value().ion_type().is_container() => {
+                self.parents
+                    .push(ParentContainer::new(value.value().ion_type()));
+                self.current_value = None;
+                Ok(())
+            }
+            Some(value) => illegal_operation(format!(
+                "Cannot step_in() to a {:?}",
+                value.value().ion_type()
+            )),
+            None => illegal_operation(format!(
+                "{} {}",
+                "Cannot `step_in`: the reader is not positioned on a value.",
+                "Try calling `next()` to advance first."
+            )),
+        }
+    }
+
+    fn step_out(&mut self) -> IonResult<()> {
+        if self.parents.is_empty() {
+            return illegal_operation(format!(
+                "Cannot call `step_out()` when the reader is at the top level."
+            ));
+        }
+
+        // If we're not at the end of the current container, advance the cursor until we are.
+        // Unlike the binary reader, which can skip-scan, the text reader must visit every value
+        // between its current position and the end of the container.
+        if !self.parents.last().unwrap().is_exhausted() {
+            while let Some(_ignored_value) = self.next()? {}
+        }
+
+        // Remove the parent container from the stack and clear the current value.
+        let _ = self.parents.pop();
+        self.current_value = None;
+
+        Ok(())
     }
 
     /// Assumes that the reader is at the top level and attempts to parse the next value or IVM in
@@ -255,13 +381,48 @@ impl<T: TextIonDataSource> TextReader<T> {
 
 #[cfg(test)]
 mod reader_tests {
+    use rstest::*;
+
+    use crate::result::IonResult;
     use crate::text::reader::TextReader;
     use crate::text::text_value::TextValue;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::value::owned::{local_sid_token, text_token};
     use crate::IonType;
-    use rstest::*;
+
+    #[test]
+    fn test_skipping_containers() -> IonResult<()> {
+        let ion_data = r#"
+            0 [1, 2, 3] (4 5) 6
+        "#;
+        let mut reader = TextReader::new(ion_data);
+        assert_eq!(
+            reader.next()?,
+            Some(TextValue::Integer(0).without_annotations())
+        );
+        assert_eq!(
+            reader.next()?,
+            Some(TextValue::ListStart.without_annotations())
+        );
+        reader.step_in()?;
+        assert_eq!(
+            reader.next()?,
+            Some(TextValue::Integer(1).without_annotations())
+        );
+        reader.step_out()?;
+        // This should have skipped over the `2, 3` at the end of the list.
+        assert_eq!(
+            reader.next()?,
+            Some(TextValue::SExpressionStart.without_annotations())
+        );
+        // Don't step into the s-expression. Instead, skip over it.
+        assert_eq!(
+            reader.next()?,
+            Some(TextValue::Integer(6).without_annotations())
+        );
+        Ok(())
+    }
 
     #[rstest]
     #[case(" null ", TextValue::Null(IonType::Null))]
@@ -283,7 +444,7 @@ mod reader_tests {
     }
 
     #[test]
-    fn test_text_read_multiple_top_level_values() {
+    fn test_text_read_multiple_top_level_values() -> IonResult<()> {
         let ion_data = r#"
             null
             true
@@ -318,47 +479,50 @@ mod reader_tests {
         next_is(TextValue::String("hello".to_string()));
 
         // ===== CONTAINERS =====
-        // This part of the test is a bit clunky because the reader does not yet support
-        // step_in() and step_out(). We're calling functions like `next_struct_value()` that will
-        // eventually be private helper methods.
-        // TODO: Replace these calls with step_in(), step_out(), field_name(), and next().
-        next_is(TextValue::StructStart);
+        // TODO: Calls to `next()` should return the IonType of the next value, not the value itself.
+
+        // Reading a struct: {foo: bar}
+        assert_eq!(reader.next()?.unwrap(), TextValue::StructStart);
+        reader.step_in()?;
         assert_eq!(
-            reader.next_struct_field_name().unwrap().unwrap(),
-            text_token("foo")
-        );
-        assert_eq!(
-            reader.next_struct_field_value().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::Symbol(text_token("bar"))
         );
-        // The struct only has one field, so asking for the next field name returns `None`.
-        assert_eq!(reader.next_struct_field_name(), Ok(None));
+        assert_eq!(*reader.field_name().unwrap(), text_token("foo"));
+        assert_eq!(reader.next()?, None);
+        reader.step_out()?;
 
-        assert_eq!(reader.next().unwrap().unwrap(), TextValue::ListStart);
+        // Reading a list: ["foo", "bar"]
+        assert_eq!(reader.next()?.unwrap(), TextValue::ListStart);
+        reader.step_in()?;
         assert_eq!(
-            reader.next_list_value().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::String(String::from("foo"))
         );
         assert_eq!(
-            reader.next_list_value().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::String(String::from("bar"))
         );
-        // There are only two values in the list, so asking for the next one returns `None`
-        assert_eq!(reader.next_list_value(), Ok(None));
+        assert_eq!(reader.next()?, None);
+        reader.step_out()?;
 
-        assert_eq!(reader.next().unwrap().unwrap(), TextValue::SExpressionStart);
+        // Reading an s-expression: ('''foo''')
+        assert_eq!(reader.next()?.unwrap(), TextValue::SExpressionStart);
+        reader.step_in()?;
         assert_eq!(
-            reader.next_s_expression_value().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::String(String::from("foo"))
         );
-        // There's only one value in the list, so asking for the next one returns `None`
-        assert_eq!(reader.next_s_expression_value(), Ok(None));
+        assert_eq!(reader.next()?, None);
+        reader.step_out()?;
 
         // There are no more top level values.
-        assert_eq!(reader.next_top_level_value(), Ok(None));
+        assert_eq!(reader.next()?, None);
 
         // Asking for more still results in `None`
-        assert_eq!(reader.next_top_level_value(), Ok(None));
+        assert_eq!(reader.next()?, None);
+
+        Ok(())
     }
 
     #[test]
@@ -389,7 +553,7 @@ mod reader_tests {
     }
 
     #[test]
-    fn test_text_read_multiple_annotated_top_level_values() {
+    fn test_text_read_multiple_annotated_top_level_values() -> IonResult<()> {
         let ion_data = r#"
             mercury::null
             venus::'earth'::true
@@ -425,68 +589,70 @@ mod reader_tests {
         next_is(TextValue::String("hello".to_string()).with_annotations("neptune"));
 
         // ===== CONTAINERS =====
-        // This part of the test is a bit clunky because the reader does not yet support
-        // step_in() and step_out(). We're calling functions like `next_struct_value()` that will
-        // eventually be private helper methods.
-        // TODO: Replace these calls with step_in(), step_out(), field_name(), and next().
+        // TODO: Calls to `next()` should return the IonType of the next value, not the value itself.
+
+        // Reading a struct: $55::{foo: bar}
         assert_eq!(
-            reader.next().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::StructStart.with_annotations(local_sid_token(55))
         );
+        reader.step_in()?;
         assert_eq!(
-            reader.next_struct_field_name().unwrap().unwrap(),
-            text_token("foo")
-        );
-        assert_eq!(
-            reader.next_struct_field_value().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::Symbol(text_token("bar")).without_annotations()
         );
-        // There's only one field in the struct, so asking for another field name returns `None`
-        assert_eq!(reader.next_struct_field_name(), Ok(None));
+        assert_eq!(*reader.field_name().unwrap(), text_token("foo"));
+        assert_eq!(reader.next()?, None);
+        reader.step_out()?;
 
+        // Reading a list: pluto::[1, 2, 3]
         assert_eq!(
-            reader.next().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::ListStart.with_annotations("pluto")
         );
+        reader.step_in()?;
         assert_eq!(
-            reader.next_list_value().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::Integer(1).without_annotations()
         );
         assert_eq!(
-            reader.next_list_value().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::Integer(2).without_annotations()
         );
         assert_eq!(
-            reader.next_list_value().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::Integer(3).without_annotations()
         );
-        // There are only three values in the list, so asking for the next one returns `None`
-        assert_eq!(reader.next_list_value(), Ok(None));
+        assert_eq!(reader.next()?, None);
+        reader.step_out()?;
 
+        // Reading an s-expression: haumea::makemake::eris::ceres::(++ -- &&&&&)
         assert_eq!(
-            reader.next().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::SExpressionStart.with_annotations(&["haumea", "makemake", "eris", "ceres"])
         );
-
+        reader.step_in()?;
         assert_eq!(
-            reader.next_s_expression_value().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::Symbol(text_token("++")).without_annotations()
         );
         assert_eq!(
-            reader.next_s_expression_value().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::Symbol(text_token("--")).without_annotations()
         );
         assert_eq!(
-            reader.next_s_expression_value().unwrap().unwrap(),
+            reader.next()?.unwrap(),
             TextValue::Symbol(text_token("&&&&&")).without_annotations()
         );
-        // There's only three values in the s-expression, so asking for the next one returns `None`
-        assert_eq!(reader.next_s_expression_value(), Ok(None));
+        assert_eq!(reader.next()?, None);
+        reader.step_out()?;
 
         // There are no more top level values.
-        assert_eq!(reader.next_top_level_value(), Ok(None));
+        assert_eq!(reader.next()?, None);
 
         // Asking for more still results in `None`
-        assert_eq!(reader.next_top_level_value(), Ok(None));
+        assert_eq!(reader.next()?, None);
+
+        Ok(())
     }
 }
