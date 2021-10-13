@@ -5,7 +5,7 @@ use nom::IResult;
 
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, illegal_operation, IonResult};
-use crate::system_reader::StreamItem;
+use crate::raw_reader::StreamItem;
 use crate::text::parent_level::ParentContainer;
 use crate::text::parsers::containers::{
     list_value_or_end, s_expression_value_or_end, struct_field_name_or_end, struct_field_value,
@@ -16,10 +16,7 @@ use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::{IonType, SystemReader};
-
-// TODO: Implement a full text reader.
-//       This implementation is a placeholder. It does not yet implement the Cursor trait.
+use crate::{IonType, RawReader};
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
 
@@ -346,7 +343,7 @@ impl<T: TextIonDataSource> TextReader<T> {
     }
 }
 
-impl<T: TextIonDataSource> SystemReader for TextReader<T> {
+impl<T: TextIonDataSource> RawReader for TextReader<T> {
     fn ion_version(&self) -> (u8, u8) {
         // TODO: The text reader does not yet have IVM support
         (1, 0)
@@ -376,7 +373,7 @@ impl<T: TextIonDataSource> SystemReader for TextReader<T> {
     }
 
     // TODO: This should return an Option<> in case there isn't a current value.
-    fn annotation_ids(&self) -> &[RawSymbolToken] {
+    fn annotations(&self) -> &[RawSymbolToken] {
         self.current_value
             .as_ref()
             .map(|value| value.annotations())
@@ -431,7 +428,7 @@ impl<T: TextIonDataSource> SystemReader for TextReader<T> {
 
     fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>> {
         // TODO: This function is deprecated. Remove it from the trait.
-        todo!()
+        unimplemented!("`read_datetime` is being removed; use `read_timestamp` instead")
     }
 
     fn read_string(&mut self) -> IonResult<Option<String>> {
@@ -445,7 +442,8 @@ impl<T: TextIonDataSource> SystemReader for TextReader<T> {
     where
         F: FnOnce(&str) -> U,
     {
-        // TODO: This function format is a holdover from pre-NLL Rust. Change to read_str()
+        // TODO: This function format is a holdover from pre-NLL Rust.
+        //       https://github.com/amzn/ion-rust/issues/335
         match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::String(ref value)) => Ok(Some(f(value.as_str()))),
             _ => Ok(None),
@@ -456,7 +454,8 @@ impl<T: TextIonDataSource> SystemReader for TextReader<T> {
     where
         F: FnOnce(&[u8]) -> U,
     {
-        // TODO: This function format is a holdover from pre-NLL Rust. Change to read_str_bytes()
+        // TODO: This function format is a holdover from pre-NLL Rust.
+        //       https://github.com/amzn/ion-rust/issues/335
         match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::String(ref value)) => Ok(Some(f(value.as_bytes()))),
             _ => Ok(None),
@@ -481,7 +480,8 @@ impl<T: TextIonDataSource> SystemReader for TextReader<T> {
     where
         F: FnOnce(&[u8]) -> U,
     {
-        // TODO: This function format is a holdover from pre-NLL Rust. Change to read_blob_slice()
+        // TODO: This function format is a holdover from pre-NLL Rust.
+        //       https://github.com/amzn/ion-rust/issues/335
         match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Blob(ref value)) => Ok(Some(f(value.as_slice()))),
             _ => Ok(None),
@@ -499,7 +499,8 @@ impl<T: TextIonDataSource> SystemReader for TextReader<T> {
     where
         F: FnOnce(&[u8]) -> U,
     {
-        // TODO: This function format is a holdover from pre-NLL Rust. Change to read_clob_slice()
+        // TODO: This function format is a holdover from pre-NLL Rust.
+        //       https://github.com/amzn/ion-rust/issues/335
         match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Clob(ref value)) => Ok(Some(f(value.as_slice()))),
             _ => Ok(None),
@@ -569,12 +570,12 @@ mod reader_tests {
 
     use crate::raw_symbol_token::{local_sid_token, text_token};
     use crate::result::IonResult;
-    use crate::system_reader::StreamItem;
+    use crate::raw_reader::StreamItem;
     use crate::text::reader::TextReader;
     use crate::text::text_value::{IntoAnnotations, TextValue};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::{IonType, SystemReader};
+    use crate::{IonType, RawReader};
 
     fn next_type(reader: &mut TextReader<&str>, ion_type: IonType, is_null: bool) {
         assert_eq!(
@@ -585,7 +586,7 @@ mod reader_tests {
 
     fn annotations_eq<I: IntoAnnotations>(reader: &mut TextReader<&str>, expected: I) {
         let annotations = expected.into_annotations();
-        assert_eq!(reader.annotation_ids(), annotations.as_slice());
+        assert_eq!(reader.annotations(), annotations.as_slice());
     }
 
     #[test]
@@ -819,13 +820,13 @@ mod reader_tests {
         next_type(reader, IonType::List, false);
         reader.step_in()?;
         next_type(reader, IonType::Integer, false);
-        assert_eq!(reader.annotation_ids().len(), 0);
+        assert_eq!(reader.annotations().len(), 0);
         assert_eq!(reader.read_i64()?.unwrap(), 1);
         next_type(reader, IonType::Integer, false);
         annotations_eq(reader, &[77]);
         assert_eq!(reader.read_i64()?.unwrap(), 2);
         next_type(reader, IonType::Integer, false);
-        assert_eq!(reader.annotation_ids().len(), 0);
+        assert_eq!(reader.annotations().len(), 0);
         assert_eq!(reader.read_i64()?.unwrap(), 3);
         assert_eq!(reader.next()?, None);
         reader.step_out()?;

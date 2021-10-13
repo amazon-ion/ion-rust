@@ -47,3 +47,21 @@ pub fn local_sid_token(local_sid: SymbolId) -> RawSymbolToken {
 pub fn text_token<T: Into<String>>(text: T) -> RawSymbolToken {
     RawSymbolToken::Text(text.into())
 }
+
+impl From<SymbolId> for RawSymbolToken {
+    fn from(value: SymbolId) -> Self {
+        local_sid_token(value)
+    }
+}
+
+impl From<String> for RawSymbolToken {
+    fn from(value: String) -> Self {
+        text_token(value)
+    }
+}
+
+impl From<&str> for RawSymbolToken {
+    fn from(value: &str) -> Self {
+        text_token(value.to_string())
+    }
+}

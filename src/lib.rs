@@ -17,7 +17,7 @@ pub mod result;
 
 pub mod binary;
 pub mod data_source;
-pub mod system_reader;
+pub mod raw_reader;
 pub mod text;
 pub mod types;
 pub mod value;
@@ -28,10 +28,10 @@ mod reader;
 mod symbol_table;
 mod system_event_handler;
 
-pub use binary::cursor::BinaryIonCursor;
+pub use binary::cursor::RawBinaryReader;
 pub use data_source::IonDataSource;
 pub use reader::Reader;
 pub use symbol_table::SymbolTable;
 pub use system_event_handler::SystemEventHandler;
-pub use system_reader::SystemReader;
+pub use raw_reader::RawReader;
 pub use types::IonType;

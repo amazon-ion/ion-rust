@@ -11,16 +11,16 @@ use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonResult;
 use crate::symbol_table::SymbolTable;
 use crate::system_event_handler::SystemEventHandler;
-use crate::system_reader::StreamItem::*;
+use crate::raw_reader::StreamItem::*;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::{BinaryIonCursor, IonType, SystemReader};
+use crate::{RawBinaryReader, IonType, RawReader};
 
 /// A streaming Ion reader that resolves symbol IDs into the appropriate text.
 ///
 /// Reader itself is format-agnostic; all format-specific logic is handled by the
 /// wrapped Cursor implementation.
-pub struct Reader<C: SystemReader> {
+pub struct Reader<C: RawReader> {
     cursor: C,
     symbol_table: SymbolTable,
     system_event_handler: Option<Box<dyn SystemEventHandler>>,
@@ -30,7 +30,7 @@ pub struct Reader<C: SystemReader> {
 // macro, making it impossible to apply this #[allow(deprecated)] more narrowly. When `read_datetime`
 // is removed, this annotation should be removed too.
 #[allow(deprecated)]
-impl<C: SystemReader> Reader<C> {
+impl<C: RawReader> Reader<C> {
     pub fn new(cursor: C) -> Reader<C> {
         Reader {
             cursor,
@@ -63,7 +63,7 @@ impl<C: SystemReader> Reader<C> {
                 }
                 Some(Value(IonType::Struct, false)) => {
                     // If the first annotation is $ion_symbol_table...
-                    match self.cursor.annotation_ids() {
+                    match self.cursor.annotations() {
                         [symbol, ..]
                             if symbol.matches(
                                 system_symbol_ids::ION_SYMBOL_TABLE,
@@ -189,15 +189,19 @@ impl<C: SystemReader> Reader<C> {
         }
     }
 
-    pub fn annotations(&self) -> impl Iterator<Item = &str> {
+    pub fn raw_annotations(&mut self) -> impl Iterator<Item = &RawSymbolToken> {
+        self.cursor.annotations().iter()
+    }
+
+    // TODO: The iterator should return a resolved symbol (OwnedSymbolToken?) that has
+    //       the symbol's ID, text, and import source (if available).
+    pub fn annotations(&self) -> impl Iterator<Item = Option<&str>> {
         self.cursor
-            .annotation_ids()
+            .annotations()
             .iter()
             .map(move |raw_token| match raw_token {
-                // TODO: This will panic if the SID has unknown text. Do we need two flavors
-                //       of this method? `annotations` and `expect_annotations`?
-                RawSymbolToken::SymbolId(sid) => self.symbol_table.text_for(*sid).unwrap(),
-                RawSymbolToken::Text(text) => text.as_str(),
+                RawSymbolToken::SymbolId(sid) => self.symbol_table.text_for(*sid),
+                RawSymbolToken::Text(text) => Some(text.as_str()),
             })
     }
 
@@ -209,14 +213,8 @@ impl<C: SystemReader> Reader<C> {
     //       * a version that returns a resolved token (OwnedSymbolToken?) that can provide both
     //         text and a SID if available
     //       * a version that returns just the symbol's text, since that's what most users will want
-    pub fn read_raw_symbol_token(&mut self) -> IonResult<Option<RawSymbolToken>> {
+    pub fn read_raw_symbol(&mut self) -> IonResult<Option<RawSymbolToken>> {
         self.cursor.read_symbol()
-    }
-
-    // TODO: Should this return an `impl Iterator<Item=...>` to hide implementation details?
-    // TODO: Offer other flavors of this method.
-    pub fn raw_annotation_tokens(&mut self) -> &[RawSymbolToken] {
-        self.cursor.annotation_ids()
     }
 
     pub fn raw_field_name_token(&mut self) -> Option<&RawSymbolToken> {
@@ -258,7 +256,7 @@ impl<C: SystemReader> Reader<C> {
 
 /// Functionality that is only available if the data source we're reading from is in-memory, like
 /// a Vec<u8> or &[u8].
-impl<T: AsRef<[u8]>> Reader<BinaryIonCursor<io::Cursor<T>>> {
+impl<T: AsRef<[u8]>> Reader<RawBinaryReader<io::Cursor<T>>> {
     delegate! {
         to self.cursor {
             pub fn raw_bytes(&self) -> Option<&[u8]>;
@@ -291,10 +289,10 @@ mod tests {
     use std::io;
 
     use crate::binary::constants::v1_0::IVM;
-    use crate::binary::cursor::BinaryIonCursor;
+    use crate::binary::cursor::RawBinaryReader;
     use crate::result::IonResult;
     use crate::system_event_handler::SystemEventHandler;
-    use crate::system_reader::{StreamItem::*, SystemReader};
+    use crate::raw_reader::{StreamItem::*, RawReader};
     use crate::types::IonType;
     use crate::{Reader, SymbolTable};
 
@@ -315,15 +313,15 @@ mod tests {
     }
 
     // Prepends an Ion 1.0 IVM to the provided data and then creates a BinaryIonCursor over it
-    fn ion_cursor_for(bytes: &[u8]) -> BinaryIonCursor<TestDataSource> {
-        let mut binary_cursor = BinaryIonCursor::new(data_source_for(bytes));
+    fn ion_cursor_for(bytes: &[u8]) -> RawBinaryReader<TestDataSource> {
+        let mut binary_cursor = RawBinaryReader::new(data_source_for(bytes));
         assert_eq!(binary_cursor.ion_type(), None);
         assert_eq!(binary_cursor.next(), Ok(Some(VersionMarker(1, 0))));
         assert_eq!(binary_cursor.ion_version(), (1u8, 0u8));
         binary_cursor
     }
 
-    fn ion_reader_for(bytes: &[u8]) -> Reader<BinaryIonCursor<TestDataSource>> {
+    fn ion_reader_for(bytes: &[u8]) -> Reader<RawBinaryReader<TestDataSource>> {
         Reader::new(ion_cursor_for(bytes))
     }
 

@@ -797,7 +797,7 @@ impl<W: Write> BinarySystemWriter<W> {
 mod writer_tests {
     use std::fmt::Debug;
 
-    use crate::{BinaryIonCursor, Reader};
+    use crate::{RawBinaryReader, Reader};
 
     use rstest::*;
 
@@ -807,7 +807,7 @@ mod writer_tests {
     use std::convert::TryInto;
 
     type TestWriter<'a> = BinarySystemWriter<&'a mut Vec<u8>>;
-    type TestReader<'a> = Reader<BinaryIonCursor<std::io::Cursor<&'a [u8]>>>;
+    type TestReader<'a> = Reader<RawBinaryReader<std::io::Cursor<&'a [u8]>>>;
 
     /// A reusable test outline for verifying BinarySystemWriter behavior.
     fn binary_writer_test(
@@ -824,7 +824,7 @@ mod writer_tests {
 
         // Create a BinaryReader that reads from the BinarySystemWriter's output.
         let data = buffer.as_slice();
-        let cursor = BinaryIonCursor::new(io::Cursor::new(data));
+        let cursor = RawBinaryReader::new(io::Cursor::new(data));
         let mut reader = Reader::new(cursor);
 
         // Call the user's verification function
@@ -1016,7 +1016,7 @@ mod writer_tests {
             symbol_ids.as_slice(),
             IonType::Symbol,
             |writer, v| writer.write_symbol_id(v.local_sid().unwrap()),
-            |reader| reader.read_raw_symbol_token(),
+            |reader| reader.read_raw_symbol(),
         )
     }
 
@@ -1086,7 +1086,7 @@ mod writer_tests {
         expect_scalar(
             reader,
             IonType::Symbol,
-            |r| r.read_raw_symbol_token(),
+            |r| r.read_raw_symbol(),
             local_sid_token(value),
         );
     }
@@ -1127,7 +1127,10 @@ mod writer_tests {
 
     fn expect_annotations(reader: &TestReader, annotations: &[&str]) {
         assert_eq!(
-            reader.annotations().collect::<Vec<&str>>().as_slice(),
+            reader.annotations()
+                .map(|opt| opt.expect("Annotation with unknown text."))
+                .collect::<Vec<&str>>()
+                .as_slice(),
             annotations
         );
     }

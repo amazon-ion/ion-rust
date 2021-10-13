@@ -10,13 +10,13 @@ use chrono::{DateTime, FixedOffset};
  * This trait captures the format-agnostic parser functionality needed to navigate within an Ion
  * stream and read the values encountered into native Rust data types.
  *
- * Cursor implementations are not expected to interpret symbol table declarations, resolve symbol
+ * RawReader implementations are not expected to interpret symbol table declarations, resolve symbol
  * IDs into text, or otherwise interpret system-level constructs for use at a user level.
  *
  * Once a value has successfully been read from the stream using one of the read_* functions,
  * calling that function again may return an Err. This is left to the discretion of the implementor.
  */
-pub trait SystemReader {
+pub trait RawReader {
     /// Returns the (major, minor) version of the Ion stream being read. If ion_version is called
     /// before an Ion Version Marker has been read, the version (1, 0) will be returned.
     fn ion_version(&self) -> (u8, u8);
@@ -34,7 +34,7 @@ pub trait SystemReader {
 
     /// Returns a slice containing all of the annotation symbol IDs for the current value.
     /// If there is no current value, returns an empty slice.
-    fn annotation_ids(&self) -> &[RawSymbolToken];
+    fn annotations(&self) -> &[RawSymbolToken];
 
     /// If the current value is a field within a struct, returns a [RawSymbolToken] containing
     /// either the text or symbol ID specified for the field's name; otherwise, returns None.
