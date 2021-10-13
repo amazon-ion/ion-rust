@@ -9,7 +9,7 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use ion_rs::result::{decoding_error, IonResult};
-use ion_rs::{RawBinaryReader, IonType, Reader};
+use ion_rs::{IonType, RawBinaryReader, Reader};
 
 const GOOD_TEST_FILES_PATH: &str = "ion-tests/iontestdata/good/";
 
@@ -142,11 +142,7 @@ fn read_all_values(reader: &mut Reader<RawBinaryReader<BufReader<File>>>) -> Ion
             }
             Symbol => {
                 // The binary reader's tokens are always SIDs
-                let _symbol_id = reader
-                    .read_raw_symbol()?
-                    .unwrap()
-                    .local_sid()
-                    .unwrap();
+                let _symbol_id = reader.read_raw_symbol()?.unwrap().local_sid().unwrap();
             }
             Integer => {
                 let _int = reader.read_i64()?.unwrap();

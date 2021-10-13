@@ -6,7 +6,7 @@ use chrono::prelude::*;
 use delegate::delegate;
 
 use crate::binary::constants::v1_0::IVM;
-use crate::raw_reader::{StreamItem, RawReader};
+use crate::raw_reader::{RawReader, StreamItem};
 use crate::{
     binary::{
         constants::v1_0::length_codes,
@@ -261,7 +261,8 @@ macro_rules! read_safety_checks {
         // Make sure that:
         // * the type descriptor's IonType aligns with what the Cursor expects to read
         // * the value under the cursor is not a null, even if the IonType lines up
-        if $raw_binary_reader.cursor.value.ion_type != $ion_type || $raw_binary_reader.cursor.value.is_null
+        if $raw_binary_reader.cursor.value.ion_type != $ion_type
+            || $raw_binary_reader.cursor.value.is_null
         {
             return Ok(None);
         }
@@ -1190,9 +1191,9 @@ mod tests {
 
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::RawBinaryReader;
+    use crate::raw_reader::{RawReader, StreamItem, StreamItem::*};
     use crate::raw_symbol_token::local_sid_token;
     use crate::result::{IonError, IonResult};
-    use crate::raw_reader::{StreamItem, StreamItem::*, RawReader};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::types::IonType;

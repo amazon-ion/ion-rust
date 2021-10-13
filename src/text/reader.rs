@@ -3,9 +3,9 @@ use chrono::{DateTime, FixedOffset};
 use nom::Err::Incomplete;
 use nom::IResult;
 
+use crate::raw_reader::StreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, illegal_operation, IonResult};
-use crate::raw_reader::StreamItem;
 use crate::text::parent_level::ParentContainer;
 use crate::text::parsers::containers::{
     list_value_or_end, s_expression_value_or_end, struct_field_name_or_end, struct_field_value,
@@ -343,6 +343,14 @@ impl<T: TextIonDataSource> TextReader<T> {
     }
 }
 
+// TODO: This implementation of the text reader eagerly materializes each value that it encounters
+//       in the stream and stores it in the reader as `current_value`. Each time a user requests
+//       a value via `read_i64`, `read_bool`, etc, a clone of `current_value` is returned (assuming
+//       its type is in alignment with the request).
+//       A better implementation would identify the input slice containing the next value without
+//       materializing it and then attempt to materialize it when the user calles `read_TYPE`. This
+//       would take less memory and would only materialize values the user requests.
+//       See: https://github.com/amzn/ion-rust/issues/322
 impl<T: TextIonDataSource> RawReader for TextReader<T> {
     fn ion_version(&self) -> (u8, u8) {
         // TODO: The text reader does not yet have IVM support
@@ -568,9 +576,9 @@ impl<T: TextIonDataSource> RawReader for TextReader<T> {
 mod reader_tests {
     use rstest::*;
 
+    use crate::raw_reader::StreamItem;
     use crate::raw_symbol_token::{local_sid_token, text_token};
     use crate::result::IonResult;
-    use crate::raw_reader::StreamItem;
     use crate::text::reader::TextReader;
     use crate::text::text_value::{IntoAnnotations, TextValue};
     use crate::types::decimal::Decimal;

@@ -1127,7 +1127,8 @@ mod writer_tests {
 
     fn expect_annotations(reader: &TestReader, annotations: &[&str]) {
         assert_eq!(
-            reader.annotations()
+            reader
+                .annotations()
                 .map(|opt| opt.expect("Annotation with unknown text."))
                 .collect::<Vec<&str>>()
                 .as_slice(),

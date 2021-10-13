@@ -7,14 +7,14 @@ use chrono::{DateTime, FixedOffset};
 use delegate::delegate;
 
 use crate::constants::v1_0::system_symbol_ids;
+use crate::raw_reader::StreamItem::*;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonResult;
 use crate::symbol_table::SymbolTable;
 use crate::system_event_handler::SystemEventHandler;
-use crate::raw_reader::StreamItem::*;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::{RawBinaryReader, IonType, RawReader};
+use crate::{IonType, RawBinaryReader, RawReader};
 
 /// A streaming Ion reader that resolves symbol IDs into the appropriate text.
 ///
@@ -290,9 +290,9 @@ mod tests {
 
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::cursor::RawBinaryReader;
+    use crate::raw_reader::{RawReader, StreamItem::*};
     use crate::result::IonResult;
     use crate::system_event_handler::SystemEventHandler;
-    use crate::raw_reader::{StreamItem::*, RawReader};
     use crate::types::IonType;
     use crate::{Reader, SymbolTable};
 

@@ -1,6 +1,6 @@
-use ion_rs::result::IonResult;
 use ion_rs::raw_reader::StreamItem;
-use ion_rs::{RawBinaryReader, IonDataSource, IonType, RawReader};
+use ion_rs::result::IonResult;
+use ion_rs::{IonDataSource, IonType, RawBinaryReader, RawReader};
 use std::fs::File;
 use std::process::exit;
 
