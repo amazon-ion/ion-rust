@@ -1,6 +1,6 @@
-use ion_rs::cursor::StreamItem;
+use ion_rs::raw_reader::StreamItem;
 use ion_rs::result::IonResult;
-use ion_rs::{BinaryIonCursor, Cursor, IonDataSource, IonType};
+use ion_rs::{IonDataSource, IonType, RawBinaryReader, RawReader};
 use std::fs::File;
 use std::process::exit;
 
@@ -14,7 +14,7 @@ fn main() -> IonResult<()> {
 
     let file = File::open(path)?;
     let buf_reader = std::io::BufReader::new(file);
-    let mut cursor = BinaryIonCursor::new(buf_reader);
+    let mut cursor = RawBinaryReader::new(buf_reader);
     let number_of_values = read_all_values(&mut cursor)?;
     println!("Read {} values", number_of_values);
     Ok(())
@@ -22,7 +22,7 @@ fn main() -> IonResult<()> {
 
 // Visits each value in the stream recursively, reading each scalar into a native Rust type.
 // Prints the total number of values read upon completion.
-fn read_all_values<R: IonDataSource>(cursor: &mut BinaryIonCursor<R>) -> IonResult<usize> {
+fn read_all_values<R: IonDataSource>(cursor: &mut RawBinaryReader<R>) -> IonResult<usize> {
     use IonType::*;
     use StreamItem::*;
     let mut count: usize = 0;
@@ -40,7 +40,7 @@ fn read_all_values<R: IonDataSource>(cursor: &mut BinaryIonCursor<R>) -> IonResu
                         let _text = cursor.string_ref_map(|_s| ())?.unwrap();
                     }
                     Symbol => {
-                        let _symbol_id = cursor.read_symbol_id()?.unwrap();
+                        let _symbol_id = cursor.read_symbol()?.unwrap();
                     }
                     Integer => {
                         let _int = cursor.read_i64()?.unwrap();

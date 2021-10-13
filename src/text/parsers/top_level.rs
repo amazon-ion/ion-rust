@@ -28,15 +28,15 @@ pub(crate) fn top_level_value(input: &str) -> IResult<&str, AnnotatedTextValue> 
 mod parse_top_level_values_tests {
     use rstest::*;
 
+    use crate::raw_symbol_token::{text_token, RawSymbolToken};
     use crate::text::parsers::unit_test_support::parse_unwrap;
     use crate::text::text_value::TextValue;
-    use crate::value::owned::{text_token, OwnedSymbolToken};
     use crate::IonType;
 
     use super::*;
 
     // Unit test helper; converts strings into OwnedSymbolTokens
-    fn text_tokens(strs: &[&str]) -> Vec<OwnedSymbolToken> {
+    fn text_tokens(strs: &[&str]) -> Vec<RawSymbolToken> {
         return strs.iter().map(|s| text_token(*s)).collect();
     }
 

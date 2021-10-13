@@ -1,8 +1,8 @@
-use crate::data_source::IonDataSource;
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonResult;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::types::{IonType, SymbolId};
+use crate::types::IonType;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 
@@ -10,14 +10,13 @@ use chrono::{DateTime, FixedOffset};
  * This trait captures the format-agnostic parser functionality needed to navigate within an Ion
  * stream and read the values encountered into native Rust data types.
  *
- * Cursor implementations are not expected to interpret symbol table declarations, resolve symbol
+ * RawReader implementations are not expected to interpret symbol table declarations, resolve symbol
  * IDs into text, or otherwise interpret system-level constructs for use at a user level.
  *
  * Once a value has successfully been read from the stream using one of the read_* functions,
  * calling that function again may return an Err. This is left to the discretion of the implementor.
  */
-pub trait Cursor {
-    type DataSource: IonDataSource;
+pub trait RawReader {
     /// Returns the (major, minor) version of the Ion stream being read. If ion_version is called
     /// before an Ion Version Marker has been read, the version (1, 0) will be returned.
     fn ion_version(&self) -> (u8, u8);
@@ -33,13 +32,13 @@ pub trait Cursor {
     /// Returns true if the current value is a null of any type; otherwise, returns false.
     fn is_null(&self) -> bool;
 
-    /// Returns a slice containing all of the annotation symbol IDs for the current value.
+    /// Returns a slice containing all of the annotations for the current value.
     /// If there is no current value, returns an empty slice.
-    fn annotation_ids(&self) -> &[SymbolId];
+    fn annotations(&self) -> &[RawSymbolToken];
 
-    /// If the current value is a field within a struct, returns the symbol ID of that
-    /// field's name; otherwise, returns None.
-    fn field_id(&self) -> Option<SymbolId>;
+    /// If the current value is a field within a struct, returns a [RawSymbolToken] containing
+    /// either the text or symbol ID specified for the field's name; otherwise, returns None.
+    fn field_name(&self) -> Option<&RawSymbolToken>;
 
     /// If the current value is a null, returns the Ion type of the null; otherwise,
     /// returns None.
@@ -90,8 +89,9 @@ pub trait Cursor {
     where
         F: FnOnce(&[u8]) -> T;
 
-    /// If the current value is a symbol, returns its value as a SymbolId; otherwise, returns None.
-    fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>>;
+    /// If the current value is a symbol, returns its value as a RawSymbolToken; otherwise,
+    /// returns None.
+    fn read_symbol(&mut self) -> IonResult<Option<RawSymbolToken>>;
 
     /// If the current value is a blob, returns its value as a Vec<u8>; otherwise, returns None.
     fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;

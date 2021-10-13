@@ -1,6 +1,10 @@
+use bigdecimal::BigDecimal;
+use chrono::{DateTime, FixedOffset};
 use nom::Err::Incomplete;
 use nom::IResult;
 
+use crate::raw_reader::StreamItem;
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, illegal_operation, IonResult};
 use crate::text::parent_level::ParentContainer;
 use crate::text::parsers::containers::{
@@ -10,27 +14,25 @@ use crate::text::parsers::top_level::top_level_value;
 use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
-use crate::value::owned::OwnedSymbolToken;
-use crate::IonType;
-
-// TODO: Implement a full text reader.
-//       This implementation is a placeholder. It does not yet implement the Cursor trait.
+use crate::types::decimal::Decimal;
+use crate::types::timestamp::Timestamp;
+use crate::{IonType, RawReader};
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
 
-pub struct TextReader<T: TextIonDataSource> {
+pub struct RawTextReader<T: TextIonDataSource> {
     buffer: TextBuffer<T::TextSource>,
-    current_field_name: Option<OwnedSymbolToken>,
+    current_field_name: Option<RawSymbolToken>,
     current_value: Option<AnnotatedTextValue>,
     bytes_read: usize,
     is_eof: bool,
     parents: Vec<ParentContainer>,
 }
 
-impl<T: TextIonDataSource> TextReader<T> {
-    fn new(input: T) -> TextReader<T> {
+impl<T: TextIonDataSource> RawTextReader<T> {
+    fn new(input: T) -> RawTextReader<T> {
         let text_source = input.to_text_ion_data_source();
-        TextReader {
+        RawTextReader {
             buffer: TextBuffer::new(text_source),
             current_field_name: None,
             current_value: None,
@@ -44,9 +46,7 @@ impl<T: TextIonDataSource> TextReader<T> {
         self.bytes_read
     }
 
-    //TODO: This function should be a helper method called `load_next_value()`. `next()` would call
-    //      it and then query `self.current_value` to learn what IonType to return.
-    fn next(&mut self) -> IonResult<Option<AnnotatedTextValue>> {
+    fn load_next_value(&mut self) -> IonResult<()> {
         // If the reader's current value is the beginning of a container and the user calls `next()`,
         // We need to skip the entire container. We can do this by stepping into and then out of
         // that container. `step_out()` has logic that will exhaust the remaining values.
@@ -67,7 +67,8 @@ impl<T: TextIonDataSource> TextReader<T> {
             // If the reader has already found EOF (the end of the top level), there's no need to
             // try to read more data. Return Ok(None).
             if self.is_eof {
-                return Ok(None);
+                self.current_value = None;
+                return Ok(());
             }
             // Otherwise, try to read the next value.
             let value = self.next_top_level_value();
@@ -85,8 +86,7 @@ impl<T: TextIonDataSource> TextReader<T> {
                 }
                 _ => {}
             };
-
-            return value;
+            return Ok(());
         }
         // Otherwise, the `parents` stack is not empty. We're inside a container.
 
@@ -94,7 +94,8 @@ impl<T: TextIonDataSource> TextReader<T> {
         let parent = self.parents.last().unwrap().clone();
         // If the reader had already found the end of this container, return Ok(None).
         if parent.is_exhausted() {
-            return Ok(None);
+            self.current_value = None;
+            return Ok(());
         }
         // Otherwise, try to read the next value. The syntax we expect will depend on the
         // IonType of the parent container.
@@ -118,59 +119,22 @@ impl<T: TextIonDataSource> TextReader<T> {
             ),
         };
 
-        // If the parser returns Ok(None), we've just encountered the end of the container for
-        // the first time. Set `is_exhausted` so we won't try to parse more until `step_out()` is
-        // called.
-        if let Ok(None) = value {
-            // We previously used a copy of the last `ParentLevel` in the stack to simplify reading.
-            // To modify it, we'll need to get a mutable reference to the original.
-            self.parents.last_mut().unwrap().set_exhausted(true);
-        }
-
-        value
-    }
-
-    fn field_name(&self) -> Option<&OwnedSymbolToken> {
-        self.current_field_name.as_ref()
-    }
-
-    fn step_in(&mut self) -> IonResult<()> {
-        match &self.current_value {
-            Some(value) if value.value().ion_type().is_container() => {
-                self.parents
-                    .push(ParentContainer::new(value.value().ion_type()));
+        match value {
+            Ok(None) => {
+                // If the parser returns Ok(None), we've just encountered the end of the container for
+                // the first time. Set `is_exhausted` so we won't try to parse more until `step_out()` is
+                // called.
+                // We previously used a copy of the last `ParentLevel` in the stack to simplify reading.
+                // To modify it, we'll need to get a mutable reference to the original.
+                self.parents.last_mut().unwrap().set_exhausted(true);
                 self.current_value = None;
-                Ok(())
             }
-            Some(value) => illegal_operation(format!(
-                "Cannot step_in() to a {:?}",
-                value.value().ion_type()
-            )),
-            None => illegal_operation(format!(
-                "{} {}",
-                "Cannot `step_in`: the reader is not positioned on a value.",
-                "Try calling `next()` to advance first."
-            )),
-        }
-    }
-
-    fn step_out(&mut self) -> IonResult<()> {
-        if self.parents.is_empty() {
-            return illegal_operation(format!(
-                "Cannot call `step_out()` when the reader is at the top level."
-            ));
-        }
-
-        // If we're not at the end of the current container, advance the cursor until we are.
-        // Unlike the binary reader, which can skip-scan, the text reader must visit every value
-        // between its current position and the end of the container.
-        if !self.parents.last().unwrap().is_exhausted() {
-            while let Some(_ignored_value) = self.next()? {}
-        }
-
-        // Remove the parent container from the stack and clear the current value.
-        let _ = self.parents.pop();
-        self.current_value = None;
+            Ok(Some(value)) => {
+                // We successfully read a value. Set it as the current value.
+                self.current_value = Some(value);
+            }
+            Err(e) => return Err(e),
+        };
 
         Ok(())
     }
@@ -204,7 +168,7 @@ impl<T: TextIonDataSource> TextReader<T> {
 
     /// Assumes that the reader is inside an struct and attempts to parse the next field name.
     /// If the next token in the stream is an end-of-struct delimiter (`}`), returns Ok(None).
-    fn next_struct_field_name(&mut self) -> IonResult<Option<OwnedSymbolToken>> {
+    fn next_struct_field_name(&mut self) -> IonResult<Option<RawSymbolToken>> {
         // If there isn't another value, this returns Ok(None).
         self.parse_expected("a struct field name", struct_field_name_or_end)
     }
@@ -379,48 +343,282 @@ impl<T: TextIonDataSource> TextReader<T> {
     }
 }
 
+// Returned by the `annotations()` method below if there is no current value.
+const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
+
+// TODO: This implementation of the text reader eagerly materializes each value that it encounters
+//       in the stream and stores it in the reader as `current_value`. Each time a user requests
+//       a value via `read_i64`, `read_bool`, etc, a clone of `current_value` is returned (assuming
+//       its type is in alignment with the request).
+//       A better implementation would identify the input slice containing the next value without
+//       materializing it and then attempt to materialize it when the user calles `read_TYPE`. This
+//       would take less memory and would only materialize values the user requests.
+//       See: https://github.com/amzn/ion-rust/issues/322
+impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
+    fn ion_version(&self) -> (u8, u8) {
+        // TODO: The text reader does not yet have IVM support
+        (1, 0)
+    }
+
+    fn next(&mut self) -> IonResult<Option<StreamItem>> {
+        // Parse the next value from the stream, storing it in `self.current_value`.
+        self.load_next_value()?;
+        if let Some(value) = self.current_value.as_ref() {
+            let ion_type = value.ion_type();
+            let is_null = matches!(value.value(), TextValue::Null(_));
+            Ok(Some(StreamItem::Value(ion_type, is_null)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn ion_type(&self) -> Option<IonType> {
+        self.current_value.as_ref().map(|v| v.ion_type())
+    }
+
+    fn is_null(&self) -> bool {
+        self.current_value
+            .as_ref()
+            .map(|v| matches!(v.value(), TextValue::Null(_)))
+            .unwrap_or(false)
+    }
+
+    // TODO: This should return an Option<> in case there isn't a current value.
+    fn annotations(&self) -> &[RawSymbolToken] {
+        self.current_value
+            .as_ref()
+            .map(|value| value.annotations())
+            .unwrap_or(EMPTY_SLICE_RAW_SYMBOL_TOKEN)
+    }
+
+    fn field_name(&self) -> Option<&RawSymbolToken> {
+        self.current_field_name.as_ref()
+    }
+
+    fn read_null(&mut self) -> IonResult<Option<IonType>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Null(ion_type)) => Ok(Some(*ion_type)),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_bool(&mut self) -> IonResult<Option<bool>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Boolean(value)) => Ok(Some(*value)),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_i64(&mut self) -> IonResult<Option<i64>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Integer(value)) => Ok(Some(*value)),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_f32(&mut self) -> IonResult<Option<f32>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Float(value)) => Ok(Some(*value as f32)),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_f64(&mut self) -> IonResult<Option<f64>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Float(value)) => Ok(Some(*value)),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_decimal(&mut self) -> IonResult<Option<Decimal>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Decimal(ref value)) => Ok(Some(value.clone())),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>> {
+        // TODO: This function is deprecated. Remove it from the trait.
+        unimplemented!("`read_datetime` is being removed; use `read_timestamp` instead")
+    }
+
+    fn read_string(&mut self) -> IonResult<Option<String>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::String(ref value)) => Ok(Some(value.clone())),
+            _ => Ok(None),
+        }
+    }
+
+    fn string_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>>
+    where
+        F: FnOnce(&str) -> U,
+    {
+        // TODO: This function format is a holdover from pre-NLL Rust.
+        //       https://github.com/amzn/ion-rust/issues/335
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::String(ref value)) => Ok(Some(f(value.as_str()))),
+            _ => Ok(None),
+        }
+    }
+
+    fn string_bytes_map<F, U>(&mut self, f: F) -> IonResult<Option<U>>
+    where
+        F: FnOnce(&[u8]) -> U,
+    {
+        // TODO: This function format is a holdover from pre-NLL Rust.
+        //       https://github.com/amzn/ion-rust/issues/335
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::String(ref value)) => Ok(Some(f(value.as_bytes()))),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_symbol(&mut self) -> IonResult<Option<RawSymbolToken>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Symbol(ref value)) => Ok(Some(value.clone())),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Blob(ref value)) => Ok(Some(value.clone())),
+            _ => Ok(None),
+        }
+    }
+
+    fn blob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>>
+    where
+        F: FnOnce(&[u8]) -> U,
+    {
+        // TODO: This function format is a holdover from pre-NLL Rust.
+        //       https://github.com/amzn/ion-rust/issues/335
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Blob(ref value)) => Ok(Some(f(value.as_slice()))),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Clob(ref value)) => Ok(Some(value.clone())),
+            _ => Ok(None),
+        }
+    }
+
+    fn clob_ref_map<F, U>(&mut self, f: F) -> IonResult<Option<U>>
+    where
+        F: FnOnce(&[u8]) -> U,
+    {
+        // TODO: This function format is a holdover from pre-NLL Rust.
+        //       https://github.com/amzn/ion-rust/issues/335
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Clob(ref value)) => Ok(Some(f(value.as_slice()))),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_timestamp(&mut self) -> IonResult<Option<Timestamp>> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Timestamp(ref value)) => Ok(Some(value.clone())),
+            _ => Ok(None),
+        }
+    }
+
+    fn read_datetime(&mut self) -> IonResult<Option<DateTime<FixedOffset>>> {
+        // TODO: This is deprecated. Remove it from the trait.
+        unimplemented!("`read_datetime` is being removed; use `read_timestamp` instead")
+    }
+
+    fn step_in(&mut self) -> IonResult<()> {
+        match &self.current_value {
+            Some(value) if value.ion_type().is_container() => {
+                self.parents
+                    .push(ParentContainer::new(value.value().ion_type()));
+                self.current_value = None;
+                Ok(())
+            }
+            Some(value) => {
+                illegal_operation(format!("Cannot step_in() to a {:?}", value.ion_type()))
+            }
+            None => illegal_operation(format!(
+                "{} {}",
+                "Cannot `step_in`: the reader is not positioned on a value.",
+                "Try calling `next()` to advance first."
+            )),
+        }
+    }
+
+    fn step_out(&mut self) -> IonResult<()> {
+        if self.parents.is_empty() {
+            return illegal_operation(format!(
+                "Cannot call `step_out()` when the reader is at the top level."
+            ));
+        }
+
+        // If we're not at the end of the current container, advance the cursor until we are.
+        // Unlike the binary reader, which can skip-scan, the text reader must visit every value
+        // between its current position and the end of the container.
+        if !self.parents.last().unwrap().is_exhausted() {
+            while let Some(_ignored_value) = self.next()? {}
+        }
+
+        // Remove the parent container from the stack and clear the current value.
+        let _ = self.parents.pop();
+        self.current_value = None;
+
+        Ok(())
+    }
+
+    fn depth(&self) -> usize {
+        self.parents.len()
+    }
+}
+
 #[cfg(test)]
 mod reader_tests {
     use rstest::*;
 
+    use crate::raw_reader::StreamItem;
+    use crate::raw_symbol_token::{local_sid_token, text_token};
     use crate::result::IonResult;
-    use crate::text::reader::TextReader;
-    use crate::text::text_value::TextValue;
+    use crate::text::raw_text_reader::RawTextReader;
+    use crate::text::text_value::{IntoAnnotations, TextValue};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::value::owned::{local_sid_token, text_token};
-    use crate::IonType;
+    use crate::{IonType, RawReader};
+
+    fn next_type(reader: &mut RawTextReader<&str>, ion_type: IonType, is_null: bool) {
+        assert_eq!(
+            reader.next().unwrap().unwrap(),
+            StreamItem::Value(ion_type, is_null)
+        );
+    }
+
+    fn annotations_eq<I: IntoAnnotations>(reader: &mut RawTextReader<&str>, expected: I) {
+        let annotations = expected.into_annotations();
+        assert_eq!(reader.annotations(), annotations.as_slice());
+    }
 
     #[test]
     fn test_skipping_containers() -> IonResult<()> {
         let ion_data = r#"
             0 [1, 2, 3] (4 5) 6
         "#;
-        let mut reader = TextReader::new(ion_data);
-        assert_eq!(
-            reader.next()?,
-            Some(TextValue::Integer(0).without_annotations())
-        );
-        assert_eq!(
-            reader.next()?,
-            Some(TextValue::ListStart.without_annotations())
-        );
+        let reader = &mut RawTextReader::new(ion_data);
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?.unwrap(), 0);
+
+        next_type(reader, IonType::List, false);
         reader.step_in()?;
-        assert_eq!(
-            reader.next()?,
-            Some(TextValue::Integer(1).without_annotations())
-        );
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?.unwrap(), 1);
         reader.step_out()?;
         // This should have skipped over the `2, 3` at the end of the list.
-        assert_eq!(
-            reader.next()?,
-            Some(TextValue::SExpressionStart.without_annotations())
-        );
+        next_type(reader, IonType::SExpression, false);
         // Don't step into the s-expression. Instead, skip over it.
-        assert_eq!(
-            reader.next()?,
-            Some(TextValue::Integer(6).without_annotations())
-        );
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?.unwrap(), 6);
         Ok(())
     }
 
@@ -438,9 +636,16 @@ mod reader_tests {
     #[case(" {{ZW5jb2RlZA==}} ", TextValue::Blob(Vec::from("encoded".as_bytes())))]
     #[case(" {{\"hello\"}} ", TextValue::Clob(Vec::from("hello".as_bytes())))]
     fn test_read_single_top_level_values(#[case] text: &str, #[case] expected_value: TextValue) {
-        let mut reader = TextReader::new(text);
-        let actual_value = reader.next().unwrap().unwrap();
-        assert_eq!(actual_value, expected_value.without_annotations());
+        let reader = &mut RawTextReader::new(text);
+        next_type(
+            reader,
+            expected_value.ion_type(),
+            matches!(expected_value, TextValue::Null(_)),
+        );
+        // TODO: Redo (or remove?) this test. There's not an API that exposes the
+        //       AnnotatedTextValue any more. We're directly accessing `current_value` as a hack.
+        let actual_value = reader.current_value.clone();
+        assert_eq!(actual_value.unwrap(), expected_value.without_annotations());
     }
 
     #[test]
@@ -458,61 +663,61 @@ mod reader_tests {
             ["foo", "bar"]
             ('''foo''')
         "#;
-        let mut reader = TextReader::new(ion_data);
-        let mut next_is = |expected: TextValue| {
-            // In this test, none of the stream values are annotated.
-            // Compare the value and ignore the annotations.
-            assert_eq!(
-                reader.next().unwrap().unwrap(),
-                expected.without_annotations()
-            );
-        };
-        next_is(TextValue::Null(IonType::Null));
-        next_is(TextValue::Boolean(true));
-        next_is(TextValue::Integer(5));
-        next_is(TextValue::Float(5.0f64));
-        next_is(TextValue::Decimal(Decimal::new(55, -1)));
-        next_is(TextValue::Timestamp(
-            Timestamp::with_ymd(2021, 9, 25).build().unwrap(),
-        ));
-        next_is(TextValue::Symbol(text_token("foo")));
-        next_is(TextValue::String("hello".to_string()));
+
+        let reader = &mut RawTextReader::new(ion_data);
+        next_type(reader, IonType::Null, true);
+
+        next_type(reader, IonType::Boolean, false);
+        assert_eq!(reader.read_bool()?.unwrap(), true);
+
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?.unwrap(), 5);
+
+        next_type(reader, IonType::Float, false);
+        assert_eq!(reader.read_f64()?.unwrap(), 5.0f64);
+
+        next_type(reader, IonType::Decimal, false);
+        assert_eq!(reader.read_decimal()?.unwrap(), Decimal::new(55, -1));
+
+        next_type(reader, IonType::Timestamp, false);
+        assert_eq!(
+            reader.read_timestamp()?.unwrap(),
+            Timestamp::with_ymd(2021, 9, 25).build().unwrap()
+        );
+
+        next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("foo"));
+
+        next_type(reader, IonType::String, false);
+        assert_eq!(reader.read_string()?.unwrap(), "hello".to_string());
 
         // ===== CONTAINERS =====
-        // TODO: Calls to `next()` should return the IonType of the next value, not the value itself.
 
         // Reading a struct: {foo: bar}
-        assert_eq!(reader.next()?.unwrap(), TextValue::StructStart);
+        next_type(reader, IonType::Struct, false);
         reader.step_in()?;
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::Symbol(text_token("bar"))
-        );
+        next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("bar"));
         assert_eq!(*reader.field_name().unwrap(), text_token("foo"));
+
         assert_eq!(reader.next()?, None);
         reader.step_out()?;
 
         // Reading a list: ["foo", "bar"]
-        assert_eq!(reader.next()?.unwrap(), TextValue::ListStart);
+        next_type(reader, IonType::List, false);
         reader.step_in()?;
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::String(String::from("foo"))
-        );
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::String(String::from("bar"))
-        );
+        next_type(reader, IonType::String, false);
+        assert_eq!(reader.read_string()?.unwrap(), String::from("foo"));
+        next_type(reader, IonType::String, false);
+        assert_eq!(reader.read_string()?.unwrap(), String::from("bar"));
         assert_eq!(reader.next()?, None);
         reader.step_out()?;
 
         // Reading an s-expression: ('''foo''')
-        assert_eq!(reader.next()?.unwrap(), TextValue::SExpressionStart);
+        next_type(reader, IonType::SExpression, false);
         reader.step_in()?;
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::String(String::from("foo"))
-        );
+        next_type(reader, IonType::String, false);
+        assert_eq!(reader.read_string()?.unwrap(), String::from("foo"));
         assert_eq!(reader.next()?, None);
         reader.step_out()?;
 
@@ -526,7 +731,7 @@ mod reader_tests {
     }
 
     #[test]
-    fn test_read_multiple_top_level_values_with_comments() {
+    fn test_read_multiple_top_level_values_with_comments() -> IonResult<()> {
         let ion_data = r#"
             /*
                 Arrokoth is a trans-Neptunian object in the Kuiper belt.
@@ -538,18 +743,23 @@ mod reader_tests {
             km::36 // width
         "#;
 
-        let mut reader = TextReader::new(ion_data);
-        let mut next_is = |expected_value| {
-            let actual_value = reader.next().unwrap().unwrap();
-            assert_eq!(actual_value, expected_value);
-        };
+        let reader = &mut RawTextReader::new(ion_data);
 
-        next_is(TextValue::String(String::from("(486958) 2014 MU69")).without_annotations());
-        next_is(
-            TextValue::Timestamp(Timestamp::with_ymd(2014, 6, 26).build().unwrap())
-                .without_annotations(),
+        next_type(reader, IonType::String, false);
+        assert_eq!(
+            reader.read_string()?.unwrap(),
+            String::from("(486958) 2014 MU69")
         );
-        next_is(TextValue::Integer(36).with_annotations("km"));
+
+        next_type(reader, IonType::Timestamp, false);
+        assert_eq!(
+            reader.read_timestamp()?.unwrap(),
+            Timestamp::with_ymd(2014, 6, 26).build().unwrap()
+        );
+        // TODO: Check for 'km' annotation after change to OwnedSymbolToken
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?.unwrap(), 36);
+        Ok(())
     }
 
     #[test]
@@ -563,87 +773,85 @@ mod reader_tests {
             $100::$200::$300::2021-09-25T
             'uranus'::foo
             neptune::"hello"
-            $55::{foo: bar}
-            pluto::[1, 2, 3]
+            $55::{foo: $21::bar}
+            pluto::[1, $77::2, 3]
             haumea::makemake::eris::ceres::(++ -- &&&&&)
         "#;
-        let mut reader = TextReader::new(ion_data);
-        let mut next_is = |expected_value| {
-            let actual_value = reader.next().unwrap().unwrap();
-            assert_eq!(actual_value, expected_value);
-        };
-        next_is(TextValue::Null(IonType::Null).with_annotations("mercury"));
-        next_is(TextValue::Boolean(true).with_annotations(&["venus", "earth"]));
-        next_is(TextValue::Integer(5).with_annotations(&[local_sid_token(17), text_token("mars")]));
-        next_is(TextValue::Float(5.0f64).with_annotations("jupiter"));
-        next_is(TextValue::Decimal(Decimal::new(55, -1)).with_annotations("saturn"));
-        next_is(
-            TextValue::Timestamp(Timestamp::with_ymd(2021, 9, 25).build().unwrap())
-                .with_annotations(&[
-                    local_sid_token(100),
-                    local_sid_token(200),
-                    local_sid_token(300),
-                ]),
+        // TODO: Check for annotations after OwnedSymbolToken
+
+        let reader = &mut RawTextReader::new(ion_data);
+        next_type(reader, IonType::Null, true);
+        annotations_eq(reader, &["mercury"]);
+
+        next_type(reader, IonType::Boolean, false);
+        assert_eq!(reader.read_bool()?.unwrap(), true);
+        annotations_eq(reader, &["venus", "earth"]);
+
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?.unwrap(), 5);
+        annotations_eq(reader, &[local_sid_token(17), text_token("mars")]);
+
+        next_type(reader, IonType::Float, false);
+        assert_eq!(reader.read_f64()?.unwrap(), 5.0f64);
+        annotations_eq(reader, &["jupiter"]);
+
+        next_type(reader, IonType::Decimal, false);
+        assert_eq!(reader.read_decimal()?.unwrap(), Decimal::new(55, -1));
+        annotations_eq(reader, &["saturn"]);
+
+        next_type(reader, IonType::Timestamp, false);
+        assert_eq!(
+            reader.read_timestamp()?.unwrap(),
+            Timestamp::with_ymd(2021, 9, 25).build().unwrap()
         );
-        next_is(TextValue::Symbol(text_token("foo")).with_annotations("uranus"));
-        next_is(TextValue::String("hello".to_string()).with_annotations("neptune"));
+        annotations_eq(reader, &[100, 200, 300]);
+
+        next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("foo"));
+        annotations_eq(reader, &["uranus"]);
+
+        next_type(reader, IonType::String, false);
+        assert_eq!(reader.read_string()?.unwrap(), "hello".to_string());
+        annotations_eq(reader, &["neptune"]);
 
         // ===== CONTAINERS =====
-        // TODO: Calls to `next()` should return the IonType of the next value, not the value itself.
 
-        // Reading a struct: $55::{foo: bar}
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::StructStart.with_annotations(local_sid_token(55))
-        );
+        // Reading a struct: $55::{foo: $21::bar}
+        next_type(reader, IonType::Struct, false);
+        annotations_eq(reader, 55);
         reader.step_in()?;
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::Symbol(text_token("bar")).without_annotations()
-        );
+        next_type(reader, IonType::Symbol, false);
         assert_eq!(*reader.field_name().unwrap(), text_token("foo"));
+        annotations_eq(reader, 21);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("bar"));
         assert_eq!(reader.next()?, None);
         reader.step_out()?;
 
-        // Reading a list: pluto::[1, 2, 3]
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::ListStart.with_annotations("pluto")
-        );
+        // Reading a list: pluto::[1, $77::2, 3]
+        next_type(reader, IonType::List, false);
         reader.step_in()?;
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::Integer(1).without_annotations()
-        );
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::Integer(2).without_annotations()
-        );
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::Integer(3).without_annotations()
-        );
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.annotations().len(), 0);
+        assert_eq!(reader.read_i64()?.unwrap(), 1);
+        next_type(reader, IonType::Integer, false);
+        annotations_eq(reader, &[77]);
+        assert_eq!(reader.read_i64()?.unwrap(), 2);
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.annotations().len(), 0);
+        assert_eq!(reader.read_i64()?.unwrap(), 3);
         assert_eq!(reader.next()?, None);
         reader.step_out()?;
 
         // Reading an s-expression: haumea::makemake::eris::ceres::(++ -- &&&&&)
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::SExpressionStart.with_annotations(&["haumea", "makemake", "eris", "ceres"])
-        );
+        next_type(reader, IonType::SExpression, false);
+        annotations_eq(reader, &["haumea", "makemake", "eris", "ceres"]);
         reader.step_in()?;
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::Symbol(text_token("++")).without_annotations()
-        );
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::Symbol(text_token("--")).without_annotations()
-        );
-        assert_eq!(
-            reader.next()?.unwrap(),
-            TextValue::Symbol(text_token("&&&&&")).without_annotations()
-        );
+        next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("++"));
+        next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("--"));
+        next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("&&&&&"));
         assert_eq!(reader.next()?, None);
         reader.step_out()?;
 

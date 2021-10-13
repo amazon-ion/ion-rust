@@ -797,16 +797,17 @@ impl<W: Write> BinarySystemWriter<W> {
 mod writer_tests {
     use std::fmt::Debug;
 
-    use crate::{BinaryIonCursor, Reader};
+    use crate::{RawBinaryReader, Reader};
 
     use rstest::*;
 
     use super::*;
+    use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
     use num_traits::Float;
     use std::convert::TryInto;
 
     type TestWriter<'a> = BinarySystemWriter<&'a mut Vec<u8>>;
-    type TestReader<'a> = Reader<BinaryIonCursor<std::io::Cursor<&'a [u8]>>>;
+    type TestReader<'a> = Reader<RawBinaryReader<std::io::Cursor<&'a [u8]>>>;
 
     /// A reusable test outline for verifying BinarySystemWriter behavior.
     fn binary_writer_test(
@@ -823,7 +824,7 @@ mod writer_tests {
 
         // Create a BinaryReader that reads from the BinarySystemWriter's output.
         let data = buffer.as_slice();
-        let cursor = BinaryIonCursor::new(io::Cursor::new(data));
+        let cursor = RawBinaryReader::new(io::Cursor::new(data));
         let mut reader = Reader::new(cursor);
 
         // Call the user's verification function
@@ -1007,11 +1008,15 @@ mod writer_tests {
 
     #[test]
     fn binary_writer_symbols() -> IonResult<()> {
+        let symbol_ids: Vec<RawSymbolToken> = [0, 5, 10, 31, 111, 556, 1024, 74_991, 111_448]
+            .iter()
+            .map(|sid| local_sid_token(*sid))
+            .collect();
         binary_writer_scalar_test(
-            &[0, 5, 10, 31, 111, 556, 1024, 74_991, 111_448],
+            symbol_ids.as_slice(),
             IonType::Symbol,
-            |writer, v| writer.write_symbol_id(*v),
-            |reader| reader.read_symbol_id(),
+            |writer, v| writer.write_symbol_id(v.local_sid().unwrap()),
+            |reader| reader.read_raw_symbol(),
         )
     }
 
@@ -1078,7 +1083,12 @@ mod writer_tests {
     }
 
     fn expect_symbol_id(reader: &mut TestReader, value: SymbolId) {
-        expect_scalar(reader, IonType::Symbol, |r| r.read_symbol_id(), value);
+        expect_scalar(
+            reader,
+            IonType::Symbol,
+            |r| r.read_raw_symbol(),
+            local_sid_token(value),
+        );
     }
 
     fn expect_string(reader: &mut TestReader, value: &str) {
@@ -1117,7 +1127,11 @@ mod writer_tests {
 
     fn expect_annotations(reader: &TestReader, annotations: &[&str]) {
         assert_eq!(
-            reader.annotations().collect::<Vec<&str>>().as_slice(),
+            reader
+                .annotations()
+                .map(|opt| opt.expect("Annotation with unknown text."))
+                .collect::<Vec<&str>>()
+                .as_slice(),
             annotations
         );
     }

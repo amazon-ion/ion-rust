@@ -5,7 +5,7 @@ use chrono::offset::FixedOffset;
 use chrono::prelude::*;
 use delegate::delegate;
 
-use crate::cursor::{Cursor, StreamItem};
+use crate::raw_reader::{RawReader, StreamItem};
 use crate::{
     binary::{
         constants::v1_0::length_codes,
@@ -22,6 +22,7 @@ use crate::{
 };
 use std::io;
 
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use std::ops::Range;
@@ -42,7 +43,7 @@ struct EncodedValue {
     header: Header,
     is_null: bool,
     index_at_depth: usize,
-    field_id: Option<SymbolId>,
+    field_id: Option<RawSymbolToken>,
 
     // The `number_of_annotations` field stores the number of annotations associated with
     // the current value in the Ion stream.
@@ -210,9 +211,8 @@ impl Default for EncodedValue {
     }
 }
 
-// A low-level reader that offers no validation or symbol management.
-// It can only move and return the current value.
-pub struct BinaryIonCursor<R>
+// A low-level reader that offers no symbol management.
+pub struct RawBinaryReader<R>
 where
     R: IonDataSource,
 {
@@ -249,23 +249,24 @@ pub struct CursorState {
     // All of the annotations on values in `parents` and the current value.
     // Having a single, reusable Vec reduces allocations and keeps the size of
     // the EncodedValue type (which is frequently moved) small.
-    annotations: Vec<SymbolId>,
+    annotations: Vec<RawSymbolToken>,
 }
 
 /// Verifies that the current value is of the expected type and that the bytes representing that
 /// value have not yet been consumed from the data source. This macro is called by the
 /// BinaryCursor#read_{typename} methods.
 macro_rules! read_safety_checks {
-    ( $binary_cursor:ident, $ion_type:expr ) => {
+    ( $raw_binary_reader:ident, $ion_type:expr ) => {
         // Make sure that:
         // * the type descriptor's IonType aligns with what the Cursor expects to read
         // * the value under the cursor is not a null, even if the IonType lines up
-        if $binary_cursor.cursor.value.ion_type != $ion_type || $binary_cursor.cursor.value.is_null
+        if $raw_binary_reader.cursor.value.ion_type != $ion_type
+            || $raw_binary_reader.cursor.value.is_null
         {
             return Ok(None);
         }
         // Make sure the cursor hasn't already advanced beyond the encoded bytes for this value.
-        if $binary_cursor.finished_reading_value() {
+        if $raw_binary_reader.finished_reading_value() {
             return illegal_operation(format!(
                 "You cannot read the same {:?} value more than once.",
                 $ion_type
@@ -274,9 +275,7 @@ macro_rules! read_safety_checks {
     };
 }
 
-impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
-    type DataSource = R;
-
+impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
     fn ion_version(&self) -> (u8, u8) {
         self.cursor.ion_version
     }
@@ -296,7 +295,7 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
 
         // If we're in a struct, read the field id that must precede each value.
         self.cursor.value.field_id = if self.cursor.is_in_struct {
-            Some(self.read_field_id()?)
+            Some(RawSymbolToken::SymbolId(self.read_field_id()?))
         } else {
             self.cursor.value.field_id_length = 0;
             None
@@ -382,18 +381,18 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
         self.cursor.value.is_null
     }
 
-    fn annotation_ids(&self) -> &[SymbolId] {
+    fn annotations(&self) -> &[RawSymbolToken] {
         let num_annotations = self.cursor.value.number_of_annotations as usize;
         if num_annotations == 0 {
-            return EMPTY_SLICE_USIZE;
+            return EMPTY_SLICE_RAW_SYMBOL_TOKEN;
         }
         let end = self.cursor.annotations.len();
         let start = end - num_annotations;
         &self.cursor.annotations[start..end]
     }
 
-    fn field_id(&self) -> Option<SymbolId> {
-        self.cursor.value.field_id
+    fn field_name(&self) -> Option<&RawSymbolToken> {
+        self.cursor.value.field_id.as_ref()
     }
 
     fn read_null(&mut self) -> IonResult<Option<IonType>> {
@@ -544,11 +543,11 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
     }
 
     #[inline(always)]
-    fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>> {
+    fn read_symbol(&mut self) -> IonResult<Option<RawSymbolToken>> {
         read_safety_checks!(self, IonType::Symbol);
 
         let symbol_id = self.read_value_as_uint()?.value() as usize;
-        Ok(Some(symbol_id))
+        Ok(Some(RawSymbolToken::SymbolId(symbol_id)))
     }
 
     fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
@@ -832,11 +831,11 @@ impl<R: IonDataSource> Cursor for BinaryIonCursor<R> {
 }
 
 const EMPTY_SLICE_U8: &[u8] = &[];
-const EMPTY_SLICE_USIZE: &[usize] = &[];
+const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
 
 /// Additional functionality that's only available if the data source is in-memory, such as a
 /// Vec<u8> or &[u8]).
-impl<T> BinaryIonCursor<io::Cursor<T>>
+impl<T> RawBinaryReader<io::Cursor<T>>
 where
     T: AsRef<[u8]>,
 {
@@ -928,12 +927,12 @@ where
     }
 }
 
-impl<R> BinaryIonCursor<R>
+impl<R> RawBinaryReader<R>
 where
     R: IonDataSource,
 {
     pub fn new(data_source: R) -> Self {
-        BinaryIonCursor {
+        RawBinaryReader {
             data_source,
             buffer: vec![0; 4096],
             cursor: CursorState {
@@ -1151,7 +1150,9 @@ where
             let var_uint = self.read_var_uint()?;
             bytes_read += var_uint.size_in_bytes();
             let annotation_symbol_id = var_uint.value();
-            self.cursor.annotations.push(annotation_symbol_id);
+            self.cursor
+                .annotations
+                .push(RawSymbolToken::SymbolId(annotation_symbol_id));
         }
         let new_annotations_count = self.cursor.annotations.len() - num_annotations_before;
         self.cursor.value.number_of_annotations = new_annotations_count as u8;
@@ -1198,8 +1199,9 @@ mod tests {
     use chrono::{FixedOffset, NaiveDate, TimeZone};
 
     use crate::binary::constants::v1_0::IVM;
-    use crate::binary::cursor::BinaryIonCursor;
-    use crate::cursor::{Cursor, StreamItem, StreamItem::*};
+    use crate::binary::raw_binary_reader::RawBinaryReader;
+    use crate::raw_reader::{RawReader, StreamItem, StreamItem::*};
+    use crate::raw_symbol_token::local_sid_token;
     use crate::result::{IonError, IonResult};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
@@ -1223,8 +1225,8 @@ mod tests {
     }
 
     // Prepends an Ion 1.0 IVM to the provided data and then creates a BinaryIonCursor over it
-    fn ion_cursor_for(bytes: &[u8]) -> BinaryIonCursor<TestDataSource> {
-        let mut binary_cursor = BinaryIonCursor::new(data_source_for(bytes));
+    fn ion_cursor_for(bytes: &[u8]) -> RawBinaryReader<TestDataSource> {
+        let mut binary_cursor = RawBinaryReader::new(data_source_for(bytes));
         assert_eq!(binary_cursor.ion_type(), None);
         assert_eq!(binary_cursor.next(), Ok(Some(VersionMarker(1, 0))));
         assert_eq!(binary_cursor.ion_version(), (1u8, 0u8));
@@ -1240,7 +1242,7 @@ mod tests {
     #[test]
     fn test_parse_unsupported_version_in_ivm() -> IonResult<()> {
         let data: [u8; 4] = [0xE0, 0x01, 0x01, 0xEA]; // Ion version 1.1 is not supported
-        let mut cursor = BinaryIonCursor::new(io::Cursor::new(data));
+        let mut cursor = RawBinaryReader::new(io::Cursor::new(data));
         assert_eq!(cursor.ion_type(), None);
         assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
         Ok(())
@@ -1249,7 +1251,7 @@ mod tests {
     #[test]
     fn test_parse_invalid_ivm() -> IonResult<()> {
         let data: [u8; 4] = [0xE0, 0x01, 0x00, 0xE0]; // IVM should end '0xEA' not '0xE0'
-        let mut cursor = BinaryIonCursor::new(io::Cursor::new(data));
+        let mut cursor = RawBinaryReader::new(io::Cursor::new(data));
         assert_eq!(cursor.ion_type(), None);
         assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
         Ok(())
@@ -1486,7 +1488,7 @@ mod tests {
     fn test_read_symbol_10() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x71, 0x0A]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Symbol, false)));
-        assert_eq!(cursor.read_symbol_id()?, Some(10usize));
+        assert_eq!(cursor.read_symbol()?, Some(local_sid_token(10)));
         Ok(())
     }
 
@@ -1627,13 +1629,13 @@ mod tests {
         assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
         cursor.step_in()?;
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_id(), Some(10usize));
+        assert_eq!(cursor.field_name(), Some(&local_sid_token(10)));
         assert_eq!(cursor.read_i64()?, Some(1i64));
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_id(), Some(11usize));
+        assert_eq!(cursor.field_name(), Some(&local_sid_token(11usize)));
         assert_eq!(cursor.read_i64()?, Some(2i64));
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_id(), Some(12usize));
+        assert_eq!(cursor.field_name(), Some(&local_sid_token(12usize)));
         assert_eq!(cursor.read_i64()?, Some(3i64));
         cursor.step_out()?;
         Ok(())
@@ -1660,7 +1662,7 @@ mod tests {
         cursor.step_in()?;
 
         assert_eq!(cursor.next()?, Some(Value(IonType::List, false)));
-        assert_eq!(cursor.field_id(), Some(11usize));
+        assert_eq!(cursor.field_name(), Some(&local_sid_token(11usize)));
         cursor.step_in()?;
 
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
@@ -1676,7 +1678,7 @@ mod tests {
         cursor.step_out()?; // Step out of list
 
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_id(), Some(10usize));
+        assert_eq!(cursor.field_name(), Some(&local_sid_token(10usize)));
         assert_eq!(cursor.read_i64()?, Some(1i64));
 
         assert_eq!(cursor.next()?, None); // End of the struct's values
@@ -1781,7 +1783,7 @@ mod tests {
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
-        assert_eq!(cursor.annotation_ids(), &[12]);
+        assert_eq!(cursor.annotations(), &[local_sid_token(12)]);
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
         assert_eq!(
             cursor.raw_value_bytes(),

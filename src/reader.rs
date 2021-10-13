@@ -7,20 +7,20 @@ use chrono::{DateTime, FixedOffset};
 use delegate::delegate;
 
 use crate::constants::v1_0::system_symbol_ids;
-use crate::cursor::StreamItem::*;
+use crate::raw_reader::StreamItem::*;
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonResult;
 use crate::symbol_table::SymbolTable;
 use crate::system_event_handler::SystemEventHandler;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::types::SymbolId;
-use crate::{BinaryIonCursor, Cursor, IonType};
+use crate::{IonType, RawBinaryReader, RawReader};
 
 /// A streaming Ion reader that resolves symbol IDs into the appropriate text.
 ///
 /// Reader itself is format-agnostic; all format-specific logic is handled by the
 /// wrapped Cursor implementation.
-pub struct Reader<C: Cursor> {
+pub struct Reader<C: RawReader> {
     cursor: C,
     symbol_table: SymbolTable,
     system_event_handler: Option<Box<dyn SystemEventHandler>>,
@@ -30,7 +30,7 @@ pub struct Reader<C: Cursor> {
 // macro, making it impossible to apply this #[allow(deprecated)] more narrowly. When `read_datetime`
 // is removed, this annotation should be removed too.
 #[allow(deprecated)]
-impl<C: Cursor> Reader<C> {
+impl<C: RawReader> Reader<C> {
     pub fn new(cursor: C) -> Reader<C> {
         Reader {
             cursor,
@@ -62,11 +62,17 @@ impl<C: Cursor> Reader<C> {
                     self.invoke_on_symbol_table_reset_handler();
                 }
                 Some(Value(IonType::Struct, false)) => {
-                    if let [system_symbol_ids::ION_SYMBOL_TABLE, ..] = self.cursor.annotation_ids()
-                    {
-                        self.read_symbol_table()?;
-                    } else {
-                        return Ok(Some((IonType::Struct, false)));
+                    // If the first annotation is $ion_symbol_table...
+                    match self.cursor.annotations() {
+                        [symbol, ..]
+                            if symbol.matches(
+                                system_symbol_ids::ION_SYMBOL_TABLE,
+                                "$ion_symbol_table",
+                            ) =>
+                        {
+                            self.read_symbol_table()?;
+                        }
+                        _ => return Ok(Some((IonType::Struct, false))),
                     }
                 }
                 Some(Value(ion_type, is_null)) => return Ok(Some((ion_type, is_null))),
@@ -84,17 +90,27 @@ impl<C: Cursor> Reader<C> {
         while let Some(Value(ion_type, is_null)) = self.cursor.next()? {
             let field_id = self
                 .cursor
-                .field_id()
+                .field_name()
                 .expect("No field ID found inside $ion_symbol_table struct.");
             match (field_id, ion_type, is_null) {
-                // TODO: This implementation only supports local symbol table imports and appends.
-                (system_symbol_ids::IMPORTS, IonType::Symbol, false) => {
-                    if self.cursor.read_symbol_id()?.unwrap() != 3 {
+                // The field name is either SID 6 or the text 'imports' and the
+                // field value is a non-null symbol
+                (symbol, IonType::Symbol, false)
+                    if symbol.matches(system_symbol_ids::IMPORTS, "imports") =>
+                {
+                    // TODO: SST imports. This implementation only supports local symbol
+                    //       table imports and appends.
+                    let import_symbol = self.cursor.read_symbol()?.unwrap();
+                    if !import_symbol.matches(3, "$ion_symbol_table") {
                         unimplemented!("Can't handle non-$ion_symbol_table imports value.");
                     }
                     is_append = true;
                 }
-                (system_symbol_ids::SYMBOLS, IonType::List, false) => {
+                // The field name is either SID 7 or the text 'imports' and the
+                // field value is a non-null list
+                (symbol, IonType::List, false)
+                    if symbol.matches(system_symbol_ids::SYMBOLS, "symbols") =>
+                {
                     self.cursor.step_in()?;
                     while let Some(Value(IonType::String, false)) = self.cursor.next()? {
                         let text = self.cursor.read_string()?.unwrap();
@@ -166,21 +182,43 @@ impl<C: Cursor> Reader<C> {
     }
 
     pub fn field_name(&self) -> Option<&str> {
-        if let Some(id) = self.cursor.field_id() {
-            return self.symbol_table.text_for(id);
+        match self.cursor.field_name() {
+            Some(RawSymbolToken::SymbolId(sid)) => self.symbol_table.text_for(*sid),
+            Some(RawSymbolToken::Text(text)) => Some(text.as_str()),
+            None => None,
         }
-        None
     }
 
-    pub fn annotations(&self) -> impl Iterator<Item = &str> {
+    pub fn raw_annotations(&mut self) -> impl Iterator<Item = &RawSymbolToken> {
+        self.cursor.annotations().iter()
+    }
+
+    // TODO: The iterator should return a resolved symbol (OwnedSymbolToken?) that has
+    //       the symbol's ID, text, and import source (if available).
+    pub fn annotations(&self) -> impl Iterator<Item = Option<&str>> {
         self.cursor
-            .annotation_ids()
+            .annotations()
             .iter()
-            .map(move |sid| self.symbol_table.text_for(sid.clone()).unwrap())
+            .map(move |raw_token| match raw_token {
+                RawSymbolToken::SymbolId(sid) => self.symbol_table.text_for(*sid),
+                RawSymbolToken::Text(text) => Some(text.as_str()),
+            })
     }
 
     pub fn symbol_table(&self) -> &SymbolTable {
         &self.symbol_table
+    }
+
+    // TODO: Offer other flavors of this method, including:
+    //       * a version that returns a resolved token (OwnedSymbolToken?) that can provide both
+    //         text and a SID if available
+    //       * a version that returns just the symbol's text, since that's what most users will want
+    pub fn read_raw_symbol(&mut self) -> IonResult<Option<RawSymbolToken>> {
+        self.cursor.read_symbol()
+    }
+
+    pub fn raw_field_name_token(&mut self) -> Option<&RawSymbolToken> {
+        self.cursor.field_name()
     }
 
     // The Reader needs to expose many of the same functions as the Cursor, but only some of those
@@ -191,8 +229,6 @@ impl<C: Cursor> Reader<C> {
             pub fn is_null(&self) -> bool;
             pub fn ion_version(&self) -> (u8, u8);
             pub fn ion_type(&self) -> Option<IonType>;
-            pub fn annotation_ids(&self) -> &[SymbolId];
-            pub fn field_id(&self) -> Option<SymbolId>;
             pub fn read_null(&mut self) -> IonResult<Option<IonType>>;
             pub fn read_bool(&mut self) -> IonResult<Option<bool>>;
             pub fn read_i64(&mut self) -> IonResult<Option<i64>>;
@@ -201,7 +237,6 @@ impl<C: Cursor> Reader<C> {
             pub fn read_decimal(&mut self) -> IonResult<Option<Decimal>>;
             pub fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>>;
             pub fn read_string(&mut self) -> IonResult<Option<String>>;
-            pub fn read_symbol_id(&mut self) -> IonResult<Option<SymbolId>>;
             pub fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
             pub fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>>;
             pub fn read_datetime(&mut self) -> IonResult<Option<DateTime<FixedOffset>>>;
@@ -221,7 +256,7 @@ impl<C: Cursor> Reader<C> {
 
 /// Functionality that is only available if the data source we're reading from is in-memory, like
 /// a Vec<u8> or &[u8].
-impl<T: AsRef<[u8]>> Reader<BinaryIonCursor<io::Cursor<T>>> {
+impl<T: AsRef<[u8]>> Reader<RawBinaryReader<io::Cursor<T>>> {
     delegate! {
         to self.cursor {
             pub fn raw_bytes(&self) -> Option<&[u8]>;
@@ -254,8 +289,8 @@ mod tests {
     use std::io;
 
     use crate::binary::constants::v1_0::IVM;
-    use crate::binary::cursor::BinaryIonCursor;
-    use crate::cursor::{Cursor, StreamItem::*};
+    use crate::binary::raw_binary_reader::RawBinaryReader;
+    use crate::raw_reader::{RawReader, StreamItem::*};
     use crate::result::IonResult;
     use crate::system_event_handler::SystemEventHandler;
     use crate::types::IonType;
@@ -278,15 +313,15 @@ mod tests {
     }
 
     // Prepends an Ion 1.0 IVM to the provided data and then creates a BinaryIonCursor over it
-    fn ion_cursor_for(bytes: &[u8]) -> BinaryIonCursor<TestDataSource> {
-        let mut binary_cursor = BinaryIonCursor::new(data_source_for(bytes));
+    fn ion_cursor_for(bytes: &[u8]) -> RawBinaryReader<TestDataSource> {
+        let mut binary_cursor = RawBinaryReader::new(data_source_for(bytes));
         assert_eq!(binary_cursor.ion_type(), None);
         assert_eq!(binary_cursor.next(), Ok(Some(VersionMarker(1, 0))));
         assert_eq!(binary_cursor.ion_version(), (1u8, 0u8));
         binary_cursor
     }
 
-    fn ion_reader_for(bytes: &[u8]) -> Reader<BinaryIonCursor<TestDataSource>> {
+    fn ion_reader_for(bytes: &[u8]) -> Reader<RawBinaryReader<TestDataSource>> {
         Reader::new(ion_cursor_for(bytes))
     }
 

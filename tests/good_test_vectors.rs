@@ -9,7 +9,7 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use ion_rs::result::{decoding_error, IonResult};
-use ion_rs::{BinaryIonCursor, IonType, Reader};
+use ion_rs::{IonType, RawBinaryReader, Reader};
 
 const GOOD_TEST_FILES_PATH: &str = "ion-tests/iontestdata/good/";
 
@@ -119,13 +119,13 @@ fn all_files_in(path: &str) -> BTreeSet<PathBuf> {
 fn read_file(path: &Path) -> IonResult<()> {
     let file = File::open(path).unwrap_or_else(|error| panic!("Failed to open file: {:?}", error));
     let file_reader = BufReader::new(file);
-    let mut reader = Reader::new(BinaryIonCursor::new(file_reader));
+    let mut reader = Reader::new(RawBinaryReader::new(file_reader));
     read_all_values(&mut reader)?;
     Ok(())
 }
 
 // Recursively reads all of the values in the provided Reader, surfacing any errors.
-fn read_all_values(reader: &mut Reader<BinaryIonCursor<BufReader<File>>>) -> IonResult<()> {
+fn read_all_values(reader: &mut Reader<RawBinaryReader<BufReader<File>>>) -> IonResult<()> {
     use IonType::*;
     while let Some((ion_type, is_null)) = reader.next()? {
         if is_null {
@@ -141,7 +141,8 @@ fn read_all_values(reader: &mut Reader<BinaryIonCursor<BufReader<File>>>) -> Ion
                 let _text = reader.string_ref_map(|_s| ())?.unwrap();
             }
             Symbol => {
-                let _symbol_id = reader.read_symbol_id()?.unwrap();
+                // The binary reader's tokens are always SIDs
+                let _symbol_id = reader.read_raw_symbol()?.unwrap().local_sid().unwrap();
             }
             Integer => {
                 let _int = reader.read_i64()?.unwrap();
