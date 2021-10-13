@@ -20,7 +20,7 @@ use crate::{IonType, RawReader};
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
 
-pub struct TextReader<T: TextIonDataSource> {
+pub struct RawTextReader<T: TextIonDataSource> {
     buffer: TextBuffer<T::TextSource>,
     current_field_name: Option<RawSymbolToken>,
     current_value: Option<AnnotatedTextValue>,
@@ -29,10 +29,10 @@ pub struct TextReader<T: TextIonDataSource> {
     parents: Vec<ParentContainer>,
 }
 
-impl<T: TextIonDataSource> TextReader<T> {
-    fn new(input: T) -> TextReader<T> {
+impl<T: TextIonDataSource> RawTextReader<T> {
+    fn new(input: T) -> RawTextReader<T> {
         let text_source = input.to_text_ion_data_source();
-        TextReader {
+        RawTextReader {
             buffer: TextBuffer::new(text_source),
             current_field_name: None,
             current_value: None,
@@ -351,7 +351,7 @@ impl<T: TextIonDataSource> TextReader<T> {
 //       materializing it and then attempt to materialize it when the user calles `read_TYPE`. This
 //       would take less memory and would only materialize values the user requests.
 //       See: https://github.com/amzn/ion-rust/issues/322
-impl<T: TextIonDataSource> RawReader for TextReader<T> {
+impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
     fn ion_version(&self) -> (u8, u8) {
         // TODO: The text reader does not yet have IVM support
         (1, 0)
@@ -579,20 +579,20 @@ mod reader_tests {
     use crate::raw_reader::StreamItem;
     use crate::raw_symbol_token::{local_sid_token, text_token};
     use crate::result::IonResult;
-    use crate::text::reader::TextReader;
+    use crate::text::reader::RawTextReader;
     use crate::text::text_value::{IntoAnnotations, TextValue};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::{IonType, RawReader};
 
-    fn next_type(reader: &mut TextReader<&str>, ion_type: IonType, is_null: bool) {
+    fn next_type(reader: &mut RawTextReader<&str>, ion_type: IonType, is_null: bool) {
         assert_eq!(
             reader.next().unwrap().unwrap(),
             StreamItem::Value(ion_type, is_null)
         );
     }
 
-    fn annotations_eq<I: IntoAnnotations>(reader: &mut TextReader<&str>, expected: I) {
+    fn annotations_eq<I: IntoAnnotations>(reader: &mut RawTextReader<&str>, expected: I) {
         let annotations = expected.into_annotations();
         assert_eq!(reader.annotations(), annotations.as_slice());
     }
@@ -602,7 +602,7 @@ mod reader_tests {
         let ion_data = r#"
             0 [1, 2, 3] (4 5) 6
         "#;
-        let reader = &mut TextReader::new(ion_data);
+        let reader = &mut RawTextReader::new(ion_data);
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?.unwrap(), 0);
 
@@ -633,7 +633,7 @@ mod reader_tests {
     #[case(" {{ZW5jb2RlZA==}} ", TextValue::Blob(Vec::from("encoded".as_bytes())))]
     #[case(" {{\"hello\"}} ", TextValue::Clob(Vec::from("hello".as_bytes())))]
     fn test_read_single_top_level_values(#[case] text: &str, #[case] expected_value: TextValue) {
-        let reader = &mut TextReader::new(text);
+        let reader = &mut RawTextReader::new(text);
         next_type(
             reader,
             expected_value.ion_type(),
@@ -661,7 +661,7 @@ mod reader_tests {
             ('''foo''')
         "#;
 
-        let reader = &mut TextReader::new(ion_data);
+        let reader = &mut RawTextReader::new(ion_data);
         next_type(reader, IonType::Null, true);
 
         next_type(reader, IonType::Boolean, false);
@@ -740,7 +740,7 @@ mod reader_tests {
             km::36 // width
         "#;
 
-        let reader = &mut TextReader::new(ion_data);
+        let reader = &mut RawTextReader::new(ion_data);
 
         next_type(reader, IonType::String, false);
         assert_eq!(
@@ -776,7 +776,7 @@ mod reader_tests {
         "#;
         // TODO: Check for annotations after OwnedSymbolToken
 
-        let reader = &mut TextReader::new(ion_data);
+        let reader = &mut RawTextReader::new(ion_data);
         next_type(reader, IonType::Null, true);
         annotations_eq(reader, &["mercury"]);
 
