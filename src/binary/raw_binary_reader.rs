@@ -311,11 +311,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
 
         // Skip over consecutive NOP padding, but don't handle nulls
         if header.is_nop() {
-            let number_of_bytes = if header.length_code == length_codes::VAR_UINT {
-                self.read_standard_length()?
-            } else {
-                header.length_code as usize
-            };
+            let number_of_bytes = self.read_standard_length()?;
 
             // If we're in a container, validate that the NOP pad doesn't overrun the container end
             if let Some(parent) = self.cursor.parents.last() {
@@ -348,14 +344,10 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         if header.ion_type_code == IonTypeCode::Annotation {
             if header.length_code == 0 {
                 // This is actually the first byte in an Ion Version Marker
-                //TODO: actually parse the IVM instead of assuming 1.0 and skipping it
-                // https://github.com/amzn/ion-rust/issues/324
-                self.cursor.ion_version = (1, 0);
-                self.skip_bytes(IVM.len() - 1)?;
-                return Ok(Some(StreamItem::VersionMarker(1, 0)));
+                return Ok(Some(self.read_ivm()?));
             }
             // We've found an annotated value. Read all of the annotation symbols leading
-            // up to the value.
+            // up to the value
             let _ = self.read_annotations()?;
             // Now read the next header representing the value itself.
             header = match self.read_next_value_header()? {
@@ -978,6 +970,24 @@ where
         }
     }
 
+    fn read_ivm(&mut self) -> IonResult<StreamItem> {
+        let (major, minor) = self.read_slice(3, |bytes| match *bytes {
+            [major, minor, 0xEA] => Ok((major, minor)),
+            [major, minor, other] => decoding_error(format!(
+                "Illegal IVM: 0xE0 0x{:X} 0x{:X} 0x{:X}",
+                major, minor, other
+            )),
+            _ => unreachable!("read_slice did not return the requested number of bytes"),
+        })?;
+
+        if !matches!((major, minor), (1, 0)) {
+            decoding_error(format!("Unsupported Ion version {:X}.{:X}", major, minor))
+        } else {
+            self.cursor.ion_version = (major, minor);
+            Ok(StreamItem::VersionMarker(major, minor))
+        }
+    }
+
     #[inline(always)]
     fn read_var_uint(&mut self) -> IonResult<VarUInt> {
         let var_uint = VarUInt::read(&mut self.data_source)?;
@@ -1222,6 +1232,30 @@ mod tests {
         assert_eq!(binary_cursor.next(), Ok(Some(VersionMarker(1, 0))));
         assert_eq!(binary_cursor.ion_version(), (1u8, 0u8));
         binary_cursor
+    }
+
+    #[test]
+    fn test_parse_ivm() -> IonResult<()> {
+        ion_cursor_for(&[]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_unsupported_version_in_ivm() -> IonResult<()> {
+        let data: [u8; 4] = [0xE0, 0x01, 0x01, 0xEA]; // Ion version 1.1 is not supported
+        let mut cursor = BinaryIonCursor::new(io::Cursor::new(data));
+        assert_eq!(cursor.ion_type(), None);
+        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_invalid_ivm() -> IonResult<()> {
+        let data: [u8; 4] = [0xE0, 0x01, 0x00, 0xE0]; // IVM should end '0xEA' not '0xE0'
+        let mut cursor = BinaryIonCursor::new(io::Cursor::new(data));
+        assert_eq!(cursor.ion_type(), None);
+        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+        Ok(())
     }
 
     #[test]
@@ -1857,14 +1891,14 @@ mod tests {
 
     #[test]
     fn test_nop_pad_adjacent_to_top_level() -> IonResult<()> {
-        // name::false with a byte of NOP padding on either side of it
+        // name::true with a byte of NOP padding on either side of it
         let mut cursor = ion_cursor_for(&[
             0x00, // NOP code, 1 byte NOP
             0xE3, // 3-byte annotations envelope
             0x81, // * Annotations themselves take 1 byte
             0x84, // * Annotation w/SID $4 ("name")
             0x11, // boolean true
-            0x00, // NOP code, 1 byte NOP
+            0x00, // NOP code, 1 byte NOP. Also NOP at EOF :)
         ]);
 
         assert_eq!(cursor.next()?, Some(Value(IonType::Boolean, false)));
@@ -1874,16 +1908,17 @@ mod tests {
     }
 
     #[test]
-    fn test_nop_pad_inside_annotation_wrapper() -> IonResult<()> {
+    fn test_nop_pad_with_varuint_len() -> IonResult<()> {
+        // 3 bytes of NOP padding followed by boolean true
         let mut cursor = ion_cursor_for(&[
-            //0xE3 0x81 0x84 0x00 is the canonical "invalid annotated NOP" from the docs
-            0xE3, // 3-byte annotations envelope
-            0x81, // * Annotations themselves take 1 byte
-            0x84, // * Annotation w/SID $4 ("name")
-            0x00, // NOP code, 1 byte NOP
+            0x0E, // NOP code, length to follow
+            0x81, // single octet VarUInt, 1 (so 1 byte of padding follows)
+            0xFF, // not a legal type code, but this is ignored padding
+            0x11, // boolean true
         ]);
 
-        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+        assert_eq!(cursor.next()?, Some(Value(IonType::Boolean, false)));
+        assert_eq!(cursor.next()?, None);
 
         Ok(())
     }
@@ -1935,8 +1970,23 @@ mod tests {
     }
 
     #[test]
+    fn test_nop_pad_not_allowed_inside_annotation_wrapper() -> IonResult<()> {
+        let mut cursor = ion_cursor_for(&[
+            //0xE3 0x81 0x84 0x00 is the canonical "invalid annotated NOP" from the docs
+            0xE3, // 3-byte annotations envelope
+            0x81, // * Annotations themselves take 1 byte
+            0x84, // * Annotation w/SID $4 ("name")
+            0x00, // NOP code, 1 byte NOP
+        ]);
+
+        assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
+
+        Ok(())
+    }
+
+    #[test]
     fn test_nop_pad_larger_than_struct() -> IonResult<()> {
-        // {$4: "a", <4 bytes of (NOP + 2 bytes padding)>}
+        // {$4: "a", <4 bytes of ($0: NOP claiming 4 bytes padding when only 2 will fit)>}
         let mut cursor = ion_cursor_for(&[
             0xD7, // 7-byte struct
             0x84, // single octet VarUInt, value 4 => field named "name"
@@ -1948,6 +1998,7 @@ mod tests {
         ]);
 
         assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+
         cursor.step_in()?;
         assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
         assert_eq!(cursor.read_string()?, Some(String::from("a")));
@@ -1970,6 +2021,7 @@ mod tests {
         ]); // [7] is out of the container
 
         assert_eq!(cursor.next()?, Some(Value(IonType::List, false)));
+
         cursor.step_in()?;
         assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
 
