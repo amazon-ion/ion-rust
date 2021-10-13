@@ -7,7 +7,7 @@ use nom::sequence::{delimited, pair, preceded};
 use nom::IResult;
 
 use crate::text::parsers::symbol::parse_symbol;
-use crate::text::TextStreamItem;
+use crate::text::text_value::TextValue;
 use crate::value::owned::OwnedSymbolToken;
 
 /// Matches a series of '::'-delimited symbols used to annotate a value.
@@ -25,10 +25,10 @@ pub(crate) fn parse_annotation(input: &str) -> IResult<&str, OwnedSymbolToken> {
             parse_symbol,
             pair(whitespace_or_comments, annotation_delimiter),
         ),
-        |text_stream_item| {
-            // This should always be true because `parse_symbol` would not have matched an
-            // item if it were not a symbol.
-            if let TextStreamItem::Symbol(symbol) = text_stream_item {
+        |text_value| {
+            // This should always be true because `parse_symbol` would not have matched a
+            // value if it were not a symbol.
+            if let TextValue::Symbol(symbol) = text_value {
                 return Some(symbol);
             }
             None

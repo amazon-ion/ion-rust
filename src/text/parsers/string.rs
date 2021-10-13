@@ -1,6 +1,6 @@
 use crate::text::parsers::text_support::{escaped_char, escaped_newline, StringFragment};
 use crate::text::parsers::whitespace;
-use crate::text::TextStreamItem;
+use crate::text::text_value::TextValue;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_not, tag, take_until};
 use nom::character::streaming::char;
@@ -10,22 +10,22 @@ use nom::sequence::{delimited, terminated};
 use nom::IResult;
 
 /// Matches the text representation of a string value and returns the resulting [String]
-/// as a [TextStreamItem::String].
-pub(crate) fn parse_string(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::String].
+pub(crate) fn parse_string(input: &str) -> IResult<&str, TextValue> {
     alt((short_string, long_string))(input)
 }
 
 /// Matches a short string (e.g. `"Hello"`) and returns the resulting [String]
-/// as a [TextStreamItem::String].
-fn short_string(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::String].
+fn short_string(input: &str) -> IResult<&str, TextValue> {
     map(delimited(char('"'), short_string_body, char('"')), |text| {
-        TextStreamItem::String(text)
+        TextValue::String(text)
     })(input)
 }
 
 /// Matches a long string (e.g. `'''Hello, '''\n'''World!'''`) and returns the resulting [String]
-/// as a [TextStreamItem::String].
-fn long_string(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::String].
+fn long_string(input: &str) -> IResult<&str, TextValue> {
     // TODO: This parser allocates a Vec to hold each intermediate '''...''' string
     //       and then again to merge them into a finished product. These allocations
     //       could be removed with some refactoring.
@@ -37,7 +37,7 @@ fn long_string(input: &str) -> IResult<&str, TextStreamItem> {
             )),
             peek(not(tag("'''"))),
         ),
-        |text| TextStreamItem::String(text.join("")),
+        |text| TextValue::String(text.join("")),
     )(input)
 }
 
@@ -109,14 +109,10 @@ fn short_string_fragment_without_escaped_text(input: &str) -> IResult<&str, Stri
 mod string_parsing_tests {
     use crate::text::parsers::string::parse_string;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
-    use crate::text::TextStreamItem;
+    use crate::text::text_value::TextValue;
 
     fn parse_equals(text: &str, expected: &str) {
-        parse_test_ok(
-            parse_string,
-            text,
-            TextStreamItem::String(expected.to_owned()),
-        )
+        parse_test_ok(parse_string, text, TextValue::String(expected.to_owned()))
     }
 
     fn parse_fails(text: &str) {

@@ -1,7 +1,7 @@
-use crate::text::parsers::containers::recognize_s_expression_end;
+use crate::text::parsers::containers::s_expression_end;
 use crate::text::parsers::stop_character;
 use crate::text::parsers::text_support::{escaped_char, escaped_newline, StringFragment};
-use crate::text::TextStreamItem;
+use crate::text::text_value::TextValue;
 use crate::value::owned::{local_sid_token, text_token};
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
@@ -13,17 +13,17 @@ use nom::sequence::{delimited, pair, preceded, terminated};
 use nom::IResult;
 
 /// Matches the text representation of a symbol value and returns the resulting [String]
-/// as a [TextStreamItem::Symbol].
-pub(crate) fn parse_symbol(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Symbol].
+pub(crate) fn parse_symbol(input: &str) -> IResult<&str, TextValue> {
     alt((symbol_id, identifier, quoted_symbol))(input)
 }
 
 /// Matches a quoted symbol (e.g. `'foo bar'`) and returns the resulting [String]
-/// as a [TextStreamItem::Symbol].
-fn quoted_symbol(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Symbol].
+fn quoted_symbol(input: &str) -> IResult<&str, TextValue> {
     map(
         delimited(char('\''), quoted_symbol_body, char('\'')),
-        |text| TextStreamItem::Symbol(text_token(text)),
+        |text| TextValue::Symbol(text_token(text)),
     )(input)
 }
 
@@ -60,8 +60,8 @@ fn quoted_symbol_fragment_without_escaped_text(input: &str) -> IResult<&str, Str
 }
 
 /// Matches an identifier (e.g. `foo`) and returns the resulting [String]
-/// as a [TextStreamItem::Symbol].
-fn identifier(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Symbol].
+fn identifier(input: &str) -> IResult<&str, TextValue> {
     map_opt(
         recognize(terminated(
             pair(identifier_initial_character, identifier_trailing_characters),
@@ -79,7 +79,7 @@ fn identifier(input: &str) -> IResult<&str, TextStreamItem> {
             if KEYWORDS.iter().find(|k| **k == text).is_some() {
                 return None;
             }
-            Some(TextStreamItem::Symbol(text_token(text)))
+            Some(TextValue::Symbol(text_token(text)))
         },
     )(input)
 }
@@ -100,16 +100,16 @@ fn identifier_trailing_characters(input: &str) -> IResult<&str, &str> {
 }
 
 /// Matches an operator (e.g. `++` or `@`) and returns the resulting [String]
-/// as a [TextStreamItem::Symbol]. This symbol syntax is only recognized inside of an s-expression.
-pub(crate) fn parse_operator(input: &str) -> IResult<&str, TextStreamItem> {
-    // This function is used by the [s_expression_item] parser in the [containers] module.
+/// as a [TextValue::Symbol]. This symbol syntax is only recognized inside of an s-expression.
+pub(crate) fn parse_operator(input: &str) -> IResult<&str, TextValue> {
+    // This function is used by the [s_expression_value] parser in the [containers] module.
 
     // The 'recognizer' below  is a parser responsible for identifying the &str slice at the
     // beginning of input that represents an operator. The `map` operation that follows uses
-    // this parser's output to construct the necessary TextStreamItem.
+    // this parser's output to construct the necessary TextValue.
     let recognizer = delimited(
         // Other parsers don't have their own leading whitespace matcher because the overarching
-        // top_level_stream_item parser takes care of this. When matching an s-expression, this
+        // top_level_stream_value parser takes care of this. When matching an s-expression, this
         // parser is given precedence over the other parsers; because of this, it must consume
         // the whitespace on its own.
         multispace0,
@@ -118,17 +118,15 @@ pub(crate) fn parse_operator(input: &str) -> IResult<&str, TextStreamItem> {
         // The operator must be followed either by whitespace or the end of the s-expression.
         alt((
             peek(recognize(one_of(" \r\n\t"))),
-            peek(recognize(recognize_s_expression_end)),
+            peek(recognize(s_expression_end)),
         )),
     );
     // The above `recognizer` outputs a &str; this operation turns that &str into a Symbol.
-    map(recognizer, |op_text| {
-        TextStreamItem::Symbol(text_token(op_text))
-    })(input)
+    map(recognizer, |op_text| TextValue::Symbol(text_token(op_text)))(input)
 }
 
 /// Matches a symbol ID in the format `$ID` (For example, `$0` or `$42`.)
-fn symbol_id(input: &str) -> IResult<&str, TextStreamItem> {
+fn symbol_id(input: &str) -> IResult<&str, TextValue> {
     use crate::types::SymbolId;
     map_res(
         terminated(
@@ -152,7 +150,7 @@ fn symbol_id(input: &str) -> IResult<&str, TextStreamItem> {
         |text| {
             const RADIX: u32 = 10;
             i64::from_str_radix(text, RADIX)
-                .map(|i| TextStreamItem::Symbol(local_sid_token(i as SymbolId)))
+                .map(|i| TextValue::Symbol(local_sid_token(i as SymbolId)))
         },
     )(input)
 }
@@ -165,23 +163,19 @@ mod symbol_parsing_tests {
     use crate::value::owned::local_sid_token;
     use rstest::*;
 
-    // Asserts that when parsed, the provided text produces a TextStreamItem::Symbol
+    // Asserts that when parsed, the provided text produces a TextValue::Symbol
     // that contains the expected text.
     fn parse_equals(text: &str, expected: &str) {
-        parse_test_ok(
-            parse_symbol,
-            text,
-            TextStreamItem::Symbol(text_token(expected)),
-        )
+        parse_test_ok(parse_symbol, text, TextValue::Symbol(text_token(expected)))
     }
 
-    // Asserts that when parsed, the provided text produces a TextStreamItem::Symbol
+    // Asserts that when parsed, the provided text produces a TextValue::Symbol
     // that contains the expected local symbol ID.
     fn parse_sid_equals(text: &str, expected: SymbolId) {
         parse_test_ok(
             symbol_id,
             text,
-            TextStreamItem::Symbol(local_sid_token(expected)),
+            TextValue::Symbol(local_sid_token(expected)),
         )
     }
 
@@ -256,7 +250,7 @@ mod symbol_parsing_tests {
         parse_test_ok(
             parse_operator,
             text,
-            TextStreamItem::Symbol(text_token(expected)),
+            TextValue::Symbol(text_token(expected)),
         )
     }
 }

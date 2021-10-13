@@ -1,38 +1,36 @@
-use crate::text::parsers::comments::whitespace_or_comments;
-use crate::text::parsers::stream_item::{annotated_stream_item, stream_item};
 use nom::branch::alt;
 use nom::sequence::preceded;
 use nom::{IResult, Parser};
 
-use crate::text::TextStreamItem;
-use crate::value::owned::OwnedSymbolToken;
+use crate::text::parsers::comments::whitespace_or_comments;
+use crate::text::parsers::value::{annotated_value, value};
+use crate::text::text_value::AnnotatedTextValue;
 
-/// Matches an optional series of annotations and a TextStreamItem at the beginning of the given
-/// string. If there are no annotations (or the TextStreamItem found cannot have annotations), the
+/// Matches an optional series of annotations and a TextValue at the beginning of the given
+/// string. If there are no annotations (or the TextValue found cannot have annotations), the
 /// annotations [Vec] will be empty.
-pub(crate) fn top_level_stream_item(
-    input: &str,
-) -> IResult<&str, (Vec<OwnedSymbolToken>, TextStreamItem)> {
+pub(crate) fn top_level_value(input: &str) -> IResult<&str, AnnotatedTextValue> {
     preceded(
         // Allow any amount of whitespace followed by...
         whitespace_or_comments,
         // either...
         alt((
             // An annotated value or...
-            annotated_stream_item,
+            annotated_value,
             // An empty Vec paired with an unannotated value.
-            // `Vec::new()` does not allocate, so calling this for each item is cheap.
-            stream_item.map(|x| (Vec::new(), x)),
+            // `Vec::new()` does not allocate, so calling this for each value is cheap.
+            value.map(|x| x.without_annotations()),
         )),
     )(input)
 }
 
 #[cfg(test)]
-mod parse_stream_item_tests {
+mod parse_top_level_values_tests {
     use rstest::*;
 
     use crate::text::parsers::unit_test_support::parse_unwrap;
-    use crate::value::owned::text_token;
+    use crate::text::text_value::TextValue;
+    use crate::value::owned::{text_token, OwnedSymbolToken};
     use crate::IonType;
 
     use super::*;
@@ -43,9 +41,9 @@ mod parse_stream_item_tests {
     }
 
     #[test]
-    fn test_detect_stream_item_types() {
+    fn test_detect_value_types() {
         let expect_type = |text: &str, expected_ion_type: IonType| {
-            let value = parse_unwrap(stream_item, text);
+            let value = parse_unwrap(value, text);
             assert_eq!(expected_ion_type, value.ion_type());
         };
 
@@ -85,19 +83,19 @@ mod parse_stream_item_tests {
     //     foo::bar::baz END
     // can easily tell that 'foo' and 'bar' are annotations and 'baz' is the value.
     // Here, 'END' is simply an unrelated symbol value that the parser knows to ignore.
-    #[case("foo::bar::baz END", &["foo", "bar"], TextStreamItem::Symbol(text_token("baz")))]
-    #[case("foo::bar::baz END", &["foo", "bar"], TextStreamItem::Symbol(text_token("baz")))]
-    #[case("foo::'bar'::7 END", &["foo", "bar"], TextStreamItem::Integer(7))]
-    #[case("'foo'::'bar'::{ END", &["foo", "bar"], TextStreamItem::StructStart)]
-    #[case("'foo bar'::false END", &["foo bar"], TextStreamItem::Boolean(false))]
-    fn test_parse_annotated_stream_item(
+    #[case("foo::bar::baz END", &["foo", "bar"], TextValue::Symbol(text_token("baz")))]
+    #[case("foo::bar::baz END", &["foo", "bar"], TextValue::Symbol(text_token("baz")))]
+    #[case("foo::'bar'::7 END", &["foo", "bar"], TextValue::Integer(7))]
+    #[case("'foo'::'bar'::{ END", &["foo", "bar"], TextValue::StructStart)]
+    #[case("'foo bar'::false END", &["foo bar"], TextValue::Boolean(false))]
+    fn test_parse_annotated_value(
         #[case] text: &str,
         #[case] expected_annotations: &[&str],
-        #[case] expected_item: TextStreamItem,
+        #[case] expected_value: TextValue,
     ) {
         assert_eq!(
-            annotated_stream_item(text).unwrap().1,
-            (text_tokens(expected_annotations), expected_item)
+            annotated_value(text).unwrap().1,
+            expected_value.with_annotations(expected_annotations)
         );
     }
 }

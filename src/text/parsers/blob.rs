@@ -10,18 +10,18 @@ use nom::sequence::{delimited, pair};
 use nom::IResult;
 
 use crate::text::parsers::whitespace;
-use crate::text::TextStreamItem;
+use crate::text::text_value::TextValue;
 
 /// Matches the text representation of a blob value, decodes it, and returns the resulting bytes
-/// as a [TextStreamItem::Blob].
-pub(crate) fn parse_blob(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Blob].
+pub(crate) fn parse_blob(input: &str) -> IResult<&str, TextValue> {
     map_res::<_, _, _, _, DecodeError, _, _>(
         delimited(
             pair(tag("{{"), opt(whitespace)),
             recognize_base64_data,
             pair(opt(whitespace), tag("}}")),
         ),
-        |base64_text| Ok(TextStreamItem::Blob(base64::decode(base64_text)?)),
+        |base64_text| Ok(TextValue::Blob(base64::decode(base64_text)?)),
     )(input)
 }
 
@@ -40,11 +40,11 @@ mod blob_parsing_tests {
 
     use crate::text::parsers::blob::parse_blob;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
-    use crate::text::TextStreamItem;
+    use crate::text::text_value::TextValue;
 
     fn parse_equals<A: AsRef<[u8]>>(text: &str, expected: A) {
         let data = Vec::from_iter(expected.as_ref().iter().copied());
-        parse_test_ok(parse_blob, text, TextStreamItem::Blob(data))
+        parse_test_ok(parse_blob, text, TextValue::Blob(data))
     }
 
     fn parse_fails(text: &str) {

@@ -6,16 +6,16 @@ use nom::sequence::terminated;
 use nom::{IResult, Parser};
 
 use crate::text::parsers::stop_character;
-use crate::text::TextStreamItem;
+use crate::text::text_value::TextValue;
 
 /// Matches the text representation of a boolean value and returns the resulting `true` or `false`
-/// as a [TextStreamItem::Boolean].
-pub(crate) fn parse_boolean(input: &str) -> IResult<&str, TextStreamItem> {
+/// as a [TextValue::Boolean].
+pub(crate) fn parse_boolean(input: &str) -> IResult<&str, TextValue> {
     map(
         recognize(terminated(tag("true").or(tag("false")), stop_character)),
         |bool_text: &str| match bool_text {
-            "true" => TextStreamItem::Boolean(true),
-            "false" => TextStreamItem::Boolean(false),
+            "true" => TextValue::Boolean(true),
+            "false" => TextValue::Boolean(false),
             _ => unreachable!("text had to match 'true' or 'false' before reaching this point"),
         },
     )(input)
@@ -25,10 +25,10 @@ pub(crate) fn parse_boolean(input: &str) -> IResult<&str, TextStreamItem> {
 mod boolean_parsing_tests {
     use crate::text::parsers::boolean::parse_boolean;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
-    use crate::text::TextStreamItem;
+    use crate::text::text_value::TextValue;
 
     fn parse_equals(text: &str, expected: bool) {
-        parse_test_ok(parse_boolean, text, TextStreamItem::Boolean(expected))
+        parse_test_ok(parse_boolean, text, TextValue::Boolean(expected))
     }
 
     fn parse_fails(text: &str) {
