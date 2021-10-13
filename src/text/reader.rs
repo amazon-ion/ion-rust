@@ -390,6 +390,26 @@ mod reader_tests {
     use crate::types::timestamp::Timestamp;
     use crate::value::owned::{local_sid_token, text_token};
     use crate::IonType;
+    use rstest::*;
+
+    #[rstest]
+    #[case(" null ", TextValue::Null(IonType::Null))]
+    #[case(" null.string ", TextValue::Null(IonType::String))]
+    #[case(" true ", TextValue::Boolean(true))]
+    #[case(" false ", TextValue::Boolean(false))]
+    #[case(" 738 ", TextValue::Integer(738))]
+    #[case(" 2.5e0 ", TextValue::Float(2.5))]
+    #[case(" 2.5 ", TextValue::Decimal(Decimal::new(25, -1)))]
+    #[case(" 2007-07-12T ", TextValue::Timestamp(Timestamp::with_ymd(2007, 7, 12).build().unwrap()))]
+    #[case(" foo ", TextValue::Symbol(text_token("foo")))]
+    #[case(" \"hi!\" ", TextValue::String("hi!".to_owned()))]
+    #[case(" {{ZW5jb2RlZA==}} ", TextValue::Blob(Vec::from("encoded".as_bytes())))]
+    #[case(" {{\"hello\"}} ", TextValue::Clob(Vec::from("hello".as_bytes())))]
+    fn test_read_single_top_level_values(#[case] text: &str, #[case] expected_value: TextValue) {
+        let mut reader = TextReader::new(text);
+        let actual_value = reader.next().unwrap().unwrap();
+        assert_eq!(actual_value, expected_value.without_annotations());
+    }
 
     #[test]
     fn test_skipping_containers() -> IonResult<()> {
