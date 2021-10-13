@@ -5,7 +5,6 @@ use chrono::offset::FixedOffset;
 use chrono::prelude::*;
 use delegate::delegate;
 
-use crate::binary::constants::v1_0::IVM;
 use crate::raw_reader::{RawReader, StreamItem};
 use crate::{
     binary::{
@@ -1243,7 +1242,7 @@ mod tests {
     #[test]
     fn test_parse_unsupported_version_in_ivm() -> IonResult<()> {
         let data: [u8; 4] = [0xE0, 0x01, 0x01, 0xEA]; // Ion version 1.1 is not supported
-        let mut cursor = BinaryIonCursor::new(io::Cursor::new(data));
+        let mut cursor = RawBinaryReader::new(io::Cursor::new(data));
         assert_eq!(cursor.ion_type(), None);
         assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
         Ok(())
@@ -1252,7 +1251,7 @@ mod tests {
     #[test]
     fn test_parse_invalid_ivm() -> IonResult<()> {
         let data: [u8; 4] = [0xE0, 0x01, 0x00, 0xE0]; // IVM should end '0xEA' not '0xE0'
-        let mut cursor = BinaryIonCursor::new(io::Cursor::new(data));
+        let mut cursor = RawBinaryReader::new(io::Cursor::new(data));
         assert_eq!(cursor.ion_type(), None);
         assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
         Ok(())
