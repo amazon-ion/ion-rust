@@ -32,7 +32,7 @@ pub trait RawReader {
     /// Returns true if the current value is a null of any type; otherwise, returns false.
     fn is_null(&self) -> bool;
 
-    /// Returns a slice containing all of the annotation symbol IDs for the current value.
+    /// Returns a slice containing all of the annotations for the current value.
     /// If there is no current value, returns an empty slice.
     fn annotations(&self) -> &[RawSymbolToken];
 

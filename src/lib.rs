@@ -28,7 +28,7 @@ mod reader;
 mod symbol_table;
 mod system_event_handler;
 
-pub use binary::cursor::RawBinaryReader;
+pub use binary::raw_binary_reader::RawBinaryReader;
 pub use data_source::IonDataSource;
 pub use raw_reader::RawReader;
 pub use reader::Reader;

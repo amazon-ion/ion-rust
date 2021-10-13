@@ -4,11 +4,11 @@
 //! data stream.
 
 pub(crate) mod constants;
-pub(crate) mod cursor;
 pub mod decimal;
 mod header;
 mod int;
 mod nibbles;
+pub(crate) mod raw_binary_reader;
 pub mod timestamp;
 mod type_code;
 pub mod uint;

@@ -343,6 +343,9 @@ impl<T: TextIonDataSource> RawTextReader<T> {
     }
 }
 
+// Returned by the `annotations()` method below if there is no current value.
+const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
+
 // TODO: This implementation of the text reader eagerly materializes each value that it encounters
 //       in the stream and stores it in the reader as `current_value`. Each time a user requests
 //       a value via `read_i64`, `read_bool`, etc, a clone of `current_value` is returned (assuming
@@ -385,7 +388,7 @@ impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
         self.current_value
             .as_ref()
             .map(|value| value.annotations())
-            .unwrap()
+            .unwrap_or(EMPTY_SLICE_RAW_SYMBOL_TOKEN)
     }
 
     fn field_name(&self) -> Option<&RawSymbolToken> {
@@ -579,7 +582,7 @@ mod reader_tests {
     use crate::raw_reader::StreamItem;
     use crate::raw_symbol_token::{local_sid_token, text_token};
     use crate::result::IonResult;
-    use crate::text::reader::RawTextReader;
+    use crate::text::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoAnnotations, TextValue};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;

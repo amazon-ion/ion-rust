@@ -393,7 +393,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
     fn annotations(&self) -> &[RawSymbolToken] {
         let num_annotations = self.cursor.value.number_of_annotations as usize;
         if num_annotations == 0 {
-            return EMPTY_SLICE_USIZE;
+            return EMPTY_SLICE_RAW_SYMBOL_TOKEN;
         }
         let end = self.cursor.annotations.len();
         let start = end - num_annotations;
@@ -840,7 +840,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
 }
 
 const EMPTY_SLICE_U8: &[u8] = &[];
-const EMPTY_SLICE_USIZE: &[RawSymbolToken] = &[];
+const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
 
 /// Additional functionality that's only available if the data source is in-memory, such as a
 /// Vec<u8> or &[u8]).
@@ -1190,7 +1190,7 @@ mod tests {
     use chrono::{FixedOffset, NaiveDate, TimeZone};
 
     use crate::binary::constants::v1_0::IVM;
-    use crate::binary::cursor::RawBinaryReader;
+    use crate::binary::raw_binary_reader::RawBinaryReader;
     use crate::raw_reader::{RawReader, StreamItem, StreamItem::*};
     use crate::raw_symbol_token::local_sid_token;
     use crate::result::{IonError, IonResult};

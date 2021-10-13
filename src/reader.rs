@@ -289,7 +289,7 @@ mod tests {
     use std::io;
 
     use crate::binary::constants::v1_0::IVM;
-    use crate::binary::cursor::RawBinaryReader;
+    use crate::binary::raw_binary_reader::RawBinaryReader;
     use crate::raw_reader::{RawReader, StreamItem::*};
     use crate::result::IonResult;
     use crate::system_event_handler::SystemEventHandler;
