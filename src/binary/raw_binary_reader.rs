@@ -27,7 +27,7 @@ use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use std::ops::Range;
 
-/// Information about the value over which the Cursor is currently positioned.
+/// Information about the value over which the RawBinaryReader is currently positioned.
 #[derive(Clone, Debug)]
 struct EncodedValue {
     // `EncodedValue` instances are moved during `step_in` and `step_out` operations.
@@ -254,7 +254,7 @@ pub struct CursorState {
 
 /// Verifies that the current value is of the expected type and that the bytes representing that
 /// value have not yet been consumed from the data source. This macro is called by the
-/// BinaryCursor#read_{typename} methods.
+/// RawBinaryReader#read_{typename} methods.
 macro_rules! read_safety_checks {
     ( $raw_binary_reader:ident, $ion_type:expr ) => {
         // Make sure that:

@@ -6,9 +6,10 @@ use nom::IResult;
 use crate::raw_reader::StreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, illegal_operation, IonResult};
-use crate::text::parent_level::ParentContainer;
+use crate::text::parent_container::ParentContainer;
 use crate::text::parsers::containers::{
-    list_value_or_end, s_expression_value_or_end, struct_field_name_or_end, struct_field_value,
+    list_delimiter, list_value_or_end, s_expression_delimiter, s_expression_value_or_end,
+    struct_delimiter, struct_field_name_or_end, struct_field_value,
 };
 use crate::text::parsers::top_level::top_level_value;
 use crate::text::text_buffer::TextBuffer;
@@ -48,8 +49,8 @@ impl<T: TextIonDataSource> RawTextReader<T> {
 
     fn load_next_value(&mut self) -> IonResult<()> {
         // If the reader's current value is the beginning of a container and the user calls `next()`,
-        // We need to skip the entire container. We can do this by stepping into and then out of
-        // that container. `step_out()` has logic that will exhaust the remaining values.
+        // we need to skip the entire container. We can do this by stepping into and then out of
+        // that container; `step_out()` has logic that will exhaust the remaining values.
         let need_to_skip_container = self
             .current_value
             .as_ref()
@@ -107,7 +108,8 @@ impl<T: TextIonDataSource> RawTextReader<T> {
                 if let Some(field_name) = self.next_struct_field_name()? {
                     // ...remember it and return the field value that follows.
                     self.current_field_name = Some(field_name);
-                    Ok(Some(self.next_struct_field_value()?))
+                    let field_value_result = self.next_struct_field_value()?;
+                    Ok(Some(field_value_result))
                 } else {
                     // Otherwise, this is the end of the struct.
                     Ok(None)
@@ -199,7 +201,13 @@ impl<T: TextIonDataSource> RawTextReader<T> {
                 self.buffer.lines_loaded(),
                 self.buffer.remaining_text()
             )),
-            Err(e) => Err(e),
+            Err(e) => decoding_error(format!(
+                "Parsing error occurred while parsing {} near line {}:\n'{}'\n{}",
+                entity_name,
+                self.buffer.lines_loaded(),
+                self.buffer.remaining_text(),
+                e
+            )),
         }
     }
 
@@ -218,9 +226,10 @@ impl<T: TextIonDataSource> RawTextReader<T> {
         let value = 'parse: loop {
             // Note the number of bytes currently in the text buffer
             let length_before_parse = self.buffer.remaining_text().len();
+            let input_text = self.buffer.remaining_text();
             // Invoke the top_level_value() parser; this will attempt to recognize the next value
             // in the stream and return a &str slice containing the remaining, not-yet-parsed text.
-            match parser(self.buffer.remaining_text()) {
+            match parser(input_text) {
                 // If `top_level_value` returns 'Incomplete', there wasn't enough text in the buffer
                 // to match the next value. No syntax errors have been encountered (yet?), but we
                 // need to load more text into the buffer before we try to parse it again.
@@ -351,8 +360,8 @@ const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
 //       a value via `read_i64`, `read_bool`, etc, a clone of `current_value` is returned (assuming
 //       its type is in alignment with the request).
 //       A better implementation would identify the input slice containing the next value without
-//       materializing it and then attempt to materialize it when the user calles `read_TYPE`. This
-//       would take less memory and would only materialize values the user requests.
+//       materializing it and then attempt to materialize it when the user calls `read_TYPE`. This
+//       would take less memory and would only materialize values that the user requests.
 //       See: https://github.com/amzn/ion-rust/issues/322
 impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
     fn ion_version(&self) -> (u8, u8) {
@@ -383,7 +392,6 @@ impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
             .unwrap_or(false)
     }
 
-    // TODO: This should return an Option<> in case there isn't a current value.
     fn annotations(&self) -> &[RawSymbolToken] {
         self.current_value
             .as_ref()
@@ -556,10 +564,13 @@ impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
             ));
         }
 
+        // The container we're stepping out of.
+        let parent = self.parents.last().unwrap();
+
         // If we're not at the end of the current container, advance the cursor until we are.
         // Unlike the binary reader, which can skip-scan, the text reader must visit every value
         // between its current position and the end of the container.
-        if !self.parents.last().unwrap().is_exhausted() {
+        if !parent.is_exhausted() {
             while let Some(_ignored_value) = self.next()? {}
         }
 
@@ -567,6 +578,28 @@ impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
         let _ = self.parents.pop();
         self.current_value = None;
 
+        if self.parents.is_empty() {
+            // We're at the top level; nothing left to do.
+            return Ok(());
+        }
+
+        // We've stepped out, but the reader isn't at the top level. We're still inside another
+        // container. Make sure the container was followed by either the appropriate delimiter
+        // or the end of its parent.
+        let container_type = self.parents.last().unwrap().ion_type();
+        match container_type {
+            IonType::List => {
+                let _ = self.parse_expected("list delimiter or end", list_delimiter)?;
+            }
+            IonType::SExpression => {
+                let _ =
+                    self.parse_expected("s-expression delimiter or end", s_expression_delimiter)?;
+            }
+            IonType::Struct => {
+                let _ = self.parse_expected("struct delimiter or end", struct_delimiter)?;
+            }
+            scalar => unreachable!("Stepping out of a scalar type: {:?}", scalar),
+        };
         Ok(())
     }
 
@@ -619,6 +652,50 @@ mod reader_tests {
         // Don't step into the s-expression. Instead, skip over it.
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?.unwrap(), 6);
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_nested_containers() -> IonResult<()> {
+        let ion_data = r#"
+            {
+                foo: [
+                    1,
+                    [2, 3],
+                    4
+                ],
+                bar: {
+                    a: 5,
+                    b: (true true true)
+                }
+            }
+            11
+        "#;
+        let reader = &mut RawTextReader::new(ion_data);
+        next_type(reader, IonType::Struct, false);
+        reader.step_in()?;
+        next_type(reader, IonType::List, false);
+        reader.step_in()?;
+        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::List, false);
+        reader.step_in()?;
+        next_type(reader, IonType::Integer, false);
+        // The reader is now at the '2' nested inside of 'foo'
+        reader.step_out()?;
+        reader.step_out()?;
+        next_type(reader, IonType::Struct, false);
+        reader.step_in()?;
+        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::SExpression, false);
+        reader.step_in()?;
+        next_type(reader, IonType::Boolean, false);
+        next_type(reader, IonType::Boolean, false);
+        // The reader is now at the second 'true' in the s-expression nested in 'bar'/'b'
+        reader.step_out()?;
+        reader.step_out()?;
+        reader.step_out()?;
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?.unwrap(), 11);
         Ok(())
     }
 

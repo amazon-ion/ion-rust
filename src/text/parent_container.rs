@@ -22,14 +22,19 @@ impl ParentContainer {
         }
     }
 
+    /// Returns the IonType associated with this container. The IonType will always be `List`,
+    /// `SExpression`, or `Struct`.
     pub fn ion_type(&self) -> IonType {
         self.ion_type
     }
 
+    /// If the reader has reached the end of the container, this will return true.
     pub fn is_exhausted(&self) -> bool {
         self.is_exhausted
     }
 
+    /// Sets the value that will be returned by `is_exhausted`. Will be called by the reader
+    /// when it reaches the end marker (`]`, `)`, or `}`) of the current container.
     pub fn set_exhausted(&mut self, value: bool) {
         self.is_exhausted = value;
     }
@@ -39,10 +44,19 @@ impl ParentContainer {
 mod parent_container_tests {
     use super::*;
     use crate::IonType;
+    use rstest::*;
 
-    #[test]
+    #[rstest]
+    #[case::list(IonType::List)]
+    #[case::list(IonType::SExpression)]
+    #[case::list(IonType::Struct)]
     #[should_panic]
-    fn create_parent_container_from_scalar() {
-        ParentContainer::new(IonType::Timestamp);
+    #[case::list(IonType::Integer)]
+    #[should_panic]
+    #[case::list(IonType::Null)]
+    #[should_panic]
+    #[case::list(IonType::Decimal)]
+    fn create_parent_container_from_ion_type(#[case] ion_type: IonType) {
+        ParentContainer::new(ion_type);
     }
 }

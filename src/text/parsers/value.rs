@@ -18,6 +18,12 @@ use crate::text::text_value::{AnnotatedTextValue, TextValue};
 
 /// Matches a TextValue at the beginning of the given string.
 pub(crate) fn value(input: &str) -> IResult<&str, TextValue> {
+    alt((scalar, container_start))(input)
+}
+
+/// Matches a scalar (non-container) Ion value at the beginning of the given string and
+/// returns it as a [TextValue].
+pub(crate) fn scalar(input: &str) -> IResult<&str, TextValue> {
     alt((
         parse_null,
         parse_boolean,
@@ -29,13 +35,33 @@ pub(crate) fn value(input: &str) -> IResult<&str, TextValue> {
         parse_symbol,
         parse_blob,
         parse_clob,
-        container_start,
     ))(input)
 }
 
-/// Matches a series of annotations and their associated TextValue.
+// TODO: The following method definitions are very similar and could be rewritten with
+//       generics. However, `nom`'s extensive use of generics makes this harder than
+//       it sounds.
+
+/// Matches an optional series of annotations and their associated TextValue.
 pub(crate) fn annotated_value(input: &str) -> IResult<&str, AnnotatedTextValue> {
-    pair(parse_annotations, value)
-        .map(|(annotations, value)| value.with_annotations(annotations))
-        .parse(input)
+    alt((
+        pair(parse_annotations, value).map(|(a, v)| v.with_annotations(a)),
+        value.map(|v| v.without_annotations()),
+    ))(input)
+}
+
+/// Matches an optional series of annotations and their associated scalar TextValue.
+pub(crate) fn annotated_scalar(input: &str) -> IResult<&str, AnnotatedTextValue> {
+    alt((
+        pair(parse_annotations, scalar).map(|(a, v)| v.with_annotations(a)),
+        scalar.map(|v| v.without_annotations()),
+    ))(input)
+}
+
+/// Matches an optional series of annotations and their associated scalar TextValue.
+pub(crate) fn annotated_container_start(input: &str) -> IResult<&str, AnnotatedTextValue> {
+    alt((
+        pair(parse_annotations, container_start).map(|(a, v)| v.with_annotations(a)),
+        container_start.map(|v| v.without_annotations()),
+    ))(input)
 }
