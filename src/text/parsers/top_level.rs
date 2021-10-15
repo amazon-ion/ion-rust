@@ -23,14 +23,11 @@ pub(crate) fn top_level_value(input: &str) -> IResult<&str, AnnotatedTextValue> 
 // same symbol value. For more information see:
 // https://amzn.github.io/ion-docs/docs/symbols.html#ion-version-markers
 pub(crate) fn ion_1_0_version_marker(input: &str) -> IResult<&str, ()> {
-    preceded(
-        whitespace_or_comments,
-        tag("$ion_1_0")
-    )
-    // TODO: This parser discards the matched &str as a workaround to a limitation in RawTextReader.
-    //       See: https://github.com/amzn/ion-rust/issues/337
-    .map(|_| ())
-    .parse(input)
+    preceded(whitespace_or_comments, tag("$ion_1_0"))
+        // TODO: This parser discards the matched &str as a workaround to a limitation in RawTextReader.
+        //       See: https://github.com/amzn/ion-rust/issues/337
+        .map(|_| ())
+        .parse(input)
 }
 
 #[cfg(test)]
@@ -103,7 +100,11 @@ mod parse_top_level_values_tests {
         #[case] expected_annotations: &[&str],
         #[case] expected_value: TextValue,
     ) {
-        parse_test_ok(annotated_value, text, expected_value.with_annotations(expected_annotations));
+        parse_test_ok(
+            annotated_value,
+            text,
+            expected_value.with_annotations(expected_annotations),
+        );
     }
 
     #[rstest]
