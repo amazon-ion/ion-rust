@@ -1,6 +1,6 @@
 use nom::bytes::streaming::tag;
 use nom::sequence::preceded;
-use nom::{IResult, Parser};
+use nom::IResult;
 
 use crate::text::parsers::comments::whitespace_or_comments;
 use crate::text::parsers::value::annotated_value;
