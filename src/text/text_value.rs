@@ -59,9 +59,7 @@ pub(crate) enum TextValue {
 }
 
 impl TextValue {
-    /// Returns the IonType associated with the TextValue in question. If the TextValue
-    /// does not represent a scalar value or the beginning of a container, [ion_type] will return
-    /// [None].
+    /// Returns the IonType associated with the TextValue in question.
     pub fn ion_type(&self) -> IonType {
         match self {
             TextValue::Null(ion_type) => *ion_type,
@@ -80,10 +78,12 @@ impl TextValue {
         }
     }
 
+    /// Converts this [TextValue] into an [AnnotatedTextValue] with the specified annotations.
     pub fn with_annotations<I: IntoAnnotations>(self, annotations: I) -> AnnotatedTextValue {
         AnnotatedTextValue::new(annotations.into_annotations(), self)
     }
 
+    /// Converts this [TextValue] into an [AnnotatedTextValue] with no annotations.
     pub fn without_annotations(self) -> AnnotatedTextValue {
         // Vec::new() doesn't perform heap allocations
         AnnotatedTextValue::new(Vec::new(), self)

@@ -1,9 +1,8 @@
-use nom::branch::alt;
 use nom::sequence::preceded;
-use nom::{IResult, Parser};
+use nom::IResult;
 
 use crate::text::parsers::comments::whitespace_or_comments;
-use crate::text::parsers::value::{annotated_value, value};
+use crate::text::parsers::value::annotated_value;
 use crate::text::text_value::AnnotatedTextValue;
 
 /// Matches an optional series of annotations and a TextValue at the beginning of the given
@@ -13,14 +12,8 @@ pub(crate) fn top_level_value(input: &str) -> IResult<&str, AnnotatedTextValue> 
     preceded(
         // Allow any amount of whitespace followed by...
         whitespace_or_comments,
-        // either...
-        alt((
-            // An annotated value or...
-            annotated_value,
-            // An empty Vec paired with an unannotated value.
-            // `Vec::new()` does not allocate, so calling this for each value is cheap.
-            value.map(|x| x.without_annotations()),
-        )),
+        // ...an optionally annotated value
+        annotated_value,
     )(input)
 }
 
@@ -30,6 +23,7 @@ mod parse_top_level_values_tests {
 
     use crate::raw_symbol_token::{text_token, RawSymbolToken};
     use crate::text::parsers::unit_test_support::parse_unwrap;
+    use crate::text::parsers::value::value;
     use crate::text::text_value::TextValue;
     use crate::IonType;
 
