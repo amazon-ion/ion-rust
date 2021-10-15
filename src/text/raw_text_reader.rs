@@ -11,7 +11,7 @@ use crate::text::parsers::containers::{
     list_delimiter, list_value_or_end, s_expression_delimiter, s_expression_value_or_end,
     struct_delimiter, struct_field_name_or_end, struct_field_value,
 };
-use crate::text::parsers::top_level::top_level_value;
+use crate::text::parsers::top_level::{ion_1_0_version_marker, top_level_value};
 use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
@@ -23,8 +23,15 @@ const INITIAL_PARENTS_CAPACITY: usize = 16;
 
 pub struct RawTextReader<T: TextIonDataSource> {
     buffer: TextBuffer<T::TextSource>,
+    // If the reader is not positioned over a value inside a struct, this is None.
     current_field_name: Option<RawSymbolToken>,
+    // If the reader has not yet begun reading at the current level or is positioned over an IVM,
+    // this is None.
     current_value: Option<AnnotatedTextValue>,
+    // If the reader is positioned over an IVM instead of a value, this is:
+    //     Some(major_version, minor_version)
+    // Otherwise, it is None.
+    current_ivm: Option<(u8, u8)>,
     bytes_read: usize,
     is_eof: bool,
     parents: Vec<ParentContainer>,
@@ -37,6 +44,7 @@ impl<T: TextIonDataSource> RawTextReader<T> {
             buffer: TextBuffer::new(text_source),
             current_field_name: None,
             current_value: None,
+            current_ivm: None,
             bytes_read: 0,
             is_eof: false,
             parents: Vec::with_capacity(INITIAL_PARENTS_CAPACITY),
@@ -62,6 +70,11 @@ impl<T: TextIonDataSource> RawTextReader<T> {
             self.step_out()?;
         }
 
+        // Unset variables holding onto information about the previous position.
+        self.current_ivm = None;
+        self.current_value = None;
+        self.current_field_name = None;
+
         if self.parents.is_empty() {
             // The `parents` stack is empty. We're at the top level.
 
@@ -71,7 +84,15 @@ impl<T: TextIonDataSource> RawTextReader<T> {
                 self.current_value = None;
                 return Ok(());
             }
-            // Otherwise, try to read the next value.
+
+            // Otherwise, see if the next token in the stream is an Ion Version Marker.
+            if let Ok(Some(_)) = self.parse_next(ion_1_0_version_marker) {
+                // We found an IVM; we currently only support Ion 1.0.
+                self.current_ivm = Some((1, 0));
+                return Ok(());
+            }
+
+            // If it wasn't an IVM, it has to be a value.
             let value = self.next_top_level_value();
             match value {
                 Ok(None) => {
@@ -372,6 +393,13 @@ impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
     fn next(&mut self) -> IonResult<Option<StreamItem>> {
         // Parse the next value from the stream, storing it in `self.current_value`.
         self.load_next_value()?;
+
+        // If we're positioned on an IVM, return the (major, minor) version tuple
+        if let Some((major, minor)) = self.current_ivm {
+            return Ok(Some(StreamItem::VersionMarker(major, minor)));
+        }
+
+        // If we're positioned on a value, return its IonType and whether it's null.
         if let Some(value) = self.current_value.as_ref() {
             let ion_type = value.ion_type();
             let is_null = matches!(value.value(), TextValue::Null(_));
@@ -734,6 +762,8 @@ mod reader_tests {
             5e0
             5.5
             2021-09-25T
+            '$ion_1_0' // A quoted symbol, not an IVM
+            $ion_1_0   // An IVM, not a symbol
             foo
             "hello"
             {foo: bar}
@@ -761,6 +791,12 @@ mod reader_tests {
             reader.read_timestamp()?.unwrap(),
             Timestamp::with_ymd(2021, 9, 25).build().unwrap()
         );
+
+        next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?.unwrap(), text_token("$ion_1_0"));
+
+        // A mid-stream Ion Version Marker
+        assert_eq!(reader.next()?.unwrap(), StreamItem::VersionMarker(1, 0));
 
         next_type(reader, IonType::Symbol, false);
         assert_eq!(reader.read_symbol()?.unwrap(), text_token("foo"));

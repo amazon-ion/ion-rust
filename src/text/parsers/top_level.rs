@@ -1,5 +1,6 @@
+use nom::bytes::streaming::tag;
 use nom::sequence::preceded;
-use nom::IResult;
+use nom::{IResult, Parser};
 
 use crate::text::parsers::comments::whitespace_or_comments;
 use crate::text::parsers::value::annotated_value;
@@ -17,12 +18,27 @@ pub(crate) fn top_level_value(input: &str) -> IResult<&str, AnnotatedTextValue> 
     )(input)
 }
 
+// Matches any amount of whitespace/comments followed by the identifier `$ion_1_0`.
+// Note that this MUST be an identifier (i.e. an unquoted symbol) and not any other encoding of the
+// same symbol value. For more information see:
+// https://amzn.github.io/ion-docs/docs/symbols.html#ion-version-markers
+pub(crate) fn ion_1_0_version_marker(input: &str) -> IResult<&str, ()> {
+    preceded(
+        whitespace_or_comments,
+        tag("$ion_1_0")
+    )
+    // TODO: This parser discards the matched &str as a workaround to a limitation in RawTextReader.
+    //       See: https://github.com/amzn/ion-rust/issues/337
+    .map(|_| ())
+    .parse(input)
+}
+
 #[cfg(test)]
 mod parse_top_level_values_tests {
     use rstest::*;
 
     use crate::raw_symbol_token::{text_token, RawSymbolToken};
-    use crate::text::parsers::unit_test_support::parse_unwrap;
+    use crate::text::parsers::unit_test_support::{parse_test_ok, parse_unwrap};
     use crate::text::parsers::value::value;
     use crate::text::text_value::TextValue;
     use crate::IonType;
@@ -87,9 +103,22 @@ mod parse_top_level_values_tests {
         #[case] expected_annotations: &[&str],
         #[case] expected_value: TextValue,
     ) {
-        assert_eq!(
-            annotated_value(text).unwrap().1,
-            expected_value.with_annotations(expected_annotations)
-        );
+        parse_test_ok(annotated_value, text, expected_value.with_annotations(expected_annotations));
+    }
+
+    #[rstest]
+    #[case("$ion_1_0 ")]
+    #[case("   \r  \t \n $ion_1_0 ")]
+    #[case(" /*comment 1*/\n//comment 2\n   $ion_1_0 ")]
+    #[should_panic]
+    #[case("5")]
+    #[should_panic]
+    #[case("'$ion_1_0'")]
+    #[should_panic]
+    #[case("$2")]
+    #[should_panic]
+    #[case("$ion_1_1")]
+    fn test_parse_ion_version_marker(#[case] text: &str) {
+        parse_test_ok(ion_1_0_version_marker, text, ());
     }
 }
