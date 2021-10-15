@@ -699,6 +699,37 @@ mod reader_tests {
         Ok(())
     }
 
+    #[test]
+    fn test_read_container_with_mixed_scalars_and_containers() -> IonResult<()> {
+        let ion_data = r#"
+            {
+                foo: 4,
+                bar: {
+                    a: 5,
+                    b: (true true true)
+                }
+            }
+            42
+        "#;
+
+        let reader = &mut RawTextReader::new(ion_data);
+        next_type(reader, IonType::Struct, false);
+        reader.step_in()?;
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.field_name().unwrap(), &text_token("foo"));
+        next_type(reader, IonType::Struct, false);
+        assert_eq!(reader.field_name().unwrap(), &text_token("bar"));
+        reader.step_in()?;
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?.unwrap(), 5);
+        reader.step_out()?;
+        assert_eq!(reader.next()?, None);
+        reader.step_out()?;
+        next_type(reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?.unwrap(), 42);
+        Ok(())
+    }
+
     #[rstest]
     #[case(" null ", TextValue::Null(IonType::Null))]
     #[case(" null.string ", TextValue::Null(IonType::String))]
