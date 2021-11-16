@@ -35,3 +35,7 @@ pub use reader::Reader;
 pub use symbol_table::SymbolTable;
 pub use system_event_handler::SystemEventHandler;
 pub use types::IonType;
+
+pub mod reexport {
+    pub use bigdecimal;
+}
