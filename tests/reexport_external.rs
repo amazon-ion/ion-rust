@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use ion_rs::reexport::bigdecimal::{BigDecimal, Zero};
+use ion_rs::external::bigdecimal::{BigDecimal, Zero};
 use ion_rs::types::decimal::Decimal;
 
 /// This test shows how the ion_rs integration with bigdecimal can be used

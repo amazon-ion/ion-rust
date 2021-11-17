@@ -36,6 +36,9 @@ pub use symbol_table::SymbolTable;
 pub use system_event_handler::SystemEventHandler;
 pub use types::IonType;
 
-pub mod reexport {
+/// Re-exports of third party dependencies that are part of our public API.
+///
+/// See also: https://github.com/amzn/ion-rust/issues/302.
+pub mod external {
     pub use bigdecimal;
 }
