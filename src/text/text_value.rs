@@ -1,7 +1,6 @@
-use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::types::SymbolId;
 use crate::IonType;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -95,62 +94,43 @@ pub trait IntoAnnotations {
     fn into_annotations(self) -> Vec<RawSymbolToken>;
 }
 
-impl IntoAnnotations for Vec<RawSymbolToken> {
+impl<T> IntoAnnotations for T
+where
+    T: Into<RawSymbolToken>,
+{
     fn into_annotations(self) -> Vec<RawSymbolToken> {
-        self
+        vec![self.into()]
     }
 }
 
-impl IntoAnnotations for &[RawSymbolToken] {
+fn annotations_from_iter<T, I>(collection: I) -> Vec<RawSymbolToken>
+where
+    T: Into<RawSymbolToken>,
+    I: IntoIterator<Item = T>,
+{
+    collection.into_iter().map(|item| item.into()).collect()
+}
+
+impl<T: Into<RawSymbolToken>> IntoAnnotations for Vec<T> {
     fn into_annotations(self) -> Vec<RawSymbolToken> {
-        self.to_vec()
+        annotations_from_iter(self)
     }
 }
 
-impl<const N: usize> IntoAnnotations for &[RawSymbolToken; N] {
+impl<T: Into<RawSymbolToken>, const N: usize> IntoAnnotations for [T; N] {
     fn into_annotations(self) -> Vec<RawSymbolToken> {
-        self.iter().cloned().collect()
+        annotations_from_iter(self)
     }
 }
 
-impl IntoAnnotations for &[&str] {
+impl<T: Into<RawSymbolToken> + Clone> IntoAnnotations for &[T] {
     fn into_annotations(self) -> Vec<RawSymbolToken> {
-        self.iter().map(|text| text_token(*text)).collect()
+        annotations_from_iter(self)
     }
 }
 
-impl<const N: usize> IntoAnnotations for &[&str; N] {
+impl<T: Into<RawSymbolToken> + Clone, const N: usize> IntoAnnotations for &[T; N] {
     fn into_annotations(self) -> Vec<RawSymbolToken> {
-        self.iter().map(|text| text_token(*text)).collect()
-    }
-}
-
-impl IntoAnnotations for &[SymbolId] {
-    fn into_annotations(self) -> Vec<RawSymbolToken> {
-        self.iter().map(|token| local_sid_token(*token)).collect()
-    }
-}
-
-impl<const N: usize> IntoAnnotations for &[SymbolId; N] {
-    fn into_annotations(self) -> Vec<RawSymbolToken> {
-        self.iter().map(|token| local_sid_token(*token)).collect()
-    }
-}
-
-impl IntoAnnotations for &str {
-    fn into_annotations(self) -> Vec<RawSymbolToken> {
-        vec![text_token(self)]
-    }
-}
-
-impl IntoAnnotations for SymbolId {
-    fn into_annotations(self) -> Vec<RawSymbolToken> {
-        vec![local_sid_token(self)]
-    }
-}
-
-impl IntoAnnotations for RawSymbolToken {
-    fn into_annotations(self) -> Vec<RawSymbolToken> {
-        vec![self]
+        annotations_from_iter(self)
     }
 }

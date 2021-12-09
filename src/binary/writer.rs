@@ -9,6 +9,8 @@ use chrono::{DateTime, FixedOffset};
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
+use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
+use crate::raw_writer::RawWriter;
 use crate::result::{illegal_operation, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
@@ -114,7 +116,7 @@ impl EncodingLevel {
 /// management; symbol-related operations (e.g. setting field IDs and annotations or writing symbol
 /// values) require a valid symbol ID to be provided by the caller.
 #[derive(Debug)]
-pub struct BinarySystemWriter<W: Write> {
+pub struct RawBinaryWriter<W: Write> {
     // Tracks whether the writer has already written an IVM out in this stream.
     ivm_needed: bool,
     // A byte buffer to encode individual components of the stream.
@@ -153,17 +155,17 @@ const INITIAL_ENCODING_LEVELS_CAPACITY: usize = 16;
 const INITIAL_IO_RANGE_CAPACITY: usize = 128;
 const INITIAL_ANNOTATIONS_CAPACITY: usize = 4;
 
-impl<W: Write> BinarySystemWriter<W> {
+impl<W: Write> RawBinaryWriter<W> {
     /// Creates a new BinarySystemWriter that will write its encoded output to the provided
     /// io::Write sink.
-    pub fn new(out: W) -> BinarySystemWriter<W> {
+    pub fn new(out: W) -> RawBinaryWriter<W> {
         let mut levels = Vec::with_capacity(INITIAL_ENCODING_LEVELS_CAPACITY);
         // Create an EncodingLevel to represent the top level. It has no annotations.
         levels.push(EncodingLevel::new(ContainerType::TopLevel, None, 0, 0));
         // Create an empty IoRange for top-level leading scalar values.
         let mut io_ranges = Vec::with_capacity(INITIAL_IO_RANGE_CAPACITY);
         io_ranges.push(0usize..0);
-        BinarySystemWriter {
+        RawBinaryWriter {
             ivm_needed: true,
             buffer: Vec::with_capacity(INITIAL_ENCODING_BUFFER_CAPACITY),
             io_ranges,
@@ -367,104 +369,6 @@ impl<W: Write> BinarySystemWriter<W> {
         self.num_annotations_current_value > 0
     }
 
-    pub fn set_annotation_ids(&mut self, annotation_ids: &[SymbolId]) {
-        self.clear_annotations();
-        for annotation_id in annotation_ids {
-            self.annotations_all_levels.push(*annotation_id);
-        }
-        self.num_annotations_current_value = annotation_ids.len() as u8;
-    }
-
-    /// Writes an Ion null of the specified type.
-    pub fn write_null(&mut self, ion_type: IonType) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            let byte: u8 = match ion_type {
-                IonType::Null => 0x0F,
-                IonType::Boolean => 0x1F,
-                IonType::Integer => 0x2F,
-                IonType::Float => 0x4F,
-                IonType::Decimal => 0x5F,
-                IonType::Timestamp => 0x6F,
-                IonType::Symbol => 0x7F,
-                IonType::String => 0x8F,
-                IonType::Clob => 0x9F,
-                IonType::Blob => 0xAF,
-                IonType::List => 0xBF,
-                IonType::SExpression => 0xCF,
-                IonType::Struct => 0xDF,
-            };
-            enc_buffer.push(byte);
-            Ok(())
-        })
-    }
-
-    /// Writes an Ion boolean with the specified value.
-    pub fn write_bool(&mut self, value: bool) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            let byte: u8 = if value { 0x11 } else { 0x10 };
-            enc_buffer.push(byte);
-            Ok(())
-        })
-    }
-
-    /// Writes an Ion integer with the specified value.
-    pub fn write_i64(&mut self, value: i64) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            let magnitude = value.abs() as u64;
-            let encoded = uint::encode_uint(magnitude);
-            let bytes_to_write = encoded.as_bytes();
-
-            // The encoded length will never be larger than 8 bytes, so it will
-            // always fit in the Int's type descriptor byte.
-            let encoded_length = bytes_to_write.len();
-            let type_descriptor: u8 = if value >= 0 {
-                0x20 | (encoded_length as u8)
-            } else {
-                0x30 | (encoded_length as u8)
-            };
-            enc_buffer.push(type_descriptor);
-            enc_buffer.extend_from_slice(bytes_to_write);
-
-            Ok(())
-        })
-    }
-
-    /// Writes an Ion float with the specified value.
-    pub fn write_f32(&mut self, value: f32) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            if value == 0f32 {
-                enc_buffer.push(0x40);
-                return Ok(());
-            }
-
-            enc_buffer.push(0x44);
-            enc_buffer.extend_from_slice(&value.to_be_bytes());
-            Ok(())
-        })
-    }
-
-    /// Writes an Ion float with the specified value.
-    pub fn write_f64(&mut self, value: f64) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            if value == 0f64 {
-                enc_buffer.push(0x40);
-                return Ok(());
-            }
-
-            enc_buffer.push(0x48);
-            enc_buffer.extend_from_slice(&value.to_be_bytes());
-            Ok(())
-        })
-    }
-
-    /// Writes an Ion decimal with the specified value.
-    pub fn write_decimal(&mut self, value: &Decimal) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            let _ = enc_buffer.encode_decimal_value(value);
-            Ok(())
-        })
-    }
-
     /// Writes an Ion decimal with the specified value.
     pub fn write_big_decimal(&mut self, value: &BigDecimal) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
@@ -493,14 +397,6 @@ impl<W: Write> BinarySystemWriter<W> {
         })
     }
 
-    /// Writes an Ion timestamp with the specified value.
-    pub fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            let _ = enc_buffer.encode_timestamp_value(value)?;
-            Ok(())
-        })
-    }
-
     pub fn write_symbol_id(&mut self, symbol_id: SymbolId) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
             const SYMBOL_BUFFER_SIZE: usize = mem::size_of::<u64>();
@@ -520,39 +416,6 @@ impl<W: Write> BinarySystemWriter<W> {
             let raw_buffer = writer.into_inner().into_inner();
             enc_buffer.extend_from_slice(&raw_buffer[..encoded_length]);
             Ok(())
-        })
-    }
-
-    pub fn write_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            let text: &str = value.as_ref();
-            let encoded_length = text.len(); // The number of utf8 bytes
-
-            let type_descriptor: u8;
-            if encoded_length <= MAX_INLINE_LENGTH {
-                type_descriptor = 0x80 | encoded_length as u8;
-                enc_buffer.push(type_descriptor);
-            } else {
-                type_descriptor = 0x8E;
-                enc_buffer.push(type_descriptor);
-                VarUInt::write_u64(enc_buffer, encoded_length as u64)?;
-            }
-            enc_buffer.extend_from_slice(text.as_bytes());
-            Ok(())
-        })
-    }
-
-    pub fn write_clob(&mut self, value: &[u8]) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            // The clob type descriptor's high nibble is type code 9
-            Self::write_lob(enc_buffer, value, 0x90)
-        })
-    }
-
-    pub fn write_blob(&mut self, value: &[u8]) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            // The blob type descriptor's high nibble is type code 10
-            Self::write_lob(enc_buffer, value, 0xA0)
         })
     }
 
@@ -589,107 +452,6 @@ impl<W: Write> BinarySystemWriter<W> {
                 illegal_operation("`set_field_id()` must be called before each field in a struct.")
             }
         }
-    }
-
-    /// Starts a container of the specified Ion type. If `ion_type` is not a List, SExpression,
-    /// or Struct, `step_in` will return an Err.
-    pub fn step_in(&mut self, ion_type: IonType) -> IonResult<()> {
-        use IonType::*;
-        let container_type = match ion_type {
-            List => ContainerType::List,
-            SExpression => ContainerType::SExpression,
-            Struct => ContainerType::Struct,
-            _ => return illegal_operation("Cannot step into a scalar Ion type."),
-        };
-
-        // If this is a field in a struct, encode the field ID at the end of the last IO range.
-        if self.is_in_struct() {
-            let field_id_io_range = self.encode_to_buffer(|writer| {
-                let field_id = writer.expect_field_id()? as u64;
-                VarUInt::write_u64(&mut writer.buffer, field_id)?;
-                Ok(())
-            })?;
-            self.extend_last_range(field_id_io_range.len());
-        }
-
-        // If the container is annotated, reserve IO ranges to hold the annotations
-        // wrapper components that will ultimately precede the value.
-        if self.num_annotations_current_value > 0 {
-            self.reserve_io_ranges_for_annotations();
-        }
-
-        // An empty placeholder range that we'll fill in during step_out(). It will point to the
-        // type descriptor byte and any length bytes.
-        let header_io_range_index = self.io_ranges.len();
-        self.push_empty_io_range();
-
-        let new_encoding_level = EncodingLevel::new(
-            container_type,
-            self.field_id,
-            self.num_annotations_current_value,
-            header_io_range_index,
-        );
-        self.num_annotations_current_value = 0;
-        self.levels.push(new_encoding_level);
-
-        self.push_empty_io_range(); // Scalars can append to this
-        Ok(())
-    }
-
-    /// Ends the current container. If the writer is at the top level, `step_out` will return an Err.
-    pub fn step_out(&mut self) -> IonResult<()> {
-        if self.levels.len() <= 1 {
-            return illegal_operation(
-                "Cannot call step_out() unless the writer is positioned within a container.",
-            );
-        }
-        self.clear_annotations();
-        let container = self.levels.pop().unwrap();
-        self.num_annotations_current_value = container.num_annotations;
-        self.field_id = container.field_id;
-        let container_size = container.calculate_final_size(&mut self.io_ranges);
-
-        use ContainerType::*;
-        let mut type_descriptor: u8 = match container.container_type {
-            List => 0xB0,
-            SExpression => 0xC0,
-            Struct => 0xD0,
-            _ => return illegal_operation("Cannot step into a scalar Ion type."),
-        };
-
-        // Encode the type descriptor byte, and optional length
-        let header_io_range = self.encode_to_buffer(|writer| {
-            if container_size <= MAX_INLINE_LENGTH {
-                type_descriptor |= container_size as u8;
-                writer.buffer.push(type_descriptor);
-            } else {
-                type_descriptor |= 0x0E; // VarUInt encoding
-                writer.buffer.push(type_descriptor);
-                VarUInt::write_u64(&mut writer.buffer, container_size as u64)?;
-            }
-            Ok(())
-        })?;
-
-        // Retrieve this container's header byte range from io_ranges
-        let td_io_range = self
-            .io_ranges
-            .get_mut(container.td_io_range_index)
-            .expect("Missing type descriptor IO range for {}");
-
-        // Update the IO range to point to the bytes we just encoded
-        let _ = mem::replace(td_io_range, header_io_range);
-
-        // If this container had annotations, retrieve the IO ranges that were reserved to store
-        // them and use them to encode the annotations wrapper.
-        if container.num_annotations > 0 {
-            self.encode_container_annotations(container.td_io_range_index, container_size)?;
-        }
-
-        // Create an empty IO Range that will hold the bytes of any scalar values that will follow
-        // now that we've stepped out.
-        self.push_empty_io_range();
-
-        Ok(())
     }
 
     // When step_out() is called and the container has been written, this function uses the encoded
@@ -744,9 +506,320 @@ impl<W: Write> BinarySystemWriter<W> {
         &mut self.out
     }
 
+    fn reserve_io_ranges_for_annotations(&mut self) {
+        // Annotations type descriptor and wrapper length
+        self.push_empty_io_range();
+        // The VarUInt length of the encoded sequence of annotations
+        self.push_empty_io_range();
+        // The encoded sequence of annotations
+        self.push_empty_io_range();
+    }
+}
+
+impl<'a, W: Write> RawWriter for RawBinaryWriter<W> {
+    fn ion_version(&self) -> (u8, u8) {
+        (1, 0)
+    }
+
+    fn write_ion_version_marker(&mut self, major: u8, minor: u8) -> IonResult<()> {
+        if major == 1 && minor == 0 {
+            return Ok(self.out.write_all(&IVM)?);
+        }
+        panic!("Only Ion 1.0 is supported.");
+    }
+
+    fn set_annotations<I, A>(&mut self, annotations: I)
+    where
+        A: AsRawSymbolTokenRef,
+        I: IntoIterator<Item = A>,
+    {
+        self.clear_annotations();
+        let initial_count = self.annotations_all_levels.len();
+        for annotation in annotations {
+            let symbol_id = match annotation.as_raw_symbol_token_ref() {
+                RawSymbolTokenRef::SymbolId(symbol_id) => symbol_id,
+                RawSymbolTokenRef::Text(text) => panic!(
+                    "The RawBinaryWriter can only accept symbol ID annotations, not text ('{}').",
+                    text
+                ),
+            };
+            self.annotations_all_levels.push(symbol_id);
+        }
+        self.num_annotations_current_value =
+            (self.annotations_all_levels.len() - initial_count) as u8;
+    }
+
+    /// Writes an Ion null of the specified type.
+    fn write_null(&mut self, ion_type: IonType) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            let byte: u8 = match ion_type {
+                IonType::Null => 0x0F,
+                IonType::Boolean => 0x1F,
+                IonType::Integer => 0x2F,
+                IonType::Float => 0x4F,
+                IonType::Decimal => 0x5F,
+                IonType::Timestamp => 0x6F,
+                IonType::Symbol => 0x7F,
+                IonType::String => 0x8F,
+                IonType::Clob => 0x9F,
+                IonType::Blob => 0xAF,
+                IonType::List => 0xBF,
+                IonType::SExpression => 0xCF,
+                IonType::Struct => 0xDF,
+            };
+            enc_buffer.push(byte);
+            Ok(())
+        })
+    }
+
+    /// Writes an Ion boolean with the specified value.
+    fn write_bool(&mut self, value: bool) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            let byte: u8 = if value { 0x11 } else { 0x10 };
+            enc_buffer.push(byte);
+            Ok(())
+        })
+    }
+
+    /// Writes an Ion integer with the specified value.
+    fn write_i64(&mut self, value: i64) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            let magnitude = value.abs() as u64;
+            let encoded = uint::encode_uint(magnitude);
+            let bytes_to_write = encoded.as_bytes();
+
+            // The encoded length will never be larger than 8 bytes, so it will
+            // always fit in the Int's type descriptor byte.
+            let encoded_length = bytes_to_write.len();
+            let type_descriptor: u8 = if value >= 0 {
+                0x20 | (encoded_length as u8)
+            } else {
+                0x30 | (encoded_length as u8)
+            };
+            enc_buffer.push(type_descriptor);
+            enc_buffer.extend_from_slice(bytes_to_write);
+
+            Ok(())
+        })
+    }
+
+    /// Writes an Ion float with the specified value.
+    fn write_f32(&mut self, value: f32) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            if value == 0f32 {
+                enc_buffer.push(0x40);
+                return Ok(());
+            }
+
+            enc_buffer.push(0x44);
+            enc_buffer.extend_from_slice(&value.to_be_bytes());
+            Ok(())
+        })
+    }
+
+    /// Writes an Ion float with the specified value.
+    fn write_f64(&mut self, value: f64) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            if value == 0f64 {
+                enc_buffer.push(0x40);
+                return Ok(());
+            }
+
+            enc_buffer.push(0x48);
+            enc_buffer.extend_from_slice(&value.to_be_bytes());
+            Ok(())
+        })
+    }
+
+    /// Writes an Ion decimal with the specified value.
+    fn write_decimal(&mut self, value: &Decimal) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            let _ = enc_buffer.encode_decimal_value(value);
+            Ok(())
+        })
+    }
+
+    /// Writes an Ion timestamp with the specified value.
+    fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            let _ = enc_buffer.encode_timestamp_value(value)?;
+            Ok(())
+        })
+    }
+
+    fn write_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
+        match value.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(sid) => self.write_symbol_id(sid),
+            RawSymbolTokenRef::Text(_text) => {
+                illegal_operation("The RawBinaryWriter cannot write text symbols.")
+            }
+        }
+    }
+
+    fn write_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            let text: &str = value.as_ref();
+            let encoded_length = text.len(); // The number of utf8 bytes
+
+            let type_descriptor: u8;
+            if encoded_length <= MAX_INLINE_LENGTH {
+                type_descriptor = 0x80 | encoded_length as u8;
+                enc_buffer.push(type_descriptor);
+            } else {
+                type_descriptor = 0x8E;
+                enc_buffer.push(type_descriptor);
+                VarUInt::write_u64(enc_buffer, encoded_length as u64)?;
+            }
+            enc_buffer.extend_from_slice(text.as_bytes());
+            Ok(())
+        })
+    }
+
+    fn write_clob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            let bytes: &[u8] = value.as_ref();
+            // The clob type descriptor's high nibble is type code 9
+            RawBinaryWriter::<W>::write_lob(enc_buffer, bytes, 0x90)
+        })
+    }
+
+    fn write_blob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
+        self.write_scalar(|enc_buffer| {
+            let bytes: &[u8] = value.as_ref();
+            // The blob type descriptor's high nibble is type code 10
+            RawBinaryWriter::<W>::write_lob(enc_buffer, bytes, 0xA0)
+        })
+    }
+
+    /// Starts a container of the specified Ion type. If `ion_type` is not a List, SExpression,
+    /// or Struct, `step_in` will return an Err.
+    fn step_in(&mut self, ion_type: IonType) -> IonResult<()> {
+        use IonType::*;
+        let container_type = match ion_type {
+            List => ContainerType::List,
+            SExpression => ContainerType::SExpression,
+            Struct => ContainerType::Struct,
+            _ => return illegal_operation("Cannot step into a scalar Ion type."),
+        };
+
+        // If this is a field in a struct, encode the field ID at the end of the last IO range.
+        if self.is_in_struct() {
+            let field_id_io_range = self.encode_to_buffer(|writer| {
+                let field_id = writer.expect_field_id()? as u64;
+                VarUInt::write_u64(&mut writer.buffer, field_id)?;
+                Ok(())
+            })?;
+            self.extend_last_range(field_id_io_range.len());
+        }
+
+        // If the container is annotated, reserve IO ranges to hold the annotations
+        // wrapper components that will ultimately precede the value.
+        if self.num_annotations_current_value > 0 {
+            self.reserve_io_ranges_for_annotations();
+        }
+
+        // An empty placeholder range that we'll fill in during step_out(). It will point to the
+        // type descriptor byte and any length bytes.
+        let header_io_range_index = self.io_ranges.len();
+        self.push_empty_io_range();
+
+        let new_encoding_level = EncodingLevel::new(
+            container_type,
+            self.field_id,
+            self.num_annotations_current_value,
+            header_io_range_index,
+        );
+        self.num_annotations_current_value = 0;
+        self.levels.push(new_encoding_level);
+
+        self.push_empty_io_range(); // Scalars can append to this
+        Ok(())
+    }
+
+    fn set_field_name<A: AsRawSymbolTokenRef>(&mut self, name: A) {
+        match name.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(sid) => self.set_field_id(sid),
+            RawSymbolTokenRef::Text(text) => panic!(
+                "The RawBinaryWriter can only accept Symbol ID field names, not text ('{}').",
+                text
+            ),
+        }
+    }
+
+    fn parent_type(&self) -> Option<IonType> {
+        // `self.levels` always has at least one value: the top level.
+        // This means we can `unwrap()` the last value safely.
+        match self.levels.last().unwrap().container_type {
+            ContainerType::TopLevel => None,
+            ContainerType::Struct => Some(IonType::Struct),
+            ContainerType::List => Some(IonType::List),
+            ContainerType::SExpression => Some(IonType::SExpression),
+        }
+    }
+
+    fn depth(&self) -> usize {
+        self.levels.len()
+    }
+
+    /// Ends the current container. If the writer is at the top level, `step_out` will return an Err.
+    fn step_out(&mut self) -> IonResult<()> {
+        if self.levels.len() <= 1 {
+            return illegal_operation(
+                "Cannot call step_out() unless the writer is positioned within a container.",
+            );
+        }
+        self.clear_annotations();
+        let container = self.levels.pop().unwrap();
+        self.num_annotations_current_value = container.num_annotations;
+        self.field_id = container.field_id;
+        let container_size = container.calculate_final_size(&mut self.io_ranges);
+
+        use ContainerType::*;
+        let mut type_descriptor: u8 = match container.container_type {
+            List => 0xB0,
+            SExpression => 0xC0,
+            Struct => 0xD0,
+            _ => return illegal_operation("Cannot step into a scalar Ion type."),
+        };
+
+        // Encode the type descriptor byte, and optional length
+        let header_io_range = self.encode_to_buffer(|writer| {
+            if container_size <= MAX_INLINE_LENGTH {
+                type_descriptor |= container_size as u8;
+                writer.buffer.push(type_descriptor);
+            } else {
+                type_descriptor |= 0x0E; // VarUInt encoding
+                writer.buffer.push(type_descriptor);
+                VarUInt::write_u64(&mut writer.buffer, container_size as u64)?;
+            }
+            Ok(())
+        })?;
+
+        // Retrieve this container's header byte range from io_ranges
+        let td_io_range = self
+            .io_ranges
+            .get_mut(container.td_io_range_index)
+            .expect("Missing type descriptor IO range for {}");
+
+        // Update the IO range to point to the bytes we just encoded
+        let _ = mem::replace(td_io_range, header_io_range);
+
+        // If this container had annotations, retrieve the IO ranges that were reserved to store
+        // them and use them to encode the annotations wrapper.
+        if container.num_annotations > 0 {
+            self.encode_container_annotations(container.td_io_range_index, container_size)?;
+        }
+
+        // Create an empty IO Range that will hold the bytes of any scalar values that will follow
+        // now that we've stepped out.
+        self.push_empty_io_range();
+
+        Ok(())
+    }
+
     /// Writes any buffered data to the sink. This method can only be called when the writer is at
     /// the top level.
-    pub fn flush(&mut self) -> IonResult<()> {
+    fn flush(&mut self) -> IonResult<()> {
         if self.levels.len() > 1 {
             return illegal_operation(
                 "Cannot call flush() while the writer is positioned within a container.",
@@ -782,15 +855,6 @@ impl<W: Write> BinarySystemWriter<W> {
 
         Ok(())
     }
-
-    fn reserve_io_ranges_for_annotations(&mut self) {
-        // Annotations type descriptor and wrapper length
-        self.push_empty_io_range();
-        // The VarUInt length of the encoded sequence of annotations
-        self.push_empty_io_range();
-        // The encoded sequence of annotations
-        self.push_empty_io_range();
-    }
 }
 
 #[cfg(test)]
@@ -806,7 +870,7 @@ mod writer_tests {
     use num_traits::Float;
     use std::convert::TryInto;
 
-    type TestWriter<'a> = BinarySystemWriter<&'a mut Vec<u8>>;
+    type TestWriter<'a> = RawBinaryWriter<&'a mut Vec<u8>>;
     type TestReader<'a> = Reader<RawBinaryReader<std::io::Cursor<&'a [u8]>>>;
 
     /// A reusable test outline for verifying BinarySystemWriter behavior.
@@ -816,7 +880,7 @@ mod writer_tests {
     ) -> IonResult<()> {
         // Create a BinarySystemWriter that writes to a byte vector.
         let mut buffer = vec![];
-        let mut writer = BinarySystemWriter::new(&mut buffer);
+        let mut writer = RawBinaryWriter::new(&mut buffer);
 
         // Call the user's writing function
         write_fn(&mut writer)?;
@@ -1136,9 +1200,9 @@ mod writer_tests {
         );
     }
 
-    fn write_lst<W: Write>(writer: &mut BinarySystemWriter<W>, symbols: &[&str]) -> IonResult<()> {
+    fn write_lst<W: Write>(writer: &mut RawBinaryWriter<W>, symbols: &[&str]) -> IonResult<()> {
         // $ion_symbol_table::{symbols: ["your", "strings", "here"]}
-        writer.set_annotation_ids(&[3]); // $ion_symbol_table
+        writer.set_annotations(&[3]); // $ion_symbol_table
         writer.step_in(IonType::Struct)?;
         writer.set_field_id(7); // symbols
         writer.step_in(IonType::List)?;
@@ -1181,13 +1245,13 @@ mod writer_tests {
             |writer| {
                 write_lst(writer, &["foo", "bar", "baz", "quux", "quuz", "waldo"])?;
 
-                writer.set_annotation_ids(&[10]);
+                writer.set_annotations(&[10]);
                 writer.write_bool(true)?;
 
-                writer.set_annotation_ids(&[11, 12]);
+                writer.set_annotations(&[11, 12]);
                 writer.write_i64(42)?;
 
-                writer.set_annotation_ids(&[13, 14, 15]);
+                writer.set_annotations(&[13, 14, 15]);
                 writer.write_string("Hello")
             },
             |reader| {
@@ -1214,19 +1278,19 @@ mod writer_tests {
                 )?;
 
                 // foo::(true)
-                writer.set_annotation_ids(&[10]);
+                writer.set_annotations(&[10]);
                 writer.step_in(IonType::SExpression)?;
                 writer.write_bool(true)?;
                 writer.step_out()?;
 
                 // bar::baz::[11]
-                writer.set_annotation_ids(&[11, 12]);
+                writer.set_annotations(&[11, 12]);
                 writer.step_in(IonType::List)?;
                 writer.write_i64(11)?;
                 writer.step_out()?;
 
                 // quux::quuz::waldo::{gary: "foo"}
-                writer.set_annotation_ids(&[13, 14, 15]);
+                writer.set_annotations(&[13, 14, 15]);
                 writer.step_in(IonType::Struct)?;
                 writer.set_field_id(16);
                 writer.write_string("foo")?;
@@ -1262,12 +1326,12 @@ mod writer_tests {
             |writer| {
                 write_lst(writer, &["foo", "bar", "baz", "quux"])?;
                 // foo::{bar: baz::[quux::"quuz"]]}
-                writer.set_annotation_ids(&[10]);
+                writer.set_annotations(&[10]);
                 writer.step_in(IonType::Struct)?;
                 writer.set_field_id(11);
-                writer.set_annotation_ids(&[12]);
+                writer.set_annotations(&[12]);
                 writer.step_in(IonType::List)?;
-                writer.set_annotation_ids(&[13]);
+                writer.set_annotations(&[13]);
                 writer.write_string("quuz")?;
                 writer.step_out()?; // End of list
                 writer.step_out() // End of struct

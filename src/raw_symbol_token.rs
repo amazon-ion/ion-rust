@@ -49,19 +49,28 @@ pub fn text_token<T: Into<String>>(text: T) -> RawSymbolToken {
 }
 
 impl From<SymbolId> for RawSymbolToken {
-    fn from(value: SymbolId) -> Self {
-        local_sid_token(value)
+    fn from(symbol_id: SymbolId) -> Self {
+        RawSymbolToken::SymbolId(symbol_id)
     }
 }
 
 impl From<String> for RawSymbolToken {
-    fn from(value: String) -> Self {
-        text_token(value)
+    fn from(text: String) -> Self {
+        RawSymbolToken::Text(text)
     }
 }
 
 impl From<&str> for RawSymbolToken {
-    fn from(value: &str) -> Self {
-        text_token(value.to_string())
+    fn from(text: &str) -> Self {
+        RawSymbolToken::Text(text.to_string())
+    }
+}
+
+impl<T> From<&T> for RawSymbolToken
+where
+    T: Clone + Into<RawSymbolToken>,
+{
+    fn from(value: &T) -> Self {
+        value.clone().into()
     }
 }

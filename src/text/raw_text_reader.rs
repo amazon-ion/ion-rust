@@ -588,7 +588,7 @@ impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
     fn step_out(&mut self) -> IonResult<()> {
         if self.parents.is_empty() {
             return illegal_operation(
-                "Cannot call `step_out()` when the reader is at the top level.".to_string(),
+                "Cannot call `step_out()` when the reader is at the top level.",
             );
         }
 
