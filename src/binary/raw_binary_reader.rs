@@ -5,7 +5,7 @@ use chrono::offset::FixedOffset;
 use chrono::prelude::*;
 use delegate::delegate;
 
-use crate::raw_reader::{RawReader, StreamItem};
+use crate::raw_reader::{RawReader, RawStreamItem};
 use crate::{
     binary::{
         constants::v1_0::length_codes,
@@ -281,7 +281,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
     }
 
     #[inline]
-    fn next(&mut self) -> IonResult<Option<StreamItem>> {
+    fn next(&mut self) -> IonResult<Option<RawStreamItem>> {
         // Skip the remaining bytes of the current value, if any.
         let _ = self.skip_current_value()?;
 
@@ -367,7 +367,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         self.cursor.index_at_depth += 1;
         self.cursor.value.index_at_depth = self.cursor.index_at_depth;
 
-        Ok(Some(StreamItem::Value(
+        Ok(Some(RawStreamItem::Value(
             self.cursor.value.ion_type,
             self.is_null(),
         )))
@@ -969,7 +969,7 @@ where
         }
     }
 
-    fn read_ivm(&mut self) -> IonResult<StreamItem> {
+    fn read_ivm(&mut self) -> IonResult<RawStreamItem> {
         let (major, minor) = self.read_slice(3, |bytes| match *bytes {
             [major, minor, 0xEA] => Ok((major, minor)),
             [major, minor, other] => decoding_error(format!(
@@ -983,7 +983,7 @@ where
             decoding_error(format!("Unsupported Ion version {:X}.{:X}", major, minor))
         } else {
             self.cursor.ion_version = (major, minor);
-            Ok(StreamItem::VersionMarker(major, minor))
+            Ok(RawStreamItem::VersionMarker(major, minor))
         }
     }
 
@@ -1200,7 +1200,7 @@ mod tests {
 
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::raw_binary_reader::RawBinaryReader;
-    use crate::raw_reader::{RawReader, StreamItem, StreamItem::*};
+    use crate::raw_reader::{RawReader, RawStreamItem, RawStreamItem::*};
     use crate::raw_symbol_token::local_sid_token;
     use crate::result::{IonError, IonResult};
     use crate::types::decimal::Decimal;
@@ -1714,9 +1714,11 @@ mod tests {
         ];
         let mut cursor = ion_cursor_for(ion_data);
         assert_eq!(
-            Some(StreamItem::Value(IonType::Struct, false)),
+            Some(RawStreamItem::Value(IonType::Struct, false)),
             cursor.next()?
         );
+        //TODO: Remove
+        //assert_eq!(cursor.encoded_span(), Some(0..12));
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[0..12]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), None);
@@ -1724,9 +1726,11 @@ mod tests {
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[1..12]));
         cursor.step_in()?;
         assert_eq!(
-            Some(StreamItem::Value(IonType::List, false)),
+            Some(RawStreamItem::Value(IonType::List, false)),
             cursor.next()?
         );
+        //TODO: Remove
+        //assert_eq!(cursor.encoded_span(), Some(1..9));
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[1..9]));
         assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[1..=1]));
         assert_eq!(cursor.raw_annotations_bytes(), None);
@@ -1734,7 +1738,7 @@ mod tests {
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[3..9]));
         cursor.step_in()?;
         assert_eq!(
-            Some(StreamItem::Value(IonType::Integer, false)),
+            Some(RawStreamItem::Value(IonType::Integer, false)),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[3..=4]));
@@ -1743,7 +1747,7 @@ mod tests {
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[3..=3]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[4..=4]));
         assert_eq!(
-            Some(StreamItem::Value(IonType::Integer, false)),
+            Some(RawStreamItem::Value(IonType::Integer, false)),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[5..=6]));
@@ -1752,7 +1756,7 @@ mod tests {
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[5..=5]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[6..=6]));
         assert_eq!(
-            Some(StreamItem::Value(IonType::Integer, false)),
+            Some(RawStreamItem::Value(IonType::Integer, false)),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[7..=8]));
@@ -1764,7 +1768,7 @@ mod tests {
         cursor.step_out()?; // Step out of list
 
         assert_eq!(
-            Some(StreamItem::Value(IonType::Integer, false)),
+            Some(RawStreamItem::Value(IonType::Integer, false)),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[9..=11]));
@@ -1777,7 +1781,7 @@ mod tests {
 
         // Second top-level value
         assert_eq!(
-            Some(StreamItem::Value(IonType::Boolean, false)),
+            Some(RawStreamItem::Value(IonType::Boolean, false)),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
@@ -1825,14 +1829,14 @@ mod tests {
 
         // Local symbol table. We don't interpret any symbols for this test, so we can skip over it.
         assert_eq!(
-            Some(StreamItem::Value(IonType::Struct, false)),
+            Some(RawStreamItem::Value(IonType::Struct, false)),
             cursor.next()?
         );
 
         // The first user-level value appears at byte offset 26
         // Top-level struct {
         assert_eq!(
-            Some(StreamItem::Value(IonType::Struct, false)),
+            Some(RawStreamItem::Value(IonType::Struct, false)),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[26..37]));
@@ -1845,7 +1849,7 @@ mod tests {
 
         // foo: bar::baz::5
         assert_eq!(
-            Some(StreamItem::Value(IonType::Integer, false)),
+            Some(RawStreamItem::Value(IonType::Integer, false)),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[27..34]));
@@ -1857,7 +1861,7 @@ mod tests {
 
         // quux: 7
         assert_eq!(
-            Some(StreamItem::Value(IonType::Integer, false)),
+            Some(RawStreamItem::Value(IonType::Integer, false)),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[34..37]));
@@ -1872,7 +1876,7 @@ mod tests {
 
         // false
         assert_eq!(
-            Some(StreamItem::Value(IonType::Boolean, false)),
+            Some(RawStreamItem::Value(IonType::Boolean, false)),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[37..=37]));

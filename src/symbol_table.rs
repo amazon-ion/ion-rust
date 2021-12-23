@@ -5,7 +5,7 @@ use crate::types::SymbolId;
 
 /// Stores mappings from Symbol IDs to text and vice-versa.
 pub struct SymbolTable {
-    symbols_by_id: Vec<String>,
+    symbols_by_id: Vec<Option<String>>,
     ids_by_text: HashMap<String, SymbolId>,
 }
 
@@ -23,7 +23,7 @@ impl SymbolTable {
     // Interns the v1.0 system symbols
     fn initialize(&mut self) {
         for (id, text) in v1_0::SYSTEM_SYMBOLS.iter().enumerate() {
-            self.symbols_by_id.push(text.to_string());
+            self.symbols_by_id.push(Some(text.to_string()));
             self.ids_by_text.insert(text.to_string(), id);
         }
     }
@@ -42,9 +42,16 @@ impl SymbolTable {
 
         // Otherwise, intern it and return the new ID.
         let id = self.symbols_by_id.len();
-        self.symbols_by_id.push(text.to_string());
+        self.symbols_by_id.push(Some(text.to_string()));
         self.ids_by_text.insert(text, id);
         id
+    }
+
+    /// Assigns unknown text to the next available symbol ID.
+    pub fn add_placeholder(&mut self) -> SymbolId {
+        let sid = self.symbols_by_id.len();
+        self.symbols_by_id.push(None);
+        sid
     }
 
     /// If defined, returns the Symbol ID associated with the provided text.
@@ -54,18 +61,34 @@ impl SymbolTable {
 
     /// If defined, returns the text associated with the provided Symbol ID.
     pub fn text_for(&self, sid: usize) -> Option<&str> {
-        self.symbols_by_id.get(sid).map(|text| text.as_str())
+        if let Some(text) = self.symbols_by_id.get(sid) {
+            return text.as_ref().map(|t| t.as_str());
+        }
+        None
+    }
+
+    /// Returns true if the provided symbol ID maps to an entry in the symbol table (i.e. it is in
+    /// the range of known symbols: 0 to max_id)
+    ///
+    /// Note that a symbol ID can be valid but map to unknown text. If a symbol table contains
+    /// a null or non-string value, that entry in the table will be defined but not have text
+    /// associated with it.
+    ///
+    /// This method allows users to distinguish between a SID with unknown text and a SID that is
+    /// invalid.
+    pub fn sid_is_valid(&self, sid: SymbolId) -> bool {
+        sid < self.symbols_by_id.len()
     }
 
     // Returns a slice of references to the symbol text stored in the table.
-    pub fn symbols(&self) -> &[String] {
+    pub fn symbols(&self) -> &[Option<String>] {
         &self.symbols_by_id
     }
 
     // Returns a slice of references to the symbol text stored in the table starting at the given
     // symbol ID. If a symbol table append occurs during reading, this function can be used to
     // easily view the new symbols that has been added to the table.
-    pub fn symbols_tail(&self, start: usize) -> &[String] {
+    pub fn symbols_tail(&self, start: usize) -> &[Option<String>] {
         &self.symbols_by_id[start..]
     }
 
