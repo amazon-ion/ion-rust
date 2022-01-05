@@ -1717,8 +1717,6 @@ mod tests {
             Some(RawStreamItem::Value(IonType::Struct, false)),
             cursor.next()?
         );
-        //TODO: Remove
-        //assert_eq!(cursor.encoded_span(), Some(0..12));
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[0..12]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), None);
@@ -1729,8 +1727,6 @@ mod tests {
             Some(RawStreamItem::Value(IonType::List, false)),
             cursor.next()?
         );
-        //TODO: Remove
-        //assert_eq!(cursor.encoded_span(), Some(1..9));
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[1..9]));
         assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[1..=1]));
         assert_eq!(cursor.raw_annotations_bytes(), None);
