@@ -279,6 +279,7 @@ impl<C: RawReader> SystemReader<C> {
 
     // Called when the system reader advances to the `imports` field of an LST.
     fn move_to_lst_imports_field(&mut self, ion_type: IonType) -> IonResult<()> {
+        self.lst.state = AtLstImports;
         match ion_type {
             IonType::Symbol => {
                 // If the `imports` field value is the symbol '$ion_symbol_table', then this is an
