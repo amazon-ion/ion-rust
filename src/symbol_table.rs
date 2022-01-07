@@ -61,10 +61,10 @@ impl SymbolTable {
 
     /// If defined, returns the text associated with the provided Symbol ID.
     pub fn text_for(&self, sid: usize) -> Option<&str> {
-        if let Some(text) = self.symbols_by_id.get(sid) {
-            return text.as_ref().map(|t| t.as_str());
-        }
-        None
+        self.symbols_by_id
+            .get(sid)
+            .and_then(Option::as_ref)
+            .map(String::as_str)
     }
 
     /// Returns true if the provided symbol ID maps to an entry in the symbol table (i.e. it is in
