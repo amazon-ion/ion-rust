@@ -154,7 +154,7 @@ impl<C: RawReader> SystemReader<C> {
 
     // When next() is called, process any LST-related data in the reader's current position before
     // advancing to the next value. This may involve stepping into and processing container values.
-    pub fn before_next(&mut self) -> IonResult<()> {
+    fn before_next(&mut self) -> IonResult<()> {
         match self.lst.state {
             AtLstStart => {
                 // If the reader is positioned over the beginning of an LST when next() is called,
@@ -215,7 +215,7 @@ impl<C: RawReader> SystemReader<C> {
     // After the raw reader is advanced by a call to `next()`, take stock of the reader's new
     // position. Return a SystemStreamItem indicating whether the reader is now positioned over
     // a user value or part of a local symbol table.
-    pub fn after_next(
+    fn after_next(
         &mut self,
         ion_type: IonType,
         is_null: bool,
