@@ -50,7 +50,12 @@ impl<C: RawReader> Reader<C> {
                     ));
                 }
                 Some(Value(IonType::Struct, false)) => {
-                    // If we're at the top level and the first annotation is $ion_symbol_table...
+                    // Top-level structs whose _first_ annotation is $ion_symbol_table are
+                    // interpreted as local symbol tables. Other trailing annotations (if any) are
+                    // ignored. If the first annotation is something other than `$ion_symbol_table`,
+                    // the struct is considered user data even if one of the trailing annotations
+                    // is `$ion_symbol_table`. For more information, see this section of the spec:
+                    // https://amzn.github.io/ion-docs/docs/symbols.html#local-symbol-tables
                     match (self.raw_reader.depth(), self.raw_reader.annotations()) {
                         (0, [symbol, ..])
                             if symbol.matches(
