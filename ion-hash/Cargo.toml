@@ -16,11 +16,11 @@ exclude = [
     "**/ion-tests/iontestdata/**",
     "*.pdf"
 ]
-version = "0.0.4"
-edition = "2018"
+version = "0.0.5"
+edition = "2021"
 
 [dependencies]
-ion-rs = { path = "../", version = "0.7" }
+ion-rs = { path = "../", version = "0.8" }
 ion-c-sys = { path = "../ion-c-sys", version = "0.4" }
 num-bigint = "0.3"
 digest = "0.9"

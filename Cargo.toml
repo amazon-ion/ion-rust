@@ -16,8 +16,8 @@ exclude = [
   "**/ion-tests/iontestdata/**",
   "*.pdf"
 ]
-version = "0.7.0"
-edition = "2018"
+version = "0.8.0"
+edition = "2021"
 
 [workspace]
 members = [
