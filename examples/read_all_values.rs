@@ -1,4 +1,4 @@
-use ion_rs::raw_reader::StreamItem;
+use ion_rs::raw_reader::RawStreamItem;
 use ion_rs::result::IonResult;
 use ion_rs::{IonDataSource, IonType, RawBinaryReader, RawReader};
 use std::fs::File;
@@ -24,12 +24,12 @@ fn main() -> IonResult<()> {
 // Prints the total number of values read upon completion.
 fn read_all_values<R: IonDataSource>(cursor: &mut RawBinaryReader<R>) -> IonResult<usize> {
     use IonType::*;
-    use StreamItem::*;
+    use RawStreamItem::*;
     let mut count: usize = 0;
     loop {
         match cursor.next()? {
             Some(VersionMarker(_major, _minor)) => {}
-            Some(StreamItem::Value(ion_type, is_null)) => {
+            Some(RawStreamItem::Value(ion_type, is_null)) => {
                 count += 1;
                 if is_null {
                     continue;

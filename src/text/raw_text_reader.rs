@@ -3,7 +3,7 @@ use chrono::{DateTime, FixedOffset};
 use nom::Err::Incomplete;
 use nom::IResult;
 
-use crate::raw_reader::StreamItem;
+use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, illegal_operation, IonResult};
 use crate::text::parent_container::ParentContainer;
@@ -38,7 +38,7 @@ pub struct RawTextReader<T: TextIonDataSource> {
 }
 
 impl<T: TextIonDataSource> RawTextReader<T> {
-    fn new(input: T) -> RawTextReader<T> {
+    pub fn new(input: T) -> RawTextReader<T> {
         let text_source = input.to_text_ion_data_source();
         RawTextReader {
             buffer: TextBuffer::new(text_source),
@@ -390,20 +390,20 @@ impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
         (1, 0)
     }
 
-    fn next(&mut self) -> IonResult<Option<StreamItem>> {
+    fn next(&mut self) -> IonResult<Option<RawStreamItem>> {
         // Parse the next value from the stream, storing it in `self.current_value`.
         self.load_next_value()?;
 
         // If we're positioned on an IVM, return the (major, minor) version tuple
         if let Some((major, minor)) = self.current_ivm {
-            return Ok(Some(StreamItem::VersionMarker(major, minor)));
+            return Ok(Some(RawStreamItem::VersionMarker(major, minor)));
         }
 
         // If we're positioned on a value, return its IonType and whether it's null.
         if let Some(value) = self.current_value.as_ref() {
             let ion_type = value.ion_type();
             let is_null = matches!(value.value(), TextValue::Null(_));
-            Ok(Some(StreamItem::Value(ion_type, is_null)))
+            Ok(Some(RawStreamItem::Value(ion_type, is_null)))
         } else {
             Ok(None)
         }
@@ -640,7 +640,7 @@ impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
 mod reader_tests {
     use rstest::*;
 
-    use crate::raw_reader::StreamItem;
+    use crate::raw_reader::RawStreamItem;
     use crate::raw_symbol_token::{local_sid_token, text_token};
     use crate::result::IonResult;
     use crate::text::raw_text_reader::RawTextReader;
@@ -652,7 +652,7 @@ mod reader_tests {
     fn next_type(reader: &mut RawTextReader<&str>, ion_type: IonType, is_null: bool) {
         assert_eq!(
             reader.next().unwrap().unwrap(),
-            StreamItem::Value(ion_type, is_null)
+            RawStreamItem::Value(ion_type, is_null)
         );
     }
 
@@ -827,7 +827,7 @@ mod reader_tests {
         assert_eq!(reader.read_symbol()?.unwrap(), text_token("$ion_1_0"));
 
         // A mid-stream Ion Version Marker
-        assert_eq!(reader.next()?.unwrap(), StreamItem::VersionMarker(1, 0));
+        assert_eq!(reader.next()?.unwrap(), RawStreamItem::VersionMarker(1, 0));
 
         next_type(reader, IonType::Symbol, false);
         assert_eq!(reader.read_symbol()?.unwrap(), text_token("foo"));

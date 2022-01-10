@@ -23,9 +23,9 @@ pub trait RawReader {
 
     /// Attempts to advance the cursor to the next value in the stream at the current depth.
     /// If no value is encountered, returns None; otherwise, returns the Ion type of the next value.
-    fn next(&mut self) -> IonResult<Option<StreamItem>>;
+    fn next(&mut self) -> IonResult<Option<RawStreamItem>>;
 
-    /// Returns the Ion type of the value currently positioned under the cursor. If the cursor
+    /// Returns the Ion type of the value currently positioned under the reader. If the reader
     /// is not positioned over a value, returns None.
     fn ion_type(&self) -> Option<IonType>;
 
@@ -140,7 +140,7 @@ pub trait RawReader {
 
 #[derive(Debug, Eq, PartialEq)]
 /// Raw stream components that a Cursor may encounter.
-pub enum StreamItem {
+pub enum RawStreamItem {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(u8, u8),
