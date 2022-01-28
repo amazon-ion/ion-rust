@@ -485,7 +485,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         let mut value = ION_INT::default();
         ionc!(ion_reader_read_ion_int(self.reader, &mut value))?;
 
-        Ok(value.try_to_bigint()?)
+        value.try_to_bigint()
     }
 
     #[position_error]
@@ -503,7 +503,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         let mut value = ION_DECIMAL::default();
         ionc!(ion_reader_read_ion_decimal(self.reader, &mut value))?;
 
-        Ok(value.try_to_bigdecimal()?)
+        value.try_to_bigdecimal()
     }
 
     #[position_error]
@@ -512,7 +512,7 @@ impl<'a> IonCReader for IonCReaderHandle<'a> {
         let mut value = ION_TIMESTAMP::default();
         ionc!(ion_reader_read_timestamp(self.reader, &mut value))?;
 
-        Ok(value.try_to_iondt()?)
+        value.try_to_iondt()
     }
 
     #[position_error]
@@ -578,7 +578,7 @@ pub fn include_current_position(reader: &hREADER, err: IonCError) -> IonCError {
     }
 
     let pos = match reader_current_pos(reader) {
-        Ok(pos) => pos.into(),
+        Ok(pos) => pos,
         Err(_) => return err, // the original, not the one from failing to read the pos
     };
 

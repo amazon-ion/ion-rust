@@ -30,7 +30,7 @@ impl IonIntPtr {
     /// Allocates a new `ION_INT` from a `BigInt`.
     pub fn try_from_bigint(value: &BigInt) -> IonCResult<Self> {
         let mut ion_int = IonIntPtr::try_new()?;
-        ion_int.try_assign_bigint(&value)?;
+        ion_int.try_assign_bigint(value)?;
 
         Ok(ion_int)
     }
