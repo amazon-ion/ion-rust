@@ -116,7 +116,7 @@ impl Timestamp {
             // We'll need to convert the date_time's nanoseconds to a Decimal and return it.
             Some(Digits(number_of_digits)) => {
                 let coefficient = first_n_digits_of(*number_of_digits, self.date_time.nanosecond());
-                let exponent = -1 * ((coefficient as f64).log10().ceil() as i64);
+                let exponent = -((coefficient as f64).log10().ceil() as i64);
                 Some(Decimal::new(coefficient, exponent))
             }
             // This timestamp already stores its fractional seconds as a Decimal; return a clone.
@@ -201,7 +201,6 @@ impl Timestamp {
     /// Creates a TimestampBuilder with the specified year and [Precision::Year].
     pub fn with_year(year: u32) -> MonthSetter {
         let mut builder: TimestampBuilder = Default::default();
-        builder.precision = Precision::Year;
         builder.year = year as u16;
         MonthSetter { builder }
     }

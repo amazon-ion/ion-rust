@@ -5,6 +5,7 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use std::convert::TryInto;
 use std::io::{BufWriter, Write};
+use std::mem;
 
 pub struct TextWriter<W: Write> {
     output: BufWriter<W>,
@@ -29,13 +30,13 @@ fn string_escape_code_init() -> Vec<String> {
     string_escape_codes['\r' as usize] = "\\r".to_string();
     string_escape_codes['\\' as usize] = "\\\\".to_string();
     string_escape_codes['\"' as usize] = "\\\"".to_string();
-    for i in 1..0x20 {
-        if string_escape_codes[i].is_empty() {
-            string_escape_codes[i] = format!("\\x{:02x}", i);
+    for (i, code) in string_escape_codes.iter_mut().enumerate().take(0x20).skip(1) {
+        if code.is_empty() {
+            let _ = mem::replace(code, format!("\\x{:02x}", i));
         }
     }
-    for i in 0x7F..0x100 {
-        string_escape_codes[i] = format!("\\x{:x}", i);
+    for (i, code) in string_escape_codes.iter_mut().enumerate().take(0x100).skip(0x7F) {
+        let _ = mem::replace(code, format!("\\x{:x}", i));
     }
     string_escape_codes
 }
@@ -387,8 +388,8 @@ impl<W: Write> TextWriter<W> {
         let mut clob_value =
             String::with_capacity((value.len() * NUM_HEX_BYTES_PER_BYTE) + NUM_DELIMITER_BYTES);
 
-        for i in 0..value.len() {
-            let c = value[i] as char;
+        for byte in value.iter().copied() {
+            let c = byte as char;
             let escaped_byte = &self.string_escape_codes[c as usize];
             if !escaped_byte.is_empty() {
                 clob_value.push_str(escaped_byte);

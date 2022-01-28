@@ -236,7 +236,7 @@ impl TryFrom<f64> for Decimal {
         // f64::DIGITS is the number of base 10 digits of fractional precision in an f64: 15
         const PRECISION: u32 = f64::DIGITS;
         let coefficient = value * 10f64.powi(PRECISION as i32);
-        let exponent = -1 * PRECISION as i64;
+        let exponent = -(PRECISION as i64);
 
         Ok(Decimal::new(coefficient as i64, exponent))
     }

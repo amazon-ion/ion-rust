@@ -60,10 +60,7 @@ impl fmt::Display for IonType {
 impl IonType {
     pub fn is_container(&self) -> bool {
         use IonType::*;
-        match self {
-            List | SExpression | Struct => true,
-            _ => false,
-        }
+        matches!(self, List | SExpression | Struct)
     }
 }
 
