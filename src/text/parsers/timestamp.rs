@@ -379,7 +379,6 @@ mod reader_tests {
         parse_equals(
             "2021-09-30T21:47-00:00 ",
             builder
-                
                 .with_hour_and_minute(21, 47)
                 .build_at_unknown_offset()?,
         );
@@ -406,10 +405,7 @@ mod reader_tests {
         );
         parse_equals(
             "2021-12-25T12:25:59-00:00 ",
-            builder
-                
-                .with_hms(12, 25, 59)
-                .build_at_unknown_offset()?,
+            builder.with_hms(12, 25, 59).build_at_unknown_offset()?,
         );
         Ok(())
     }
@@ -445,7 +441,6 @@ mod reader_tests {
         parse_equals(
             "2021-12-25T14:30:31.193193193193193-00:00 ",
             builder
-                
                 .with_fractional_seconds(Decimal::new(193193193193193i64, -15))
                 .build_at_unknown_offset()?,
         );

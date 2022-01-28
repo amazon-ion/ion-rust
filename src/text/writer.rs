@@ -30,12 +30,22 @@ fn string_escape_code_init() -> Vec<String> {
     string_escape_codes['\r' as usize] = "\\r".to_string();
     string_escape_codes['\\' as usize] = "\\\\".to_string();
     string_escape_codes['\"' as usize] = "\\\"".to_string();
-    for (i, code) in string_escape_codes.iter_mut().enumerate().take(0x20).skip(1) {
+    for (i, code) in string_escape_codes
+        .iter_mut()
+        .enumerate()
+        .take(0x20)
+        .skip(1)
+    {
         if code.is_empty() {
             let _ = mem::replace(code, format!("\\x{:02x}", i));
         }
     }
-    for (i, code) in string_escape_codes.iter_mut().enumerate().take(0x100).skip(0x7F) {
+    for (i, code) in string_escape_codes
+        .iter_mut()
+        .enumerate()
+        .take(0x100)
+        .skip(0x7F)
+    {
         let _ = mem::replace(code, format!("\\x{:x}", i));
     }
     string_escape_codes
@@ -479,8 +489,8 @@ mod tests {
     #[test]
     fn write_datetime_epoch() {
         #![allow(deprecated)] // `write_datetime` is deprecated
-        let naive_datetime = NaiveDate::from_ymd(2000_i32, 1_u32, 1_u32)
-            .and_hms(0_u32, 0_u32, 0_u32);
+        let naive_datetime =
+            NaiveDate::from_ymd(2000_i32, 1_u32, 1_u32).and_hms(0_u32, 0_u32, 0_u32);
         let offset = FixedOffset::west(0);
         let datetime = offset.from_utc_datetime(&naive_datetime);
         writer_test(

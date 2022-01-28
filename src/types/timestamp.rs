@@ -695,7 +695,7 @@ fn downconvert_to_naive_datetime_with_nanoseconds(timestamp: &Timestamp) -> Naiv
         // chrono's expectations.
         let nanoseconds = timestamp.fractional_seconds_as_nanoseconds().unwrap();
         // Copy `self.date_time` and set the copy's nanoseconds to this new value.
-         // Modifying the nanoseconds should never be invalid.
+        // Modifying the nanoseconds should never be invalid.
         timestamp.date_time.with_nanosecond(nanoseconds).unwrap()
     } else {
         // NaiveDateTime implements `Copy`
@@ -822,7 +822,10 @@ impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
             }
             _ => {
                 // invariant violation
-                return illegal_operation("Could not convert timestamp with fractional seconds and no mantissa".to_string());
+                return illegal_operation(
+                    "Could not convert timestamp with fractional seconds and no mantissa"
+                        .to_string(),
+                );
             }
         };
         let date_time = offset.from_utc_datetime(&self.date_time);
@@ -965,10 +968,7 @@ mod timestamp_tests {
     fn test_timestamps_with_different_precisions_are_not_equal() -> IonResult<()> {
         let builder = Timestamp::with_ymd_hms(2021, 2, 5, 16, 43, 51);
         let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
-        let timestamp2 = builder
-            
-            .with_milliseconds(192)
-            .build_at_offset(5 * 60)?;
+        let timestamp2 = builder.with_milliseconds(192).build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);
         Ok(())
     }
@@ -982,7 +982,6 @@ mod timestamp_tests {
             .build_at_offset(5 * 60)?;
         // The microseconds field has the same amount of time, but a different precision.
         let timestamp2 = builder
-            
             .with_microseconds(193 * 1_000)
             .build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);
@@ -996,10 +995,7 @@ mod timestamp_tests {
             .clone()
             .with_milliseconds(192)
             .build_at_offset(5 * 60)?;
-        let timestamp2 = builder
-            
-            .with_milliseconds(193)
-            .build_at_offset(5 * 60)?;
+        let timestamp2 = builder.with_milliseconds(193).build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);
         Ok(())
     }
@@ -1021,7 +1017,6 @@ mod timestamp_tests {
             .with_hour_and_minute(16, 42)
             .build_at_offset(5 * 60)?;
         let timestamp2 = builder
-            
             .with_hour_and_minute(16, 43)
             .build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);
@@ -1036,7 +1031,6 @@ mod timestamp_tests {
             .with_hour_and_minute(16, 42)
             .build_at_offset(5 * 60)?;
         let timestamp2 = builder
-            
             .with_hour_and_minute(17, 42)
             .build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);

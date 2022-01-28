@@ -404,11 +404,7 @@ mod writer_tests {
         TestCase {
             element: E::Builder::new_sexp(vec![
                 E::Builder::new_symbol(E::SymbolToken::text_token("name")),
-                E::Builder::new_sexp(
-                    vec!["a", "b", "c"]
-                        .into_iter()
-                        .map(E::Builder::new_string),
-                ),
+                E::Builder::new_sexp(vec!["a", "b", "c"].into_iter().map(E::Builder::new_string)),
             ]),
             binary: ion_binary(&[0xC9, 0x71, 0x04, 0xC6, 0x81, 0x61, 0x81, 0x62, 0x81, 0x63]),
             text: br#"(name ("a" "b" "c"))"#,

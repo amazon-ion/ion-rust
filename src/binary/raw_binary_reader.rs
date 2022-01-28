@@ -1376,8 +1376,8 @@ mod tests {
         #![allow(deprecated)] // `read_datetime` is deprecated
         let mut cursor = ion_cursor_for(&[0x68, 0x80, 0x0F, 0xD0, 0x81, 0x81, 0x80, 0x80, 0x80]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
-        let naive_datetime = NaiveDate::from_ymd(2000_i32, 1_u32, 1_u32)
-            .and_hms(0_u32, 0_u32, 0_u32);
+        let naive_datetime =
+            NaiveDate::from_ymd(2000_i32, 1_u32, 1_u32).and_hms(0_u32, 0_u32, 0_u32);
         let offset = FixedOffset::west(0);
         let datetime = offset.from_utc_datetime(&naive_datetime);
         assert_eq!(cursor.read_datetime()?, Some(datetime));
@@ -1390,8 +1390,8 @@ mod tests {
         #![allow(deprecated)] // `read_datetime` is deprecated
         let mut cursor = ion_cursor_for(&[0x63, 0xC0, 0x0F, 0xC6]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
-        let naive_datetime = NaiveDate::from_ymd(1990_i32, 1_u32, 1_u32)
-            .and_hms(0_u32, 0_u32, 0_u32);
+        let naive_datetime =
+            NaiveDate::from_ymd(1990_i32, 1_u32, 1_u32).and_hms(0_u32, 0_u32, 0_u32);
         let offset = FixedOffset::west(0);
         let datetime = offset.from_utc_datetime(&naive_datetime);
         assert_eq!(cursor.read_datetime()?, Some(datetime));

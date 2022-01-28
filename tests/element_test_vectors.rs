@@ -66,9 +66,7 @@ const NON_EQUIVS_SKIP_LIST: &[&str] = &[
 /// Concatenates two slices of string slices together.
 #[inline]
 fn concat<'a>(left: &[&'a str], right: &[&'a str]) -> Vec<&'a str> {
-    left.iter()
-        .chain(right.iter()).copied()
-        .collect()
+    left.iter().chain(right.iter()).copied().collect()
 }
 
 /// Determines if the given file name is in the paths list.  This deals with platform

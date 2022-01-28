@@ -69,10 +69,12 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
             escaped_char_unicode_8_digit_hex,
         )),
         |hex_digits| {
-            let number_value = u32::from_str_radix(hex_digits, 16).map_err(|e| decoding_error_raw(format!(
+            let number_value = u32::from_str_radix(hex_digits, 16).map_err(|e| {
+                decoding_error_raw(format!(
                     "Couldn't parse unicode escape '{}': {:?}",
                     hex_digits, e
-                )))?;
+                ))
+            })?;
             let char_value = std::char::from_u32(number_value).ok_or_else(|| {
                 decoding_error_raw(format!(
                     "Couldn't parse unicode escape '{}': {} is not a valid codepoint.",

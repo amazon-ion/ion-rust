@@ -280,11 +280,10 @@ impl OwnedStruct {
     fn eq_text_fields(&self, other: &Self) -> bool {
         // check if both the text_fields have same (field_name,value) pairs
         self.text_fields.iter().all(|(key, value)| {
-            value.iter().all(|(_my_s, my_v)| {
-                other
-                    .get_all(key)
-                    .any(|other_v| my_v == other_v)
-            }) && value.len() == other.get_all(key).count()
+            value
+                .iter()
+                .all(|(_my_s, my_v)| other.get_all(key).any(|other_v| my_v == other_v))
+                && value.len() == other.get_all(key).count()
         })
     }
 
