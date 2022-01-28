@@ -119,17 +119,17 @@ where
         let type_descriptor: u8;
         if encoded.len() <= MAX_INLINE_LENGTH {
             type_descriptor = 0x60 | encoded.len() as u8;
-            self.write(&[type_descriptor])?;
+            self.write_all(&[type_descriptor])?;
             bytes_written += 1;
         } else {
             type_descriptor = 0x6E;
-            self.write(&[type_descriptor])?;
+            self.write_all(&[type_descriptor])?;
             bytes_written += 1;
             bytes_written += VarUInt::write_u64(self, encoded.len() as u64)?;
         }
 
         // Now we can write out the encoded timestamp!
-        self.write(&encoded[..])?;
+        self.write_all(&encoded[..])?;
         bytes_written += &encoded[..].len();
 
         Ok(bytes_written)

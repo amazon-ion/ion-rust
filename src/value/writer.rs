@@ -385,7 +385,7 @@ mod writer_tests {
     fn list_case<E: Element>() -> TestCase<E> {
         TestCase {
             element: E::Builder::new_list(vec![E::Builder::new_list(
-                vec![1, 2, 3].into_iter().map(|x| E::Builder::new_i64(x)),
+                vec![1, 2, 3].into_iter().map(E::Builder::new_i64),
             )]),
             binary: ion_binary(&[0xB7, 0xB6, 0x21, 0x01, 0x21, 0x02, 0x21, 0x03]),
             text: b"[[1,2,3]]",
@@ -407,7 +407,7 @@ mod writer_tests {
                 E::Builder::new_sexp(
                     vec!["a", "b", "c"]
                         .into_iter()
-                        .map(|x| E::Builder::new_string(x)),
+                        .map(E::Builder::new_string),
                 ),
             ]),
             binary: ion_binary(&[0xC9, 0x71, 0x04, 0xC6, 0x81, 0x61, 0x81, 0x62, 0x81, 0x63]),

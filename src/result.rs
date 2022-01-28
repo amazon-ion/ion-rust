@@ -54,10 +54,10 @@ impl Clone for IonError {
         match self {
             IoError { source } => IoError {
                 // io::Error implements From<ErrorKind>, and ErrorKind is cloneable.
-                source: io::Error::from(source.kind().clone()),
+                source: io::Error::from(source.kind()),
             },
             FmtError { source } => FmtError {
-                source: source.clone(),
+                source: *source,
             },
             DecodingError { description } => DecodingError {
                 description: description.clone(),
@@ -66,7 +66,7 @@ impl Clone for IonError {
                 operation: operation.clone(),
             },
             IonCError { source } => IonCError {
-                source: source.clone(),
+                source: *source,
             },
         }
     }

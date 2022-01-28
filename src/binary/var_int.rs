@@ -183,7 +183,7 @@ mod tests {
     use crate::result::IonResult;
     use std::io::{BufReader, Cursor};
 
-    const ERROR_MESSAGE: &'static str = "Failed to read a VarUInt from the provided data.";
+    const ERROR_MESSAGE: &str = "Failed to read a VarUInt from the provided data.";
 
     #[test]
     fn test_read_negative_var_int() {
@@ -257,7 +257,7 @@ mod tests {
         let mut buffer = vec![];
         VarInt::write_i64(&mut buffer, value)?;
         assert_eq!(buffer.as_slice(), expected_encoding);
-        return Ok(());
+        Ok(())
     }
 
     #[test]

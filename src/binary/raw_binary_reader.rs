@@ -118,7 +118,7 @@ impl EncodedValue {
     /// If `value_length()` returns zero, this offset is actually the first byte of
     /// the next encoded value and should not be read.
     fn value_offset(&self) -> usize {
-        self.header_offset + self.header_length as usize + 1 as usize
+        self.header_offset + self.header_length as usize + 1_usize
     }
 
     /// Returns an offset Range containing any bytes following the header.
@@ -135,17 +135,13 @@ impl EncodedValue {
 
     /// Returns the number of bytes used to encode this value's field ID, if present.
     fn field_id_length(&self) -> Option<usize> {
-        if self.field_id.is_none() {
-            return None;
-        }
+        self.field_id.as_ref()?;
         Some(self.field_id_length as usize)
     }
 
     /// Returns the offset of the first byte used to encode this value's field ID, if present.
     fn field_id_offset(&self) -> Option<usize> {
-        if self.field_id.is_none() {
-            return None;
-        }
+        self.field_id.as_ref()?;
         Some(self.header_offset - self.annotations_length as usize - self.field_id_length as usize)
     }
 
@@ -285,7 +281,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         // Skip the remaining bytes of the current value, if any.
         let _ = self.skip_current_value()?;
 
-        if let Some(ref parent) = self.cursor.parents.last() {
+        if let Some(parent) = self.cursor.parents.last() {
             // If the cursor is nested inside a parent object, don't attempt to read beyond the end of
             // the parent. Users can call '.step_out()' to progress beyond the container.
             if self.cursor.bytes_read >= parent.value_end_exclusive() {
@@ -430,7 +426,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         let value = match self.cursor.value.header.ion_type_code {
             PositiveInteger => magnitude as i64,
             NegativeInteger => -(magnitude as i64),
-            itc @ _ => unreachable!("Unexpected IonTypeCode: {:?}", itc),
+            itc => unreachable!("Unexpected IonTypeCode: {:?}", itc),
         };
 
         Ok(Some(value))
@@ -794,7 +790,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         // Vec position.
 
         // Get an in-place handle to parent
-        let mut parent = self
+        let parent = self
             .cursor
             .parents
             .last_mut()
@@ -806,14 +802,14 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         bytes_to_skip = value_end_excl - bytes_read;
 
         // Set the parent as the current value
-        mem::swap(&mut self.cursor.value, &mut parent);
+        mem::swap(&mut self.cursor.value, parent);
 
         // Drop the last entry in the parents Vec in-place to avoid another move.
         let len_without_last = self.cursor.parents.len() - 1;
         self.cursor.parents.truncate(len_without_last);
 
         // Check to see what the new top of the parents stack is.
-        if let Some(ref parent) = self.cursor.parents.last() {
+        if let Some(parent) = self.cursor.parents.last() {
             self.cursor.is_in_struct = parent.ion_type == IonType::Struct;
         } else {
             self.cursor.is_in_struct = false;
@@ -863,9 +859,7 @@ where
     /// (if present), its annotations (if present), its header, and the encoded value itself.
     /// Calling this function does not advance the cursor.
     pub fn raw_bytes(&self) -> Option<&[u8]> {
-        if self.ion_type().is_none() {
-            return None;
-        }
+        self.ion_type()?;
         let start: usize;
         if let Some(field_id_offset) = self.cursor.value.field_id_offset() {
             start = field_id_offset;
@@ -883,29 +877,23 @@ where
     /// cursor. Includes the type descriptor byte and any bytes used to represent the `length`
     /// field.
     pub fn raw_header_bytes(&self) -> Option<&[u8]> {
-        if self.ion_type().is_none() {
-            return None;
-        }
+        self.ion_type()?;
         let bytes = self.data_source.get_ref().as_ref();
-        return Some(&bytes[self.cursor.value.header_range()]);
+        Some(&bytes[self.cursor.value.header_range()])
     }
 
     /// Returns a slice containing the current value's raw bytes (not including its field ID,
     /// annotations, or type descriptor byte) without advancing the cursor.
     pub fn raw_value_bytes(&self) -> Option<&[u8]> {
-        if self.ion_type().is_none() {
-            return None;
-        }
+        self.ion_type()?;
         let bytes = self.data_source.get_ref().as_ref();
-        return Some(&bytes[self.cursor.value.value_range()]);
+        Some(&bytes[self.cursor.value.value_range()])
     }
 
     /// Returns a slice containing the current value's raw field ID bytes (if present) without
     /// advancing the cursor.
     pub fn raw_field_id_bytes(&self) -> Option<&[u8]> {
-        if self.ion_type().is_none() {
-            return None;
-        }
+        self.ion_type()?;
         if let Some(range) = self.cursor.value.field_id_range() {
             let bytes = self.data_source.get_ref().as_ref();
             return Some(&bytes[range]);
@@ -916,9 +904,7 @@ where
     /// Returns a slice containing the current value's annotations (if any) without advancing the
     /// cursor.
     pub fn raw_annotations_bytes(&self) -> Option<&[u8]> {
-        if self.ion_type().is_none() {
-            return None;
-        }
+        self.ion_type()?;
         if let Some(range) = self.cursor.value.annotations_range() {
             let bytes = self.data_source.get_ref().as_ref();
             return Some(&bytes[range]);
@@ -1390,8 +1376,8 @@ mod tests {
         #![allow(deprecated)] // `read_datetime` is deprecated
         let mut cursor = ion_cursor_for(&[0x68, 0x80, 0x0F, 0xD0, 0x81, 0x81, 0x80, 0x80, 0x80]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
-        let naive_datetime = NaiveDate::from_ymd(2000 as i32, 1 as u32, 1 as u32)
-            .and_hms(0 as u32, 0 as u32, 0 as u32);
+        let naive_datetime = NaiveDate::from_ymd(2000_i32, 1_u32, 1_u32)
+            .and_hms(0_u32, 0_u32, 0_u32);
         let offset = FixedOffset::west(0);
         let datetime = offset.from_utc_datetime(&naive_datetime);
         assert_eq!(cursor.read_datetime()?, Some(datetime));
@@ -1404,8 +1390,8 @@ mod tests {
         #![allow(deprecated)] // `read_datetime` is deprecated
         let mut cursor = ion_cursor_for(&[0x63, 0xC0, 0x0F, 0xC6]);
         assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
-        let naive_datetime = NaiveDate::from_ymd(1990 as i32, 1 as u32, 1 as u32)
-            .and_hms(0 as u32, 0 as u32, 0 as u32);
+        let naive_datetime = NaiveDate::from_ymd(1990_i32, 1_u32, 1_u32)
+            .and_hms(0_u32, 0_u32, 0_u32);
         let offset = FixedOffset::west(0);
         let datetime = offset.from_utc_datetime(&naive_datetime);
         assert_eq!(cursor.read_datetime()?, Some(datetime));

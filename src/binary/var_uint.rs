@@ -80,7 +80,7 @@ impl VarUInt {
         ];
 
         if magnitude == 0 {
-            sink.write(&[0b1000_0000])?;
+            sink.write_all(&[0b1000_0000])?;
             return Ok(1);
         }
 
@@ -98,7 +98,7 @@ impl VarUInt {
         }
 
         let encoded_bytes = &buffer[(first_byte as usize)..];
-        sink.write(encoded_bytes)?;
+        sink.write_all(encoded_bytes)?;
         Ok(encoded_bytes.len())
     }
 
@@ -122,7 +122,7 @@ mod tests {
     use crate::result::IonResult;
     use std::io::{BufReader, Cursor};
 
-    const ERROR_MESSAGE: &'static str = "Failed to read a VarUInt from the provided data.";
+    const ERROR_MESSAGE: &str = "Failed to read a VarUInt from the provided data.";
 
     #[test]
     fn test_read_var_uint() {
@@ -180,7 +180,7 @@ mod tests {
         let mut buffer = vec![];
         VarUInt::write_u64(&mut buffer, value)?;
         assert_eq!(buffer.as_slice(), expected_encoding);
-        return Ok(());
+        Ok(())
     }
 
     #[test]

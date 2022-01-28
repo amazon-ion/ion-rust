@@ -53,7 +53,7 @@ impl<R: BufRead> TextBuffer<R> {
     /// Returns [true] if the buffer is empty and the end of the input source has been reached;
     /// otherwise, returns false.
     pub fn is_exhausted(&self) -> bool {
-        self.remaining_text().len() == 0 && self.is_exhausted
+        self.remaining_text().is_empty() && self.is_exhausted
     }
 
     /// Discards [number_of_bytes] bytes from the remaining line.

@@ -170,7 +170,7 @@ fn assign_fractional_seconds(
             tmp_coefficient.div_assign(&ten);
             digit_count += 1;
         }
-        let decimal = Decimal::new(coefficient, -1 * digit_count);
+        let decimal = Decimal::new(coefficient, -digit_count);
         setter = setter.with_fractional_seconds(decimal);
     }
     setter
@@ -261,7 +261,7 @@ fn timezone_offset(input: &str) -> IResult<&str, Option<i32>> {
                 let minutes = trim_zeros_expect_i32(minutes, "offset minutes");
                 let offset_minutes = (hours * 60) + minutes;
                 if sign == '-' {
-                    return Some(-1 * offset_minutes);
+                    return Some(-offset_minutes);
                 }
                 Some(offset_minutes)
             },
@@ -379,7 +379,7 @@ mod reader_tests {
         parse_equals(
             "2021-09-30T21:47-00:00 ",
             builder
-                .clone()
+                
                 .with_hour_and_minute(21, 47)
                 .build_at_unknown_offset()?,
         );
@@ -407,7 +407,7 @@ mod reader_tests {
         parse_equals(
             "2021-12-25T12:25:59-00:00 ",
             builder
-                .clone()
+                
                 .with_hms(12, 25, 59)
                 .build_at_unknown_offset()?,
         );
@@ -445,7 +445,7 @@ mod reader_tests {
         parse_equals(
             "2021-12-25T14:30:31.193193193193193-00:00 ",
             builder
-                .clone()
+                
                 .with_fractional_seconds(Decimal::new(193193193193193i64, -15))
                 .build_at_unknown_offset()?,
         );

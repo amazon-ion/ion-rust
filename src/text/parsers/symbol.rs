@@ -76,7 +76,7 @@ fn identifier(input: &str) -> IResult<&str, TextValue> {
             // recognize the keyword as its own. (For example, `parse_boolean` would match the input
             // text `false`.) However, because symbols can appear in annotations and the check for
             // annotations precedes the parsing for all other types, we need this extra verification.
-            if KEYWORDS.iter().find(|k| **k == text).is_some() {
+            if KEYWORDS.iter().any(|k| *k == text) {
                 return None;
             }
             Some(TextValue::Symbol(text_token(text)))

@@ -69,7 +69,7 @@ impl Int {
         // Using leading_zeros() to determine how many empty bytes we can ignore.
         // We subtract one from the number of leading bits to leave space for a sign bit
         // and divide by 8 to get the number of bytes.
-        let empty_leading_bytes: u32 = magnitude.leading_zeros() - 1 >> 3;
+        let empty_leading_bytes: u32 = (magnitude.leading_zeros() - 1) >> 3;
         let first_occupied_byte = empty_leading_bytes as usize;
 
         let mut magnitude_bytes: [u8; mem::size_of::<u64>()] = (magnitude as u64).to_be_bytes();

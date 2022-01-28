@@ -91,7 +91,7 @@ pub(crate) fn list_delimiter(input: &str) -> IResult<&str, ()> {
 /// Otherwise, matches and returns the next value in the list using [list_value].
 pub(crate) fn list_value_or_end(input: &str) -> IResult<&str, Option<AnnotatedTextValue>> {
     map(list_end, |_end_marker| None)
-        .or(map(list_value, |value| Some(value)))
+        .or(map(list_value, Some))
         .parse(input)
 }
 
@@ -135,7 +135,7 @@ pub(crate) fn s_expression_scalar(input: &str) -> IResult<&str, AnnotatedTextVal
 /// Otherwise, matches and returns the next value in the s-expression using [s_expression_stream_value].
 pub(crate) fn s_expression_value_or_end(input: &str) -> IResult<&str, Option<AnnotatedTextValue>> {
     map(s_expression_end, |_end_marker| None)
-        .or(map(s_expression_value, |value| Some(value)))
+        .or(map(s_expression_value, Some))
         .parse(input)
 }
 
@@ -196,7 +196,7 @@ pub(crate) fn struct_field_scalar(input: &str) -> IResult<&str, AnnotatedTextVal
 /// Otherwise, matches and returns the next field name in the struct using [struct_field_name].
 pub(crate) fn struct_field_name_or_end(input: &str) -> IResult<&str, Option<RawSymbolToken>> {
     map(struct_end, |_end_marker| None)
-        .or(map(struct_field_name, |value| Some(value)))
+        .or(map(struct_field_name, Some))
         .parse(input)
 }
 

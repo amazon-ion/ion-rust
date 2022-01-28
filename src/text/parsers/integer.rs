@@ -35,7 +35,7 @@ fn base_16_integer(input: &str) -> IResult<&str, TextValue> {
         |(maybe_sign, text_digits)| {
             parse_i64_with_radix(text_digits, 16)
                 .map(|i| if maybe_sign.is_some() { -i } else { i })
-                .map(|i| TextValue::Integer(i))
+                .map(TextValue::Integer)
         },
     )(input)
 }
@@ -68,7 +68,7 @@ fn base_2_integer(input: &str) -> IResult<&str, TextValue> {
         |(maybe_sign, text_digits)| {
             parse_i64_with_radix(text_digits, 2)
                 .map(|i| if maybe_sign.is_some() { -i } else { i })
-                .map(|i| TextValue::Integer(i))
+                .map(TextValue::Integer)
         },
     )(input)
 }
@@ -88,7 +88,7 @@ fn base_2_integer_digits(input: &str) -> IResult<&str, &str> {
 fn base_10_integer(input: &str) -> IResult<&str, TextValue> {
     map_res(
         recognize(preceded(opt(char('-')), base_10_integer_digits)),
-        |text| parse_i64_with_radix(text, 10).map(|i| TextValue::Integer(i)),
+        |text| parse_i64_with_radix(text, 10).map(TextValue::Integer),
     )(input)
 }
 

@@ -30,14 +30,14 @@ fn string_escape_code_init() -> Vec<String> {
     string_escape_codes['\\' as usize] = "\\\\".to_string();
     string_escape_codes['\"' as usize] = "\\\"".to_string();
     for i in 1..0x20 {
-        if string_escape_codes[i] == "" {
+        if string_escape_codes[i].is_empty() {
             string_escape_codes[i] = format!("\\x{:02x}", i);
         }
     }
     for i in 0x7F..0x100 {
         string_escape_codes[i] = format!("\\x{:x}", i);
     }
-    return string_escape_codes;
+    string_escape_codes
 }
 
 impl<W: Write> TextWriter<W> {
@@ -141,7 +141,7 @@ impl<W: Write> TextWriter<W> {
         if let Some(field_name) = &self.field_name.take() {
             write!(self.output, "{}:", field_name)?;
         } else if self.is_in_struct() {
-            return illegal_operation(format!("Values inside a struct must have a field name."));
+            return illegal_operation("Values inside a struct must have a field name.".to_string());
         }
         if !self.annotations.is_empty() {
             for annotation in &self.annotations {
@@ -326,7 +326,7 @@ impl<W: Write> TextWriter<W> {
             //TODO: The initial conversion to datetime will discard precision greater than nanoseconds.
             //TODO: Eliminate this allocation.
             let fractional_text = format!("{:0>9}", datetime.nanosecond());
-            let fractional_text = fractional_text.trim_end_matches("0");
+            let fractional_text = fractional_text.trim_end_matches('0');
 
             write!(output, ".{}", fractional_text)?;
             //               ^-- delimiting decimal point, formatted fractional seconds
@@ -390,7 +390,7 @@ impl<W: Write> TextWriter<W> {
         for i in 0..value.len() {
             let c = value[i] as char;
             let escaped_byte = &self.string_escape_codes[c as usize];
-            if escaped_byte != "" {
+            if !escaped_byte.is_empty() {
                 clob_value.push_str(escaped_byte);
             } else {
                 clob_value.push(c);
@@ -478,8 +478,8 @@ mod tests {
     #[test]
     fn write_datetime_epoch() {
         #![allow(deprecated)] // `write_datetime` is deprecated
-        let naive_datetime = NaiveDate::from_ymd(2000 as i32, 1 as u32, 1 as u32)
-            .and_hms(0 as u32, 0 as u32, 0 as u32);
+        let naive_datetime = NaiveDate::from_ymd(2000_i32, 1_u32, 1_u32)
+            .and_hms(0_u32, 0_u32, 0_u32);
         let offset = FixedOffset::west(0);
         let datetime = offset.from_utc_datetime(&naive_datetime);
         writer_test(

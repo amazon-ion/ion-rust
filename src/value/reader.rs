@@ -95,7 +95,7 @@ impl<'a> IonCReaderIterator<'a> {
         let annotations: Vec<OwnedSymbolToken> = self
             .reader
             .get_annotations()?
-            .into_iter()
+            .iter()
             .map(|s| (*s).into())
             .collect();
 
@@ -187,7 +187,7 @@ impl<'a> Iterator for IonCReaderIterator<'a> {
                 } else {
                     // we've got something
                     let result = self.materialize_top_level(ionc_type);
-                    if let Err(_) = &result {
+                    if result.is_err() {
                         // a failure means the iterator is done
                         self.done = true;
                     }
@@ -286,7 +286,7 @@ mod reader_tests {
             -65536, 65535,
             -4294967296, 4294967295,
             -9007199254740992, 9007199254740991,
-        ].into_iter().map(|v| AnyInt::I64(v)).chain(
+        ].into_iter().map(AnyInt::I64).chain(
             vec![
                 "-18446744073709551616", "18446744073709551615",
                 "-79228162514264337593543950336", "79228162514264337593543950335",

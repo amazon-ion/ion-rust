@@ -35,7 +35,7 @@ pub(crate) fn escaped_char(input: &str) -> IResult<&str, StringFragment> {
             char('\\'),
             alt((escaped_char_unicode, escaped_char_literal)),
         ),
-        |c| StringFragment::EscapedChar(c),
+        StringFragment::EscapedChar,
     )(input)
 }
 
@@ -69,12 +69,10 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
             escaped_char_unicode_8_digit_hex,
         )),
         |hex_digits| {
-            let number_value = u32::from_str_radix(hex_digits, 16).or_else(|e| {
-                Err(decoding_error_raw(format!(
+            let number_value = u32::from_str_radix(hex_digits, 16).map_err(|e| decoding_error_raw(format!(
                     "Couldn't parse unicode escape '{}': {:?}",
                     hex_digits, e
-                )))
-            })?;
+                )))?;
             let char_value = std::char::from_u32(number_value).ok_or_else(|| {
                 decoding_error_raw(format!(
                     "Couldn't parse unicode escape '{}': {} is not a valid codepoint.",
@@ -117,5 +115,5 @@ pub(crate) fn escaped_char_unicode_8_digit_hex(input: &str) -> IResult<&str, &st
 
 /// Matches and returns a single base-16 digit.
 pub(crate) fn single_hex_digit(input: &str) -> IResult<&str, char> {
-    satisfy(|c| <char as AsChar>::is_hex_digit(c))(input)
+    satisfy(<char as AsChar>::is_hex_digit)(input)
 }

@@ -280,8 +280,7 @@ impl<'val> BorrowedStruct<'val> {
             value.iter().all(|(_my_s, my_v)| {
                 other
                     .get_all(key)
-                    .find(|other_v| my_v == *other_v)
-                    .is_some()
+                    .any(|other_v| my_v == other_v)
             }) && value.len() == other.get_all(key).count()
         })
     }
@@ -292,8 +291,7 @@ impl<'val> BorrowedStruct<'val> {
             other
                 .no_text_fields
                 .iter()
-                .find(|(other_k, other_v)| my_k == other_k && my_v == other_v)
-                .is_some()
+                .any(|(other_k, other_v)| my_k == other_k && my_v == other_v)
         })
     }
 }
@@ -343,7 +341,7 @@ impl<'val> Struct for BorrowedStruct<'val> {
         Box::new(
             self.text_fields
                 .values()
-                .flat_map(|v| v)
+                .flatten()
                 .into_iter()
                 .chain(self.no_text_fields.iter())
                 .map(|(s, v)| (s, v)),
@@ -624,8 +622,8 @@ mod borrowed_value_tests {
             text_token("hello").into()
         ),
         case::struct_(
-            BorrowedElement::new_struct(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello".into())))].into_iter()),
-            BorrowedStruct::from_iter(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello".into())))].into_iter()).into()
+            BorrowedElement::new_struct(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello")))].into_iter()),
+            BorrowedStruct::from_iter(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello")))].into_iter()).into()
         ),
     )]
     fn owned_element_accessors(elem1: BorrowedElement, elem2: BorrowedElement) {

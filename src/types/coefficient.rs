@@ -151,8 +151,8 @@ mod coefficient_tests {
     fn test_negative_zero_eq() {
         let neg_zero = Decimal::new(Coefficient::negative_zero(), 0);
         let pos_zero = Decimal::new(0, 0);
-        assert_eq!(neg_zero.clone(), neg_zero.clone());
-        assert_ne!(neg_zero.clone(), pos_zero.clone());
-        assert_eq!(pos_zero.clone(), pos_zero.clone());
+        assert_eq!(neg_zero, neg_zero);
+        assert_ne!(neg_zero, pos_zero);
+        assert_eq!(pos_zero, pos_zero);
     }
 }
