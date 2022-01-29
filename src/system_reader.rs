@@ -201,7 +201,7 @@ impl<C: RawReader> SystemReader<C> {
         // simply skip it with next(); it must instead descend into that container to read each
         // value.
         self.before_next()?;
-        return match self.raw_reader.next()? {
+        match self.raw_reader.next()? {
             Some(RawStreamItem::VersionMarker(major, minor)) => self.process_ivm(major, minor),
             Some(RawStreamItem::Value(ion_type, is_null)) => {
                 // We need to consider the context to determine if this is a user-level value
@@ -209,7 +209,7 @@ impl<C: RawReader> SystemReader<C> {
                 self.after_next(ion_type, is_null)
             }
             None => Ok(None),
-        };
+        }
     }
 
     // After the raw reader is advanced by a call to `next()`, take stock of the reader's new
@@ -555,12 +555,10 @@ impl<C: RawReader> SystemReader<C> {
         if let Some(text) = self.symbol_table.text_for(sid) {
             // TODO: SymbolTable should use Rc<str> so this is cheap
             Ok(Some(text.to_string()))
+        } else if !self.symbol_table.sid_is_valid(sid) {
+            decoding_error(format!("Symbol ID ${} is out of range.", sid))
         } else {
-            if !self.symbol_table.sid_is_valid(sid) {
-                decoding_error(format!("Symbol ID ${} is out of range.", sid))
-            } else {
-                Ok(None)
-            }
+            Ok(None)
         }
     }
 

@@ -41,7 +41,7 @@ fn float_numeric_value(input: &str) -> IResult<&str, TextValue> {
             // TODO: Reusable buffer for sanitization
             let mut sanitized = text.replace("_", "");
             if sanitized.ends_with('e') || sanitized.ends_with('E') {
-                sanitized.push_str("0");
+                sanitized.push('0');
             }
             Ok(TextValue::Float(f64::from_str(&sanitized)?))
         },

@@ -85,7 +85,7 @@ impl<'a> Deref for StrSlicesRef<'a> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        &self.strs.as_slice()
+        self.strs.as_slice()
     }
 }
 

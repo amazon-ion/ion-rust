@@ -21,8 +21,8 @@ impl PartialEq for Magnitude {
         match (self, other) {
             (U64(m1), U64(m2)) => m1 == m2,
             (BigUInt(m1), BigUInt(m2)) => m1 == m2,
-            (U64(m1), BigUInt(m2)) => Magnitude::cross_representation_eq(*m1, &m2),
-            (BigUInt(m1), U64(m2)) => Magnitude::cross_representation_eq(*m2, &m1),
+            (U64(m1), BigUInt(m2)) => Magnitude::cross_representation_eq(*m1, m2),
+            (BigUInt(m1), U64(m2)) => Magnitude::cross_representation_eq(*m2, m1),
         }
     }
 }
@@ -137,7 +137,7 @@ impl From<u128> for Magnitude {
 
 impl From<i128> for Magnitude {
     fn from(value: i128) -> Magnitude {
-        Magnitude::BigUInt(BigUint::from(value.abs().to_biguint().unwrap()))
+        Magnitude::BigUInt(value.abs().to_biguint().unwrap())
     }
 }
 

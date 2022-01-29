@@ -113,7 +113,7 @@ impl<T: TextIonDataSource> RawTextReader<T> {
         // Otherwise, the `parents` stack is not empty. We're inside a container.
 
         // The `ParentLevel` type is only a couple of stack-allocated bytes. It's very cheap to clone.
-        let parent = self.parents.last().unwrap().clone();
+        let parent = *self.parents.last().unwrap();
         // If the reader had already found the end of this container, return Ok(None).
         if parent.is_exhausted() {
             self.current_value = None;
@@ -330,7 +330,7 @@ impl<T: TextIonDataSource> RawTextReader<T> {
         // Attempt to parse the updated buffer.
         let value = match top_level_value(self.buffer.remaining_text()) {
             Ok(("\n", value))
-                if value.annotations().len() == 0 && *value.value() == TextValue::Integer(0) =>
+                if value.annotations().is_empty() && *value.value() == TextValue::Integer(0) =>
             {
                 // We found the unannotated zero that we appended to the end of the buffer.
                 // The "\n" in this pattern is the unparsed text left in the buffer,
@@ -587,9 +587,9 @@ impl<T: TextIonDataSource> RawReader for RawTextReader<T> {
 
     fn step_out(&mut self) -> IonResult<()> {
         if self.parents.is_empty() {
-            return illegal_operation(format!(
-                "Cannot call `step_out()` when the reader is at the top level."
-            ));
+            return illegal_operation(
+                "Cannot call `step_out()` when the reader is at the top level.".to_string(),
+            );
         }
 
         // The container we're stepping out of.

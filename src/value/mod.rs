@@ -801,7 +801,7 @@ mod generic_value_tests {
     #[case::owned_no_annotations(no_annotations_case::<OwnedElement>())]
     #[case::borrowed_no_annotations(no_annotations_case::<BorrowedElement>())]
     fn annotations_with_element<E: Element>(#[case] input: CaseAnnotations<E>) {
-        let actual: Vec<&E::SymbolToken> = input.elem.annotations().map(|tok| tok).collect();
+        let actual: Vec<&E::SymbolToken> = input.elem.annotations().collect();
         let expected: Vec<&E::SymbolToken> = input.annotations.iter().collect();
         assert_eq!(actual, expected);
     }
@@ -1345,7 +1345,7 @@ mod generic_value_tests {
     use std::str::FromStr;
     use ElemOp::*;
 
-    type ElemAssertFunc<E> = dyn Fn(&E) -> ();
+    type ElemAssertFunc<E> = dyn Fn(&E);
 
     struct Case<E: Element> {
         elem: E,

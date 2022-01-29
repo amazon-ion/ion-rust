@@ -66,10 +66,7 @@ const NON_EQUIVS_SKIP_LIST: &[&str] = &[
 /// Concatenates two slices of string slices together.
 #[inline]
 fn concat<'a>(left: &[&'a str], right: &[&'a str]) -> Vec<&'a str> {
-    left.into_iter()
-        .chain(right.into_iter())
-        .map(|p| *p)
-        .collect()
+    left.iter().chain(right.iter()).copied().collect()
 }
 
 /// Determines if the given file name is in the paths list.  This deals with platform
@@ -77,11 +74,10 @@ fn concat<'a>(left: &[&'a str], right: &[&'a str]) -> Vec<&'a str> {
 #[inline]
 fn contains_path(paths: &[&str], file_name: &str) -> bool {
     paths
-        .into_iter()
+        .iter()
         // TODO construct the paths in a not so hacky way
         .map(|p| p.replace("/", &PATH_SEPARATOR.to_string()))
-        .find(|p| p == file_name)
-        .is_some()
+        .any(|p| p == file_name)
 }
 
 fn read_file<R: ElementReader>(reader: &R, file_name: &str) -> IonResult<Vec<OwnedElement>> {
@@ -279,7 +275,7 @@ fn read_group_embedded<R, S, F>(reader: &R, raw_group: &S, group_assert: &F) -> 
 where
     R: ElementReader,
     S: Sequence,
-    F: Fn(&Vec<OwnedElement>, &Vec<OwnedElement>) -> (),
+    F: Fn(&Vec<OwnedElement>, &Vec<OwnedElement>),
 {
     let group_res: IonResult<Vec<_>> = raw_group
         .iter()
@@ -321,8 +317,8 @@ fn read_group<R, F1, F2>(
 ) -> IonResult<()>
 where
     R: ElementReader,
-    F1: Fn(&OwnedElement, &OwnedElement) -> (),
-    F2: Fn(&Vec<OwnedElement>, &Vec<OwnedElement>) -> (),
+    F1: Fn(&OwnedElement, &OwnedElement),
+    F2: Fn(&Vec<OwnedElement>, &Vec<OwnedElement>),
 {
     let group_lists = read_file(&reader, file_name)?;
     for group_list in group_lists.iter() {
@@ -330,8 +326,7 @@ where
         // look for the embedded annotation to parse/test as the underlying value
         let is_embedded = group_list
             .annotations()
-            .find(|annotation| annotation.text() == Some("embedded_documents"))
-            .is_some();
+            .any(|annotation| annotation.text() == Some("embedded_documents"));
         match (group_list.as_sequence(), is_embedded) {
             (Some(group), true) => {
                 read_group_embedded(&reader, group, &group_assert)?;

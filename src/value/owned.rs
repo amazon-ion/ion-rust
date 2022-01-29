@@ -280,12 +280,10 @@ impl OwnedStruct {
     fn eq_text_fields(&self, other: &Self) -> bool {
         // check if both the text_fields have same (field_name,value) pairs
         self.text_fields.iter().all(|(key, value)| {
-            value.iter().all(|(_my_s, my_v)| {
-                other
-                    .get_all(key)
-                    .find(|other_v| my_v == *other_v)
-                    .is_some()
-            }) && value.len() == other.get_all(key).count()
+            value
+                .iter()
+                .all(|(_my_s, my_v)| other.get_all(key).any(|other_v| my_v == other_v))
+                && value.len() == other.get_all(key).count()
         })
     }
 
@@ -295,8 +293,7 @@ impl OwnedStruct {
             other
                 .no_text_fields
                 .iter()
-                .find(|(other_k, other_v)| my_k == other_k && my_v == other_v)
-                .is_some()
+                .any(|(other_k, other_v)| my_k == other_k && my_v == other_v)
         })
     }
 }
@@ -347,7 +344,7 @@ impl Struct for OwnedStruct {
         Box::new(
             self.text_fields
                 .values()
-                .flat_map(|v| v)
+                .flatten()
                 .into_iter()
                 .chain(self.no_text_fields.iter())
                 .map(|(k, v)| (k, v)),

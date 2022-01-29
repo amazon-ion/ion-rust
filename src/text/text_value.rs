@@ -30,7 +30,7 @@ impl AnnotatedTextValue {
 
 impl PartialEq<TextValue> for AnnotatedTextValue {
     fn eq(&self, other: &TextValue) -> bool {
-        if self.annotations.len() > 0 {
+        if !self.annotations.is_empty() {
             return false;
         }
         *self.value() == *other
@@ -103,13 +103,13 @@ impl IntoAnnotations for Vec<RawSymbolToken> {
 
 impl IntoAnnotations for &[RawSymbolToken] {
     fn into_annotations(self) -> Vec<RawSymbolToken> {
-        self.iter().map(|token| token.clone()).collect()
+        self.to_vec()
     }
 }
 
 impl<const N: usize> IntoAnnotations for &[RawSymbolToken; N] {
     fn into_annotations(self) -> Vec<RawSymbolToken> {
-        self.iter().map(|token| token.clone()).collect()
+        self.iter().cloned().collect()
     }
 }
 

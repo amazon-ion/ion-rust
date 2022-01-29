@@ -78,7 +78,7 @@ impl Decimal {
     fn compare_magnitudes(d1: &Decimal, d2: &Decimal) -> Ordering {
         // If the exponents match, we can compare the two coefficients directly.
         if d1.exponent == d2.exponent {
-            return d1.coefficient.magnitude().cmp(&d2.coefficient.magnitude());
+            return d1.coefficient.magnitude().cmp(d2.coefficient.magnitude());
         }
 
         // If the exponents don't match, we need to scale one of the magnitudes to match the other
@@ -120,7 +120,7 @@ impl Decimal {
         // This lets us compare 80 and 80, determining that the decimals are equal.
         let mut scaled_coefficient: BigUint = d1.coefficient.magnitude().to_biguint().unwrap();
         scaled_coefficient *= 10u64.pow(exponent_delta as u32);
-        Magnitude::BigUInt(scaled_coefficient).cmp(&d2.coefficient.magnitude())
+        Magnitude::BigUInt(scaled_coefficient).cmp(d2.coefficient.magnitude())
     }
 }
 
@@ -134,7 +134,7 @@ impl Eq for Decimal {}
 
 impl PartialOrd for Decimal {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 
@@ -236,7 +236,7 @@ impl TryFrom<f64> for Decimal {
         // f64::DIGITS is the number of base 10 digits of fractional precision in an f64: 15
         const PRECISION: u32 = f64::DIGITS;
         let coefficient = value * 10f64.powi(PRECISION as i32);
-        let exponent = -1 * PRECISION as i64;
+        let exponent = -(PRECISION as i64);
 
         Ok(Decimal::new(coefficient as i64, exponent))
     }

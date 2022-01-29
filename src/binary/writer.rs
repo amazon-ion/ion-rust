@@ -460,7 +460,7 @@ impl<W: Write> BinarySystemWriter<W> {
     /// Writes an Ion decimal with the specified value.
     pub fn write_decimal(&mut self, value: &Decimal) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            let _ = enc_buffer.encode_decimal_value(&value);
+            let _ = enc_buffer.encode_decimal_value(value);
             Ok(())
         })
     }
@@ -487,7 +487,7 @@ impl<W: Write> BinarySystemWriter<W> {
             // Timestamp. In #273 we discuss traits that will avoid this clone.
             // However, this API (`write_datetime`) is probably also not quite
             // right.
-            let timestamp: Timestamp = value.clone().into();
+            let timestamp: Timestamp = (*value).into();
             let _ = enc_buffer.encode_timestamp_value(&timestamp)?;
             Ok(())
         })
@@ -496,7 +496,7 @@ impl<W: Write> BinarySystemWriter<W> {
     /// Writes an Ion timestamp with the specified value.
     pub fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            let _ = enc_buffer.encode_timestamp_value(&value)?;
+            let _ = enc_buffer.encode_timestamp_value(value)?;
             Ok(())
         })
     }
@@ -572,7 +572,7 @@ impl<W: Write> BinarySystemWriter<W> {
     }
 
     // Creates an empty IoRange starting from the next unoccupied byte in the buffer.
-    fn push_empty_io_range(&mut self) -> () {
+    fn push_empty_io_range(&mut self) {
         let next_byte_index = self.buffer.len();
         self.io_ranges.push(next_byte_index..next_byte_index);
     }
