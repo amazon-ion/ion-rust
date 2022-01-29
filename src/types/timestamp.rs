@@ -200,8 +200,10 @@ impl Timestamp {
 
     /// Creates a TimestampBuilder with the specified year and [Precision::Year].
     pub fn with_year(year: u32) -> MonthSetter {
-        let mut builder: TimestampBuilder = Default::default();
-        builder.year = year as u16;
+        let builder: TimestampBuilder = TimestampBuilder {
+            year: year as u16,
+            ..Default::default()
+        };
         MonthSetter { builder }
     }
 

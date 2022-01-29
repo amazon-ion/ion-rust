@@ -98,12 +98,9 @@ impl<'a> IonCSliceElementWriter<'a> {
         if let Some(annotations) = annotations_opt {
             // get a writing context with the annotations (which could be empty)
             let mut af_writer = self.writer.annotations(&annotations);
-            match field_name_opt {
-                Some(field_name) => {
-                    // decorate the annotation context with the field name when we have one
-                    af_writer.field(field_name);
-                }
-                _ => {}
+            if let Some(field_name) = field_name_opt {
+                // decorate the annotation context with the field name when we have one
+                af_writer.field(field_name);
             }
 
             let ion_type = element.ion_type();
