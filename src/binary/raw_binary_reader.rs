@@ -278,7 +278,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
 
     #[inline]
     // `next()` resembles `Iterator::next`, generating a clippy warning.
-    #[warn(clippy::should_implement_trait)]
+    #[allow(clippy::should_implement_trait)]
     fn next(&mut self) -> IonResult<Option<RawStreamItem>> {
         // Skip the remaining bytes of the current value, if any.
         let _ = self.skip_current_value()?;
