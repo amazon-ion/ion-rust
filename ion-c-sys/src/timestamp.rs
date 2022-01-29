@@ -142,8 +142,8 @@ impl IonDateTime {
                 }
             }
         };
-        match &precision {
-            Fractional(mantissa) => match mantissa {
+        if let Fractional(mantissa) = &precision {
+            match mantissa {
                 Digits(digits) => {
                     if (*digits as i64) > TS_MAX_MANTISSA_DIGITS {
                         return Err(IonCError::with_additional(
@@ -167,12 +167,15 @@ impl IonDateTime {
                         ));
                     }
                     let ns = date_time.nanosecond();
-                    let frac_ns = (frac * BigDecimal::from(NS_IN_SEC)).abs().to_u32().ok_or(
-                        IonCError::with_additional(
-                            ion_error_code_IERR_INVALID_TIMESTAMP,
-                            "Invalid mantissa in precision",
-                        ),
-                    )?;
+                    let frac_ns = (frac * BigDecimal::from(NS_IN_SEC))
+                        .abs()
+                        .to_u32()
+                        .ok_or_else(|| {
+                            IonCError::with_additional(
+                                ion_error_code_IERR_INVALID_TIMESTAMP,
+                                "Invalid mantissa in precision",
+                            )
+                        })?;
                     if ns != frac_ns {
                         return Err(IonCError::with_additional(
                             ion_error_code_IERR_INVALID_TIMESTAMP,
@@ -180,8 +183,7 @@ impl IonDateTime {
                         ));
                     }
                 }
-            },
-            _ => {}
+            }
         };
 
         Ok(Self::new(date_time, precision, offset_kind))
