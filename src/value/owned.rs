@@ -315,7 +315,7 @@ where
 
             match key.text() {
                 Some(text) => {
-                    let vals = text_fields.entry(text.into()).or_insert(Vec::new());
+                    let vals = text_fields.entry(text.into()).or_insert_with(Vec::new);
                     vals.push((key, val));
                 }
                 None => {
@@ -529,10 +529,7 @@ impl Element for OwnedElement {
     }
 
     fn is_null(&self) -> bool {
-        match &self.value {
-            OwnedValue::Null(_) => true,
-            _ => false,
-        }
+        matches!(&self.value, OwnedValue::Null(_))
     }
 
     fn as_any_int(&self) -> Option<&AnyInt> {

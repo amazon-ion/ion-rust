@@ -88,10 +88,10 @@ impl TryFrom<ION_TYPE> for IonType {
     }
 }
 
-impl Into<ION_TYPE> for IonType {
-    fn into(self) -> ION_TYPE {
+impl From<IonType> for ION_TYPE {
+    fn from(ion_type: IonType) -> ION_TYPE {
         use IonType::*;
-        match self {
+        match ion_type {
             Null => ion_c_sys::ION_TYPE_NULL,
             Boolean => ion_c_sys::ION_TYPE_BOOL,
             Integer => ion_c_sys::ION_TYPE_INT,

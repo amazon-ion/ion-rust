@@ -798,7 +798,7 @@ impl ION_TIMESTAMP {
         }
         let offset_seconds = (offset_minutes as i32) * SEC_IN_MINS;
         let tz = FixedOffset::east_opt(offset_seconds)
-            .ok_or(IonCError::from(ion_error_code_IERR_INVALID_STATE))?;
+            .ok_or_else(|| IonCError::from(ion_error_code_IERR_INVALID_STATE))?;
         let ts_offset = if has_offset != 0 {
             TSOffsetKind::KnownOffset
         } else {
@@ -834,10 +834,12 @@ impl ION_TIMESTAMP {
 
                 let dt = date
                     .and_hms_nano_opt(hours as u32, minutes as u32, seconds as u32, nanos)
-                    .ok_or(IonCError::with_additional(
-                        ion_error_code_IERR_INVALID_TIMESTAMP,
-                        "Could not create DateTime",
-                    ))?;
+                    .ok_or_else(|| {
+                        IonCError::with_additional(
+                            ion_error_code_IERR_INVALID_TIMESTAMP,
+                            "Could not create DateTime",
+                        )
+                    })?;
 
                 let ts_prec = match prec {
                     ION_TS_YEAR => Year,

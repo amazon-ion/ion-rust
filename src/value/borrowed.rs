@@ -312,7 +312,7 @@ where
 
             match key.text() {
                 Some(text) => {
-                    let vals = text_fields.entry(text.into()).or_insert(Vec::new());
+                    let vals = text_fields.entry(text.into()).or_insert_with(Vec::new);
                     vals.push((key, val));
                 }
                 None => {
@@ -527,10 +527,7 @@ impl<'val> Element for BorrowedElement<'val> {
     }
 
     fn is_null(&self) -> bool {
-        match &self.value {
-            BorrowedValue::Null(_) => true,
-            _ => false,
-        }
+        matches!(&self.value, BorrowedValue::Null(_))
     }
 
     fn as_any_int(&self) -> Option<&AnyInt> {

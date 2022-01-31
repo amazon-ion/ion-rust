@@ -37,6 +37,8 @@ impl<C: RawReader> Reader<C> {
 
     /// Advances the raw reader to the next user-level Ion value, processing any system-level directives
     /// encountered along the way.
+    // `next` resembles `Iterator::next()`
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> IonResult<Option<(IonType, bool)>> {
         loop {
             match self.raw_reader.next()? {

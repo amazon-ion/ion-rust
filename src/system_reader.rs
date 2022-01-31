@@ -196,6 +196,8 @@ impl<C: RawReader> SystemReader<C> {
     }
 
     /// Advances the system reader to the next raw stream element.
+    // `next` resembles `Iterator::next()`
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> IonResult<Option<SystemStreamItem>> {
         // If the reader is positioned at a container that makes up part of an LST, it cannot
         // simply skip it with next(); it must instead descend into that container to read each
