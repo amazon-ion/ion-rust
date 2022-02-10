@@ -45,6 +45,11 @@ ion-c-sys = { path = "./ion-c-sys", version = "0.4" }
 
 [dev-dependencies]
 rstest = "0.9"
+criterion = "0.3"
+
+[[bench]]
+name = "var_uint_experiment"
+harness = false
 
 # Used by ion-tests integration
 walkdir = "2.3"

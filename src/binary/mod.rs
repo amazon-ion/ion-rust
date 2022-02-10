@@ -13,7 +13,7 @@ pub mod timestamp;
 mod type_code;
 pub mod uint;
 mod var_int;
-mod var_uint;
+pub mod var_uint;
 pub mod writer;
 
 pub use type_code::IonTypeCode;
