@@ -825,8 +825,7 @@ impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
             _ => {
                 // invariant violation
                 return illegal_operation(
-                    "Could not convert timestamp with fractional seconds and no mantissa"
-                        .to_string(),
+                    "Could not convert timestamp with fractional seconds and no mantissa",
                 );
             }
         };

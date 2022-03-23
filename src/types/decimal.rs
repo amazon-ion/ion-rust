@@ -7,6 +7,7 @@ use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::magnitude::Magnitude;
 use std::convert::{TryFrom, TryInto};
+use std::fmt::{Display, Formatter};
 
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
 #[derive(Clone, Debug)]
@@ -242,6 +243,13 @@ impl TryFrom<f64> for Decimal {
     }
 }
 
+impl Display for Decimal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // TODO: This is correct, but not the most human-friendly format.
+        write!(f, "{}d{}", self.coefficient, self.exponent)
+    }
+}
+
 /// Make a Decimal from a BigDecimal. This is a lossless operation.
 impl From<BigDecimal> for Decimal {
     fn from(value: BigDecimal) -> Self {
@@ -281,8 +289,22 @@ mod decimal_tests {
     use num_traits::{Float, ToPrimitive};
     use std::cmp::Ordering;
     use std::convert::TryInto;
+    use std::fmt::Write;
 
     use rstest::*;
+
+    #[rstest]
+    #[case(Decimal::new(1, 0), "1d0")]
+    #[case(Decimal::new(123, -2), "123d-2")]
+    #[case(Decimal::new(123, 2), "123d2")]
+    #[case(Decimal::negative_zero_with_exponent(0), "-0d0")]
+    #[case(Decimal::negative_zero_with_exponent(-4), "-0d-4")]
+    #[case(Decimal::negative_zero_with_exponent(4), "-0d4")]
+    fn test_display(#[case] decimal: Decimal, #[case] expected: &str) {
+        let mut buffer = String::new();
+        write!(buffer, "{}", decimal).unwrap();
+        assert_eq!(buffer.as_str(), expected);
+    }
 
     #[test]
     fn test_decimal_eq_negative_zeros() {

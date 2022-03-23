@@ -39,7 +39,7 @@ fn float_numeric_value(input: &str) -> IResult<&str, TextValue> {
         ))),
         |text| {
             // TODO: Reusable buffer for sanitization
-            let mut sanitized = text.replace("_", "");
+            let mut sanitized = text.replace('_', "");
             if sanitized.ends_with('e') || sanitized.ends_with('E') {
                 sanitized.push('0');
             }

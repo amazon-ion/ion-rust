@@ -1,13 +1,18 @@
-use crate::result::{illegal_operation, IonResult};
-use crate::types::timestamp::{Precision, Timestamp};
-use crate::IonType;
-use bigdecimal::BigDecimal;
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use std::convert::TryInto;
 use std::io::{BufWriter, Write};
 use std::mem;
 
-pub struct TextWriter<W: Write> {
+use bigdecimal::BigDecimal;
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
+
+use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
+use crate::raw_writer::RawWriter;
+use crate::result::{illegal_operation, IonResult};
+use crate::types::decimal::Decimal;
+use crate::types::timestamp::{Precision, Timestamp};
+use crate::IonType;
+
+pub struct RawTextWriter<W: Write> {
     output: BufWriter<W>,
     annotations: Vec<String>,
     field_name: Option<String>,
@@ -51,11 +56,11 @@ fn string_escape_code_init() -> Vec<String> {
     string_escape_codes
 }
 
-impl<W: Write> TextWriter<W> {
+impl<W: Write> RawTextWriter<W> {
     /// Constructs a new instance of TextWriter that writes values to the provided io::Write
     /// implementation.
-    pub fn new(sink: W) -> TextWriter<W> {
-        TextWriter {
+    pub fn new(sink: W) -> RawTextWriter<W> {
+        RawTextWriter {
             output: BufWriter::new(sink),
             annotations: vec![],
             field_name: None,
@@ -76,62 +81,12 @@ impl<W: Write> TextWriter<W> {
         self.output.get_mut()
     }
 
-    /// Causes any buffered data to be written to the underlying io::Write implementation.
-    pub fn flush(&mut self) -> IonResult<()> {
-        self.output.flush()?;
-        Ok(())
-    }
-
-    /// Sets the current field name to `name`. If the TextWriter is currently positioned inside
-    /// of a struct, the field name will be written before the next value. Otherwise, it will be
-    /// ignored.
-    pub fn set_field_name(&mut self, name: &str) {
-        self.field_name = Some(name.to_string());
-    }
-
-    /// Sets a list of annotations that will be applied to the next value that is written.
-    pub fn set_annotations(&mut self, annotations: &[&str]) {
-        self.annotations
-            .extend(annotations.iter().map(|s| s.to_string()));
-    }
-
-    /// Begins a container (List, S-Expression, or Struct). If `ion_type` is not a container type,
-    /// `step_in` will return an Err(IllegalOperation).
-    pub fn step_in(&mut self, ion_type: IonType) -> IonResult<()> {
-        use IonType::*;
-        self.write_value_metadata()?;
-        match ion_type {
-            Struct => write!(self.output, "{{")?,
-            List => write!(self.output, "[")?,
-            SExpression => write!(self.output, "(")?,
-            _ => return illegal_operation(format!("Cannot step into a(n) {:?}", ion_type)),
-        }
-        self.containers.push(ion_type);
-        Ok(())
-    }
-
     /// Returns true if the TextWriter is currently positioned within a Struct.
     pub fn is_in_struct(&self) -> bool {
         if let Some(IonType::Struct) = self.containers.last() {
             return true;
         }
         false
-    }
-
-    // Completes the current container. If the TextWriter is not currently positioned inside a
-    // container, `step_out` will return an Err(IllegalOperation).
-    pub fn step_out(&mut self) -> IonResult<()> {
-        use IonType::*;
-        let end_delimiter = match self.containers.pop() {
-            Some(Struct) => "}",
-            Some(List) => "]",
-            Some(SExpression) => ")",
-            Some(scalar) => unreachable!("Inside a non-container type: {:?}", scalar),
-            None => return illegal_operation("Cannot step out of the top level."),
-        };
-        write!(self.output, "{}", end_delimiter)?;
-        self.write_value_delimiter()?;
-        Ok(())
     }
 
     // Called after each value is written to emit an appropriate delimiter before the next value.
@@ -147,16 +102,43 @@ impl<W: Write> TextWriter<W> {
         Ok(())
     }
 
+    fn token_is_identifier(token: &str) -> bool {
+        if token.is_empty() {
+            return false;
+        }
+        let mut chars = token.chars();
+        let first = chars.next().unwrap();
+        (first == '$' || first == '_' || first.is_ascii_alphabetic())
+            && chars.all(|c| c == '$' || c == '_' || c.is_ascii_alphanumeric())
+    }
+
+    fn write_symbol_token<A: AsRawSymbolTokenRef>(
+        output: &mut BufWriter<W>,
+        token: A,
+    ) -> IonResult<()> {
+        match token.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(sid) => write!(output, "${}", sid)?,
+            RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text) => {
+                write!(output, "{}", text)?
+            }
+            RawSymbolTokenRef::Text(text) => write!(output, "'{}'", text)?,
+        };
+        Ok(())
+    }
+
     // Write the field name and annotations if set
     fn write_value_metadata(&mut self) -> IonResult<()> {
         if let Some(field_name) = &self.field_name.take() {
-            write!(self.output, "{}:", field_name)?;
+            Self::write_symbol_token(&mut self.output, field_name)?;
+            write!(self.output, ":")?;
         } else if self.is_in_struct() {
-            return illegal_operation("Values inside a struct must have a field name.".to_string());
+            return illegal_operation("Values inside a struct must have a field name.");
         }
+
         if !self.annotations.is_empty() {
             for annotation in &self.annotations {
-                write!(self.output, "'{}'::", annotation)?;
+                Self::write_symbol_token(&mut self.output, annotation)?;
+                write!(self.output, "::")?;
             }
             self.annotations.clear();
         }
@@ -176,80 +158,6 @@ impl<W: Write> TextWriter<W> {
         scalar_writer(&mut self.output)?;
         self.write_value_delimiter()?;
         Ok(())
-    }
-
-    /// Writes an Ion null of the specified type.
-    pub fn write_null(&mut self, ion_type: IonType) -> IonResult<()> {
-        use IonType::*;
-        self.write_scalar(|output| {
-            let null_text = match ion_type {
-                Null => "null",
-                Boolean => "null.bool",
-                Integer => "null.int",
-                Float => "null.float",
-                Decimal => "null.decimal",
-                Timestamp => "null.timestamp",
-                Symbol => "null.symbol",
-                String => "null.string",
-                Blob => "null.blob",
-                Clob => "null.clob",
-                List => "null.list",
-                SExpression => "null.sexp",
-                Struct => "null.struct",
-            };
-            write!(output, "{}", null_text)?;
-            Ok(())
-        })
-    }
-
-    /// Writes the provided bool value as an Ion boolean.
-    pub fn write_bool(&mut self, value: bool) -> IonResult<()> {
-        self.write_scalar(|output| {
-            let bool_text = match value {
-                true => "true",
-                false => "false",
-            };
-            write!(output, "{}", bool_text)?;
-            Ok(())
-        })
-    }
-
-    /// Writes the provided i64 value as an Ion integer.
-    pub fn write_i64(&mut self, value: i64) -> IonResult<()> {
-        self.write_scalar(|output| {
-            write!(output, "{}", value)?;
-            Ok(())
-        })
-    }
-
-    /// Writes the provided f64 value as an Ion float.
-    pub fn write_f64(&mut self, value: f64) -> IonResult<()> {
-        self.write_scalar(|output| {
-            if value.is_nan() {
-                write!(output, "nan")?;
-                return Ok(());
-            }
-
-            if value.is_infinite() {
-                if value.is_sign_positive() {
-                    write!(output, "+inf")?;
-                } else {
-                    write!(output, "-inf")?;
-                }
-                return Ok(());
-            }
-
-            // The {:e} formatter provided by the Display trait writes floats using scientific
-            // notation. It works for all floating point values except -0.0 (it drops the sign).
-            // See: https://github.com/rust-lang/rust/issues/20596
-            if value == 0.0f64 && value.is_sign_negative() {
-                write!(output, "-0e0")?;
-                return Ok(());
-            }
-
-            write!(output, "{:e}", value)?;
-            Ok(())
-        })
     }
 
     /// Writes the provided BigDecimal value as an Ion decimal.
@@ -278,8 +186,138 @@ impl<W: Write> TextWriter<W> {
         Ok(())
     }
 
+    /// Writes the provided DateTime value as an Ion timestamp.
+    #[deprecated(
+        since = "0.6.1",
+        note = "Please use the `write_timestamp` method instead."
+    )]
+    pub fn write_datetime(&mut self, value: &DateTime<FixedOffset>) -> IonResult<()> {
+        self.write_scalar(|output| {
+            write!(output, "{}", value.to_rfc3339())?;
+            Ok(())
+        })
+    }
+}
+
+impl<'a, W: Write> RawWriter for RawTextWriter<W> {
+    fn ion_version(&self) -> (u8, u8) {
+        (1, 0)
+    }
+
+    fn write_ion_version_marker(&mut self, major: u8, minor: u8) -> IonResult<()> {
+        write!(self.output, "$ion_{}_{}", major, minor)?;
+        Ok(())
+    }
+
+    /// Sets a list of annotations that will be applied to the next value that is written.
+    fn set_annotations<I, A>(&mut self, annotations: I)
+    where
+        A: AsRawSymbolTokenRef,
+        I: IntoIterator<Item = A>,
+    {
+        self.annotations.extend(
+            annotations
+                .into_iter()
+                // TODO: This function currently allocates a new string for each annotations.
+                //       However, `RawWriter::write`'s signature allows us to avoid this and
+                //       write formatted text directly to the output stream.
+                .map(|s| match s.as_raw_symbol_token_ref() {
+                    RawSymbolTokenRef::SymbolId(sid) => format!("${}", sid),
+                    RawSymbolTokenRef::Text(text) => text.to_string(),
+                }),
+        );
+    }
+
+    /// Writes an Ion null of the specified type.
+    fn write_null(&mut self, ion_type: IonType) -> IonResult<()> {
+        use IonType::*;
+        self.write_scalar(|output| {
+            let null_text = match ion_type {
+                Null => "null",
+                Boolean => "null.bool",
+                Integer => "null.int",
+                Float => "null.float",
+                Decimal => "null.decimal",
+                Timestamp => "null.timestamp",
+                Symbol => "null.symbol",
+                String => "null.string",
+                Blob => "null.blob",
+                Clob => "null.clob",
+                List => "null.list",
+                SExpression => "null.sexp",
+                Struct => "null.struct",
+            };
+            write!(output, "{}", null_text)?;
+            Ok(())
+        })
+    }
+
+    /// Writes the provided bool value as an Ion boolean.
+    fn write_bool(&mut self, value: bool) -> IonResult<()> {
+        self.write_scalar(|output| {
+            let bool_text = match value {
+                true => "true",
+                false => "false",
+            };
+            write!(output, "{}", bool_text)?;
+            Ok(())
+        })
+    }
+
+    /// Writes the provided i64 value as an Ion integer.
+    fn write_i64(&mut self, value: i64) -> IonResult<()> {
+        self.write_scalar(|output| {
+            write!(output, "{}", value)?;
+            Ok(())
+        })
+    }
+
+    /// Writes the provided f64 value as an Ion float.
+    fn write_f32(&mut self, value: f32) -> IonResult<()> {
+        // The text writer doesn't distinguish between f32 and f64 in its output.
+        self.write_f64(value as f64)
+    }
+
+    /// Writes the provided f64 value as an Ion float.
+    fn write_f64(&mut self, value: f64) -> IonResult<()> {
+        self.write_scalar(|output| {
+            if value.is_nan() {
+                write!(output, "nan")?;
+                return Ok(());
+            }
+
+            if value.is_infinite() {
+                if value.is_sign_positive() {
+                    write!(output, "+inf")?;
+                } else {
+                    write!(output, "-inf")?;
+                }
+                return Ok(());
+            }
+
+            // The {:e} formatter provided by the Display trait writes floats using scientific
+            // notation. It works for all floating point values except -0.0 (it drops the sign).
+            // See: https://github.com/rust-lang/rust/issues/20596
+            if value == 0.0f64 && value.is_sign_negative() {
+                write!(output, "-0e0")?;
+                return Ok(());
+            }
+
+            write!(output, "{:e}", value)?;
+            Ok(())
+        })
+    }
+
+    /// Writes the provided Decimal as an Ion decimal.
+    fn write_decimal(&mut self, value: &Decimal) -> IonResult<()> {
+        self.write_scalar(|output| {
+            write!(output, "{}", value)?;
+            Ok(())
+        })
+    }
+
     /// Writes the provided Timestamp as an Ion timestamp.
-    pub fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
+    fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
         // A space to format the offset
         self.write_scalar(|output| {
             let (offset_minutes, datetime) = if let Some(minutes) = value.offset {
@@ -321,14 +359,14 @@ impl<W: Write> TextWriter<W> {
             write!(output, "T{:0>2}:{:0>2}", datetime.hour(), datetime.minute())?;
             //                   ^-- delimiting T, formatted hour, delimiting colon, formatted minute
             if value.precision == Precision::HourAndMinute {
-                Self::write_offset(output, offset_minutes)?;
+                RawTextWriter::write_offset(output, offset_minutes)?;
                 return Ok(());
             }
 
             write!(output, ":{:0>2}", datetime.second())?;
             //                   ^-- delimiting colon, formatted second
             if value.precision == Precision::Second {
-                Self::write_offset(output, offset_minutes)?;
+                RawTextWriter::write_offset(output, offset_minutes)?;
                 return Ok(());
             }
 
@@ -341,58 +379,34 @@ impl<W: Write> TextWriter<W> {
 
             write!(output, ".{}", fractional_text)?;
             //               ^-- delimiting decimal point, formatted fractional seconds
-            Self::write_offset(output, offset_minutes)?;
-            Ok(())
-        })
-    }
-
-    /// Writes the provided DateTime value as an Ion timestamp.
-    #[deprecated(
-        since = "0.6.1",
-        note = "Please use the `write_timestamp` method instead."
-    )]
-    pub fn write_datetime(&mut self, value: &DateTime<FixedOffset>) -> IonResult<()> {
-        self.write_scalar(|output| {
-            write!(output, "{}", value.to_rfc3339())?;
+            RawTextWriter::write_offset(output, offset_minutes)?;
             Ok(())
         })
     }
 
     /// Writes the provided &str value as an Ion symbol.
-    pub fn write_symbol<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
+    fn write_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
         self.write_scalar(|output| {
-            write!(output, "'{}'", value.as_ref())?;
+            RawTextWriter::write_symbol_token(output, value)?;
             Ok(())
         })
     }
 
     /// Writes the provided &str value as an Ion string.
-    pub fn write_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
+    fn write_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
         self.write_scalar(|output| {
             write!(output, "\"{}\"", value.as_ref())?;
             Ok(())
         })
     }
 
-    /// Writes the provided byte array slice as an Ion blob.
-    pub fn write_blob(&mut self, value: &[u8]) -> IonResult<()> {
-        self.write_scalar(|output| {
-            // Rust format strings escape curly braces by doubling them. The following string is:
-            // * The opening {{ from a text Ion blob, with each brace doubled to escape it.
-            // * A {} pair used by the format string to indicate where the base64-encoded bytes
-            //   should be inserted.
-            // * The closing }} from a text Ion blob, with each brace doubled to escape it.
-            // TODO: Provide a re-usable encoding buffer instead of allocating a String each time.
-            write!(output, "{{{{{}}}}}", base64::encode(value))?;
-            Ok(())
-        })
-    }
-
     /// Writes the provided byte array slice as an Ion clob.
-    pub fn write_clob(&mut self, value: &[u8]) -> IonResult<()> {
+    fn write_clob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
         // clob_value to be written based on defined STRING_ESCAPE_CODES.
         const NUM_DELIMITER_BYTES: usize = 4; // {{}}
         const NUM_HEX_BYTES_PER_BYTE: usize = 4; // \xHH
+
+        let value: &[u8] = value.as_ref();
 
         // Set aside enough memory to hold a clob containing all hex-encoded bytes
         let mut clob_value =
@@ -412,25 +426,96 @@ impl<W: Write> TextWriter<W> {
             Ok(())
         })
     }
+
+    /// Writes the provided byte array slice as an Ion blob.
+    fn write_blob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
+        self.write_scalar(|output| {
+            // Rust format strings escape curly braces by doubling them. The following string is:
+            // * The opening {{ from a text Ion blob, with each brace doubled to escape it.
+            // * A {} pair used by the format string to indicate where the base64-encoded bytes
+            //   should be inserted.
+            // * The closing }} from a text Ion blob, with each brace doubled to escape it.
+            write!(output, "{{{{{}}}}}", base64::encode(value))?;
+            Ok(())
+        })
+    }
+
+    /// Begins a container (List, S-Expression, or Struct). If `ion_type` is not a container type,
+    /// `step_in` will return an Err(IllegalOperation).
+    fn step_in(&mut self, ion_type: IonType) -> IonResult<()> {
+        use IonType::*;
+        self.write_value_metadata()?;
+        match ion_type {
+            Struct => write!(self.output, "{{")?,
+            List => write!(self.output, "[")?,
+            SExpression => write!(self.output, "(")?,
+            _ => return illegal_operation(format!("Cannot step into a(n) {:?}", ion_type)),
+        }
+        self.containers.push(ion_type);
+        Ok(())
+    }
+
+    /// Sets the current field name to `name`. If the TextWriter is currently positioned inside
+    /// of a struct, the field name will be written before the next value. Otherwise, it will be
+    /// ignored.
+    fn set_field_name<A: AsRawSymbolTokenRef>(&mut self, name: A) {
+        let name = match name.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(sid) => format!("${}", sid),
+            RawSymbolTokenRef::Text(text) => text.to_string(),
+        };
+        self.field_name = Some(name);
+    }
+
+    fn parent_type(&self) -> Option<IonType> {
+        self.containers.last().copied()
+    }
+
+    fn depth(&self) -> usize {
+        self.containers.len()
+    }
+
+    /// Completes the current container. If the TextWriter is not currently positioned inside a
+    /// container, `step_out` will return an Err(IllegalOperation).
+    fn step_out(&mut self) -> IonResult<()> {
+        use IonType::*;
+        let end_delimiter = match self.containers.pop() {
+            Some(Struct) => "}",
+            Some(List) => "]",
+            Some(SExpression) => ")",
+            Some(scalar) => unreachable!("Inside a non-container type: {:?}", scalar),
+            None => return illegal_operation("Cannot step out of the top level."),
+        };
+        write!(self.output, "{}", end_delimiter)?;
+        self.write_value_delimiter()?;
+        Ok(())
+    }
+
+    fn flush(&mut self) -> IonResult<()> {
+        self.output.flush()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::result::IonResult;
-    use crate::text::writer::TextWriter;
-    use crate::types::timestamp::Timestamp;
-    use crate::IonType;
-    use bigdecimal::BigDecimal;
-    use chrono::{FixedOffset, NaiveDate, TimeZone};
     use std::str;
     use std::str::FromStr;
 
+    use bigdecimal::BigDecimal;
+    use chrono::{FixedOffset, NaiveDate, TimeZone};
+
+    use crate::raw_writer::RawWriter;
+    use crate::result::IonResult;
+    use crate::text::writer::RawTextWriter;
+    use crate::types::timestamp::Timestamp;
+    use crate::IonType;
+
     fn writer_test<F>(mut commands: F, expected: &str)
     where
-        F: FnMut(&mut TextWriter<&mut Vec<u8>>) -> IonResult<()>,
+        F: FnMut(&mut RawTextWriter<&mut Vec<u8>>) -> IonResult<()>,
     {
         let mut output = Vec::new();
-        let mut writer = TextWriter::new(&mut output);
+        let mut writer = RawTextWriter::new(&mut output);
         commands(&mut writer).expect("Invalid TextWriter test commands.");
         drop(writer);
         assert_eq!(str::from_utf8(&output).unwrap(), expected);
@@ -462,6 +547,11 @@ mod tests {
     }
 
     #[test]
+    fn write_f32() {
+        writer_test(|w| w.write_f32(700f32), "7e2\n");
+    }
+
+    #[test]
     fn write_f64() {
         writer_test(|w| w.write_f64(700f64), "7e2\n");
     }
@@ -470,10 +560,10 @@ mod tests {
     fn write_annotated_i64() {
         writer_test(
             |w| {
-                w.set_annotations(&["foo", "bar", "baz"]);
+                w.set_annotations(&["foo", "bar", "baz quux"]);
                 w.write_i64(7)
             },
-            "'foo'::'bar'::'baz'::7\n",
+            "foo::bar::'baz quux'::7\n",
         );
     }
 
@@ -566,7 +656,7 @@ mod tests {
                 w.write_i64(21)?;
                 w.write_symbol("bar")
             },
-            "\"foo\"\n21\n'bar'\n",
+            "\"foo\"\n21\nbar\n",
         );
     }
 
@@ -601,7 +691,7 @@ mod tests {
                 w.write_symbol("bar")?;
                 w.step_out()
             },
-            "[\"foo\",21,'bar',]\n",
+            "[\"foo\",21,bar,]\n",
         );
     }
 
@@ -617,7 +707,7 @@ mod tests {
                 w.step_out()?;
                 w.step_out()
             },
-            "[\"foo\",21,['bar',],]\n",
+            "[\"foo\",21,[bar,],]\n",
         );
     }
 
@@ -631,7 +721,7 @@ mod tests {
                 w.write_symbol("bar")?;
                 w.step_out()
             },
-            "(\"foo\" 21 'bar' )\n",
+            "(\"foo\" 21 bar )\n",
         );
     }
 
@@ -645,11 +735,11 @@ mod tests {
                 w.set_field_name("b");
                 w.write_i64(21)?;
                 w.set_field_name("c");
-                w.set_annotations(&["qux"]);
+                w.set_annotations(&["quux"]);
                 w.write_symbol("bar")?;
                 w.step_out()
             },
-            "{a:\"foo\",b:21,c:'qux'::'bar',}\n",
+            "{a:\"foo\",b:21,c:quux::bar,}\n",
         );
     }
 }

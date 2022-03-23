@@ -4,6 +4,7 @@ use num_traits::Zero;
 use crate::result::{illegal_operation, IonError};
 use crate::types::magnitude::Magnitude;
 use std::convert::TryFrom;
+use std::fmt::{Display, Formatter};
 use std::ops::{MulAssign, Neg};
 
 /// Indicates whether the Coefficient's magnitude is less than 0 (negative) or not (positive).
@@ -112,6 +113,19 @@ impl TryFrom<Coefficient> for BigInt {
             big_int.mul_assign(-1);
         }
         Ok(big_int)
+    }
+}
+
+impl Display for Coefficient {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.sign {
+            Sign::Positive => {}
+            Sign::Negative => write!(f, "-")?,
+        };
+        match &self.magnitude {
+            Magnitude::U64(m) => write!(f, "{}", *m),
+            Magnitude::BigUInt(m) => write!(f, "{}", m),
+        }
     }
 }
 

@@ -96,7 +96,7 @@ fn base_10_integer(input: &str) -> IResult<&str, TextValue> {
 /// radix.
 fn parse_i64_with_radix(text: &str, radix: u32) -> Result<i64, ParseIntError> {
     if text.contains('_') {
-        let sanitized = text.replace("_", "");
+        let sanitized = text.replace('_', "");
         return i64::from_str_radix(&sanitized, radix);
     }
     i64::from_str_radix(text, radix)

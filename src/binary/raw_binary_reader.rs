@@ -779,7 +779,6 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
     #[inline]
     fn step_out(&mut self) -> IonResult<()> {
         use std::mem;
-        let bytes_to_skip;
 
         // Clear annotations belonging to the current value before we step out.
         self.clear_annotations();
@@ -801,7 +800,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         // We're stepping out of the container, so we need to skip to the end of it.
         let value_end_excl = parent.value_end_exclusive();
         let bytes_read = self.cursor.bytes_read;
-        bytes_to_skip = value_end_excl - bytes_read;
+        let bytes_to_skip = value_end_excl - bytes_read;
 
         // Set the parent as the current value
         mem::swap(&mut self.cursor.value, parent);
