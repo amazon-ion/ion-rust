@@ -7,16 +7,21 @@ use crate::types::IonType;
 /**
  * This trait captures the format-agnostic encoding functionality needed to write native Rust types
  * to a stream as Ion values.
- *
- * RawWriter implementations are not expected convert symbol text to symbol IDs or vice versa.
  */
-pub trait RawWriter {
+pub trait Writer {
     /// Returns the (major, minor) version of the Ion stream being written. If ion_version is called
     /// before an Ion Version Marker has been emitted, the version (1, 0) will be returned.
     fn ion_version(&self) -> (u8, u8);
 
     /// Writes an Ion version marker to the output stream.
     fn write_ion_version_marker(&mut self, major: u8, minor: u8) -> IonResult<()>;
+
+    /// Returns `true` if this RawWriter supports writing field names, annotations, and
+    /// symbol values directly as text; otherwise, returns `false`.
+    ///
+    /// If this method returns `false`, passing a [RawSymbolTokenRef::Text] to the
+    /// [set_annotations], [set_field_name], or [write_symbol] methods may result in a panic.
+    fn supports_text_symbol_tokens(&self) -> bool;
 
     /// Sets a list of annotations that will be applied to the next value that is written.
     fn set_annotations<I, A>(&mut self, annotations: I)

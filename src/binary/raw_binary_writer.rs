@@ -10,11 +10,11 @@ use crate::binary::constants::v1_0::IVM;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
-use crate::raw_writer::RawWriter;
 use crate::result::{illegal_operation, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
+use crate::writer::Writer;
 use crate::IonType;
 
 use super::decimal::DecimalBinaryEncoder;
@@ -115,10 +115,11 @@ impl EncodingLevel {
 /// A system-level streaming binary Ion writer. This writer does not provide symbol table
 /// management; symbol-related operations (e.g. setting field IDs and annotations or writing symbol
 /// values) require a valid symbol ID to be provided by the caller.
+///
+/// To produce a valid binary Ion stream, the writer MUST call [write_ion_version_marker] before
+/// writing any data.
 #[derive(Debug)]
 pub struct RawBinaryWriter<W: Write> {
-    // Tracks whether the writer has already written an IVM out in this stream.
-    ivm_needed: bool,
     // A byte buffer to encode individual components of the stream.
     buffer: Vec<u8>,
     // Slices of the buffer to write out in order when flush() is called.
@@ -166,7 +167,6 @@ impl<W: Write> RawBinaryWriter<W> {
         let mut io_ranges = Vec::with_capacity(INITIAL_IO_RANGE_CAPACITY);
         io_ranges.push(0usize..0);
         RawBinaryWriter {
-            ivm_needed: true,
             buffer: Vec::with_capacity(INITIAL_ENCODING_BUFFER_CAPACITY),
             io_ranges,
             levels,
@@ -514,9 +514,21 @@ impl<W: Write> RawBinaryWriter<W> {
         // The encoded sequence of annotations
         self.push_empty_io_range();
     }
+
+    pub fn add_annotation<A: AsRawSymbolTokenRef>(&mut self, annotation: A) {
+        let symbol_id = match annotation.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(symbol_id) => symbol_id,
+            RawSymbolTokenRef::Text(text) => panic!(
+                "The RawBinaryWriter can only accept symbol ID annotations, not text ('{}').",
+                text
+            ),
+        };
+        self.annotations_all_levels.push(symbol_id);
+        self.num_annotations_current_value += 1;
+    }
 }
 
-impl<'a, W: Write> RawWriter for RawBinaryWriter<W> {
+impl<'a, W: Write> Writer for RawBinaryWriter<W> {
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }
@@ -528,25 +540,22 @@ impl<'a, W: Write> RawWriter for RawBinaryWriter<W> {
         panic!("Only Ion 1.0 is supported.");
     }
 
+    fn supports_text_symbol_tokens(&self) -> bool {
+        // In Ion 1.0, the binary format requires that field names, annotations, and symbol values
+        // be encoded as symbol IDs. The raw writer does not have a symbol table and so cannot
+        // convert a String to a symbol ID.
+        false
+    }
+
     fn set_annotations<I, A>(&mut self, annotations: I)
     where
         A: AsRawSymbolTokenRef,
         I: IntoIterator<Item = A>,
     {
         self.clear_annotations();
-        let initial_count = self.annotations_all_levels.len();
         for annotation in annotations {
-            let symbol_id = match annotation.as_raw_symbol_token_ref() {
-                RawSymbolTokenRef::SymbolId(symbol_id) => symbol_id,
-                RawSymbolTokenRef::Text(text) => panic!(
-                    "The RawBinaryWriter can only accept symbol ID annotations, not text ('{}').",
-                    text
-                ),
-            };
-            self.annotations_all_levels.push(symbol_id);
+            self.add_annotation(annotation);
         }
-        self.num_annotations_current_value =
-            (self.annotations_all_levels.len() - initial_count) as u8;
     }
 
     /// Writes an Ion null of the specified type.
@@ -737,6 +746,9 @@ impl<'a, W: Write> RawWriter for RawBinaryWriter<W> {
     }
 
     fn set_field_name<A: AsRawSymbolTokenRef>(&mut self, name: A) {
+        if self.parent_type() != Some(IonType::Struct) {
+            panic!("Attempted to set field name when the writer was not in a struct.");
+        }
         match name.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(sid) => self.set_field_id(sid),
             RawSymbolTokenRef::Text(text) => panic!(
@@ -843,11 +855,6 @@ impl<'a, W: Write> RawWriter for RawBinaryWriter<W> {
         //      [1] https://github.com/rust-lang/rust/issues/69941
         //      [2] https://github.com/rust-lang/rust/issues/31844
 
-        if self.ivm_needed {
-            self.out.write_all(&IVM)?;
-            self.ivm_needed = false;
-        }
-
         self.out.write_all(self.contiguous_encoding.as_slice())?;
 
         self.contiguous_encoding.clear();
@@ -881,6 +888,7 @@ mod writer_tests {
         // Create a BinarySystemWriter that writes to a byte vector.
         let mut buffer = vec![];
         let mut writer = RawBinaryWriter::new(&mut buffer);
+        writer.write_ion_version_marker(1, 0)?;
 
         // Call the user's writing function
         write_fn(&mut writer)?;

@@ -25,10 +25,10 @@ pub mod value;
 pub mod constants;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
-mod raw_writer;
 mod reader;
 mod symbol_table;
 mod system_reader;
+mod writer;
 
 pub use binary::raw_binary_reader::RawBinaryReader;
 pub use data_source::IonDataSource;
