@@ -10,11 +10,11 @@ use crate::binary::constants::v1_0::IVM;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
-use crate::raw_writer::RawWriter;
 use crate::result::{illegal_operation, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
+use crate::writer::Writer;
 use crate::IonType;
 
 use super::decimal::DecimalBinaryEncoder;
@@ -514,9 +514,20 @@ impl<W: Write> RawBinaryWriter<W> {
         // The encoded sequence of annotations
         self.push_empty_io_range();
     }
+
+    pub fn add_annotation<A: AsRawSymbolTokenRef>(&mut self, annotation: A) {
+        let symbol_id = match annotation.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(symbol_id) => symbol_id,
+            RawSymbolTokenRef::Text(text) => panic!(
+                "The RawBinaryWriter can only accept symbol ID annotations, not text ('{}').",
+                text
+            ),
+        };
+        self.annotations_all_levels.push(symbol_id);
+    }
 }
 
-impl<'a, W: Write> RawWriter for RawBinaryWriter<W> {
+impl<'a, W: Write> Writer for RawBinaryWriter<W> {
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }
@@ -528,6 +539,13 @@ impl<'a, W: Write> RawWriter for RawBinaryWriter<W> {
         panic!("Only Ion 1.0 is supported.");
     }
 
+    fn supports_text_symbol_tokens(&self) -> bool {
+        // In Ion 1.0, the binary format requires that field names, annotations, and symbol values
+        // be encoded as symbol IDs. The raw writer does not have a symbol table and so cannot
+        // convert a String to a symbol ID.
+        false
+    }
+
     fn set_annotations<I, A>(&mut self, annotations: I)
     where
         A: AsRawSymbolTokenRef,
@@ -536,14 +554,7 @@ impl<'a, W: Write> RawWriter for RawBinaryWriter<W> {
         self.clear_annotations();
         let initial_count = self.annotations_all_levels.len();
         for annotation in annotations {
-            let symbol_id = match annotation.as_raw_symbol_token_ref() {
-                RawSymbolTokenRef::SymbolId(symbol_id) => symbol_id,
-                RawSymbolTokenRef::Text(text) => panic!(
-                    "The RawBinaryWriter can only accept symbol ID annotations, not text ('{}').",
-                    text
-                ),
-            };
-            self.annotations_all_levels.push(symbol_id);
+            self.add_annotation(annotation);
         }
         self.num_annotations_current_value =
             (self.annotations_all_levels.len() - initial_count) as u8;

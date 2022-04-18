@@ -7,8 +7,8 @@ use chrono::{Datelike, Timelike};
 
 use crate::{
     binary::{
-        decimal::DecimalBinaryEncoder, var_int::VarInt, var_uint::VarUInt,
-        writer::MAX_INLINE_LENGTH,
+        decimal::DecimalBinaryEncoder, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt,
+        var_uint::VarUInt,
     },
     result::IonResult,
     types::{
