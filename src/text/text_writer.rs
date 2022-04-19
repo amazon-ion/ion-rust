@@ -30,6 +30,7 @@ impl<W: Write> TextWriter<W> {
 
 impl<W: Write> Writer for TextWriter<W> {
     fn supports_text_symbol_tokens(&self) -> bool {
+        // The TextWriter can always write text field names, annotations, and symbols.
         true
     }
 

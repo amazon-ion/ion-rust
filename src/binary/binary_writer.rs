@@ -94,6 +94,8 @@ impl<W: Write> BinaryWriter<W> {
 
 impl<W: Write> Writer for BinaryWriter<W> {
     fn supports_text_symbol_tokens(&self) -> bool {
+        // The BinaryWriter can always write text field names, annotations, and symbols
+        // after first adding the provided text to the symbol table.
         true
     }
 
