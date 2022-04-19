@@ -168,7 +168,7 @@ impl<C: RawReader> Reader<C> {
     pub fn read_symbol(&mut self) -> IonResult<Option<String>> {
         // TODO: This currently allocates, which shouldn't be required.
         match self.raw_reader.read_symbol()? {
-            None => return Ok(None),
+            None => Ok(None),
             Some(RawSymbolToken::SymbolId(symbol_id)) => {
                 if let Some(text) = self.symbol_table.text_for(symbol_id) {
                     Ok(Some(text.to_owned()))
