@@ -476,6 +476,7 @@ impl<'a> IonCWriter<'a> for IonCWriterHandle<'a> {
 }
 
 impl IonCValueWriter for IonCWriterHandle<'_> {
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
     fn write_null(&mut self, tid: ION_TYPE) -> IonCResult<()> {
         ionc!(ion_writer_write_typed_null(self.writer, tid))
@@ -549,6 +550,7 @@ impl IonCValueWriter for IonCWriterHandle<'_> {
         ))
     }
 
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
     fn start_container(&mut self, tid: ION_TYPE) -> IonCResult<()> {
         ionc!(ion_writer_start_container(self.writer, tid))

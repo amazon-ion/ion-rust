@@ -165,6 +165,24 @@ impl<C: RawReader> Reader<C> {
         &self.symbol_table
     }
 
+    pub fn read_symbol(&mut self) -> IonResult<Option<String>> {
+        // TODO: This currently allocates, which shouldn't be required.
+        match self.raw_reader.read_symbol()? {
+            None => Ok(None),
+            Some(RawSymbolToken::SymbolId(symbol_id)) => {
+                if let Some(text) = self.symbol_table.text_for(symbol_id) {
+                    Ok(Some(text.to_owned()))
+                } else {
+                    return decoding_error(format!(
+                        "Found symbol ID ${}, which is not defined.",
+                        symbol_id
+                    ));
+                }
+            }
+            Some(RawSymbolToken::Text(text)) => Ok(Some(text)),
+        }
+    }
+
     // TODO: Offer other flavors of this method, including:
     //       * a version that returns a resolved token (OwnedSymbolToken?) that can provide both
     //         text and a SID if available

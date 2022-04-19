@@ -6,10 +6,10 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
-use crate::raw_writer::RawWriter;
 use crate::result::{illegal_operation, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::{Precision, Timestamp};
+use crate::writer::Writer;
 use crate::IonType;
 
 pub struct RawTextWriter<W: Write> {
@@ -197,9 +197,20 @@ impl<W: Write> RawTextWriter<W> {
             Ok(())
         })
     }
+
+    pub fn add_annotation<A: AsRawSymbolTokenRef>(&mut self, annotation: A) {
+        // TODO: This function currently allocates a new string for each annotation.
+        //       It will be common for this text to come from the symbol table; we should
+        //       make it possible to pass an Rc<str> or similar when applicable.
+        let text = match annotation.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(sid) => format!("${}", sid),
+            RawSymbolTokenRef::Text(text) => text.to_string(),
+        };
+        self.annotations.push(text);
+    }
 }
 
-impl<'a, W: Write> RawWriter for RawTextWriter<W> {
+impl<'a, W: Write> Writer for RawTextWriter<W> {
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }
@@ -209,23 +220,20 @@ impl<'a, W: Write> RawWriter for RawTextWriter<W> {
         Ok(())
     }
 
+    fn supports_text_symbol_tokens(&self) -> bool {
+        true
+    }
+
     /// Sets a list of annotations that will be applied to the next value that is written.
     fn set_annotations<I, A>(&mut self, annotations: I)
     where
         A: AsRawSymbolTokenRef,
         I: IntoIterator<Item = A>,
     {
-        self.annotations.extend(
-            annotations
-                .into_iter()
-                // TODO: This function currently allocates a new string for each annotations.
-                //       However, `RawWriter::write`'s signature allows us to avoid this and
-                //       write formatted text directly to the output stream.
-                .map(|s| match s.as_raw_symbol_token_ref() {
-                    RawSymbolTokenRef::SymbolId(sid) => format!("${}", sid),
-                    RawSymbolTokenRef::Text(text) => text.to_string(),
-                }),
-        );
+        self.annotations.clear();
+        for annotation in annotations {
+            self.add_annotation(annotation)
+        }
     }
 
     /// Writes an Ion null of the specified type.
@@ -504,10 +512,10 @@ mod tests {
     use bigdecimal::BigDecimal;
     use chrono::{FixedOffset, NaiveDate, TimeZone};
 
-    use crate::raw_writer::RawWriter;
     use crate::result::IonResult;
-    use crate::text::writer::RawTextWriter;
+    use crate::text::raw_text_writer::RawTextWriter;
     use crate::types::timestamp::Timestamp;
+    use crate::writer::Writer;
     use crate::IonType;
 
     fn writer_test<F>(mut commands: F, expected: &str)

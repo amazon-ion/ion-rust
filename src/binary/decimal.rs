@@ -6,7 +6,7 @@ use arrayvec::ArrayVec;
 use bigdecimal::Zero;
 
 use crate::{
-    binary::{int::Int, var_int::VarInt, var_uint::VarUInt, writer::MAX_INLINE_LENGTH},
+    binary::{int::Int, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt, var_uint::VarUInt},
     result::IonResult,
     types::{
         coefficient::{Coefficient, Sign},
