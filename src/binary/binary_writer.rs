@@ -49,7 +49,7 @@ impl<W: Write> BinaryWriter<W> {
         } else {
             // ...otherwise, add it to the symbol table and return the new symbol ID.
             self.num_pending_symbols += 1;
-            self.symbol_table.intern(text.to_owned())
+            self.symbol_table.intern(text)
         }
     }
 
@@ -190,7 +190,11 @@ impl<W: Write> Writer for BinaryWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{RawBinaryReader, Reader};
+    use crate::reader::Reader;
+    use crate::stream_reader::StreamReader;
+
+    use crate::RawBinaryReader;
+    use crate::StreamItem::Value;
     use std::io;
 
     #[test]
@@ -205,11 +209,11 @@ mod tests {
         binary_writer.flush()?;
 
         let mut reader = Reader::new(RawBinaryReader::new(io::Cursor::new(buffer)));
-        assert_eq!(Some((IonType::Struct, false)), reader.next()?);
+        assert_eq!(Value(IonType::Struct, false), reader.next()?);
         reader.step_in()?;
-        assert_eq!(Some((IonType::Symbol, false)), reader.next()?);
-        assert_eq!(Some("foo"), reader.field_name());
-        assert_eq!(Some("bar".to_owned()), reader.read_symbol()?);
+        assert_eq!(Value(IonType::Symbol, false), reader.next()?);
+        assert_eq!("foo", reader.field_name()?);
+        assert_eq!("bar", reader.read_symbol()?.as_ref());
 
         Ok(())
     }
@@ -224,10 +228,10 @@ mod tests {
         binary_writer.flush()?;
 
         let mut reader = Reader::new(RawBinaryReader::new(io::Cursor::new(buffer)));
-        assert_eq!(Some((IonType::Integer, false)), reader.next()?);
-        let annotations: Vec<Option<&str>> = reader.annotations().collect();
-        assert_eq!(Some("foo"), annotations[0]);
-        assert_eq!(Some("bar"), annotations[1]);
+        assert_eq!(Value(IonType::Integer, false), reader.next()?);
+        let mut annotations = reader.annotations();
+        assert_eq!("foo", annotations.next().unwrap()?);
+        assert_eq!("bar", annotations.next().unwrap()?);
 
         Ok(())
     }
@@ -243,12 +247,12 @@ mod tests {
         binary_writer.flush()?;
 
         let mut reader = Reader::new(RawBinaryReader::new(io::Cursor::new(buffer)));
-        assert_eq!(Some((IonType::Symbol, false)), reader.next()?);
-        assert_eq!(Some("foo".to_owned()), reader.read_symbol()?);
-        assert_eq!(Some((IonType::Symbol, false)), reader.next()?);
-        assert_eq!(Some("bar".to_owned()), reader.read_symbol()?);
-        assert_eq!(Some((IonType::Symbol, false)), reader.next()?);
-        assert_eq!(Some("baz".to_owned()), reader.read_symbol()?);
+        assert_eq!(Value(IonType::Symbol, false), reader.next()?);
+        assert_eq!("foo", reader.read_symbol()?);
+        assert_eq!(Value(IonType::Symbol, false), reader.next()?);
+        assert_eq!("bar", reader.read_symbol()?);
+        assert_eq!(Value(IonType::Symbol, false), reader.next()?);
+        assert_eq!("baz", reader.read_symbol()?);
 
         Ok(())
     }

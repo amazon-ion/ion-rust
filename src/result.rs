@@ -1,7 +1,7 @@
-use thiserror::Error;
-
 use std::convert::From;
 use std::{fmt, io};
+
+use thiserror::Error;
 
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;
@@ -116,9 +116,10 @@ pub fn illegal_operation_raw<S: AsRef<str>>(operation: S) -> IonError {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use ion_c_sys::result::*;
     use ion_c_sys::{ion_error_code_IERR_EOF, ion_error_code_IERR_INVALID_ARG};
+
+    use super::*;
 
     #[test]
     fn ion_c_error_eq() {

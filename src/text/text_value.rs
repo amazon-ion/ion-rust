@@ -22,6 +22,10 @@ impl AnnotatedTextValue {
         &self.value
     }
 
+    pub(crate) fn is_null(&self) -> bool {
+        matches!(self.value(), TextValue::Null(_))
+    }
+
     pub(crate) fn annotations(&self) -> &[RawSymbolToken] {
         &self.annotations
     }

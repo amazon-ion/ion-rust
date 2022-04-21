@@ -1,0 +1,172 @@
+use crate::result::IonResult;
+use crate::types::decimal::Decimal;
+use crate::types::timestamp::Timestamp;
+use crate::types::IonType;
+
+/**
+ * This trait captures the format-agnostic parser functionality needed to navigate within an Ion
+ * stream and read the values encountered into native Rust data types.
+ *
+ * Once a value has successfully been read from the stream using one of the read_* functions,
+ * calling that function again may return an Err. This is left to the discretion of the implementor.
+ */
+pub trait StreamReader {
+    /// The type returned by calls to [next], indicating the next entity in the stream.
+    /// Reader implementations representing different levels of abstraction will surface
+    /// different sets of encoding artifacts. While an application-level Reader would only surface
+    /// Ion values, a lower level Reader might surface symbol tables, Ion version markers, etc.
+    type Item;
+
+    /// The types used to represent field names, annotations, and symbol values at this Reader's
+    /// level of abstraction.
+    type Symbol;
+
+    /// Returns the (major, minor) version of the Ion stream being read. If ion_version is called
+    /// before an Ion Version Marker has been read, the version (1, 0) will be returned.
+    fn ion_version(&self) -> (u8, u8);
+
+    /// Attempts to advance the cursor to the next value in the stream at the current depth.
+    /// If no value is encountered, returns None; otherwise, returns the Ion type of the next value.
+    fn next(&mut self) -> IonResult<Self::Item>;
+
+    /// Returns a value describing the stream entity over which the Reader is currently positioned.
+    /// Depending on the Reader's level of abstraction, that entity may or may not be an Ion value.
+    fn current(&self) -> Self::Item;
+
+    /// If the current item is a value, returns that value's Ion type. Otherwise, returns None.
+    fn ion_type(&self) -> Option<IonType>;
+
+    /// Returns an iterator that will yield each of the annotations for the current value in order.
+    /// If there is no current value, returns an empty iterator.
+    // TODO: When GATs are stabilized, we can change this to a known associated type that's generic
+    //       over the lifetime of &self.
+    fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = IonResult<Self::Symbol>> + 'a>;
+
+    /// If the reader is positioned over a value with one or more annotations, returns `true`.
+    /// Otherwise, returns `false`.
+    fn has_annotations(&self) -> bool {
+        // Implementations are encouraged to override this when there's a cheaper way of
+        // determining whether the current value has annotations.
+        self.annotations().next().is_some()
+    }
+
+    /// Returns the number of annotations on the current value. If there is no current value,
+    /// returns zero.
+    fn number_of_annotations(&self) -> usize {
+        // Implementations are encouraged to override this when there's a cheaper way of
+        // calculating the number of annotations.
+        self.annotations().count()
+    }
+
+    /// If the current item is a field within a struct, returns `Ok(_)` with a [Self::Symbol]
+    /// representing the field's name; otherwise, returns an [IonError::IllegalOperation].
+    ///
+    /// Implementations may also return an error for other reasons; for example, if [Self::Symbol]
+    /// is a text data type but the field name is an undefined symbol ID, the reader may return
+    /// a decoding error.
+    fn field_name(&self) -> IonResult<Self::Symbol>;
+
+    /// Returns `true` if the reader is currently positioned over an Ion null of any type.
+    fn is_null(&self) -> bool;
+
+    /// Attempts to read the current item as an Ion null and return its Ion type. If the current
+    /// item is not a null or an IO error is encountered while reading, returns [IonError].
+    fn read_null(&mut self) -> IonResult<IonType>;
+
+    /// Attempts to read the current item as an Ion boolean and return it as a bool. If the current
+    /// item is not a boolean or an IO error is encountered while reading, returns [IonError].
+    fn read_bool(&mut self) -> IonResult<bool>;
+
+    /// Attempts to read the current item as an Ion integer and return it as an i64. If the current
+    /// item is not an integer or an IO error is encountered while reading, returns [IonError].
+    fn read_i64(&mut self) -> IonResult<i64>;
+
+    /// Attempts to read the current item as an Ion float and return it as an f32. If the current
+    /// item is not a float or an IO error is encountered while reading, returns [IonError].
+    fn read_f32(&mut self) -> IonResult<f32>;
+
+    /// Attempts to read the current item as an Ion float and return it as an f64. If the current
+    /// item is not a float or an IO error is encountered while reading, returns [IonError].
+    fn read_f64(&mut self) -> IonResult<f64>;
+
+    /// Attempts to read the current item as an Ion decimal and return it as a [Decimal]. If the current
+    /// item is not a decimal or an IO error is encountered while reading, returns [IonError].
+    fn read_decimal(&mut self) -> IonResult<Decimal>;
+
+    /// Attempts to read the current item as an Ion string and return it as a [String]. If the current
+    /// item is not a string or an IO error is encountered while reading, returns [IonError].
+    fn read_string(&mut self) -> IonResult<String>;
+
+    /// Takes a function that expects a string and, once the string's bytes are loaded, calls that
+    /// function passing the string as a parameter. This allows users to avoid materializing the
+    /// string if they only intend to inspect it for length, pattern matches, etc.
+    // TODO: Replace with a `read_str(&self) -> IonResult<&str>`
+    //       See: https://github.com/amzn/ion-rust/issues/335
+    fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
+    where
+        F: FnOnce(&str) -> U;
+
+    /// Takes a function that expects a string and, once the string's bytes are loaded, calls that
+    /// function passing the string's raw bytes as a parameter. Some implementations may be able
+    /// to optimize this by calling the function without first validating that the bytes are utf8.
+    /// As such, callers MUST NOT depend on the string contents being valid utf8.
+    // TODO: Replace with a `read_string_bytes(&self) -> IonResult<&[u8]>`
+    //       See: https://github.com/amzn/ion-rust/issues/335
+    fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
+    where
+        F: FnOnce(&[u8]) -> U;
+
+    /// Attempts to read the current item as an Ion symbol and return it as a [Self::Symbol]. If the
+    /// current item is not a symbol or an IO error is encountered while reading, returns [IonError].
+    fn read_symbol(&mut self) -> IonResult<Self::Symbol>;
+
+    /// Attempts to read the current item as an Ion blob and return it as a [Vec<u8>]. If the
+    /// current item is not a blob or an IO error is encountered while reading, returns [IonError].
+    fn read_blob(&mut self) -> IonResult<Vec<u8>>;
+
+    /// Takes a function that expects a byte slice and, once the blob's bytes are loaded, calls that
+    /// function passing the blob's bytes as a parameter. This allows users to avoid materializing the
+    /// clob if they only intend to inspect it for length, pattern matches, etc.
+    // TODO: Replace with a `read_blob_bytes(&self) -> IonResult<&[u8]>`
+    //       See: https://github.com/amzn/ion-rust/issues/335
+    fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
+    where
+        F: FnOnce(&[u8]) -> U;
+
+    /// Attempts to read the current item as an Ion clob and return it as a [Vec<u8>]. If the
+    /// current item is not a clob or an IO error is encountered while reading, returns [IonError].
+    fn read_clob(&mut self) -> IonResult<Vec<u8>>;
+
+    /// Takes a function that expects a byte slice and, once the clob's bytes are loaded, calls that
+    /// function passing the clob's bytes as a parameter. This allows users to avoid materializing the
+    /// clob if they only intend to inspect it for length, pattern matches, etc.
+    // TODO: Replace with a `read_clob_bytes(&self) -> IonResult<&[u8]]>`
+    //       See: https://github.com/amzn/ion-rust/issues/335
+    fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
+    where
+        F: FnOnce(&[u8]) -> U;
+
+    /// Attempts to read the current item as an Ion timestamp and return [Timestamp]. If the current
+    /// item is not a timestamp or an IO error is encountered while reading, returns [IonError].
+    fn read_timestamp(&mut self) -> IonResult<Timestamp>;
+
+    /// If the current value is a container (i.e. a struct, list, or s-expression), positions the
+    /// cursor at the beginning of that container's sequence of child values. The application must
+    /// call [next()] to advance to the first child value. If the current value is not a container,
+    /// returns [IonError].
+    fn step_in(&mut self) -> IonResult<()>;
+
+    /// Positions the cursor at the end of the container currently being traversed. Calling [next()]
+    /// will position the cursor over the item that follows the container. If the cursor is not in
+    /// a container (i.e. it is already at the top level), returns [IonError].
+    fn step_out(&mut self) -> IonResult<()>;
+
+    /// If the reader is positioned at the top level, returns `None`. Otherwise, returns
+    /// `Some(_)` with the parent container's [IonType].
+    fn parent_type(&self) -> Option<IonType>;
+
+    /// Returns a [usize] indicating the Reader's current level of nesting. That is: the number of
+    /// times the Reader has stepped into a container without later stepping out. At the top level,
+    /// this method returns `0`.
+    fn depth(&self) -> usize;
+}

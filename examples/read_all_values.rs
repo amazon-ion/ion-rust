@@ -1,6 +1,7 @@
 use ion_rs::raw_reader::RawStreamItem;
 use ion_rs::result::IonResult;
-use ion_rs::{IonDataSource, IonType, RawBinaryReader, RawReader};
+use ion_rs::StreamReader;
+use ion_rs::{IonDataSource, IonType, RawBinaryReader};
 use std::fs::File;
 use std::process::exit;
 
@@ -28,8 +29,8 @@ fn read_all_values<R: IonDataSource>(cursor: &mut RawBinaryReader<R>) -> IonResu
     let mut count: usize = 0;
     loop {
         match cursor.next()? {
-            Some(VersionMarker(_major, _minor)) => {}
-            Some(RawStreamItem::Value(ion_type, is_null)) => {
+            VersionMarker(_major, _minor) => {}
+            Value(ion_type, is_null) => {
                 count += 1;
                 if is_null {
                     continue;
@@ -37,36 +38,36 @@ fn read_all_values<R: IonDataSource>(cursor: &mut RawBinaryReader<R>) -> IonResu
                 match ion_type {
                     Struct | List | SExpression => cursor.step_in()?,
                     String => {
-                        let _text = cursor.string_ref_map(|_s| ())?.unwrap();
+                        let _text = cursor.map_string(|_s| ())?;
                     }
                     Symbol => {
-                        let _symbol_id = cursor.read_symbol()?.unwrap();
+                        let _symbol_id = cursor.read_symbol()?;
                     }
                     Integer => {
-                        let _int = cursor.read_i64()?.unwrap();
+                        let _int = cursor.read_i64()?;
                     }
                     Float => {
-                        let _float = cursor.read_f64()?.unwrap();
+                        let _float = cursor.read_f64()?;
                     }
                     Decimal => {
-                        let _decimal = cursor.read_decimal()?.unwrap();
+                        let _decimal = cursor.read_decimal()?;
                     }
                     Timestamp => {
-                        let _timestamp = cursor.read_timestamp()?.unwrap();
+                        let _timestamp = cursor.read_timestamp()?;
                     }
                     Boolean => {
-                        let _boolean = cursor.read_bool()?.unwrap();
+                        let _boolean = cursor.read_bool()?;
                     }
                     Blob => {
-                        let _blob = cursor.blob_ref_map(|_b| ())?.unwrap();
+                        let _blob = cursor.map_blob(|_b| ())?;
                     }
                     Clob => {
-                        let _clob = cursor.clob_ref_map(|_c| ())?.unwrap();
+                        let _clob = cursor.map_clob(|_c| ())?;
                     }
                     Null => {}
                 }
             }
-            None if cursor.depth() > 0 => {
+            Nothing if cursor.depth() > 0 => {
                 cursor.step_out()?;
             }
             _ => break,

@@ -9,7 +9,7 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use ion_rs::result::{decoding_error, IonResult};
-use ion_rs::{IonType, RawBinaryReader, Reader};
+use ion_rs::{IonType, RawBinaryReader, Reader, StreamReader};
 
 const GOOD_TEST_FILES_PATH: &str = "ion-tests/iontestdata/good/";
 
@@ -126,8 +126,10 @@ fn read_file(path: &Path) -> IonResult<()> {
 
 // Recursively reads all of the values in the provided Reader, surfacing any errors.
 fn read_all_values(reader: &mut Reader<RawBinaryReader<BufReader<File>>>) -> IonResult<()> {
+    use ion_rs::StreamItem::*;
     use IonType::*;
-    while let Some((ion_type, is_null)) = reader.next()? {
+
+    while let Value(ion_type, is_null) = reader.next()? {
         if is_null {
             continue;
         }
@@ -138,32 +140,32 @@ fn read_all_values(reader: &mut Reader<RawBinaryReader<BufReader<File>>>) -> Ion
                 reader.step_out()?;
             }
             String => {
-                let _text = reader.string_ref_map(|_s| ())?.unwrap();
+                let _text = reader.map_string(|_s| ())?;
             }
             Symbol => {
                 // The binary reader's tokens are always SIDs
-                let _symbol_id = reader.read_raw_symbol()?.unwrap().local_sid().unwrap();
+                let _symbol_id = reader.read_symbol()?;
             }
             Integer => {
-                let _int = reader.read_i64()?.unwrap();
+                let _int = reader.read_i64()?;
             }
             Float => {
-                let _float = reader.read_f64()?.unwrap();
+                let _float = reader.read_f64()?;
             }
             Decimal => {
-                let _decimal = reader.read_big_decimal()?.unwrap();
+                let _decimal = reader.read_decimal()?;
             }
             Timestamp => {
-                let _timestamp = reader.read_datetime()?.unwrap();
+                let _timestamp = reader.read_timestamp()?;
             }
             Boolean => {
-                let _boolean = reader.read_bool()?.unwrap();
+                let _boolean = reader.read_bool()?;
             }
             Blob => {
-                let _blob = reader.read_blob_bytes()?.unwrap();
+                let _blob = reader.map_blob(|_b| ())?;
             }
             Clob => {
-                let _clob = reader.read_clob_bytes()?.unwrap();
+                let _clob = reader.map_clob(|_c| ())?;
             }
             Null => {
                 unreachable!("Value with IonType::Null returned is_null=false.");

@@ -1,11 +1,9 @@
-use bigdecimal::BigDecimal;
 use bytes::BigEndian;
 use bytes::ByteOrder;
-use chrono::offset::FixedOffset;
-use chrono::prelude::*;
 use delegate::delegate;
+use std::fmt::Display;
 
-use crate::raw_reader::{RawReader, RawStreamItem};
+use crate::raw_reader::RawStreamItem;
 use crate::{
     binary::{
         constants::v1_0::length_codes,
@@ -23,6 +21,8 @@ use crate::{
 use std::io;
 
 use crate::raw_symbol_token::RawSymbolToken;
+use crate::result::IonError;
+use crate::stream_reader::StreamReader;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use std::ops::Range;
@@ -228,6 +228,8 @@ where
  */
 #[derive(Clone, Debug)]
 pub struct CursorState {
+    // Indicates whether the reader is positioned over an IVM, a value, or nothing.
+    current_item: RawStreamItem,
     // The (major, minor) version pair of the stream being read. Defaults to (1, 0)
     ion_version: (u8, u8),
     // How many bytes we've read from our data source
@@ -259,7 +261,7 @@ macro_rules! read_safety_checks {
         if $raw_binary_reader.cursor.value.ion_type != $ion_type
             || $raw_binary_reader.cursor.value.is_null
         {
-            return Ok(None);
+            return Err($raw_binary_reader.expected(format!("{} value", $ion_type)));
         }
         // Make sure the cursor hasn't already advanced beyond the encoded bytes for this value.
         if $raw_binary_reader.finished_reading_value() {
@@ -271,7 +273,10 @@ macro_rules! read_safety_checks {
     };
 }
 
-impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
+impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
+    type Item = RawStreamItem;
+    type Symbol = RawSymbolToken;
+
     fn ion_version(&self) -> (u8, u8) {
         self.cursor.ion_version
     }
@@ -279,7 +284,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
     #[inline]
     // `next()` resembles `Iterator::next`, generating a clippy warning.
     #[allow(clippy::should_implement_trait)]
-    fn next(&mut self) -> IonResult<Option<RawStreamItem>> {
+    fn next(&mut self) -> IonResult<RawStreamItem> {
         // Skip the remaining bytes of the current value, if any.
         let _ = self.skip_current_value()?;
 
@@ -287,7 +292,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
             // If the cursor is nested inside a parent object, don't attempt to read beyond the end of
             // the parent. Users can call '.step_out()' to progress beyond the container.
             if self.cursor.bytes_read >= parent.value_end_exclusive() {
-                return Ok(None);
+                return Ok(RawStreamItem::Nothing);
             }
         }
 
@@ -302,7 +307,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         // Pull the next byte from the data source and interpret it as a value header
         let mut header = match self.read_next_value_header()? {
             Some(header) => header,
-            None => return Ok(None),
+            None => return Ok(self.set_current_item(RawStreamItem::Nothing)),
         };
         self.cursor.value.header = header;
 
@@ -341,7 +346,8 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         if header.ion_type_code == IonTypeCode::Annotation {
             if header.length_code == 0 {
                 // This is actually the first byte in an Ion Version Marker
-                return Ok(Some(self.read_ivm()?));
+                let ivm = self.read_ivm()?;
+                return Ok(self.set_current_item(ivm));
             }
             // We've found an annotated value. Read all of the annotation symbols leading
             // up to the value
@@ -349,7 +355,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
             // Now read the next header representing the value itself.
             header = match self.read_next_value_header()? {
                 Some(header) => header,
-                None => return Ok(None),
+                None => return Ok(self.set_current_item(RawStreamItem::Nothing)),
             };
             if header.is_nop() {
                 return decoding_error(&format!(
@@ -365,10 +371,14 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         self.cursor.index_at_depth += 1;
         self.cursor.value.index_at_depth = self.cursor.index_at_depth;
 
-        Ok(Some(RawStreamItem::Value(
+        Ok(self.set_current_item(RawStreamItem::Value(
             self.cursor.value.ion_type,
             self.is_null(),
         )))
+    }
+
+    fn current(&self) -> Self::Item {
+        self.cursor.current_item
     }
 
     fn ion_type(&self) -> Option<IonType> {
@@ -379,36 +389,53 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         self.cursor.value.is_null
     }
 
-    fn annotations(&self) -> &[RawSymbolToken] {
+    fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = IonResult<Self::Symbol>> + 'a> {
         let num_annotations = self.cursor.value.number_of_annotations as usize;
         if num_annotations == 0 {
-            return EMPTY_SLICE_RAW_SYMBOL_TOKEN;
+            return Box::new(EMPTY_SLICE_RAW_SYMBOL_TOKEN.iter().cloned().map(Ok));
         }
         let end = self.cursor.annotations.len();
         let start = end - num_annotations;
-        &self.cursor.annotations[start..end]
+        let annotations = &self.cursor.annotations[start..end];
+        Box::new(annotations.iter().cloned().map(Ok))
     }
 
-    fn field_name(&self) -> Option<&RawSymbolToken> {
-        self.cursor.value.field_id.as_ref()
+    fn has_annotations(&self) -> bool {
+        self.cursor.value.number_of_annotations > 0
     }
 
-    fn read_null(&mut self) -> IonResult<Option<IonType>> {
-        if self.is_null() {
-            return Ok(Some(self.cursor.value.ion_type));
+    fn number_of_annotations(&self) -> usize {
+        self.cursor.value.number_of_annotations as usize
+    }
+
+    fn field_name(&self) -> IonResult<Self::Symbol> {
+        if let Some(ref symbol) = self.cursor.value.field_id {
+            return Ok(symbol.clone());
         }
-        Ok(None)
+        illegal_operation(
+            format!(
+                "field_name() can only be called when the reader is positioned inside a struct; current parent: {:?}",
+                self.parent_type()
+            )
+        )
     }
 
-    fn read_bool(&mut self) -> IonResult<Option<bool>> {
+    fn read_null(&mut self) -> IonResult<IonType> {
+        if self.is_null() {
+            return Ok(self.cursor.value.ion_type);
+        }
+        Err(self.expected("null value"))
+    }
+
+    fn read_bool(&mut self) -> IonResult<bool> {
         read_safety_checks!(self, IonType::Boolean);
 
         // No reading from the stream occurs -- the header contains all of the information we need.
         let representation = self.cursor.value.header.length_code;
 
         match representation {
-            0 => Ok(Some(false)),
-            1 => Ok(Some(true)),
+            0 => Ok(false),
+            1 => Ok(true),
             _ => decoding_error(&format!(
                 "Found a boolean value with an illegal representation: {}",
                 representation
@@ -419,7 +446,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
     // TODO:
     // - Detect overflow and return an Error
     // - Add an integer_size() method that indicates whether the current value will fit in an i64
-    fn read_i64(&mut self) -> IonResult<Option<i64>> {
+    fn read_i64(&mut self) -> IonResult<i64> {
         read_safety_checks!(self, IonType::Integer);
 
         let magnitude = self.read_value_as_uint()?.value();
@@ -431,18 +458,17 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
             itc => unreachable!("Unexpected IonTypeCode: {:?}", itc),
         };
 
-        Ok(Some(value))
+        Ok(value)
     }
 
-    fn read_f32(&mut self) -> IonResult<Option<f32>> {
+    fn read_f32(&mut self) -> IonResult<f32> {
         match self.read_f64() {
-            Ok(Some(value)) => Ok(Some(value as f32)), // Lossy if the value was 64 bits
-            Ok(None) => Ok(None),
+            Ok(value) => Ok(value as f32), // Lossy if the value was 64 bits
             Err(e) => Err(e),
         }
     }
 
-    fn read_f64(&mut self) -> IonResult<Option<f64>> {
+    fn read_f64(&mut self) -> IonResult<f64> {
         read_safety_checks!(self, IonType::Float);
 
         let number_of_bytes = self.cursor.value.value_length;
@@ -459,15 +485,15 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
                     ))
                 }
             };
-            Ok(Some(value))
+            Ok(value)
         })
     }
 
-    fn read_decimal(&mut self) -> IonResult<Option<Decimal>> {
+    fn read_decimal(&mut self) -> IonResult<Decimal> {
         read_safety_checks!(self, IonType::Decimal);
 
         if self.cursor.value.value_length == 0 {
-            return Ok(Some(Decimal::new(0, 0)));
+            return Ok(Decimal::new(0i32, 0i64));
         }
 
         let exponent_var_int = self.read_var_int()?;
@@ -478,105 +504,78 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         let coefficient = self.read_int(coefficient_size_in_bytes)?;
 
         if coefficient.is_negative_zero() {
-            return Ok(Some(Decimal::negative_zero_with_exponent(exponent)));
+            return Ok(Decimal::negative_zero_with_exponent(exponent));
         }
 
-        Ok(Some(Decimal::new(coefficient.value(), exponent)))
+        Ok(Decimal::new(coefficient.value(), exponent))
     }
 
-    fn read_big_decimal(&mut self) -> IonResult<Option<BigDecimal>> {
-        read_safety_checks!(self, IonType::Decimal);
-
-        if self.cursor.value.value_length == 0 {
-            return Ok(Some(BigDecimal::new(0i64.into(), 0)));
-        }
-
-        let exponent_var_int = self.read_var_int()?;
-        let coefficient_size_in_bytes =
-            self.cursor.value.value_length - exponent_var_int.size_in_bytes();
-
-        let exponent = exponent_var_int.value() as i64;
-        let coefficient = self.read_int(coefficient_size_in_bytes)?.value();
-
-        // BigDecimal uses 'scale' rather than 'exponent' in its API, which is a count of the
-        // number of decimal places. It's effectively `exponent * -1`.
-        Ok(Some(BigDecimal::new(coefficient.into(), -exponent)))
+    fn read_string(&mut self) -> IonResult<String> {
+        self.map_string(|s| s.to_owned())
     }
 
-    fn read_string(&mut self) -> IonResult<Option<String>> {
-        self.string_ref_map(|s: &str| s.into())
-    }
-
-    fn string_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
+    fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
     where
-        F: FnOnce(&str) -> T,
+        F: FnOnce(&str) -> U,
     {
-        use std::str;
-        read_safety_checks!(self, IonType::String);
-
-        let length_in_bytes = self.cursor.value.value_length;
-
-        self.read_slice(length_in_bytes, |buffer: &[u8]| {
-            let string_ref = match str::from_utf8(buffer) {
-                Ok(utf8_text) => utf8_text,
-                Err(utf8_error) => {
-                    return decoding_error(&format!(
-                        "The requested string was not valid UTF-8: {:?}",
-                        utf8_error
-                    ))
-                }
-            };
-            Ok(Some(f(string_ref)))
-        })
+        self.map_string_bytes(|buffer| match std::str::from_utf8(buffer) {
+            Ok(utf8_text) => Ok(f(utf8_text)),
+            Err(utf8_error) => {
+                return decoding_error(&format!(
+                    "The requested string was not valid UTF-8: {:?}",
+                    utf8_error
+                ))
+            }
+        })?
     }
 
-    fn string_bytes_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
+    fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
     where
-        F: FnOnce(&[u8]) -> T,
+        F: FnOnce(&[u8]) -> U,
     {
         read_safety_checks!(self, IonType::String);
 
         let length_in_bytes = self.cursor.value.value_length;
-        self.read_slice(length_in_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
+        self.read_slice(length_in_bytes, |buffer: &[u8]| Ok(f(buffer)))
     }
 
     #[inline(always)]
-    fn read_symbol(&mut self) -> IonResult<Option<RawSymbolToken>> {
+    fn read_symbol(&mut self) -> IonResult<Self::Symbol> {
         read_safety_checks!(self, IonType::Symbol);
 
         let symbol_id = self.read_value_as_uint()?.value() as usize;
-        Ok(Some(RawSymbolToken::SymbolId(symbol_id)))
+        Ok(RawSymbolToken::SymbolId(symbol_id))
     }
 
-    fn read_blob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
-        self.blob_ref_map(|b| b.into())
+    fn read_blob(&mut self) -> IonResult<Vec<u8>> {
+        self.map_blob(|b| Vec::from(b))
     }
 
-    fn blob_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
+    fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
     where
-        F: FnOnce(&[u8]) -> T,
+        F: FnOnce(&[u8]) -> U,
     {
         read_safety_checks!(self, IonType::Blob);
 
         let number_of_bytes = self.cursor.value.value_length;
-        self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
+        self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(f(buffer)))
     }
 
-    fn clob_ref_map<F, T>(&mut self, f: F) -> IonResult<Option<T>>
+    fn read_clob(&mut self) -> IonResult<Vec<u8>> {
+        self.map_clob(|c| Vec::from(c))
+    }
+
+    fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
     where
-        F: FnOnce(&[u8]) -> T,
+        F: FnOnce(&[u8]) -> U,
     {
         read_safety_checks!(self, IonType::Clob);
 
         let number_of_bytes = self.cursor.value.value_length;
-        self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(Some(f(buffer))))
+        self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(f(buffer)))
     }
 
-    fn read_clob_bytes(&mut self) -> IonResult<Option<Vec<u8>>> {
-        self.clob_ref_map(|c| c.into())
-    }
-
-    fn read_timestamp(&mut self) -> IonResult<Option<Timestamp>> {
+    fn read_timestamp(&mut self) -> IonResult<Timestamp> {
         read_safety_checks!(self, IonType::Timestamp);
 
         let datetime_start_offset = self.cursor.bytes_read;
@@ -591,7 +590,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         let builder = Timestamp::with_year(year);
         if self.finished_reading_value() {
             let timestamp = builder.build()?;
-            return Ok(Some(timestamp));
+            return Ok(timestamp);
         }
 
         // Month precision
@@ -600,7 +599,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         let builder = builder.with_month(month);
         if self.finished_reading_value() {
             let timestamp = builder.build()?;
-            return Ok(Some(timestamp));
+            return Ok(timestamp);
         }
 
         // Day precision
@@ -609,7 +608,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         let builder = builder.with_day(day);
         if self.finished_reading_value() {
             let timestamp = builder.build()?;
-            return Ok(Some(timestamp));
+            return Ok(timestamp);
         }
 
         // Hour-and-minute precision
@@ -626,7 +625,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
             } else {
                 builder.build_at_unknown_offset()
             }?;
-            return Ok(Some(timestamp));
+            return Ok(timestamp);
         }
 
         // Second precision
@@ -639,7 +638,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
             } else {
                 builder.build_at_unknown_offset()
             }?;
-            return Ok(Some(timestamp));
+            return Ok(timestamp);
         }
 
         // Fractional second precision
@@ -663,96 +662,7 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
             builder.build_at_unknown_offset()
         }?;
 
-        Ok(Some(timestamp))
-    }
-
-    // This method will return year-, month-, and day-precision timestamps as UTC DateTimes
-    // with smaller time units (hour, minute, etc) zeroed out. Longer term, this method
-    // will be replaced by a `read_timestamp` method that returns a proper Timestamp.
-    // TODO: https://github.com/amzn/ion-rust/issues/308
-    fn read_datetime(&mut self) -> IonResult<Option<DateTime<FixedOffset>>> {
-        read_safety_checks!(self, IonType::Timestamp);
-
-        let datetime_start_offset = self.cursor.bytes_read;
-
-        let offset_minutes = self.read_var_int()?.value();
-        let year = self.read_var_uint()?.value();
-
-        // Month and day are both 1-indexed while the other fields are 0-indexed
-        let mut month = 1;
-        let mut day = 1;
-        let mut hour = 0;
-        let mut minute = 0;
-        let mut second = 0;
-
-        let mut subsecond_exponent = 0;
-        let mut subsecond_coefficient = 0;
-
-        loop {
-            if self.finished_reading_value() {
-                break;
-            }
-
-            month = self.read_var_uint()?.value();
-            if self.finished_reading_value() {
-                break;
-            }
-
-            day = self.read_var_uint()?.value();
-            if self.finished_reading_value() {
-                break;
-            }
-
-            hour = self.read_var_uint()?.value();
-            if self.finished_reading_value() {
-                break;
-            }
-
-            minute = self.read_var_uint()?.value();
-            if self.finished_reading_value() {
-                break;
-            }
-
-            second = self.read_var_uint()?.value();
-            if self.finished_reading_value() {
-                break;
-            }
-
-            subsecond_exponent = self.read_var_int()?.value();
-            // The remaining bytes represent the coefficient. We need to determine how many bytes
-            // we've read to know how many remain.
-            let value_bytes_read = self.cursor.bytes_read - datetime_start_offset;
-            let coefficient_size_in_bytes = self.cursor.value.value_length - value_bytes_read;
-            subsecond_coefficient = self.read_int(coefficient_size_in_bytes)?.value();
-        }
-
-        // This turns the encoded decimal fractional seconds into a number of nanoseconds to set on
-        // the DateTime value we're building.
-        // TODO: This assumes that the provided DateTime had nanosecond precision.
-        //      Offer an read_* API that surfaces information about the encoded timestamp's
-        //      precision.
-        const NANOSECONDS_PER_SECOND: f64 = 1_000_000_000f64;
-        let fractional_seconds =
-            subsecond_coefficient as f64 * 10f64.powf(subsecond_exponent as f64);
-        let nanoseconds = (fractional_seconds * NANOSECONDS_PER_SECOND).round() as u32;
-
-        let naive_datetime = NaiveDate::from_ymd(year as i32, month as u32, day as u32)
-            .and_hms(hour as u32, minute as u32, second as u32)
-            .with_nanosecond(nanoseconds);
-
-        if naive_datetime.is_none() {
-            return decoding_error(
-                format!(
-                    "{}: year={}, month={}, day={}, hour={}, minute={}, second={}, exp={}, coeff={}, nanos={}",
-                    "Read a timestamp that would not be a legal DateTime.",
-                    year, month, day, hour, minute, second, subsecond_exponent, subsecond_coefficient, nanoseconds
-                )
-            );
-        }
-
-        let offset = FixedOffset::west(offset_minutes as i32 * 60i32);
-        let datetime = offset.from_utc_datetime(&naive_datetime.unwrap());
-        Ok(Some(datetime))
+        Ok(timestamp)
     }
 
     #[inline]
@@ -820,6 +730,10 @@ impl<R: IonDataSource> RawReader for RawBinaryReader<R> {
         self.cursor.depth -= 1;
         self.skip_bytes(bytes_to_skip)?;
         Ok(())
+    }
+
+    fn parent_type(&self) -> Option<IonType> {
+        self.cursor.parents.last().map(|value| value.ion_type)
     }
 
     fn depth(&self) -> usize {
@@ -923,6 +837,7 @@ where
             data_source,
             buffer: vec![0; 4096],
             cursor: CursorState {
+                current_item: RawStreamItem::Nothing,
                 ion_version: (1, 0),
                 bytes_read: 0,
                 depth: 0,
@@ -934,6 +849,13 @@ where
             },
             header_cache: create_header_byte_jump_table(),
         }
+    }
+
+    /// Helper method to record the [RawStreamItem] over which the reader is currently
+    /// positioned before returning from [next].
+    fn set_current_item(&mut self, item: RawStreamItem) -> RawStreamItem {
+        self.cursor.current_item = item;
+        item
     }
 
     pub fn is_null(&self) -> bool {
@@ -1176,24 +1098,32 @@ where
         self.data_source
             .read_slice(number_of_bytes, &mut self.buffer, slice_processor)
     }
+
+    /// Constructs an IonError::IllegalOperation which explains that the reader was asked to
+    /// perform an action that is only allowed when it is positioned over the item type described
+    /// byt the parameter `expected`.
+    fn expected<E: Display>(&self, expected: E) -> IonError {
+        illegal_operation_raw(format!(
+            "type mismatch: expected a(n) {} but positioned over a(n) {}",
+            expected,
+            self.current()
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io;
 
-    use bigdecimal::BigDecimal;
-    use chrono::{FixedOffset, NaiveDate, TimeZone};
-
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::raw_binary_reader::RawBinaryReader;
-    use crate::raw_reader::{RawReader, RawStreamItem, RawStreamItem::*};
+    use crate::raw_reader::{RawStreamItem, RawStreamItem::*};
     use crate::raw_symbol_token::local_sid_token;
     use crate::result::{IonError, IonResult};
+    use crate::stream_reader::StreamReader;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::types::IonType;
-    use std::convert::TryInto;
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 
@@ -1213,11 +1143,11 @@ mod tests {
 
     // Prepends an Ion 1.0 IVM to the provided data and then creates a BinaryIonCursor over it
     fn ion_cursor_for(bytes: &[u8]) -> RawBinaryReader<TestDataSource> {
-        let mut binary_cursor = RawBinaryReader::new(data_source_for(bytes));
-        assert_eq!(binary_cursor.ion_type(), None);
-        assert_eq!(binary_cursor.next(), Ok(Some(VersionMarker(1, 0))));
-        assert_eq!(binary_cursor.ion_version(), (1u8, 0u8));
-        binary_cursor
+        let mut binary_reader = RawBinaryReader::new(data_source_for(bytes));
+        assert_eq!(binary_reader.ion_type(), None);
+        assert_eq!(binary_reader.next(), Ok(VersionMarker(1, 0)));
+        assert_eq!(binary_reader.ion_version(), (1u8, 0u8));
+        binary_reader
     }
 
     #[test]
@@ -1247,8 +1177,8 @@ mod tests {
     #[test]
     fn test_read_null_null() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x0F]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Null, true)));
-        assert_eq!(cursor.read_null()?, Some(IonType::Null));
+        assert_eq!(cursor.next()?, Value(IonType::Null, true));
+        assert_eq!(cursor.read_null()?, IonType::Null);
         assert!(cursor.is_null());
         Ok(())
     }
@@ -1256,8 +1186,8 @@ mod tests {
     #[test]
     fn test_read_null_string() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x8F]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::String, true)));
-        assert_eq!(cursor.read_null()?, Some(IonType::String));
+        assert_eq!(cursor.next()?, Value(IonType::String, true));
+        assert_eq!(cursor.read_null()?, IonType::String);
         assert!(cursor.is_null());
         Ok(())
     }
@@ -1265,195 +1195,138 @@ mod tests {
     #[test]
     fn test_read_bool_false() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x10]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Boolean, false)));
-        assert_eq!(cursor.read_bool()?, Some(false));
+        assert_eq!(cursor.next()?, Value(IonType::Boolean, false));
+        assert_eq!(cursor.read_bool()?, false);
         Ok(())
     }
 
     #[test]
     fn test_read_bool_true() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x11]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Boolean, false)));
-        assert_eq!(cursor.read_bool()?, Some(true));
+        assert_eq!(cursor.next()?, Value(IonType::Boolean, false));
+        assert_eq!(cursor.read_bool()?, true);
         Ok(())
     }
 
     #[test]
     fn test_read_i64_zero() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x20]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.read_i64()?, Some(0i64));
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
+        assert_eq!(cursor.read_i64()?, 0i64);
         Ok(())
     }
 
     #[test]
     fn test_read_i64_positive() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x21, 0x01]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.read_i64()?, Some(1i64));
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
+        assert_eq!(cursor.read_i64()?, 1i64);
         Ok(())
     }
 
     #[test]
     fn test_read_i64_negative() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x31, 0x01]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.read_i64()?, Some(-1i64));
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
+        assert_eq!(cursor.read_i64()?, -1i64);
         Ok(())
     }
 
     #[test]
     fn test_read_f64_zero() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x40]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Float, false)));
-        assert_eq!(cursor.read_f64()?, Some(0f64));
+        assert_eq!(cursor.next()?, Value(IonType::Float, false));
+        assert_eq!(cursor.read_f64()?, 0f64);
         Ok(())
     }
 
     #[test]
     fn test_read_decimal_zero() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x50]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(cursor.read_decimal()?, Some(Decimal::new(0, 0)));
+        assert_eq!(cursor.next()?, Value(IonType::Decimal, false));
+        assert_eq!(cursor.read_decimal()?, Decimal::new(0, 0));
         Ok(())
     }
 
     #[test]
     fn test_read_decimal_negative_zero() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x52, 0x80, 0x80]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(cursor.read_decimal()?, Some(Decimal::negative_zero()));
+        assert_eq!(cursor.next()?, Value(IonType::Decimal, false));
+        assert_eq!(cursor.read_decimal()?, Decimal::negative_zero());
         Ok(())
     }
 
     #[test]
     fn test_read_decimal_positive_exponent() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x52, 0x81, 0x02]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(cursor.read_decimal()?, Some(20.into()));
+        assert_eq!(cursor.next()?, Value(IonType::Decimal, false));
+        assert_eq!(cursor.read_decimal()?, 20.into());
         Ok(())
     }
 
     #[test]
     fn test_read_decimal_negative_exponent() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x52, 0xC1, 0x02]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(cursor.read_decimal()?, Some(Decimal::new(2, -1)));
-        Ok(())
-    }
-
-    #[test]
-    fn test_read_big_decimal_zero() -> IonResult<()> {
-        #![allow(deprecated)] // `read_big_decimal` is deprecated
-        let mut cursor = ion_cursor_for(&[0x50]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(
-            cursor.read_big_decimal()?,
-            Some(BigDecimal::new(0i64.into(), 0))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_read_big_decimal_positive_exponent() -> IonResult<()> {
-        #![allow(deprecated)] // `read_big_decimal` is deprecated
-        let mut cursor = ion_cursor_for(&[0x52, 0x81, 0x02]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(cursor.read_big_decimal()?, Some(20.into()));
-        Ok(())
-    }
-
-    #[test]
-    fn test_read_big_decimal_negative_exponent() -> IonResult<()> {
-        #![allow(deprecated)] // `read_big_decimal` is deprecated
-        let mut cursor = ion_cursor_for(&[0x52, 0xC1, 0x02]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Decimal, false)));
-        assert_eq!(cursor.read_big_decimal()?, Some(0.2f64.try_into().unwrap()));
-        Ok(())
-    }
-
-    #[test]
-    fn test_read_datetime() -> IonResult<()> {
-        #![allow(deprecated)] // `read_datetime` is deprecated
-        let mut cursor = ion_cursor_for(&[0x68, 0x80, 0x0F, 0xD0, 0x81, 0x81, 0x80, 0x80, 0x80]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
-        let naive_datetime =
-            NaiveDate::from_ymd(2000_i32, 1_u32, 1_u32).and_hms(0_u32, 0_u32, 0_u32);
-        let offset = FixedOffset::west(0);
-        let datetime = offset.from_utc_datetime(&naive_datetime);
-        assert_eq!(cursor.read_datetime()?, Some(datetime));
-        Ok(())
-    }
-
-    #[test]
-    // See: https://github.com/amzn/ion-rust/issues/306
-    fn test_read_datetime_year_only() -> IonResult<()> {
-        #![allow(deprecated)] // `read_datetime` is deprecated
-        let mut cursor = ion_cursor_for(&[0x63, 0xC0, 0x0F, 0xC6]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
-        let naive_datetime =
-            NaiveDate::from_ymd(1990_i32, 1_u32, 1_u32).and_hms(0_u32, 0_u32, 0_u32);
-        let offset = FixedOffset::west(0);
-        let datetime = offset.from_utc_datetime(&naive_datetime);
-        assert_eq!(cursor.read_datetime()?, Some(datetime));
+        assert_eq!(cursor.next()?, Value(IonType::Decimal, false));
+        assert_eq!(cursor.read_decimal()?, Decimal::new(2, -1));
         Ok(())
     }
 
     #[test]
     fn test_read_timestamp() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x68, 0x80, 0x0F, 0xD0, 0x81, 0x81, 0x80, 0x80, 0x80]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Timestamp, false));
         let expected = Timestamp::with_ymd_hms(2000, 1, 1, 0, 0, 0).build_at_offset(0)?;
-        assert_eq!(cursor.read_timestamp()?, Some(expected));
+        assert_eq!(cursor.read_timestamp()?, expected);
         Ok(())
     }
 
     #[test]
     fn test_read_timestamp_year() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x63, 0xC0, 0x0F, 0xC6]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Timestamp, false));
         let expected = Timestamp::with_year(1990).build()?;
-        assert_eq!(cursor.read_timestamp()?, Some(expected));
+        assert_eq!(cursor.read_timestamp()?, expected);
         Ok(())
     }
 
     #[test]
     fn test_read_timestamp_year_month() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x64, 0xC0, 0x0F, 0xE2, 0x86]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Timestamp, false));
         let expected = Timestamp::with_year(2018).with_month(6).build()?;
-        assert_eq!(cursor.read_timestamp()?, Some(expected));
+        assert_eq!(cursor.read_timestamp()?, expected);
         Ok(())
     }
 
     #[test]
     fn test_read_timestamp_year_month_day() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x65, 0xC0, 0x0F, 0xE2, 0x86, 0x83]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Timestamp, false));
         let expected = Timestamp::with_ymd(2018, 6, 3).build()?;
-        assert_eq!(cursor.read_timestamp()?, Some(expected));
+        assert_eq!(cursor.read_timestamp()?, expected);
         Ok(())
     }
 
     #[test]
     fn test_read_timestamp_year_month_day_hour_minute() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x67, 0x80, 0x0F, 0xE2, 0x86, 0x83, 0x8F, 0xA1]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Timestamp, false));
         let expected = Timestamp::with_ymd(2018, 6, 3)
             .with_hour_and_minute(15, 33)
             .build_at_offset(0)?;
-        assert_eq!(cursor.read_timestamp()?, Some(expected));
+        assert_eq!(cursor.read_timestamp()?, expected);
         Ok(())
     }
 
     #[test]
     fn test_read_timestamp_year_month_day_hour_minute_second() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x68, 0x80, 0x0F, 0xE2, 0x86, 0x83, 0x8F, 0xA1, 0x8B]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Timestamp, false));
         let expected = Timestamp::with_ymd(2018, 6, 3)
             .with_hms(15, 33, 11)
             .build_at_offset(0)?;
-        assert_eq!(cursor.read_timestamp()?, Some(expected));
+        assert_eq!(cursor.read_timestamp()?, expected);
         Ok(())
     }
 
@@ -1462,44 +1335,44 @@ mod tests {
         let mut cursor = ion_cursor_for(&[
             0x6B, 0x80, 0x0F, 0xE2, 0x86, 0x83, 0x8F, 0xA1, 0x8B, 0xC3, 0x02, 0x29,
         ]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Timestamp, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Timestamp, false));
         let expected = Timestamp::with_ymd(2018, 6, 3)
             .with_hms(15, 33, 11)
             .with_milliseconds(553)
             .build_at_offset(0)?;
-        assert_eq!(cursor.read_timestamp()?, Some(expected));
+        assert_eq!(cursor.read_timestamp()?, expected);
         Ok(())
     }
 
     #[test]
     fn test_read_symbol_10() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x71, 0x0A]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Symbol, false)));
-        assert_eq!(cursor.read_symbol()?, Some(local_sid_token(10)));
+        assert_eq!(cursor.next()?, Value(IonType::Symbol, false));
+        assert_eq!(cursor.read_symbol()?, local_sid_token(10));
         Ok(())
     }
 
     #[test]
     fn test_read_string_empty() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x80]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
-        assert_eq!(cursor.read_string()?, Some(String::from("")));
+        assert_eq!(cursor.next()?, Value(IonType::String, false));
+        assert_eq!(cursor.read_string()?, String::from(""));
         Ok(())
     }
 
     #[test]
     fn test_read_string_foo() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x83, 0x66, 0x6f, 0x6f]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
-        assert_eq!(cursor.read_string()?, Some(String::from("foo")));
+        assert_eq!(cursor.next()?, Value(IonType::String, false));
+        assert_eq!(cursor.read_string()?, String::from("foo"));
         Ok(())
     }
 
     #[test]
     fn test_read_string_foo_twice_fails() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x83, 0x66, 0x6f, 0x6f]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
-        assert_eq!(cursor.read_string()?, Some(String::from("foo")));
+        assert_eq!(cursor.next()?, Value(IonType::String, false));
+        assert_eq!(cursor.read_string()?, String::from("foo"));
         // We've already consumed the string from the data source, so this should fail.
         assert!(cursor.read_string().is_err());
         Ok(())
@@ -1508,44 +1381,41 @@ mod tests {
     #[test]
     fn test_read_clob_empty() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x90]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Clob, false)));
-        assert_eq!(cursor.read_clob_bytes()?, Some(vec![]));
+        assert_eq!(cursor.next()?, Value(IonType::Clob, false));
+        assert_eq!(cursor.read_clob()?, vec![]);
         Ok(())
     }
 
     #[test]
     fn test_read_clob_abc() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x93, 0x61, 0x62, 0x63]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Clob, false)));
-        assert_eq!(
-            cursor.read_clob_bytes()?.unwrap().as_slice(),
-            "abc".as_bytes()
-        );
+        assert_eq!(cursor.next()?, Value(IonType::Clob, false));
+        assert_eq!(cursor.read_clob()?.as_slice(), "abc".as_bytes());
         Ok(())
     }
 
     #[test]
     fn test_read_blob_empty() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xA0]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Blob, false)));
-        assert_eq!(cursor.read_blob_bytes()?, Some(vec![]));
+        assert_eq!(cursor.next()?, Value(IonType::Blob, false));
+        assert_eq!(cursor.read_blob()?, vec![]);
         Ok(())
     }
 
     #[test]
     fn test_read_blob_123() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xA3, 0x01, 0x02, 0x03]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Blob, false)));
-        assert_eq!(cursor.read_blob_bytes()?, Some(vec![1u8, 2, 3]));
+        assert_eq!(cursor.next()?, Value(IonType::Blob, false));
+        assert_eq!(cursor.read_blob()?, vec![1u8, 2, 3]);
         Ok(())
     }
 
     #[test]
     fn test_read_list_empty() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xB0]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::List, false)));
+        assert_eq!(cursor.next()?, Value(IonType::List, false));
         cursor.step_in()?;
-        assert_eq!(cursor.next()?, None);
+        assert_eq!(cursor.next()?, Nothing);
         cursor.step_out()?;
         Ok(())
     }
@@ -1553,11 +1423,11 @@ mod tests {
     #[test]
     fn test_read_list_123() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xB6, 0x21, 0x01, 0x21, 0x02, 0x21, 0x03]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::List, false)));
+        assert_eq!(cursor.next()?, Value(IonType::List, false));
         let mut list = vec![];
         cursor.step_in()?;
-        while let Some(Value(IonType::Integer, false)) = cursor.next()? {
-            list.push(cursor.read_i64()?.unwrap());
+        while let Value(IonType::Integer, false) = cursor.next()? {
+            list.push(cursor.read_i64()?);
         }
         cursor.step_out()?;
         assert_eq!(list, vec![1i64, 2, 3]);
@@ -1567,9 +1437,9 @@ mod tests {
     #[test]
     fn test_read_s_expression_empty() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xC0]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::SExpression, false)));
+        assert_eq!(cursor.next()?, Value(IonType::SExpression, false));
         cursor.step_in()?;
-        assert_eq!(cursor.next()?, None);
+        assert_eq!(cursor.next()?, Nothing);
         cursor.step_out()?;
         Ok(())
     }
@@ -1577,11 +1447,11 @@ mod tests {
     #[test]
     fn test_read_s_expression_123() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xC6, 0x21, 0x01, 0x21, 0x02, 0x21, 0x03]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::SExpression, false)));
+        assert_eq!(cursor.next()?, Value(IonType::SExpression, false));
         let mut sexp = vec![];
         cursor.step_in()?;
-        while let Some(Value(IonType::Integer, false)) = cursor.next()? {
-            sexp.push(cursor.read_i64()?.unwrap());
+        while let Value(IonType::Integer, false) = cursor.next()? {
+            sexp.push(cursor.read_i64()?);
         }
         cursor.step_out()?;
         assert_eq!(sexp, vec![1i64, 2, 3]);
@@ -1591,9 +1461,9 @@ mod tests {
     #[test]
     fn test_read_struct_empty() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xD0]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Struct, false));
         cursor.step_in()?;
-        assert_eq!(cursor.next()?, None);
+        assert_eq!(cursor.next()?, Nothing);
         cursor.step_out()?;
         Ok(())
     }
@@ -1613,17 +1483,17 @@ mod tests {
             0x8C, // Field ID 12
             0x21, 0x03, // Integer 3
         ]);
-        assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Struct, false));
         cursor.step_in()?;
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_name(), Some(&local_sid_token(10)));
-        assert_eq!(cursor.read_i64()?, Some(1i64));
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_name(), Some(&local_sid_token(11usize)));
-        assert_eq!(cursor.read_i64()?, Some(2i64));
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_name(), Some(&local_sid_token(12usize)));
-        assert_eq!(cursor.read_i64()?, Some(3i64));
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
+        assert_eq!(cursor.field_name()?, local_sid_token(10));
+        assert_eq!(cursor.read_i64()?, 1i64);
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
+        assert_eq!(cursor.field_name()?, local_sid_token(11usize));
+        assert_eq!(cursor.read_i64()?, 2i64);
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
+        assert_eq!(cursor.field_name()?, local_sid_token(12usize));
+        assert_eq!(cursor.read_i64()?, 3i64);
         cursor.step_out()?;
         Ok(())
     }
@@ -1645,34 +1515,34 @@ mod tests {
             0x21, 0x01, // Integer 1
         ]);
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Struct, false));
         cursor.step_in()?;
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::List, false)));
-        assert_eq!(cursor.field_name(), Some(&local_sid_token(11usize)));
+        assert_eq!(cursor.next()?, Value(IonType::List, false));
+        assert_eq!(cursor.field_name()?, local_sid_token(11usize));
         cursor.step_in()?;
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.read_i64()?, Some(1i64));
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
+        assert_eq!(cursor.read_i64()?, 1i64);
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.read_i64()?, Some(2i64));
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
+        assert_eq!(cursor.read_i64()?, 2i64);
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.read_i64()?, Some(3i64));
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
+        assert_eq!(cursor.read_i64()?, 3i64);
 
-        assert_eq!(cursor.next()?, None); // End of the list's values
+        assert_eq!(cursor.next()?, Nothing); // End of the list's values
         cursor.step_out()?; // Step out of list
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
-        assert_eq!(cursor.field_name(), Some(&local_sid_token(10usize)));
-        assert_eq!(cursor.read_i64()?, Some(1i64));
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
+        assert_eq!(cursor.field_name()?, local_sid_token(10usize));
+        assert_eq!(cursor.read_i64()?, 1i64);
 
-        assert_eq!(cursor.next()?, None); // End of the struct's values
+        assert_eq!(cursor.next()?, Nothing); // End of the struct's values
         cursor.step_out()?; // Step out of struct
 
         // End of the stream
-        assert_eq!(cursor.next()?, None);
+        assert_eq!(cursor.next()?, Nothing);
 
         Ok(())
     }
@@ -1700,20 +1570,14 @@ mod tests {
             0x10, // Boolean false
         ];
         let mut cursor = ion_cursor_for(ion_data);
-        assert_eq!(
-            Some(RawStreamItem::Value(IonType::Struct, false)),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Struct, false), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[0..12]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), None);
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[0..=0]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[1..12]));
         cursor.step_in()?;
-        assert_eq!(
-            Some(RawStreamItem::Value(IonType::List, false)),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::List, false), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[1..9]));
         assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[1..=1]));
         assert_eq!(cursor.raw_annotations_bytes(), None);
@@ -1721,7 +1585,7 @@ mod tests {
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[3..9]));
         cursor.step_in()?;
         assert_eq!(
-            Some(RawStreamItem::Value(IonType::Integer, false)),
+            RawStreamItem::Value(IonType::Integer, false),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[3..=4]));
@@ -1730,7 +1594,7 @@ mod tests {
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[3..=3]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[4..=4]));
         assert_eq!(
-            Some(RawStreamItem::Value(IonType::Integer, false)),
+            RawStreamItem::Value(IonType::Integer, false),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[5..=6]));
@@ -1739,7 +1603,7 @@ mod tests {
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[5..=5]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[6..=6]));
         assert_eq!(
-            Some(RawStreamItem::Value(IonType::Integer, false)),
+            RawStreamItem::Value(IonType::Integer, false),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[7..=8]));
@@ -1751,7 +1615,7 @@ mod tests {
         cursor.step_out()?; // Step out of list
 
         assert_eq!(
-            Some(RawStreamItem::Value(IonType::Integer, false)),
+            RawStreamItem::Value(IonType::Integer, false),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[9..=11]));
@@ -1764,13 +1628,13 @@ mod tests {
 
         // Second top-level value
         assert_eq!(
-            Some(RawStreamItem::Value(IonType::Boolean, false)),
+            RawStreamItem::Value(IonType::Boolean, false),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
-        assert_eq!(cursor.annotations(), &[local_sid_token(12)]);
+        assert_eq!(cursor.annotations().next().unwrap()?, local_sid_token(12));
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
         assert_eq!(
             cursor.raw_value_bytes(),
@@ -1811,17 +1675,11 @@ mod tests {
         let mut cursor = ion_cursor_for(ion_data);
 
         // Local symbol table. We don't interpret any symbols for this test, so we can skip over it.
-        assert_eq!(
-            Some(RawStreamItem::Value(IonType::Struct, false)),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Struct, false), cursor.next()?);
 
         // The first user-level value appears at byte offset 26
         // Top-level struct {
-        assert_eq!(
-            Some(RawStreamItem::Value(IonType::Struct, false)),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Struct, false), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[26..37]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), None);
@@ -1832,7 +1690,7 @@ mod tests {
 
         // foo: bar::baz::5
         assert_eq!(
-            Some(RawStreamItem::Value(IonType::Integer, false)),
+            RawStreamItem::Value(IonType::Integer, false),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[27..34]));
@@ -1840,11 +1698,11 @@ mod tests {
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[28..32]));
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[32..=32]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[33..=33]));
-        assert_eq!(cursor.read_i64()?, Some(5));
+        assert_eq!(cursor.read_i64()?, 5);
 
         // quux: 7
         assert_eq!(
-            Some(RawStreamItem::Value(IonType::Integer, false)),
+            RawStreamItem::Value(IonType::Integer, false),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[34..37]));
@@ -1852,14 +1710,14 @@ mod tests {
         assert_eq!(cursor.raw_annotations_bytes(), None);
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[35..=35]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[36..=36]));
-        assert_eq!(cursor.read_i64()?, Some(7));
+        assert_eq!(cursor.read_i64()?, 7);
 
         // End of top-level struct
         cursor.step_out()?;
 
         // false
         assert_eq!(
-            Some(RawStreamItem::Value(IonType::Boolean, false)),
+            RawStreamItem::Value(IonType::Boolean, false),
             cursor.next()?
         );
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[37..=37]));
@@ -1870,7 +1728,7 @@ mod tests {
             cursor.raw_value_bytes(),
             Some(&ion_data[37..37] /* empty */)
         );
-        assert_eq!(cursor.read_bool()?, Some(false));
+        assert_eq!(cursor.read_bool()?, false);
 
         Ok(())
     }
@@ -1887,8 +1745,8 @@ mod tests {
             0x00, // NOP code, 1 byte NOP. Also NOP at EOF :)
         ]);
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::Boolean, false)));
-        assert_eq!(cursor.next()?, None);
+        assert_eq!(cursor.next()?, Value(IonType::Boolean, false));
+        assert_eq!(cursor.next()?, Nothing);
 
         Ok(())
     }
@@ -1903,8 +1761,8 @@ mod tests {
             0x11, // boolean true
         ]);
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::Boolean, false)));
-        assert_eq!(cursor.next()?, None);
+        assert_eq!(cursor.next()?, Value(IonType::Boolean, false));
+        assert_eq!(cursor.next()?, Nothing);
 
         Ok(())
     }
@@ -1922,11 +1780,11 @@ mod tests {
             0x01, 0x02, // not interpreted, this is padding
         ]);
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Struct, false));
         cursor.step_in()?;
-        assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
-        assert_eq!(cursor.read_string()?, Some(String::from("a")));
-        assert_eq!(cursor.next()?, None);
+        assert_eq!(cursor.next()?, Value(IonType::String, false));
+        assert_eq!(cursor.read_string()?, String::from("a"));
+        assert_eq!(cursor.next()?, Nothing);
         cursor.step_out()?;
 
         Ok(())
@@ -1945,11 +1803,11 @@ mod tests {
             0x61, // "a"
         ]);
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Struct, false));
         cursor.step_in()?;
-        assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
-        assert_eq!(cursor.read_string()?, Some(String::from("a")));
-        assert_eq!(cursor.next()?, None);
+        assert_eq!(cursor.next()?, Value(IonType::String, false));
+        assert_eq!(cursor.read_string()?, String::from("a"));
+        assert_eq!(cursor.next()?, Nothing);
         cursor.step_out()?;
 
         Ok(())
@@ -1983,11 +1841,11 @@ mod tests {
             0x01, 0x02, // not interpreted, this is padding
         ]);
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::Struct, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Struct, false));
 
         cursor.step_in()?;
-        assert_eq!(cursor.next()?, Some(Value(IonType::String, false)));
-        assert_eq!(cursor.read_string()?, Some(String::from("a")));
+        assert_eq!(cursor.next()?, Value(IonType::String, false));
+        assert_eq!(cursor.read_string()?, String::from("a"));
 
         assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
 
@@ -2006,10 +1864,10 @@ mod tests {
             0x01, // [6] "one" bytes of NOP padding follow, which would overrun the list
         ]); // [7] is out of the container
 
-        assert_eq!(cursor.next()?, Some(Value(IonType::List, false)));
+        assert_eq!(cursor.next()?, Value(IonType::List, false));
 
         cursor.step_in()?;
-        assert_eq!(cursor.next()?, Some(Value(IonType::Integer, false)));
+        assert_eq!(cursor.next()?, Value(IonType::Integer, false));
 
         assert!(matches!(cursor.next(), Err(IonError::DecodingError { .. })));
 
