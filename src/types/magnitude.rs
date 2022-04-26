@@ -105,7 +105,7 @@ impl Magnitude {
             return 1;
         }
         // guess number of digits based on number of bits in UInt
-        let mut digits = (int.bits() as f64 / 3.3219280949) as u64;
+        let mut digits = (int.bits() as f64 / std::f64::consts::LOG2_10) as u64;
         let mut num = Magnitude::ten_to_the(digits);
         while int >= &num {
             num *= 10u8;
