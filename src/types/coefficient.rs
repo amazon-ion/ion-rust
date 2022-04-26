@@ -39,6 +39,10 @@ impl Coefficient {
         &self.magnitude
     }
 
+    pub(crate) fn digits(&self) -> u64 {
+        self.magnitude.digits()
+    }
+
     pub(crate) fn negative_zero() -> Self {
         Coefficient {
             sign: Sign::Negative,

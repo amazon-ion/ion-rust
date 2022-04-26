@@ -28,6 +28,23 @@ impl Decimal {
         }
     }
 
+    /// Returns scale of the Decimal value
+    /// A scale indicates the number of digits to the right of the decimal point.
+    pub fn scale(&self) -> i64 {
+        if self.exponent > 0 {
+            return 0;
+        }
+        self.exponent.abs()
+    }
+
+    /// Returns the number of digits in the non-scaled integer representation of the decimal.
+    pub fn digits(&self) -> u64 {
+        if self.exponent > 0 {
+            return self.coefficient.digits() + self.exponent as u64;
+        }
+        self.coefficient.digits()
+    }
+
     /// Constructs a Decimal with the value `-0d0`. This is provided as a convenience method
     /// because Rust will ignore a unary minus when it is applied to an zero literal (`-0`).
     pub fn negative_zero() -> Decimal {
@@ -286,6 +303,7 @@ mod decimal_tests {
     use crate::types::coefficient::{Coefficient, Sign};
     use crate::types::decimal::Decimal;
     use bigdecimal::BigDecimal;
+    use num_bigint::BigUint;
     use num_traits::{Float, ToPrimitive};
     use std::cmp::Ordering;
     use std::convert::TryInto;
@@ -413,5 +431,20 @@ mod decimal_tests {
         let actual: Decimal = big_decimal.into();
         let expected = Decimal::new(-24601, -3);
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_scale() {
+        let decimal_value = Decimal::new(-24601, -3);
+        assert_eq!(decimal_value.scale(), 3)
+    }
+
+    #[rstest]
+    #[case(Decimal::new(-24601, -3), 5)]
+    #[case(Decimal::new(u64::MAX, -3), 20)]
+    #[case(Decimal::new(BigUint::from(u64::MAX), 3), 23)]
+    #[case(Decimal::new(BigUint::from(u128::MAX), -2), 39)]
+    fn test_digits(#[case] value: Decimal, #[case] expected: u64) {
+        assert_eq!(value.digits(), expected);
     }
 }
