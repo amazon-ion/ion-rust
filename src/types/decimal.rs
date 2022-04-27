@@ -31,7 +31,8 @@ impl Decimal {
 
     /// Returns scale of the Decimal value
     /// If zero or positive, a scale indicates the number of digits to the right of the decimal point.
-    /// If negative, the unscaled value of the number is multiplied by ten to the power of the negation of the scale. For example, a scale of -3 means the unscaled value is multiplied by 1000.
+    /// If negative, the unscaled value of the number is multiplied by ten to the power of the negation of the scale.
+    /// For example, a scale of -3 means the unscaled value is multiplied by 1000.
     pub fn scale(&self) -> i64 {
         self.exponent.neg()
     }

@@ -39,7 +39,7 @@ impl Coefficient {
         &self.magnitude
     }
 
-    /// Returns the number of digits in the non-scaled integer representation of the coefficient.
+    /// Returns the number of digits in the base-10 representation of the coefficient
     pub(crate) fn number_of_decimal_digits(&self) -> u64 {
         self.magnitude.number_of_decimal_digits()
     }
