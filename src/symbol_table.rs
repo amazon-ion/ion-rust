@@ -52,7 +52,7 @@ impl Clone for SymbolText {
 /// Symbol may be either a `String` or a shared reference to text in a symbol table.
 #[derive(Debug, Hash, Clone, Eq)]
 pub struct Symbol {
-    text: SymbolText
+    text: SymbolText,
 }
 
 impl<A: AsRef<str>> PartialEq<A> for Symbol {
