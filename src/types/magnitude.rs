@@ -86,11 +86,11 @@ impl Magnitude {
         }
         let mut digits = 0;
         let mut int_value = int.to_owned();
-        let ten: BigUint = BigUint::from(10 as u64);
+        let ten: BigUint = BigUint::from(10u64);
         while int_value > BigUint::zero() {
             let (quotient, _) = int_value.div_rem(&ten);
             int_value = quotient;
-            digits = digits + 1;
+            digits += 1;
         }
         digits
     }
