@@ -35,6 +35,7 @@ delegate = "0.5"
 thiserror = "1.0"
 nom = "6.1"
 num-bigint = "0.3"
+num-integer = "0.1.44"
 num-traits = "0.2"
 arrayvec = "0.7"
 

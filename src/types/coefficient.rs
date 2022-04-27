@@ -39,6 +39,11 @@ impl Coefficient {
         &self.magnitude
     }
 
+    /// Returns the number of digits in the base-10 representation of the coefficient
+    pub(crate) fn number_of_decimal_digits(&self) -> u64 {
+        self.magnitude.number_of_decimal_digits()
+    }
+
     pub(crate) fn negative_zero() -> Self {
         Coefficient {
             sign: Sign::Negative,
