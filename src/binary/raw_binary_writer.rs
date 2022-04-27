@@ -865,7 +865,7 @@ mod writer_tests {
         // Call the user's writing function
         write_fn(&mut writer)?;
         writer.flush()?;
-        
+
         // Create a BinaryReader that reads from the BinarySystemWriter's output.
         let data = buffer.as_slice();
         let cursor = RawBinaryReader::new(io::Cursor::new(data));

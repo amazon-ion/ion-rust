@@ -48,10 +48,11 @@ impl Clone for SymbolText {
     }
 }
 
-// TODO: Doc comment. Fully resolved symbol that can be handed out. Required to have text.
+/// The text of a fully resolved field name, annotation, or symbol value. The text stored in this
+/// Symbol may be either a `String` or a shared reference to text in a symbol table.
 #[derive(Debug, Hash, Clone, Eq)]
 pub struct Symbol {
-    text: SymbolText, // TODO: As an application-level entity, does this need to store an Option<SymbolId>?
+    text: SymbolText
 }
 
 impl<A: AsRef<str>> PartialEq<A> for Symbol {
