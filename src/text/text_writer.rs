@@ -125,8 +125,10 @@ impl<W: Write> Writer for TextWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::text::raw_text_reader::RawTextReader;
-    use crate::Reader;
+    use crate::StreamItem::Value;
+    use crate::{Reader, StreamReader};
     use std::str::from_utf8;
 
     #[test]
@@ -147,15 +149,14 @@ mod tests {
         drop(text_writer);
 
         let mut reader = Reader::new(RawTextReader::new(from_utf8(&buffer.as_slice()).unwrap()));
-        assert_eq!(Some((IonType::Struct, false)), reader.next()?);
+        assert_eq!(Value(IonType::Struct, false), reader.next()?);
         reader.step_in()?;
-        assert_eq!(Some((IonType::Symbol, false)), reader.next()?);
-        let annotations: Vec<Option<&str>> = reader.annotations().collect();
-        assert_eq!(1, annotations.len());
+        assert_eq!(Value(IonType::Symbol, false), reader.next()?);
+        assert_eq!(1, reader.number_of_annotations());
         // The reader returns text values for the symbol IDs it encountered in the stream
-        assert_eq!(Some("$ion"), annotations[0]);
-        assert_eq!(Some("name"), reader.field_name());
-        assert_eq!(Some("version".to_owned()), reader.read_symbol()?);
+        assert_eq!("$ion", reader.annotations().next().unwrap()?);
+        assert_eq!("name", reader.field_name()?);
+        assert_eq!("version", reader.read_symbol()?);
 
         Ok(())
     }

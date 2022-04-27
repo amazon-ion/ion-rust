@@ -26,14 +26,17 @@ pub mod constants;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
 mod reader;
+mod stream_reader;
 mod symbol_table;
 mod system_reader;
 mod writer;
 
 pub use binary::raw_binary_reader::RawBinaryReader;
 pub use data_source::IonDataSource;
-pub use raw_reader::RawReader;
+pub use raw_reader::RawStreamItem;
 pub use reader::Reader;
+pub use reader::StreamItem;
+pub use stream_reader::StreamReader;
 pub use symbol_table::SymbolTable;
 pub use system_reader::{SystemReader, SystemStreamItem};
 pub use types::IonType;

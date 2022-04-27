@@ -2,9 +2,7 @@ use std::io::Write;
 use std::ops::Range;
 use std::{io, mem};
 
-use bigdecimal::BigDecimal;
 use bytes::BufMut;
-use chrono::{DateTime, FixedOffset};
 
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::uint::DecodedUInt;
@@ -367,34 +365,6 @@ impl<W: Write> RawBinaryWriter<W> {
     #[inline]
     pub fn has_annotations(&self) -> bool {
         self.num_annotations_current_value > 0
-    }
-
-    /// Writes an Ion decimal with the specified value.
-    pub fn write_big_decimal(&mut self, value: &BigDecimal) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            // TODO: Currently clones. Revisit this API, similar to the comment
-            // on `write_datetime`.
-            let decimal: Decimal = value.clone().into();
-            let _ = enc_buffer.encode_decimal_value(&decimal);
-            Ok(())
-        })
-    }
-
-    /// Writes an Ion timestamp with the specified value.
-    #[deprecated(
-        since = "0.6.1",
-        note = "Please use the `write_timestamp` method instead."
-    )]
-    pub fn write_datetime(&mut self, value: &DateTime<FixedOffset>) -> IonResult<()> {
-        self.write_scalar(|enc_buffer| {
-            // TODO: Currently this clones the Chrono type so we can make a
-            // Timestamp. In #273 we discuss traits that will avoid this clone.
-            // However, this API (`write_datetime`) is probably also not quite
-            // right.
-            let timestamp: Timestamp = (*value).into();
-            let _ = enc_buffer.encode_timestamp_value(&timestamp)?;
-            Ok(())
-        })
     }
 
     pub fn write_symbol_id(&mut self, symbol_id: SymbolId) -> IonResult<()> {
@@ -868,12 +838,14 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
 mod writer_tests {
     use std::fmt::Debug;
 
-    use crate::{RawBinaryReader, Reader};
+    use crate::{RawBinaryReader, Reader, StreamItem};
 
     use rstest::*;
 
     use super::*;
     use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
+    use crate::symbol_table::Symbol;
+    use crate::StreamReader;
     use num_traits::Float;
     use std::convert::TryInto;
 
@@ -908,7 +880,7 @@ mod writer_tests {
         values: &[T],
         ion_type: IonType,
         mut write_fn: impl FnMut(&mut TestWriter, &T) -> IonResult<()>,
-        mut read_fn: impl FnMut(&mut TestReader) -> IonResult<Option<U>>,
+        mut read_fn: impl FnMut(&mut TestReader) -> IonResult<U>,
     ) -> IonResult<()>
     where
         T: Debug,
@@ -923,9 +895,8 @@ mod writer_tests {
             },
             |reader| {
                 for value in values {
-                    assert_eq!(reader.next()?, Some((ion_type, false)));
-                    let reader_value = read_fn(reader)?
-                        .expect("Reader expected another value but the stream was empty.");
+                    assert_eq!(reader.next()?, StreamItem::Value(ion_type, false));
+                    let reader_value = read_fn(reader)?;
                     assert_eq!(
                         reader_value, *value,
                         "Value read back in (left) was not equal to the original value (right)"
@@ -963,7 +934,7 @@ mod writer_tests {
             },
             |reader| {
                 for ion_type in ion_types {
-                    assert_eq!(reader.next()?, Some((*ion_type, true)));
+                    assert_eq!(reader.next()?, StreamItem::Value(*ion_type, true));
                 }
                 Ok(())
             },
@@ -997,26 +968,6 @@ mod writer_tests {
             IonType::Float,
             |writer, v| writer.write_f64(*v),
             |reader| reader.read_f64(),
-        )
-    }
-
-    #[rstest]
-    #[case("2000-01-01T00:00:00+00:00")]
-    #[case("2021-01-08T14:12:36+00:00")]
-    #[case("2021-01-08T14:12:36-05:00")]
-    #[case("2021-01-08T14:12:36.888-05:00")]
-    #[case("2021-01-08T14:12:36.888888-05:00")]
-    #[case("2021-01-08T14:12:36.888888888-05:00")]
-    fn binary_writer_datetimes(#[case] rfc3339_datetime: &str) -> IonResult<()> {
-        let datetime = DateTime::parse_from_rfc3339(rfc3339_datetime).unwrap();
-        binary_writer_scalar_test(
-            &[datetime],
-            IonType::Timestamp,
-            |writer, v| {
-                #[allow(deprecated)] // `write_datetime` is deprecated
-                writer.write_datetime(v)
-            },
-            |reader| reader.read_datetime(),
         )
     }
 
@@ -1061,24 +1012,6 @@ mod writer_tests {
     }
 
     #[test]
-    fn binary_writer_big_decimals() -> IonResult<()> {
-        use bigdecimal::FromPrimitive;
-        let float_values = [-24.601, -1.7, -1.0, -0.0, 0.0, 1.0, 1.7, 24.601];
-        let values: Vec<BigDecimal> = float_values
-            .iter()
-            .copied()
-            .map(BigDecimal::from_f64)
-            .map(Option::unwrap)
-            .collect();
-        binary_writer_scalar_test(
-            &values,
-            IonType::Decimal,
-            |writer, v| writer.write_big_decimal(v),
-            |reader| reader.read_big_decimal(),
-        )
-    }
-
-    #[test]
     fn binary_writer_symbols() -> IonResult<()> {
         let symbol_ids: Vec<RawSymbolToken> = [0, 5, 10, 31, 111, 556, 1024, 74_991, 111_448]
             .iter()
@@ -1113,21 +1046,21 @@ mod writer_tests {
             &values,
             IonType::Clob,
             |writer, v| writer.write_clob(*v),
-            |reader| reader.read_clob_bytes(),
+            |reader| reader.read_clob(),
         )?;
 
         binary_writer_scalar_test(
             &values,
             IonType::Blob,
             |writer, v| writer.write_blob(*v),
-            |reader| reader.read_blob_bytes(),
+            |reader| reader.read_blob(),
         )
     }
 
     fn expect_scalar<T: Debug, U: PartialEq<T> + Debug>(
         reader: &mut TestReader,
         ion_type: IonType,
-        mut read_fn: impl FnMut(&mut TestReader) -> IonResult<Option<U>>,
+        mut read_fn: impl FnMut(&mut TestReader) -> IonResult<U>,
         expected_value: T,
     ) {
         let next = reader.next().unwrap_or_else(|_| {
@@ -1136,10 +1069,10 @@ mod writer_tests {
                 expected_value
             )
         });
-        assert_eq!(next, Some((ion_type, false)));
+        assert_eq!(next, StreamItem::Value(ion_type, false));
         let value = read_fn(reader)
             .unwrap_or_else(|_| panic!("Failed to read in expected value: {:?}", expected_value));
-        assert_eq!(value.unwrap(), expected_value);
+        assert_eq!(value, expected_value);
     }
 
     fn expect_bool(reader: &mut TestReader, value: bool) {
@@ -1170,14 +1103,14 @@ mod writer_tests {
     fn expect_null(reader: &mut TestReader) {
         assert_eq!(
             reader.next().expect("Failed to read null."),
-            Some((IonType::Null, true))
+            StreamItem::Value(IonType::Null, true)
         );
     }
 
     fn expect_container(reader: &mut TestReader, ion_type: IonType) {
         assert_eq!(
             reader.next().expect("Failed to read container."),
-            Some((ion_type, false))
+            StreamItem::Value(ion_type, false)
         );
     }
 
@@ -1194,7 +1127,8 @@ mod writer_tests {
     }
 
     fn expect_field_name(reader: &TestReader, field_name: &str) {
-        assert_eq!(reader.field_name(), Some(field_name));
+        assert!(reader.field_name().is_ok());
+        assert_eq!(reader.field_name().unwrap(), field_name);
     }
 
     fn expect_annotations(reader: &TestReader, annotations: &[&str]) {
@@ -1202,7 +1136,7 @@ mod writer_tests {
             reader
                 .annotations()
                 .map(|opt| opt.expect("Annotation with unknown text."))
-                .collect::<Vec<&str>>()
+                .collect::<Vec<Symbol>>()
                 .as_slice(),
             annotations
         );
