@@ -865,10 +865,7 @@ mod writer_tests {
         // Call the user's writing function
         write_fn(&mut writer)?;
         writer.flush()?;
-
-        let mut file = std::fs::File::create("/tmp/data.10n").expect("create failed");
-        file.write_all(buffer.as_slice()).expect("write failed");
-
+        
         // Create a BinaryReader that reads from the BinarySystemWriter's output.
         let data = buffer.as_slice();
         let cursor = RawBinaryReader::new(io::Cursor::new(data));
