@@ -1099,9 +1099,9 @@ where
             .read_slice(number_of_bytes, &mut self.buffer, slice_processor)
     }
 
-    /// Constructs an IonError::IllegalOperation which explains that the reader was asked to
+    /// Constructs an [IonError::IllegalOperation] which explains that the reader was asked to
     /// perform an action that is only allowed when it is positioned over the item type described
-    /// byt the parameter `expected`.
+    /// by the parameter `expected`.
     fn expected<E: Display>(&self, expected: E) -> IonError {
         illegal_operation_raw(format!(
             "type mismatch: expected a(n) {} but positioned over a(n) {}",

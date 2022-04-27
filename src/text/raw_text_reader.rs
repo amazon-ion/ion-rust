@@ -375,6 +375,9 @@ impl<T: TextIonDataSource> RawTextReader<T> {
         value
     }
 
+    /// Constructs an [IonError::IllegalOperation] which explains that the reader was asked to
+    /// perform an action that is only allowed when it is positioned over the item type described
+    /// by the parameter `expected`.
     fn expected<E: Display>(&self, expected: E) -> IonError {
         illegal_operation_raw(format!(
             "type mismatch: expected a(n) {} but positioned over a(n) {}",
