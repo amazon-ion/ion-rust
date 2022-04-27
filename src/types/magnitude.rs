@@ -2,6 +2,8 @@ use std::cmp::Ordering;
 
 use bigdecimal::ToPrimitive;
 use num_bigint::{BigUint, ToBigUint};
+use num_integer::Integer;
+use num_traits::Zero;
 
 /// An unsigned integer that can be combined with a [Sign](crate::types::coefficient::Sign)
 /// to act as the coefficient of a [Decimal](crate::types::decimal::Decimal).
@@ -66,6 +68,39 @@ impl Magnitude {
         }
         // Otherwise, the BigUint must be larger than the u64.
         Ordering::Less
+    }
+
+    /// Returns the number of digits in the non-scaled integer representation of the magnitude.
+    pub(crate) fn number_of_decimal_digits(&self) -> u64 {
+        match self {
+            Magnitude::U64(u64_value) => Magnitude::calculate_u64_digits(u64_value),
+            Magnitude::BigUInt(big_uint_value) => {
+                Magnitude::calculate_big_uint_digits(big_uint_value)
+            }
+        }
+    }
+
+    fn calculate_big_uint_digits(int: &BigUint) -> u64 {
+        if int.is_zero() {
+            return 1;
+        }
+        let mut digits = 0;
+        let mut int_value = int.to_owned();
+        let ten: BigUint = BigUint::from(10u64);
+        while int_value > BigUint::zero() {
+            let (quotient, _) = int_value.div_rem(&ten);
+            int_value = quotient;
+            digits += 1;
+        }
+        digits
+    }
+
+    fn calculate_u64_digits(value: &u64) -> u64 {
+        match value {
+            0 => 1,
+            1 => 1,
+            i => (*i as f64).log10().ceil() as u64,
+        }
     }
 }
 
