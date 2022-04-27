@@ -8,6 +8,7 @@ use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::magnitude::Magnitude;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
+use std::ops::Neg;
 
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
 #[derive(Clone, Debug)]
@@ -29,20 +30,18 @@ impl Decimal {
     }
 
     /// Returns scale of the Decimal value
-    /// A scale indicates the number of digits to the right of the decimal point.
+    /// If zero or positive, a scale indicates the number of digits to the right of the decimal point.
+    /// If negative, the unscaled value of the number is multiplied by ten to the power of the negation of the scale. For example, a scale of -3 means the unscaled value is multiplied by 1000.
     pub fn scale(&self) -> i64 {
-        if self.exponent > 0 {
-            return 0;
-        }
-        self.exponent.abs()
+        self.exponent.neg()
     }
 
     /// Returns the number of digits in the non-scaled integer representation of the decimal.
-    pub fn digits(&self) -> u64 {
+    pub fn precision(&self) -> u64 {
         if self.exponent > 0 {
-            return self.coefficient.digits() + self.exponent as u64;
+            return self.coefficient.number_of_decimal_digits() + self.exponent as u64;
         }
-        self.coefficient.digits()
+        self.coefficient.number_of_decimal_digits()
     }
 
     /// Constructs a Decimal with the value `-0d0`. This is provided as a convenience method
@@ -433,18 +432,25 @@ mod decimal_tests {
         assert_eq!(actual, expected);
     }
 
-    #[test]
-    fn test_scale() {
-        let decimal_value = Decimal::new(-24601, -3);
-        assert_eq!(decimal_value.scale(), 3)
+    #[rstest]
+    #[case(Decimal::new(-24601, -3), 3)]
+    #[case(Decimal::new(u64::MAX, -5), 5)]
+    #[case(Decimal::new(u64::MAX, 0), 0)]
+    #[case(Decimal::new(4, 3), -3)]
+    fn test_scale(#[case] value: Decimal, #[case] expected: i64) {
+        assert_eq!(value.scale(), expected)
     }
 
     #[rstest]
     #[case(Decimal::new(-24601, -3), 5)]
-    #[case(Decimal::new(u64::MAX, -3), 20)]
+    #[case(Decimal::new(5, -3), 1)]
+    #[case(Decimal::new(24, -5), 2)]
+    #[case(Decimal::new(0, 0), 1)]
+    #[case(Decimal::new(234, 0), 3)]
+    #[case(Decimal::new(-234, 2), 5)]
     #[case(Decimal::new(BigUint::from(u64::MAX), 3), 23)]
     #[case(Decimal::new(BigUint::from(u128::MAX), -2), 39)]
-    fn test_digits(#[case] value: Decimal, #[case] expected: u64) {
-        assert_eq!(value.digits(), expected);
+    fn test_precision(#[case] value: Decimal, #[case] expected: u64) {
+        assert_eq!(value.precision(), expected);
     }
 }

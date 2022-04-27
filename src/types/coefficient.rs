@@ -39,8 +39,9 @@ impl Coefficient {
         &self.magnitude
     }
 
-    pub(crate) fn digits(&self) -> u64 {
-        self.magnitude.digits()
+    /// Returns the number of digits in the non-scaled integer representation of the coefficient.
+    pub(crate) fn number_of_decimal_digits(&self) -> u64 {
+        self.magnitude.number_of_decimal_digits()
     }
 
     pub(crate) fn negative_zero() -> Self {
