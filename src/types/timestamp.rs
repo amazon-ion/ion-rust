@@ -250,6 +250,16 @@ impl Timestamp {
             .into_builder();
         FractionalSecondSetter { builder }
     }
+
+    /// Returns the offset that has been specified in the [Timestamp].
+    pub fn offset(&self) -> Option<FixedOffset> {
+        self.offset
+    }
+
+    /// Returns the precision that has been specified in the [Timestamp].
+    pub fn precision(&self) -> Precision {
+        self.precision
+    }
 }
 
 impl PartialEq for Timestamp {
@@ -1167,6 +1177,26 @@ mod timestamp_tests {
         assert_eq!(timestamp1.fractional_seconds, Some(Mantissa::Digits(3)));
         assert_eq!(timestamp1, timestamp2);
         assert_eq!(timestamp2, timestamp3);
+    }
+
+    #[test]
+    fn test_timestamp_fixed_offset() -> IonResult<()> {
+        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+            .with_milliseconds(449)
+            .build_at_offset(-5 * 60)?;
+        //                    ^-- Timestamp's offset API takes minutes
+        // chrono's FixedOffset takes seconds ----------v
+        let expected_offset = FixedOffset::east(-5 * 60 * 60);
+
+        assert_eq!(timestamp.offset().unwrap(), expected_offset);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_precision() -> IonResult<()> {
+        let timestamp = Timestamp::with_year(2021).with_month(2).build()?;
+        assert_eq!(timestamp.precision(), Precision::Month);
+        Ok(())
     }
 
     #[test]
