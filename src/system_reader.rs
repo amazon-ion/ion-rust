@@ -759,8 +759,8 @@ impl<T: AsRef<[u8]>> SystemReader<RawBinaryReader<io::Cursor<T>>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::text::raw_text_reader::RawTextReader;
     use super::SystemStreamItem::*;
+    use crate::text::raw_text_reader::RawTextReader;
 
     use super::*;
 
@@ -783,10 +783,7 @@ mod tests {
           "#,
         );
         // We step over the LST...
-        assert_eq!(
-            reader.next()?,
-            SymbolTableValue(IonType::Struct)
-        );
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
         // ...but expect all of the symbols we encounter after it to be in the symbol table,
         // indicating that the SystemReader processed the LST even though we skipped it with `next()`
         assert_eq!(reader.next()?, Value(IonType::Symbol));
@@ -822,10 +819,7 @@ mod tests {
         );
         // Expect 3 symbol tables in a row, stepping over each one
         for _ in 0..3 {
-            assert_eq!(
-                reader.next()?,
-                SymbolTableValue(IonType::Struct)
-            );
+            assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
         }
         // Confirm that the symbols defined in each append map to the expected text.
         assert_eq!(reader.next()?, Value(IonType::Symbol));
@@ -859,10 +853,7 @@ mod tests {
           "#,
         );
 
-        assert_eq!(
-            reader.next()?,
-            SymbolTableValue(IonType::Struct)
-        );
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
         // Only system symbols initially
         assert_eq!(reader.symbol_table.len(), 10);
 
@@ -877,14 +868,8 @@ mod tests {
         assert_eq!(reader.symbol_table.len(), 10);
 
         // Step over the two symbol tables that follow
-        assert_eq!(
-            reader.next()?,
-            SymbolTableValue(IonType::Struct)
-        );
-        assert_eq!(
-            reader.next()?,
-            SymbolTableValue(IonType::Struct)
-        );
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
 
         // Advance to the symbol $10 again, but this time it's 'baz'
         assert_eq!(reader.next()?, Value(IonType::Symbol));
@@ -913,10 +898,7 @@ mod tests {
         assert_eq!(reader.next()?, VersionMarker(1, 0));
 
         // Symbol table
-        assert_eq!(
-            reader.next()?,
-            SymbolTableValue(IonType::Struct)
-        );
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
 
         // Instead of stepping _over_ the LST as we've done in other tests, step into it.
         // We're going to visit/read every value inside the LST. Afterwards, we'll confirm
@@ -925,34 +907,19 @@ mod tests {
         reader.step_in()?;
 
         // Advance to `imports`, confirm its value is the system symbol "$ion_symbol_table"
-        assert_eq!(
-            reader.next()?,
-            SymbolTableValue(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::Symbol));
         assert_eq!(reader.field_name()?, "imports");
         assert_eq!(reader.read_symbol()?, "$ion_symbol_table".to_string());
 
         // Advance to `symbols`, visit each string in the list
-        assert_eq!(
-            reader.next()?,
-            SymbolTableValue(IonType::List)
-        );
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::List));
         assert_eq!(reader.field_name()?, "symbols");
         reader.step_in()?;
-        assert_eq!(
-            reader.next()?,
-            SymbolTableValue(IonType::String)
-        );
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::String));
         assert_eq!(reader.read_string()?, "foo");
-        assert_eq!(
-            reader.next()?,
-            SymbolTableValue(IonType::String)
-        );
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::String));
         assert_eq!(reader.read_string()?, "bar");
-        assert_eq!(
-            reader.next()?,
-            SymbolTableValue(IonType::String)
-        );
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::String));
         assert_eq!(reader.read_string()?, "baz");
         // No more strings
         assert_eq!(reader.next()?, Nothing);
