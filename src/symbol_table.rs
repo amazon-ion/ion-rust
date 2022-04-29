@@ -177,7 +177,7 @@ impl SymbolTable {
     pub fn intern_or_add_placeholder<A: AsRef<str>>(&mut self, maybe_text: Option<A>) -> SymbolId {
         match maybe_text {
             Some(text) => self.intern(text),
-            None => self.add_placeholder()
+            None => self.add_placeholder(),
         }
     }
 

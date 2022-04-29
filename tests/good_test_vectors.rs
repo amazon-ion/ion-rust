@@ -127,8 +127,8 @@ fn read_file(path: &Path) -> IonResult<()> {
 // Recursively reads all of the values in the provided Reader, surfacing any errors.
 fn read_all_values(reader: &mut Reader<RawBinaryReader<BufReader<File>>>) -> IonResult<()> {
     // StreamItem::Null conflicts with IonType::Null, so we give them aliases for clarity.
-    use ion_rs::StreamItem::{*, Null as NullValue};
-    use IonType::{*, Null as NullType};
+    use ion_rs::StreamItem::{Null as NullValue, *};
+    use IonType::{Null as NullType, *};
 
     while let Value(ion_type) | NullValue(ion_type) = reader.next()? {
         if reader.is_null() {

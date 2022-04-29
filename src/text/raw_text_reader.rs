@@ -417,7 +417,10 @@ impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
 
         // If we're positioned on a value, return its IonType and whether it's null.
         if let Some(value) = self.current_value.as_ref() {
-            Ok(RawStreamItem::nullable_value(value.ion_type(), value.is_null()))
+            Ok(RawStreamItem::nullable_value(
+                value.ion_type(),
+                value.is_null(),
+            ))
         } else {
             Ok(RawStreamItem::Nothing)
         }

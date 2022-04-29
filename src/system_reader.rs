@@ -502,9 +502,7 @@ impl<R: RawReader> StreamReader for SystemReader<R> {
                 // or part of a system value.
                 self.after_next(ion_type, false)?
             }
-            RawStreamItem::Null(ion_type) => {
-                self.after_next(ion_type, true)?
-            }
+            RawStreamItem::Null(ion_type) => self.after_next(ion_type, true)?,
             RawStreamItem::Nothing => SystemStreamItem::Nothing,
         };
         self.current_item = item;
@@ -781,20 +779,11 @@ mod tests {
         );
         // ...but expect all of the symbols we encounter after it to be in the symbol table,
         // indicating that the SystemReader processed the LST even though we skipped it with `next()`
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "foo");
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "bar");
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "baz");
         Ok(())
     }
@@ -829,20 +818,11 @@ mod tests {
             );
         }
         // Confirm that the symbols defined in each append map to the expected text.
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "foo");
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "bar");
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "baz");
         Ok(())
     }
@@ -877,10 +857,7 @@ mod tests {
         assert_eq!(reader.symbol_table.len(), 10);
 
         // Advance to the symbol $10, loading the LST as we pass it
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.symbol_table.len(), 11);
         assert_eq!(reader.read_symbol()?, "foo");
 
@@ -900,10 +877,7 @@ mod tests {
         );
 
         // Advance to the symbol $10 again, but this time it's 'baz'
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.symbol_table.len(), 11);
         assert_eq!(reader.read_symbol()?, "baz");
 
@@ -980,20 +954,11 @@ mod tests {
 
         // Read the user-level symbol values in the stream to confirm that the LST was processed
         // successfully by the SystemReader.
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "foo");
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "bar");
-        assert_eq!(
-            reader.next()?,
-            SystemStreamItem::Value(IonType::Symbol)
-        );
+        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "baz");
 
         Ok(())

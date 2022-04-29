@@ -1582,28 +1582,19 @@ mod tests {
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[2..=2]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[3..9]));
         cursor.step_in()?;
-        assert_eq!(
-            RawStreamItem::Value(IonType::Integer),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Integer), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[3..=4]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), None);
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[3..=3]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[4..=4]));
-        assert_eq!(
-            RawStreamItem::Value(IonType::Integer),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Integer), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[5..=6]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), None);
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[5..=5]));
         assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[6..=6]));
-        assert_eq!(
-            RawStreamItem::Value(IonType::Integer),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Integer), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[7..=8]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), None);
@@ -1612,10 +1603,7 @@ mod tests {
 
         cursor.step_out()?; // Step out of list
 
-        assert_eq!(
-            RawStreamItem::Value(IonType::Integer),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Integer), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[9..=11]));
         assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[9..=9]));
         assert_eq!(cursor.raw_annotations_bytes(), None);
@@ -1625,10 +1613,7 @@ mod tests {
         cursor.step_out()?; // Step out of struct
 
         // Second top-level value
-        assert_eq!(
-            RawStreamItem::Value(IonType::Boolean),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Boolean), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
@@ -1687,10 +1672,7 @@ mod tests {
         cursor.step_in()?;
 
         // foo: bar::baz::5
-        assert_eq!(
-            RawStreamItem::Value(IonType::Integer),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Integer), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[27..34]));
         assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[27..=27]));
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[28..32]));
@@ -1699,10 +1681,7 @@ mod tests {
         assert_eq!(cursor.read_i64()?, 5);
 
         // quux: 7
-        assert_eq!(
-            RawStreamItem::Value(IonType::Integer),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Integer), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[34..37]));
         assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[34..=34]));
         assert_eq!(cursor.raw_annotations_bytes(), None);
@@ -1714,10 +1693,7 @@ mod tests {
         cursor.step_out()?;
 
         // false
-        assert_eq!(
-            RawStreamItem::Value(IonType::Boolean),
-            cursor.next()?
-        );
+        assert_eq!(RawStreamItem::Value(IonType::Boolean), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[37..=37]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), None);

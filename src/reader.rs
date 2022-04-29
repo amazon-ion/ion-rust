@@ -64,13 +64,12 @@ impl<R: RawReader> Reader<R> {
                 RawStreamItem::Value(ion_type) => ion_type,
                 RawStreamItem::Null(_) => continue,
                 RawStreamItem::Nothing => break,
-                RawStreamItem::VersionMarker(major, minor) => return decoding_error(
-                    format!(
+                RawStreamItem::VersionMarker(major, minor) => {
+                    return decoding_error(format!(
                         "encountered Ion version marker for v{}.{} in symbol table",
-                        major,
-                        minor
-                    )
-                )
+                        major, minor
+                    ))
+                }
             };
 
             let field_id = self
@@ -81,38 +80,40 @@ impl<R: RawReader> Reader<R> {
                 // The field name is either SID 6 or the text 'imports' and the
                 // field value is a non-null symbol
                 (symbol, IonType::Symbol)
-                if symbol.matches(system_symbol_ids::IMPORTS, "imports") =>
-                    {
-                        // TODO: SST imports. This implementation only supports local symbol
-                        //       table imports and appends.
-                        let import_symbol = self.raw_reader.read_symbol()?;
-                        if !import_symbol.matches(3, "$ion_symbol_table") {
-                            unimplemented!("Can't handle non-$ion_symbol_table imports value.");
-                        }
-                        is_append = true;
+                    if symbol.matches(system_symbol_ids::IMPORTS, "imports") =>
+                {
+                    // TODO: SST imports. This implementation only supports local symbol
+                    //       table imports and appends.
+                    let import_symbol = self.raw_reader.read_symbol()?;
+                    if !import_symbol.matches(3, "$ion_symbol_table") {
+                        unimplemented!("Can't handle non-$ion_symbol_table imports value.");
                     }
+                    is_append = true;
+                }
                 // The field name is either SID 7 or the text 'imports' and the
                 // field value is a non-null list
                 (symbol, IonType::List)
-                if symbol.matches(system_symbol_ids::SYMBOLS, "symbols") =>
-                    {
-                        self.raw_reader.step_in()?;
-                        loop {
-                            use RawStreamItem::*;
-                            match self.raw_reader.next()? {
-                                Value(IonType::String) => {
-                                    new_symbols.push(Some(self.raw_reader.read_string()?));
-                                },
-                                Value(_) | Null(_) => {
-                                    // If we encounter a non-string or null, add a placeholder
-                                    new_symbols.push(None);
-                                }
-                                VersionMarker(_, _) => return decoding_error("Found IVM in symbol table."),
-                                Nothing => break
+                    if symbol.matches(system_symbol_ids::SYMBOLS, "symbols") =>
+                {
+                    self.raw_reader.step_in()?;
+                    loop {
+                        use RawStreamItem::*;
+                        match self.raw_reader.next()? {
+                            Value(IonType::String) => {
+                                new_symbols.push(Some(self.raw_reader.read_string()?));
                             }
+                            Value(_) | Null(_) => {
+                                // If we encounter a non-string or null, add a placeholder
+                                new_symbols.push(None);
+                            }
+                            VersionMarker(_, _) => {
+                                return decoding_error("Found IVM in symbol table.")
+                            }
+                            Nothing => break,
                         }
-                        self.raw_reader.step_out()?;
                     }
+                    self.raw_reader.step_out()?;
+                }
                 something_else => {
                     unimplemented!("No support for {:?}", something_else);
                 }
