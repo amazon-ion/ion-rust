@@ -111,13 +111,10 @@ impl Timestamp {
         // This function is used when comparing two Timestamps with different Mantissa representations.
         use Mantissa::*;
         match self.fractional_seconds.as_ref() {
-            // This timestamp stores its fractional seconds in its `date_time` field.
-            // We'll need to convert the date_time's nanoseconds to a Decimal and return it's scale.
-            Some(Digits(number_of_digits)) => {
-                let coefficient = first_n_digits_of(*number_of_digits, self.date_time.nanosecond());
-                let scale = (coefficient as f64).log10().ceil() as i64;
-                Some(scale)
-            }
+            // number_of_digits represent number of digits of precision in the Timestamp's fractional seconds.
+            // this is equivalent to the decimal scale when we convert the fractional seconds into a decimal
+            // and return its scale
+            Some(Digits(number_of_digits)) => Some(*number_of_digits as i64),
             // This timestamp already stores its fractional seconds as a Decimal; return the scale of this Decimal.
             Some(Arbitrary(decimal)) => Some(decimal.scale()),
             // This Timestamp's precision is too low to have a fractional seconds field.
@@ -273,9 +270,10 @@ impl Timestamp {
         FractionalSecondSetter { builder }
     }
 
-    /// Returns the offset that has been specified in the [Timestamp].
-    pub fn offset(&self) -> Option<FixedOffset> {
-        self.offset
+    /// Returns the offset in minutes that has been specified in the [Timestamp].
+    /// A positive value indicates Eastern Hemisphere, while a negative value indicates Western Hemisphere.
+    pub fn offset(&self) -> Option<i32> {
+        self.offset.map(|offset| offset.local_minus_utc() / 60)
     }
 
     /// Returns the precision that has been specified in the [Timestamp].
@@ -1208,8 +1206,8 @@ mod timestamp_tests {
             .with_milliseconds(449)
             .build_at_offset(-5 * 60)?;
         //                    ^-- Timestamp's offset API takes minutes
-        // chrono's FixedOffset takes seconds ----------v
-        let expected_offset = FixedOffset::east(-5 * 60 * 60);
+        // expected offset in minutes
+        let expected_offset = -5 * 60;
 
         assert_eq!(timestamp.offset().unwrap(), expected_offset);
         Ok(())
@@ -1246,6 +1244,16 @@ mod timestamp_tests {
                 .fractional_seconds_scale()
                 .unwrap(),
             3
+        );
+
+        // Set a fractional seconds as Decimal with low precision
+        let timestamp_with_micro_seconds =
+            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60)?;
+
+        // For low precision fractional_seconds_scale should return a None
+        assert_eq!(
+            timestamp_with_micro_seconds.fractional_seconds_scale(),
+            None
         );
         Ok(())
     }
