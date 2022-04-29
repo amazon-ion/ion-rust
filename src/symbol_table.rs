@@ -146,6 +146,8 @@ impl SymbolTable {
         self.initialize();
     }
 
+    /// If `text` is already in the symbol table, returns the corresponding [SymbolId].
+    /// Otherwise, adds `text` to the symbol table and returns the newly assigned [SymbolId].
     pub fn intern<A: AsRef<str>>(&mut self, text: A) -> SymbolId {
         let text = text.as_ref();
         // If the text is already in the symbol table, return the ID associated with it.
@@ -168,6 +170,15 @@ impl SymbolTable {
         let sid = self.symbols_by_id.len();
         self.symbols_by_id.push(None);
         sid
+    }
+
+    /// If `maybe_text` is `Some(text)`, this method is equivalent to `intern(text)`.
+    /// If `maybe_text` is `None`, this method is equivalent to `add_placeholder()`.
+    pub fn intern_or_add_placeholder<A: AsRef<str>>(&mut self, maybe_text: Option<A>) -> SymbolId {
+        match maybe_text {
+            Some(text) => self.intern(text),
+            None => self.add_placeholder(),
+        }
     }
 
     /// If defined, returns the Symbol ID associated with the provided text.
