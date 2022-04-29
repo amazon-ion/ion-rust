@@ -25,16 +25,17 @@ fn main() -> IonResult<()> {
 // Prints the total number of values read upon completion.
 fn read_all_values<R: IonDataSource>(cursor: &mut RawBinaryReader<R>) -> IonResult<usize> {
     use IonType::*;
-    use RawStreamItem::*;
+    use RawStreamItem::{Nothing, Null as NullValue, Value, VersionMarker};
     let mut count: usize = 0;
     loop {
         match cursor.next()? {
             VersionMarker(_major, _minor) => {}
-            Value(ion_type, is_null) => {
+            NullValue(_ion_type) => {
                 count += 1;
-                if is_null {
-                    continue;
-                }
+                continue;
+            }
+            Value(ion_type) => {
+                count += 1;
                 match ion_type {
                     Struct | List | SExpression => cursor.step_in()?,
                     String => {

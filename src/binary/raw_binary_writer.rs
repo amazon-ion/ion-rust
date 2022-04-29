@@ -895,7 +895,7 @@ mod writer_tests {
             },
             |reader| {
                 for value in values {
-                    assert_eq!(reader.next()?, StreamItem::Value(ion_type, false));
+                    assert_eq!(reader.next()?, StreamItem::Value(ion_type));
                     let reader_value = read_fn(reader)?;
                     assert_eq!(
                         reader_value, *value,
@@ -934,7 +934,7 @@ mod writer_tests {
             },
             |reader| {
                 for ion_type in ion_types {
-                    assert_eq!(reader.next()?, StreamItem::Value(*ion_type, true));
+                    assert_eq!(reader.next()?, StreamItem::Null(*ion_type));
                 }
                 Ok(())
             },
@@ -1069,7 +1069,7 @@ mod writer_tests {
                 expected_value
             )
         });
-        assert_eq!(next, StreamItem::Value(ion_type, false));
+        assert_eq!(next, StreamItem::Value(ion_type));
         let value = read_fn(reader)
             .unwrap_or_else(|_| panic!("Failed to read in expected value: {:?}", expected_value));
         assert_eq!(value, expected_value);
@@ -1103,14 +1103,14 @@ mod writer_tests {
     fn expect_null(reader: &mut TestReader) {
         assert_eq!(
             reader.next().expect("Failed to read null."),
-            StreamItem::Value(IonType::Null, true)
+            StreamItem::Null(IonType::Null)
         );
     }
 
     fn expect_container(reader: &mut TestReader, ion_type: IonType) {
         assert_eq!(
             reader.next().expect("Failed to read container."),
-            StreamItem::Value(ion_type, false)
+            StreamItem::Value(ion_type)
         );
     }
 

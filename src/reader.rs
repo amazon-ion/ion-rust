@@ -25,11 +25,10 @@ pub struct Reader<R: RawReader> {
 /// Stream components that an application-level [Reader] implementation may encounter.
 #[derive(Eq, PartialEq, Debug)]
 pub enum StreamItem {
-    /// An Ion value (e.g. an integer, timestamp, or struct).
-    /// Includes the value's IonType and whether it is null.
-    /// Stream values that represent system constructs (e.g. a struct marked with a
-    /// $ion_symbol_table annotation) are still considered values at the raw level.
-    Value(IonType, bool),
+    /// A non-null Ion value and its corresponding Ion data type.
+    Value(IonType),
+    /// A null Ion value and its corresponding Ion data type.
+    Null(IonType),
     /// Indicates that the reader is not positioned over anything. This can happen:
     /// * before the reader has begun processing the stream.
     /// * after the reader has stepped into a container, but before the reader has called next()
@@ -60,15 +59,27 @@ impl<R: RawReader> Reader<R> {
         let mut is_append = false;
         let mut new_symbols = vec![];
 
-        while let RawStreamItem::Value(ion_type, is_null) = self.raw_reader.next()? {
+        loop {
+            let ion_type = match self.raw_reader.next()? {
+                RawStreamItem::Value(ion_type) => ion_type,
+                RawStreamItem::Null(_) => continue,
+                RawStreamItem::Nothing => break,
+                RawStreamItem::VersionMarker(major, minor) => {
+                    return decoding_error(format!(
+                        "encountered Ion version marker for v{}.{} in symbol table",
+                        major, minor
+                    ))
+                }
+            };
+
             let field_id = self
                 .raw_reader
                 .field_name()
                 .expect("No field ID found inside $ion_symbol_table struct.");
-            match (field_id, ion_type, is_null) {
+            match (field_id, ion_type) {
                 // The field name is either SID 6 or the text 'imports' and the
                 // field value is a non-null symbol
-                (symbol, IonType::Symbol, false)
+                (symbol, IonType::Symbol)
                     if symbol.matches(system_symbol_ids::IMPORTS, "imports") =>
                 {
                     // TODO: SST imports. This implementation only supports local symbol
@@ -81,15 +92,25 @@ impl<R: RawReader> Reader<R> {
                 }
                 // The field name is either SID 7 or the text 'imports' and the
                 // field value is a non-null list
-                (symbol, IonType::List, false)
+                (symbol, IonType::List)
                     if symbol.matches(system_symbol_ids::SYMBOLS, "symbols") =>
                 {
                     self.raw_reader.step_in()?;
-                    while let RawStreamItem::Value(IonType::String, false) =
-                        self.raw_reader.next()?
-                    {
-                        let text = self.raw_reader.read_string()?;
-                        new_symbols.push(text);
+                    loop {
+                        use RawStreamItem::*;
+                        match self.raw_reader.next()? {
+                            Value(IonType::String) => {
+                                new_symbols.push(Some(self.raw_reader.read_string()?));
+                            }
+                            Value(_) | Null(_) => {
+                                // If we encounter a non-string or null, add a placeholder
+                                new_symbols.push(None);
+                            }
+                            VersionMarker(_, _) => {
+                                return decoding_error("Found IVM in symbol table.")
+                            }
+                            Nothing => break,
+                        }
                     }
                     self.raw_reader.step_out()?;
                 }
@@ -101,15 +122,15 @@ impl<R: RawReader> Reader<R> {
 
         if is_append {
             // We're adding new symbols to the end of the symbol table.
-            for new_symbol in new_symbols.drain(..) {
-                let _id = self.symbol_table.intern(new_symbol);
+            for maybe_text in new_symbols.drain(..) {
+                let _sid = self.symbol_table.intern_or_add_placeholder(maybe_text);
             }
         } else {
             // The symbol table has been set by defining new symbols without importing the current
             // symbol table.
             self.symbol_table.reset();
-            for new_symbol in new_symbols.drain(..) {
-                let _id = self.symbol_table.intern(new_symbol);
+            for maybe_text in new_symbols.drain(..) {
+                let _sid = self.symbol_table.intern_or_add_placeholder(maybe_text);
             }
         }
 
@@ -135,7 +156,11 @@ impl<R: RawReader> StreamReader for Reader<R> {
 
     fn current(&self) -> Self::Item {
         if let Some(ion_type) = self.ion_type() {
-            return StreamItem::Value(ion_type, self.is_null());
+            return if self.is_null() {
+                StreamItem::Null(ion_type)
+            } else {
+                StreamItem::Value(ion_type)
+            };
         }
         StreamItem::Nothing
     }
@@ -157,7 +182,7 @@ impl<R: RawReader> StreamReader for Reader<R> {
                         major, minor
                     ));
                 }
-                Value(IonType::Struct, false) => {
+                Value(IonType::Struct) => {
                     // Top-level structs whose _first_ annotation is $ion_symbol_table are
                     // interpreted as local symbol tables. Other trailing annotations (if any) are
                     // ignored. If the first annotation is something other than `$ion_symbol_table`,
@@ -185,9 +210,10 @@ impl<R: RawReader> StreamReader for Reader<R> {
                             continue;
                         }
                     }
-                    return Ok(StreamItem::Value(IonType::Struct, false));
+                    return Ok(StreamItem::Value(IonType::Struct));
                 }
-                Value(ion_type, is_null) => return Ok(StreamItem::Value(ion_type, is_null)),
+                Value(ion_type) => return Ok(StreamItem::Value(ion_type)),
+                Null(ion_type) => return Ok(StreamItem::Null(ion_type)),
                 Nothing => return Ok(StreamItem::Nothing),
             }
         }
@@ -371,16 +397,16 @@ mod tests {
     fn test_read_struct() -> IonResult<()> {
         let mut reader = ion_reader_for(EXAMPLE_STREAM);
 
-        assert_eq!(Value(IonType::Struct, false), reader.next()?);
+        assert_eq!(Value(IonType::Struct), reader.next()?);
         reader.step_in()?;
 
-        assert_eq!(reader.next()?, Value(IonType::Integer, false));
+        assert_eq!(reader.next()?, Value(IonType::Integer));
         assert_eq!(reader.field_name()?, "foo");
 
-        assert_eq!(reader.next()?, Value(IonType::Integer, false));
+        assert_eq!(reader.next()?, Value(IonType::Integer));
         assert_eq!(reader.field_name()?, "bar");
 
-        assert_eq!(reader.next()?, Value(IonType::Integer, false));
+        assert_eq!(reader.next()?, Value(IonType::Integer));
         assert_eq!(reader.field_name()?, "baz");
 
         Ok(())
