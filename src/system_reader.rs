@@ -60,11 +60,13 @@ pub enum SystemStreamItem {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(u8, u8),
-    /// An Ion value that is part of an encoded local symbol table.
+    /// A non-null Ion value that is part of an encoded local symbol table.
     /// This includes:
     /// * Top-level structs annotated with $ion_symbol_table::
     /// * Any fields nested inside such structs, but especially `imports` and `symbols`
-    SymbolTableData(IonType, bool),
+    SymbolTableValue(IonType),
+    /// A null Ion value that is part of an encoded local symbol table.
+    SymbolTableNull(IonType),
     /// A non-null Ion value and its corresponding Ion data type.
     Value(IonType),
     /// A null Ion value and its corresponding Ion data type.
@@ -277,7 +279,11 @@ impl<R: RawReader> SystemReader<R> {
             }
         };
 
-        Ok(SystemStreamItem::SymbolTableData(ion_type, is_null))
+        if is_null {
+            Ok(SystemStreamItem::SymbolTableNull(ion_type))
+        } else {
+            Ok(SystemStreamItem::SymbolTableValue(ion_type))
+        }
     }
 
     // Called when the system reader advances to the `imports` field of an LST.
@@ -419,14 +425,17 @@ impl<R: RawReader> SystemReader<R> {
                     // shouldn't be possible to encounter a user-level `Value`.
                     unreachable!("Cannot encounter a user-level value inside an LST.")
                 }
-                SymbolTableData(ion_type, is_null) => {
+                SymbolTableValue(ion_type) => {
                     // We've encountered another value in the LST. If's a container, step into it.
-                    if !is_null && ion_type.is_container() {
+                    if ion_type.is_container() {
                         self.step_in()?;
                     }
                     // The logic that handles interpreting each value in the LST lives inside
                     // the `process_raw_value` helper function. The act of calling `next()` and
                     // `step_in()` here is enough to trigger it.
+                }
+                SymbolTableNull(_ion_type) => {
+                    // We've encountered a null value in the LST. Do nothing.
                 }
                 Nothing if self.depth() > starting_depth => {
                     // We've run out of values, but we're not back to the starting depth yet.
@@ -751,6 +760,7 @@ impl<T: AsRef<[u8]>> SystemReader<RawBinaryReader<io::Cursor<T>>> {
 #[cfg(test)]
 mod tests {
     use crate::text::raw_text_reader::RawTextReader;
+    use super::SystemStreamItem::*;
 
     use super::*;
 
@@ -775,15 +785,15 @@ mod tests {
         // We step over the LST...
         assert_eq!(
             reader.next()?,
-            SystemStreamItem::SymbolTableData(IonType::Struct, false)
+            SymbolTableValue(IonType::Struct)
         );
         // ...but expect all of the symbols we encounter after it to be in the symbol table,
         // indicating that the SystemReader processed the LST even though we skipped it with `next()`
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "foo");
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "bar");
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "baz");
         Ok(())
     }
@@ -814,15 +824,15 @@ mod tests {
         for _ in 0..3 {
             assert_eq!(
                 reader.next()?,
-                SystemStreamItem::SymbolTableData(IonType::Struct, false)
+                SymbolTableValue(IonType::Struct)
             );
         }
         // Confirm that the symbols defined in each append map to the expected text.
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "foo");
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "bar");
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "baz");
         Ok(())
     }
@@ -851,33 +861,33 @@ mod tests {
 
         assert_eq!(
             reader.next()?,
-            SystemStreamItem::SymbolTableData(IonType::Struct, false)
+            SymbolTableValue(IonType::Struct)
         );
         // Only system symbols initially
         assert_eq!(reader.symbol_table.len(), 10);
 
         // Advance to the symbol $10, loading the LST as we pass it
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.symbol_table.len(), 11);
         assert_eq!(reader.read_symbol()?, "foo");
 
         // Encounter an IVM, reset the table
-        assert_eq!(reader.next()?, SystemStreamItem::VersionMarker(1, 0));
+        assert_eq!(reader.next()?, VersionMarker(1, 0));
         // The symbol we defined is gone
         assert_eq!(reader.symbol_table.len(), 10);
 
         // Step over the two symbol tables that follow
         assert_eq!(
             reader.next()?,
-            SystemStreamItem::SymbolTableData(IonType::Struct, false)
+            SymbolTableValue(IonType::Struct)
         );
         assert_eq!(
             reader.next()?,
-            SystemStreamItem::SymbolTableData(IonType::Struct, false)
+            SymbolTableValue(IonType::Struct)
         );
 
         // Advance to the symbol $10 again, but this time it's 'baz'
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.symbol_table.len(), 11);
         assert_eq!(reader.read_symbol()?, "baz");
 
@@ -900,12 +910,12 @@ mod tests {
           "#,
         );
         // IVM
-        assert_eq!(reader.next()?, SystemStreamItem::VersionMarker(1, 0));
+        assert_eq!(reader.next()?, VersionMarker(1, 0));
 
         // Symbol table
         assert_eq!(
             reader.next()?,
-            SystemStreamItem::SymbolTableData(IonType::Struct, false)
+            SymbolTableValue(IonType::Struct)
         );
 
         // Instead of stepping _over_ the LST as we've done in other tests, step into it.
@@ -917,7 +927,7 @@ mod tests {
         // Advance to `imports`, confirm its value is the system symbol "$ion_symbol_table"
         assert_eq!(
             reader.next()?,
-            SystemStreamItem::SymbolTableData(IonType::Symbol, false)
+            SymbolTableValue(IonType::Symbol)
         );
         assert_eq!(reader.field_name()?, "imports");
         assert_eq!(reader.read_symbol()?, "$ion_symbol_table".to_string());
@@ -925,40 +935,40 @@ mod tests {
         // Advance to `symbols`, visit each string in the list
         assert_eq!(
             reader.next()?,
-            SystemStreamItem::SymbolTableData(IonType::List, false)
+            SymbolTableValue(IonType::List)
         );
         assert_eq!(reader.field_name()?, "symbols");
         reader.step_in()?;
         assert_eq!(
             reader.next()?,
-            SystemStreamItem::SymbolTableData(IonType::String, false)
+            SymbolTableValue(IonType::String)
         );
         assert_eq!(reader.read_string()?, "foo");
         assert_eq!(
             reader.next()?,
-            SystemStreamItem::SymbolTableData(IonType::String, false)
+            SymbolTableValue(IonType::String)
         );
         assert_eq!(reader.read_string()?, "bar");
         assert_eq!(
             reader.next()?,
-            SystemStreamItem::SymbolTableData(IonType::String, false)
+            SymbolTableValue(IonType::String)
         );
         assert_eq!(reader.read_string()?, "baz");
         // No more strings
-        assert_eq!(reader.next()?, SystemStreamItem::Nothing);
+        assert_eq!(reader.next()?, Nothing);
         reader.step_out()?;
 
         // No more LST fields
-        assert_eq!(reader.next()?, SystemStreamItem::Nothing);
+        assert_eq!(reader.next()?, Nothing);
         reader.step_out()?;
 
         // Read the user-level symbol values in the stream to confirm that the LST was processed
         // successfully by the SystemReader.
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "foo");
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "bar");
-        assert_eq!(reader.next()?, SystemStreamItem::Value(IonType::Symbol));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "baz");
 
         Ok(())
