@@ -417,9 +417,7 @@ impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
 
         // If we're positioned on a value, return its IonType and whether it's null.
         if let Some(value) = self.current_value.as_ref() {
-            let ion_type = value.ion_type();
-            let is_null = value.is_null();
-            Ok(RawStreamItem::Value(ion_type, is_null))
+            Ok(RawStreamItem::nullable_value(value.ion_type(), value.is_null()))
         } else {
             Ok(RawStreamItem::Nothing)
         }
@@ -427,7 +425,7 @@ impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
 
     fn current(&self) -> RawStreamItem {
         if let Some(ref value) = self.current_value {
-            RawStreamItem::Value(value.ion_type(), value.is_null())
+            RawStreamItem::nullable_value(value.ion_type(), value.is_null())
         } else if let Some(ivm) = self.current_ivm {
             RawStreamItem::VersionMarker(ivm.0, ivm.1)
         } else {
@@ -628,7 +626,7 @@ impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
         // Unlike the binary reader, which can skip-scan, the text reader must visit every value
         // between its current position and the end of the container.
         if !parent.is_exhausted() {
-            while let RawStreamItem::Value(_ion_type, _is_null) = self.next()? {}
+            while let RawStreamItem::Value(_) | RawStreamItem::Null(_) = self.next()? {}
         }
 
         // Remove the parent container from the stack and clear the current value.
@@ -687,7 +685,7 @@ mod reader_tests {
     fn next_type(reader: &mut RawTextReader<&str>, ion_type: IonType, is_null: bool) {
         assert_eq!(
             reader.next().unwrap(),
-            RawStreamItem::Value(ion_type, is_null)
+            RawStreamItem::nullable_value(ion_type, is_null)
         );
     }
 

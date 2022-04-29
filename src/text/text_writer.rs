@@ -149,9 +149,9 @@ mod tests {
         drop(text_writer);
 
         let mut reader = Reader::new(RawTextReader::new(from_utf8(&buffer.as_slice()).unwrap()));
-        assert_eq!(Value(IonType::Struct, false), reader.next()?);
+        assert_eq!(Value(IonType::Struct), reader.next()?);
         reader.step_in()?;
-        assert_eq!(Value(IonType::Symbol, false), reader.next()?);
+        assert_eq!(Value(IonType::Symbol), reader.next()?);
         assert_eq!(1, reader.number_of_annotations());
         // The reader returns text values for the symbol IDs it encountered in the stream
         assert_eq!("$ion", reader.annotations().next().unwrap()?);

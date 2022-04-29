@@ -209,9 +209,9 @@ mod tests {
         binary_writer.flush()?;
 
         let mut reader = Reader::new(RawBinaryReader::new(io::Cursor::new(buffer)));
-        assert_eq!(Value(IonType::Struct, false), reader.next()?);
+        assert_eq!(Value(IonType::Struct), reader.next()?);
         reader.step_in()?;
-        assert_eq!(Value(IonType::Symbol, false), reader.next()?);
+        assert_eq!(Value(IonType::Symbol), reader.next()?);
         assert_eq!("foo", reader.field_name()?);
         assert_eq!("bar", reader.read_symbol()?.as_ref());
 
@@ -228,7 +228,7 @@ mod tests {
         binary_writer.flush()?;
 
         let mut reader = Reader::new(RawBinaryReader::new(io::Cursor::new(buffer)));
-        assert_eq!(Value(IonType::Integer, false), reader.next()?);
+        assert_eq!(Value(IonType::Integer), reader.next()?);
         let mut annotations = reader.annotations();
         assert_eq!("foo", annotations.next().unwrap()?);
         assert_eq!("bar", annotations.next().unwrap()?);
@@ -247,11 +247,11 @@ mod tests {
         binary_writer.flush()?;
 
         let mut reader = Reader::new(RawBinaryReader::new(io::Cursor::new(buffer)));
-        assert_eq!(Value(IonType::Symbol, false), reader.next()?);
+        assert_eq!(Value(IonType::Symbol), reader.next()?);
         assert_eq!("foo", reader.read_symbol()?);
-        assert_eq!(Value(IonType::Symbol, false), reader.next()?);
+        assert_eq!(Value(IonType::Symbol), reader.next()?);
         assert_eq!("bar", reader.read_symbol()?);
-        assert_eq!(Value(IonType::Symbol, false), reader.next()?);
+        assert_eq!(Value(IonType::Symbol), reader.next()?);
         assert_eq!("baz", reader.read_symbol()?);
 
         Ok(())
