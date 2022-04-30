@@ -103,6 +103,25 @@ impl Timestamp {
         timestamp
     }
 
+    /// If the precision is [Precision::FractionalSeconds], returns a Decimal scale
+    /// of this Timestamp's fractional seconds; otherwise, returns None.
+    ///
+    /// For example, a Timestamp with 553 milliseconds would return a Decimal scale of 3.
+    pub fn fractional_seconds_scale(&self) -> Option<i64> {
+        // This function is used when comparing two Timestamps with different Mantissa representations.
+        use Mantissa::*;
+        match self.fractional_seconds.as_ref() {
+            // number_of_digits represent number of digits of precision in the Timestamp's fractional seconds.
+            // this is equivalent to the decimal scale when we convert the fractional seconds into a decimal
+            // and return its scale
+            Some(Digits(number_of_digits)) => Some(*number_of_digits as i64),
+            // This timestamp already stores its fractional seconds as a Decimal; return the scale of this Decimal.
+            Some(Arbitrary(decimal)) => Some(decimal.scale()),
+            // This Timestamp's precision is too low to have a fractional seconds field.
+            None => None,
+        }
+    }
+
     /// If the precision is [Precision::FractionalSeconds], returns a Decimal representation
     /// of this Timestamp's fractional seconds; otherwise, returns None.
     ///
@@ -249,6 +268,17 @@ impl Timestamp {
             .with_milliseconds(milliseconds)
             .into_builder();
         FractionalSecondSetter { builder }
+    }
+
+    /// Returns the offset in minutes that has been specified in the [Timestamp].
+    /// A positive value indicates Eastern Hemisphere, while a negative value indicates Western Hemisphere.
+    pub fn offset(&self) -> Option<i32> {
+        self.offset.map(|offset| offset.local_minus_utc() / 60)
+    }
+
+    /// Returns the precision that has been specified in the [Timestamp].
+    pub fn precision(&self) -> Precision {
+        self.precision
     }
 }
 
@@ -838,6 +868,7 @@ impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
 #[cfg(test)]
 mod timestamp_tests {
     use crate::result::IonResult;
+    use crate::types::decimal::Decimal;
     use crate::types::timestamp::{Mantissa, Precision, Timestamp};
     use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
     use std::convert::TryInto;
@@ -1167,6 +1198,61 @@ mod timestamp_tests {
         assert_eq!(timestamp1.fractional_seconds, Some(Mantissa::Digits(3)));
         assert_eq!(timestamp1, timestamp2);
         assert_eq!(timestamp2, timestamp3);
+    }
+
+    #[test]
+    fn test_timestamp_fixed_offset() -> IonResult<()> {
+        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+            .with_milliseconds(449)
+            .build_at_offset(-5 * 60)?;
+        //                    ^-- Timestamp's offset API takes minutes
+        // expected offset in minutes
+        let expected_offset = -5 * 60;
+
+        assert_eq!(timestamp.offset().unwrap(), expected_offset);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_precision() -> IonResult<()> {
+        let timestamp = Timestamp::with_year(2021).with_month(2).build()?;
+        assert_eq!(timestamp.precision(), Precision::Month);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_fractional_seconds_scale() -> IonResult<()> {
+        // Set fractional seconds as Decimal
+        let timestamp_with_micro_seconds = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+            .with_fractional_seconds(Decimal::new(553u64, -6))
+            .build_at_offset(-5 * 60)?;
+
+        assert_eq!(
+            timestamp_with_micro_seconds
+                .fractional_seconds_scale()
+                .unwrap(),
+            6
+        );
+
+        // Set fractional seconds with milliseconds
+        let timestamp_with_milliseconds = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+            .with_milliseconds(449)
+            .build_at_offset(-5 * 60)?;
+
+        assert_eq!(
+            timestamp_with_milliseconds
+                .fractional_seconds_scale()
+                .unwrap(),
+            3
+        );
+
+        // Set a fractional seconds as Decimal with low precision
+        let timestamp_with_seconds =
+            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60)?;
+
+        // For low precision fractional_seconds_scale should return a None
+        assert_eq!(timestamp_with_seconds.fractional_seconds_scale(), None);
+        Ok(())
     }
 
     #[test]
