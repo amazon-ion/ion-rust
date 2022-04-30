@@ -1251,10 +1251,7 @@ mod timestamp_tests {
             Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60)?;
 
         // For low precision fractional_seconds_scale should return a None
-        assert_eq!(
-            timestamp_with_seconds.fractional_seconds_scale(),
-            None
-        );
+        assert_eq!(timestamp_with_seconds.fractional_seconds_scale(), None);
         Ok(())
     }
 
