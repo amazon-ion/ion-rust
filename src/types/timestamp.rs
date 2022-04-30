@@ -1252,7 +1252,7 @@ mod timestamp_tests {
 
         // For low precision fractional_seconds_scale should return a None
         assert_eq!(
-            timestamp_with_micro_seconds.fractional_seconds_scale(),
+            timestamp_with_seconds.fractional_seconds_scale(),
             None
         );
         Ok(())
