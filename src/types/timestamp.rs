@@ -1247,7 +1247,7 @@ mod timestamp_tests {
         );
 
         // Set a fractional seconds as Decimal with low precision
-        let timestamp_with_micro_seconds =
+        let timestamp_with_seconds =
             Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60)?;
 
         // For low precision fractional_seconds_scale should return a None
