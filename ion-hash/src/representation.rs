@@ -11,10 +11,11 @@ use crate::type_qualifier::type_qualifier_symbol;
 use digest::{FixedOutput, Output, Reset, Update};
 use ion_rs::binary::{self, decimal::DecimalBinaryEncoder, timestamp::TimestampBinaryEncoder};
 use ion_rs::types::decimal::Decimal;
+use ion_rs::types::integer::Integer;
 use ion_rs::{
     result::IonResult,
     types::timestamp::Timestamp,
-    value::{AnyInt, Element, Sequence, Struct, SymbolToken},
+    value::{Element, Sequence, Struct, SymbolToken},
     IonType,
 };
 
@@ -25,7 +26,7 @@ pub(crate) trait RepresentationEncoder {
     {
         match elem.ion_type() {
             IonType::Null | IonType::Boolean => {} // these types have no representation
-            IonType::Integer => self.write_repr_integer(elem.as_any_int())?,
+            IonType::Integer => self.write_repr_integer(elem.as_integer())?,
             IonType::Float => self.write_repr_float(elem.as_f64())?,
             IonType::Decimal => self.write_repr_decimal(elem.as_decimal())?,
             IonType::Timestamp => self.write_repr_timestamp(elem.as_timestamp())?,
@@ -39,7 +40,7 @@ pub(crate) trait RepresentationEncoder {
         Ok(())
     }
 
-    fn write_repr_integer(&mut self, value: Option<&AnyInt>) -> IonResult<()>;
+    fn write_repr_integer(&mut self, value: Option<&Integer>) -> IonResult<()>;
     fn write_repr_float(&mut self, value: Option<f64>) -> IonResult<()>;
     fn write_repr_decimal(&mut self, value: Option<&Decimal>) -> IonResult<()>;
     fn write_repr_timestamp(&mut self, value: Option<&Timestamp>) -> IonResult<()>;
@@ -62,9 +63,9 @@ impl<D> RepresentationEncoder for ElementHasher<D>
 where
     D: Update + FixedOutput + Reset + Clone + Default,
 {
-    fn write_repr_integer(&mut self, value: Option<&AnyInt>) -> IonResult<()> {
+    fn write_repr_integer(&mut self, value: Option<&Integer>) -> IonResult<()> {
         match value {
-            Some(AnyInt::I64(v)) => match v {
+            Some(Integer::I64(v)) => match v {
                 0 => {}
                 _ => {
                     let magnitude = v.abs() as u64;
@@ -72,7 +73,7 @@ where
                     self.update_escaping(encoded.as_bytes());
                 }
             },
-            Some(AnyInt::BigInt(b)) => self.update_escaping(&b.magnitude().to_bytes_be()[..]),
+            Some(Integer::BigInt(b)) => self.update_escaping(&b.magnitude().to_bytes_be()[..]),
             None => {}
         }
 

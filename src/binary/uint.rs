@@ -1,11 +1,15 @@
+use num_bigint::BigUint;
 use std::io::Write;
 use std::mem;
 
 use crate::data_source::IonDataSource;
 use crate::result::{decoding_error, IonResult};
+use crate::types::integer::{Integer, UInteger};
 
-type UIntStorage = u64;
-const MAX_UINT_SIZE_IN_BYTES: usize = mem::size_of::<UIntStorage>();
+// This limit is used for stack-allocating buffer space to encode/decode UInts.
+const UINT_STACK_BUFFER_SIZE: usize = 16;
+// This number was chosen somewhat arbitrarily and could be lifted if a use case demands it.
+const MAX_UINT_SIZE_IN_BYTES: usize = 2048;
 
 /// Represents a fixed-length unsigned integer. See the
 /// [UInt and Int Fields](http://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields)
@@ -13,7 +17,7 @@ const MAX_UINT_SIZE_IN_BYTES: usize = mem::size_of::<UIntStorage>();
 #[derive(Debug)]
 pub struct DecodedUInt {
     size_in_bytes: usize,
-    value: UIntStorage,
+    value: UInteger,
 }
 
 impl DecodedUInt {
@@ -26,23 +30,48 @@ impl DecodedUInt {
             ));
         }
 
-        // Create a stack-allocated buffer to hold the data we're going to read in.
-        let mut buffer = [0u8; MAX_UINT_SIZE_IN_BYTES];
+        if length <= UINT_STACK_BUFFER_SIZE {
+            let buffer = &mut [0u8; UINT_STACK_BUFFER_SIZE];
+            DecodedUInt::read_using_buffer(data_source, length, buffer)
+        } else {
+            // We're reading an enormous int. Heap-allocate a Vec to use as storage.
+            let mut buffer = Vec::with_capacity(length);
+            for _ in 0..length {
+                buffer.push(0u8);
+            }
+            DecodedUInt::read_using_buffer(data_source, length, buffer.as_mut_slice())
+        }
+    }
+
+    fn read_using_buffer<R: IonDataSource>(
+        data_source: &mut R,
+        length: usize,
+        buffer: &mut [u8],
+    ) -> IonResult<DecodedUInt> {
         // Get a mutable reference to a portion of the buffer just big enough to fit
         // the requested number of bytes.
         let buffer = &mut buffer[0..length];
 
-        let mut magnitude: UIntStorage = 0;
         data_source.read_exact(buffer)?;
-        for &byte in buffer.iter() {
-            let byte = u64::from(byte);
-            magnitude <<= 8;
-            magnitude |= byte;
-        }
+
+        let value = if length <= mem::size_of::<u64>() {
+            // The UInt is small enough to fit in a u64.
+            let mut magnitude: u64 = 0;
+            for &byte in buffer.iter() {
+                let byte = u64::from(byte);
+                magnitude <<= 8;
+                magnitude |= byte;
+            }
+            UInteger::U64(magnitude)
+        } else {
+            // The UInt is too large to fit in a u64; read it as a BigUInt instead
+            let magnitude = BigUint::from_bytes_be(buffer);
+            UInteger::BigUInt(magnitude)
+        };
 
         Ok(DecodedUInt {
             size_in_bytes: length,
-            value: magnitude,
+            value,
         })
     }
 
@@ -57,8 +86,8 @@ impl DecodedUInt {
 
     /// Returns the magnitude of the unsigned integer.
     #[inline(always)]
-    pub fn value(&self) -> UIntStorage {
-        self.value
+    pub fn value(&self) -> &UInteger {
+        &self.value
     }
 
     /// Returns the number of bytes that were read from the data source to construct this
@@ -66,6 +95,16 @@ impl DecodedUInt {
     #[inline(always)]
     pub fn size_in_bytes(&self) -> usize {
         self.size_in_bytes
+    }
+}
+
+impl From<DecodedUInt> for Integer {
+    fn from(uint: DecodedUInt) -> Self {
+        let DecodedUInt {
+            value,
+            .. // Ignore 'size_in_bytes'
+        } = uint;
+        Integer::from(value)
     }
 }
 
@@ -121,7 +160,7 @@ pub fn encode_uint(magnitude: u64) -> EncodedUInt {
 
 #[cfg(test)]
 mod tests {
-    use super::DecodedUInt;
+    use super::*;
     use std::io::Cursor;
 
     const READ_ERROR_MESSAGE: &str = "Failed to read a UInt from the provided cursor.";
@@ -132,7 +171,7 @@ mod tests {
         let data = &[0b1000_0000];
         let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(uint.size_in_bytes(), 1);
-        assert_eq!(uint.value(), 128);
+        assert_eq!(uint.value(), &UInteger::U64(128));
     }
 
     #[test]
@@ -140,7 +179,7 @@ mod tests {
         let data = &[0b0111_1111, 0b1111_1111];
         let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(uint.size_in_bytes(), 2);
-        assert_eq!(uint.value(), 32_767);
+        assert_eq!(uint.value(), &UInteger::U64(32_767));
     }
 
     #[test]
@@ -148,14 +187,18 @@ mod tests {
         let data = &[0b0011_1100, 0b1000_0111, 0b1000_0001];
         let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(uint.size_in_bytes(), 3);
-        assert_eq!(uint.value(), 3_966_849);
+        assert_eq!(uint.value(), &UInteger::U64(3_966_849));
     }
 
     #[test]
-    fn test_read_uint_overflow() {
-        let data = &[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01];
+    fn test_read_uint_too_large() {
+        let mut buffer = Vec::with_capacity(MAX_UINT_SIZE_IN_BYTES + 1);
+        for _ in 0..(MAX_UINT_SIZE_IN_BYTES + 1) {
+            buffer.push(1);
+        }
+        let data = buffer.as_slice();
         let _uint = DecodedUInt::read(&mut Cursor::new(data), data.len())
-            .expect_err("This should have failed due to overflow.");
+            .expect_err("This exceeded the configured max UInt size.");
     }
 
     #[test]

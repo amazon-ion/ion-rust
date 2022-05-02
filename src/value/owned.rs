@@ -5,8 +5,9 @@
 //! This API is simpler to manage with respect to borrowing lifetimes, but requires full
 //! ownership of data to do so.
 
-use super::{AnyInt, Element, ImportSource, Sequence, Struct, SymbolToken};
+use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::decimal::Decimal;
+use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::value::Builder;
@@ -172,11 +173,11 @@ impl Builder for OwnedElement {
     }
 
     fn new_i64(int: i64) -> Self::Element {
-        OwnedValue::Integer(AnyInt::I64(int)).into()
+        OwnedValue::Integer(Integer::I64(int)).into()
     }
 
     fn new_big_int(big_int: BigInt) -> Self::Element {
-        OwnedValue::Integer(AnyInt::BigInt(big_int)).into()
+        OwnedValue::Integer(Integer::BigInt(big_int)).into()
     }
 
     fn new_decimal(decimal: Decimal) -> Self::Element {
@@ -392,7 +393,7 @@ impl Eq for OwnedStruct {}
 #[derive(Debug, Clone, PartialEq)]
 pub enum OwnedValue {
     Null(IonType),
-    Integer(AnyInt),
+    Integer(Integer),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
@@ -442,13 +443,13 @@ impl From<IonType> for OwnedElement {
 
 impl From<i64> for OwnedElement {
     fn from(i64_val: i64) -> Self {
-        OwnedValue::Integer(AnyInt::I64(i64_val)).into()
+        OwnedValue::Integer(Integer::I64(i64_val)).into()
     }
 }
 
 impl From<BigInt> for OwnedElement {
     fn from(big_int_val: BigInt) -> Self {
-        OwnedValue::Integer(AnyInt::BigInt(big_int_val)).into()
+        OwnedValue::Integer(Integer::BigInt(big_int_val)).into()
     }
 }
 
@@ -532,7 +533,7 @@ impl Element for OwnedElement {
         matches!(&self.value, OwnedValue::Null(_))
     }
 
-    fn as_any_int(&self) -> Option<&AnyInt> {
+    fn as_integer(&self) -> Option<&Integer> {
         match &self.value {
             OwnedValue::Integer(i) => Some(i),
             _ => None,

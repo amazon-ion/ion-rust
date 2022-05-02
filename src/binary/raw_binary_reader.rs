@@ -24,6 +24,7 @@ use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonError;
 use crate::stream_reader::StreamReader;
 use crate::types::decimal::Decimal;
+use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
 use std::ops::Range;
 
@@ -441,18 +442,35 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
         }
     }
 
+    fn read_integer(&mut self) -> IonResult<Integer> {
+        read_safety_checks!(self, IonType::Integer);
+
+        let uint = self.read_value_as_uint()?;
+        let value = Integer::from(uint);
+
+        use self::IonTypeCode::*;
+        let value = match (self.cursor.value.header.ion_type_code, value) {
+            (PositiveInteger, any_int) => any_int,
+            (NegativeInteger, any_int) => -any_int,
+            itc => unreachable!("Unexpected IonTypeCode: {:?}", itc),
+        };
+
+        Ok(value)
+    }
+
     // TODO:
     // - Detect overflow and return an Error
     // - Add an integer_size() method that indicates whether the current value will fit in an i64
     fn read_i64(&mut self) -> IonResult<i64> {
         read_safety_checks!(self, IonType::Integer);
 
-        let magnitude = self.read_value_as_uint()?.value();
+        let uint = self.read_value_as_uint()?;
+        let magnitude = uint.value();
 
         use self::IonTypeCode::*;
         let value = match self.cursor.value.header.ion_type_code {
-            PositiveInteger => magnitude as i64,
-            NegativeInteger => -(magnitude as i64),
+            PositiveInteger => i64::try_from(magnitude)?,
+            NegativeInteger => -i64::try_from(magnitude)?,
             itc => unreachable!("Unexpected IonTypeCode: {:?}", itc),
         };
 
@@ -541,7 +559,8 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
     fn read_symbol(&mut self) -> IonResult<Self::Symbol> {
         read_safety_checks!(self, IonType::Symbol);
 
-        let symbol_id = self.read_value_as_uint()?.value() as usize;
+        let uint = self.read_value_as_uint()?;
+        let symbol_id = usize::try_from(uint.value())?;
         Ok(RawSymbolToken::SymbolId(symbol_id))
     }
 

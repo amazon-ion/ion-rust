@@ -1,5 +1,6 @@
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::types::decimal::Decimal;
+use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
 use crate::IonType;
 
@@ -46,7 +47,7 @@ impl PartialEq<TextValue> for AnnotatedTextValue {
 pub(crate) enum TextValue {
     Null(IonType),
     Boolean(bool),
-    Integer(i64),
+    Integer(Integer),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),

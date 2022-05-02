@@ -19,6 +19,7 @@ use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
 use crate::types::decimal::Decimal;
+use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
 use crate::IonType;
 
@@ -62,11 +63,12 @@ impl<T: TextIonDataSource> RawTextReader<T> {
         // If the reader's current value is the beginning of a container and the user calls `next()`,
         // we need to skip the entire container. We can do this by stepping into and then out of
         // that container; `step_out()` has logic that will exhaust the remaining values.
-        let need_to_skip_container = self
-            .current_value
-            .as_ref()
-            .map(|v| v.value().ion_type().is_container())
-            .unwrap_or(false);
+        let need_to_skip_container = !self.is_null()
+            && self
+                .current_value
+                .as_ref()
+                .map(|v| v.value().ion_type().is_container())
+                .unwrap_or(false);
 
         if need_to_skip_container {
             self.step_in()?;
@@ -96,20 +98,19 @@ impl<T: TextIonDataSource> RawTextReader<T> {
             }
 
             // If it wasn't an IVM, it has to be a value.
-            let value = self.next_top_level_value();
+            let value = self.next_top_level_value()?;
             match value {
-                Ok(None) => {
+                None => {
                     // We hit EOF; make a note of it and clear the current value.
                     self.is_eof = true;
                     self.current_value = None;
                 }
-                Ok(Some(ref value)) => {
+                Some(ref value) => {
                     // We read a value successfully; set it as our current value.
                     // TODO: This currently clones the loaded value. This will not be necessary
                     //       when `next()` returns an IonType instead of an AnnotatedTextValue.
                     self.current_value = Some(value.clone());
                 }
-                _ => {}
             };
             return Ok(());
         }
@@ -333,7 +334,8 @@ impl<T: TextIonDataSource> RawTextReader<T> {
         // Attempt to parse the updated buffer.
         let value = match top_level_value(self.buffer.remaining_text()) {
             Ok(("\n", value))
-                if value.annotations().is_empty() && *value.value() == TextValue::Integer(0) =>
+                if value.annotations().is_empty()
+                    && *value.value() == TextValue::Integer(Integer::I64(0)) =>
             {
                 // We found the unannotated zero that we appended to the end of the buffer.
                 // The "\n" in this pattern is the unparsed text left in the buffer,
@@ -501,9 +503,19 @@ impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
         }
     }
 
+    fn read_integer(&mut self) -> IonResult<Integer> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::Integer(value)) => Ok(value.clone()),
+            _ => Err(self.expected("int value")),
+        }
+    }
+
     fn read_i64(&mut self) -> IonResult<i64> {
         match self.current_value.as_ref().map(|current| current.value()) {
-            Some(TextValue::Integer(value)) => Ok(*value),
+            Some(TextValue::Integer(Integer::I64(value))) => Ok(*value),
+            Some(TextValue::Integer(Integer::BigInt(value))) => {
+                decoding_error(format!("Integer {} is too large to fit in an i64.", value))
+            }
             _ => Err(self.expected("int value")),
         }
     }
@@ -674,6 +686,7 @@ impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
 mod reader_tests {
     use rstest::*;
 
+    use super::*;
     use crate::raw_reader::RawStreamItem;
     use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
     use crate::result::IonResult;
@@ -803,7 +816,7 @@ mod reader_tests {
     #[case(" null.string ", TextValue::Null(IonType::String))]
     #[case(" true ", TextValue::Boolean(true))]
     #[case(" false ", TextValue::Boolean(false))]
-    #[case(" 738 ", TextValue::Integer(738))]
+    #[case(" 738 ", TextValue::Integer(Integer::I64(738)))]
     #[case(" 2.5e0 ", TextValue::Float(2.5))]
     #[case(" 2.5 ", TextValue::Decimal(Decimal::new(25, -1)))]
     #[case(" 2007-07-12T ", TextValue::Timestamp(Timestamp::with_ymd(2007, 7, 12).build().unwrap()))]
@@ -1042,6 +1055,60 @@ mod reader_tests {
         // Asking for more still results in `None`
         assert_eq!(reader.next()?, Nothing);
 
+        Ok(())
+    }
+
+    #[test]
+    fn structs_trailing_comma() -> IonResult<()> {
+        let pretty_ion = br#"
+            // Structs with last field with/without trailing comma
+            (
+                {a:1, b:2,}     // with trailing comma
+                {a:1, b:2 }     // without trailing comma
+            )
+        "#;
+        let mut reader = RawTextReader::new(&pretty_ion[..]);
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::SExpression));
+        reader.step_in()?;
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Struct));
+
+        reader.step_in()?;
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.field_name()?, RawSymbolToken::Text("a".to_string()));
+        assert_eq!(reader.read_i64()?, 1);
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.field_name()?, RawSymbolToken::Text("b".to_string()));
+        assert_eq!(reader.read_i64()?, 2);
+        reader.step_out()?;
+
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Struct));
+        reader.step_out()?;
+        Ok(())
+    }
+
+    #[test]
+    fn annotation_false() -> IonResult<()> {
+        // The reader will reject the unquoted boolean keyword 'false' when used as an annotation
+        let pretty_ion = br#"
+            false::23
+        "#;
+        let mut reader = RawTextReader::new(&pretty_ion[..]);
+        let result = reader.next();
+        println!("{:?}", result);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn annotation_nan() -> IonResult<()> {
+        // The reader will reject the unquoted float keyword 'nan' when used as an annotation
+        let pretty_ion = br#"
+            nan::23
+        "#;
+        let mut reader = RawTextReader::new(&pretty_ion[..]);
+        let result = reader.next();
+        println!("{:?}", result);
+        assert!(result.is_err());
         Ok(())
     }
 }

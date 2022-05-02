@@ -6,6 +6,7 @@ pub type SymbolId = usize;
 
 pub mod coefficient;
 pub mod decimal;
+pub mod integer;
 pub mod magnitude;
 pub mod timestamp;
 

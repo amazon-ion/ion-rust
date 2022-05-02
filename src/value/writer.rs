@@ -3,13 +3,14 @@
 //! Provides utility to serialize Ion data from [`Element`](super::Element) into common targets
 //! such as byte buffers or files.
 
-use super::{AnyInt, Element, Sequence, Struct, SymbolToken};
+use super::{Element, Sequence, Struct, SymbolToken};
 use crate::result::{illegal_operation, IonError, IonResult};
 use crate::IonType;
 use ion_c_sys::writer::{IonCValueWriter, IonCWriter, IonCWriterHandle};
 use ion_c_sys::ION_WRITER_OPTIONS;
 use std::convert::TryInto;
 
+use crate::types::integer::Integer;
 pub use Format::*;
 pub use TextKind::*;
 
@@ -116,12 +117,12 @@ impl<'a> IonCSliceElementWriter<'a> {
                         af_writer.write_bool(try_to!(element.as_bool()))?;
                     }
                     IonType::Integer => {
-                        let any_int = try_to!(element.as_any_int());
+                        let any_int = try_to!(element.as_integer());
                         match any_int {
-                            AnyInt::I64(i64_val) => {
+                            Integer::I64(i64_val) => {
                                 af_writer.write_i64(*i64_val)?;
                             }
-                            AnyInt::BigInt(big_val) => {
+                            Integer::BigInt(big_val) => {
                                 af_writer.write_bigint(big_val)?;
                             }
                         }
