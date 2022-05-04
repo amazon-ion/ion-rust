@@ -1,8 +1,8 @@
 use crate::result::{decoding_error, IonError};
 use crate::value::Element;
 use num_bigint::{BigInt, BigUint};
-use num_traits::ToPrimitive;
-use std::ops::Neg;
+use num_traits::{ToPrimitive, Zero};
+use std::ops::{Add, Neg};
 
 /// Provides convenient integer accessors for integer values that are like [`Integer`]
 pub trait IntAccess {
@@ -181,6 +181,40 @@ impl Neg for Integer {
     }
 }
 
+impl Add<Self> for Integer {
+    type Output = Integer;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        // The alias 'Big' differentiates the enum variant from the wrapped 'BigInt' type
+        use Integer::{BigInt as Big, I64};
+        match (self, rhs) {
+            (I64(this), I64(that)) => {
+                // Try to add the i64s together; if they overflow, upconvert to BigInts
+                match this.checked_add(that) {
+                    Some(result) => I64(result),
+                    None => Big(BigInt::from(this).add(BigInt::from(that))),
+                }
+            }
+            (I64(this), Big(that)) => Big(BigInt::from(this).add(that)),
+            (Big(this), I64(that)) => Big(this.add(&BigInt::from(that))),
+            (Big(this), Big(that)) => Big(this.add(&that)),
+        }
+    }
+}
+
+impl Zero for Integer {
+    fn zero() -> Self {
+        Integer::I64(0)
+    }
+
+    fn is_zero(&self) -> bool {
+        match self {
+            Integer::I64(value) => *value == 0i64,
+            Integer::BigInt(value) => value.is_zero(),
+        }
+    }
+}
+
 impl<T> IntAccess for T
 where
     T: Element,
@@ -197,5 +231,41 @@ where
             Some(any) => any.as_big_int(),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod integer_tests {
+    use num_bigint::BigInt;
+    use num_traits::Zero;
+    // The 'Big' alias helps distinguish between the enum variant and the wrapped numeric type
+    use crate::types::integer::Integer::{self, BigInt as Big, I64};
+
+    #[test]
+    fn is_zero() {
+        assert!(I64(0).is_zero());
+        assert!(Big(BigInt::from(0)).is_zero());
+        assert!(!I64(55).is_zero());
+        assert!(!Big(BigInt::from(55)).is_zero());
+        assert!(!I64(-55).is_zero());
+        assert!(!Big(BigInt::from(-55)).is_zero());
+    }
+
+    #[test]
+    fn zero() {
+        assert!(Integer::zero().is_zero());
+    }
+
+    #[test]
+    fn add() {
+        assert_eq!(I64(0) + I64(0), I64(0));
+        assert_eq!(I64(5) + I64(7), I64(12));
+        assert_eq!(I64(-5) + I64(7), I64(2));
+        assert_eq!(I64(100) + Big(BigInt::from(1000)), Big(BigInt::from(1100)));
+        assert_eq!(Big(BigInt::from(100)) + I64(1000), Big(BigInt::from(1100)));
+        assert_eq!(
+            Big(BigInt::from(100)) + Big(BigInt::from(1000)),
+            Big(BigInt::from(1100))
+        );
     }
 }

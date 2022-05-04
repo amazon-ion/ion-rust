@@ -73,7 +73,7 @@ impl Magnitude {
     /// Returns the number of digits in the non-scaled integer representation of the magnitude.
     pub(crate) fn number_of_decimal_digits(&self) -> u64 {
         match self {
-            Magnitude::U64(u64_value) => Magnitude::calculate_u64_digits(u64_value),
+            Magnitude::U64(u64_value) => Magnitude::calculate_u64_digits(*u64_value),
             Magnitude::BigUInt(big_uint_value) => {
                 Magnitude::calculate_big_uint_digits(big_uint_value)
             }
@@ -95,11 +95,22 @@ impl Magnitude {
         digits
     }
 
-    fn calculate_u64_digits(value: &u64) -> u64 {
-        match value {
-            0 => 1,
-            1 => 1,
-            i => (*i as f64).log10().ceil() as u64,
+    fn calculate_u64_digits(value: u64) -> u64 {
+        if value == 0 {
+            return 1;
+        }
+        let log_base_ten = (value as f64).log10();
+        let count = log_base_ten.ceil();
+        if log_base_ten == count {
+            // If ceil() didn't change the count, then `value` is an exact power of ten.
+            // We need to add one to get the correct count.
+            // Examples:
+            //    (1).log10() ==   (1).log10().ceil() == 0
+            //   (10).log10() ==  (10).log10().ceil() == 1
+            //  (100).log10() == (100).log10().ceil() == 2
+            count as u64 + 1
+        } else {
+            count as u64
         }
     }
 }
@@ -214,6 +225,19 @@ mod magnitude_tests {
         assert!(m1.cmp(&m2) == ordering);
     }
 
+    fn count_decimal_digits_test<M>(m: M, expected_count: u64)
+    where
+        M: Into<Magnitude>,
+    {
+        let magnitude = m.into();
+        let actual_count = magnitude.number_of_decimal_digits();
+        assert_eq!(
+            actual_count, expected_count,
+            "expected {} decimal digits for {:?}, actual: {}",
+            expected_count, magnitude, actual_count
+        );
+    }
+
     #[test]
     fn test_magnitude_equals() {
         eq_test(0, 0);
@@ -245,5 +269,28 @@ mod magnitude_tests {
         cmp_test(-7920i16, Less, 7921u128);
         cmp_test(-7921i16, Equal, 7921u128);
         cmp_test(-7922i16, Greater, 7921u128);
+    }
+
+    #[test]
+    fn count_decimal_digits() {
+        count_decimal_digits_test(0, 1);
+        count_decimal_digits_test(1, 1);
+        count_decimal_digits_test(2, 1);
+        count_decimal_digits_test(10, 2);
+        count_decimal_digits_test(11, 2);
+        count_decimal_digits_test(12, 2);
+        count_decimal_digits_test(100, 3);
+        count_decimal_digits_test(101, 3);
+        count_decimal_digits_test(102, 3);
+
+        count_decimal_digits_test(BigUint::from(0u64), 1);
+        count_decimal_digits_test(BigUint::from(2u64), 1);
+        count_decimal_digits_test(BigUint::from(1u64), 1);
+        count_decimal_digits_test(BigUint::from(10u64), 2);
+        count_decimal_digits_test(BigUint::from(11u64), 2);
+        count_decimal_digits_test(BigUint::from(12u64), 2);
+        count_decimal_digits_test(BigUint::from(100u64), 3);
+        count_decimal_digits_test(BigUint::from(101u64), 3);
+        count_decimal_digits_test(BigUint::from(102u64), 3);
     }
 }

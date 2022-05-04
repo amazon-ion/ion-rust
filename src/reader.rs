@@ -60,6 +60,11 @@ impl<R: RawReader> Reader<R> {
         let mut is_append = false;
         let mut new_symbols = vec![];
 
+        // It's illegal for a symbol table to have multiple `symbols` or `imports` fields.
+        // Keep track of whethe we've already encountered them.
+        let mut has_found_symbols_field = false;
+        let mut has_found_imports_field = false;
+
         loop {
             let ion_type = match self.raw_reader.next()? {
                 RawStreamItem::Value(ion_type) => ion_type,
@@ -79,15 +84,27 @@ impl<R: RawReader> Reader<R> {
                 .expect("No field ID found inside $ion_symbol_table struct.");
             match (field_id, ion_type) {
                 // The field name is either SID 6 or the text 'imports' and the
-                // field value is a non-null symbol
-                (symbol, IonType::Symbol)
+                // field value is a non-null List
+                (symbol, IonType::List)
                     if symbol.matches(system_symbol_ids::IMPORTS, "imports") =>
                 {
                     // TODO: SST imports. This implementation only supports local symbol
                     //       table imports and appends.
+                    return decoding_error("importing shared symbol tables is not yet supported");
+                }
+                // The field name is either SID 6 or the text 'imports' and the
+                // field value is a non-null symbol
+                (symbol, IonType::Symbol)
+                    if symbol.matches(system_symbol_ids::IMPORTS, "imports") =>
+                {
+                    if has_found_imports_field {
+                        return decoding_error("symbol table had multiple 'imports' fields");
+                    }
+                    has_found_imports_field = true;
                     let import_symbol = self.raw_reader.read_symbol()?;
                     if !import_symbol.matches(3, "$ion_symbol_table") {
-                        unimplemented!("Can't handle non-$ion_symbol_table imports value.");
+                        // Field name `imports` with a symbol other than $ion_symbol_table is ignored
+                        continue;
                     }
                     is_append = true;
                 }
@@ -96,6 +113,10 @@ impl<R: RawReader> Reader<R> {
                 (symbol, IonType::List)
                     if symbol.matches(system_symbol_ids::SYMBOLS, "symbols") =>
                 {
+                    if has_found_symbols_field {
+                        return decoding_error("symbol table had multiple 'symbols' fields");
+                    }
+                    has_found_symbols_field = true;
                     self.raw_reader.step_in()?;
                     loop {
                         use RawStreamItem::*;
@@ -372,20 +393,18 @@ mod tests {
     const EXAMPLE_STREAM: &[u8] = &[
         // $ion_symbol_table::{imports: $ion_symbol_table, symbols: ["foo", "bar", "baz"]}
         0xEE, // Var len annotations
-        0x94, // Annotations + Value length: 20 bytes
+        0x92, // Annotations + Value length: 21 bytes
         0x81, // Annotations length: 1
         0x83, // Annotation 3 ('$ion_symbol_table')
         0xDE, // Var len struct
-        0x91, // Length: 17 bytes
-        0x86, // Field ID 6 ('imports')
-        0x71, 0x03, // Symbol 3 ('$ion_symbol_table')
+        0x8E, // Length: 14 bytes
         0x87, // Field ID 7 ('symbols')
         0xBC, // 12-byte List
         0x83, 0x66, 0x6f, 0x6f, // "foo"
         0x83, 0x62, 0x61, 0x72, // "bar"
         0x83, 0x62, 0x61, 0x7a, // "baz"
         // System: {$10: 1, $11: 2, $12: 3}
-        // User: {foo: 1, bar: 1, baz: 1}
+        // User: {foo: 1, bar: 2, baz: 3}
         0xD9, // 9-byte struct
         0x8A, // Field ID 10
         0x21, 0x01, // Integer 1
