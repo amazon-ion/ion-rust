@@ -8,6 +8,7 @@ use ion_rs::value::reader::{element_reader, ElementReader};
 use ion_rs::value::*;
 use std::fs::read;
 use std::iter::FromIterator;
+use ion_rs::types::integer::IntAccess;
 
 #[derive(Default, Clone)]
 struct IdentityDigest(Vec<u8>);
@@ -249,6 +250,6 @@ fn seq_to_bytes<E: Element>(elem: &E) -> Vec<u8> {
     elem.as_sequence()
         .expect("expected a sequence")
         .iter()
-        .map(|it| it.as_i64().expect("expected a sequence of bytes") as u8)
+        .map(|it| it.as_integer().and_then(|i|i.as_i64()).expect("expected a sequence of bytes") as u8)
         .collect()
 }
