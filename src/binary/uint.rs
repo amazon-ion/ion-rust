@@ -35,10 +35,7 @@ impl DecodedUInt {
             DecodedUInt::read_using_buffer(data_source, length, buffer)
         } else {
             // We're reading an enormous int. Heap-allocate a Vec to use as storage.
-            let mut buffer = Vec::with_capacity(length);
-            for _ in 0..length {
-                buffer.push(0u8);
-            }
+            let mut buffer = vec![0u8; length];
             DecodedUInt::read_using_buffer(data_source, length, buffer.as_mut_slice())
         }
     }

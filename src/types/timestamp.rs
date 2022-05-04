@@ -354,7 +354,7 @@ impl TimestampBuilder {
     where
         D: Datelike + Timelike + Debug,
     {
-        if self.year <= 0 || self.year > 9999 {
+        if self.year == 0 || self.year > 9999 {
             return illegal_operation(format!(
                 "Timestamp year '{}' out of range (1-9999)",
                 self.year

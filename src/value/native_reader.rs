@@ -46,7 +46,6 @@ impl ElementReader for NativeElementReader {
     }
 }
 
-
 impl<R: RawReader> NativeElementIterator<R> {
     /// Recursively materialize the next Ion value in the stream and return it as `Ok(Some(element))`.
     /// If there are no more values at this level, returns `Ok(None)`.
