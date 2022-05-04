@@ -21,10 +21,10 @@ use crate::{
 use std::io;
 
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::result::IonError;
+use crate::result::{decoding_error_raw, IonError};
 use crate::stream_reader::StreamReader;
 use crate::types::decimal::Decimal;
-use crate::types::integer::Integer;
+use crate::types::integer::{IntAccess, Integer};
 use crate::types::timestamp::Timestamp;
 use std::ops::Range;
 
@@ -458,23 +458,10 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
         Ok(value)
     }
 
-    // TODO:
-    // - Detect overflow and return an Error
-    // - Add an integer_size() method that indicates whether the current value will fit in an i64
     fn read_i64(&mut self) -> IonResult<i64> {
-        read_safety_checks!(self, IonType::Integer);
-
-        let uint = self.read_value_as_uint()?;
-        let magnitude = uint.value();
-
-        use self::IonTypeCode::*;
-        let value = match self.cursor.value.header.ion_type_code {
-            PositiveInteger => i64::try_from(magnitude)?,
-            NegativeInteger => -i64::try_from(magnitude)?,
-            itc => unreachable!("Unexpected IonTypeCode: {:?}", itc),
-        };
-
-        Ok(value)
+        self.read_integer()?
+            .as_i64()
+            .ok_or_else(|| decoding_error_raw("integer was too large to fit in an i64"))
     }
 
     fn read_f32(&mut self) -> IonResult<f32> {
