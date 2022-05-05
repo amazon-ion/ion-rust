@@ -354,6 +354,12 @@ impl TimestampBuilder {
     where
         D: Datelike + Timelike + Debug,
     {
+        if self.year == 0 || self.year > 9999 {
+            return illegal_operation(format!(
+                "Timestamp year '{}' out of range (1-9999)",
+                self.year
+            ));
+        }
         datetime = datetime.with_year(self.year as i32).ok_or_else(|| {
             illegal_operation_raw(format!("specified year ('{}') is invalid", self.year))
         })?;

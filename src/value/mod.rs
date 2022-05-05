@@ -67,7 +67,8 @@
 //! ```
 //! # use ion_rs::IonType;
 //! # use ion_rs::result::IonResult;
-//! # use ion_rs::value::{Element, IntAccess, Struct};
+//! use ion_rs::types::integer::IntAccess;
+//! # use ion_rs::value::{Element,  Struct};
 //! # use ion_rs::value::reader::element_reader;
 //! # use ion_rs::value::reader::ElementReader;
 //! # fn main() -> IonResult<()> {
@@ -204,14 +205,16 @@
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
 use crate::types::decimal::Decimal;
+use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::IonType;
 use num_bigint::BigInt;
-use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
 pub mod borrowed;
+pub mod ion_c_reader;
+pub mod native_reader;
 pub mod owned;
 pub mod reader;
 pub mod writer;
@@ -322,100 +325,6 @@ pub trait SymbolToken: Debug + PartialEq {
     fn local_sid_token(local_sid: SymbolId) -> Self;
 }
 
-/// Provides convenient integer accessors for integer values that are like [`AnyInt`]
-pub trait IntAccess {
-    /// Returns the value as an `i64` if it can be represented as such.
-    ///
-    /// ## Usage
-    /// ```
-    /// # use ion_rs::value::*;
-    /// # use ion_rs::value::owned::*;
-    /// # use ion_rs::value::borrowed::*;
-    /// # use num_bigint::*;
-    /// let big_any = AnyInt::BigInt(BigInt::from(100));
-    /// let i64_any = AnyInt::I64(100);
-    /// assert_eq!(big_any.as_i64(), i64_any.as_i64());
-    ///
-    /// // works on element too
-    /// let big_elem: OwnedElement = OwnedValue::Integer(big_any).into();
-    /// let i64_elem: BorrowedElement = BorrowedValue::Integer(i64_any).into();
-    ///
-    /// assert_eq!(big_elem.as_i64(), i64_elem.as_i64());
-    /// ```
-    fn as_i64(&self) -> Option<i64>;
-
-    /// Returns a reference as a [`BigInt`] if it is represented as such.  Note that this
-    /// method may return `None` if the underlying representation *is not* stored in a [`BigInt`]
-    /// such as if it is represented as an `i64` so it is somewhat asymmetric with respect
-    /// to [`IntAccess::as_i64`].
-    ///
-    /// ## Usage
-    /// ```
-    /// # use ion_rs::value::*;
-    /// # use ion_rs::value::owned::*;
-    /// # use ion_rs::value::borrowed::*;
-    /// # use num_bigint::*;
-    /// # use std::str::FromStr;
-    /// let big_any = AnyInt::BigInt(BigInt::from(100));
-    /// assert_eq!(BigInt::from_str("100").unwrap(), *big_any.as_big_int().unwrap());
-    /// let i64_any = AnyInt::I64(100);
-    /// assert_eq!(None, i64_any.as_big_int());
-    ///
-    /// // works on element too
-    /// let big_elem: BorrowedElement = BorrowedValue::Integer(big_any).into();
-    /// assert_eq!(BigInt::from_str("100").unwrap(), *big_elem.as_big_int().unwrap());
-    /// let i64_elem: OwnedElement = OwnedValue::Integer(i64_any).into();
-    /// assert_eq!(None, i64_elem.as_big_int());
-    /// ```
-    fn as_big_int(&self) -> Option<&BigInt>;
-}
-
-/// Container for either an integer that can fit in a 64-bit word or an arbitrarily sized
-/// [`BigInt`].
-///
-/// See [`IntAccess`] for common operations.
-#[derive(Debug, Clone)]
-pub enum AnyInt {
-    I64(i64),
-    BigInt(BigInt),
-}
-
-impl IntAccess for AnyInt {
-    #[inline]
-    fn as_i64(&self) -> Option<i64> {
-        match &self {
-            AnyInt::I64(i) => Some(*i),
-            AnyInt::BigInt(big) => big.to_i64(),
-        }
-    }
-
-    #[inline]
-    fn as_big_int(&self) -> Option<&BigInt> {
-        match &self {
-            AnyInt::I64(_) => None,
-            AnyInt::BigInt(big) => Some(big),
-        }
-    }
-}
-
-impl PartialEq for AnyInt {
-    fn eq(&self, other: &Self) -> bool {
-        use AnyInt::*;
-        match self {
-            I64(my_i64) => match other {
-                I64(other_i64) => my_i64 == other_i64,
-                BigInt(other_bi) => Some(*my_i64) == other_bi.to_i64(),
-            },
-            BigInt(my_bi) => match other {
-                I64(other_i64) => my_bi.to_i64() == Some(*other_i64),
-                BigInt(other_bi) => my_bi == other_bi,
-            },
-        }
-    }
-}
-
-impl Eq for AnyInt {}
-
 /// Represents a either a borrowed or owned Ion datum.  There are/will be specific APIs for
 /// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
 pub trait Element
@@ -478,10 +387,10 @@ where
     /// Returns whether this element is a `null` value
     fn is_null(&self) -> bool;
 
-    /// Returns a reference to the underlying [`AnyInt`] for this element.
+    /// Returns a reference to the underlying [`Integer`] for this element.
     ///
     /// This will return `None` if the type is not `int` or the value is any `null`.
-    fn as_any_int(&self) -> Option<&AnyInt>;
+    fn as_integer(&self) -> Option<&Integer>;
 
     /// Returns a reference to the underlying float value for this element.
     ///
@@ -537,25 +446,6 @@ where
     // TODO add all the accessors to the trait
 
     // TODO add mutation methods to the trait
-}
-
-impl<T> IntAccess for T
-where
-    T: Element,
-{
-    fn as_i64(&self) -> Option<i64> {
-        match self.as_any_int() {
-            Some(any) => any.as_i64(),
-            _ => None,
-        }
-    }
-
-    fn as_big_int(&self) -> Option<&BigInt> {
-        match self.as_any_int() {
-            Some(any) => any.as_big_int(),
-            _ => None,
-        }
-    }
 }
 
 /// Represents the _value_ of sequences of Ion elements (i.e. `list` and `sexp`).
@@ -718,7 +608,7 @@ mod generic_value_tests {
     use crate::types::timestamp::Timestamp;
     use crate::value::borrowed::*;
     use crate::value::owned::*;
-    use crate::value::{Element, IntAccess};
+    use crate::value::Element;
     use crate::{value, IonType};
     use chrono::*;
     use rstest::*;
@@ -1341,6 +1231,7 @@ mod generic_value_tests {
         }
     }
 
+    use crate::types::integer::IntAccess;
     use std::collections::HashSet;
     use std::str::FromStr;
     use ElemOp::*;
@@ -1383,7 +1274,7 @@ mod generic_value_tests {
             ops: vec![AsAnyInt],
             op_assert: Box::new(|e: &E| {
                 let expected = &E::Builder::new_i64(100);
-                assert_eq!(Some(&AnyInt::I64(100)), e.as_any_int());
+                assert_eq!(Some(&Integer::I64(100)), e.as_integer());
                 assert_eq!(Some(100), e.as_i64());
                 assert_eq!(None, e.as_big_int());
                 assert_eq!(expected, e);
@@ -1398,7 +1289,7 @@ mod generic_value_tests {
             ops: vec![AsAnyInt],
             op_assert: Box::new(|e: &E| {
                 let expected = &E::Builder::new_big_int(BigInt::from(100));
-                assert_eq!(Some(&AnyInt::BigInt(BigInt::from(100))), e.as_any_int());
+                assert_eq!(Some(&Integer::BigInt(BigInt::from(100))), e.as_integer());
                 assert_eq!(BigInt::from_str("100").unwrap(), *e.as_big_int().unwrap());
                 assert_eq!(expected, e);
             }),
@@ -1658,7 +1549,7 @@ mod generic_value_tests {
             (IsNull, &|e| assert_eq!(false, e.is_null())),
             (AsBool, &|e| assert_eq!(None, e.as_bool())),
             (AsAnyInt, &|e| {
-                assert_eq!(None, e.as_any_int());
+                assert_eq!(None, e.as_integer());
                 assert_eq!(None, e.as_i64());
                 assert_eq!(None, e.as_big_int());
             }),

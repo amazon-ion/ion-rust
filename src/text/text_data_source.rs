@@ -25,7 +25,7 @@ impl<'a> TextIonDataSource for &'a str {
     }
 }
 
-impl<'a> TextIonDataSource for &'a &[u8] {
+impl<'a> TextIonDataSource for &'a [u8] {
     type TextSource = io::Cursor<Self>;
 
     fn to_text_ion_data_source(self) -> Self::TextSource {

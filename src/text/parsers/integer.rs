@@ -1,6 +1,8 @@
+use crate::result::{decoding_error, IonResult};
 use crate::text::parsers::numeric_support::base_10_integer_digits;
 use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
+use crate::types::integer::Integer;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, tag, take_while1};
 use nom::character::streaming::char;
@@ -8,7 +10,9 @@ use nom::combinator::{map_res, opt, recognize};
 use nom::multi::many0_count;
 use nom::sequence::{pair, preceded, separated_pair, terminated};
 use nom::IResult;
-use std::num::ParseIntError;
+use num_bigint::BigInt;
+use num_traits::Num;
+use std::num::IntErrorKind;
 
 // This module uses the phrase "base 10" to avoid potentially confusing references to "decimal",
 // a phrase which is heavily overloaded in the context of parsing Ion. It may refer to the Ion type
@@ -33,7 +37,7 @@ fn base_16_integer(input: &str) -> IResult<&str, TextValue> {
             base_16_integer_digits,
         ),
         |(maybe_sign, text_digits)| {
-            parse_i64_with_radix(text_digits, 16)
+            parse_integer_with_radix(text_digits, 16)
                 .map(|i| if maybe_sign.is_some() { -i } else { i })
                 .map(TextValue::Integer)
         },
@@ -66,7 +70,7 @@ fn base_2_integer(input: &str) -> IResult<&str, TextValue> {
             base_2_integer_digits,
         ),
         |(maybe_sign, text_digits)| {
-            parse_i64_with_radix(text_digits, 2)
+            parse_integer_with_radix(text_digits, 2)
                 .map(|i| if maybe_sign.is_some() { -i } else { i })
                 .map(TextValue::Integer)
         },
@@ -88,28 +92,63 @@ fn base_2_integer_digits(input: &str) -> IResult<&str, &str> {
 fn base_10_integer(input: &str) -> IResult<&str, TextValue> {
     map_res(
         recognize(preceded(opt(char('-')), base_10_integer_digits)),
-        |text| parse_i64_with_radix(text, 10).map(TextValue::Integer),
+        |text| parse_integer_with_radix(text, 10).map(TextValue::Integer),
     )(input)
 }
 
 /// Strips any underscores out of the provided text and then parses it according to the specified
 /// radix.
-fn parse_i64_with_radix(text: &str, radix: u32) -> Result<i64, ParseIntError> {
+fn parse_integer_with_radix(text: &str, radix: u32) -> IonResult<Integer> {
     if text.contains('_') {
         let sanitized = text.replace('_', "");
-        return i64::from_str_radix(&sanitized, radix);
+        return parse_sanitized_text_with_radix(&sanitized, radix);
     }
-    i64::from_str_radix(text, radix)
+    parse_sanitized_text_with_radix(text, radix)
+}
+
+/// Parses the provided text according to the specified radix.
+fn parse_sanitized_text_with_radix(text: &str, radix: u32) -> IonResult<Integer> {
+    // Try to parse it as an i64...
+    match i64::from_str_radix(text, radix) {
+        Ok(integer) => Ok(Integer::I64(integer)),
+        Err(e)
+            if e.kind() == &IntErrorKind::NegOverflow || e.kind() == &IntErrorKind::PosOverflow =>
+        {
+            // The text is ok, but the magnitude of the integer it represents is too large to
+            // represent using an i64. Try again with BigInt.
+            BigInt::from_str_radix(text, radix)
+                .map(Integer::BigInt)
+                .or_else(|e| {
+                    decoding_error(format!(
+                        "Found big integer ('{}') with invalid text: {:?}",
+                        text, e
+                    ))
+                })
+        }
+        error @ Err(_) => {
+            // Something else was wrong with the text, but our parser still matched on it for
+            // some reason.
+            decoding_error(format!(
+                "Found integer ('{}') with invalid text: {:?}",
+                text, error
+            ))
+        }
+    }
 }
 
 #[cfg(test)]
 mod integer_parsing_tests {
+    use super::*;
     use crate::text::parsers::integer::parse_integer;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::text_value::TextValue;
 
-    fn parse_equals(text: &str, expected: i64) {
-        parse_test_ok(parse_integer, text, TextValue::Integer(expected))
+    fn parse_equals_i64(text: &str, expected: i64) {
+        parse_test_ok(
+            parse_integer,
+            text,
+            TextValue::Integer(Integer::I64(expected)),
+        )
     }
 
     fn parse_fails(text: &str) {
@@ -118,9 +157,9 @@ mod integer_parsing_tests {
 
     #[test]
     fn test_parse_base_10_integers() {
-        parse_equals("1 ", 1);
-        parse_equals("305 ", 305);
-        parse_equals("-279 ", -279);
+        parse_equals_i64("1 ", 1);
+        parse_equals_i64("305 ", 305);
+        parse_equals_i64("-279 ", -279);
 
         // Doesn't consume leading whitespace
         parse_fails(" 305 ");
@@ -134,9 +173,9 @@ mod integer_parsing_tests {
 
     #[test]
     fn test_parse_base_10_integers_with_underscores() {
-        parse_equals("111_111_222 ", 111_111_222);
-        parse_equals("-999_999 ", -999_999);
-        parse_equals("1_2_3_4_5_6 ", 123456);
+        parse_equals_i64("111_111_222 ", 111_111_222);
+        parse_equals_i64("-999_999 ", -999_999);
+        parse_equals_i64("1_2_3_4_5_6 ", 123456);
 
         // Doesn't accept leading underscores
         parse_fails("_111_111_222 ");
@@ -148,13 +187,13 @@ mod integer_parsing_tests {
 
     #[test]
     fn test_parse_base_2_integers() {
-        parse_equals("0b1 ", 1);
-        parse_equals("0b101 ", 5);
-        parse_equals("0B101 ", 5);
-        parse_equals("0b11110000 ", 240);
-        parse_equals("-0b11110000 ", -240);
-        parse_equals("0B11111111 ", 255);
-        parse_equals("-0B11111111 ", -255);
+        parse_equals_i64("0b1 ", 1);
+        parse_equals_i64("0b101 ", 5);
+        parse_equals_i64("0B101 ", 5);
+        parse_equals_i64("0b11110000 ", 240);
+        parse_equals_i64("-0b11110000 ", -240);
+        parse_equals_i64("0B11111111 ", 255);
+        parse_equals_i64("-0B11111111 ", -255);
 
         // Doesn't consume leading whitespace
         parse_fails(" 0b0011_0001 ");
@@ -168,10 +207,10 @@ mod integer_parsing_tests {
 
     #[test]
     fn test_parse_base_2_integers_with_underscores() {
-        parse_equals("0b1_0_1 ", 5);
-        parse_equals("-0b111 ", -7);
+        parse_equals_i64("0b1_0_1 ", 5);
+        parse_equals_i64("-0b111 ", -7);
 
-        parse_equals("-0b1111_0000 ", -240);
+        parse_equals_i64("-0b1111_0000 ", -240);
 
         // Doesn't accept leading underscores
         parse_fails("0b_0011_0001 ");
@@ -184,12 +223,12 @@ mod integer_parsing_tests {
 
     #[test]
     fn test_parse_base_16_integers() {
-        parse_equals("0x1 ", 1);
-        parse_equals("0xA ", 10);
-        parse_equals("0xFF ", 255);
-        parse_equals("0xff ", 255);
-        parse_equals("0XfF ", 255);
-        parse_equals("-0xDECAF ", -912559);
+        parse_equals_i64("0x1 ", 1);
+        parse_equals_i64("0xA ", 10);
+        parse_equals_i64("0xFF ", 255);
+        parse_equals_i64("0xff ", 255);
+        parse_equals_i64("0XfF ", 255);
+        parse_equals_i64("-0xDECAF ", -912559);
 
         // Doesn't consume leading whitespace
         parse_fails(" 0xCAFE ");
@@ -203,8 +242,8 @@ mod integer_parsing_tests {
 
     #[test]
     fn test_parse_base_16_integers_with_underscores() {
-        parse_equals("0xFA_CE ", 64_206);
-        parse_equals("0xF_A_C_E ", 64_206);
+        parse_equals_i64("0xFA_CE ", 64_206);
+        parse_equals_i64("0xF_A_C_E ", 64_206);
 
         // Doesn't accept leading underscores
         parse_fails("0x_CAFE ");
@@ -214,4 +253,6 @@ mod integer_parsing_tests {
         // Doesn't accept multiple consecutive underscores
         parse_fails("0xCA__FE ");
     }
+
+    // TODO: Parse BigInts
 }

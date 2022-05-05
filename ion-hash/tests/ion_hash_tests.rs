@@ -4,6 +4,7 @@ use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
 use ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
+use ion_rs::types::integer::IntAccess;
 use ion_rs::value::reader::{element_reader, ElementReader};
 use ion_rs::value::*;
 use std::fs::read;
@@ -249,6 +250,10 @@ fn seq_to_bytes<E: Element>(elem: &E) -> Vec<u8> {
     elem.as_sequence()
         .expect("expected a sequence")
         .iter()
-        .map(|it| it.as_i64().expect("expected a sequence of bytes") as u8)
+        .map(|it| {
+            it.as_integer()
+                .and_then(|i| i.as_i64())
+                .expect("expected a sequence of bytes") as u8
+        })
         .collect()
 }

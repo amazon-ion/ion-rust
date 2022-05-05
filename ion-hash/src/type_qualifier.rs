@@ -5,10 +5,14 @@ use std::slice;
 ///! Implements "type qualifiers" (TQ) as per the [spec][spec].
 ///!
 ///! [spec]: https://amzn.github.io/ion-hash/docs/spec.html.
+use ion_rs::types::integer::Integer;
+///! Implements "type qualifiers" (TQ) as per the [spec][spec].
+///!
+///! [spec]: https://amzn.github.io/ion-hash/docs/spec.html.
 use ion_rs::{
     binary::IonTypeCode,
     types::{decimal::Decimal, timestamp::Timestamp},
-    value::{AnyInt, Element, Sequence, Struct, SymbolToken},
+    value::{Element, Sequence, Struct, SymbolToken},
     IonType,
 };
 use num_bigint::Sign;
@@ -45,7 +49,7 @@ impl TypeQualifier {
         match elem.ion_type() {
             IonType::Null => type_qualifier_null(),
             IonType::Boolean => type_qualifier_boolean(elem.as_bool()),
-            IonType::Integer => type_qualifier_integer(elem.as_any_int()),
+            IonType::Integer => type_qualifier_integer(elem.as_integer()),
             IonType::Float => type_qualifier_float(elem.as_f64()),
             IonType::Decimal => type_qualifier_decimal(elem.as_decimal()),
             IonType::Timestamp => type_qualifier_timestamp(elem.as_timestamp()),
@@ -65,12 +69,12 @@ impl TypeQualifier {
     }
 }
 
-fn is_anyint_positive(value: Option<&AnyInt>) -> bool {
+fn is_integer_positive(value: Option<&Integer>) -> bool {
     match value {
         None => true,
         Some(any) => match any {
-            AnyInt::I64(i) => *i >= 0,
-            AnyInt::BigInt(b) => !std::matches!(b.sign(), Sign::Minus),
+            Integer::I64(i) => *i >= 0,
+            Integer::BigInt(b) => !std::matches!(b.sign(), Sign::Minus),
         },
     }
 }
@@ -99,8 +103,8 @@ pub(crate) fn type_qualifier_boolean(value: Option<bool>) -> TypeQualifier {
     combine(IonTypeCode::Boolean, q)
 }
 
-pub(crate) fn type_qualifier_integer(any: Option<&AnyInt>) -> TypeQualifier {
-    let t = match is_anyint_positive(any) {
+pub(crate) fn type_qualifier_integer(any: Option<&Integer>) -> TypeQualifier {
+    let t = match is_integer_positive(any) {
         true => IonTypeCode::PositiveInteger,
         false => IonTypeCode::NegativeInteger,
     };

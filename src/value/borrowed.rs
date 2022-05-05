@@ -9,9 +9,10 @@
 
 use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::types::decimal::Decimal;
+use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
-use crate::value::{AnyInt, Builder};
+use crate::value::Builder;
 use crate::IonType;
 use num_bigint::BigInt;
 use std::collections::HashMap;
@@ -169,11 +170,11 @@ impl<'val> Builder for BorrowedElement<'val> {
     }
 
     fn new_i64(int: i64) -> Self::Element {
-        BorrowedValue::Integer(AnyInt::I64(int)).into()
+        BorrowedValue::Integer(Integer::I64(int)).into()
     }
 
     fn new_big_int(big_int: BigInt) -> Self::Element {
-        BorrowedValue::Integer(AnyInt::BigInt(big_int)).into()
+        BorrowedValue::Integer(Integer::BigInt(big_int)).into()
     }
 
     fn new_decimal(decimal: Decimal) -> Self::Element {
@@ -390,7 +391,7 @@ impl<'val> Eq for BorrowedStruct<'val> {}
 #[derive(Debug, Clone, PartialEq)]
 pub enum BorrowedValue<'val> {
     Null(IonType),
-    Integer(AnyInt),
+    Integer(Integer),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
@@ -441,13 +442,13 @@ impl<'val> From<IonType> for BorrowedElement<'val> {
 
 impl<'val> From<i64> for BorrowedElement<'val> {
     fn from(i64_val: i64) -> Self {
-        BorrowedValue::Integer(AnyInt::I64(i64_val)).into()
+        BorrowedValue::Integer(Integer::I64(i64_val)).into()
     }
 }
 
 impl<'val> From<BigInt> for BorrowedElement<'val> {
     fn from(big_int_val: BigInt) -> Self {
-        BorrowedValue::Integer(AnyInt::BigInt(big_int_val)).into()
+        BorrowedValue::Integer(Integer::BigInt(big_int_val)).into()
     }
 }
 
@@ -530,7 +531,7 @@ impl<'val> Element for BorrowedElement<'val> {
         matches!(&self.value, BorrowedValue::Null(_))
     }
 
-    fn as_any_int(&self) -> Option<&AnyInt> {
+    fn as_integer(&self) -> Option<&Integer> {
         match &self.value {
             BorrowedValue::Integer(i) => Some(i),
             _ => None,
