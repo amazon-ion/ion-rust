@@ -975,9 +975,8 @@ where
         use IonTypeCode::*;
         let length = match header.ion_type_code {
             NullOrNop | Boolean => 0,
-            PositiveInteger | NegativeInteger | Decimal | String | Symbol | List | SExpression | Clob | Blob => {
-                self.read_standard_length()?
-            }
+            PositiveInteger | NegativeInteger | Decimal | String | Symbol | List | SExpression
+            | Clob | Blob => self.read_standard_length()?,
             Timestamp => {
                 let length = self.read_standard_length()?;
                 if length <= 1 && !self.cursor.value.is_null {
