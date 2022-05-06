@@ -124,7 +124,7 @@ impl EncodedUInt {
 }
 
 impl AsRef<[u8]> for EncodedUInt {
-    /// The same as [`as_bytes`].
+    /// The same as [EncodedUInt::as_bytes].
     fn as_ref(&self) -> &[u8] {
         self.as_bytes()
     }

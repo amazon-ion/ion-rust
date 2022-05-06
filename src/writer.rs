@@ -19,8 +19,9 @@ pub trait Writer {
     /// Returns `true` if this RawWriter supports writing field names, annotations, and
     /// symbol values directly as text; otherwise, returns `false`.
     ///
-    /// If this method returns `false`, passing a [RawSymbolTokenRef::Text] to the
-    /// [set_annotations], [set_field_name], or [write_symbol] methods may result in a panic.
+    /// If this method returns `false`, passing a [crate::RawSymbolToken::Text] to the
+    /// [Self::set_annotations], [Self::set_field_name], or [Self::write_symbol] methods may result
+    /// in a panic.
     fn supports_text_symbol_tokens(&self) -> bool;
 
     /// Sets a list of annotations that will be applied to the next value that is written.
