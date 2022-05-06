@@ -778,7 +778,7 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
         })?;
 
         // Now that we know how large the container's header is, add its length to the
-        // calculate container size.
+        // calculated container size.
         let container_size = container_size + header_io_range.len();
 
         // Retrieve this container's header byte range from io_ranges
