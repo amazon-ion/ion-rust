@@ -271,7 +271,6 @@ fn timezone_offset(input: &str) -> IResult<&str, Option<i32>> {
 /// Recognizes the hours and minutes portions of a timezone offset. (`12` and `35` in `12:35`)
 fn timezone_offset_hours_minutes(input: &str) -> IResult<&str, (i32, i32)> {
     let (remaining_input, (hours, minutes)) = separated_pair(
-        // The parser does not restrict the range of hours/minutes allowed in the offset.
         recognize(pair(digit, digit)),
         tag(":"),
         recognize(pair(digit, digit)),
