@@ -61,7 +61,7 @@ impl<R: RawReader> Reader<R> {
         let mut new_symbols = vec![];
 
         // It's illegal for a symbol table to have multiple `symbols` or `imports` fields.
-        // Keep track of whethe we've already encountered them.
+        // Keep track of whether we've already encountered them.
         let mut has_found_symbols_field = false;
         let mut has_found_imports_field = false;
 

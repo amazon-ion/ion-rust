@@ -962,7 +962,7 @@ where
         // TODO: Is cursor.value.ion_type redundant?
         self.cursor.value.ion_type = header.ion_type.ok_or_else(|| {
             decoding_error_raw(format!(
-                "Found an invalid type code: {:?}",
+                "found an invalid type code: {:?}",
                 header.ion_type_code
             ))
         })?;
@@ -1104,9 +1104,6 @@ where
         let num_annotations_before = self.cursor.annotations.len();
         // The first byte of the annotations envelope is now behind the cursor
         let annotations_offset = self.cursor.bytes_read - 1;
-        // The encoding allows us to skip over the annotations list and the value, but in practice
-        // we won't know if we want to skip this value until we've read the type descriptor byte.
-        // That means we need to read the length even though we have no intent to use it.
         let annotations_and_value_length = self.read_standard_length()?;
         let annotations_length = self.read_var_uint()?;
         if annotations_length.value() == 0 {
