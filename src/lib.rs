@@ -35,24 +35,24 @@ mod writer;
 pub use binary::raw_binary_reader::RawBinaryReader;
 pub use data_source::IonDataSource;
 pub use raw_reader::RawStreamItem;
+pub use raw_symbol_token::RawSymbolToken;
 pub use reader::Reader;
 pub use reader::StreamItem;
 pub use stream_reader::StreamReader;
-pub use symbol_table::{SymbolTable, Symbol};
-pub use raw_symbol_token::RawSymbolToken;
+pub use symbol_table::{Symbol, SymbolTable};
 pub use system_reader::{SystemReader, SystemStreamItem};
 
-pub use types::IonType;
-pub use types::timestamp::Timestamp;
 pub use types::decimal::Decimal;
 pub use types::integer::Integer;
+pub use types::timestamp::Timestamp;
+pub use types::IonType;
 
-pub use writer::Writer;
 pub use binary::binary_writer::BinaryWriter;
 pub use text::text_writer::TextWriter;
+pub use writer::Writer;
 
-pub use result::IonResult;
 pub use result::IonError;
+pub use result::IonResult;
 
 /// Re-exports of third party dependencies that are part of our public API.
 ///
