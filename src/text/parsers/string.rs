@@ -142,6 +142,8 @@ mod string_parsing_tests {
         parse_fails("\"Hello, world ");
         // Leading whitespace not accepted
         parse_fails(" \"Hello, world\" ");
+        // Unicode escape producing invalid surrogate
+        parse_fails(r#"'''\ud800'''\n"#);
     }
 
     #[test]

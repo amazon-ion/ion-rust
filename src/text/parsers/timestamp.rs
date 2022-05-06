@@ -6,8 +6,9 @@ use nom::bytes::streaming::tag;
 use nom::character::complete::digit1;
 use nom::character::streaming::{char, one_of};
 use nom::combinator::{map, map_res, opt, recognize};
+use nom::error::{make_error, ErrorKind};
 use nom::sequence::{pair, preceded, separated_pair, terminated, tuple};
-use nom::IResult;
+use nom::{Err, IResult};
 use num_bigint::BigUint;
 
 use crate::result::IonError;
@@ -257,8 +258,6 @@ fn timezone_offset(input: &str) -> IResult<&str, Option<i32>> {
         map(
             pair(one_of("-+"), timezone_offset_hours_minutes),
             |(sign, (hours, minutes))| {
-                let hours = trim_zeros_expect_i32(hours, "offset hours");
-                let minutes = trim_zeros_expect_i32(minutes, "offset minutes");
                 let offset_minutes = (hours * 60) + minutes;
                 if sign == '-' {
                     return Some(-offset_minutes);
@@ -270,13 +269,21 @@ fn timezone_offset(input: &str) -> IResult<&str, Option<i32>> {
 }
 
 /// Recognizes the hours and minutes portions of a timezone offset. (`12` and `35` in `12:35`)
-fn timezone_offset_hours_minutes(input: &str) -> IResult<&str, (&str, &str)> {
-    separated_pair(
-        // The parser does not restrict the range of hours/minutes allowed in the offset.
+fn timezone_offset_hours_minutes(input: &str) -> IResult<&str, (i32, i32)> {
+    let (remaining_input, (hours, minutes)) = separated_pair(
         recognize(pair(digit, digit)),
         tag(":"),
         recognize(pair(digit, digit)),
-    )(input)
+    )(input)?;
+    let hour_int = trim_zeros_expect_i32(hours, "offset hours");
+    let minute_int = trim_zeros_expect_i32(minutes, "offset minutes");
+    if hour_int >= 24 {
+        return Err(Err::Failure(make_error(hours, ErrorKind::TooLarge)));
+    }
+    if minute_int >= 60 {
+        return Err(Err::Failure(make_error(minutes, ErrorKind::TooLarge)));
+    }
+    Ok((remaining_input, (hour_int, minute_int)))
 }
 
 #[cfg(test)]

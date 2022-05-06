@@ -26,6 +26,7 @@ use crate::stream_reader::StreamReader;
 use crate::types::decimal::Decimal;
 use crate::types::integer::{IntAccess, Integer};
 use crate::types::timestamp::Timestamp;
+use num_traits::Zero;
 use std::ops::Range;
 
 /// Information about the value over which the RawBinaryReader is currently positioned.
@@ -96,14 +97,15 @@ impl EncodedValue {
     /// Returns the length of this value's header, including the type descriptor byte and any
     /// additional bytes used to encode the value's length.
     fn header_length(&self) -> usize {
-        self.header_length as usize
+        // The `header_length` field does not include the type descriptor byte, so add 1.
+        self.header_length as usize + 1
     }
 
     /// Returns an offset Range containing this value's type descriptor
     /// byte and any additional bytes used to encode the `length`.
     fn header_range(&self) -> Range<usize> {
         let start = self.header_offset;
-        let end = start + self.header_length as usize + 1;
+        let end = start + self.header_length();
         start..end
     }
 
@@ -344,6 +346,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
         }
 
         self.clear_annotations();
+        let mut expected_annotated_value_length = None;
         if header.ion_type_code == IonTypeCode::Annotation {
             if header.length_code == 0 {
                 // This is actually the first byte in an Ion Version Marker
@@ -352,7 +355,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
             }
             // We've found an annotated value. Read all of the annotation symbols leading
             // up to the value
-            let _ = self.read_annotations()?;
+            expected_annotated_value_length = Some(self.read_annotations()?);
             // Now read the next header representing the value itself.
             header = match self.read_next_value_header()? {
                 Some(header) => header,
@@ -371,6 +374,19 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
 
         self.cursor.index_at_depth += 1;
         self.cursor.value.index_at_depth = self.cursor.index_at_depth;
+
+        // If this value had an annotations wrapper, make sure the length of the value we just
+        // found is the expected size.
+        if let Some(expected_length) = expected_annotated_value_length {
+            let value = &self.cursor.value;
+            let encoded_length = value.header_length() + value.value_length();
+            if encoded_length != expected_length {
+                return decoding_error(format!(
+                    "annotations wrapper expected a {}-byte value, but found a {}-byte {}",
+                    expected_length, encoded_length, value.ion_type
+                ));
+            }
+        }
 
         let item = RawStreamItem::nullable_value(self.cursor.value.ion_type, self.is_null());
         Ok(self.set_current_item(item))
@@ -450,8 +466,11 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
 
         use self::IonTypeCode::*;
         let value = match (self.cursor.value.header.ion_type_code, value) {
-            (PositiveInteger, any_int) => any_int,
-            (NegativeInteger, any_int) => -any_int,
+            (PositiveInteger, integer) => integer,
+            (NegativeInteger, integer) if integer.is_zero() => {
+                return decoding_error("found a negative integer (typecode=3) with a value of 0");
+            }
+            (NegativeInteger, integer) => -integer,
             itc => unreachable!("Unexpected IonTypeCode: {:?}", itc),
         };
 
@@ -883,6 +902,9 @@ where
     }
 
     fn read_ivm(&mut self) -> IonResult<RawStreamItem> {
+        if self.depth() > 0 {
+            return decoding_error("found a binary IVM inside a container");
+        }
         let (major, minor) = self.read_slice(3, |bytes| match *bytes {
             [major, minor, 0xEA] => Ok((major, minor)),
             [major, minor, other] => decoding_error(format!(
@@ -937,7 +959,13 @@ where
     }
 
     fn process_header_by_type_code(&mut self, header: Header) -> IonResult<()> {
-        self.cursor.value.ion_type = header.ion_type.unwrap(); // TODO: Is cursor.value.ion_type redundant?
+        // TODO: Is cursor.value.ion_type redundant?
+        self.cursor.value.ion_type = header.ion_type.ok_or_else(|| {
+            decoding_error_raw(format!(
+                "found an invalid type code: {:?}",
+                header.ion_type_code
+            ))
+        })?;
         self.cursor.value.header = header;
         self.cursor.value.is_null = header.length_code == length_codes::NULL;
 
@@ -947,12 +975,21 @@ where
         use IonTypeCode::*;
         let length = match header.ion_type_code {
             NullOrNop | Boolean => 0,
-            PositiveInteger | NegativeInteger | Decimal | Timestamp | String | Symbol | List
-            | SExpression | Clob | Blob => self.read_standard_length()?,
+            PositiveInteger | NegativeInteger | Decimal | String | Symbol | List | SExpression
+            | Clob | Blob => self.read_standard_length()?,
+            Timestamp => {
+                let length = self.read_standard_length()?;
+                if length <= 1 && !self.cursor.value.is_null {
+                    return decoding_error(
+                        "found a non-null timestamp (typecode=6) with a length <= 1",
+                    );
+                }
+                length
+            }
             Float => self.read_float_length()?,
             Struct => self.read_struct_length()?,
-            Annotation => return decoding_error("Found an annotation wrapping an annotation."),
-            Reserved => return decoding_error("Found an Ion Value with a Reserved type code."),
+            Annotation => return decoding_error("found an annotation wrapping an annotation"),
+            Reserved => return decoding_error("found an Ion Value with a Reserved type code"),
         };
 
         self.cursor.value.header_length =
@@ -991,7 +1028,18 @@ where
     fn read_struct_length(&mut self) -> IonResult<usize> {
         let length = match self.cursor.value.header.length_code {
             length_codes::NULL => 0,
-            1 | length_codes::VAR_UINT => self.read_var_uint()?.value(),
+            // If the length code is `1`, it indicates an ordered struct. This is a special case
+            // of struct; it cannot be empty, and its fields must appear in ascending order of
+            // symbol ID. For the time being, the binary reader doesn't implement any special
+            // handling for it.
+            1 => {
+                let length = self.read_var_uint()?.value();
+                if length == 0 {
+                    return decoding_error("found an empty ordered struct");
+                }
+                length
+            }
+            length_codes::VAR_UINT => self.read_var_uint()?.value(),
             magnitude => magnitude as usize,
         };
 
@@ -1049,16 +1097,25 @@ where
         Ok(field_id)
     }
 
-    fn read_annotations(&mut self) -> IonResult<()> {
+    /// Reads the annotations in the annotations wrapper and returns the expected length of the
+    /// wrapped value that will follow.
+    fn read_annotations(&mut self) -> IonResult<usize> {
         let num_annotations_before = self.cursor.annotations.len();
         // The first byte of the annotations envelope is now behind the cursor
         let annotations_offset = self.cursor.bytes_read - 1;
-        // The encoding allows us to skip over the annotations list and the value, but in practice
-        // we won't know if we want to skip this value until we've read the type descriptor byte.
-        // That means we need to read the length even though we have no intent to use it.
-        let _annotations_and_value_length = self.read_standard_length()?;
+        let annotations_and_value_length = self.read_standard_length()?;
         let annotations_length = self.read_var_uint()?;
+        if annotations_length.value() == 0 {
+            return decoding_error("found an annotations wrapper with no annotations");
+        }
+        let expected_value_length = annotations_and_value_length
+            - annotations_length.size_in_bytes()
+            - annotations_length.value();
+        if expected_value_length == 0 {
+            return decoding_error("found an annotation wrapper with no value");
+        }
         let mut bytes_read: usize = 0;
+
         while bytes_read < annotations_length.value() {
             let var_uint = self.read_var_uint()?;
             bytes_read += var_uint.size_in_bytes();
@@ -1072,7 +1129,7 @@ where
 
         // The annotations type descriptor byte + the length of the annotations sequence
         self.cursor.value.annotations_length = (self.cursor.bytes_read - annotations_offset) as u8;
-        Ok(())
+        Ok(expected_value_length)
     }
 
     fn read_exact(&mut self, number_of_bytes: usize) -> IonResult<()> {

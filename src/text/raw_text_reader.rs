@@ -91,10 +91,16 @@ impl<T: TextIonDataSource> RawTextReader<T> {
             }
 
             // Otherwise, see if the next token in the stream is an Ion Version Marker.
-            if let Ok(Some(_)) = self.parse_next(ion_1_0_version_marker) {
-                // We found an IVM; we currently only support Ion 1.0.
-                self.current_ivm = Some((1, 0));
-                return Ok(());
+            match self.parse_next(ion_1_0_version_marker) {
+                Ok(Some(_)) => {
+                    // We found an IVM; we currently only support Ion 1.0.
+                    self.current_ivm = Some((1, 0));
+                    return Ok(());
+                }
+                Err(e @ IonError::IoError { .. }) => return Err(e),
+                _ => {
+                    // Any other kind of error is a parse error; it's not an IVM.
+                }
             }
 
             // If it wasn't an IVM, it has to be a value.

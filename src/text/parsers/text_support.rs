@@ -1,12 +1,12 @@
 // Parsing functions that are common to textual types
 
-use crate::result::{decoding_error_raw, IonError};
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::{char, satisfy};
-use nom::combinator::{map, map_res, recognize, value};
+use nom::combinator::{map, recognize, value};
+use nom::error::{Error, ErrorKind, ParseError};
 use nom::sequence::{preceded, tuple};
-use nom::{AsChar, IResult};
+use nom::{AsChar, Err, IResult};
 
 /// The text Ion types each need to be able to read strings that contain escaped characters.
 /// This type represents the possible types of substring that make up any given piece of text from
@@ -62,28 +62,43 @@ pub(crate) fn escaped_char_literal(input: &str) -> IResult<&str, char> {
 /// Matches a Unicode escape (starting with '\x', '\u', or '\U'), returning the appropriate
 /// substitute character.
 pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
-    map_res::<_, _, _, _, IonError, _, _>(
-        alt((
-            escaped_char_unicode_2_digit_hex,
-            escaped_char_unicode_4_digit_hex,
-            escaped_char_unicode_8_digit_hex,
-        )),
-        |hex_digits| {
-            let number_value = u32::from_str_radix(hex_digits, 16).map_err(|e| {
-                decoding_error_raw(format!(
-                    "Couldn't parse unicode escape '{}': {:?}",
-                    hex_digits, e
-                ))
-            })?;
-            let char_value = std::char::from_u32(number_value).ok_or_else(|| {
-                decoding_error_raw(format!(
-                    "Couldn't parse unicode escape '{}': {} is not a valid codepoint.",
-                    hex_digits, number_value
-                ))
-            })?;
-            Ok(char_value)
-        },
-    )(input)
+    // First, try to match the input to Unicode escape sequence. If successful, extract the hex
+    // digits that were included in the sequence. If matching fails, this isn't an escape sequence.
+    // Return early with a non-fatal error.
+    let (remaining_input, hex_digits) = alt((
+        escaped_char_unicode_2_digit_hex,
+        escaped_char_unicode_4_digit_hex,
+        escaped_char_unicode_8_digit_hex,
+    ))(input)?;
+
+    // Now that we have our hex digits, we'll try to convert them to Unicode code points.
+    // If this step fails, the Ion data stream is malformed and we need to bail out completely.
+    // We can't simply return an error as we did above; if we did that, the parser would go on to
+    // treat the input as a String literal without escapes, which is the incorrect behavior.
+    // Instead, we need to return a nom `Err::Failure`, indicating that we cannot proceed.
+    let number_value = match u32::from_str_radix(hex_digits, 16) {
+        Ok(number_value) => number_value,
+        Err(_parse_int_error) => {
+            // TODO: A custom error type would be required to bubble up specific information
+            //       about the failure.
+            return Err(Err::Failure(Error::from_error_kind(
+                remaining_input,
+                ErrorKind::Escaped,
+            )));
+        }
+    };
+    let char_value = match std::char::from_u32(number_value) {
+        Some(char_value) => char_value,
+        None => {
+            // TODO: A custom error type would be required to bubble up specific information
+            //       about the failure.
+            return Err(Err::Failure(Error::from_error_kind(
+                remaining_input,
+                ErrorKind::Escaped,
+            )));
+        }
+    };
+    Ok((remaining_input, char_value))
 }
 
 /// Matches a 2-digit Unicode escape (starting with '\x'), returning the appropriate

@@ -534,77 +534,38 @@ mod native_element_tests {
 
         fn global_skip_list() -> SkipList {
             &[
-                "ion-tests/iontestdata/bad/annotationLengthTooLongContainer.10n",
-                "ion-tests/iontestdata/bad/annotationLengthTooLongScalar.10n",
-                "ion-tests/iontestdata/bad/annotationLengthTooShortContainer.10n",
-                "ion-tests/iontestdata/bad/annotationLengthTooShortScalar.10n",
-                "ion-tests/iontestdata/bad/annotationNested.10n",
-                "ion-tests/iontestdata/bad/annotationWithNoValue.10n",
-                "ion-tests/iontestdata/bad/badMagicE00100E0.10n",
+                // The text reader does not validate whether a clob's text contains unescaped
+                // characters outside of the displayable ASCII range.
                 "ion-tests/iontestdata/bad/clobWithNonAsciiCharacter.ion",
                 "ion-tests/iontestdata/bad/clobWithNonAsciiCharacterMultiline.ion",
                 "ion-tests/iontestdata/bad/clobWithNullCharacter.ion",
                 "ion-tests/iontestdata/bad/clobWithValidUtf8ButNonAsciiCharacter.ion",
-                "ion-tests/iontestdata/bad/emptyAnnotatedInt.10n",
+                // The text reader only recognizes `$ion_1_0`; it doesn't match on
+                // $ion_{DIGITS}_{DIGITS} yet. The IVMs in these tests are considered symbols.
+                // This means that the text reader would fail to recognize unsupported versions
+                // of Ion.
                 "ion-tests/iontestdata/bad/invalidVersionMarker_ion_0_0.ion",
                 "ion-tests/iontestdata/bad/invalidVersionMarker_ion_1_1.ion",
                 "ion-tests/iontestdata/bad/invalidVersionMarker_ion_1234_0.ion",
                 "ion-tests/iontestdata/bad/invalidVersionMarker_ion_2_0.ion",
-                "ion-tests/iontestdata/bad/ivmInAnnotationWrapper.10n",
-                "ion-tests/iontestdata/bad/ivmInList.10n",
-                "ion-tests/iontestdata/bad/ivmInSexp.10n",
-                "ion-tests/iontestdata/bad/ivmInStruct.10n",
-                "ion-tests/iontestdata/bad/ivmInSymbolTableImport.10n",
+                // The binary reader does not check whether nested values are longer than their
+                // parent container.
                 "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
-                "ion-tests/iontestdata/bad/localSymbolTableWithMultipleImportsFields.10n",
-                "ion-tests/iontestdata/bad/localSymbolTableWithMultipleSymbolsAndImportsFields.10n",
-                "ion-tests/iontestdata/bad/localSymbolTableWithMultipleSymbolsFields.10n",
-                "ion-tests/iontestdata/bad/longStringRawControlCharacter.ion",
+                // The text reader does not raise an error on unrecognized escapes. Instead,
+                // it treats them as uninterpreted literals. In this test, '\e' should raise
+                // an error but up appearing in the string as the literal text "\e".
                 "ion-tests/iontestdata/bad/longStringSlashE.ion",
+                // These fail because the string parser treats a truncated unicode escape at the end
+                // of a string fragment (e.g. '''\u''' with no digits) as a string literal instead
+                // of a malformed stream.
                 "ion-tests/iontestdata/bad/longStringSplitEscape_1.ion",
                 "ion-tests/iontestdata/bad/longStringSplitEscape_2.ion",
-                "ion-tests/iontestdata/bad/negativeIntZero.10n",
-                "ion-tests/iontestdata/bad/negativeIntZeroLn.10n",
+                // These fail because non-displayable ASCII control characters are valid utf-8. A
+                // separate check is needed to confirm that raw control characters only show up
+                // as escape sequences.
+                "ion-tests/iontestdata/bad/longStringRawControlCharacter.ion",
                 "ion-tests/iontestdata/bad/stringRawControlCharacter.ion",
                 "ion-tests/iontestdata/bad/stringWithEol.ion",
-                "ion-tests/iontestdata/bad/structOrderedEmpty.10n",
-                "ion-tests/iontestdata/bad/structOrderedEmptyInList.10n",
-                "ion-tests/iontestdata/bad/timestamp/outOfRange/offsetMinutes_1.ion",
-                "ion-tests/iontestdata/bad/timestamp/outOfRange/offsetMinutes_2.ion",
-                "ion-tests/iontestdata/bad/timestamp/outOfRange/offsetMinutes_3.ion",
-                "ion-tests/iontestdata/bad/timestamp/timestampFraction10d-1.10n",
-                "ion-tests/iontestdata/bad/timestamp/timestampFraction11d-1.10n",
-                "ion-tests/iontestdata/bad/timestamp/timestampFraction1d0.10n",
-                "ion-tests/iontestdata/bad/timestamp/timestampNegativeFraction.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_0.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_1.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_10.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_11.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_12.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_13.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_14.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_15.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_2.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_3.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_4.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_5.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_6.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_7.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_8.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_15_length_9.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_3_length_0.10n",
-                "ion-tests/iontestdata/bad/typecodes/type_6_length_0.10n",
-                "ion-tests/iontestdata/bad/utf8/outOfUnicodeBounds_1.ion",
-                "ion-tests/iontestdata/bad/utf8/outOfUnicodeBounds_2.ion",
-                "ion-tests/iontestdata/bad/utf8/shortUtf8Sequence_1.ion",
-                "ion-tests/iontestdata/bad/utf8/shortUtf8Sequence_2.ion",
-                "ion-tests/iontestdata/bad/utf8/shortUtf8Sequence_3.ion",
-                "ion-tests/iontestdata/bad/utf8/surrogate_10.ion",
-                "ion-tests/iontestdata/bad/utf8/surrogate_5.ion",
-                "ion-tests/iontestdata/bad/utf8/surrogate_8.ion",
-                "ion-tests/iontestdata/bad/utf8/wrongUtf8LeadingBits_1.ion",
-                "ion-tests/iontestdata/bad/utf8/wrongUtf8LeadingBits_2.ion",
-                "ion-tests/iontestdata/bad/utf8/wrongUtf8LeadingBits_3.ion",
                 // ROUND TRIP
                 "ion-tests/iontestdata/good/blobs.ion",
                 "ion-tests/iontestdata/good/clobs.ion",

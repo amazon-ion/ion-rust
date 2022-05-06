@@ -6,6 +6,7 @@ use num_bigint::{BigInt, BigUint, ToBigUint};
 use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::magnitude::Magnitude;
+use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
@@ -60,6 +61,38 @@ impl Decimal {
             coefficient,
             exponent,
         }
+    }
+
+    /// Returns true if this Decimal's coefficient has a negative sign AND a magnitude greater than
+    /// zero. Otherwise, returns false. (Negative zero returns false.)
+    pub fn is_less_than_zero(&self) -> bool {
+        match (self.coefficient.sign(), self.coefficient.magnitude()) {
+            (Sign::Negative, Magnitude::U64(m)) if *m > 0 => true,
+            (Sign::Negative, Magnitude::BigUInt(m)) if m > &BigUint::zero() => true,
+            _ => false,
+        }
+    }
+
+    /// Semantically identical to `self >= Decimal::new(1, 0)`, but much cheaper to compute.
+    pub(crate) fn is_greater_than_or_equal_to_one(&self) -> bool {
+        // If the coefficient has a magnitude of zero, the Decimal is a zero of some precision
+        // and so is not >= 1.
+        match &self.coefficient.magnitude {
+            Magnitude::U64(magnitude) if magnitude.is_zero() => return false,
+            Magnitude::BigUInt(magnitude) if magnitude.is_zero() => return false,
+            _ => {}
+        }
+
+        // If the coefficient is non-zero, look at the exponent. A positive exponent means the
+        // value has to be >= 1.
+        if self.exponent >= 0 {
+            return true;
+        }
+
+        // If the exponent is negative, we have to see whether if its magnitude outweighs the
+        // magnitude of the coefficient.
+        let num_coefficient_decimal_digits = self.coefficient.number_of_decimal_digits();
+        num_coefficient_decimal_digits > self.exponent.unsigned_abs()
     }
 
     // Determines whether the first decimal value is greater than, equal to, or less than

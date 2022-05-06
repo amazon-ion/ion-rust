@@ -494,6 +494,18 @@ impl TimestampBuilder {
 
         // Copy the fractional seconds from the builder to the Timestamp.
         if self.precision == Precision::FractionalSeconds {
+            if let Some(Mantissa::Arbitrary(ref decimal)) = self.fractional_seconds {
+                if decimal.is_less_than_zero() {
+                    return illegal_operation(
+                        "cannot create a timestamp with negative fractional seconds",
+                    );
+                }
+                if decimal.is_greater_than_or_equal_to_one() {
+                    return illegal_operation(
+                        "cannot create a timestamp with a fractional seconds >= 1.0",
+                    );
+                }
+            }
             timestamp.fractional_seconds = self.fractional_seconds;
         }
         Ok(timestamp)
