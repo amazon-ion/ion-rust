@@ -3,7 +3,7 @@ use crate::stream_reader::StreamReader;
 use crate::types::IonType;
 use std::fmt::{Display, Formatter};
 
-/// `RawReader` is a shorthand for a [Reader] implementation that returns [RawStreamItem]s and
+/// `RawReader` is a shorthand for a [Reader](crate::Reader) implementation that returns [RawStreamItem]s and
 /// uses [RawSymbolToken] to represent its field names, annotations, and symbol values.
 pub trait RawReader: StreamReader<Item = RawStreamItem, Symbol = RawSymbolToken> {
     // Defines no additional functionality

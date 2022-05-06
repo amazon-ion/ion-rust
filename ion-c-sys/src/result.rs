@@ -22,7 +22,7 @@ pub struct IonCError {
 }
 
 /// Represents a position in a data source. For example, consider a file
-/// containing Ion data that is being parsed using an [`IonCReader`].
+/// containing Ion data that is being parsed using an [IonCReader](crate::reader::IonCReader).
 ///
 /// If a position is set, `bytes` will always be hydrated while `lines` and
 /// `offset` will only be populated for text readers.

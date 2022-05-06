@@ -632,7 +632,7 @@ impl SecondSetter {
         self.into_builder().build()
     }
 
-    /// Like [build_at_offset], but the fields provided for each time unit are understood
+    /// Like [Self::build_at_offset], but the fields provided for each time unit are understood
     /// to be in UTC rather than in the local time of the specified offset.
     pub fn build_utc_fields_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
         self.builder.fields_are_utc = true;
@@ -704,7 +704,7 @@ impl FractionalSecondSetter {
         self.into_builder().build()
     }
 
-    /// Like [build_at_offset], but the fields provided for each time unit are understood
+    /// Like [Self::build_at_offset], but the fields provided for each time unit are understood
     /// to be in UTC rather than in the local time of the specified offset.
     pub fn build_utc_fields_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
         self.builder.fields_are_utc = true;

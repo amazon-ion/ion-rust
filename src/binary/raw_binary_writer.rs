@@ -114,7 +114,7 @@ impl EncodingLevel {
 /// management; symbol-related operations (e.g. setting field IDs and annotations or writing symbol
 /// values) require a valid symbol ID to be provided by the caller.
 ///
-/// To produce a valid binary Ion stream, the writer MUST call [write_ion_version_marker] before
+/// To produce a valid binary Ion stream, the writer MUST call [Writer::write_ion_version_marker] before
 /// writing any data.
 #[derive(Debug)]
 pub struct RawBinaryWriter<W: Write> {

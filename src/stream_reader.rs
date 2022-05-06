@@ -12,7 +12,7 @@ use crate::types::IonType;
  * calling that function again may return an Err. This is left to the discretion of the implementor.
  */
 pub trait StreamReader {
-    /// The type returned by calls to [next], indicating the next entity in the stream.
+    /// The type returned by calls to [Self::next], indicating the next entity in the stream.
     /// Reader implementations representing different levels of abstraction will surface
     /// different sets of encoding artifacts. While an application-level Reader would only surface
     /// Ion values, a lower level Reader might surface symbol tables, Ion version markers, etc.
@@ -60,7 +60,7 @@ pub trait StreamReader {
     }
 
     /// If the current item is a field within a struct, returns `Ok(_)` with a [Self::Symbol]
-    /// representing the field's name; otherwise, returns an [IonError::IllegalOperation].
+    /// representing the field's name; otherwise, returns an [crate::IonError::IllegalOperation].
     ///
     /// Implementations may also return an error for other reasons; for example, if [Self::Symbol]
     /// is a text data type but the field name is an undefined symbol ID, the reader may return
@@ -71,36 +71,37 @@ pub trait StreamReader {
     fn is_null(&self) -> bool;
 
     /// Attempts to read the current item as an Ion null and return its Ion type. If the current
-    /// item is not a null or an IO error is encountered while reading, returns [IonError].
+    /// item is not a null or an IO error is encountered while reading, returns [crate::IonError].
     fn read_null(&mut self) -> IonResult<IonType>;
 
     /// Attempts to read the current item as an Ion boolean and return it as a bool. If the current
-    /// item is not a boolean or an IO error is encountered while reading, returns [IonError].
+    /// item is not a boolean or an IO error is encountered while reading, returns [crate::IonError].
     fn read_bool(&mut self) -> IonResult<bool>;
 
     /// Attempts to read the current item as an Ion integer and return it as an i64. If the current
     /// item is not an integer, the integer is too large to be represented as an `i64`, or an IO
-    /// error is encountered while reading, returns [IonError].
+    /// error is encountered while reading, returns [crate::IonError].
     fn read_i64(&mut self) -> IonResult<i64>;
 
-    /// Attempts to read the current item as an Ion integer and return it as an [Integer]. If the
-    /// current item is not an integer or an IO error is encountered while reading, returns [IonError].
+    /// Attempts to read the current item as an Ion integer and return it as an [crate::Integer]. If the
+    /// current item is not an integer or an IO error is encountered while reading, returns
+    /// [crate::IonError].
     fn read_integer(&mut self) -> IonResult<Integer>;
 
     /// Attempts to read the current item as an Ion float and return it as an f32. If the current
-    /// item is not a float or an IO error is encountered while reading, returns [IonError].
+    /// item is not a float or an IO error is encountered while reading, returns [crate::IonError].
     fn read_f32(&mut self) -> IonResult<f32>;
 
     /// Attempts to read the current item as an Ion float and return it as an f64. If the current
-    /// item is not a float or an IO error is encountered while reading, returns [IonError].
+    /// item is not a float or an IO error is encountered while reading, returns [crate::IonError].
     fn read_f64(&mut self) -> IonResult<f64>;
 
-    /// Attempts to read the current item as an Ion decimal and return it as a [Decimal]. If the current
-    /// item is not a decimal or an IO error is encountered while reading, returns [IonError].
+    /// Attempts to read the current item as an Ion decimal and return it as a [crate::Decimal]. If the current
+    /// item is not a decimal or an IO error is encountered while reading, returns [crate::IonError].
     fn read_decimal(&mut self) -> IonResult<Decimal>;
 
     /// Attempts to read the current item as an Ion string and return it as a [String]. If the current
-    /// item is not a string or an IO error is encountered while reading, returns [IonError].
+    /// item is not a string or an IO error is encountered while reading, returns [crate::IonError].
     fn read_string(&mut self) -> IonResult<String>;
 
     /// Takes a function that expects a string and, once the string's bytes are loaded, calls that
@@ -123,11 +124,11 @@ pub trait StreamReader {
         F: FnOnce(&[u8]) -> U;
 
     /// Attempts to read the current item as an Ion symbol and return it as a [Self::Symbol]. If the
-    /// current item is not a symbol or an IO error is encountered while reading, returns [IonError].
+    /// current item is not a symbol or an IO error is encountered while reading, returns [crate::IonError].
     fn read_symbol(&mut self) -> IonResult<Self::Symbol>;
 
     /// Attempts to read the current item as an Ion blob and return it as a [Vec<u8>]. If the
-    /// current item is not a blob or an IO error is encountered while reading, returns [IonError].
+    /// current item is not a blob or an IO error is encountered while reading, returns [crate::IonError].
     fn read_blob(&mut self) -> IonResult<Vec<u8>>;
 
     /// Takes a function that expects a byte slice and, once the blob's bytes are loaded, calls that
@@ -140,7 +141,7 @@ pub trait StreamReader {
         F: FnOnce(&[u8]) -> U;
 
     /// Attempts to read the current item as an Ion clob and return it as a [Vec<u8>]. If the
-    /// current item is not a clob or an IO error is encountered while reading, returns [IonError].
+    /// current item is not a clob or an IO error is encountered while reading, returns [crate::IonError].
     fn read_clob(&mut self) -> IonResult<Vec<u8>>;
 
     /// Takes a function that expects a byte slice and, once the clob's bytes are loaded, calls that
@@ -152,23 +153,23 @@ pub trait StreamReader {
     where
         F: FnOnce(&[u8]) -> U;
 
-    /// Attempts to read the current item as an Ion timestamp and return [Timestamp]. If the current
-    /// item is not a timestamp or an IO error is encountered while reading, returns [IonError].
+    /// Attempts to read the current item as an Ion timestamp and return [crate::Timestamp]. If the current
+    /// item is not a timestamp or an IO error is encountered while reading, returns [crate::IonError].
     fn read_timestamp(&mut self) -> IonResult<Timestamp>;
 
     /// If the current value is a container (i.e. a struct, list, or s-expression), positions the
     /// cursor at the beginning of that container's sequence of child values. The application must
-    /// call [next()] to advance to the first child value. If the current value is not a container,
-    /// returns [IonError].
+    /// call [Self::next()] to advance to the first child value. If the current value is not a container,
+    /// returns [crate::IonError].
     fn step_in(&mut self) -> IonResult<()>;
 
-    /// Positions the cursor at the end of the container currently being traversed. Calling [next()]
+    /// Positions the cursor at the end of the container currently being traversed. Calling [Self::next()]
     /// will position the cursor over the item that follows the container. If the cursor is not in
-    /// a container (i.e. it is already at the top level), returns [IonError].
+    /// a container (i.e. it is already at the top level), returns [crate::IonError].
     fn step_out(&mut self) -> IonResult<()>;
 
     /// If the reader is positioned at the top level, returns `None`. Otherwise, returns
-    /// `Some(_)` with the parent container's [IonType].
+    /// `Some(_)` with the parent container's [crate::IonType].
     fn parent_type(&self) -> Option<IonType>;
 
     /// Returns a [usize] indicating the Reader's current level of nesting. That is: the number of
