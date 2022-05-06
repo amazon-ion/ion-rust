@@ -315,7 +315,6 @@ impl<W: Write> RawBinaryWriter<W> {
         // 1. The length of the encoded annotations sequence
         // 2. The length of the VarUInt representation of #1 above.
         // 3. The length of the value being annotated.
-        // 4. The length of the VarUInt representation of the wrapper's length
         let wrapper_length = annotations_seq_io_range.len()
             + annotations_seq_length_io_range.len()
             + wrapped_value_length;
@@ -778,6 +777,8 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
             Ok(())
         })?;
 
+        // Now that we know how large the container's header is, add its length to the
+        // calculate container size.
         let container_size = container_size + header_io_range.len();
 
         // Retrieve this container's header byte range from io_ranges
