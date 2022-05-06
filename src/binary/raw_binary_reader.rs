@@ -975,31 +975,22 @@ where
         use IonTypeCode::*;
         let length = match header.ion_type_code {
             NullOrNop | Boolean => 0,
-            PositiveInteger | Decimal | String | Symbol | List | SExpression | Clob | Blob => {
+            PositiveInteger | NegativeInteger | Decimal | String | Symbol | List | SExpression | Clob | Blob => {
                 self.read_standard_length()?
-            }
-            NegativeInteger => {
-                let length = self.read_standard_length()?;
-                if length == 0 && !self.cursor.value.is_null {
-                    return decoding_error(
-                        "Found a non-null negative integer (typecode=3) with a length of 0.",
-                    );
-                }
-                length
             }
             Timestamp => {
                 let length = self.read_standard_length()?;
                 if length <= 1 && !self.cursor.value.is_null {
                     return decoding_error(
-                        "Found a non-null timestamp (typecode=6) with a length <= 1.",
+                        "found a non-null timestamp (typecode=6) with a length <= 1",
                     );
                 }
                 length
             }
             Float => self.read_float_length()?,
             Struct => self.read_struct_length()?,
-            Annotation => return decoding_error("Found an annotation wrapping an annotation."),
-            Reserved => return decoding_error("Found an Ion Value with a Reserved type code."),
+            Annotation => return decoding_error("found an annotation wrapping an annotation"),
+            Reserved => return decoding_error("found an Ion Value with a Reserved type code"),
         };
 
         self.cursor.value.header_length =
