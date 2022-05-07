@@ -456,7 +456,7 @@ impl<R: RawReader> SystemReader<R> {
         self.raw_reader.annotations().map(|a| a.unwrap())
     }
 
-    fn symbol_table(&self) -> &SymbolTable {
+    pub fn symbol_table(&self) -> &SymbolTable {
         &self.symbol_table
     }
 
