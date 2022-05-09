@@ -1,4 +1,6 @@
-use crate::text::parsers::text_support::{escaped_char, escaped_newline, StringFragment};
+use crate::text::parsers::text_support::{
+    escaped_char_no_unicode, escaped_newline, StringFragment,
+};
 use crate::text::parsers::whitespace;
 use crate::text::text_value::TextValue;
 use nom::branch::alt;
@@ -13,9 +15,14 @@ use std::str;
 /// Matches the text representation of a clob value and returns the resulting [Clob]
 /// as a [TextValue::Clob].
 pub(crate) fn parse_clob(input: &str) -> IResult<&str, TextValue> {
-    map(delimited(tag("{{"), parse_clob_body, tag("}}")), |text| {
-        text
-    })(input)
+    map(
+        delimited(
+            tag("{{"),
+            delimited(opt(whitespace), parse_clob_body, opt(whitespace)),
+            tag("}}"),
+        ),
+        |text| text,
+    )(input)
 }
 
 /// Matches the body of a clob value (e.g. "Hello" in {{"Hello"}})
@@ -75,7 +82,7 @@ fn long_clob_body(input: &str) -> IResult<&str, Vec<u8>> {
 fn long_clob_fragment(input: &str) -> IResult<&str, StringFragment> {
     alt((
         escaped_newline,
-        escaped_char,
+        escaped_char_no_unicode,
         long_clob_fragment_without_escaped_text,
     ))(input)
 }
@@ -107,7 +114,7 @@ fn short_clob_body(input: &str) -> IResult<&str, Vec<u8>> {
 fn short_clob_fragment(input: &str) -> IResult<&str, StringFragment> {
     alt((
         escaped_newline,
-        escaped_char,
+        escaped_char_no_unicode,
         short_clob_fragment_without_escaped_text,
     ))(input)
 }
@@ -147,5 +154,10 @@ mod clob_parsing_tests {
         parse_equals("{{'''Hello''' '''world'''}}", "Helloworld");
         parse_equals("{{'''Hello world'''}}", "Hello world");
         parse_equals("{{'''\\xe2\\x9d\\xa4\\xef\\xb8\\x8f\'''}}", "❤️");
+
+        // Clobs represent text of some encoding, but it may or may not be a flavor of Unicode.
+        // As such, clob syntax does not support Unicode escape sequences like `\u` or `\U`.
+        // Byte literals may be written using `\x`, however.
+        parse_fails(r#"{{ "\u3000" }}"#);
     }
 }

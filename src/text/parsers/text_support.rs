@@ -24,7 +24,10 @@ pub(crate) enum StringFragment<'a> {
 
 /// Matches an escaped newline, returning [StringFragment::EscapedNewline].
 pub(crate) fn escaped_newline(input: &str) -> IResult<&str, StringFragment> {
-    value(StringFragment::EscapedNewline, tag("\\\n"))(input)
+    value(
+        StringFragment::EscapedNewline,
+        alt((tag("\\\n"), tag("\\\r\n"), tag("\\\r"))),
+    )(input)
 }
 
 /// Matches an escaped literal (like '\n') or a Unicode escape (starting with '\x', '\u', or '\U'),
@@ -35,6 +38,16 @@ pub(crate) fn escaped_char(input: &str) -> IResult<&str, StringFragment> {
             char('\\'),
             alt((escaped_char_unicode, escaped_char_literal)),
         ),
+        StringFragment::EscapedChar,
+    )(input)
+}
+
+/// Matches an escaped literal (like '\n') or a hex escape (like `\x`), returning the appropriate
+/// substitute character as a [StringFragment::EscapedChar]. Does NOT match Unicode escapes
+/// ('\u' or '\U').
+pub(crate) fn escaped_char_no_unicode(input: &str) -> IResult<&str, StringFragment> {
+    map(
+        preceded(char('\\'), alt((escaped_hex_char, escaped_char_literal))),
         StringFragment::EscapedChar,
     )(input)
 }
@@ -59,19 +72,39 @@ pub(crate) fn escaped_char_literal(input: &str) -> IResult<&str, char> {
     ))(input)
 }
 
+pub(crate) fn escaped_hex_char(input: &str) -> IResult<&str, char> {
+    // First, try to match the input to a hex escape sequence. If successful, extract the hex
+    // digits that were included in the sequence. If matching fails, this isn't a hex escape sequence.
+    // Return early with a non-fatal error.
+    let (remaining_input, hex_digits) = escaped_char_2_digit_hex(input)?;
+
+    // Now that we have our hex digits, we'll try to convert them to a char.
+    // If this fails, it will return a fatal error.
+    decode_hex_digits_to_char(remaining_input, hex_digits)
+}
+
 /// Matches a Unicode escape (starting with '\x', '\u', or '\U'), returning the appropriate
 /// substitute character.
 pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
-    // First, try to match the input to Unicode escape sequence. If successful, extract the hex
+    // First, try to match the input to a Unicode escape sequence. If successful, extract the hex
     // digits that were included in the sequence. If matching fails, this isn't an escape sequence.
     // Return early with a non-fatal error.
     let (remaining_input, hex_digits) = alt((
-        escaped_char_unicode_2_digit_hex,
+        escaped_char_2_digit_hex,
         escaped_char_unicode_4_digit_hex,
         escaped_char_unicode_8_digit_hex,
     ))(input)?;
 
     // Now that we have our hex digits, we'll try to convert them to Unicode code points.
+    // If this fails, it will return a fatal error.
+    decode_hex_digits_to_char(remaining_input, hex_digits)
+}
+
+/// Treats a given string as the hex-encoded byte representation of a char
+pub(crate) fn decode_hex_digits_to_char<'a>(
+    remaining_input: &'a str,
+    hex_digits: &'a str,
+) -> IResult<&'a str, char> {
     // If this step fails, the Ion data stream is malformed and we need to bail out completely.
     // We can't simply return an error as we did above; if we did that, the parser would go on to
     // treat the input as a String literal without escapes, which is the incorrect behavior.
@@ -82,7 +115,7 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
             // TODO: A custom error type would be required to bubble up specific information
             //       about the failure.
             return Err(Err::Failure(Error::from_error_kind(
-                remaining_input,
+                hex_digits,
                 ErrorKind::Escaped,
             )));
         }
@@ -93,7 +126,7 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
             // TODO: A custom error type would be required to bubble up specific information
             //       about the failure.
             return Err(Err::Failure(Error::from_error_kind(
-                remaining_input,
+                hex_digits,
                 ErrorKind::Escaped,
             )));
         }
@@ -101,9 +134,9 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
     Ok((remaining_input, char_value))
 }
 
-/// Matches a 2-digit Unicode escape (starting with '\x'), returning the appropriate
+/// Matches a 2-digit hex escape (starting with '\x'), returning the appropriate
 /// substitute character.
-pub(crate) fn escaped_char_unicode_2_digit_hex(input: &str) -> IResult<&str, &str> {
+pub(crate) fn escaped_char_2_digit_hex(input: &str) -> IResult<&str, &str> {
     let hex_digit = single_hex_digit;
     preceded(char('x'), recognize(tuple((hex_digit, hex_digit))))(input)
 }

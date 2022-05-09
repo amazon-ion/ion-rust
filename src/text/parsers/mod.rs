@@ -26,6 +26,10 @@ pub(crate) mod timestamp;
 pub(crate) mod top_level;
 pub(crate) mod value;
 
+// TODO: find a home for this constant
+const WHITESPACE_CHARACTERS: &[char] = &[' ', '\t', '\r', '\n'];
+const WHITESPACE_CHARACTERS_AS_STR: &str = " \t\r\n";
+
 // ===== The functions below are used by several modules and live here for common access. =====
 
 /// Matches (but does not consume) the next character in the input stream if it is one of the Ion
@@ -72,7 +76,7 @@ pub(crate) fn digit(input: &str) -> IResult<&str, char> {
 
 /// Matches one or more whitespace characters.
 pub(crate) fn whitespace(input: &str) -> IResult<&str, &str> {
-    is_a(" \r\n\t")(input)
+    is_a(WHITESPACE_CHARACTERS_AS_STR)(input)
 }
 
 /// Helper functions used in the unit tests for each parsing module.

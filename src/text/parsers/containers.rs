@@ -1,8 +1,7 @@
 use crate::raw_symbol_token::RawSymbolToken;
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
-use nom::character::streaming::one_of;
-use nom::combinator::{map, peek, recognize, value};
+use nom::combinator::{map, peek, value};
 use nom::sequence::{delimited, pair, preceded, terminated};
 use nom::{IResult, Parser};
 
@@ -111,23 +110,28 @@ pub(crate) fn s_expression_value(input: &str) -> IResult<&str, AnnotatedTextValu
 /// Matches a (possibly annotated) non-container value in an s-expression followed by a delimiter
 /// or end-of-container.
 pub(crate) fn s_expression_scalar(input: &str) -> IResult<&str, AnnotatedTextValue> {
-    delimited(
+    preceded(
         whitespace_or_comments,
         // An s-expression value can be either...
         alt((
             // ...an annotated operator (`foo::++`)...
             pair(parse_annotations, parse_operator)
                 .map(|(annotations, value)| AnnotatedTextValue::new(annotations, value)),
-            // ...an un-annotated operator (`++`) paired with an empty annotations Vec...
-            parse_operator.map(|op| op.without_annotations()),
-            // ...or some other kind of value (`5`, `"hello"`, etc).
+            // ...a non-operator value, with or without annotations (`5`, `foo::5`, `"hello"`, etc)...
             top_level_value,
+            // ...or an un-annotated operator (`++`).
+            parse_operator.map(|op| op.without_annotations()),
         )),
-        // Check for a whitespace character or an end-of-s-expression delimiter.
-        alt((
-            recognize(one_of(" \t\r\n")),
-            peek(recognize(s_expression_end)),
-        )),
+        // ^^^ Note that the parser order above is important.
+        //
+        // We need the s-expression parser to recognize the input `--3` as the operator `--` and the
+        // int `3` while recognizing the input `-3` as the int `-3`. If `parse_operator` runs before
+        // `top_level_value`, it will consume the sign (`-`) of negative number values, treating
+        // `-3` as an operator (`-`) and an int (`3`).
+        //
+        // Similarly, we must check for annotated operators before we check for annotated values.
+        // If we run `top_level_value` first, it will consume the annotation from the
+        // input `foo::++` as a symbol (`foo`), leaving the `::++` in the buffer.
     )(input)
 }
 
@@ -139,21 +143,28 @@ pub(crate) fn s_expression_value_or_end(input: &str) -> IResult<&str, Option<Ann
         .parse(input)
 }
 
-/// Matches a whitespace character (which is consumed) or an end-of-container (which is not consumed).
+/// Always matches. Consumes nothing from input. This function is only defined for parity with the
+/// other container types.
 pub(crate) fn s_expression_delimiter(input: &str) -> IResult<&str, ()> {
-    alt((recognize(one_of(" \t\r\n")), peek(list_end)))
-        // TODO: This parser discards the matched &str as a workaround to a limitation in RawTextReader.
-        //       See: https://github.com/amzn/ion-rust/issues/337
-        .map(|_| ())
-        .parse(input)
+    // An s-expression doesn't require *anything* to appear between values. For example:
+    //    (+(foo)-)
+    // This s-expression contains three child values:
+    // 1. an operator: `+`
+    // 2. a nested s-expression: `(foo)`
+    // 3. another operator (`-`)
+    //
+    // Notice that No delimiters appear between these values.
+    Ok((input, ()))
 }
 
-/// Matches a struct field name and returns it as an [OwnedSymbolToken].
+/// Matches a struct field name and returns it as a [RawSymbolToken].
 /// This function should be called before [struct_stream_value].
 pub(crate) fn struct_field_name(input: &str) -> IResult<&str, RawSymbolToken> {
     delimited(
         whitespace_or_comments,
-        parse_symbol.or(parse_string),
+        // We check for string first because the field name may be a long string (`'''foo'''`)
+        // and we don't want the symbol parser to interpret the first two `''`s as an empty symbol.
+        parse_string.or(parse_symbol),
         pair(whitespace_or_comments, tag(":")),
     )
     .map(|value| match value {
