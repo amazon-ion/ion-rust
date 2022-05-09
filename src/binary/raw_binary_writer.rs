@@ -848,7 +848,7 @@ mod writer_tests {
 
     use super::*;
     use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
-    use crate::symbol_table::Symbol;
+    use crate::symbol::Symbol;
     use crate::StreamReader;
     use num_traits::Float;
     use std::convert::TryInto;

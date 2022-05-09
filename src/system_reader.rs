@@ -7,7 +7,7 @@ use crate::constants::v1_0::{system_symbol_ids, SYSTEM_SYMBOLS};
 use crate::raw_reader::{RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, decoding_error_raw, illegal_operation, IonError, IonResult};
-use crate::symbol_table::Symbol;
+use crate::symbol::Symbol;
 use crate::system_reader::LstPosition::*;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
@@ -456,7 +456,7 @@ impl<R: RawReader> SystemReader<R> {
         self.raw_reader.annotations().map(|a| a.unwrap())
     }
 
-    fn symbol_table(&self) -> &SymbolTable {
+    pub fn symbol_table(&self) -> &SymbolTable {
         &self.symbol_table
     }
 
