@@ -153,7 +153,7 @@ pub(crate) fn s_expression_delimiter(input: &str) -> IResult<&str, ()> {
     // 2. a nested s-expression: `(foo)`
     // 3. another operator (`-`)
     //
-    // Notice that No delimiters appear between these values.
+    // Notice that no delimiters appear between these values.
     Ok((input, ()))
 }
 

@@ -26,7 +26,6 @@ pub(crate) mod timestamp;
 pub(crate) mod top_level;
 pub(crate) mod value;
 
-// TODO: find a home for this constant
 const WHITESPACE_CHARACTERS: &[char] = &[' ', '\t', '\r', '\n'];
 const WHITESPACE_CHARACTERS_AS_STR: &str = " \t\r\n";
 

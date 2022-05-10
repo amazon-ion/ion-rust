@@ -101,6 +101,15 @@ fn identifier_trailing_characters(input: &str) -> IResult<&str, &str> {
 /// Matches an operator (e.g. `++` or `@`) and returns the resulting [String]
 /// as a [TextValue::Symbol]. This symbol syntax is only recognized inside of an s-expression.
 pub(crate) fn parse_operator(input: &str) -> IResult<&str, TextValue> {
+    // This function is used by the [s_expression_value] parser in the [containers] module.
+
+    // The 'recognizer' below  is a parser responsible for identifying the &str slice at the
+    // beginning of input that represents an operator. The `map` operation that follows uses
+    // this parser's output to construct the necessary TextValue.
+
+    // Other parsers don't have their own leading whitespace matcher because the overarching
+    // top_level_stream_value parser takes care of this. However, operators can't appear at the top
+    // level and so must fend for themselves.
     let recognizer = preceded(multispace0, is_a("!#%&*+-./;<=>?@^`|~"));
     map(recognizer, |op_text| TextValue::Symbol(text_token(op_text)))(input)
 }
