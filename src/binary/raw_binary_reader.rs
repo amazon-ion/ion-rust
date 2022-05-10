@@ -295,7 +295,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
             // If the cursor is nested inside a parent object, don't attempt to read beyond the end of
             // the parent. Users can call '.step_out()' to progress beyond the container.
             if self.cursor.bytes_read >= parent.value_end_exclusive() {
-                return Ok(RawStreamItem::Nothing);
+                return Ok(self.set_current_item(RawStreamItem::Nothing));
             }
         }
 
@@ -397,6 +397,9 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
     }
 
     fn ion_type(&self) -> Option<IonType> {
+        if self.current() == RawStreamItem::Nothing {
+            return None;
+        }
         self.cursor.value.header.ion_type
     }
 

@@ -47,24 +47,35 @@ impl ElementReader for NativeElementReader {
 }
 
 impl<R: RawReader> NativeElementIterator<R> {
-    /// Recursively materialize the next Ion value in the stream and return it as `Ok(Some(element))`.
-    /// If there are no more values at this level, returns `Ok(None)`.
-    /// If an error occurs while materializing the value, returns an `Err`.
+    /// Advances the reader to the next value in the stream and uses [Self::materialize_current]
+    /// to materialize it.
     fn materialize_next(&mut self) -> IonResult<Option<OwnedElement>> {
         // Advance the reader to the next value
-        let current_item = self.reader.next()?;
+        let _ = self.reader.next()?;
+        self.materialize_current()
+    }
 
+    /// Recursively materialize the reader's current Ion value and returns it as `Ok(Some(element))`.
+    /// If there are no more values at this level, returns `Ok(None)`.
+    /// If an error occurs while materializing the value, returns an `Err`.
+    /// Calling this method advances the reader and consumes the current value.
+    fn materialize_current(&mut self) -> IonResult<Option<OwnedElement>> {
         // Collect this item's annotations into a Vec. We have to do this before materializing the
         // value itself because materializing a collection requires advancing the reader further.
         let mut annotations = Vec::new();
-        for annotation in self.reader.annotations() {
-            // If the annotation couldn't be resolved to text, early return the error.
-            let annotation = annotation?;
-            let symbol = owned::text_token(annotation.as_ref());
-            annotations.push(symbol);
+        // Current API limitations require `self.reader.annotations()` to heap allocate its
+        // iterator even if there aren't annotations. `self.reader.has_annotations()` is trivial
+        // and allows us to skip the heap allocation in the common case.
+        if self.reader.has_annotations() {
+            for annotation in self.reader.annotations() {
+                // If the annotation couldn't be resolved to text, early return the error.
+                let annotation = annotation?;
+                let symbol = owned::text_token(annotation.as_ref());
+                annotations.push(symbol);
+            }
         }
 
-        let value = match current_item {
+        let value = match self.reader.current() {
             // No more values at this level of the stream
             StreamItem::Nothing => return Ok(None),
             // This is a typed null
@@ -92,7 +103,6 @@ impl<R: RawReader> NativeElementIterator<R> {
                 }
             }
         };
-
         Ok(Some(OwnedElement::new(annotations, value)))
     }
 
@@ -115,9 +125,12 @@ impl<R: RawReader> NativeElementIterator<R> {
     fn materialize_struct(&mut self) -> IonResult<OwnedStruct> {
         let mut child_elements = Vec::new();
         self.reader.step_in()?;
-        while let Some(element) = self.materialize_next()? {
+        while let StreamItem::Value(_) | StreamItem::Null(_) = self.reader.next()? {
             let field = self.reader.field_name()?;
-            child_elements.push((owned::text_token(field.as_ref()), element));
+            let value = self
+                .materialize_current()?
+                .expect("got None despite earlier check");
+            child_elements.push((owned::text_token(field.as_ref()), value));
         }
         self.reader.step_out()?;
         Ok(OwnedStruct::from_iter(child_elements.into_iter()))

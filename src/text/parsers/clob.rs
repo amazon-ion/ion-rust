@@ -1,10 +1,11 @@
+use crate::text::parsers::string::long_string_fragment_without_escaped_text;
 use crate::text::parsers::text_support::{
     escaped_char_no_unicode, escaped_newline, StringFragment,
 };
 use crate::text::parsers::whitespace;
 use crate::text::text_value::TextValue;
 use nom::branch::alt;
-use nom::bytes::streaming::{is_not, tag, take_until};
+use nom::bytes::streaming::{is_not, tag};
 use nom::character::streaming::char;
 use nom::combinator::{map, not, opt, peek, verify};
 use nom::multi::{fold_many0, many1};
@@ -89,9 +90,9 @@ fn long_clob_fragment(input: &str) -> IResult<&str, StringFragment> {
 
 /// Matches the next string fragment while respecting the long clob delimiter (`'''`).
 fn long_clob_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
-    map(verify(take_until("'''"), |s: &str| !s.is_empty()), |text| {
-        StringFragment::Substring(text)
-    })(input)
+    // Matches the head of the string up to the next `'''` or `\`.
+    // Will not match if the `'''` or `\` is at the very beginning of the string.
+    long_string_fragment_without_escaped_text(input)
 }
 
 /// Matches the body of a short clob. (The `hello` in `"hello"`.)

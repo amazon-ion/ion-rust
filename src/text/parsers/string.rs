@@ -1,5 +1,5 @@
+use crate::text::parsers::comments::whitespace_or_comments;
 use crate::text::parsers::text_support::{escaped_char, escaped_newline, StringFragment};
-use crate::text::parsers::whitespace;
 use crate::text::text_value::TextValue;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_not, tag};
@@ -36,7 +36,7 @@ fn long_string(input: &str) -> IResult<&str, TextValue> {
         terminated(
             many1(terminated(
                 delimited(tag("'''"), long_string_body, tag("'''")),
-                opt(whitespace),
+                opt(whitespace_or_comments),
             )),
             peek(not(tag("'''"))),
         ),
@@ -71,7 +71,9 @@ fn long_string_fragment(input: &str) -> IResult<&str, StringFragment> {
 
 /// Matches the next string fragment without escape sequences while also respecting the long
 /// string delimiter (`'''`).
-fn long_string_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
+pub(in crate::text::parsers) fn long_string_fragment_without_escaped_text(
+    input: &str,
+) -> IResult<&str, StringFragment> {
     // In contrast with the `short_string_fragment_without_escaped_text` function, this parser is
     // hand-written because has two possible 'end' sequences to detect:
     //   1. A slash (`\`), indicating the beginning of an escape sequence.
