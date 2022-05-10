@@ -397,10 +397,11 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
     }
 
     fn ion_type(&self) -> Option<IonType> {
-        if self.current() == RawStreamItem::Nothing {
-            return None;
+        use RawStreamItem::*;
+        match self.current() {
+            Value(ion_type) | Null(ion_type) => Some(ion_type),
+            _ => None,
         }
-        self.cursor.value.header.ion_type
     }
 
     fn is_null(&self) -> bool {
