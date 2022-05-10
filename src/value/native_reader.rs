@@ -129,7 +129,7 @@ impl<R: RawReader> NativeElementIterator<R> {
             let field = self.reader.field_name()?;
             let value = self
                 .materialize_current()?
-                .expect("got None despite earlier check");
+                .expect("materialize_current() returned None for user data");
             child_elements.push((owned::text_token(field.as_ref()), value));
         }
         self.reader.step_out()?;
