@@ -7,7 +7,7 @@ use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::one_of;
 use nom::combinator::{map, map_res, opt, recognize};
-use nom::sequence::{preceded, terminated, tuple};
+use nom::sequence::{pair, preceded, terminated, tuple};
 use nom::{IResult, Parser};
 use std::num::ParseFloatError;
 use std::str::FromStr;
@@ -33,8 +33,10 @@ fn float_special_value(input: &str) -> IResult<&str, TextValue> {
 fn float_numeric_value(input: &str) -> IResult<&str, TextValue> {
     map_res::<_, _, _, _, ParseFloatError, _, _>(
         recognize(tuple((
-            opt(tag("-")),
-            alt((floating_point_number, digits_before_dot)),
+            alt((
+                floating_point_number,
+                recognize(pair(opt(tag("-")), digits_before_dot)),
+            )),
             recognize(float_exponent_marker_followed_by_digits),
         ))),
         |text| {

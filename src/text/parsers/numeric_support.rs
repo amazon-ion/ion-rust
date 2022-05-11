@@ -47,7 +47,7 @@ pub(crate) fn floating_point_number_components(
             .and(digits_before_dot)
             .and(dot_followed_by_digits),
         |parts| {
-            // Flatten out the unweildy tuple structure created by chaining and()s
+            // Flatten out the unwieldy tuple structure created by chaining and()s
             let ((sign, leading_digits), trailing_digits) = parts;
             (sign, leading_digits, trailing_digits)
         },
@@ -61,9 +61,13 @@ pub(crate) fn floating_point_number(input: &str) -> IResult<&str, &str> {
 }
 
 /// Recognizes the exponent portion of a decimal (everything after the 'd') or float
-/// (everything after the 'e').
+/// (everything after the 'e'). This includes:
+/// * an optional '+' OR '-'
+/// * any number of decimal digits, which may:
+///    * have underscores in between them: `1_000_000`
+///    * have one or more leading zeros: `0005`
 pub(crate) fn exponent_digits(input: &str) -> IResult<&str, &str> {
-    recognize(pair(opt(char('-')), base_10_integer_digits))(input)
+    recognize(pair(opt(alt((char('+'), char('-')))), digits_after_dot))(input)
 }
 
 /// Recognizes a decimal point followed by some number of base-10 digits.

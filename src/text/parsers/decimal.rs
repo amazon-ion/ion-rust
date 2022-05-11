@@ -103,7 +103,7 @@ fn decimal_from_text_components(
     let coefficient = Coefficient::new(sign, magnitude);
 
     // TODO: Reusable buffer for sanitization
-    let sanitized = exponent_text.replace('_', "");
+    let sanitized = exponent_text.trim_start_matches('+').replace('_', "");
     let mut exponent = i64::from_str(&sanitized).expect("parsing exponent as i64 failed");
     // Reduce the exponent by the number of digits that follow the decimal point
     exponent -= digits_after_dot.chars().filter(|c| c.is_digit(10)).count() as i64;
