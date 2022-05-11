@@ -1,16 +1,16 @@
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
-use nom::character::streaming::{digit0, digit1, one_of};
+use nom::character::streaming::{digit0, one_of};
 use nom::combinator::recognize;
-use nom::error::{make_error, ErrorKind};
-use nom::multi::many1_count;
+
+
 use nom::sequence::{pair, preceded, tuple};
-use nom::{alt, many1_count, Err, IResult};
+use nom::{IResult};
 use std::str::FromStr;
 
 use crate::text::parsers::comments::whitespace_or_comments;
-use crate::text::parsers::digit;
-use crate::text::parsers::numeric_support::base_10_integer_digits;
+
+
 use crate::text::parsers::value::annotated_value;
 use crate::text::text_value::AnnotatedTextValue;
 
@@ -57,10 +57,10 @@ pub(crate) fn ion_version_marker(input: &str) -> IResult<&str, (u32, u32)> {
     // TODO: Create a custom parsing error type that allows us to bubble up more information.
 
     let major_version = u32::from_str(major_text)
-        .unwrap_or_else(|e| panic!("IVM major version '{}' could not fit in a u32", major_text));
+        .unwrap_or_else(|_e| panic!("IVM major version '{}' could not fit in a u32", major_text));
 
     let minor_version = u32::from_str(minor_text)
-        .unwrap_or_else(|e| panic!("IVM minor version '{}' could not fit in a u32", minor_text));
+        .unwrap_or_else(|_e| panic!("IVM minor version '{}' could not fit in a u32", minor_text));
 
     Ok((remaining_input, (major_version, minor_version)))
 }
