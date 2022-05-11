@@ -96,15 +96,12 @@ impl<T: TextIonDataSource> RawTextReader<T> {
                     // We found an IVM; we currently only support Ion 1.0.
                     self.current_ivm = Some((1, 0));
                     return Ok(());
-                },
+                }
                 Ok(Some((major, minor))) => {
-                    return decoding_error(
-                        format!(
-                            "Unsupported Ion version: v{}.{}. Only 1.0 is supported.",
-                            major,
-                            minor
-                        )
-                    );
+                    return decoding_error(format!(
+                        "Unsupported Ion version: v{}.{}. Only 1.0 is supported.",
+                        major, minor
+                    ));
                 }
                 // I/O errors are fatal; we cannot keep parsing.
                 Err(e @ IonError::IoError { .. }) => return Err(e),

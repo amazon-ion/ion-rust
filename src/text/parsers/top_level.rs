@@ -1,12 +1,12 @@
-use std::str::FromStr;
-use nom::bytes::streaming::tag;
-use nom::sequence::{pair, preceded, tuple};
-use nom::{alt, Err, IResult, many1_count};
 use nom::branch::alt;
+use nom::bytes::streaming::tag;
 use nom::character::streaming::{digit0, digit1, one_of};
 use nom::combinator::recognize;
-use nom::error::{ErrorKind, make_error};
+use nom::error::{make_error, ErrorKind};
 use nom::multi::many1_count;
+use nom::sequence::{pair, preceded, tuple};
+use nom::{alt, many1_count, Err, IResult};
+use std::str::FromStr;
 
 use crate::text::parsers::comments::whitespace_or_comments;
 use crate::text::parsers::digit;
@@ -27,12 +27,10 @@ pub(crate) fn top_level_value(input: &str) -> IResult<&str, AnnotatedTextValue> 
 }
 
 pub(crate) fn version_int(input: &str) -> IResult<&str, &str> {
-    recognize(
-        pair(
-            alt((tag("0"), recognize(one_of("123456789")))),
-            digit0 // One or more digits 0-9
-        )
-    )(input)
+    recognize(pair(
+        alt((tag("0"), recognize(one_of("123456789")))),
+        digit0, // One or more digits 0-9
+    ))(input)
 }
 
 /// Matches any amount of whitespace/comments followed by an identifier in the format
@@ -45,7 +43,7 @@ pub(crate) fn ion_version_marker(input: &str) -> IResult<&str, (u32, u32)> {
     // See if the input text matches an IVM. If not, return a non-fatal error.
     let (remaining_input, (_, major_text, _, minor_text)) = preceded(
         whitespace_or_comments,
-        tuple((tag("$ion_"), version_int, tag("_"), version_int))
+        tuple((tag("$ion_"), version_int, tag("_"), version_int)),
     )(input)?;
 
     // If the text matched but parsing that into a major and minor version fails, it's a fatal
