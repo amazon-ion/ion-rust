@@ -215,6 +215,7 @@ use std::fmt::Debug;
 pub mod borrowed;
 pub mod ion_c_reader;
 pub mod native_reader;
+pub mod native_writer;
 pub mod owned;
 pub mod reader;
 pub mod writer;

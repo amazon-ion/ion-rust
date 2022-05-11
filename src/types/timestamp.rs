@@ -56,21 +56,12 @@ pub enum Mantissa {
 /// Returns the first `num_digits` digits of the specified `value`.
 // This is used in Timestamp's implementation of [PartialEq].
 fn first_n_digits_of(num_digits: u32, value: u32) -> u32 {
-    let total_digits = number_of_digits(value);
+    let total_digits = super::num_decimal_digits_in_u64(value as u64) as u32;
     if total_digits <= num_digits {
         return value;
     }
     // Truncate the trailing digits
     value / 10u32.pow(total_digits - num_digits)
-}
-
-/// Returns the number of base-10 digits needed to represent `value`.
-fn number_of_digits(value: u32) -> u32 {
-    match value {
-        0 => 1,
-        1 => 1,
-        i => (i as f64).log10().ceil() as u32,
-    }
 }
 
 /// Represents a point in time to a specified degree of precision. Unlike `chrono`'s [NaiveDateTime]
@@ -134,8 +125,16 @@ impl Timestamp {
             // This timestamp stores its fractional seconds in its `date_time` field.
             // We'll need to convert the date_time's nanoseconds to a Decimal and return it.
             Some(Digits(number_of_digits)) => {
-                let coefficient = first_n_digits_of(*number_of_digits, self.date_time.nanosecond());
-                let exponent = -((coefficient as f64).log10().ceil() as i64);
+                const MAX_NANOSECOND_DIGITS: u32 = 9; // If it were 10, it'd be > a second
+                let nanoseconds = self.date_time.nanosecond();
+                let leading_zeros = MAX_NANOSECOND_DIGITS
+                    - super::num_decimal_digits_in_u64(nanoseconds as u64) as u32;
+                let coefficient = if leading_zeros >= *number_of_digits {
+                    0
+                } else {
+                    first_n_digits_of(*number_of_digits - leading_zeros, nanoseconds)
+                };
+                let exponent = -i64::from(*number_of_digits);
                 Some(Decimal::new(coefficient, exponent))
             }
             // This timestamp already stores its fractional seconds as a Decimal; return a clone.
@@ -1305,6 +1304,7 @@ mod ionc_tests {
     use bigdecimal::BigDecimal;
     use ion_c_sys::timestamp as ionc_ts;
     use rstest::*;
+    use std::str::FromStr;
 
     fn fractional(lit: &str) -> ionc_ts::Mantissa {
         ionc_ts::Mantissa::Fraction(BigDecimal::parse_bytes(lit.as_bytes(), 10).unwrap())
@@ -1430,5 +1430,39 @@ mod ionc_tests {
         let converted_source: IonDateTime = actual.try_into()?;
         assert_eq!(source, converted_source);
         Ok(())
+    }
+
+    #[test]
+    fn ion_eq_fraction_seconds_mixed_mantissa() {
+        let t1 = Timestamp {
+            date_time: NaiveDateTime::from_str("1857-05-29T19:25:59.100").unwrap(),
+            offset: Some(FixedOffset::east(60 * 60 * 23 + 60 * 59)),
+            precision: Precision::FractionalSeconds,
+            fractional_seconds: Some(Mantissa::Digits(1)),
+        };
+        let t2 = Timestamp {
+            date_time: NaiveDateTime::from_str("1857-05-29T19:25:59").unwrap(),
+            offset: Some(FixedOffset::east(60 * 60 * 23 + 60 * 59)),
+            precision: Precision::FractionalSeconds,
+            fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(1u64, -1))),
+        };
+        assert_eq!(t1, t2)
+    }
+
+    #[test]
+    fn ion_eq_fraction_seconds_mixed_mantissa_2() {
+        let t1 = Timestamp {
+            date_time: NaiveDateTime::from_str("2001-08-01T18:18:49.006").unwrap(),
+            offset: Some(FixedOffset::east(60 * 60 * 1 + 60 * 1)),
+            precision: Precision::FractionalSeconds,
+            fractional_seconds: Some(Mantissa::Digits(5)),
+        };
+        let t2 = Timestamp {
+            date_time: NaiveDateTime::from_str("2001-08-01T18:18:49").unwrap(),
+            offset: Some(FixedOffset::east(60 * 60 * 1 + 60 * 1)),
+            precision: Precision::FractionalSeconds,
+            fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(600u64, -5))),
+        };
+        assert_eq!(t1, t2)
     }
 }

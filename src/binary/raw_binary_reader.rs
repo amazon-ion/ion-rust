@@ -8,7 +8,7 @@ use crate::{
     binary::{
         constants::v1_0::length_codes,
         header::{create_header_byte_jump_table, Header},
-        int::Int,
+        int::DecodedInt,
         uint::DecodedUInt,
         var_int::VarInt,
         var_uint::VarUInt,
@@ -533,7 +533,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
             return Ok(Decimal::negative_zero_with_exponent(exponent));
         }
 
-        Ok(Decimal::new(coefficient.value(), exponent))
+        Ok(Decimal::new(coefficient, exponent))
     }
 
     fn read_string(&mut self) -> IonResult<String> {
@@ -676,9 +676,9 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
         let value_bytes_read = self.cursor.bytes_read - datetime_start_offset;
         let coefficient_size_in_bytes = self.cursor.value.value_length - value_bytes_read;
         let subsecond_coefficient = if coefficient_size_in_bytes == 0 {
-            0
+            DecodedInt::zero()
         } else {
-            self.read_int(coefficient_size_in_bytes)?.value()
+            self.read_int(coefficient_size_in_bytes)?
         };
 
         let builder = builder
@@ -956,8 +956,8 @@ where
     }
 
     #[inline(always)]
-    fn read_int(&mut self, number_of_bytes: usize) -> IonResult<Int> {
-        let int = Int::read(&mut self.data_source, number_of_bytes)?;
+    fn read_int(&mut self, number_of_bytes: usize) -> IonResult<DecodedInt> {
+        let int = DecodedInt::read(&mut self.data_source, number_of_bytes)?;
         self.cursor.bytes_read += int.size_in_bytes();
         Ok(int)
     }

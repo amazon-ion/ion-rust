@@ -1,16 +1,17 @@
-use crate::text::parse_result::{IonParseResult, UpgradeIResult, UpgradeParser};
-use crate::text::parsers::string::long_string_fragment_without_escaped_text;
+use crate::text::parse_result::{fatal_parse_error, IonParseResult, UpgradeParser};
 use crate::text::parsers::text_support::{
-    escaped_char_no_unicode, escaped_newline, StringFragment,
+    escaped_char_no_unicode, escaped_newline, normalized_newline, StringFragment,
 };
-use crate::text::parsers::whitespace;
+use crate::text::parsers::{text_support, whitespace, WHITESPACE_CHARACTERS};
 use crate::text::text_value::TextValue;
 use nom::branch::alt;
-use nom::bytes::streaming::{is_not, tag};
+use nom::bytes::streaming::tag;
 use nom::character::streaming::char;
-use nom::combinator::{map, not, opt, peek, verify};
+use nom::combinator::{map, not, opt, peek};
 use nom::multi::{fold_many0, many1};
 use nom::sequence::{delimited, terminated};
+use nom::Err::Incomplete;
+use nom::Needed;
 use std::str;
 
 /// Matches the text representation of a clob value and returns the resulting [Clob]
@@ -78,17 +79,46 @@ fn long_clob_body(input: &str) -> IonParseResult<Vec<u8>> {
 /// Matches an escaped character or a substring without any escapes in a long clob.
 fn long_clob_fragment(input: &str) -> IonParseResult<StringFragment> {
     alt((
+        normalized_newline,
         escaped_newline,
         escaped_char_no_unicode,
         long_clob_fragment_without_escaped_text,
     ))(input)
 }
 
-/// Matches the next string fragment while respecting the long clob delimiter (`'''`).
+/// Matches the next clob fragment while respecting the long clob delimiter (`'''`).
 fn long_clob_fragment_without_escaped_text(input: &str) -> IonParseResult<StringFragment> {
-    // Matches the head of the string up to the next `'''` or `\`.
-    // Will not match if the `'''` or `\` is at the very beginning of the string.
-    long_string_fragment_without_escaped_text(input)
+    for (byte_index, character) in input.char_indices() {
+        match character {
+            '\\' | '\r' => {
+                // Escapes and carriage returns are handled by other clob fragment parsers.
+                // Return a match for everything leading up to this.
+                return text_support::string_fragment_or_mismatch(input, byte_index);
+            }
+            '\'' => {
+                // This might be the terminating `'''`. Look ahead to see if it's followed by two
+                // more `'`s. If so, return a match for everything leading up to it.
+                let remaining = &input[byte_index..];
+                if remaining.starts_with("'''") {
+                    return text_support::string_fragment_or_mismatch(input, byte_index);
+                }
+            }
+            c if char_is_legal_clob_ascii(c) => {
+                // Do nothing; this will be part of the substring we return.
+            }
+            c => {
+                return fatal_parse_error(
+                    input,
+                    format!(
+                        "found unescaped non-ASCII or non-displayable character in a clob: {}",
+                        u32::from(c)
+                    ),
+                );
+            }
+        };
+    }
+    // We never found an end-of-fragment; we need more input to tell if this is a valid clob.
+    Err(Incomplete(Needed::Unknown))
 }
 
 /// Matches the body of a short clob. (The `hello` in `"hello"`.)
@@ -112,12 +142,40 @@ fn short_clob_fragment(input: &str) -> IonParseResult<StringFragment> {
     ))(input)
 }
 
-/// Matches the next string fragment while respecting the short clob delimiter (`"`).
+/// Matches the next clob fragment while respecting the short clob delimiter (`"`).
 fn short_clob_fragment_without_escaped_text(input: &str) -> IonParseResult<StringFragment> {
-    map(verify(is_not("\"\\\""), |s: &str| !s.is_empty()), |text| {
-        StringFragment::Substring(text)
-    })(input)
-    .upgrade()
+    for (byte_index, character) in input.char_indices() {
+        match character {
+            '\\' | '\r' | '\"' => {
+                // We found an escape, an un-normalized newline (\r), or an end-of-fragment marker.
+                // Stop parsing and return a match for everything leading up to this.
+                return text_support::string_fragment_or_mismatch(input, byte_index);
+            }
+            c if char_is_legal_clob_ascii(c) => {
+                // Do nothing; this will be part of the substring we return.
+            }
+            c => {
+                return fatal_parse_error(
+                    input,
+                    format!(
+                        "found unescaped non-ASCII or non-displayable character in a clob: {}",
+                        u32::from(c)
+                    ),
+                );
+            }
+        };
+    }
+    // We never found an end-of-fragment; we need more input to tell if this is a valid clob.
+    Err(Incomplete(Needed::Unknown))
+}
+
+fn char_is_legal_clob_ascii(c: char) -> bool {
+    // Depending on where you look in the spec and/or `ion-tests`, you'll find conflicting
+    // information about which ASCII characters can appear unescaped in a clob. Some say
+    // "characters >= 0x20", but that excludes lots of whitespace characters that are < 0x20.
+    // Some say "displayable ASCII", but DEL (0x7F) is shown to be legal in one of the ion-tests.
+    // The definition used here has largely been inferred from the contents of `ion-tests`.
+    c.is_ascii() && (u32::from(c) >= 0x20 || WHITESPACE_CHARACTERS.contains(&c))
 }
 
 #[cfg(test)]
@@ -135,6 +193,11 @@ mod clob_parsing_tests {
 
     fn parse_fails(text: &str) {
         parse_test_err(parse_clob, text)
+    }
+
+    #[test]
+    fn del_test() {
+        assert!('\x7F'.is_ascii())
     }
 
     #[test]

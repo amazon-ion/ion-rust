@@ -27,17 +27,17 @@ pub(crate) mod top_level;
 pub(crate) mod value;
 
 const WHITESPACE_CHARACTERS: &[char] = &[
-    ' ',        // Space
-    '\t',       // Tab
-    '\r',       // Carriage return
-    '\n',       // Newline
-    '\u{0009}', // Horizontal tab
-    '\u{000B}', // Vertical tab
-    '\u{000C}', // Form feed
+    ' ',    // Space
+    '\t',   // Tab
+    '\r',   // Carriage return
+    '\n',   // Newline
+    '\x09', // Horizontal tab
+    '\x0B', // Vertical tab
+    '\x0C', // Form feed
 ];
 
 /// Same as [WHITESPACE_CHARACTERS], but formatted as a string for use in some `nom` APIs
-const WHITESPACE_CHARACTERS_AS_STR: &str = " \t\r\n\u{0009}\u{000B}\u{000C}";
+const WHITESPACE_CHARACTERS_AS_STR: &str = " \t\r\n\x09\x0B\x0C";
 
 // ===== The functions below are used by several modules and live here for common access. =====
 

@@ -504,10 +504,13 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
     }
 
     fn write_ion_version_marker(&mut self, major: u8, minor: u8) -> IonResult<()> {
+        if self.depth() > 0 {
+            return illegal_operation("can only write an IVM at the top level");
+        }
         if major == 1 && minor == 0 {
             return Ok(self.out.write_all(&IVM)?);
         }
-        panic!("Only Ion 1.0 is supported.");
+        illegal_operation("Only Ion 1.0 is supported.")
     }
 
     fn supports_text_symbol_tokens(&self) -> bool {
@@ -740,7 +743,8 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
     }
 
     fn depth(&self) -> usize {
-        self.levels.len()
+        // The top level is always present
+        self.levels.len() - 1
     }
 
     /// Ends the current container. If the writer is at the top level, `step_out` will return an Err.
@@ -806,7 +810,7 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
     /// Writes any buffered data to the sink. This method can only be called when the writer is at
     /// the top level.
     fn flush(&mut self) -> IonResult<()> {
-        if self.levels.len() > 1 {
+        if self.depth() > 0 {
             return illegal_operation(
                 "Cannot call flush() while the writer is positioned within a container.",
             );

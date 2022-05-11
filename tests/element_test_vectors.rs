@@ -1,12 +1,15 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+use ion_rs::binary::raw_binary_writer::RawBinaryWriter;
 use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
+use ion_rs::value::native_writer::NativeElementWriter;
 use ion_rs::value::owned::OwnedElement;
-use ion_rs::value::reader::{element_reader, ElementReader};
-use ion_rs::value::writer::{ElementWriter, Format, SliceElementWriter, TextKind};
+use ion_rs::value::reader::ElementReader;
+use ion_rs::value::writer::{ElementWriter, Format, TextKind};
 use ion_rs::value::{Element, Sequence, SymbolToken};
-use pretty_hex::*;
+use ion_rs::{BinaryWriter, RawTextWriter, TextWriter};
+
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 use test_generator::test_resources;
@@ -34,8 +37,74 @@ fn contains_path(paths: &[&str], file_name: &str) -> bool {
 // Statically defined arrays containing test file paths to skip in various contexts.
 type SkipList = &'static [&'static str];
 
+// TODO: This trait exists solely for the purposes of this integration test. It allows us to paper
+// over the differences in the ion-c and native Rust ElementWriter implementations.
+// Once all of the tests are passing, we should work to unify their APIs.
+trait RoundTrip {
+    /// Encodes `elements` to a buffer in the specified Ion `format` and then reads them back into
+    /// a `Vec<OwnedElement>` using the provided reader.
+    fn roundtrip<R: ElementReader>(
+        elements: &Vec<OwnedElement>,
+        format: Format,
+        reader: R,
+    ) -> IonResult<Vec<OwnedElement>>;
+}
+
+/// These unit structs implement the [RoundTrip] trait and can be passed throughout the
+/// integration tests to dictate which readers/writers should be used in each test.
+struct IonCElementWriterApi;
+struct NativeElementWriterApi;
+
+impl RoundTrip for IonCElementWriterApi {
+    fn roundtrip<R: ElementReader>(
+        elements: &Vec<OwnedElement>,
+        format: Format,
+        reader: R,
+    ) -> IonResult<Vec<OwnedElement>> {
+        let mut buffer = vec![0; WRITE_BUF_LENGTH];
+        let mut ion_c_element_writer = format.element_writer_for_slice(buffer.as_mut_slice())?;
+        ion_c_element_writer.write_all(elements)?;
+        let bytes = ion_c_element_writer.finish()?;
+        reader.read_all(bytes)
+    }
+}
+
+// TODO: This implementation is not yet being used; the native reader still paired with the ion-c
+//       writer in the interest of minimizing the number of places that test failures need to be
+//       researched. Once the native reader is passing enough ion-tests, we'll enable the
+//       native writer so we can fix any failures it produces.
+impl RoundTrip for NativeElementWriterApi {
+    fn roundtrip<R: ElementReader>(
+        elements: &Vec<OwnedElement>,
+        format: Format,
+        reader: R,
+    ) -> IonResult<Vec<OwnedElement>> {
+        // Unlike the C writer, the Rust writer can write into a growing Vec.
+        // No need for an aggressive preallocation.
+        let mut buffer = Vec::with_capacity(2048);
+        match format {
+            // TODO: Handle `TextKind`: Pretty
+            Format::Text(_) => {
+                let raw_text_writer = RawTextWriter::new(&mut buffer);
+                let mut writer = NativeElementWriter::new(TextWriter::new(raw_text_writer));
+                writer.write_all(elements)?;
+                let _ = writer.finish()?;
+            }
+            Format::Binary => {
+                let raw_binary_writer = RawBinaryWriter::new(&mut buffer);
+                let mut writer = NativeElementWriter::new(BinaryWriter::new(raw_binary_writer));
+                writer.write_all(elements)?;
+                let _ = writer.finish()?;
+            }
+        };
+
+        reader.read_all(buffer.as_slice())
+    }
+}
+
 trait ElementApi {
-    type ElementReader: ElementReader;
+    type ReaderApi: ElementReader;
+    type RoundTripper: RoundTrip;
 
     fn global_skip_list() -> SkipList;
     fn read_one_equivs_skip_list() -> SkipList;
@@ -43,51 +112,54 @@ trait ElementApi {
     fn equivs_skip_list() -> SkipList;
     fn non_equivs_skip_list() -> SkipList;
 
-    fn make_reader() -> Self::ElementReader;
-
-    // TODO: These are currently all ion-c specific method signatures. SliceElementWriter takes a
-    //       lifetime, so we can't specify it as an associated type until GATs is stable. That's
-    //       ok for the moment because we don't have a native ElementWriter to test yet.
-    fn make_text_writer(buffer: &mut [u8]) -> IonResult<SliceElementWriter>;
-    fn make_pretty_text_writer(buffer: &mut [u8]) -> IonResult<SliceElementWriter>;
-    fn make_binary_writer(buffer: &mut [u8]) -> IonResult<SliceElementWriter>;
+    fn make_reader() -> Self::ReaderApi;
 
     /// Asserts the given elements can be round-tripped and equivalent, then returns the new elements.
-    fn assert_round_trip<F>(
+    fn assert_round_trip(
         source_elements: &Vec<OwnedElement>,
-        make_writer: F,
-    ) -> IonResult<Vec<OwnedElement>>
-    where
-        F: FnOnce(&mut [u8]) -> IonResult<SliceElementWriter>,
-    {
-        let mut buf = vec![0u8; WRITE_BUF_LENGTH];
-        let mut writer = make_writer(&mut buf)?;
-        writer.write_all(source_elements)?;
-        let output = writer.finish()?;
-        let new_elements = element_reader().read_all(output)?;
+        format: Format,
+    ) -> IonResult<Vec<OwnedElement>> {
+        let new_elements = Self::RoundTripper::roundtrip(
+            source_elements,
+            format,
+            Self::make_reader(), /*HERE*/
+        )?;
         assert!(
             source_elements.ion_eq(&new_elements),
-            "{:?}",
-            output.hex_dump()
+            "Roundtrip via {:?} failed: {}",
+            format,
+            Self::not_eq_error_message(&source_elements, &new_elements)
         );
         Ok(new_elements)
     }
 
-    fn assert_three_way_round_trip<F1, F2>(
+    fn not_eq_error_message(e1: &Vec<OwnedElement>, e2: &Vec<OwnedElement>) -> String {
+        if e1.len() != e2.len() {
+            return format!("e1 has {} elements, e2 has {} elements", e1.len(), e2.len());
+        }
+
+        for (index, (element1, element2)) in e1.iter().zip(e2.iter()).enumerate() {
+            if !element1.ion_eq(element2) {
+                return format!(
+                    "The values at position #{} were not IonEq.\ne1: {:?}\ne2: {:?}",
+                    index, element1, element2
+                );
+            }
+        }
+        unreachable!("not_eq_error_message called, but all elements were ion_eq");
+    }
+
+    fn assert_three_way_round_trip(
         file_name: &str,
-        first_writer: F1,
-        second_writer: F2,
-    ) -> IonResult<()>
-    where
-        F1: FnOnce(&mut [u8]) -> IonResult<SliceElementWriter>,
-        F2: FnOnce(&mut [u8]) -> IonResult<SliceElementWriter>,
-    {
+        format1: Format,
+        format2: Format,
+    ) -> IonResult<()> {
         let source_elements = Self::read_file(&Self::make_reader(), file_name)?;
         if contains_path(Self::round_trip_skip_list(), file_name) {
             return Ok(());
         }
-        let first_write_elements = Self::assert_round_trip(&source_elements, first_writer)?;
-        let second_write_elements = Self::assert_round_trip(&first_write_elements, second_writer)?;
+        let first_write_elements = Self::assert_round_trip(&source_elements, format1)?;
+        let second_write_elements = Self::assert_round_trip(&first_write_elements, format2)?;
         assert!(source_elements.ion_eq(&second_write_elements));
         Ok(())
     }
@@ -163,17 +235,18 @@ trait ElementApi {
     /// This would have two groups, one with direct values that will be compared and another
     /// with embedded Ion text that will be parsed and compared.
     fn read_group<F1, F2>(
-        reader: Self::ElementReader,
+        reader: Self::ReaderApi,
         file_name: &str,
         value_assert: F1,
         group_assert: F2,
     ) -> IonResult<()>
     where
-        F1: Fn(&OwnedElement, &OwnedElement),
+        // group index, value 1 index, value 1, value 2 index, value 2
+        F1: Fn(usize, usize, &OwnedElement, usize, &OwnedElement),
         F2: Fn(&Vec<OwnedElement>, &Vec<OwnedElement>),
     {
         let group_lists = Self::read_file(&reader, file_name)?;
-        for group_list in group_lists.iter() {
+        for (group_index, group_list) in group_lists.iter().enumerate() {
             // every grouping set is a list/sexp
             // look for the embedded annotation to parse/test as the underlying value
             let is_embedded = group_list
@@ -184,9 +257,9 @@ trait ElementApi {
                     Self::read_group_embedded(&reader, group, &group_assert)?;
                 }
                 (Some(group), false) => {
-                    for this in group.iter() {
-                        for that in group.iter() {
-                            value_assert(this, that);
+                    for (this_index, this) in group.iter().enumerate() {
+                        for (that_index, that) in group.iter().enumerate() {
+                            value_assert(group_index, this_index, this, that_index, that);
                         }
                     }
                 }
@@ -201,7 +274,7 @@ trait ElementApi {
         Ok(())
     }
 
-    fn read_file(reader: &Self::ElementReader, file_name: &str) -> IonResult<Vec<OwnedElement>> {
+    fn read_file(reader: &Self::ReaderApi, file_name: &str) -> IonResult<Vec<OwnedElement>> {
         // TODO have a better API that doesn't require buffering into memory everything...
         let data = read(file_name)?;
         let result = reader.read_all(&data);
@@ -251,18 +324,15 @@ trait ElementApi {
 /// using the writer provided by `second_writer_provider`. Finally, compares the data read from `b2`
 /// to the data in `file_name` and asserts that they are equivalent, demonstrating that no data has
 /// been lost.
-fn good_roundtrip<E: ElementApi, F1, F2>(
+fn good_roundtrip<E: ElementApi>(
     _element_api: E,
     skip_list: &[&str],
     file_name: &str,
-    first_writer_provider: F1,
-    second_writer_provider: F2,
-) where
-    F1: FnOnce(&mut [u8]) -> IonResult<SliceElementWriter>,
-    F2: FnOnce(&mut [u8]) -> IonResult<SliceElementWriter>,
-{
+    format1: Format,
+    format2: Format,
+) {
     E::assert_file(skip_list, file_name, || {
-        E::assert_three_way_round_trip(file_name, first_writer_provider, second_writer_provider)
+        E::assert_three_way_round_trip(file_name, format1, format2)
     });
 }
 
@@ -271,8 +341,8 @@ fn good_roundtrip_text_binary<E: ElementApi>(element_api: E, file_name: &str) {
         element_api,
         E::global_skip_list(),
         file_name,
-        |slice| E::make_text_writer(slice),
-        |slice| E::make_binary_writer(slice),
+        Format::Text(TextKind::Compact),
+        Format::Binary,
     )
 }
 
@@ -281,8 +351,8 @@ fn good_roundtrip_binary_text<E: ElementApi>(element_api: E, file_name: &str) {
         element_api,
         E::global_skip_list(),
         file_name,
-        |slice| E::make_binary_writer(slice),
-        |slice| E::make_text_writer(slice),
+        Format::Binary,
+        Format::Text(TextKind::Compact),
     )
 }
 
@@ -291,8 +361,8 @@ fn good_roundtrip_text_pretty<E: ElementApi>(element_api: E, file_name: &str) {
         element_api,
         E::global_skip_list(),
         file_name,
-        |slice| E::make_text_writer(slice),
-        |slice| E::make_pretty_text_writer(slice),
+        Format::Text(TextKind::Compact),
+        Format::Text(TextKind::Pretty),
     )
 }
 
@@ -301,8 +371,8 @@ fn good_roundtrip_pretty_text<E: ElementApi>(element_api: E, file_name: &str) {
         element_api,
         E::global_skip_list(),
         file_name,
-        |slice| E::make_pretty_text_writer(slice),
-        |slice| E::make_text_writer(slice),
+        Format::Text(TextKind::Pretty),
+        Format::Text(TextKind::Compact),
     )
 }
 
@@ -311,8 +381,8 @@ fn good_roundtrip_pretty_binary<E: ElementApi>(element_api: E, file_name: &str) 
         element_api,
         E::global_skip_list(),
         file_name,
-        |slice| E::make_pretty_text_writer(slice),
-        |slice| E::make_binary_writer(slice),
+        Format::Text(TextKind::Pretty),
+        Format::Binary,
     )
 }
 
@@ -321,8 +391,8 @@ fn good_roundtrip_binary_pretty<E: ElementApi>(element_api: E, file_name: &str) 
         element_api,
         E::global_skip_list(),
         file_name,
-        |slice| E::make_binary_writer(slice),
-        |slice| E::make_pretty_text_writer(slice),
+        Format::Binary,
+        Format::Text(TextKind::Pretty),
     )
 }
 
@@ -341,7 +411,17 @@ fn equivs<E: ElementApi>(_element_api: E, file_name: &str) {
         E::read_group(
             E::make_reader(),
             file_name,
-            |this, that| assert!(this.ion_eq(that)),
+            |group_index, this_index, this, that_index, that| {
+                assert!(
+                    this.ion_eq(that),
+                    "in group {}, index {} ({:?}) was not ion_eq to index {} ({:?})",
+                    group_index,
+                    this_index,
+                    this,
+                    that_index,
+                    that
+                )
+            },
             |this_group, that_group| assert!(this_group.ion_eq(that_group)),
         )
     });
@@ -353,21 +433,27 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
         E::read_group(
             E::make_reader(),
             file_name,
-            |this, that| {
+            |group_index, this_index, this, that_index, that| {
                 if std::ptr::eq(this, that) {
                     assert!(
                         this.ion_eq(that),
-                        "unexpected these to be equal but they were unequal: {:?} != {:?}",
+                        "in group {}, index {} ({:?}) was not ion_eq to index {} ({:?})",
+                        group_index,
+                        this_index,
                         this,
+                        that_index,
                         that
-                    );
+                    )
                 } else {
                     assert!(
                         !this.ion_eq(that),
-                        "expected these to be unequal but they were equal: {:?} == {:?}",
+                        "in group {}, index {} ({:?}) was unexpectedly ion_eq to index {} ({:?})",
+                        group_index,
+                        this_index,
                         this,
+                        that_index,
                         that
-                    );
+                    )
                 }
             },
             |this_group, that_group| {
@@ -397,7 +483,7 @@ mod ion_c_element_api_tests {
     use ion_rs::value::ion_c_reader::IonCElementReader;
     use ion_rs::value::reader::ion_c_element_reader;
 
-    struct IonCElementApi {}
+    struct IonCElementApi;
 
     /// Files that should always be skipped for some reason.
     const GLOBAL_SKIP_LIST: SkipList = &[
@@ -450,7 +536,8 @@ mod ion_c_element_api_tests {
     ];
 
     impl ElementApi for IonCElementApi {
-        type ElementReader = IonCElementReader;
+        type ReaderApi = IonCElementReader;
+        type RoundTripper = IonCElementWriterApi;
 
         fn global_skip_list() -> SkipList {
             GLOBAL_SKIP_LIST
@@ -472,69 +559,57 @@ mod ion_c_element_api_tests {
             NON_EQUIVS_SKIP_LIST
         }
 
-        fn make_reader() -> Self::ElementReader {
+        fn make_reader() -> Self::ReaderApi {
             ion_c_element_reader()
-        }
-
-        fn make_text_writer(buffer: &mut [u8]) -> IonResult<SliceElementWriter> {
-            Format::Text(TextKind::Compact).element_writer_for_slice(buffer)
-        }
-
-        fn make_pretty_text_writer(buffer: &mut [u8]) -> IonResult<SliceElementWriter> {
-            Format::Text(TextKind::Pretty).element_writer_for_slice(buffer)
-        }
-
-        fn make_binary_writer(buffer: &mut [u8]) -> IonResult<SliceElementWriter> {
-            Format::Binary.element_writer_for_slice(buffer)
         }
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn ion_c_good_roundtrip_text_binary(file_name: &str) {
-        good_roundtrip_text_binary(IonCElementApi {}, file_name)
+        good_roundtrip_text_binary(IonCElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn ion_c_good_roundtrip_binary_text(file_name: &str) {
-        good_roundtrip_binary_text(IonCElementApi {}, file_name)
+        good_roundtrip_binary_text(IonCElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn ion_c_good_roundtrip_text_pretty(file_name: &str) {
-        good_roundtrip_text_pretty(IonCElementApi {}, file_name)
+        good_roundtrip_text_pretty(IonCElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn ion_c_good_roundtrip_pretty_text(file_name: &str) {
-        good_roundtrip_pretty_text(IonCElementApi {}, file_name)
+        good_roundtrip_pretty_text(IonCElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn ion_c_good_roundtrip_pretty_binary(file_name: &str) {
-        good_roundtrip_pretty_binary(IonCElementApi {}, file_name)
+        good_roundtrip_pretty_binary(IonCElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn ion_c_good_roundtrip_binary_pretty(file_name: &str) {
-        good_roundtrip_binary_pretty(IonCElementApi {}, file_name)
+        good_roundtrip_binary_pretty(IonCElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/bad/**/*.10n")]
     fn ion_c_bad(file_name: &str) {
-        bad(IonCElementApi {}, file_name)
+        bad(IonCElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
     fn ion_c_equivs(file_name: &str) {
-        equivs(IonCElementApi {}, file_name)
+        equivs(IonCElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.ion")]
@@ -542,7 +617,7 @@ mod ion_c_element_api_tests {
     // see frehberg/test-generator#12
     //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
     fn ion_c_non_equivs(file_name: &str) {
-        non_equivs(IonCElementApi {}, file_name)
+        non_equivs(IonCElementApi, file_name)
     }
 }
 
@@ -552,28 +627,17 @@ mod native_element_tests {
     use ion_rs::value::native_reader::NativeElementReader;
     use ion_rs::value::reader::native_element_reader;
 
-    struct NativeElementApi {}
+    struct NativeElementApi;
 
     impl ElementApi for NativeElementApi {
-        type ElementReader = NativeElementReader;
+        type ReaderApi = NativeElementReader;
+        type RoundTripper = IonCElementWriterApi;
 
         fn global_skip_list() -> SkipList {
             &[
-                // The text reader does not validate whether a clob's text contains unescaped
-                // characters outside of the displayable ASCII range.
-                "ion-tests/iontestdata/bad/clobWithNonAsciiCharacter.ion",
-                "ion-tests/iontestdata/bad/clobWithNonAsciiCharacterMultiline.ion",
-                "ion-tests/iontestdata/bad/clobWithNullCharacter.ion",
-                "ion-tests/iontestdata/bad/clobWithValidUtf8ButNonAsciiCharacter.ion",
                 // The binary reader does not check whether nested values are longer than their
                 // parent container.
                 "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
-                // These fail because non-displayable ASCII control characters are valid utf-8. A
-                // separate check is needed to confirm that raw control characters only show up
-                // as escape sequences.
-                "ion-tests/iontestdata/bad/longStringRawControlCharacter.ion",
-                "ion-tests/iontestdata/bad/stringRawControlCharacter.ion",
-                "ion-tests/iontestdata/bad/stringWithEol.ion",
                 // ROUND TRIP
                 // These tests have shared symbol table imports in them, which the Reader does not
                 // yet support.
@@ -597,9 +661,6 @@ mod native_element_tests {
                 // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
                 "ion-tests/iontestdata/good/utf16.ion",
                 "ion-tests/iontestdata/good/utf32.ion",
-                // EQUIVS
-                // Fails because of utf-16 surrogate handling in escapes
-                "ion-tests/iontestdata/good/equivs/utf8/stringUtf8.ion",
                 // NON-EQUIVS
                 // These tests fail because the ion-c writer bindings don't support writing -0.0
                 "ion-tests/iontestdata/good/non-equivs/decimals.ion",
@@ -616,6 +677,14 @@ mod native_element_tests {
 
         fn round_trip_skip_list() -> SkipList {
             &[
+                // These tests fail because the ion-c writer doesn't fully step out of the last
+                // container it writes in some circumstances, leading to a panic.
+                "ion-tests/iontestdata/good/testfile25.ion",
+                "ion-tests/iontestdata/good/testfile33.ion",
+                "ion-tests/iontestdata/good/non-equivs/timestamps.ion",
+                "ion-tests/iontestdata/good/equivs/timestamps.ion",
+                "ion-tests/iontestdata/good/equivs/timestampFractions.ion",
+                // -----
                 // These tests fail because the ion-c writer tries to convert a coefficient of -0
                 // to a BigInt, which cannot represent -0. Adding the native Rust element writer
                 // (which works with Decimals directly) will address this.
@@ -624,7 +693,13 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/decimalNegativeZeroDotZero.10n",
                 "ion-tests/iontestdata/good/equivs/zeroDecimals.ion",
                 // ------
-                "ion-tests/iontestdata/good/equivs/textNewlines.ion",
+                // These tests fail because the ion-c writer does not allow fractional seconds
+                // to be represented with a decimal if the precision is less than nanoseconds.
+                // (That is: milliseconds, microseconds, etc)
+                "ion-tests/iontestdata/good/timestamp/timestamps.ion",
+                "ion-tests/iontestdata/good/timestamp/leapDay.ion",
+                "ion-tests/iontestdata/good/timestamp/timestamp2011-02-20T19_30_59_100-08_00.10n",
+                // ------
                 "ion-tests/iontestdata/good/equivs/timestampFractions.10n",
                 "ion-tests/iontestdata/good/equivs/timestampsLargeFractionalPrecision.ion",
                 "ion-tests/iontestdata/good/item1.10n",
@@ -639,23 +714,27 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
                 "ion-tests/iontestdata/good/testfile23.ion",
                 "ion-tests/iontestdata/good/testfile31.ion",
-                "ion-tests/iontestdata/good/testfile35.ion",
                 "ion-tests/iontestdata/good/timestamp/equivTimeline/timestamps.ion",
-                "ion-tests/iontestdata/good/timestamp/timestamp2011-02-20T19_30_59_100-08_00.10n",
                 "ion-tests/iontestdata/good/typecodes/T5.10n",
                 "ion-tests/iontestdata/good/typecodes/T6-large.10n",
                 "ion-tests/iontestdata/good/utf16.ion",
                 "ion-tests/iontestdata/good/utf32.ion",
+                // These tests have symbols with unknown text. While the raw and system readers
+                // could process these, the user-level `Reader` simply raises an `IonError`.
+                // This is in keeping with the Ion spec, but causes these tests to fail.
+                "ion-tests/iontestdata/good/symbolExplicitZero.10n",
+                "ion-tests/iontestdata/good/symbolImplicitZero.10n",
+                "ion-tests/iontestdata/good/symbolZero.ion",
+                "ion-tests/iontestdata/good/typecodes/T7-small.10n",
+                "ion-tests/iontestdata/good/typecodes/T7-large.10n",
             ]
         }
 
         fn equivs_skip_list() -> SkipList {
             &[
-                "ion-tests/iontestdata/good/equivs/clobNewlines.ion",
                 "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
                 "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
                 "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
-                "ion-tests/iontestdata/good/equivs/textNewlines.ion",
                 "ion-tests/iontestdata/good/equivs/timestampFractions.10n",
             ]
         }
@@ -664,72 +743,57 @@ mod native_element_tests {
             &[]
         }
 
-        fn make_reader() -> Self::ElementReader {
+        fn make_reader() -> Self::ReaderApi {
             native_element_reader()
-        }
-
-        // TODO: These methods return an ion-c writer for the time being.
-        //       Once we have a native ElementWriter impl and the reader is passing (most of) its
-        //       ion-tests, we can modify this.
-        fn make_text_writer(buffer: &mut [u8]) -> IonResult<SliceElementWriter> {
-            Format::Text(TextKind::Compact).element_writer_for_slice(buffer)
-        }
-
-        fn make_pretty_text_writer(buffer: &mut [u8]) -> IonResult<SliceElementWriter> {
-            Format::Text(TextKind::Pretty).element_writer_for_slice(buffer)
-        }
-
-        fn make_binary_writer(buffer: &mut [u8]) -> IonResult<SliceElementWriter> {
-            Format::Binary.element_writer_for_slice(buffer)
         }
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn native_good_roundtrip_text_binary(file_name: &str) {
-        good_roundtrip_text_binary(NativeElementApi {}, file_name)
+        good_roundtrip_text_binary(NativeElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn native_good_roundtrip_binary_text(file_name: &str) {
-        good_roundtrip_binary_text(NativeElementApi {}, file_name)
+        good_roundtrip_binary_text(NativeElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn native_good_roundtrip_text_pretty(file_name: &str) {
-        good_roundtrip_text_pretty(NativeElementApi {}, file_name)
+        good_roundtrip_text_pretty(NativeElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn native_good_roundtrip_pretty_text(file_name: &str) {
-        good_roundtrip_pretty_text(NativeElementApi {}, file_name)
+        good_roundtrip_pretty_text(NativeElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn native_good_roundtrip_pretty_binary(file_name: &str) {
-        good_roundtrip_pretty_binary(NativeElementApi {}, file_name)
+        good_roundtrip_pretty_binary(NativeElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn native_good_roundtrip_binary_pretty(file_name: &str) {
-        good_roundtrip_binary_pretty(NativeElementApi {}, file_name)
+        good_roundtrip_binary_pretty(NativeElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/bad/**/*.10n")]
     fn native_bad(file_name: &str) {
-        bad(NativeElementApi {}, file_name)
+        bad(NativeElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
     fn native_equivs(file_name: &str) {
-        equivs(NativeElementApi {}, file_name)
+        equivs(NativeElementApi, file_name)
     }
 
     #[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.ion")]
@@ -737,6 +801,6 @@ mod native_element_tests {
     // see frehberg/test-generator#12
     //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
     fn native_non_equivs(file_name: &str) {
-        non_equivs(NativeElementApi {}, file_name)
+        non_equivs(NativeElementApi, file_name)
     }
 }

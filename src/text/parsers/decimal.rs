@@ -40,6 +40,7 @@ fn decimal_with_exponent(input: &str) -> IonParseResult<TextValue> {
         )),
         decimal_exponent_marker_followed_by_digits,
     )(input)?;
+
     let decimal =
         decimal_from_text_components(input, sign, digits_before, digits_after, exponent)?.1;
     Ok((remaining, TextValue::Decimal(decimal)))

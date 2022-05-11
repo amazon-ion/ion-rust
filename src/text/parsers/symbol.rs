@@ -54,7 +54,7 @@ fn quoted_symbol_string_fragment(input: &str) -> IonParseResult<StringFragment> 
 
 /// Matches the next quoted symbol string fragment while respecting the symbol delimiter (`'`).
 fn quoted_symbol_fragment_without_escaped_text(input: &str) -> IonParseResult<StringFragment> {
-    map(verify(is_not("'\\'"), |s: &str| !s.is_empty()), |text| {
+    map(verify(is_not("'\\"), |s: &str| !s.is_empty()), |text| {
         StringFragment::Substring(text)
     })(input)
 }
