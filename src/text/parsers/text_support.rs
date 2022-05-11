@@ -1,12 +1,12 @@
 // Parsing functions that are common to textual types
 
+use crate::text::parse_result::{fatal_parse_error, IonParseResult, UpgradeIResult};
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::{char, satisfy};
 use nom::combinator::{map, recognize, value};
-use nom::error::{Error, ErrorKind, ParseError};
 use nom::sequence::{preceded, tuple};
-use nom::{AsChar, Err, IResult};
+use nom::{AsChar, IResult};
 
 /// The text Ion types each need to be able to read strings that contain escaped characters.
 /// This type represents the possible types of substring that make up any given piece of text from
@@ -23,16 +23,17 @@ pub(crate) enum StringFragment<'a> {
 }
 
 /// Matches an escaped newline, returning [StringFragment::EscapedNewline].
-pub(crate) fn escaped_newline(input: &str) -> IResult<&str, StringFragment> {
+pub(crate) fn escaped_newline(input: &str) -> IonParseResult<StringFragment> {
     value(
         StringFragment::EscapedNewline,
         alt((tag("\\\n"), tag("\\\r\n"), tag("\\\r"))),
     )(input)
+    .upgrade()
 }
 
 /// Matches an escaped literal (like '\n') or a Unicode escape (starting with '\x', '\u', or '\U'),
 /// returning the appropriate substitute character as a [StringFragment::EscapedChar].
-pub(crate) fn escaped_char(input: &str) -> IResult<&str, StringFragment> {
+pub(crate) fn escaped_char(input: &str) -> IonParseResult<StringFragment> {
     map(
         preceded(
             char('\\'),
@@ -45,7 +46,7 @@ pub(crate) fn escaped_char(input: &str) -> IResult<&str, StringFragment> {
 /// Matches an escaped literal (like '\n') or a hex escape (like `\x`), returning the appropriate
 /// substitute character as a [StringFragment::EscapedChar]. Does NOT match Unicode escapes
 /// ('\u' or '\U').
-pub(crate) fn escaped_char_no_unicode(input: &str) -> IResult<&str, StringFragment> {
+pub(crate) fn escaped_char_no_unicode(input: &str) -> IonParseResult<StringFragment> {
     map(
         preceded(char('\\'), alt((escaped_hex_char, escaped_char_literal))),
         StringFragment::EscapedChar,
@@ -54,7 +55,7 @@ pub(crate) fn escaped_char_no_unicode(input: &str) -> IResult<&str, StringFragme
 
 /// Matches an escaped literal and returns the appropriate substitute character.
 /// See: https://amzn.github.io/ion-docs/docs/spec.html#escapes
-pub(crate) fn escaped_char_literal(input: &str) -> IResult<&str, char> {
+pub(crate) fn escaped_char_literal(input: &str) -> IonParseResult<char> {
     alt((
         value('\n', char('n')),
         value('\r', char('r')),
@@ -70,13 +71,14 @@ pub(crate) fn escaped_char_literal(input: &str) -> IResult<&str, char> {
         value('\u{0B}', char('v')), // vertical tab
         value('\u{0C}', char('f')), // form feed
     ))(input)
+    .upgrade()
 }
 
-pub(crate) fn escaped_hex_char(input: &str) -> IResult<&str, char> {
+pub(crate) fn escaped_hex_char(input: &str) -> IonParseResult<char> {
     // First, try to match the input to a hex escape sequence. If successful, extract the hex
     // digits that were included in the sequence. If matching fails, this isn't a hex escape sequence.
     // Return early with a non-fatal error.
-    let (remaining_input, hex_digits) = escaped_char_2_digit_hex(input)?;
+    let (remaining_input, hex_digits) = escaped_char_2_digit_hex(input).upgrade()?;
 
     // Now that we have our hex digits, we'll try to convert them to a char.
     // If this fails, it will return a fatal error.
@@ -85,7 +87,7 @@ pub(crate) fn escaped_hex_char(input: &str) -> IResult<&str, char> {
 
 /// Matches a Unicode escape (starting with '\x', '\u', or '\U'), returning the appropriate
 /// substitute character.
-pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
+pub(crate) fn escaped_char_unicode(input: &str) -> IonParseResult<char> {
     // First, try to match the input to a Unicode escape sequence. If successful, extract the hex
     // digits that were included in the sequence. If matching fails, this isn't an escape sequence.
     // Return early with a non-fatal error.
@@ -93,7 +95,8 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
         escaped_char_2_digit_hex,
         escaped_char_unicode_4_digit_hex,
         escaped_char_unicode_8_digit_hex,
-    ))(input)?;
+    ))(input)
+    .upgrade()?;
 
     // Now that we have our hex digits, we'll try to convert them to Unicode code points.
     // If this fails, it will return a fatal error.
@@ -104,31 +107,30 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IResult<&str, char> {
 pub(crate) fn decode_hex_digits_to_char<'a>(
     remaining_input: &'a str,
     hex_digits: &'a str,
-) -> IResult<&'a str, char> {
+) -> IonParseResult<'a, char> {
     // If this step fails, the Ion data stream is malformed and we need to bail out completely.
     // We can't simply return an error as we did above; if we did that, the parser would go on to
     // treat the input as a String literal without escapes, which is the incorrect behavior.
     // Instead, we need to return a nom `Err::Failure`, indicating that we cannot proceed.
     let number_value = match u32::from_str_radix(hex_digits, 16) {
         Ok(number_value) => number_value,
-        Err(_parse_int_error) => {
-            // TODO: A custom error type would be required to bubble up specific information
-            //       about the failure.
-            return Err(Err::Failure(Error::from_error_kind(
+        Err(parse_int_error) => {
+            return fatal_parse_error(
                 hex_digits,
-                ErrorKind::Escaped,
-            )));
+                format!("could not parse escaped code unit: {}", parse_int_error),
+            )
         }
     };
     let char_value = match std::char::from_u32(number_value) {
         Some(char_value) => char_value,
         None => {
-            // TODO: A custom error type would be required to bubble up specific information
-            //       about the failure.
-            return Err(Err::Failure(Error::from_error_kind(
+            return fatal_parse_error(
                 hex_digits,
-                ErrorKind::Escaped,
-            )));
+                format!(
+                    "escape value (decimal:'{}') is not a valid character",
+                    number_value
+                ),
+            );
         }
     };
     Ok((remaining_input, char_value))

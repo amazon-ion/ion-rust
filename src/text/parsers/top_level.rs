@@ -3,8 +3,8 @@ use nom::bytes::streaming::tag;
 use nom::character::streaming::{digit0, one_of};
 use nom::combinator::recognize;
 
+use crate::text::parse_result::{fatal_parse_error, IonParseResult, UpgradeIResult};
 use nom::sequence::{pair, preceded, tuple};
-use nom::IResult;
 use std::str::FromStr;
 
 use crate::text::parsers::comments::whitespace_or_comments;
@@ -15,7 +15,7 @@ use crate::text::text_value::AnnotatedTextValue;
 /// Matches an optional series of annotations and a TextValue at the beginning of the given
 /// string. If there are no annotations (or the TextValue found cannot have annotations), the
 /// annotations [Vec] will be empty.
-pub(crate) fn top_level_value(input: &str) -> IResult<&str, AnnotatedTextValue> {
+pub(crate) fn top_level_value(input: &str) -> IonParseResult<AnnotatedTextValue> {
     preceded(
         // Allow any amount of whitespace followed by...
         whitespace_or_comments,
@@ -24,11 +24,12 @@ pub(crate) fn top_level_value(input: &str) -> IResult<&str, AnnotatedTextValue> 
     )(input)
 }
 
-pub(crate) fn version_int(input: &str) -> IResult<&str, &str> {
+pub(crate) fn version_int(input: &str) -> IonParseResult<&str> {
     recognize(pair(
         alt((tag("0"), recognize(one_of("123456789")))),
         digit0, // One or more digits 0-9
     ))(input)
+    .upgrade()
 }
 
 /// Matches any amount of whitespace/comments followed by an identifier in the format
@@ -37,7 +38,7 @@ pub(crate) fn version_int(input: &str) -> IResult<&str, &str> {
 /// Note that this MUST be an identifier (i.e. an unquoted symbol) and not any other encoding of the
 /// same symbol value. For more information see:
 /// https://amzn.github.io/ion-docs/docs/symbols.html#ion-version-markers
-pub(crate) fn ion_version_marker(input: &str) -> IResult<&str, (u32, u32)> {
+pub(crate) fn ion_version_marker(input: &str) -> IonParseResult<(u32, u32)> {
     // See if the input text matches an IVM. If not, return a non-fatal error.
     let (remaining_input, (_, major_text, _, minor_text)) = preceded(
         whitespace_or_comments,
@@ -47,18 +48,25 @@ pub(crate) fn ion_version_marker(input: &str) -> IResult<&str, (u32, u32)> {
     // If the text matched but parsing that into a major and minor version fails, it's a fatal
     // error.
 
-    // XXX: We cannot signal a fatal error by returning `nom::Err::Failure` here as we would in any
-    // other case. Due to API limitations, it is currently not possible for the RawTextReader to
-    // distinguish between a fatal error and a run-of-the-mill mismatch. For now, in the unlikely
-    // event that the reader encounters an IVM with a major or minor version so large that they
-    // cannot fit in a u32, we simply panic.
-    // TODO: Create a custom parsing error type that allows us to bubble up more information.
+    let major_version = match u32::from_str(major_text) {
+        Ok(version) => version,
+        Err(_e) => {
+            return fatal_parse_error(
+                input,
+                format!("major version '{}' could not fit in a u32", major_text),
+            )
+        }
+    };
 
-    let major_version = u32::from_str(major_text)
-        .unwrap_or_else(|_e| panic!("IVM major version '{}' could not fit in a u32", major_text));
-
-    let minor_version = u32::from_str(minor_text)
-        .unwrap_or_else(|_e| panic!("IVM minor version '{}' could not fit in a u32", minor_text));
+    let minor_version = match u32::from_str(minor_text) {
+        Ok(version) => version,
+        Err(_e) => {
+            return fatal_parse_error(
+                input,
+                format!("minor version '{}' could not fit in a u32", minor_text),
+            )
+        }
+    };
 
     Ok((remaining_input, (major_version, minor_version)))
 }

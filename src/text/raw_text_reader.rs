@@ -1,7 +1,6 @@
 use std::fmt::Display;
 
-use nom::Err::Incomplete;
-use nom::IResult;
+use nom::Err::{Error, Failure, Incomplete};
 
 use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
@@ -10,6 +9,7 @@ use crate::result::{
 };
 use crate::stream_reader::StreamReader;
 use crate::text::parent_container::ParentContainer;
+use crate::text::parse_result::IonParseResult;
 use crate::text::parsers::containers::{
     list_delimiter, list_value_or_end, s_expression_delimiter, s_expression_value_or_end,
     struct_delimiter, struct_field_name_or_end, struct_field_value,
@@ -39,6 +39,20 @@ pub struct RawTextReader<T: TextIonDataSource> {
     bytes_read: usize,
     is_eof: bool,
     parents: Vec<ParentContainer>,
+}
+
+/// Represents the final outcome of a [RawTextReader]'s attempt to parse the next value in the stream.
+///
+/// `IonParseResult<'a>` is not suitable for this purpose; its lifetime, `'a`, causes
+/// the result to hold a reference to the [RawTextReader]'s buffer even after parsing has finished,
+/// making it difficult to perform the necessary bookkeeping that follows finding the next value.
+///
+/// This type is intentionally limited in what it stores to avoid having a lifetime.
+pub(crate) enum RootParseResult<O> {
+    Ok(O),
+    Eof,
+    NoMatch,
+    Failure(String),
 }
 
 impl<T: TextIonDataSource> RawTextReader<T> {
@@ -91,22 +105,25 @@ impl<T: TextIonDataSource> RawTextReader<T> {
             }
 
             // Otherwise, see if the next token in the stream is an Ion Version Marker.
-            match self.parse_next(ion_version_marker) {
-                Ok(Some((1, 0))) => {
+            match self.parse_next_nom(ion_version_marker) {
+                RootParseResult::Ok((1, 0)) => {
                     // We found an IVM; we currently only support Ion 1.0.
                     self.current_ivm = Some((1, 0));
                     return Ok(());
                 }
-                Ok(Some((major, minor))) => {
+                RootParseResult::Ok((major, minor)) => {
                     return decoding_error(format!(
                         "Unsupported Ion version: v{}.{}. Only 1.0 is supported.",
                         major, minor
                     ));
                 }
-                // I/O errors are fatal; we cannot keep parsing.
-                Err(e @ IonError::IoError { .. }) => return Err(e),
+                RootParseResult::Failure(error_message) => {
+                    return decoding_error(error_message);
+                }
                 _ => {
                     // Any other kind of error is a parse error; it's not an IVM.
+                    // Move on to trying to read a value.
+                    // EOFs are also handled below.
                 }
             }
 
@@ -229,7 +246,7 @@ impl<T: TextIonDataSource> RawTextReader<T> {
     /// If the parser encounters an error, it will be returned as-is.
     fn parse_expected<P, O>(&mut self, entity_name: &str, parser: P) -> IonResult<O>
     where
-        P: Fn(&str) -> IResult<&str, O>,
+        P: Fn(&str) -> IonParseResult<O>,
     {
         match self.parse_next(parser) {
             Ok(Some(value)) => Ok(value),
@@ -249,25 +266,52 @@ impl<T: TextIonDataSource> RawTextReader<T> {
         }
     }
 
+    fn parse_next<P, O>(&mut self, parser: P) -> IonResult<Option<O>>
+    where
+        P: Fn(&str) -> IonParseResult<O>,
+    {
+        match self.parse_next_nom(parser) {
+            RootParseResult::Ok(item) => Ok(Some(item)),
+            RootParseResult::Eof => Ok(None),
+            RootParseResult::NoMatch => {
+                // Return an error that contains the text currently in the buffer (i.e. what we
+                // were attempting to parse.)
+                let error_message = format!(
+                    "unrecognized input near line {}: '{}'",
+                    self.buffer.lines_loaded(),
+                    self.buffer.remaining_text(),
+                );
+                decoding_error(error_message)
+            }
+            RootParseResult::Failure(error_message) => decoding_error(error_message),
+        }
+    }
+
     /// Attempts to parse the next entity from the stream using the provided parser.
     /// If there isn't enough data in the buffer for the parser to match its input conclusively,
     /// more data will be loaded into the buffer and the parser will be called again.
     /// If EOF is encountered, returns `Ok(None)`.
-    fn parse_next<P, O>(&mut self, parser: P) -> IonResult<Option<O>>
+    fn parse_next_nom<P, O>(&mut self, parser: P) -> RootParseResult<O>
     where
-        P: Fn(&str) -> IResult<&str, O>,
+        P: Fn(&str) -> IonParseResult<O>,
     {
-        if self.is_eof {
-            return Ok(None);
+        let RawTextReader {
+            ref mut is_eof,
+            ref mut buffer,
+            ref mut bytes_read,
+            ..
+        } = *self;
+
+        if *is_eof {
+            return RootParseResult::Eof;
         }
 
-        let value = 'parse: loop {
+        loop {
             // Note the number of bytes currently in the text buffer
-            let length_before_parse = self.buffer.remaining_text().len();
-            let input_text = self.buffer.remaining_text();
+            let length_before_parse = buffer.remaining_text().len();
             // Invoke the top_level_value() parser; this will attempt to recognize the next value
             // in the stream and return a &str slice containing the remaining, not-yet-parsed text.
-            match parser(input_text) {
+            match parser(buffer.remaining_text()) {
                 // If `top_level_value` returns 'Incomplete', there wasn't enough text in the buffer
                 // to match the next value. No syntax errors have been encountered (yet?), but we
                 // need to load more text into the buffer before we try to parse it again.
@@ -276,15 +320,25 @@ impl<T: TextIonDataSource> RawTextReader<T> {
                     // TODO: Currently this loads a single line at a time for easier testing.
                     //       We may wish to bump it to a higher number of lines at a time (8?)
                     //       for efficiency once we're confident in the correctness.
-                    if self.buffer.load_next_line()? == 0 {
-                        // If load_next_line() returns Ok(0), we've reached the end of our input.
-                        self.is_eof = true;
-                        // The buffer had an `Incomplete` value in it; now that we know we're at EOF,
-                        // we can determine whether the buffer's contents should actually be
-                        // considered complete.
-                        return Ok(None);
+                    match buffer.load_next_line() {
+                        Ok(0) => {
+                            // If load_next_line() returns Ok(0), we've reached the end of our input.
+                            *is_eof = true;
+                            // The buffer had an `Incomplete` value in it; now that we know we're at EOF,
+                            // we can determine whether the buffer's contents should actually be
+                            // considered complete.
+                            return RootParseResult::Eof;
+                        }
+                        Ok(_bytes_loaded) => {
+                            // Retry the parser on the extended buffer in the next loop iteration
+                            continue;
+                        }
+                        Err(e) => {
+                            let error_message =
+                                format!("I/O error, could not read more data: {}", e);
+                            return RootParseResult::Failure(error_message);
+                        }
                     }
-                    continue;
                 }
                 Ok((remaining_text, value)) => {
                     // Our parser successfully matched a value.
@@ -293,28 +347,22 @@ impl<T: TextIonDataSource> RawTextReader<T> {
                     // The difference in length tells us how many bytes were part of the
                     // text representation of the value that we found.
                     let bytes_consumed = length_before_parse - length_after_parse;
-                    // Discard `bytes_consumed` bytes from the TextBuffer.
-                    self.buffer.consume(bytes_consumed);
-                    self.bytes_read += bytes_consumed;
-                    // Break out of the read/parse loop, returning the value that we matched.
-                    break 'parse value;
+                    buffer.consume(bytes_consumed);
+                    *bytes_read += bytes_consumed;
+                    return RootParseResult::Ok(value);
                 }
-                Err(e) => {
-                    // Return an error that contains the text currently in the buffer (i.e. what we
-                    // were attempting to parse with `top_level_value`.)
-                    // TODO: We probably don't want to surface the nom error (`e`) directly, but it's
-                    //       useful for debugging.
-                    return decoding_error(format!(
-                        "Parsing error occurred near line {}: '{}': '{}'",
-                        self.buffer.lines_loaded(),
-                        self.buffer.remaining_text(),
-                        e
-                    ));
+                Err(Error(_e)) => return RootParseResult::<O>::NoMatch,
+                Err(Failure(e)) => {
+                    let error_message = format!(
+                        "unrecognized input near line {}: {}: '{}'",
+                        buffer.lines_loaded(),
+                        e.description().unwrap_or("<no description>"),
+                        buffer.remaining_text(),
+                    );
+                    return RootParseResult::Failure(error_message);
                 }
             };
-        };
-
-        Ok(Some(value))
+        }
     }
 
     // Parses the contents of the text buffer again with the knowledge that we're at the end of the

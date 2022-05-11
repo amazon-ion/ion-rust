@@ -725,6 +725,14 @@ mod native_element_tests {
         bad(NativeElementApi {}, file_name)
     }
 
+    #[test]
+    fn native_bad_utf8() {
+        bad(
+            NativeElementApi {},
+            "ion-tests/iontestdata/bad/utf8/wrongUtf8LeadingBits_3.ion",
+        );
+    }
+
     #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
     fn native_equivs(file_name: &str) {

@@ -1,6 +1,7 @@
+use crate::text::parse_result::IonParseResult;
 use nom::branch::alt;
 use nom::sequence::pair;
-use nom::{IResult, Parser};
+use nom::Parser;
 
 use crate::text::parsers::annotations::parse_annotations;
 use crate::text::parsers::blob::parse_blob;
@@ -17,13 +18,13 @@ use crate::text::parsers::timestamp::parse_timestamp;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
 
 /// Matches a TextValue at the beginning of the given string.
-pub(crate) fn value(input: &str) -> IResult<&str, TextValue> {
+pub(crate) fn value(input: &str) -> IonParseResult<TextValue> {
     alt((scalar, container_start))(input)
 }
 
 /// Matches a scalar (non-container) Ion value at the beginning of the given string and
 /// returns it as a [TextValue].
-pub(crate) fn scalar(input: &str) -> IResult<&str, TextValue> {
+pub(crate) fn scalar(input: &str) -> IonParseResult<TextValue> {
     alt((
         parse_null,
         parse_boolean,
@@ -43,7 +44,7 @@ pub(crate) fn scalar(input: &str) -> IResult<&str, TextValue> {
 //       it sounds.
 
 /// Matches an optional series of annotations and their associated TextValue.
-pub(crate) fn annotated_value(input: &str) -> IResult<&str, AnnotatedTextValue> {
+pub(crate) fn annotated_value(input: &str) -> IonParseResult<AnnotatedTextValue> {
     alt((
         pair(parse_annotations, value).map(|(a, v)| v.with_annotations(a)),
         value.map(|v| v.without_annotations()),
@@ -51,7 +52,7 @@ pub(crate) fn annotated_value(input: &str) -> IResult<&str, AnnotatedTextValue> 
 }
 
 /// Matches an optional series of annotations and their associated scalar TextValue.
-pub(crate) fn annotated_scalar(input: &str) -> IResult<&str, AnnotatedTextValue> {
+pub(crate) fn annotated_scalar(input: &str) -> IonParseResult<AnnotatedTextValue> {
     alt((
         pair(parse_annotations, scalar).map(|(a, v)| v.with_annotations(a)),
         scalar.map(|v| v.without_annotations()),
@@ -59,7 +60,7 @@ pub(crate) fn annotated_scalar(input: &str) -> IResult<&str, AnnotatedTextValue>
 }
 
 /// Matches an optional series of annotations and their associated scalar TextValue.
-pub(crate) fn annotated_container_start(input: &str) -> IResult<&str, AnnotatedTextValue> {
+pub(crate) fn annotated_container_start(input: &str) -> IonParseResult<AnnotatedTextValue> {
     alt((
         pair(parse_annotations, container_start).map(|(a, v)| v.with_annotations(a)),
         container_start.map(|v| v.without_annotations()),

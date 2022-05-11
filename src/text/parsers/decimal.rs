@@ -1,11 +1,11 @@
 use std::str::FromStr;
 
+use crate::text::parse_result::{IonParseResult, OrFatalParseError, UpgradeParser};
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::one_of;
 use nom::combinator::{map, opt};
 use nom::sequence::{pair, preceded, terminated};
-use nom::IResult;
 use num_bigint::BigUint;
 
 use crate::text::parsers::numeric_support::{
@@ -19,7 +19,7 @@ use crate::types::magnitude::Magnitude;
 
 /// Matches the text representation of a decimal value and returns the resulting [Decimal]
 /// as a [TextValue::Decimal].
-pub(crate) fn parse_decimal(input: &str) -> IResult<&str, TextValue> {
+pub(crate) fn parse_decimal(input: &str) -> IonParseResult<TextValue> {
     terminated(
         alt((decimal_with_exponent, decimal_without_exponent)),
         stop_character,
@@ -27,51 +27,45 @@ pub(crate) fn parse_decimal(input: &str) -> IResult<&str, TextValue> {
 }
 
 /// Matches decimal values that have an exponent. (For example, `7d0`, `71d-1`, and `-71d-1`.)
-fn decimal_with_exponent(input: &str) -> IResult<&str, TextValue> {
-    map(
-        pair(
-            alt((
-                // Returns a tuple of (sign, digits before '.', and digits after '.')
-                floating_point_number_components,
-                // Needs to return the same fields as above, so we tack on a 'None'
-                map(
-                    pair(opt(tag("-")), digits_before_dot),
-                    |(sign, leading_digits)| (sign, leading_digits, None),
-                ),
-            )),
-            decimal_exponent_marker_followed_by_digits,
-        ),
-        |((sign, digits_before, digits_after), exponent)| {
-            let decimal = decimal_from_text_components(sign, digits_before, digits_after, exponent);
-            TextValue::Decimal(decimal)
-        },
-    )(input)
+fn decimal_with_exponent(input: &str) -> IonParseResult<TextValue> {
+    let (remaining, ((sign, digits_before, digits_after), exponent)) = pair(
+        alt((
+            // Returns a tuple of (sign, digits before '.', and digits after '.')
+            floating_point_number_components,
+            // Needs to return the same fields as above, so we tack on a 'None'
+            map(
+                pair(opt(tag("-")).upgrade(), digits_before_dot),
+                |(sign, leading_digits)| (sign, leading_digits, None),
+            ),
+        )),
+        decimal_exponent_marker_followed_by_digits,
+    )(input)?;
+    let decimal = decimal_from_text_components(sign, digits_before, digits_after, exponent)?.1;
+    Ok((remaining, TextValue::Decimal(decimal)))
 }
 
 /// Matches decimal values that do not have an exponent. (For example, `7.`, `7.1`, and `-7.1`.)
-fn decimal_without_exponent(input: &str) -> IResult<&str, TextValue> {
-    map(
-        floating_point_number_components,
-        |(sign, digits_before_dot, digits_after_dot)| {
-            let decimal = decimal_from_text_components(
-                sign,
-                digits_before_dot,
-                digits_after_dot,
-                "0", // If no exponent is specified, we always start from 0
-            );
-            TextValue::Decimal(decimal)
-        },
-    )(input)
+fn decimal_without_exponent(input: &str) -> IonParseResult<TextValue> {
+    let (remaining, (sign, digits_before_dot, digits_after_dot)) =
+        floating_point_number_components(input)?;
+    let decimal = decimal_from_text_components(
+        sign,
+        digits_before_dot,
+        digits_after_dot,
+        "0", // If no exponent is specified, we always start from 0
+    )?
+    .1;
+    Ok((remaining, TextValue::Decimal(decimal)))
 }
 
 /// Given the four text components of a decimal value (the sign, the digits before the decimal point,
 /// the digits after the decimal point, and the exponent), constructs a [Decimal] value.
-fn decimal_from_text_components(
-    sign_text: Option<&str>,
-    digits_before_dot: &str,
-    digits_after_dot: Option<&str>,
-    exponent_text: &str,
-) -> Decimal {
+fn decimal_from_text_components<'a>(
+    sign_text: Option<&'a str>,
+    digits_before_dot: &'a str,
+    digits_after_dot: Option<&'a str>,
+    exponent_text: &'a str,
+) -> IonParseResult<'a, Decimal> {
     // The longest number that can fit into a u64 without finer-grained bounds checks.
     const MAX_U64_DIGITS: usize = 19;
     // u64::MAX is a 20-digit number starting with `1`. For simplicity, we'll turn any number
@@ -91,13 +85,21 @@ fn decimal_from_text_components(
     // we've just removed the underscores above, the `from_str` methods below should always
     // succeed.
     let magnitude: Magnitude = if magnitude_text.len() < MAX_U64_DIGITS {
-        u64::from_str(&magnitude_text)
-            .expect("parsing coefficient magnitude as u64 failed")
-            .into()
+        let value = u64::from_str(&magnitude_text)
+            .or_fatal_parse_error(
+                "", // TODO: plumb the original input into this method
+                "parsing coefficient magnitude as u64 failed",
+            )?
+            .1;
+        Magnitude::U64(value)
     } else {
-        BigUint::from_str(&magnitude_text)
-            .expect("parsing coefficient magnitude as BigUint failed")
-            .into()
+        let value = BigUint::from_str(&magnitude_text)
+            .or_fatal_parse_error(
+                "", // TODO: plumb the original input into this method
+                "parsing coefficient magnitude as u64 failed",
+            )?
+            .1;
+        Magnitude::BigUInt(value)
     };
 
     let coefficient = Coefficient::new(sign, magnitude);
@@ -107,11 +109,11 @@ fn decimal_from_text_components(
     let mut exponent = i64::from_str(&sanitized).expect("parsing exponent as i64 failed");
     // Reduce the exponent by the number of digits that follow the decimal point
     exponent -= digits_after_dot.chars().filter(|c| c.is_digit(10)).count() as i64;
-    Decimal::new(coefficient, exponent)
+    Ok(("", Decimal::new(coefficient, exponent)))
 }
 
 /// Matches the decimal exponent marker ('d' or 'D') followed by a signed integer. (e.g. 'd-16')
-fn decimal_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, &str> {
+fn decimal_exponent_marker_followed_by_digits(input: &str) -> IonParseResult<&str> {
     preceded(one_of("dD"), exponent_digits)(input)
 }
 

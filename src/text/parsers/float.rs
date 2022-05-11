@@ -1,3 +1,4 @@
+use crate::text::parse_result::{IonParseResult, OrFatalParseError, UpgradeIResult};
 use crate::text::parsers::numeric_support::{
     digits_before_dot, exponent_digits, floating_point_number,
 };
@@ -6,15 +7,14 @@ use crate::text::text_value::TextValue;
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::one_of;
-use nom::combinator::{map, map_res, opt, recognize};
+use nom::combinator::{map, opt, recognize};
 use nom::sequence::{pair, preceded, terminated, tuple};
-use nom::{IResult, Parser};
-use std::num::ParseFloatError;
+use nom::Parser;
 use std::str::FromStr;
 
 /// Matches the text representation of a float value and returns the resulting [f64]
 /// as a [TextValue::Float].
-pub(crate) fn parse_float(input: &str) -> IResult<&str, TextValue> {
+pub(crate) fn parse_float(input: &str) -> IonParseResult<TextValue> {
     terminated(
         alt((float_special_value, float_numeric_value)),
         stop_character,
@@ -22,35 +22,35 @@ pub(crate) fn parse_float(input: &str) -> IResult<&str, TextValue> {
 }
 
 /// Matches special IEEE-754 floating point values, including +/- infinity and NaN.
-fn float_special_value(input: &str) -> IResult<&str, TextValue> {
+fn float_special_value(input: &str) -> IonParseResult<TextValue> {
     map(tag("nan"), |_| TextValue::Float(f64::NAN))
         .or(map(tag("+inf"), |_| TextValue::Float(f64::INFINITY)))
         .or(map(tag("-inf"), |_| TextValue::Float(f64::NEG_INFINITY)))
         .parse(input)
+        .upgrade()
 }
 
 /// Matches numeric floating point values. (e.g. `7e0`, `7.1e0` or `71e-1`)
-fn float_numeric_value(input: &str) -> IResult<&str, TextValue> {
-    map_res::<_, _, _, _, ParseFloatError, _, _>(
-        recognize(tuple((
-            alt((
-                floating_point_number,
-                recognize(pair(opt(tag("-")), digits_before_dot)),
-            )),
-            recognize(float_exponent_marker_followed_by_digits),
-        ))),
-        |text| {
-            // TODO: Reusable buffer for sanitization
-            let mut sanitized = text.replace('_', "");
-            if sanitized.ends_with('e') || sanitized.ends_with('E') {
-                sanitized.push('0');
-            }
-            Ok(TextValue::Float(f64::from_str(&sanitized)?))
-        },
-    )(input)
+fn float_numeric_value(input: &str) -> IonParseResult<TextValue> {
+    let (remaining, text) = recognize(tuple((
+        alt((
+            floating_point_number,
+            recognize(pair(opt(tag("-")), digits_before_dot)),
+        )),
+        recognize(float_exponent_marker_followed_by_digits),
+    )))(input)?;
+    // TODO: Reusable buffer for sanitization
+    let mut sanitized = text.replace('_', "");
+    if sanitized.ends_with('e') || sanitized.ends_with('E') {
+        sanitized.push('0');
+    }
+    let float = f64::from_str(&sanitized)
+        .or_fatal_parse_error(input, "could not parse float as f64")?
+        .1;
+    Ok((remaining, TextValue::Float(float)))
 }
 
-fn float_exponent_marker_followed_by_digits(input: &str) -> IResult<&str, &str> {
+fn float_exponent_marker_followed_by_digits(input: &str) -> IonParseResult<&str> {
     preceded(one_of("eE"), exponent_digits)(input)
 }
 

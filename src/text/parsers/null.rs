@@ -1,35 +1,31 @@
-use crate::result::decoding_error;
+use crate::text::parse_result::{fatal_parse_error, IonParseResult};
 use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
 use crate::IonType;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::{alpha1, char};
-use nom::combinator::{map_res, opt};
+use nom::combinator::opt;
 use nom::sequence::{delimited, preceded};
-use nom::IResult;
 
 /// Matches the text representation of a null and returns the null's associated `IonType` as
 /// a [TextValue::Null].
-pub(crate) fn parse_null(input: &str) -> IResult<&str, TextValue> {
-    map_res(
-        delimited(
-            tag("null"),
-            opt(preceded(char('.'), alpha1)),
-            stop_character,
-        ),
-        |maybe_ion_type_text| {
-            if let Some(ion_type_text) = maybe_ion_type_text {
-                match ion_type_from_text(ion_type_text) {
-                    Some(ion_type) => Ok(TextValue::Null(ion_type)),
-                    None => {
-                        decoding_error(format!("Invalid Ion type used in `null.{}`", ion_type_text))
-                    }
-                }
-            } else {
-                Ok(TextValue::Null(IonType::Null))
-            }
-        },
-    )(input)
+pub(crate) fn parse_null(input: &str) -> IonParseResult<TextValue> {
+    let (remaining, maybe_ion_type_text) = delimited(
+        tag("null"),
+        opt(preceded(char('.'), alpha1)),
+        stop_character,
+    )(input)?;
+    if let Some(ion_type_text) = maybe_ion_type_text {
+        match ion_type_from_text(ion_type_text) {
+            Some(ion_type) => Ok((remaining, TextValue::Null(ion_type))),
+            None => fatal_parse_error(
+                input,
+                format!("invalid Ion type used in `null.{}`", ion_type_text),
+            ),
+        }
+    } else {
+        Ok((remaining, TextValue::Null(IonType::Null)))
+    }
 }
 
 /// Maps the type text from an Ion null to its corresponding IonType.

@@ -1,20 +1,19 @@
 //! Parsing logic for the text representation of blob values.
 
+use crate::text::parse_result::{fatal_parse_error, IonParseResult, UpgradeIResult};
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, tag};
 use nom::character::streaming::alphanumeric1;
 use nom::combinator::{opt, recognize};
-use nom::error::{make_error, ErrorKind};
 use nom::multi::{many0_count, many1_count};
 use nom::sequence::{delimited, pair, terminated};
-use nom::{Err, IResult};
 
 use crate::text::parsers::{whitespace, WHITESPACE_CHARACTERS};
 use crate::text::text_value::TextValue;
 
 /// Matches the text representation of a blob value, decodes it, and returns the resulting bytes
 /// as a [TextValue::Blob].
-pub(crate) fn parse_blob(input: &str) -> IResult<&str, TextValue> {
+pub(crate) fn parse_blob(input: &str) -> IonParseResult<TextValue> {
     let (remaining_input, base64_text) = delimited(
         pair(tag("{{"), opt(whitespace)),
         // Whitespace can appear in between chunks of the base64 data. Here we match on any
@@ -25,6 +24,7 @@ pub(crate) fn parse_blob(input: &str) -> IResult<&str, TextValue> {
         ))),
         pair(opt(whitespace), tag("}}")),
     )(input)?;
+
     let decode_result = if base64_text.contains(WHITESPACE_CHARACTERS) {
         let sanitized = base64_text.replace(WHITESPACE_CHARACTERS, "");
         base64::decode(sanitized)
@@ -36,16 +36,14 @@ pub(crate) fn parse_blob(input: &str) -> IResult<&str, TextValue> {
     // a blob. If we can't decode that text as base64, the stream is malformed.
     match decode_result {
         Ok(data) => Ok((remaining_input, TextValue::Blob(data))),
-        // TODO: We need a custom error type to bubble up information about what went wrong.
-        //       This ErrorKind is not descriptive (though the data `IsNot` base64!).
-        Err(_) => Err(Err::Failure(make_error(base64_text, ErrorKind::IsNot))),
+        Err(e) => fatal_parse_error(base64_text, format!("could not decode base64 data: {}", e)),
     }
 }
 
 /// Matches a series of valid base64-encoded characters. This function does not attempt to decode
 /// the matched value; it is possible for it to match a string that cannot be decoded successfully.
-fn recognize_base64_data(input: &str) -> IResult<&str, &str> {
-    recognize(many1_count(alt((alphanumeric1, is_a("+/=")))))(input)
+fn recognize_base64_data(input: &str) -> IonParseResult<&str> {
+    recognize(many1_count(alt((alphanumeric1, is_a("+/=")))))(input).upgrade()
 }
 
 #[cfg(test)]

@@ -1,11 +1,11 @@
 use crate::raw_symbol_token::RawSymbolToken;
+use crate::text::parse_result::{IonParseResult, UpgradeIResult};
 use crate::text::parsers::comments::whitespace_or_comments;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::multispace0;
 use nom::combinator::{map_opt, opt};
 use nom::multi::many1;
 use nom::sequence::{delimited, pair, preceded, terminated};
-use nom::IResult;
 
 use crate::text::parsers::symbol::parse_symbol;
 use crate::text::parsers::whitespace;
@@ -13,13 +13,13 @@ use crate::text::text_value::TextValue;
 
 /// Matches a series of '::'-delimited symbols used to annotate a value. Trailing whitespace
 /// is permitted.
-pub(crate) fn parse_annotations(input: &str) -> IResult<&str, Vec<RawSymbolToken>> {
+pub(crate) fn parse_annotations(input: &str) -> IonParseResult<Vec<RawSymbolToken>> {
     terminated(many1(parse_annotation), opt(whitespace))(input)
 }
 
 /// Matches a single symbol of any format (foo, 'foo', or $10) followed by a '::' delimiter.
 /// The delimiter can be preceded or trailed by any amount of whitespace.
-pub(crate) fn parse_annotation(input: &str) -> IResult<&str, RawSymbolToken> {
+pub(crate) fn parse_annotation(input: &str) -> IonParseResult<RawSymbolToken> {
     map_opt(
         // 0+ spaces, a symbol ('quoted', identifier, or $id), 0+ spaces, '::'
         delimited(
@@ -38,8 +38,8 @@ pub(crate) fn parse_annotation(input: &str) -> IResult<&str, RawSymbolToken> {
     )(input)
 }
 
-fn annotation_delimiter(input: &str) -> IResult<&str, &str> {
-    preceded(multispace0, tag("::"))(input)
+fn annotation_delimiter(input: &str) -> IonParseResult<&str> {
+    preceded(multispace0, tag("::"))(input).upgrade()
 }
 
 #[cfg(test)]

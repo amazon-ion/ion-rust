@@ -1,3 +1,4 @@
+use crate::text::parse_result::{IonParseError, IonParseResult, UpgradeIResult};
 use crate::text::parsers::comments::whitespace_or_comments;
 use crate::text::parsers::text_support::{escaped_char, escaped_newline, StringFragment};
 use crate::text::text_value::TextValue;
@@ -5,21 +6,20 @@ use nom::branch::alt;
 use nom::bytes::streaming::{is_not, tag};
 use nom::character::streaming::char;
 use nom::combinator::{map, not, opt, peek, verify};
-use nom::error::{make_error, ErrorKind};
 use nom::multi::{fold_many0, many1};
 use nom::sequence::{delimited, terminated};
 use nom::Err::Incomplete;
-use nom::{IResult, Needed};
+use nom::Needed;
 
 /// Matches the text representation of a string value and returns the resulting [String]
 /// as a [TextValue::String].
-pub(crate) fn parse_string(input: &str) -> IResult<&str, TextValue> {
+pub(crate) fn parse_string(input: &str) -> IonParseResult<TextValue> {
     alt((short_string, long_string))(input)
 }
 
 /// Matches a short string (e.g. `"Hello"`) and returns the resulting [String]
 /// as a [TextValue::String].
-fn short_string(input: &str) -> IResult<&str, TextValue> {
+fn short_string(input: &str) -> IonParseResult<TextValue> {
     map(delimited(char('"'), short_string_body, char('"')), |text| {
         TextValue::String(text)
     })(input)
@@ -27,7 +27,7 @@ fn short_string(input: &str) -> IResult<&str, TextValue> {
 
 /// Matches a long string (e.g. `'''Hello, '''\n'''World!'''`) and returns the resulting [String]
 /// as a [TextValue::String].
-fn long_string(input: &str) -> IResult<&str, TextValue> {
+fn long_string(input: &str) -> IonParseResult<TextValue> {
     // TODO: This parser allocates a Vec to hold each intermediate '''...''' string
     //       and then again to merge them into a finished product. These allocations
     //       could be removed with some refactoring.
@@ -45,23 +45,19 @@ fn long_string(input: &str) -> IResult<&str, TextValue> {
 }
 
 /// Matches the body of a long string fragment. (The `hello` in `'''hello'''`.)
-fn long_string_body(input: &str) -> IResult<&str, String> {
-    fold_many0(
-        long_string_fragment,
-        String::new(),
-        |mut string, fragment| {
-            match fragment {
-                StringFragment::EscapedNewline => {} // Discard escaped newlines
-                StringFragment::EscapedChar(c) => string.push(c),
-                StringFragment::Substring(s) => string.push_str(s),
-            }
-            string
-        },
-    )(input)
+fn long_string_body(input: &str) -> IonParseResult<String> {
+    fold_many0(long_string_fragment, String::new, |mut string, fragment| {
+        match fragment {
+            StringFragment::EscapedNewline => {} // Discard escaped newlines
+            StringFragment::EscapedChar(c) => string.push(c),
+            StringFragment::Substring(s) => string.push_str(s),
+        }
+        string
+    })(input)
 }
 
 /// Matches an escaped character or a substring without any escapes in a long string.
-fn long_string_fragment(input: &str) -> IResult<&str, StringFragment> {
+fn long_string_fragment(input: &str) -> IonParseResult<StringFragment> {
     alt((
         escaped_newline,
         escaped_char,
@@ -73,7 +69,7 @@ fn long_string_fragment(input: &str) -> IResult<&str, StringFragment> {
 /// string delimiter (`'''`).
 pub(in crate::text::parsers) fn long_string_fragment_without_escaped_text(
     input: &str,
-) -> IResult<&str, StringFragment> {
+) -> IonParseResult<StringFragment> {
     // In contrast with the `short_string_fragment_without_escaped_text` function, this parser is
     // hand-written because has two possible 'end' sequences to detect:
     //   1. A slash (`\`), indicating the beginning of an escape sequence.
@@ -95,7 +91,7 @@ pub(in crate::text::parsers) fn long_string_fragment_without_escaped_text(
         if char == '\\' {
             if index == 0 {
                 // The input starts with a `\`; the parser doesn't match.
-                return Err(nom::Err::Error(make_error(input, ErrorKind::Escaped)));
+                return Err(nom::Err::Error(IonParseError::new(input)));
             }
             // We found a `\`; return a match for all of the text up to `index`, exclusive.
             return Ok((&input[index..], StringFragment::Substring(&input[0..index])));
@@ -117,7 +113,7 @@ pub(in crate::text::parsers) fn long_string_fragment_without_escaped_text(
                         // We'll return an Err so the `long_string_fragment` parser will know
                         // there weren't any more string fragments in the input. The `'''` we just
                         // ran into will be consumed later by `long_string`.
-                        return Err(nom::Err::Error(make_error(input, ErrorKind::Escaped)));
+                        return Err(nom::Err::Error(IonParseError::new(input)));
                     }
                     // This `'''` indicates the end of the string fragment. Return a match for all
                     // of the text leading up to the offset of the first single quote, exclusive.
@@ -139,10 +135,10 @@ pub(in crate::text::parsers) fn long_string_fragment_without_escaped_text(
 }
 
 /// Matches the body of a short string. (The `hello` in `"hello"`.)
-fn short_string_body(input: &str) -> IResult<&str, String> {
+fn short_string_body(input: &str) -> IonParseResult<String> {
     fold_many0(
         short_string_fragment,
-        String::new(), // TODO: Reusable buffer
+        String::new,
         |mut string, fragment| {
             match fragment {
                 StringFragment::EscapedNewline => {} // Discard escaped newlines
@@ -155,7 +151,7 @@ fn short_string_body(input: &str) -> IResult<&str, String> {
 }
 
 /// Matches an escaped character or a substring without any escapes in a short string.
-fn short_string_fragment(input: &str) -> IResult<&str, StringFragment> {
+fn short_string_fragment(input: &str) -> IonParseResult<StringFragment> {
     alt((
         escaped_newline,
         escaped_char,
@@ -164,10 +160,11 @@ fn short_string_fragment(input: &str) -> IResult<&str, StringFragment> {
 }
 
 /// Matches the next string fragment while respecting the short string delimiter (`"`).
-fn short_string_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
+fn short_string_fragment_without_escaped_text(input: &str) -> IonParseResult<StringFragment> {
     map(verify(is_not("\"\\\""), |s: &str| !s.is_empty()), |text| {
         StringFragment::Substring(text)
     })(input)
+    .upgrade()
 }
 
 #[cfg(test)]

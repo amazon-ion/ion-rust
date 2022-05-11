@@ -258,4 +258,12 @@ pub(crate) mod text_buffer_tests {
         // Now the buffer is empty and the input has hit EOF.
         assert_eq!(buffer.is_exhausted(), true);
     }
+
+    #[test]
+    fn invalid_utf8_returns_err() {
+        // Invalid UTF-8 data
+        let data = &[0xf1, 0xf2, 0xc2, 0x80];
+        let mut buffer = TextBuffer::new(io::Cursor::new(data));
+        assert!(buffer.load_next_line().is_err());
+    }
 }
