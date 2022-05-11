@@ -3,13 +3,11 @@ use nom::bytes::streaming::tag;
 use nom::character::streaming::{digit0, one_of};
 use nom::combinator::recognize;
 
-
 use nom::sequence::{pair, preceded, tuple};
-use nom::{IResult};
+use nom::IResult;
 use std::str::FromStr;
 
 use crate::text::parsers::comments::whitespace_or_comments;
-
 
 use crate::text::parsers::value::annotated_value;
 use crate::text::text_value::AnnotatedTextValue;
