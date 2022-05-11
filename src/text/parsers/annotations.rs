@@ -2,17 +2,19 @@ use crate::raw_symbol_token::RawSymbolToken;
 use crate::text::parsers::comments::whitespace_or_comments;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::multispace0;
-use nom::combinator::map_opt;
+use nom::combinator::{map_opt, opt};
 use nom::multi::many1;
-use nom::sequence::{delimited, pair, preceded};
+use nom::sequence::{delimited, pair, preceded, terminated};
 use nom::IResult;
 
 use crate::text::parsers::symbol::parse_symbol;
+use crate::text::parsers::whitespace;
 use crate::text::text_value::TextValue;
 
-/// Matches a series of '::'-delimited symbols used to annotate a value.
+/// Matches a series of '::'-delimited symbols used to annotate a value. Trailing whitespace
+/// is permitted.
 pub(crate) fn parse_annotations(input: &str) -> IResult<&str, Vec<RawSymbolToken>> {
-    many1(parse_annotation)(input)
+    terminated(many1(parse_annotation), opt(whitespace))(input)
 }
 
 /// Matches a single symbol of any format (foo, 'foo', or $10) followed by a '::' delimiter.
