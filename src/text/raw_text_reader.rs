@@ -14,7 +14,7 @@ use crate::text::parsers::containers::{
     list_delimiter, list_value_or_end, s_expression_delimiter, s_expression_value_or_end,
     struct_delimiter, struct_field_name_or_end, struct_field_value,
 };
-use crate::text::parsers::top_level::{ion_1_0_version_marker, top_level_value};
+use crate::text::parsers::top_level::{ion_version_marker, top_level_value};
 use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
@@ -91,12 +91,19 @@ impl<T: TextIonDataSource> RawTextReader<T> {
             }
 
             // Otherwise, see if the next token in the stream is an Ion Version Marker.
-            match self.parse_next(ion_1_0_version_marker) {
-                Ok(Some(_)) => {
+            match self.parse_next(ion_version_marker) {
+                Ok(Some((1, 0))) => {
                     // We found an IVM; we currently only support Ion 1.0.
                     self.current_ivm = Some((1, 0));
                     return Ok(());
                 }
+                Ok(Some((major, minor))) => {
+                    return decoding_error(format!(
+                        "Unsupported Ion version: v{}.{}. Only 1.0 is supported.",
+                        major, minor
+                    ));
+                }
+                // I/O errors are fatal; we cannot keep parsing.
                 Err(e @ IonError::IoError { .. }) => return Err(e),
                 _ => {
                     // Any other kind of error is a parse error; it's not an IVM.

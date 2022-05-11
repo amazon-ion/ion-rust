@@ -540,14 +540,6 @@ mod native_element_tests {
                 "ion-tests/iontestdata/bad/clobWithNonAsciiCharacterMultiline.ion",
                 "ion-tests/iontestdata/bad/clobWithNullCharacter.ion",
                 "ion-tests/iontestdata/bad/clobWithValidUtf8ButNonAsciiCharacter.ion",
-                // The text reader only recognizes `$ion_1_0`; it doesn't match on
-                // $ion_{DIGITS}_{DIGITS} yet. The IVMs in these tests are considered symbols.
-                // This means that the text reader would fail to recognize unsupported versions
-                // of Ion.
-                "ion-tests/iontestdata/bad/invalidVersionMarker_ion_0_0.ion",
-                "ion-tests/iontestdata/bad/invalidVersionMarker_ion_1_1.ion",
-                "ion-tests/iontestdata/bad/invalidVersionMarker_ion_1234_0.ion",
-                "ion-tests/iontestdata/bad/invalidVersionMarker_ion_2_0.ion",
                 // The binary reader does not check whether nested values are longer than their
                 // parent container.
                 "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",

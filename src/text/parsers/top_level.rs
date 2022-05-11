@@ -1,8 +1,14 @@
+use nom::branch::alt;
 use nom::bytes::streaming::tag;
-use nom::sequence::preceded;
-use nom::{IResult, Parser};
+use nom::character::streaming::{digit0, one_of};
+use nom::combinator::recognize;
+
+use nom::sequence::{pair, preceded, tuple};
+use nom::IResult;
+use std::str::FromStr;
 
 use crate::text::parsers::comments::whitespace_or_comments;
+
 use crate::text::parsers::value::annotated_value;
 use crate::text::text_value::AnnotatedTextValue;
 
@@ -18,16 +24,43 @@ pub(crate) fn top_level_value(input: &str) -> IResult<&str, AnnotatedTextValue> 
     )(input)
 }
 
-// Matches any amount of whitespace/comments followed by the identifier `$ion_1_0`.
-// Note that this MUST be an identifier (i.e. an unquoted symbol) and not any other encoding of the
-// same symbol value. For more information see:
-// https://amzn.github.io/ion-docs/docs/symbols.html#ion-version-markers
-pub(crate) fn ion_1_0_version_marker(input: &str) -> IResult<&str, ()> {
-    preceded(whitespace_or_comments, tag("$ion_1_0"))
-        // TODO: This parser discards the matched &str as a workaround to a limitation in RawTextReader.
-        //       See: https://github.com/amzn/ion-rust/issues/337
-        .map(|_| ())
-        .parse(input)
+pub(crate) fn version_int(input: &str) -> IResult<&str, &str> {
+    recognize(pair(
+        alt((tag("0"), recognize(one_of("123456789")))),
+        digit0, // One or more digits 0-9
+    ))(input)
+}
+
+/// Matches any amount of whitespace/comments followed by an identifier in the format
+/// `$ion_MAJOR_MINOR`, in which `MAJOR` and `MINOR` are each decimal digit sequences representing
+/// the major and minor version of the Ion stream to follow, respectively. See [version_int].
+/// Note that this MUST be an identifier (i.e. an unquoted symbol) and not any other encoding of the
+/// same symbol value. For more information see:
+/// https://amzn.github.io/ion-docs/docs/symbols.html#ion-version-markers
+pub(crate) fn ion_version_marker(input: &str) -> IResult<&str, (u32, u32)> {
+    // See if the input text matches an IVM. If not, return a non-fatal error.
+    let (remaining_input, (_, major_text, _, minor_text)) = preceded(
+        whitespace_or_comments,
+        tuple((tag("$ion_"), version_int, tag("_"), version_int)),
+    )(input)?;
+
+    // If the text matched but parsing that into a major and minor version fails, it's a fatal
+    // error.
+
+    // XXX: We cannot signal a fatal error by returning `nom::Err::Failure` here as we would in any
+    // other case. Due to API limitations, it is currently not possible for the RawTextReader to
+    // distinguish between a fatal error and a run-of-the-mill mismatch. For now, in the unlikely
+    // event that the reader encounters an IVM with a major or minor version so large that they
+    // cannot fit in a u32, we simply panic.
+    // TODO: Create a custom parsing error type that allows us to bubble up more information.
+
+    let major_version = u32::from_str(major_text)
+        .unwrap_or_else(|_e| panic!("IVM major version '{}' could not fit in a u32", major_text));
+
+    let minor_version = u32::from_str(minor_text)
+        .unwrap_or_else(|_e| panic!("IVM minor version '{}' could not fit in a u32", minor_text));
+
+    Ok((remaining_input, (major_version, minor_version)))
 }
 
 #[cfg(test)]
@@ -35,7 +68,7 @@ mod parse_top_level_values_tests {
     use rstest::*;
 
     use crate::raw_symbol_token::{text_token, RawSymbolToken};
-    use crate::text::parsers::unit_test_support::{parse_test_ok, parse_unwrap};
+    use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok, parse_unwrap};
     use crate::text::parsers::value::value;
     use crate::text::text_value::TextValue;
     use crate::types::integer::Integer;
@@ -112,15 +145,29 @@ mod parse_top_level_values_tests {
     #[case("$ion_1_0 ")]
     #[case("   \r  \t \n $ion_1_0 ")]
     #[case(" /*comment 1*/\n//comment 2\n   $ion_1_0 ")]
-    #[should_panic]
-    #[case("5")]
-    #[should_panic]
-    #[case("'$ion_1_0'")]
-    #[should_panic]
-    #[case("$2")]
-    #[should_panic]
-    #[case("$ion_1_1")]
-    fn test_parse_ion_version_marker(#[case] text: &str) {
-        parse_test_ok(ion_1_0_version_marker, text, ());
+    fn test_parse_ion_1_0_ivm(#[case] text: &str) {
+        parse_test_ok(ion_version_marker, text, (1, 0));
+    }
+
+    #[rstest]
+    #[case("$ion_1_1 ", (1, 1))]
+    #[case("/*hello!*/ $ion_1_1 ", (1, 1))]
+    #[case("$ion_2_0 ", (2, 0))]
+    #[case("\n \n $ion_2_0 ", (2, 0))]
+    #[case("$ion_5_8 ", (5, 8))]
+    #[case("$ion_21_99 ", (21, 99))]
+    fn test_parse_ivm_for_other_versions(#[case] text: &str, #[case] expected: (u32, u32)) {
+        parse_test_ok(ion_version_marker, text, expected);
+    }
+
+    #[rstest]
+    // Quoted, therefore a symbol
+    #[case("'$ion_1_0' ")]
+    // Not a literal, therefore a symbol
+    #[case("$2 ")]
+    // Int
+    #[case("5 ")]
+    fn test_parse_bad_ivm(#[case] text: &str) {
+        parse_test_err(ion_version_marker, text);
     }
 }
