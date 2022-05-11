@@ -74,7 +74,6 @@ fn long_string_fragment(input: &str) -> IResult<&str, StringFragment> {
 pub(in crate::text::parsers) fn long_string_fragment_without_escaped_text(
     input: &str,
 ) -> IResult<&str, StringFragment> {
-
     // In contrast with the `short_string_fragment_without_escaped_text` function, this parser is
     // hand-written because has two possible 'end' sequences to detect:
     //   1. A slash (`\`), indicating the beginning of an escape sequence.
