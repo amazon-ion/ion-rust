@@ -40,7 +40,8 @@ fn decimal_with_exponent(input: &str) -> IonParseResult<TextValue> {
         )),
         decimal_exponent_marker_followed_by_digits,
     )(input)?;
-    let decimal = decimal_from_text_components(sign, digits_before, digits_after, exponent)?.1;
+    let decimal =
+        decimal_from_text_components(input, sign, digits_before, digits_after, exponent)?.1;
     Ok((remaining, TextValue::Decimal(decimal)))
 }
 
@@ -49,6 +50,7 @@ fn decimal_without_exponent(input: &str) -> IonParseResult<TextValue> {
     let (remaining, (sign, digits_before_dot, digits_after_dot)) =
         floating_point_number_components(input)?;
     let decimal = decimal_from_text_components(
+        input,
         sign,
         digits_before_dot,
         digits_after_dot,
@@ -61,6 +63,7 @@ fn decimal_without_exponent(input: &str) -> IonParseResult<TextValue> {
 /// Given the four text components of a decimal value (the sign, the digits before the decimal point,
 /// the digits after the decimal point, and the exponent), constructs a [Decimal] value.
 fn decimal_from_text_components<'a>(
+    input: &str,
     sign_text: Option<&'a str>,
     digits_before_dot: &'a str,
     digits_after_dot: Option<&'a str>,
@@ -87,7 +90,7 @@ fn decimal_from_text_components<'a>(
     let magnitude: Magnitude = if magnitude_text.len() < MAX_U64_DIGITS {
         let value = u64::from_str(&magnitude_text)
             .or_fatal_parse_error(
-                "", // TODO: plumb the original input into this method
+                input,
                 "parsing coefficient magnitude as u64 failed",
             )?
             .1;
@@ -95,7 +98,7 @@ fn decimal_from_text_components<'a>(
     } else {
         let value = BigUint::from_str(&magnitude_text)
             .or_fatal_parse_error(
-                "", // TODO: plumb the original input into this method
+                input,
                 "parsing coefficient magnitude as u64 failed",
             )?
             .1;

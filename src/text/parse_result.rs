@@ -22,7 +22,7 @@ use nom::error::{Error as NomError, ErrorKind, ParseError};
 use nom::{Err, IResult, Parser};
 use std::fmt::Debug;
 
-/// A type alias for a [nom::IResult] that whose input is a `&str` and whose error type is an
+/// A type alias for a [nom::IResult] whose input is a `&str` and whose error type is an
 /// [IonParseError]. All of the Ion parsers in the [text::parsers] crate return an `IonParseResult`.
 ///
 /// If the parser is successful, it will return `Ok(output_value)`. If it encounters a problem,
@@ -53,7 +53,6 @@ pub(crate) type IonParseResult<'a, O> = IResult<&'a str, O, IonParseError<'a>>;
 ///
 /// ```ignore
 /// use nom::bytes::streaming::tag;
-/// use nom::combinator::{map, recognize};
 /// use nom::sequence::terminated;
 /// use nom::Parser; // trait provides the method `or`
 /// use self::UpgradeIResult;
@@ -61,7 +60,9 @@ pub(crate) type IonParseResult<'a, O> = IResult<&'a str, O, IonParseError<'a>>;
 /// // Matches a prefix at the head of `input` that looks like an Ion boolean value followed
 /// // by a space.
 /// fn recognize_boolean(input: &str) -> IonParseResult<&str> {
-///     recognize(terminated(tag("true").or(tag("false")), tag(" ")))(input).upgrade()
+///     // This syntax is idiomatic, but a bit tough for the uninitiated to interpret.
+///     // A more verbose/explicit version of the same function is provided below.
+///     terminated(tag("true").or(tag("false")), tag(" "))(input).upgrade()
 /// }
 ///
 /// use nom::IResult;
@@ -69,7 +70,10 @@ pub(crate) type IonParseResult<'a, O> = IResult<&'a str, O, IonParseError<'a>>;
 /// // The same function as above, but spelled out a bit more explicitly
 /// fn verbose_recognize_boolean(input: &str) -> IonParseResult<&str> {
 ///     // Combine several core `nom` parsers to make a new parser with the desired logic
-///     let parser = recognize(terminated(tag("true").or(tag("false")), tag(" ")));
+///     let parser = terminated(          <-- Takes two parsers; if both succeed, returns the output of the first
+///         tag("true").or(tag("false")), <-- Parser 1 matches the text `true` or the text `false`
+///         tag(" ")                      <-- Parser 2 matches a single space
+///     );
 ///
 ///     // Use our new parser to parse the provided text
 ///     let i_result: IResult<&str, &str, nom::error::Error<&str>> = parser(input);
@@ -92,7 +96,7 @@ pub(crate) trait UpgradeIResult<'a, O> {
     fn upgrade(self) -> IonParseResult<'a, O>;
 }
 
-/// This implementation it possible to call `.upgrade()` on an IResult, converting it into an
+/// This implementation makes it possible to call `.upgrade()` on an IResult, converting it into an
 /// IonParseResult.
 impl<'a, O> UpgradeIResult<'a, O> for IResult<&'a str, O> {
     fn upgrade(self) -> IonParseResult<'a, O> {

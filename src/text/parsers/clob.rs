@@ -1,4 +1,4 @@
-use crate::text::parse_result::{IonParseResult, UpgradeIResult};
+use crate::text::parse_result::{IonParseResult, UpgradeIResult, UpgradeParser};
 use crate::text::parsers::string::long_string_fragment_without_escaped_text;
 use crate::text::parsers::text_support::{
     escaped_char_no_unicode, escaped_newline, StringFragment,
@@ -39,8 +39,8 @@ fn short_clob(input: &str) -> IonParseResult<TextValue> {
     })(input)
 }
 
-use crate::text::parse_result::UpgradeParser;
-
+/// Matches a long clob (e.g. `'''Hello, '''\n'''World!'''`) and returns the resulting [Clob]
+/// as a [TextValue::Clob].
 fn long_clob(input: &str) -> IonParseResult<TextValue> {
     // TODO: This parser allocates a Vec to hold each intermediate '''...''' string
     //       and then again to merge them into a finished product. These allocations
