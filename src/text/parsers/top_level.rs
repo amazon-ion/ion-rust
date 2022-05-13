@@ -3,7 +3,9 @@ use nom::bytes::streaming::tag;
 use nom::character::streaming::{digit0, one_of};
 use nom::combinator::recognize;
 
-use crate::text::parse_result::{fatal_parse_error, IonParseResult, UpgradeIResult};
+use crate::text::parse_result::{
+    fatal_parse_error, IonParseResult, OrFatalParseError, UpgradeIResult,
+};
 use nom::sequence::{pair, preceded, tuple};
 use std::str::FromStr;
 
@@ -48,25 +50,12 @@ pub(crate) fn ion_version_marker(input: &str) -> IonParseResult<(u32, u32)> {
     // If the text matched but parsing that into a major and minor version fails, it's a fatal
     // error.
 
-    let major_version = match u32::from_str(major_text) {
-        Ok(version) => version,
-        Err(_e) => {
-            return fatal_parse_error(
-                input,
-                format!("major version '{}' could not fit in a u32", major_text),
-            )
-        }
-    };
-
-    let minor_version = match u32::from_str(minor_text) {
-        Ok(version) => version,
-        Err(_e) => {
-            return fatal_parse_error(
-                input,
-                format!("minor version '{}' could not fit in a u32", minor_text),
-            )
-        }
-    };
+    let major_version = u32::from_str(major_text)
+        .or_fatal_parse_error(major_text, "major version could not fit in a u32")?
+        .1;
+    let minor_version = u32::from_str(minor_text)
+        .or_fatal_parse_error(minor_text, "minor version could not fit in a u32")?
+        .1;
 
     Ok((remaining_input, (major_version, minor_version)))
 }

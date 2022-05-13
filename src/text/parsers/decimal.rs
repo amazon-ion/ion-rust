@@ -89,18 +89,12 @@ fn decimal_from_text_components<'a>(
     // succeed.
     let magnitude: Magnitude = if magnitude_text.len() < MAX_U64_DIGITS {
         let value = u64::from_str(&magnitude_text)
-            .or_fatal_parse_error(
-                input,
-                "parsing coefficient magnitude as u64 failed",
-            )?
+            .or_fatal_parse_error(input, "parsing coefficient magnitude as u64 failed")?
             .1;
         Magnitude::U64(value)
     } else {
         let value = BigUint::from_str(&magnitude_text)
-            .or_fatal_parse_error(
-                input,
-                "parsing coefficient magnitude as u64 failed",
-            )?
+            .or_fatal_parse_error(input, "parsing coefficient magnitude as u64 failed")?
             .1;
         Magnitude::BigUInt(value)
     };

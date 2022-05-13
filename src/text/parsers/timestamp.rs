@@ -157,16 +157,12 @@ fn assign_fractional_seconds(
     } else {
         // Otherwise, the number's precision is great enough that we'll need to construct a Decimal
         // to store it without loss of fidelity.
-        let coefficient = match BigUint::from_str(fractional_text) {
-            //.expect("parsing fractional seconds as BigUint failed");
-            Ok(big_uint) => big_uint,
-            Err(e) => {
-                return fatal_parse_error(
-                    fractional_text,
-                    format!("parsing fractional seconds as BigUint failed: {}", e),
-                )
-            }
-        };
+        let coefficient = BigUint::from_str(fractional_text)
+            .or_fatal_parse_error(
+                fractional_text,
+                "parsing fractional seconds as BigUInt failed",
+            )?
+            .1;
         let mut digit_count = 1i64;
         let mut tmp_coefficient = coefficient.clone();
         let ten = BigUint::from(10u32);
