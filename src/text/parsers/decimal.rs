@@ -63,7 +63,7 @@ fn decimal_without_exponent(input: &str) -> IonParseResult<TextValue> {
 /// Given the four text components of a decimal value (the sign, the digits before the decimal point,
 /// the digits after the decimal point, and the exponent), constructs a [Decimal] value.
 fn decimal_from_text_components<'a>(
-    input: &str,
+    input: &'a str,
     sign_text: Option<&'a str>,
     digits_before_dot: &'a str,
     digits_after_dot: Option<&'a str>,

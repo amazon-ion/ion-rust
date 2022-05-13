@@ -3,9 +3,7 @@ use nom::bytes::streaming::tag;
 use nom::character::streaming::{digit0, one_of};
 use nom::combinator::recognize;
 
-use crate::text::parse_result::{
-    fatal_parse_error, IonParseResult, OrFatalParseError, UpgradeIResult,
-};
+use crate::text::parse_result::{IonParseResult, OrFatalParseError, UpgradeIResult};
 use nom::sequence::{pair, preceded, tuple};
 use std::str::FromStr;
 
