@@ -9,13 +9,14 @@
 //! an [IonParseError]. The module also defines [IonParseResult], a type alias for a [nom::IResult]
 //! that parses `&str`s and produces [IonParseError]s if something goes wrong.
 //!
-//! Two new traits are also provided to facilitate combining core `nom` parsers that return an
-//! `IResult` (for example: `one_of`, `opt`, or `alt`) with higher-level parsers that return
-//! an `IonParseResult` (for example: `parse_timestamp` or `parse_decimal`).
+//! Two new extension traits are also provided to facilitate combining core `nom` parsers that
+//! return an `IResult` (for example: `one_of`, `opt`, or `alt`) with higher-level parsers that
+//! return an `IonParseResult` (for example: `parse_timestamp` or `parse_decimal`).
 //!
-//! [UpgradeIResult] adds a `.upgrade()` method to every `IResult`, cheaply converting it into
+//! 1. [UpgradeIResult] adds an `.upgrade()` method to every `IResult` that cheaply converts it into
 //! an `IonParseResult`.
-//!
+//! 2. [UpgradeParser] adds an `.upgrade()` method to every implementation of [nom::Parser] that
+//! causes it to return an `IonParseResult` instead of an `IResult`.
 
 use nom::error::{Error as NomError, ErrorKind, ParseError};
 use nom::{Err, IResult, Parser};
