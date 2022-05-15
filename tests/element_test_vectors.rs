@@ -543,15 +543,6 @@ mod native_element_tests {
                 // The binary reader does not check whether nested values are longer than their
                 // parent container.
                 "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
-                // The text reader does not raise an error on unrecognized escapes. Instead,
-                // it treats them as uninterpreted literals. In this test, '\e' should raise
-                // an error but up appearing in the string as the literal text "\e".
-                "ion-tests/iontestdata/bad/longStringSlashE.ion",
-                // These fail because the string parser treats a truncated unicode escape at the end
-                // of a string fragment (e.g. '''\u''' with no digits) as a string literal instead
-                // of a malformed stream.
-                "ion-tests/iontestdata/bad/longStringSplitEscape_1.ion",
-                "ion-tests/iontestdata/bad/longStringSplitEscape_2.ion",
                 // These fail because non-displayable ASCII control characters are valid utf-8. A
                 // separate check is needed to confirm that raw control characters only show up
                 // as escape sequences.
@@ -559,7 +550,6 @@ mod native_element_tests {
                 "ion-tests/iontestdata/bad/stringRawControlCharacter.ion",
                 "ion-tests/iontestdata/bad/stringWithEol.ion",
                 // ROUND TRIP
-                "ion-tests/iontestdata/good/equivs/annotatedIvms.ion",
                 // These two tests fail because in most contexts, `NaN != NaN`, so Float(nan) != Float(nan).
                 // We need a structural equality (IonEq) for this (amzn/ion-rust#220)
                 "ion-tests/iontestdata/good/equivs/floats.ion",
@@ -585,15 +575,12 @@ mod native_element_tests {
                 // This test has a Decimal with an enormous exponent. We'd need to change
                 // DecodedInt to store an Integer instead of an i64.
                 "ion-tests/iontestdata/good/typecodes/T5.10n",
+                // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
                 "ion-tests/iontestdata/good/utf16.ion",
                 "ion-tests/iontestdata/good/utf32.ion",
-                "ion-tests/iontestdata/good/whitespace.ion",
                 // EQUIVS
-                "ion-tests/iontestdata/good/equivs/annotatedIvms.ion",
-                "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
                 "ion-tests/iontestdata/good/equivs/utf8/stringUtf8.ion",
                 // NON-EQUIVS
-                "ion-tests/iontestdata/good/non-equivs/annotatedIvms.ion",
                 "ion-tests/iontestdata/good/non-equivs/decimals.ion",
                 "ion-tests/iontestdata/good/non-equivs/floats.ion",
                 "ion-tests/iontestdata/good/non-equivs/floatsVsDecimals.ion",
@@ -611,7 +598,6 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/decimal_zeros.ion",
                 "ion-tests/iontestdata/good/decimalNegativeZeroDot.10n",
                 "ion-tests/iontestdata/good/decimalNegativeZeroDotZero.10n",
-                "ion-tests/iontestdata/good/equivs/annotatedIvms.ion",
                 "ion-tests/iontestdata/good/equivs/textNewlines.ion",
                 "ion-tests/iontestdata/good/equivs/timestampFractions.10n",
                 "ion-tests/iontestdata/good/equivs/timestampsLargeFractionalPrecision.ion",
@@ -625,7 +611,6 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/innerVersionIdentifiers.ion",
                 "ion-tests/iontestdata/good/item1.10n",
                 "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
-                "ion-tests/iontestdata/good/non/equivs/annotatedIvms.ion",
                 "ion-tests/iontestdata/good/notVersionMarkers.ion",
                 "ion-tests/iontestdata/good/subfieldInt.ion",
                 "ion-tests/iontestdata/good/subfieldUInt.ion",
@@ -648,7 +633,6 @@ mod native_element_tests {
 
         fn equivs_skip_list() -> SkipList {
             &[
-                "ion-tests/iontestdata/good/equivs/annotatedIvms.ion",
                 "ion-tests/iontestdata/good/equivs/clobNewlines.ion",
                 "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
                 "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",

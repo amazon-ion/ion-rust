@@ -1,12 +1,12 @@
 // Parsing functions that are common to textual types
 
-use crate::text::parse_result::{fatal_parse_error, IonParseResult, UpgradeIResult};
+use crate::text::parse_result::{fatal_parse_error, IonParseError, IonParseResult, UpgradeIResult};
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::{char, satisfy};
 use nom::combinator::{map, recognize, value};
 use nom::sequence::{preceded, tuple};
-use nom::{AsChar, IResult};
+use nom::{AsChar, IResult, Parser};
 
 /// The text Ion types each need to be able to read strings that contain escaped characters.
 /// This type represents the possible types of substring that make up any given piece of text from
@@ -22,6 +22,26 @@ pub(crate) enum StringFragment<'a> {
     EscapedNewline,
 }
 
+/// Checks the given input for a leading slash (`\`); if it finds one, it applies the provided
+/// `parser` to the text that follows. If the parser doesn't match, returns a fatal error.
+pub(crate) fn escape_and_then<'a, 'b, P>(
+    input: &'a str,
+    label: &'b str,
+    mut parser: P,
+) -> IonParseResult<'a, StringFragment<'a>>
+where
+    P: Parser<&'a str, StringFragment<'a>, IonParseError<'a>>,
+{
+    // If it doesn't start with a slash, it's not a match. Return a non-fatal error.
+    let (remaining, _slash) = char('\\')(input).upgrade()?;
+    // If the provided parser doesn't match what comes next, it's not a valid escape.
+    // Return a fatal error.
+    match parser.parse(remaining) {
+        Ok((remaining, string_fragment)) => Ok((remaining, string_fragment)),
+        Err(e) => fatal_parse_error(remaining, format!("could not parse {}: {}", label, e)),
+    }
+}
+
 /// Matches an escaped newline, returning [StringFragment::EscapedNewline].
 pub(crate) fn escaped_newline(input: &str) -> IonParseResult<StringFragment> {
     value(
@@ -34,23 +54,28 @@ pub(crate) fn escaped_newline(input: &str) -> IonParseResult<StringFragment> {
 /// Matches an escaped literal (like '\n') or a Unicode escape (starting with '\x', '\u', or '\U'),
 /// returning the appropriate substitute character as a [StringFragment::EscapedChar].
 pub(crate) fn escaped_char(input: &str) -> IonParseResult<StringFragment> {
-    map(
-        preceded(
-            char('\\'),
-            alt((escaped_char_unicode, escaped_char_literal)),
-        ),
+    let parser = map(
+        alt((escaped_char_unicode, escaped_char_literal)),
         StringFragment::EscapedChar,
-    )(input)
+    );
+
+    escape_and_then(
+        input,
+        "an escaped character (Unicode, hex, or literal)",
+        parser,
+    )
 }
 
 /// Matches an escaped literal (like '\n') or a hex escape (like `\x`), returning the appropriate
 /// substitute character as a [StringFragment::EscapedChar]. Does NOT match Unicode escapes
 /// ('\u' or '\U').
 pub(crate) fn escaped_char_no_unicode(input: &str) -> IonParseResult<StringFragment> {
-    map(
-        preceded(char('\\'), alt((escaped_hex_char, escaped_char_literal))),
+    let parser = map(
+        alt((escaped_hex_char, escaped_char_literal)),
         StringFragment::EscapedChar,
-    )(input)
+    );
+
+    escape_and_then(input, "an escaped character (hex or literal)", parser)
 }
 
 /// Matches an escaped literal and returns the appropriate substitute character.
