@@ -1,5 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
 use ion_rs::value::owned::OwnedElement;
 use ion_rs::value::reader::{element_reader, ElementReader};
@@ -64,7 +65,11 @@ trait ElementApi {
         writer.write_all(source_elements)?;
         let output = writer.finish()?;
         let new_elements = element_reader().read_all(output)?;
-        assert_eq!(*source_elements, new_elements, "{:?}", output.hex_dump());
+        assert!(
+            source_elements.ion_eq(&new_elements),
+            "{:?}",
+            output.hex_dump()
+        );
         Ok(new_elements)
     }
 
@@ -83,7 +88,7 @@ trait ElementApi {
         }
         let first_write_elements = Self::assert_round_trip(&source_elements, first_writer)?;
         let second_write_elements = Self::assert_round_trip(&first_write_elements, second_writer)?;
-        assert_eq!(source_elements, second_write_elements);
+        assert!(source_elements.ion_eq(&second_write_elements));
         Ok(())
     }
 
@@ -210,7 +215,7 @@ trait ElementApi {
                         Ok(elem) => {
                             // only compare if we know equality to work
                             if !contains_path(Self::read_one_equivs_skip_list(), file_name) {
-                                assert_eq!(elems[0], elem)
+                                assert!(elems[0].ion_eq(&elem))
                             }
                         }
                         Err(e) => panic!("Expected element {:?}, got {:?}", elems, e),
@@ -336,8 +341,8 @@ fn equivs<E: ElementApi>(_element_api: E, file_name: &str) {
         E::read_group(
             E::make_reader(),
             file_name,
-            |this, that| assert_eq!(this, that),
-            |this_group, that_group| assert_eq!(this_group, that_group),
+            |this, that| assert!(this.ion_eq(that)),
+            |this_group, that_group| assert!(this_group.ion_eq(that_group)),
         )
     });
 }
@@ -350,16 +355,36 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
             file_name,
             |this, that| {
                 if std::ptr::eq(this, that) {
-                    assert_eq!(this, that);
+                    assert!(
+                        this.ion_eq(that),
+                        "unexpected these to be equal but they were unequal: {:?} != {:?}",
+                        this,
+                        that
+                    );
                 } else {
-                    assert_ne!(this, that);
+                    assert!(
+                        !this.ion_eq(that),
+                        "expected these to be unequal but they were equal: {:?} == {:?}",
+                        this,
+                        that
+                    );
                 }
             },
             |this_group, that_group| {
                 if std::ptr::eq(this_group, that_group) {
-                    assert_eq!(this_group, that_group);
+                    assert!(
+                        this_group.ion_eq(that_group),
+                        "unexpected these to be equal but they were unequal: {:?} != {:?}",
+                        this_group,
+                        that_group
+                    );
                 } else {
-                    assert_ne!(this_group, that_group);
+                    assert!(
+                        !this_group.ion_eq(that_group),
+                        "unexpected these to be unequal but they were equal: {:?} == {:?}",
+                        this_group,
+                        that_group
+                    );
                 }
             },
         )
@@ -550,11 +575,6 @@ mod native_element_tests {
                 "ion-tests/iontestdata/bad/stringRawControlCharacter.ion",
                 "ion-tests/iontestdata/bad/stringWithEol.ion",
                 // ROUND TRIP
-                // These two tests fail because in most contexts, `NaN != NaN`, so Float(nan) != Float(nan).
-                // We need a structural equality (IonEq) for this (amzn/ion-rust#220)
-                "ion-tests/iontestdata/good/equivs/floats.ion",
-                "ion-tests/iontestdata/good/floatSpecials.ion",
-                // ---
                 // These tests have shared symbol table imports in them, which the Reader does not
                 // yet support.
                 "ion-tests/iontestdata/good/subfieldInt.ion",
@@ -565,7 +585,6 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
                 "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
                 // ---
-                "ion-tests/iontestdata/good/innerVersionIdentifiers.ion",
                 // Requires importing shared symbol tables
                 "ion-tests/iontestdata/good/item1.10n",
                 "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
@@ -579,11 +598,13 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/utf16.ion",
                 "ion-tests/iontestdata/good/utf32.ion",
                 // EQUIVS
+                // Fails because of utf-16 surrogate handling in escapes
                 "ion-tests/iontestdata/good/equivs/utf8/stringUtf8.ion",
                 // NON-EQUIVS
+                // These tests fail because the ion-c writer bindings don't support writing -0.0
                 "ion-tests/iontestdata/good/non-equivs/decimals.ion",
-                "ion-tests/iontestdata/good/non-equivs/floats.ion",
                 "ion-tests/iontestdata/good/non-equivs/floatsVsDecimals.ion",
+                // -----
                 "ion-tests/iontestdata/good/non-equivs/localSymbolTableWithAnnotations.ion",
                 "ion-tests/iontestdata/good/non-equivs/symbolTablesUnknownText.ion",
             ]
@@ -595,20 +616,17 @@ mod native_element_tests {
 
         fn round_trip_skip_list() -> SkipList {
             &[
+                // These tests fail because the ion-c writer tries to convert a coefficient of -0
+                // to a BigInt, which cannot represent -0. Adding the native Rust element writer
+                // (which works with Decimals directly) will address this.
                 "ion-tests/iontestdata/good/decimal_zeros.ion",
                 "ion-tests/iontestdata/good/decimalNegativeZeroDot.10n",
                 "ion-tests/iontestdata/good/decimalNegativeZeroDotZero.10n",
+                "ion-tests/iontestdata/good/equivs/zeroDecimals.ion",
+                // ------
                 "ion-tests/iontestdata/good/equivs/textNewlines.ion",
                 "ion-tests/iontestdata/good/equivs/timestampFractions.10n",
                 "ion-tests/iontestdata/good/equivs/timestampsLargeFractionalPrecision.ion",
-                "ion-tests/iontestdata/good/equivs/utf8/stringUtf8.ion",
-                "ion-tests/iontestdata/good/equivs/zeroDecimals.ion",
-                "ion-tests/iontestdata/good/float_values.ion",
-                "ion-tests/iontestdata/good/float_zeros.ion",
-                "ion-tests/iontestdata/good/float32.10n",
-                "ion-tests/iontestdata/good/floatDblMin.ion",
-                "ion-tests/iontestdata/good/floatSpecials.ion",
-                "ion-tests/iontestdata/good/innerVersionIdentifiers.ion",
                 "ion-tests/iontestdata/good/item1.10n",
                 "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
                 "ion-tests/iontestdata/good/notVersionMarkers.ion",
@@ -639,7 +657,6 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
                 "ion-tests/iontestdata/good/equivs/textNewlines.ion",
                 "ion-tests/iontestdata/good/equivs/timestampFractions.10n",
-                "ion-tests/iontestdata/good/equivs/utf8/stringUtf8.ion",
             ]
         }
 

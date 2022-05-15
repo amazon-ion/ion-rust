@@ -24,6 +24,7 @@ pub mod types;
 pub mod value;
 
 pub mod constants;
+pub mod ion_eq;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
 mod reader;
