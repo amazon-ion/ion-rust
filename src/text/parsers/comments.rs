@@ -1,14 +1,14 @@
+use crate::text::parse_result::{IonParseResult, UpgradeIResult};
 use nom::branch::alt;
 use nom::bytes::streaming::{is_not, tag, take_until};
 use nom::character::streaming::multispace1;
 use nom::combinator::recognize;
 use nom::multi::many0_count;
 use nom::sequence::{delimited, preceded};
-use nom::IResult;
 
 /// Matches any number of consecutive `/* multiline */` or `// rest-of-line` comments with any
 /// amount of leading or trailing whitespace.
-pub(crate) fn whitespace_or_comments(input: &str) -> IResult<&str, &str> {
+pub(crate) fn whitespace_or_comments(input: &str) -> IonParseResult<&str> {
     recognize(many0_count(alt((
         // At least one character of whitespace...
         multispace1,
@@ -18,24 +18,25 @@ pub(crate) fn whitespace_or_comments(input: &str) -> IResult<&str, &str> {
 }
 
 /// Matches a `/* multiline */` or `// rest-of-line` comment.
-pub(crate) fn comment(input: &str) -> IResult<&str, &str> {
+pub(crate) fn comment(input: &str) -> IonParseResult<&str> {
     alt((rest_of_line_comment, multiline_comment))(input)
 }
 
 /// Matches a rest-of-line comment. Returns the text of the comment without the leading "//".
 /// If no closing newline is found, this will return `Incomplete`.
-fn rest_of_line_comment(input: &str) -> IResult<&str, &str> {
+fn rest_of_line_comment(input: &str) -> IonParseResult<&str> {
     preceded(
         // Matches a leading "//"...
         tag("//"),
         // ...followed by any characters that are not a '\r' or '\n'.
         is_not("\r\n"), // Note that this will not consume the newline.
     )(input)
+    .upgrade()
 }
 
 /// Matches a multiline comment. Returns the text of the comment without the
 /// delimiting "/*" and "*/". If no closing "*/" is found, this will return `Incomplete`.
-fn multiline_comment(input: &str) -> IResult<&str, &str> {
+fn multiline_comment(input: &str) -> IonParseResult<&str> {
     delimited(
         // Matches a leading "/*"
         tag("/*"),

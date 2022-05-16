@@ -1,16 +1,17 @@
 //! Parsing logic for the text representation of boolean values.
 
+use crate::text::parse_result::IonParseResult;
 use nom::bytes::streaming::tag;
 use nom::combinator::{map, recognize};
 use nom::sequence::terminated;
-use nom::{IResult, Parser};
+use nom::Parser;
 
 use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
 
 /// Matches the text representation of a boolean value and returns the resulting `true` or `false`
 /// as a [TextValue::Boolean].
-pub(crate) fn parse_boolean(input: &str) -> IResult<&str, TextValue> {
+pub(crate) fn parse_boolean(input: &str) -> IonParseResult<TextValue> {
     map(
         recognize(terminated(tag("true").or(tag("false")), stop_character)),
         |bool_text: &str| match bool_text {

@@ -1,3 +1,4 @@
+use crate::text::parse_result::{IonParseResult, UpgradeIResult, UpgradeParser};
 use crate::text::parsers::string::long_string_fragment_without_escaped_text;
 use crate::text::parsers::text_support::{
     escaped_char_no_unicode, escaped_newline, StringFragment,
@@ -10,30 +11,29 @@ use nom::character::streaming::char;
 use nom::combinator::{map, not, opt, peek, verify};
 use nom::multi::{fold_many0, many1};
 use nom::sequence::{delimited, terminated};
-use nom::IResult;
 use std::str;
 
 /// Matches the text representation of a clob value and returns the resulting [Clob]
 /// as a [TextValue::Clob].
-pub(crate) fn parse_clob(input: &str) -> IResult<&str, TextValue> {
+pub(crate) fn parse_clob(input: &str) -> IonParseResult<TextValue> {
     map(
         delimited(
-            tag("{{"),
+            tag("{{").upgrade(),
             delimited(opt(whitespace), parse_clob_body, opt(whitespace)),
-            tag("}}"),
+            tag("}}").upgrade(),
         ),
         |text| text,
     )(input)
 }
 
 /// Matches the body of a clob value (e.g. "Hello" in {{"Hello"}})
-fn parse_clob_body(input: &str) -> IResult<&str, TextValue> {
+fn parse_clob_body(input: &str) -> IonParseResult<TextValue> {
     alt((short_clob, long_clob))(input)
 }
 
 /// Matches a short clob (e.g. `"Hello"`) and returns the resulting [Clob]
 /// as a [TextValue::Clob].
-fn short_clob(input: &str) -> IResult<&str, TextValue> {
+fn short_clob(input: &str) -> IonParseResult<TextValue> {
     map(delimited(char('"'), short_clob_body, char('"')), |text| {
         TextValue::Clob(text)
     })(input)
@@ -41,7 +41,7 @@ fn short_clob(input: &str) -> IResult<&str, TextValue> {
 
 /// Matches a long clob (e.g. `'''Hello, '''\n'''World!'''`) and returns the resulting [Clob]
 /// as a [TextValue::Clob].
-fn long_clob(input: &str) -> IResult<&str, TextValue> {
+fn long_clob(input: &str) -> IonParseResult<TextValue> {
     // TODO: This parser allocates a Vec to hold each intermediate '''...''' string
     //       and then again to merge them into a finished product. These allocations
     //       could be removed with some refactoring.
@@ -64,23 +64,19 @@ fn long_clob(input: &str) -> IResult<&str, TextValue> {
 }
 
 /// Matches the body of a long clob fragment. (The `hello` in `'''hello'''`.)
-fn long_clob_body(input: &str) -> IResult<&str, Vec<u8>> {
-    fold_many0(
-        long_clob_fragment,
-        Vec::new(), // TODO: Reusable buffer
-        |mut string, fragment| {
-            match fragment {
-                StringFragment::EscapedNewline => {} // Discard escaped newlines
-                StringFragment::EscapedChar(c) => string.push(c as u8),
-                StringFragment::Substring(s) => string.extend(s.as_bytes()),
-            }
-            string
-        },
-    )(input)
+fn long_clob_body(input: &str) -> IonParseResult<Vec<u8>> {
+    fold_many0(long_clob_fragment, Vec::new, |mut string, fragment| {
+        match fragment {
+            StringFragment::EscapedNewline => {} // Discard escaped newlines
+            StringFragment::EscapedChar(c) => string.push(c as u8),
+            StringFragment::Substring(s) => string.extend(s.as_bytes()),
+        }
+        string
+    })(input)
 }
 
 /// Matches an escaped character or a substring without any escapes in a long clob.
-fn long_clob_fragment(input: &str) -> IResult<&str, StringFragment> {
+fn long_clob_fragment(input: &str) -> IonParseResult<StringFragment> {
     alt((
         escaped_newline,
         escaped_char_no_unicode,
@@ -89,30 +85,26 @@ fn long_clob_fragment(input: &str) -> IResult<&str, StringFragment> {
 }
 
 /// Matches the next string fragment while respecting the long clob delimiter (`'''`).
-fn long_clob_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
+fn long_clob_fragment_without_escaped_text(input: &str) -> IonParseResult<StringFragment> {
     // Matches the head of the string up to the next `'''` or `\`.
     // Will not match if the `'''` or `\` is at the very beginning of the string.
     long_string_fragment_without_escaped_text(input)
 }
 
 /// Matches the body of a short clob. (The `hello` in `"hello"`.)
-fn short_clob_body(input: &str) -> IResult<&str, Vec<u8>> {
-    fold_many0(
-        short_clob_fragment,
-        Vec::new(), // TODO: Reusable buffer
-        |mut string, fragment| {
-            match fragment {
-                StringFragment::EscapedNewline => {} // Discard escaped newlines
-                StringFragment::EscapedChar(c) => string.push(c as u8),
-                StringFragment::Substring(s) => string.extend_from_slice(s.as_bytes()),
-            }
-            string
-        },
-    )(input)
+fn short_clob_body(input: &str) -> IonParseResult<Vec<u8>> {
+    fold_many0(short_clob_fragment, Vec::new, |mut string, fragment| {
+        match fragment {
+            StringFragment::EscapedNewline => {} // Discard escaped newlines
+            StringFragment::EscapedChar(c) => string.push(c as u8),
+            StringFragment::Substring(s) => string.extend_from_slice(s.as_bytes()),
+        }
+        string
+    })(input)
 }
 
 /// Matches an escaped character or a substring without any escapes in a short clob.
-fn short_clob_fragment(input: &str) -> IResult<&str, StringFragment> {
+fn short_clob_fragment(input: &str) -> IonParseResult<StringFragment> {
     alt((
         escaped_newline,
         escaped_char_no_unicode,
@@ -121,10 +113,11 @@ fn short_clob_fragment(input: &str) -> IResult<&str, StringFragment> {
 }
 
 /// Matches the next string fragment while respecting the short clob delimiter (`"`).
-fn short_clob_fragment_without_escaped_text(input: &str) -> IResult<&str, StringFragment> {
+fn short_clob_fragment_without_escaped_text(input: &str) -> IonParseResult<StringFragment> {
     map(verify(is_not("\"\\\""), |s: &str| !s.is_empty()), |text| {
         StringFragment::Substring(text)
     })(input)
+    .upgrade()
 }
 
 #[cfg(test)]

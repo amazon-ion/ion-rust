@@ -1,4 +1,5 @@
 use crate::raw_symbol_token::RawSymbolToken;
+use crate::text::parse_result::{IonParseResult, UpgradeIResult, UpgradeParser};
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::combinator::{map, peek, value};
@@ -14,8 +15,8 @@ use crate::text::parsers::value::{annotated_container_start, annotated_scalar};
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
 
 /// Matches the beginning of a container and returns a [TextValue] indicating its type.
-pub(crate) fn container_start(input: &str) -> IResult<&str, TextValue> {
-    alt((struct_start, list_start, s_expression_start))(input)
+pub(crate) fn container_start(input: &str) -> IonParseResult<TextValue> {
+    alt((struct_start, list_start, s_expression_start))(input).upgrade()
 }
 
 /// Matches the beginning of a struct and returns a [TextValue::StructStart].
@@ -34,25 +35,25 @@ pub(crate) fn s_expression_start(input: &str) -> IResult<&str, TextValue> {
 }
 
 /// Matches the end of a struct and returns a `&str` containing the delimiter.
-pub(crate) fn struct_end(input: &str) -> IResult<&str, &str> {
-    preceded(whitespace_or_comments, tag("}"))(input)
+pub(crate) fn struct_end(input: &str) -> IonParseResult<&str> {
+    preceded(whitespace_or_comments, tag("}").upgrade())(input)
 }
 
 /// Matches the end of a list and returns a `&str` containing the delimiter.
-pub(crate) fn list_end(input: &str) -> IResult<&str, &str> {
-    preceded(whitespace_or_comments, tag("]"))(input)
+pub(crate) fn list_end(input: &str) -> IonParseResult<&str> {
+    preceded(whitespace_or_comments, tag("]").upgrade())(input)
 }
 
 /// Matches the end of an s-expression and returns a `&str` containing the delimiter.
-pub(crate) fn s_expression_end(input: &str) -> IResult<&str, &str> {
-    preceded(whitespace_or_comments, tag(")"))(input)
+pub(crate) fn s_expression_end(input: &str) -> IonParseResult<&str> {
+    preceded(whitespace_or_comments, tag(")").upgrade())(input)
 }
 
 /// Matches an optional series of annotations and a TextValue. If the TextValue is not a container,
 /// this parser will also match a trailing delimiting comma (that will be consumed) or end-of-list
 /// marker (that will not be consumed). Whitespace and comments can appear throughout; they will be
 /// discarded.
-pub(crate) fn list_value(input: &str) -> IResult<&str, AnnotatedTextValue> {
+pub(crate) fn list_value(input: &str) -> IonParseResult<AnnotatedTextValue> {
     alt((
         // Matches a scalar value and either a delimiter or end-of-container.
         list_scalar,
@@ -64,7 +65,7 @@ pub(crate) fn list_value(input: &str) -> IResult<&str, AnnotatedTextValue> {
 
 /// Matches a (possibly annotated) non-container value in a list followed by a delimiter
 /// or end-of-container.
-pub(crate) fn list_scalar(input: &str) -> IResult<&str, AnnotatedTextValue> {
+pub(crate) fn list_scalar(input: &str) -> IonParseResult<AnnotatedTextValue> {
     // A list scalar must be followed by either a comma or the end-of-list delimiter (`]`).
     delimited(
         // Any amount of whitespace or comments
@@ -78,17 +79,20 @@ pub(crate) fn list_scalar(input: &str) -> IResult<&str, AnnotatedTextValue> {
 
 /// Matches any amount of whitespace/comments followed by either a delimiter (which is consumed)
 /// or an end-of-container (which is not consumed).
-pub(crate) fn list_delimiter(input: &str) -> IResult<&str, ()> {
-    preceded(whitespace_or_comments, alt((tag(","), peek(list_end))))
-        // TODO: This parser discards the matched &str as a workaround to a limitation in RawTextReader.
-        //       See: https://github.com/amzn/ion-rust/issues/337
-        .map(|_| ())
-        .parse(input)
+pub(crate) fn list_delimiter(input: &str) -> IonParseResult<()> {
+    preceded(
+        whitespace_or_comments,
+        alt((tag(",").upgrade(), peek(list_end))),
+    )
+    // TODO: This parser discards the matched &str as a workaround to a limitation in RawTextReader.
+    //       See: https://github.com/amzn/ion-rust/issues/337
+    .map(|_| ())
+    .parse(input)
 }
 
 /// Returns [None] if the next token in input is an end-of-list delimiter (`]`).
 /// Otherwise, matches and returns the next value in the list using [list_value].
-pub(crate) fn list_value_or_end(input: &str) -> IResult<&str, Option<AnnotatedTextValue>> {
+pub(crate) fn list_value_or_end(input: &str) -> IonParseResult<Option<AnnotatedTextValue>> {
     map(list_end, |_end_marker| None)
         .or(map(list_value, Some))
         .parse(input)
@@ -97,7 +101,7 @@ pub(crate) fn list_value_or_end(input: &str) -> IResult<&str, Option<AnnotatedTe
 /// Matches an optional series of annotations and a TextValue (including operators). If the TextValue
 /// is not a container, this parser will also match a trailing delimiting whitespace character
 /// (that will be consumed) or end-of-s-expression marker (that will not be consumed).
-pub(crate) fn s_expression_value(input: &str) -> IResult<&str, AnnotatedTextValue> {
+pub(crate) fn s_expression_value(input: &str) -> IonParseResult<AnnotatedTextValue> {
     alt((
         // Matches a scalar value followed by either a delimiter or end-of-container.
         s_expression_scalar,
@@ -109,7 +113,7 @@ pub(crate) fn s_expression_value(input: &str) -> IResult<&str, AnnotatedTextValu
 
 /// Matches a (possibly annotated) non-container value in an s-expression followed by a delimiter
 /// or end-of-container.
-pub(crate) fn s_expression_scalar(input: &str) -> IResult<&str, AnnotatedTextValue> {
+pub(crate) fn s_expression_scalar(input: &str) -> IonParseResult<AnnotatedTextValue> {
     preceded(
         whitespace_or_comments,
         // An s-expression value can be either...
@@ -137,7 +141,7 @@ pub(crate) fn s_expression_scalar(input: &str) -> IResult<&str, AnnotatedTextVal
 
 /// Returns [None] if the next token in input is an end-of-s-expression delimiter (`)`).
 /// Otherwise, matches and returns the next value in the s-expression using [s_expression_stream_value].
-pub(crate) fn s_expression_value_or_end(input: &str) -> IResult<&str, Option<AnnotatedTextValue>> {
+pub(crate) fn s_expression_value_or_end(input: &str) -> IonParseResult<Option<AnnotatedTextValue>> {
     map(s_expression_end, |_end_marker| None)
         .or(map(s_expression_value, Some))
         .parse(input)
@@ -145,7 +149,7 @@ pub(crate) fn s_expression_value_or_end(input: &str) -> IResult<&str, Option<Ann
 
 /// Always matches. Consumes nothing from input. This function is only defined for parity with the
 /// other container types.
-pub(crate) fn s_expression_delimiter(input: &str) -> IResult<&str, ()> {
+pub(crate) fn s_expression_delimiter(input: &str) -> IonParseResult<()> {
     // An s-expression doesn't require *anything* to appear between values. For example:
     //    (+(foo)-)
     // This s-expression contains three child values:
@@ -159,7 +163,7 @@ pub(crate) fn s_expression_delimiter(input: &str) -> IResult<&str, ()> {
 
 /// Matches a struct field name and returns it as a [RawSymbolToken].
 /// This function should be called before [struct_stream_value].
-pub(crate) fn struct_field_name(input: &str) -> IResult<&str, RawSymbolToken> {
+pub(crate) fn struct_field_name(input: &str) -> IonParseResult<RawSymbolToken> {
     delimited(
         whitespace_or_comments,
         // We check for string first because the field name may be a long string (`'''foo'''`)
@@ -182,7 +186,7 @@ pub(crate) fn struct_field_name(input: &str) -> IResult<&str, RawSymbolToken> {
 /// this parser will also match a trailing delimiting comma (that will be consumed) or end-of-struct
 /// marker (that will not be consumed). Whitespace and comments can appear throughout; they will be
 /// discarded.
-pub(crate) fn struct_field_value(input: &str) -> IResult<&str, AnnotatedTextValue> {
+pub(crate) fn struct_field_value(input: &str) -> IonParseResult<AnnotatedTextValue> {
     alt((
         // Matches a scalar value and either a delimiter or end-of-container.
         struct_field_scalar,
@@ -194,7 +198,7 @@ pub(crate) fn struct_field_value(input: &str) -> IResult<&str, AnnotatedTextValu
 
 /// Matches a (possibly annotated) non-container value in an struct followed by a delimiter
 /// or end-of-container.
-pub(crate) fn struct_field_scalar(input: &str) -> IResult<&str, AnnotatedTextValue> {
+pub(crate) fn struct_field_scalar(input: &str) -> IonParseResult<AnnotatedTextValue> {
     terminated(
         // Match the value itself (may be preceded by whitespace/comments)
         top_level_value,
@@ -205,7 +209,7 @@ pub(crate) fn struct_field_scalar(input: &str) -> IResult<&str, AnnotatedTextVal
 
 /// Returns [None] if the next token in input is an end-of-struct delimiter (`}`).
 /// Otherwise, matches and returns the next field name in the struct using [struct_field_name].
-pub(crate) fn struct_field_name_or_end(input: &str) -> IResult<&str, Option<RawSymbolToken>> {
+pub(crate) fn struct_field_name_or_end(input: &str) -> IonParseResult<Option<RawSymbolToken>> {
     map(struct_end, |_end_marker| None)
         .or(map(struct_field_name, Some))
         .parse(input)
@@ -213,7 +217,7 @@ pub(crate) fn struct_field_name_or_end(input: &str) -> IResult<&str, Option<RawS
 
 /// Matches any amount of whitespace/comments followed by either a delimiter (which is consumed)
 /// or an end-of-container (which is not consumed).
-pub(crate) fn struct_delimiter(input: &str) -> IResult<&str, ()> {
+pub(crate) fn struct_delimiter(input: &str) -> IonParseResult<()> {
     preceded(whitespace_or_comments, alt((tag(","), peek(struct_end))))
         // TODO: This parser discards the matched &str as a workaround to a limitation in RawTextReader.
         //       See: https://github.com/amzn/ion-rust/issues/337
