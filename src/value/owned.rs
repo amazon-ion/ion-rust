@@ -6,6 +6,7 @@
 //! ownership of data to do so.
 
 use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
+use crate::ion_eq::IonEq;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
@@ -283,7 +284,7 @@ impl OwnedStruct {
         self.text_fields.iter().all(|(key, value)| {
             value
                 .iter()
-                .all(|(_my_s, my_v)| other.get_all(key).any(|other_v| my_v == other_v))
+                .all(|(_my_s, my_v)| other.get_all(key).any(|other_v| my_v.ion_eq(other_v)))
                 && value.len() == other.get_all(key).count()
         })
     }
@@ -294,7 +295,7 @@ impl OwnedStruct {
             other
                 .no_text_fields
                 .iter()
-                .any(|(other_k, other_v)| my_k == other_k && my_v == other_v)
+                .any(|(other_k, other_v)| my_k == other_k && my_v.ion_eq(other_v))
         })
     }
 }
@@ -388,6 +389,46 @@ impl PartialEq for OwnedStruct {
 }
 
 impl Eq for OwnedStruct {}
+
+impl IonEq for OwnedSequence {
+    fn ion_eq(&self, other: &Self) -> bool {
+        self.children.ion_eq(&other.children)
+    }
+}
+
+impl IonEq for OwnedValue {
+    fn ion_eq(&self, other: &Self) -> bool {
+        use OwnedValue::*;
+        match (self, other) {
+            (Float(f1), Float(f2)) => return f1.ion_eq(f2),
+            (List(seq1), List(seq2)) => return seq1.ion_eq(seq2),
+            (SExpression(seq1), SExpression(seq2)) => return seq1.ion_eq(seq2),
+            _ => {}
+        };
+        // For any other case, fall back to vanilla equality
+        self == other
+    }
+}
+
+impl IonEq for OwnedElement {
+    fn ion_eq(&self, other: &Self) -> bool {
+        self.annotations == other.annotations && self.value.ion_eq(&other.value)
+    }
+}
+
+impl IonEq for Vec<OwnedElement> {
+    fn ion_eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        for (v1, v2) in self.iter().zip(other.iter()) {
+            if !v1.ion_eq(v2) {
+                return false;
+            }
+        }
+        true
+    }
+}
 
 /// Variants for all owned version _values_ within an [`Element`].
 #[derive(Debug, Clone, PartialEq)]
