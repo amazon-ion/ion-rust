@@ -1,7 +1,8 @@
 use crate::text::parse_result::{IonParseResult, UpgradeIResult};
+use crate::text::parsers::whitespace;
+
 use nom::branch::alt;
 use nom::bytes::streaming::{is_not, tag, take_until};
-use nom::character::streaming::multispace1;
 use nom::combinator::recognize;
 use nom::multi::many0_count;
 use nom::sequence::{delimited, preceded};
@@ -11,8 +12,7 @@ use nom::sequence::{delimited, preceded};
 pub(crate) fn whitespace_or_comments(input: &str) -> IonParseResult<&str> {
     recognize(many0_count(alt((
         // At least one character of whitespace...
-        multispace1,
-        // ...or a comment of any format.
+        whitespace, // ...or a comment of any format.
         comment,
     ))))(input)
 }

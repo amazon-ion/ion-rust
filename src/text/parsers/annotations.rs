@@ -38,7 +38,7 @@ pub(crate) fn parse_annotation(input: &str) -> IonParseResult<RawSymbolToken> {
     )(input)
 }
 
-fn annotation_delimiter(input: &str) -> IonParseResult<&str> {
+pub(crate) fn annotation_delimiter(input: &str) -> IonParseResult<&str> {
     preceded(multispace0, tag("::"))(input).upgrade()
 }
 

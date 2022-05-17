@@ -14,7 +14,7 @@ use crate::text::parsers::containers::{
     list_delimiter, list_value_or_end, s_expression_delimiter, s_expression_value_or_end,
     struct_delimiter, struct_field_name_or_end, struct_field_value,
 };
-use crate::text::parsers::top_level::{ion_version_marker, top_level_value};
+use crate::text::parsers::top_level::{stream_item, RawTextStreamItem};
 use crate::text::text_buffer::TextBuffer;
 use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
@@ -48,6 +48,7 @@ pub struct RawTextReader<T: TextIonDataSource> {
 /// making it difficult to perform the necessary bookkeeping that follows finding the next value.
 ///
 /// This type is intentionally limited in what it stores to avoid having a lifetime.
+#[derive(Eq, PartialEq, Debug)]
 pub(crate) enum RootParseResult<O> {
     Ok(O),
     Eof,
@@ -104,46 +105,10 @@ impl<T: TextIonDataSource> RawTextReader<T> {
                 return Ok(());
             }
 
-            // Otherwise, see if the next token in the stream is an Ion Version Marker.
-            match self.parse_next_nom(ion_version_marker) {
-                RootParseResult::Ok((1, 0)) => {
-                    // We found an IVM; we currently only support Ion 1.0.
-                    self.current_ivm = Some((1, 0));
-                    return Ok(());
-                }
-                RootParseResult::Ok((major, minor)) => {
-                    return decoding_error(format!(
-                        "Unsupported Ion version: v{}.{}. Only 1.0 is supported.",
-                        major, minor
-                    ));
-                }
-                RootParseResult::Failure(error_message) => {
-                    return decoding_error(error_message);
-                }
-                _ => {
-                    // Any other kind of error is a parse error; it's not an IVM.
-                    // Move on to trying to read a value.
-                    // EOFs are also handled below.
-                }
-            }
-
-            // If it wasn't an IVM, it has to be a value.
-            let value = self.next_top_level_value()?;
-            match value {
-                None => {
-                    // We hit EOF; make a note of it and clear the current value.
-                    self.is_eof = true;
-                    self.current_value = None;
-                }
-                Some(ref value) => {
-                    // We read a value successfully; set it as our current value.
-                    // TODO: This currently clones the loaded value. This will not be necessary
-                    //       when `next()` returns an IonType instead of an AnnotatedTextValue.
-                    self.current_value = Some(value.clone());
-                }
-            };
-            return Ok(());
+            let next_stream_item = self.parse_next_nom(stream_item);
+            return self.process_stream_item(next_stream_item);
         }
+
         // Otherwise, the `parents` stack is not empty. We're inside a container.
 
         // The `ParentLevel` type is only a couple of stack-allocated bytes. It's very cheap to clone.
@@ -196,18 +161,55 @@ impl<T: TextIonDataSource> RawTextReader<T> {
         Ok(())
     }
 
-    /// Assumes that the reader is at the top level and attempts to parse the next value or IVM in
-    /// the stream.
-    fn next_top_level_value(&mut self) -> IonResult<Option<AnnotatedTextValue>> {
-        match self.parse_next(top_level_value) {
-            Ok(Some(value)) => Ok(Some(value)),
-            Ok(None) => {
+    fn process_stream_item(
+        &mut self,
+        read_result: RootParseResult<RawTextStreamItem>,
+    ) -> IonResult<()> {
+        match read_result {
+            RootParseResult::Ok(RawTextStreamItem::IonVersionMarker(1, 0)) => {
+                // We found an IVM; we currently only support Ion 1.0.
+                self.current_ivm = Some((1, 0));
+                Ok(())
+            }
+            RootParseResult::Ok(RawTextStreamItem::IonVersionMarker(major, minor)) => {
+                decoding_error(format!(
+                    "Unsupported Ion version: v{}.{}. Only 1.0 is supported.",
+                    major, minor
+                ))
+            }
+            RootParseResult::Ok(RawTextStreamItem::AnnotatedTextValue(value)) => {
+                // We read a value successfully; set it as our current value.
+                self.current_value = Some(value);
+                Ok(())
+            }
+            RootParseResult::Eof => {
                 // The top level is the only depth at which EOF is legal. If we encounter an EOF,
                 // double check that the buffer doesn't actually have a value in it. See the
                 // comments in [parse_value_at_eof] for a detailed explanation of this.
-                self.parse_value_at_eof()
+                let item = self.parse_value_at_eof();
+                if item == RootParseResult::Eof {
+                    // This is a genuine EOF; make a note of it and clear the current value.
+                    self.is_eof = true;
+                    self.current_value = None;
+                    return Ok(());
+                }
+                self.process_stream_item(item)
             }
-            Err(e) => Err(e),
+            RootParseResult::NoMatch => {
+                // The parser didn't recognize the text in the input buffer.
+                // Return an error that contains the text we were attempting to parse.
+                let error_message = format!(
+                    "unrecognized input near line {}: '{}'",
+                    self.buffer.lines_loaded(),
+                    self.buffer.remaining_text(),
+                );
+                decoding_error(error_message)
+            }
+            RootParseResult::Failure(error_message) => {
+                // A fatal error occurred while reading the next value.
+                // This could be an I/O error, malformed utf-8 data, or an invalid value.
+                decoding_error(error_message)
+            }
         }
     }
 
@@ -371,7 +373,7 @@ impl<T: TextIonDataSource> RawTextReader<T> {
     // https://github.com/amzn/ion-rust/issues/318
     // This method should only be called when the reader is at the top level. An EOF at any other
     // depth is an error.
-    fn parse_value_at_eof(&mut self) -> IonResult<Option<AnnotatedTextValue>> {
+    fn parse_value_at_eof(&mut self) -> RootParseResult<RawTextStreamItem> {
         // An arbitrary, cheap-to-parse Ion value that we append to the buffer when its contents at
         // EOF are ambiguous.
         const SENTINEL_ION_TEXT: &str = "\n0\n";
@@ -393,35 +395,43 @@ impl<T: TextIonDataSource> RawTextReader<T> {
         //   there aren't any more long-form string segments in the sequence.
         //
         // Attempt to parse the updated buffer.
-        let value = match top_level_value(self.buffer.remaining_text()) {
-            Ok(("\n", value))
+        let value = match stream_item(self.buffer.remaining_text()) {
+            Ok(("\n", RawTextStreamItem::AnnotatedTextValue(value)))
                 if value.annotations().is_empty()
                     && *value.value() == TextValue::Integer(Integer::I64(0)) =>
             {
                 // We found the unannotated zero that we appended to the end of the buffer.
                 // The "\n" in this pattern is the unparsed text left in the buffer,
                 // which indicates that our 0 was parsed.
-                Ok(None)
+                RootParseResult::Eof
             }
             Ok((_remaining_text, value)) => {
                 // We found something else. The zero is still in the buffer; we can leave it there.
                 // The reader's `is_eof` flag has been set, so the text buffer will never be used
                 // again. Return the value we found.
-                Ok(Some(value))
+                RootParseResult::Ok(value)
             }
             Err(Incomplete(_needed)) => {
-                decoding_error(format!(
+                RootParseResult::Failure(format!(
                     "Unexpected end of input on line {}: '{}'",
                     self.buffer.lines_loaded(),
                     &self.buffer.remaining_text()[..original_length] // Don't show the extra `\n0\n`
                 ))
             }
-            Err(e) => {
-                decoding_error(format!(
-                    "Parsing error occurred near line {}: '{}': '{}'",
+            Err(Error(ion_parse_error)) => {
+                RootParseResult::Failure(format!(
+                    "Parsing error occurred near line {}: '{}': '{:?}'",
                     self.buffer.lines_loaded(),
                     &self.buffer.remaining_text()[..original_length], // Don't show the extra `\n0\n`
-                    e
+                    ion_parse_error
+                ))
+            }
+            Err(Failure(ion_parse_error)) => {
+                RootParseResult::Failure(format!(
+                    "A fatal error occurred while reading near line {}: '{}': '{:?}'",
+                    self.buffer.lines_loaded(),
+                    &self.buffer.remaining_text()[..original_length], // Don't show the extra `\n0\n`
+                    ion_parse_error
                 ))
             }
         };

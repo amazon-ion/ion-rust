@@ -1,16 +1,39 @@
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::streaming::{digit0, one_of};
-use nom::combinator::recognize;
+use nom::combinator::{map, not, recognize};
 
 use crate::text::parse_result::{IonParseResult, OrFatalParseError, UpgradeIResult};
-use nom::sequence::{pair, preceded, tuple};
+use crate::text::parsers::annotations::annotation_delimiter;
+use nom::sequence::{delimited, pair, preceded, tuple};
+
 use std::str::FromStr;
 
 use crate::text::parsers::comments::whitespace_or_comments;
 
 use crate::text::parsers::value::annotated_value;
 use crate::text::text_value::AnnotatedTextValue;
+
+/// Represents a single item that can appear at the top level of a text stream.
+#[derive(PartialEq, Debug)]
+pub(crate) enum RawTextStreamItem {
+    /// An marker indicating that the stream's version is (major, minor).
+    IonVersionMarker(u32, u32),
+    /// A (possibly annotated) Ion value.
+    AnnotatedTextValue(AnnotatedTextValue),
+}
+
+/// Matches an Ion version marker or a (possibly annotated) value.
+pub(crate) fn stream_item(input: &str) -> IonParseResult<RawTextStreamItem> {
+    alt((
+        map(ion_version_marker, |(major, minor)| {
+            RawTextStreamItem::IonVersionMarker(major, minor)
+        }),
+        map(top_level_value, |value| {
+            RawTextStreamItem::AnnotatedTextValue(value)
+        }),
+    ))(input)
+}
 
 /// Matches an optional series of annotations and a TextValue at the beginning of the given
 /// string. If there are no annotations (or the TextValue found cannot have annotations), the
@@ -40,9 +63,10 @@ pub(crate) fn version_int(input: &str) -> IonParseResult<&str> {
 /// https://amzn.github.io/ion-docs/docs/symbols.html#ion-version-markers
 pub(crate) fn ion_version_marker(input: &str) -> IonParseResult<(u32, u32)> {
     // See if the input text matches an IVM. If not, return a non-fatal error.
-    let (remaining_input, (_, major_text, _, minor_text)) = preceded(
+    let (remaining_input, (_, major_text, _, minor_text)) = delimited(
         whitespace_or_comments,
         tuple((tag("$ion_"), version_int, tag("_"), version_int)),
+        not(annotation_delimiter),
     )(input)?;
 
     // If the text matched but parsing that into a major and minor version fails, it's a fatal
@@ -136,26 +160,34 @@ mod parse_top_level_values_tests {
         );
     }
 
+    // Each of these input strings is followed by a ` 1` so the parser can definitively say the
+    // IVM is not followed by a `::`, which would make it an annotation instead.
     #[rstest]
-    #[case("$ion_1_0 ")]
-    #[case("   \r  \t \n $ion_1_0 ")]
-    #[case(" /*comment 1*/\n//comment 2\n   $ion_1_0 ")]
+    #[case("$ion_1_0 1")]
+    #[case("   \r  \t \n $ion_1_0 1")]
+    #[case(" /*comment 1*/\n//comment 2\n   $ion_1_0 1")]
     fn test_parse_ion_1_0_ivm(#[case] text: &str) {
         parse_test_ok(ion_version_marker, text, (1, 0));
     }
 
+    // Each of these input strings is followed by a ` 1` so the parser can definitively say the
+    // IVM is not followed by a `::`, which would make it an annotation instead.
     #[rstest]
-    #[case("$ion_1_1 ", (1, 1))]
-    #[case("/*hello!*/ $ion_1_1 ", (1, 1))]
-    #[case("$ion_2_0 ", (2, 0))]
-    #[case("\n \n $ion_2_0 ", (2, 0))]
-    #[case("$ion_5_8 ", (5, 8))]
-    #[case("$ion_21_99 ", (21, 99))]
+    #[case("$ion_1_1 1", (1, 1))]
+    #[case("/*hello!*/ $ion_1_1 1", (1, 1))]
+    #[case("$ion_2_0 1", (2, 0))]
+    #[case("\n \n $ion_2_0 1", (2, 0))]
+    #[case("$ion_5_8 1", (5, 8))]
+    #[case("$ion_21_99 1", (21, 99))]
     fn test_parse_ivm_for_other_versions(#[case] text: &str, #[case] expected: (u32, u32)) {
         parse_test_ok(ion_version_marker, text, expected);
     }
 
     #[rstest]
+    // An annotation, not an IVM
+    #[case("$ion_1_0::foo")]
+    // An annotation, not an IVM
+    #[case("$ion_1_0      ::foo")]
     // Quoted, therefore a symbol
     #[case("'$ion_1_0' ")]
     // Not a literal, therefore a symbol

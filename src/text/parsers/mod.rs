@@ -26,8 +26,18 @@ pub(crate) mod timestamp;
 pub(crate) mod top_level;
 pub(crate) mod value;
 
-const WHITESPACE_CHARACTERS: &[char] = &[' ', '\t', '\r', '\n'];
-const WHITESPACE_CHARACTERS_AS_STR: &str = " \t\r\n";
+const WHITESPACE_CHARACTERS: &[char] = &[
+    ' ',        // Space
+    '\t',       // Tab
+    '\r',       // Carriage return
+    '\n',       // Newline
+    '\u{0009}', // Horizontal tab
+    '\u{000B}', // Vertical tab
+    '\u{000C}', // Form feed
+];
+
+/// Same as [WHITESPACE_CHARACTERS], but formatted as a string for use in some `nom` APIs
+const WHITESPACE_CHARACTERS_AS_STR: &str = " \t\r\n\u{0009}\u{000B}\u{000C}";
 
 // ===== The functions below are used by several modules and live here for common access. =====
 
