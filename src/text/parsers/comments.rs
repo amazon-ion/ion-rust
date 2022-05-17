@@ -1,5 +1,6 @@
 use crate::text::parse_result::{IonParseResult, UpgradeIResult};
 use crate::text::parsers::whitespace;
+
 use nom::branch::alt;
 use nom::bytes::streaming::{is_not, tag, take_until};
 use nom::combinator::recognize;

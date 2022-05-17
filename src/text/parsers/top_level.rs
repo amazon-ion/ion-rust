@@ -6,6 +6,7 @@ use nom::combinator::{map, not, recognize};
 use crate::text::parse_result::{IonParseResult, OrFatalParseError, UpgradeIResult};
 use crate::text::parsers::annotations::annotation_delimiter;
 use nom::sequence::{delimited, pair, preceded, tuple};
+
 use std::str::FromStr;
 
 use crate::text::parsers::comments::whitespace_or_comments;

@@ -108,6 +108,7 @@ impl<T: TextIonDataSource> RawTextReader<T> {
             let next_stream_item = self.parse_next_nom(stream_item);
             return self.process_stream_item(next_stream_item);
         }
+
         // Otherwise, the `parents` stack is not empty. We're inside a container.
 
         // The `ParentLevel` type is only a couple of stack-allocated bytes. It's very cheap to clone.
