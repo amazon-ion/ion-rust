@@ -151,6 +151,9 @@ fn short_clob_fragment_without_escaped_text(input: &str) -> IonParseResult<Strin
                 // Stop parsing and return a match for everything leading up to this.
                 return text_support::string_fragment_or_mismatch(input, byte_index);
             }
+            '\n' => {
+                return fatal_parse_error(input, "short clobs cannot contain unescaped newlines");
+            }
             c if char_is_legal_clob_ascii(c) => {
                 // Do nothing; this will be part of the substring we return.
             }
