@@ -179,7 +179,6 @@ mod string_parsing_tests {
         parse_equals("\"\" ", "");
         parse_equals("\"Hello, world!\" ", "Hello, world!");
         // Escape literals
-        parse_equals("\"Hello\nworld!\" ", "Hello\nworld!");
         parse_equals("\"Hello\tworld!\" ", "Hello\tworld!");
         parse_equals("\"\\\"Hello, world!\\\"\" ", "\"Hello, world!\"");
         // 2-digit Unicode hex escape sequences
