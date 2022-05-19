@@ -168,7 +168,7 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IonParseResult<char> {
         return complete_surrogate_pair(input, remaining_input, hex_digits, number_value);
     }
 
-    // A Rust `char` can represent any Unicode scalar value-- a code point that is not part of a
+    // A Rust `char` can represent any Unicode scalar value--a code point that is not part of a
     // surrogate pair. If the value we found isn't a high surrogate, then it's a complete scalar
     // value. We can safely convert it to a `char`.
     let character = char::from_u32(number_value).unwrap();
@@ -187,6 +187,7 @@ fn complete_surrogate_pair<'a>(
     high_surrogate_number_value: u32,
 ) -> IonParseResult<'a, char> {
     let (_, (input_after_low_surrogate, low_surrogate_hex_digits)) =
+        // Look for a `\` followed by a \uXXXX or \UXXXXXXXX escape
         preceded(
             char('\\'),
             alt((
@@ -200,7 +201,7 @@ fn complete_surrogate_pair<'a>(
         )?;
 
     // Convert the second set of hex digits to a `u32`.
-    let second_number_value = u32::from_str_radix(low_surrogate_hex_digits, 16)
+    let low_surrogate_number_value = u32::from_str_radix(low_surrogate_hex_digits, 16)
         .or_fatal_parse_error(
             high_surrogate_hex_digits,
             "could not parse escape hex sequence for trailing surrogate",
@@ -211,7 +212,7 @@ fn complete_surrogate_pair<'a>(
     // decoder. We know the first surrogate number value will fit in a u16 because we checked
     // its range above, so we can safely unwrap it.
     let high_surrogate: u16 = u16::try_from(high_surrogate_number_value).unwrap();
-    let low_surrogate: u16 = u16::try_from(second_number_value)
+    let low_surrogate: u16 = u16::try_from(low_surrogate_number_value)
         .or_fatal_parse_error(
             low_surrogate_hex_digits,
             "trailing surrogate number value did not fit in a u16",

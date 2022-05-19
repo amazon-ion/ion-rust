@@ -248,7 +248,6 @@ impl<T: TextIonDataSource> RawTextReader<T> {
     /// If the parser encounters an error, it will be returned as-is.
     fn parse_expected<P, O>(&mut self, entity_name: &str, parser: P) -> IonResult<O>
     where
-        O: Debug,
         P: Fn(&str) -> IonParseResult<O>,
     {
         match self.parse_next(parser) {
@@ -271,7 +270,6 @@ impl<T: TextIonDataSource> RawTextReader<T> {
 
     fn parse_next<P, O>(&mut self, parser: P) -> IonResult<Option<O>>
     where
-        O: Debug,
         P: Fn(&str) -> IonParseResult<O>,
     {
         match self.parse_next_nom(parser) {
@@ -297,7 +295,6 @@ impl<T: TextIonDataSource> RawTextReader<T> {
     /// If EOF is encountered, returns `Ok(None)`.
     fn parse_next_nom<P, O>(&mut self, parser: P) -> RootParseResult<O>
     where
-        O: Debug,
         P: Fn(&str) -> IonParseResult<O>,
     {
         let RawTextReader {

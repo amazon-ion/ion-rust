@@ -199,11 +199,6 @@ mod clob_parsing_tests {
     }
 
     #[test]
-    fn del_test() {
-        assert!('\x7F'.is_ascii())
-    }
-
-    #[test]
     fn test_parse_clobs() {
         // parse tests for short clob
         parse_equals("{{\"hello\"}}\n", "hello");
