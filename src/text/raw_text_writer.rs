@@ -10,7 +10,7 @@ use crate::result::{illegal_operation, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::{Precision, Timestamp};
 use crate::writer::Writer;
-use crate::IonType;
+use crate::{Integer, IonType};
 
 pub struct RawTextWriter<W: Write> {
     output: BufWriter<W>,
@@ -112,16 +112,42 @@ impl<W: Write> RawTextWriter<W> {
             && chars.all(|c| c == '$' || c == '_' || c.is_ascii_alphanumeric())
     }
 
+    fn token_is_keyword(token: &str) -> bool {
+        const KEYWORDS: &[&str] = &["true", "false", "nan", "null"];
+        KEYWORDS.contains(&token)
+    }
+
+    /// Returns `true` if this token's text resembles a symbol ID literal. For example: `'$99'` is a
+    /// symbol with the text `$99`. However, `$99` (without quotes) is a symbol ID that maps to
+    /// different text.
+    fn token_resembles_symbol_id(token: &str) -> bool {
+        if token.is_empty() {
+            return false;
+        }
+        let mut chars = token.chars();
+        let first = chars.next().unwrap();
+        first == '$' && chars.all(|c| c.is_numeric())
+    }
+
     fn write_symbol_token<A: AsRawSymbolTokenRef>(
         output: &mut BufWriter<W>,
         token: A,
     ) -> IonResult<()> {
         match token.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(sid) => write!(output, "${}", sid)?,
+            RawSymbolTokenRef::Text(text)
+                if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) =>
+            {
+                write!(output, "'{}'", text)?;
+            }
             RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text) => {
                 write!(output, "{}", text)?
             }
-            RawSymbolTokenRef::Text(text) => write!(output, "'{}'", text)?,
+            RawSymbolTokenRef::Text(text) => {
+                write!(output, "\'")?;
+                Self::write_escaped_text_body(output, text)?;
+                write!(output, "\'")?;
+            }
         };
         Ok(())
     }
@@ -208,6 +234,45 @@ impl<W: Write> RawTextWriter<W> {
         };
         self.annotations.push(text);
     }
+
+    /// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
+    /// characters escaped.
+    fn write_escaped_text_body<S: AsRef<str>>(
+        output: &mut BufWriter<W>,
+        value: S,
+    ) -> IonResult<()> {
+        let mut start = 0usize;
+        let text = value.as_ref();
+        for (byte_index, character) in text.char_indices() {
+            let escaped = match character {
+                '\n' => r"\n",
+                '\r' => r"\r",
+                '\t' => r"\t",
+                '\\' => r"\\",
+                '/' => r"\/",
+                '"' => r#"\""#,
+                '\'' => r"\'",
+                '?' => r"\?",
+                '\x00' => r"\0", // NUL
+                '\x07' => r"\a", // alert BEL
+                '\x08' => r"\b", // backspace
+                '\x0B' => r"\v", // vertical tab
+                '\x0C' => r"\f", // form feed
+                _ => {
+                    // Other characters can be left as-is
+                    continue;
+                }
+            };
+            // If we reach this point, the current character needed to be escaped.
+            // Write all of the text leading up to this character to output, then the escaped
+            // version of this character.
+            write!(output, "{}{}", &text[start..byte_index], escaped)?;
+            // Update `start` to point to the first byte after the end of this character.
+            start = byte_index + character.len_utf8();
+        }
+        write!(output, "{}", &text[start..])?;
+        Ok(())
+    }
 }
 
 impl<'a, W: Write> Writer for RawTextWriter<W> {
@@ -278,6 +343,17 @@ impl<'a, W: Write> Writer for RawTextWriter<W> {
             write!(output, "{}", value)?;
             Ok(())
         })
+    }
+
+    /// Writes an Ion `integer` with the specified value to the output stream.
+    fn write_integer(&mut self, value: &Integer) -> IonResult<()> {
+        match value {
+            Integer::I64(i) => self.write_i64(*i),
+            Integer::BigInt(i) => self.write_scalar(|output| {
+                write!(output, "{}", i)?;
+                Ok(())
+            }),
+        }
     }
 
     /// Writes the provided f64 value as an Ion float.
@@ -373,20 +449,8 @@ impl<'a, W: Write> Writer for RawTextWriter<W> {
 
             write!(output, ":{:0>2}", datetime.second())?;
             //                   ^-- delimiting colon, formatted second
-            if value.precision == Precision::Second {
-                RawTextWriter::write_offset(output, offset_minutes)?;
-                return Ok(());
-            }
+            value.fmt_fractional_seconds(&mut *output)?;
 
-            // We want the fractional seconds to show as many decimal places as are interesting.
-            // Here we format the string as nanoseconds and then eliminate any trailing zeros.
-            //TODO: The initial conversion to datetime will discard precision greater than nanoseconds.
-            //TODO: Eliminate this allocation.
-            let fractional_text = format!("{:0>9}", datetime.nanosecond());
-            let fractional_text = fractional_text.trim_end_matches('0');
-
-            write!(output, ".{}", fractional_text)?;
-            //               ^-- delimiting decimal point, formatted fractional seconds
             RawTextWriter::write_offset(output, offset_minutes)?;
             Ok(())
         })
@@ -403,7 +467,9 @@ impl<'a, W: Write> Writer for RawTextWriter<W> {
     /// Writes the provided &str value as an Ion string.
     fn write_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
         self.write_scalar(|output| {
-            write!(output, "\"{}\"", value.as_ref())?;
+            write!(output, "\"")?;
+            RawTextWriter::write_escaped_text_body(output, value)?;
+            write!(output, "\"")?;
             Ok(())
         })
     }

@@ -44,6 +44,7 @@ impl Coefficient {
         self.magnitude.number_of_decimal_digits()
     }
 
+    /// Constructs a new Coefficient that represents negative zero.
     pub(crate) fn negative_zero() -> Self {
         Coefficient {
             sign: Sign::Negative,
@@ -51,10 +52,29 @@ impl Coefficient {
         }
     }
 
+    /// Returns true if the Coefficient represents positive zero.
     pub(crate) fn is_negative_zero(&self) -> bool {
         match (self.sign, &self.magnitude) {
             (Sign::Negative, Magnitude::U64(0)) => true,
             (Sign::Negative, Magnitude::BigUInt(b)) if b.is_zero() => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true if the Coefficient represents positive zero.
+    pub(crate) fn is_positive_zero(&self) -> bool {
+        match (self.sign, &self.magnitude) {
+            (Sign::Positive, Magnitude::U64(0)) => true,
+            (Sign::Positive, Magnitude::BigUInt(b)) if b.is_zero() => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true if the Coefficient represents a zero of any sign.
+    pub(crate) fn is_zero(&self) -> bool {
+        match (self.sign, &self.magnitude) {
+            (_, Magnitude::U64(0)) => true,
+            (_, Magnitude::BigUInt(b)) if b.is_zero() => true,
             _ => false,
         }
     }

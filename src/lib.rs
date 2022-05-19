@@ -51,11 +51,13 @@ pub use text::text_writer::TextWriter;
 pub use writer::Writer;
 
 pub use binary::raw_binary_reader::RawBinaryReader;
+pub use binary::raw_binary_writer::RawBinaryWriter;
 pub use raw_reader::{RawReader, RawStreamItem};
 pub use reader::Reader;
 pub use reader::StreamItem;
 pub use stream_reader::StreamReader;
 pub use system_reader::{SystemReader, SystemStreamItem};
+pub use text::raw_text_reader::RawTextReader;
 pub use text::raw_text_writer::RawTextWriter;
 
 pub use result::IonError;

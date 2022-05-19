@@ -69,7 +69,7 @@ where
                 0 => {}
                 _ => {
                     let magnitude = v.abs() as u64;
-                    let encoded = binary::uint::encode_uint(magnitude);
+                    let encoded = binary::uint::encode_u64(magnitude);
                     self.update_escaping(encoded.as_bytes());
                 }
             },

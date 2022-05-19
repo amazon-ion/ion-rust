@@ -170,7 +170,7 @@ impl Decimal {
         // We do this by multiplying it times 10^exponent_delta, which is 1 in this case.
         // This lets us compare 80 and 80, determining that the decimals are equal.
         let mut scaled_coefficient: BigUint = d1.coefficient.magnitude().to_biguint().unwrap();
-        scaled_coefficient *= 10u64.pow(exponent_delta as u32);
+        scaled_coefficient *= BigUint::from(10u64).pow(exponent_delta as u32);
         Magnitude::BigUInt(scaled_coefficient).cmp(d2.coefficient.magnitude())
     }
 }

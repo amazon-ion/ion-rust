@@ -151,11 +151,14 @@ trait ElementApi {
         format1: Format,
         format2: Format,
     ) -> IonResult<()> {
+        println!("reading source elements");
         let source_elements = Self::read_file(&Self::make_reader(), file_name)?;
         if contains_path(Self::round_trip_skip_list(), file_name) {
             return Ok(());
         }
+        println!("writing first elements");
         let first_write_elements = Self::assert_round_trip(&source_elements, format1)?;
+        println!("writing second elements");
         let second_write_elements = Self::assert_round_trip(&first_write_elements, format2)?;
         assert!(source_elements.ion_eq(&second_write_elements));
         Ok(())
@@ -628,7 +631,7 @@ mod native_element_tests {
 
     impl ElementApi for NativeElementApi {
         type ReaderApi = NativeElementReader;
-        type RoundTripper = IonCElementWriterApi;
+        type RoundTripper = NativeElementWriterApi;
 
         fn global_skip_list() -> SkipList {
             &[
@@ -649,20 +652,12 @@ mod native_element_tests {
                 // Requires importing shared symbol tables
                 "ion-tests/iontestdata/good/item1.10n",
                 "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
-                "ion-tests/iontestdata/good/notVersionMarkers.ion",
                 // Requires importing shared symbol tables
                 "ion-tests/iontestdata/good/testfile35.ion",
-                // This test has a Decimal with an enormous exponent. We'd need to change
-                // DecodedInt to store an Integer instead of an i64.
-                "ion-tests/iontestdata/good/typecodes/T5.10n",
                 // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
                 "ion-tests/iontestdata/good/utf16.ion",
                 "ion-tests/iontestdata/good/utf32.ion",
                 // NON-EQUIVS
-                // These tests fail because the ion-c writer bindings don't support writing -0.0
-                "ion-tests/iontestdata/good/non-equivs/decimals.ion",
-                "ion-tests/iontestdata/good/non-equivs/floatsVsDecimals.ion",
-                // -----
                 "ion-tests/iontestdata/good/non-equivs/localSymbolTableWithAnnotations.ion",
                 "ion-tests/iontestdata/good/non-equivs/symbolTablesUnknownText.ion",
             ]
@@ -674,31 +669,6 @@ mod native_element_tests {
 
         fn round_trip_skip_list() -> SkipList {
             &[
-                // These tests fail because the ion-c writer doesn't fully step out of the last
-                // container it writes in some circumstances, leading to a panic.
-                "ion-tests/iontestdata/good/testfile25.ion",
-                "ion-tests/iontestdata/good/testfile33.ion",
-                "ion-tests/iontestdata/good/non-equivs/timestamps.ion",
-                "ion-tests/iontestdata/good/equivs/timestamps.ion",
-                "ion-tests/iontestdata/good/equivs/timestampFractions.ion",
-                // -----
-                // These tests fail because the ion-c writer tries to convert a coefficient of -0
-                // to a BigInt, which cannot represent -0. Adding the native Rust element writer
-                // (which works with Decimals directly) will address this.
-                "ion-tests/iontestdata/good/decimal_zeros.ion",
-                "ion-tests/iontestdata/good/decimalNegativeZeroDot.10n",
-                "ion-tests/iontestdata/good/decimalNegativeZeroDotZero.10n",
-                "ion-tests/iontestdata/good/equivs/zeroDecimals.ion",
-                // ------
-                // These tests fail because the ion-c writer does not allow fractional seconds
-                // to be represented with a decimal if the precision is less than nanoseconds.
-                // (That is: milliseconds, microseconds, etc)
-                "ion-tests/iontestdata/good/timestamp/timestamps.ion",
-                "ion-tests/iontestdata/good/timestamp/leapDay.ion",
-                "ion-tests/iontestdata/good/timestamp/timestamp2011-02-20T19_30_59_100-08_00.10n",
-                // ------
-                "ion-tests/iontestdata/good/equivs/timestampFractions.10n",
-                "ion-tests/iontestdata/good/equivs/timestampsLargeFractionalPrecision.ion",
                 "ion-tests/iontestdata/good/item1.10n",
                 "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
                 "ion-tests/iontestdata/good/notVersionMarkers.ion",
@@ -709,11 +679,6 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
                 "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
                 "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
-                "ion-tests/iontestdata/good/testfile23.ion",
-                "ion-tests/iontestdata/good/testfile31.ion",
-                "ion-tests/iontestdata/good/timestamp/equivTimeline/timestamps.ion",
-                "ion-tests/iontestdata/good/typecodes/T5.10n",
-                "ion-tests/iontestdata/good/typecodes/T6-large.10n",
                 "ion-tests/iontestdata/good/utf16.ion",
                 "ion-tests/iontestdata/good/utf32.ion",
                 // These tests have symbols with unknown text. While the raw and system readers
@@ -722,8 +687,6 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/symbolExplicitZero.10n",
                 "ion-tests/iontestdata/good/symbolImplicitZero.10n",
                 "ion-tests/iontestdata/good/symbolZero.ion",
-                "ion-tests/iontestdata/good/typecodes/T7-small.10n",
-                "ion-tests/iontestdata/good/typecodes/T7-large.10n",
             ]
         }
 
@@ -732,12 +695,16 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
                 "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
                 "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
-                "ion-tests/iontestdata/good/equivs/timestampFractions.10n",
             ]
         }
 
         fn non_equivs_skip_list() -> SkipList {
-            &[]
+            &[
+                // Decimal's `eq` considers 123. and 123.0 to be equal (which they are)
+                // but we expect it to test for Ion equality, not value equality.
+                // This is related to https://github.com/amzn/ion-rust/issues/381
+                "ion-tests/iontestdata/good/non-equivs/decimals.ion",
+            ]
         }
 
         fn make_reader() -> Self::ReaderApi {

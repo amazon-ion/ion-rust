@@ -81,6 +81,15 @@ mod float_parsing_tests {
         } else {
             panic!("Expected NaN, but got: {:?}", value);
         }
+
+        // -0 keeps its negative sign
+        let value = parse_unwrap(parse_float, "-0e0 ");
+        if let TextValue::Float(f) = value {
+            assert!(f == 0.0f64);
+            assert!(f.is_sign_negative())
+        } else {
+            panic!("Expected -0e0, but got: {:?}", value);
+        }
     }
 
     #[test]

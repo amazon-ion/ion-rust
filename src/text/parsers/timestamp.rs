@@ -1,4 +1,3 @@
-use std::ops::DivAssign;
 use std::str::FromStr;
 
 use nom::branch::alt;
@@ -163,14 +162,7 @@ fn assign_fractional_seconds(
                 "parsing fractional seconds as BigUInt failed",
             )?
             .1;
-        let mut digit_count = 1i64;
-        let mut tmp_coefficient = coefficient.clone();
-        let ten = BigUint::from(10u32);
-        while tmp_coefficient > ten {
-            tmp_coefficient.div_assign(&ten);
-            digit_count += 1;
-        }
-        let decimal = Decimal::new(coefficient, -digit_count);
+        let decimal = Decimal::new(coefficient, -(number_of_digits as i64));
         setter = setter.with_fractional_seconds(decimal);
     }
     Ok(("", setter))

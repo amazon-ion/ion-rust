@@ -4,8 +4,7 @@ use crate::text::raw_text_writer::RawTextWriter;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::writer::Writer;
-use crate::IonType;
-use crate::SymbolTable;
+use crate::{Integer, IonType, SymbolTable};
 use delegate::delegate;
 use std::io::Write;
 
@@ -106,6 +105,7 @@ impl<W: Write> Writer for TextWriter<W> {
             fn write_null(&mut self, ion_type: IonType) -> IonResult<()>;
             fn write_bool(&mut self, value: bool) -> IonResult<()>;
             fn write_i64(&mut self, value: i64) -> IonResult<()>;
+            fn write_integer(&mut self, value: &Integer) -> IonResult<()>;
             fn write_f32(&mut self, value: f32) -> IonResult<()>;
             fn write_f64(&mut self, value: f64) -> IonResult<()>;
             fn write_decimal(&mut self, value: &Decimal) -> IonResult<()>;
