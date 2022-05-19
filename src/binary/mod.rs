@@ -7,7 +7,7 @@ pub mod binary_writer;
 pub(crate) mod constants;
 pub mod decimal;
 mod header;
-mod int;
+pub mod int;
 mod nibbles;
 pub(crate) mod raw_binary_reader;
 pub mod raw_binary_writer;

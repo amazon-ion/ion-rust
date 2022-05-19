@@ -1,8 +1,9 @@
 use std::cmp::Ordering;
 
+use crate::Integer;
 use bigdecimal::ToPrimitive;
 use num_bigint::{BigUint, ToBigUint};
-use num_integer::Integer;
+use num_integer::Integer as _;
 use num_traits::Zero;
 
 /// An unsigned integer that can be combined with a [Sign](crate::types::coefficient::Sign)
@@ -73,7 +74,7 @@ impl Magnitude {
     /// Returns the number of digits in the non-scaled integer representation of the magnitude.
     pub(crate) fn number_of_decimal_digits(&self) -> u64 {
         match self {
-            Magnitude::U64(u64_value) => Magnitude::calculate_u64_digits(*u64_value),
+            Magnitude::U64(u64_value) => super::num_decimal_digits_in_u64(*u64_value),
             Magnitude::BigUInt(big_uint_value) => {
                 Magnitude::calculate_big_uint_digits(big_uint_value)
             }
@@ -93,25 +94,6 @@ impl Magnitude {
             digits += 1;
         }
         digits
-    }
-
-    fn calculate_u64_digits(value: u64) -> u64 {
-        if value == 0 {
-            return 1;
-        }
-        let log_base_ten = (value as f64).log10();
-        let count = log_base_ten.ceil();
-        if log_base_ten == count {
-            // If ceil() didn't change the count, then `value` is an exact power of ten.
-            // We need to add one to get the correct count.
-            // Examples:
-            //    (1).log10() ==   (1).log10().ceil() == 0
-            //   (10).log10() ==  (10).log10().ceil() == 1
-            //  (100).log10() == (100).log10().ceil() == 2
-            count as u64 + 1
-        } else {
-            count as u64
-        }
     }
 }
 
@@ -187,6 +169,17 @@ impl From<i128> for Magnitude {
     }
 }
 
+impl From<Integer> for Magnitude {
+    fn from(value: Integer) -> Self {
+        match value {
+            Integer::I64(i) => i.into(),
+            // num_bigint::BigInt's `into_parts` consumes the BigInt and returns a
+            // (sign: Sign, magnitude: BigUint) tuple. We only care about the magnitude, so we
+            // extract it here with `.1` ---------------v and then convert the BigUint to a Magnitude
+            Integer::BigInt(i) => i.into_parts().1.into(), // <-- using `.into()`
+        }
+    }
+}
 #[cfg(test)]
 mod magnitude_tests {
     use num_bigint::BigUint;

@@ -6,7 +6,9 @@ use arrayvec::ArrayVec;
 use bigdecimal::Zero;
 
 use crate::{
-    binary::{int::Int, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt, var_uint::VarUInt},
+    binary::{
+        int::DecodedInt, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt, var_uint::VarUInt,
+    },
     result::IonResult,
     types::{
         coefficient::{Coefficient, Sign},
@@ -55,7 +57,7 @@ where
         bytes_written += VarInt::write_i64(self, decimal.exponent)?;
 
         if decimal.coefficient.is_negative_zero() {
-            bytes_written += Int::write_negative_zero(self)?;
+            bytes_written += DecodedInt::write_negative_zero(self)?;
             return Ok(bytes_written);
         }
 
@@ -66,7 +68,7 @@ where
             // has zero length) when the coefficient’s value is (positive)
             // zero."
             if !small_coefficient.is_zero() {
-                bytes_written += Int::write_i64(self, small_coefficient)?;
+                bytes_written += DecodedInt::write_i64(self, small_coefficient)?;
             }
         } else {
             // Otherwise, allocate a Vec<u8> with the necessary representation.

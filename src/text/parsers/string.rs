@@ -1,11 +1,14 @@
-use crate::text::parse_result::{IonParseError, IonParseResult, UpgradeIResult};
+use crate::text::parse_result::{fatal_parse_error, IonParseResult};
 use crate::text::parsers::comments::whitespace_or_comments;
-use crate::text::parsers::text_support::{escaped_char, escaped_newline, StringFragment};
+use crate::text::parsers::text_support::{
+    escaped_char, escaped_newline, normalized_newline, string_fragment_or_mismatch, StringFragment,
+};
+use crate::text::parsers::WHITESPACE_CHARACTERS;
 use crate::text::text_value::TextValue;
 use nom::branch::alt;
-use nom::bytes::streaming::{is_not, tag};
+use nom::bytes::streaming::tag;
 use nom::character::streaming::char;
-use nom::combinator::{map, not, opt, peek, verify};
+use nom::combinator::{map, not, opt, peek};
 use nom::multi::{fold_many0, many1};
 use nom::sequence::{delimited, terminated};
 use nom::Err::Incomplete;
@@ -59,6 +62,7 @@ fn long_string_body(input: &str) -> IonParseResult<String> {
 /// Matches an escaped character or a substring without any escapes in a long string.
 fn long_string_fragment(input: &str) -> IonParseResult<StringFragment> {
     alt((
+        normalized_newline,
         escaped_newline,
         escaped_char,
         long_string_fragment_without_escaped_text,
@@ -70,67 +74,33 @@ fn long_string_fragment(input: &str) -> IonParseResult<StringFragment> {
 pub(in crate::text::parsers) fn long_string_fragment_without_escaped_text(
     input: &str,
 ) -> IonParseResult<StringFragment> {
-    // In contrast with the `short_string_fragment_without_escaped_text` function, this parser is
-    // hand-written because has two possible 'end' sequences to detect:
-    //   1. A slash (`\`), indicating the beginning of an escape sequence.
-    //   2. A triple-single-quote (`'''`), indicating the end of the string fragment.
-    // `nom` provides parser combinators that can detect multiple single-character 'end' markers
-    // or a single multiple-charracter 'end' marker. However, it does not provide one to detect
-    // multiple 'end' markers that may be more than one character. If that functionality is added
-    // in a future release, we can replace this implementation.
-
-    // Detecting a `'''` requires keeping track of some state as we traverse the input.
-    // We'll record the first byte offset at which we encountered a quote...
-    let mut first_single_quote_index = 0usize;
-    // ..as well as how many quotes in a row we've found.
-    let mut quote_count = 0usize;
-    // We'll iterate across each 'char' (Unicode codepoint) in the input string. Each char can
-    // take multiple input bytes to represent, so we'll use `char_indices()` to get both the char
-    // itself and the byte index at which it started.
-    for (index, char) in input.char_indices() {
-        if char == '\\' {
-            if index == 0 {
-                // The input starts with a `\`; the parser doesn't match.
-                return Err(nom::Err::Error(IonParseError::new(input)));
+    for (byte_index, character) in input.char_indices() {
+        match character {
+            '\\' | '\r' => {
+                // Escapes and carriage returns are handled by other clob fragment parsers.
+                // Return a match for everything leading up to this.
+                return string_fragment_or_mismatch(input, byte_index);
             }
-            // We found a `\`; return a match for all of the text up to `index`, exclusive.
-            return Ok((&input[index..], StringFragment::Substring(&input[0..index])));
-        } else if char == '\'' {
-            // We found a single quote. Increment the count.
-            quote_count += 1;
-            match quote_count {
-                1 => {
-                    // If this is the first quote we've found, keep track of its byte offset.
-                    // When we're ready to return a matching substring, we'll need it to end at
-                    // that index.
-                    first_single_quote_index = index;
+            '\'' => {
+                // This might be the terminating `'''`. Look ahead to see if it's followed by two
+                // more `'`s. If so, return a match for everything leading up to it.
+                let remaining = &input[byte_index..];
+                if remaining.starts_with("'''") {
+                    return string_fragment_or_mismatch(input, byte_index);
                 }
-                2 => {}
-                3 => {
-                    // We've found a third single quote in a row.
-                    if first_single_quote_index == 0 {
-                        // The `'''` was at the beginning of the input; the parser doesn't match.
-                        // We'll return an Err so the `long_string_fragment` parser will know
-                        // there weren't any more string fragments in the input. The `'''` we just
-                        // ran into will be consumed later by `long_string`.
-                        return Err(nom::Err::Error(IonParseError::new(input)));
-                    }
-                    // This `'''` indicates the end of the string fragment. Return a match for all
-                    // of the text leading up to the offset of the first single quote, exclusive.
-                    return Ok((
-                        &input[first_single_quote_index..],
-                        StringFragment::Substring(&input[0..first_single_quote_index]),
-                    ));
-                }
-                _ => unreachable!("quote_count was greater than 3"),
             }
-        } else {
-            quote_count = 0;
-        }
+            c if u32::from(c) < 0x20 && !WHITESPACE_CHARACTERS.contains(&c) => {
+                return fatal_parse_error(
+                    input,
+                    "strings cannot contain unescaped control characters",
+                );
+            }
+            _ => {
+                // Any other character is allowed
+            }
+        };
     }
-    // We got to the end of the input without encountering either a `\` or a `'''`. We can't
-    // say for sure whether this would've matched successfully given more input, so we return
-    // `Incomplete`, indicating that the reader should load more data and try parsing it again.
+    // We never found an end-of-fragment; we need more input to tell if this is a valid string.
     Err(Incomplete(Needed::Unknown))
 }
 
@@ -160,16 +130,39 @@ fn short_string_fragment(input: &str) -> IonParseResult<StringFragment> {
 }
 
 /// Matches the next string fragment while respecting the short string delimiter (`"`).
-fn short_string_fragment_without_escaped_text(input: &str) -> IonParseResult<StringFragment> {
-    map(verify(is_not("\"\\\""), |s: &str| !s.is_empty()), |text| {
-        StringFragment::Substring(text)
-    })(input)
-    .upgrade()
+pub(in crate::text::parsers) fn short_string_fragment_without_escaped_text(
+    input: &str,
+) -> IonParseResult<StringFragment> {
+    for (byte_index, character) in input.char_indices() {
+        match character {
+            '\\' | '\r' | '\"' => {
+                // Escapes and carriage returns are handled by other clob fragment parsers, while
+                // a double quote (`"`) marks the end of this string fragment.
+                // Return a match for everything leading up to this character.
+                return string_fragment_or_mismatch(input, byte_index);
+            }
+            '\n' => {
+                return fatal_parse_error(input, "short strings cannot contain unescaped newlines");
+            }
+            c if u32::from(c) < 0x20 && !WHITESPACE_CHARACTERS.contains(&c) => {
+                return fatal_parse_error(
+                    input,
+                    "strings cannot contain unescaped control characters",
+                );
+            }
+            _ => {
+                // Any other character is allowed
+            }
+        };
+    }
+    // We never found an end-of-fragment; we need more input to tell if this is a valid string.
+    Err(Incomplete(Needed::Unknown))
 }
 
 #[cfg(test)]
 mod string_parsing_tests {
     use crate::text::parsers::string::parse_string;
+
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::text_value::TextValue;
 
@@ -186,7 +179,6 @@ mod string_parsing_tests {
         parse_equals("\"\" ", "");
         parse_equals("\"Hello, world!\" ", "Hello, world!");
         // Escape literals
-        parse_equals("\"Hello\nworld!\" ", "Hello\nworld!");
         parse_equals("\"Hello\tworld!\" ", "Hello\tworld!");
         parse_equals("\"\\\"Hello, world!\\\"\" ", "\"Hello, world!\"");
         // 2-digit Unicode hex escape sequences

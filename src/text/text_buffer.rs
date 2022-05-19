@@ -122,6 +122,14 @@ impl<R: BufRead> TextBuffer<R> {
             // The invariants enforced by the `consume` method guarantee that this will behave safely.
             // Copy the remaining text from the end of the String to the beginning of the String.
             self.line.as_bytes_mut().copy_within(self.line_offset.., 0);
+            // Now that the remaining bytes are back at the beginning of the buffer, there's
+            // some garbage where the old data used to be. When we go to truncate the line to its
+            // new, shorter length, `truncate` will check to make sure that the buffer's contents
+            // are still valid utf8. It does this by looking at the next byte after the end to see
+            // if it's the beginning of a character. Since our buffer has garbage data, it's possible
+            // that test will fail and it will cause a panic. To prevent this, we simply set the
+            // next byte after truncated end of the buffer to zero.
+            self.line.as_bytes_mut()[remaining_bytes] = 0;
             // Truncate the String to drop any data.
             self.line.truncate(remaining_bytes)
         }
@@ -132,7 +140,7 @@ impl<R: BufRead> TextBuffer<R> {
 #[cfg(test)]
 pub(crate) mod text_buffer_tests {
     use super::*;
-    use std::io;
+    use std::{io, str};
 
     fn text_buffer(text: &str) -> TextBuffer<io::Cursor<&str>> {
         let input = io::Cursor::new(text);
