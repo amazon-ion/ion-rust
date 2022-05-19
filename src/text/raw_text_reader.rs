@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 
 use nom::Err::{Error, Failure, Incomplete};
 

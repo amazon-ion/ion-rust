@@ -119,11 +119,8 @@ trait ElementApi {
         source_elements: &Vec<OwnedElement>,
         format: Format,
     ) -> IonResult<Vec<OwnedElement>> {
-        let new_elements = Self::RoundTripper::roundtrip(
-            source_elements,
-            format,
-            Self::make_reader(), /*HERE*/
-        )?;
+        let new_elements =
+            Self::RoundTripper::roundtrip(source_elements, format, Self::make_reader())?;
         assert!(
             source_elements.ion_eq(&new_elements),
             "Roundtrip via {:?} failed: {}",
