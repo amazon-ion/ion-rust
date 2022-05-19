@@ -1,8 +1,10 @@
 use std::io;
+use std::io::Read;
 use std::ops::Range;
 
 use delegate::delegate;
 
+use crate::binary::constants::v1_0::IVM;
 use crate::constants::v1_0::system_symbol_ids;
 use crate::raw_reader::{RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
@@ -10,16 +12,105 @@ use crate::result::{decoding_error, decoding_error_raw, IonResult};
 use crate::stream_reader::StreamReader;
 use crate::symbol::Symbol;
 use crate::symbol_table::SymbolTable;
+use crate::text::ion_data_source::ToIonDataSource;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
-use crate::{IonType, RawBinaryReader};
+use crate::{IonType, RawBinaryReader, RawTextReader};
+
+/// Configures and constructs new instances of [Reader].
+pub struct ReaderBuilder {}
+
+impl ReaderBuilder {
+    /// Constructs a [ReaderBuilder] pre-populated with common default settings.
+    pub fn new() -> ReaderBuilder {
+        ReaderBuilder {
+            // Eventually, this will contain settings like a `Catalog` implementation.
+        }
+    }
+
+    /// Applies the specified settings to a new instance of `Reader`. This process involves
+    /// reading some data from the beginning of `input` to detect whether its content is
+    /// text or binary Ion. If this read operation fails, `build` will return an `Err`
+    /// describing the problem it encountered.
+    pub fn build<'a, I: 'a + ToIonDataSource>(self, input: I) -> IonResult<Reader<'a>> {
+        // Convert the provided input into an implementation of `BufRead`
+        let mut input = input.to_ion_data_source();
+        // Stack-allocated buffer to hold the first four bytes from input
+        let mut header: [u8; 4] = [0u8; 4];
+
+        // Read up to four bytes of input. This has to be done somewhat manually. Convenience
+        // functions like `read_exact` will return an error if the input doesn't contain the
+        // correct number of bytes, and there are legal Ion streams that have fewer than four
+        // bytes in them. (For example, the stream `1 `.)
+        let mut total_bytes_read = 0usize;
+        while total_bytes_read < IVM.len() {
+            let bytes_read = input.read(&mut header[total_bytes_read..])?;
+            // If `bytes_read` is zero, we reached the end of the file before we could get
+            // all four bytes. That means this isn't a (valid) binary stream. We'll assume
+            // it's text.
+            if bytes_read == 0 {
+                // `header` is a stack-allocated buffer that won't outlive this function call.
+                // If it were full, we could move the whole `[u8; 4]` into the reader. However,
+                // only some of it is populated and we can't use a slice of it because the array
+                // is short-lived. Instead we'll make a statically owned copy of the bytes that
+                // we can move into the reader.
+                let owned_header = Vec::from(&header[..total_bytes_read]);
+                // The file was too short to be binary Ion. Construct a text Reader.
+                return Ok(Self::make_text_reader(owned_header));
+            }
+            total_bytes_read += bytes_read;
+        }
+
+        // If we've reached this point, we successfully read 4 bytes from the file into `header`.
+        // Match against `header` to see if it contains the Ion 1.0 version marker.
+        match header {
+            [0xe0, 0x01, 0x00, 0xea] => {
+                // Binary Ion v1.0
+                let full_input = io::Cursor::new(header).chain(input);
+                Ok(Self::make_binary_reader(full_input))
+            }
+            [0xe0, major, minor, 0xea] => {
+                // Binary Ion v{major}.{minor}
+                decoding_error(format!(
+                    "cannot read Ion v{}.{}; only v1.0 is supported",
+                    major, minor
+                ))
+            }
+            _ => {
+                // It's not binary, assume it's text
+                let full_input = io::Cursor::new(header).chain(input);
+                Ok(Self::make_text_reader(full_input))
+            }
+        }
+    }
+
+    fn make_text_reader<'a, I: 'a + ToIonDataSource>(data: I) -> Reader<'a> {
+        let raw_reader = Box::new(RawTextReader::new(data));
+        Reader {
+            raw_reader,
+            symbol_table: SymbolTable::new(),
+        }
+    }
+
+    fn make_binary_reader<'a, I: 'a + ToIonDataSource>(data: I) -> Reader<'a> {
+        let raw_reader = Box::new(RawBinaryReader::new(data.to_ion_data_source()));
+        Reader {
+            raw_reader,
+            symbol_table: SymbolTable::new(),
+        }
+    }
+}
+
+/// A Reader that uses dynamic dispatch to abstract over the format (text or binary) being
+/// read by an underlying [RawReader].
+pub type Reader<'a> = UserReader<Box<dyn RawReader + 'a>>;
 
 /// A streaming Ion reader that resolves symbol IDs into their corresponding text.
 ///
 /// Reader itself is format-agnostic; all format-specific logic is handled by the
 /// wrapped [RawReader] implementation.
-pub struct Reader<R: RawReader> {
+pub struct UserReader<R: RawReader> {
     raw_reader: R,
     symbol_table: SymbolTable,
 }
@@ -39,14 +130,7 @@ pub enum StreamItem {
     Nothing,
 }
 
-impl<R: RawReader> Reader<R> {
-    pub fn new(raw_reader: R) -> Reader<R> {
-        Reader {
-            raw_reader,
-            symbol_table: SymbolTable::new(),
-        }
-    }
-
+impl<R: RawReader> UserReader<R> {
     pub fn read_raw_symbol(&mut self) -> IonResult<RawSymbolToken> {
         self.raw_reader.read_symbol()
     }
@@ -173,7 +257,7 @@ impl<R: RawReader> Reader<R> {
     }
 }
 
-impl<R: RawReader> StreamReader for Reader<R> {
+impl<R: RawReader> StreamReader for UserReader<R> {
     type Item = StreamItem;
     type Symbol = Symbol;
 
@@ -320,7 +404,7 @@ impl<R: RawReader> StreamReader for Reader<R> {
 
 /// Functionality that is only available if the data source we're reading from is in-memory, like
 /// a Vec<u8> or &[u8].
-impl<T: AsRef<[u8]>> Reader<RawBinaryReader<io::Cursor<T>>> {
+impl<T: AsRef<[u8]>> UserReader<RawBinaryReader<io::Cursor<T>>> {
     delegate! {
         to self.raw_reader {
             pub fn raw_bytes(&self) -> Option<&[u8]>;
@@ -358,7 +442,6 @@ mod tests {
 
     use crate::result::IonResult;
     use crate::types::IonType;
-    use crate::Reader;
     use crate::StreamItem::Value;
 
     type TestDataSource = io::Cursor<Vec<u8>>;
@@ -387,8 +470,8 @@ mod tests {
         raw_reader
     }
 
-    fn ion_reader_for(bytes: &[u8]) -> Reader<RawBinaryReader<TestDataSource>> {
-        Reader::new(raw_binary_reader_for(bytes))
+    fn ion_reader_for(bytes: &[u8]) -> Reader {
+        ReaderBuilder::new().build(ion_data(bytes)).unwrap()
     }
 
     const EXAMPLE_STREAM: &[u8] = &[

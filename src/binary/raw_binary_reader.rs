@@ -542,6 +542,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
 
     fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&str) -> U,
     {
         self.map_string_bytes(|buffer| match std::str::from_utf8(buffer) {
@@ -557,6 +558,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
 
     fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&[u8]) -> U,
     {
         read_safety_checks!(self, IonType::String);
@@ -580,6 +582,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
 
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&[u8]) -> U,
     {
         read_safety_checks!(self, IonType::Blob);
@@ -594,6 +597,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
 
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&[u8]) -> U,
     {
         read_safety_checks!(self, IonType::Clob);

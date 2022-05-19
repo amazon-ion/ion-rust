@@ -8,6 +8,7 @@ use crate::result::{
     decoding_error, illegal_operation, illegal_operation_raw, IonError, IonResult,
 };
 use crate::stream_reader::StreamReader;
+use crate::text::ion_data_source::ToIonDataSource;
 use crate::text::parent_container::ParentContainer;
 use crate::text::parse_result::IonParseResult;
 use crate::text::parsers::containers::{
@@ -16,7 +17,6 @@ use crate::text::parsers::containers::{
 };
 use crate::text::parsers::top_level::{stream_item, RawTextStreamItem};
 use crate::text::text_buffer::TextBuffer;
-use crate::text::text_data_source::TextIonDataSource;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
@@ -25,8 +25,8 @@ use crate::IonType;
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
 
-pub struct RawTextReader<T: TextIonDataSource> {
-    buffer: TextBuffer<T::TextSource>,
+pub struct RawTextReader<T: ToIonDataSource> {
+    buffer: TextBuffer<T::DataSource>,
     // If the reader is not positioned over a value inside a struct, this is None.
     current_field_name: Option<RawSymbolToken>,
     // If the reader has not yet begun reading at the current level or is positioned over an IVM,
@@ -56,9 +56,9 @@ pub(crate) enum RootParseResult<O> {
     Failure(String),
 }
 
-impl<T: TextIonDataSource> RawTextReader<T> {
+impl<T: ToIonDataSource> RawTextReader<T> {
     pub fn new(input: T) -> RawTextReader<T> {
-        let text_source = input.to_text_ion_data_source();
+        let text_source = input.to_ion_data_source();
         RawTextReader {
             buffer: TextBuffer::new(text_source),
             current_field_name: None,
@@ -471,7 +471,7 @@ const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
 //       materializing it and then attempt to materialize it when the user calls `read_TYPE`. This
 //       would take less memory and would only materialize values that the user requests.
 //       See: https://github.com/amzn/ion-rust/issues/322
-impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
+impl<T: ToIonDataSource> StreamReader for RawTextReader<T> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;
 
@@ -618,6 +618,7 @@ impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
 
     fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&str) -> U,
     {
         match self.current_value.as_ref().map(|current| current.value()) {
@@ -628,6 +629,7 @@ impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
 
     fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&[u8]) -> U,
     {
         // In the binary reader, this method can bypass utf-8 validation and return a view of the
@@ -650,6 +652,7 @@ impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
 
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&[u8]) -> U,
     {
         match self.current_value.as_ref().map(|current| current.value()) {
@@ -664,6 +667,7 @@ impl<T: TextIonDataSource> StreamReader for RawTextReader<T> {
 
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&[u8]) -> U,
     {
         match self.current_value.as_ref().map(|current| current.value()) {

@@ -3,10 +3,67 @@ use crate::result::{illegal_operation, IonResult};
 use crate::text::raw_text_writer::RawTextWriter;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
+use crate::value::writer::TextKind;
 use crate::writer::Writer;
-use crate::{Integer, IonType, SymbolTable};
+use crate::{Integer, IonType, RawTextWriterBuilder, SymbolTable};
 use delegate::delegate;
 use std::io::Write;
+
+pub struct TextWriterBuilder {
+    text_kind: TextKind,
+}
+
+impl TextWriterBuilder {
+    /// Constructs a text Ion writer with modest (but not strictly minimal) spacing.
+    ///
+    /// For example:
+    /// ```ignore
+    /// {foo: 1, bar: 2, baz: 3} [1, 2, 3] true "hello"
+    /// ```
+    pub fn new() -> TextWriterBuilder {
+        TextWriterBuilder {
+            text_kind: TextKind::Compact,
+        }
+    }
+
+    /// Constructs a 'pretty' text Ion writer that adds human-friendly spacing between values.
+    ///
+    /// For example:
+    /// ```ignore
+    /// {
+    ///     foo: 1,
+    ///     bar: 2,
+    ///     baz: 3
+    /// }
+    /// [
+    ///     1,
+    ///     2,
+    ///     3
+    /// ]
+    /// true
+    /// "hello"
+    /// ```
+    pub fn pretty() -> TextWriterBuilder {
+        TextWriterBuilder {
+            text_kind: TextKind::Pretty,
+        }
+    }
+
+    /// Constructs a new instance of TextWriter that writes values to the provided io::Write
+    /// implementation.
+    pub fn build<W: Write>(self, sink: W) -> IonResult<TextWriter<W>> {
+        let builder = match self.text_kind {
+            TextKind::Compact => RawTextWriterBuilder::new(),
+            TextKind::Pretty => RawTextWriterBuilder::pretty(),
+        };
+        let raw_writer = builder.build(sink)?;
+        let text_writer = TextWriter {
+            raw_writer,
+            symbol_table: SymbolTable::new(),
+        };
+        Ok(text_writer)
+    }
+}
 
 /**
  * An application-level text Ion writer. This writer manages a symbol table and so can convert
@@ -16,15 +73,6 @@ use std::io::Write;
 pub struct TextWriter<W: Write> {
     raw_writer: RawTextWriter<W>,
     symbol_table: SymbolTable,
-}
-
-impl<W: Write> TextWriter<W> {
-    pub fn new(raw_writer: RawTextWriter<W>) -> Self {
-        TextWriter {
-            raw_writer,
-            symbol_table: SymbolTable::new(),
-        }
-    }
 }
 
 impl<W: Write> Writer for TextWriter<W> {
@@ -125,11 +173,9 @@ impl<W: Write> Writer for TextWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use crate::text::raw_text_reader::RawTextReader;
+    use crate::reader::ReaderBuilder;
     use crate::StreamItem::Value;
-    use crate::{Reader, StreamReader};
-    use std::str::from_utf8;
+    use crate::StreamReader;
 
     #[test]
     fn resolve_symbol_ids() -> IonResult<()> {
@@ -137,7 +183,7 @@ mod tests {
         // However, if you ask it to write a symbol ID (e.g. $10) for which its initial symbol
         // table has text, it will convert it to text before writing it.
         let mut buffer = Vec::new();
-        let mut text_writer = TextWriter::new(RawTextWriter::new(&mut buffer));
+        let mut text_writer = TextWriterBuilder::new().build(&mut buffer)?;
         // The following symbol IDs are in the system symbol table.
         // https://amzn.github.io/ion-docs/docs/symbols.html#system-symbols
         text_writer.step_in(IonType::Struct)?;
@@ -148,7 +194,7 @@ mod tests {
         text_writer.flush()?;
         drop(text_writer);
 
-        let mut reader = Reader::new(RawTextReader::new(from_utf8(&buffer.as_slice()).unwrap()));
+        let mut reader = ReaderBuilder::new().build(buffer.as_slice())?;
         assert_eq!(Value(IonType::Struct), reader.next()?);
         reader.step_in()?;
         assert_eq!(Value(IonType::Symbol), reader.next()?);

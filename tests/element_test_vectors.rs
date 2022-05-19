@@ -1,6 +1,5 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use ion_rs::binary::raw_binary_writer::RawBinaryWriter;
 use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
 use ion_rs::value::native_writer::NativeElementWriter;
@@ -8,7 +7,7 @@ use ion_rs::value::owned::OwnedElement;
 use ion_rs::value::reader::ElementReader;
 use ion_rs::value::writer::{ElementWriter, Format, TextKind};
 use ion_rs::value::{Element, Sequence, SymbolToken};
-use ion_rs::{BinaryWriter, RawTextWriter, TextWriter};
+use ion_rs::{BinaryWriter, BinaryWriterBuilder, TextWriterBuilder};
 
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
@@ -84,15 +83,19 @@ impl RoundTrip for NativeElementWriterApi {
         let mut buffer = Vec::with_capacity(2048);
         match format {
             // TODO: Handle `TextKind`: Pretty
-            Format::Text(_) => {
-                let raw_text_writer = RawTextWriter::new(&mut buffer);
-                let mut writer = NativeElementWriter::new(TextWriter::new(raw_text_writer));
+            Format::Text(kind) => {
+                let writer = if kind == TextKind::Pretty {
+                    TextWriterBuilder::pretty().build(&mut buffer)
+                } else {
+                    TextWriterBuilder::new().build(&mut buffer)
+                }?;
+                let mut writer = NativeElementWriter::new(writer);
                 writer.write_all(elements)?;
                 let _ = writer.finish()?;
             }
             Format::Binary => {
-                let raw_binary_writer = RawBinaryWriter::new(&mut buffer);
-                let mut writer = NativeElementWriter::new(BinaryWriter::new(raw_binary_writer));
+                let binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
+                let mut writer = NativeElementWriter::new(binary_writer);
                 writer.write_all(elements)?;
                 let _ = writer.finish()?;
             }
@@ -696,12 +699,7 @@ mod native_element_tests {
         }
 
         fn non_equivs_skip_list() -> SkipList {
-            &[
-                // Decimal's `eq` considers 123. and 123.0 to be equal (which they are)
-                // but we expect it to test for Ion equality, not value equality.
-                // This is related to https://github.com/amzn/ion-rust/issues/381
-                "ion-tests/iontestdata/good/non-equivs/decimals.ion",
-            ]
+            &[]
         }
 
         fn make_reader() -> Self::ReaderApi {

@@ -1,16 +1,16 @@
 use crate::raw_reader::RawReader;
+use crate::reader::ReaderBuilder;
 use crate::result::IonResult;
-use crate::text::raw_text_reader::RawTextReader;
 use crate::value::owned;
 use crate::value::owned::{OwnedElement, OwnedSequence, OwnedStruct, OwnedValue};
 use crate::value::reader::ElementReader;
-use crate::{IonType, RawBinaryReader, Reader, StreamItem, StreamReader};
+use crate::{IonType, StreamItem, StreamReader, UserReader};
 
 /// Provides an implementation of [ElementReader] that is backed by a native Rust [Reader].
 pub struct NativeElementReader;
 
 struct NativeElementIterator<R: RawReader> {
-    reader: Reader<R>,
+    reader: UserReader<R>,
 }
 
 impl<R: RawReader> Iterator for NativeElementIterator<R> {
@@ -26,23 +26,9 @@ impl ElementReader for NativeElementReader {
         &'a self,
         data: &'b [u8],
     ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'b>> {
-        // Match against the slice to see if it starts with the binary IVM
-        match data {
-            &[0xe0, 0x01, 0x00, 0xea, ..] => {
-                // It's binary! Construct a binary Reader.
-                let raw_reader = RawBinaryReader::new(data);
-                let reader = Reader::new(raw_reader);
-                let iterator = NativeElementIterator { reader };
-                Ok(Box::new(iterator))
-            }
-            _ => {
-                // It's not binary! Construct a text Reader.
-                let raw_reader = RawTextReader::new(data);
-                let reader = Reader::new(raw_reader);
-                let iterator = NativeElementIterator { reader };
-                Ok(Box::new(iterator))
-            }
-        }
+        let reader = ReaderBuilder::new().build(data)?;
+        let iterator = NativeElementIterator { reader };
+        Ok(Box::new(iterator))
     }
 }
 

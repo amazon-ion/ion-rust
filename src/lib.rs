@@ -46,19 +46,20 @@ pub use types::integer::Integer;
 pub use types::timestamp::Timestamp;
 pub use types::IonType;
 
-pub use binary::binary_writer::BinaryWriter;
-pub use text::text_writer::TextWriter;
+pub use binary::binary_writer::{BinaryWriter, BinaryWriterBuilder};
+pub use text::text_writer::{TextWriter, TextWriterBuilder};
 pub use writer::Writer;
 
 pub use binary::raw_binary_reader::RawBinaryReader;
 pub use binary::raw_binary_writer::RawBinaryWriter;
 pub use raw_reader::{RawReader, RawStreamItem};
-pub use reader::Reader;
 pub use reader::StreamItem;
+pub use reader::{Reader, ReaderBuilder, UserReader};
 pub use stream_reader::StreamReader;
 pub use system_reader::{SystemReader, SystemStreamItem};
 pub use text::raw_text_reader::RawTextReader;
 pub use text::raw_text_writer::RawTextWriter;
+pub use text::raw_text_writer::RawTextWriterBuilder;
 
 pub use result::IonError;
 pub use result::IonResult;

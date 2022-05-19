@@ -111,6 +111,7 @@ pub trait StreamReader {
     //       See: https://github.com/amzn/ion-rust/issues/335
     fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&str) -> U;
 
     /// Takes a function that expects a string and, once the string's bytes are loaded, calls that
@@ -121,6 +122,7 @@ pub trait StreamReader {
     //       See: https://github.com/amzn/ion-rust/issues/335
     fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&[u8]) -> U;
 
     /// Attempts to read the current item as an Ion symbol and return it as a [Self::Symbol]. If the
@@ -138,6 +140,7 @@ pub trait StreamReader {
     //       See: https://github.com/amzn/ion-rust/issues/335
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&[u8]) -> U;
 
     /// Attempts to read the current item as an Ion clob and return it as a [Vec<u8>]. If the
@@ -151,6 +154,7 @@ pub trait StreamReader {
     //       See: https://github.com/amzn/ion-rust/issues/335
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
     where
+        Self: Sized,
         F: FnOnce(&[u8]) -> U;
 
     /// Attempts to read the current item as an Ion timestamp and return [crate::Timestamp]. If the current

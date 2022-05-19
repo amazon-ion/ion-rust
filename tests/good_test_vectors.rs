@@ -9,7 +9,7 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use ion_rs::result::{decoding_error, IonResult};
-use ion_rs::{IonType, RawBinaryReader, Reader, StreamReader};
+use ion_rs::{IonType, Reader, ReaderBuilder, StreamReader};
 
 const GOOD_TEST_FILES_PATH: &str = "ion-tests/iontestdata/good/";
 
@@ -119,13 +119,13 @@ fn all_files_in(path: &str) -> BTreeSet<PathBuf> {
 fn read_file(path: &Path) -> IonResult<()> {
     let file = File::open(path).unwrap_or_else(|error| panic!("Failed to open file: {:?}", error));
     let file_reader = BufReader::new(file);
-    let mut reader = Reader::new(RawBinaryReader::new(file_reader));
+    let mut reader = ReaderBuilder::new().build(file_reader)?;
     read_all_values(&mut reader)?;
     Ok(())
 }
 
 // Recursively reads all of the values in the provided Reader, surfacing any errors.
-fn read_all_values(reader: &mut Reader<RawBinaryReader<BufReader<File>>>) -> IonResult<()> {
+fn read_all_values(reader: &mut Reader) -> IonResult<()> {
     // StreamItem::Null conflicts with IonType::Null, so we give them aliases for clarity.
     use ion_rs::StreamItem::{Null as NullValue, *};
     use IonType::{Null as NullType, *};
@@ -141,7 +141,7 @@ fn read_all_values(reader: &mut Reader<RawBinaryReader<BufReader<File>>>) -> Ion
                 reader.step_out()?;
             }
             String => {
-                let _text = reader.map_string(|_s| ())?;
+                let _text = reader.read_string()?;
             }
             Symbol => {
                 // The binary reader's tokens are always SIDs
@@ -163,10 +163,10 @@ fn read_all_values(reader: &mut Reader<RawBinaryReader<BufReader<File>>>) -> Ion
                 let _boolean = reader.read_bool()?;
             }
             Blob => {
-                let _blob = reader.map_blob(|_b| ())?;
+                let _blob = reader.read_blob()?;
             }
             Clob => {
-                let _clob = reader.map_clob(|_c| ())?;
+                let _clob = reader.read_clob()?;
             }
             NullType => {
                 unreachable!("Value with IonType::Null returned is_null=false.");
