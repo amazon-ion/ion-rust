@@ -128,7 +128,7 @@ impl<W: Write> Writer for BinaryWriter<W> {
                     symbol_id
                 } else {
                     return illegal_operation(format!(
-                        "Cannot set symbol ID ${} as a symbol value. It is undefined.",
+                        "Cannot write symbol ID ${} as a symbol value. It is undefined.",
                         symbol_id
                     ));
                 }
