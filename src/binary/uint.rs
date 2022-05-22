@@ -105,6 +105,8 @@ impl From<DecodedUInt> for Integer {
     }
 }
 
+/// A buffer for storing a UInt's Big Endian bytes. UInts that can fit in a `u64` will use the
+/// `Stack` storage variant, meaning that no heap allocations are required in the common case.
 #[derive(Clone, Debug, PartialEq)]
 pub enum UIntBeBytes {
     Stack([u8; mem::size_of::<u64>()]),
@@ -164,6 +166,7 @@ pub fn encode_u64(magnitude: u64) -> EncodedUInt {
     }
 }
 
+/// Returns the magnitude as big-endian bytes.
 pub fn encode_uinteger(magnitude: &UInteger) -> EncodedUInt {
     let magnitude: &BigUint = match magnitude {
         UInteger::U64(m) => return encode_u64(*m),
