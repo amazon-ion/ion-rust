@@ -238,7 +238,6 @@ impl Timestamp {
             (None, None) => true,
             (Some(m), None) => m.is_empty(),
             (None, Some(m)) => m.is_empty(),
-            // (Some(m1), Some(m2)) => m1.eq(m2),
             (Some(Digits(d1)), Some(Digits(d2))) => {
                 if d1 != d2 {
                     // Different precisions

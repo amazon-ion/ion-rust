@@ -151,14 +151,11 @@ trait ElementApi {
         format1: Format,
         format2: Format,
     ) -> IonResult<()> {
-        println!("reading source elements");
         let source_elements = Self::read_file(&Self::make_reader(), file_name)?;
         if contains_path(Self::round_trip_skip_list(), file_name) {
             return Ok(());
         }
-        println!("writing first elements");
         let first_write_elements = Self::assert_round_trip(&source_elements, format1)?;
-        println!("writing second elements");
         let second_write_elements = Self::assert_round_trip(&first_write_elements, format2)?;
         assert!(source_elements.ion_eq(&second_write_elements));
         Ok(())

@@ -242,7 +242,6 @@ mod tests {
     fn test_write_ten_byte_uint() {
         let value = UInteger::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap());
         let mut buffer: Vec<u8> = vec![];
-        // TODO: Move this method to `EncodedUInt`? `from_uinteger()`? generic?
         let encoded = super::encode_uinteger(&value);
         buffer.write_all(&encoded.as_bytes()).unwrap();
         let expected_bytes = vec![0xFFu8; 10];

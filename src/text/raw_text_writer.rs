@@ -102,6 +102,14 @@ impl<W: Write> RawTextWriter<W> {
         Ok(())
     }
 
+    /// Returns `true` if the provided `token`'s text is an 'identifier'. That is, the text starts
+    /// with a `$`, `_` or ASCII letter and is followed by a sequence of `$`, `_`, or ASCII letters
+    /// and numbers. Examples:
+    /// * `firstName`
+    /// * `first_name`
+    /// * `name_1`
+    /// * `$name`
+    /// Unlike other symbols, identifiers don't have to be wrapped in quotes.
     fn token_is_identifier(token: &str) -> bool {
         if token.is_empty() {
             return false;
@@ -112,6 +120,8 @@ impl<W: Write> RawTextWriter<W> {
             && chars.all(|c| c == '$' || c == '_' || c.is_ascii_alphanumeric())
     }
 
+    /// Returns `true` if the provided text is an Ion keyword. Keywords like `true` or `null`
+    /// resemble identifiers, but writers must wrap them in quotes when using them as symbol text.
     fn token_is_keyword(token: &str) -> bool {
         const KEYWORDS: &[&str] = &["true", "false", "nan", "null"];
         KEYWORDS.contains(&token)
@@ -138,12 +148,15 @@ impl<W: Write> RawTextWriter<W> {
             RawSymbolTokenRef::Text(text)
                 if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) =>
             {
+                // Write the symbol text in single quotes
                 write!(output, "'{}'", text)?;
             }
             RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text) => {
+                // Write the symbol text without quotes
                 write!(output, "{}", text)?
             }
             RawSymbolTokenRef::Text(text) => {
+                // Write the symbol text using quotes and escaping any characters that require it.
                 write!(output, "\'")?;
                 Self::write_escaped_text_body(output, text)?;
                 write!(output, "\'")?;
