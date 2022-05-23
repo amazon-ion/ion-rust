@@ -1,3 +1,4 @@
+use crate::ion_eq::IonEq;
 use crate::result::{illegal_operation, illegal_operation_raw, IonError, IonResult};
 use crate::types::coefficient::Sign::Negative;
 use crate::types::decimal::Decimal;
@@ -387,13 +388,50 @@ impl Timestamp {
     }
 }
 
-/// This implementation of `PartialEq` uses Ion's definition of equivalence rather than comparing
-/// the respective instants represented by the two Timestamps being compared. This will be
-/// unintuitive for many users. Instead, we should have `PartialEq` compare instants and then
-/// implement the [IonEq] trait for `Timestamp` to provide Ion equivalence testing.
-/// <https://github.com/amzn/ion-rust/issues/381>
+/// Two Timestamps are considered equal (though not necessarily IonEq) if they represent the same
+/// instant in time. Precision is ignored. Offsets do not have to match as long as the instants
+/// being represented match. Examples:
+/// * `2022T` == `2022T-01`
+/// * `2022T` == `2022T-01-01T00:00:00.000+00:00`
+/// * `2022T-05-11T12:00:00.000Z` == `2022T-05-11T07:00:00.000-05:00`
 impl PartialEq for Timestamp {
     fn eq(&self, other: &Self) -> bool {
+        // First, compare the two Timestamps' fractional seconds. We do this first because
+        // Timestamps with different Mantissa representations are a bit tricky to compare. Once
+        // we've established that the fractional seconds match, we can compare all of the other
+        // fields in the timestamp by comparing their respective `DateTime`s.
+        if !self.fractional_seconds_equal(other) {
+            return false;
+        }
+
+        // When a Timestamp is created, any fields beyond its precision are set to the lowest
+        // legal value for that field. So the Timestamp `2022-05T` (which has `Month` precision)
+        // would have a `day` field of `1` and hour, minute, and seconds fields of `0`. This makes
+        // it easy to compare Timestamps with different precisions.
+
+        // Make copies of their respective DateTime values but with the fractional seconds zeroed
+        // out. We're not modifying `self` or `other`, and we've already compared their fractional
+        // seconds so it's ok to ignore them from here on.
+        let self_datetime = self.date_time.with_nanosecond(0).unwrap();
+        let other_datetime = other.date_time.with_nanosecond(0).unwrap();
+
+        // Apply each Timestamp's offset to the DateTime. If there's no offset, set it to UTC.
+        let self_datetime = self
+            .offset
+            .map(|offset| offset.from_utc_datetime(&self_datetime))
+            .unwrap_or_else(|| FixedOffset::east(0).from_utc_datetime(&self_datetime));
+        let other_datetime = other
+            .offset
+            .map(|offset| offset.from_utc_datetime(&other_datetime))
+            .unwrap_or_else(|| FixedOffset::east(0).from_utc_datetime(&other_datetime));
+
+        // Compare the resulting `DateTime<FixedOffset>`s
+        self_datetime == other_datetime
+    }
+}
+
+impl IonEq for Timestamp {
+    fn ion_eq(&self, other: &Self) -> bool {
         if self.precision != other.precision {
             return false;
         }
@@ -976,6 +1014,7 @@ impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
 
 #[cfg(test)]
 mod timestamp_tests {
+    use crate::ion_eq::IonEq;
     use crate::result::IonResult;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::{Mantissa, Precision, Timestamp};
@@ -989,6 +1028,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
         let timestamp2 = builder.build_at_offset(5 * 60)?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -998,6 +1038,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build_at_unknown_offset()?;
         let timestamp2 = builder.build_at_unknown_offset()?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1007,6 +1048,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
         let timestamp2 = builder.build_at_offset(5 * 60)?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1019,6 +1061,7 @@ mod timestamp_tests {
         let builder2 = Timestamp::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
         let timestamp2 = builder2.build_utc_fields_at_offset(-5 * 60)?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1031,6 +1074,7 @@ mod timestamp_tests {
         let builder2 = Timestamp::with_ymd_hms(2021, 2, 5, 16, 43, 51);
         let timestamp2 = builder2.build_utc_fields_at_offset(-5 * 60)?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1040,6 +1084,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build_at_unknown_offset()?;
         let timestamp2 = builder.build_at_unknown_offset()?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1049,6 +1094,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
         let timestamp2 = builder.build_at_offset(5 * 60)?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1058,6 +1104,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build_at_unknown_offset()?;
         let timestamp2 = builder.build_at_unknown_offset()?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1067,6 +1114,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build()?;
         let timestamp2 = builder.build()?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1076,6 +1124,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build()?;
         let timestamp2 = builder.build()?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1085,6 +1134,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build()?;
         let timestamp2 = builder.build()?;
         assert_eq!(timestamp1, timestamp2);
+        assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1094,6 +1144,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
         let timestamp2 = builder.build_at_offset(4 * 60)?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1103,6 +1154,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
         let timestamp2 = builder.build_at_unknown_offset()?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1112,6 +1164,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
         let timestamp2 = builder.with_milliseconds(192).build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1127,6 +1180,7 @@ mod timestamp_tests {
             .with_microseconds(193 * 1_000)
             .build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1139,6 +1193,7 @@ mod timestamp_tests {
             .build_at_offset(5 * 60)?;
         let timestamp2 = builder.with_milliseconds(193).build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1148,6 +1203,7 @@ mod timestamp_tests {
         let timestamp1 = builder.clone().with_second(12).build_at_offset(5 * 60)?;
         let timestamp2 = builder.with_second(13).build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1162,6 +1218,7 @@ mod timestamp_tests {
             .with_hour_and_minute(16, 43)
             .build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1176,32 +1233,36 @@ mod timestamp_tests {
             .with_hour_and_minute(17, 42)
             .build_at_offset(5 * 60)?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
     #[test]
     fn test_timestamps_with_different_days_are_not_equal() -> IonResult<()> {
         let builder = Timestamp::with_year(2021).with_month(2);
-        let timestamp1 = builder.clone().with_day(5).build();
-        let timestamp2 = builder.with_day(6).build();
+        let timestamp1 = builder.clone().with_day(5).build()?;
+        let timestamp2 = builder.with_day(6).build()?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
     #[test]
     fn test_timestamps_with_different_months_are_not_equal() -> IonResult<()> {
         let builder = Timestamp::with_year(2021);
-        let timestamp1 = builder.clone().with_month(2).build();
-        let timestamp2 = builder.with_month(3).build();
+        let timestamp1 = builder.clone().with_month(2).build()?;
+        let timestamp2 = builder.with_month(3).build()?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
     #[test]
     fn test_timestamps_with_different_years_are_not_equal() -> IonResult<()> {
-        let timestamp1 = Timestamp::with_year(2021).build();
-        let timestamp2 = Timestamp::with_year(2022).build();
+        let timestamp1 = Timestamp::with_year(2021).build()?;
+        let timestamp2 = Timestamp::with_year(2022).build()?;
         assert_ne!(timestamp1, timestamp2);
+        assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
     }
 
@@ -1308,6 +1369,9 @@ mod timestamp_tests {
         assert_eq!(timestamp1.fractional_seconds, Some(Mantissa::Digits(3)));
         assert_eq!(timestamp1, timestamp2);
         assert_eq!(timestamp2, timestamp3);
+
+        assert!(timestamp1.ion_eq(&timestamp2));
+        assert!(timestamp1.ion_eq(&timestamp3));
     }
 
     #[test]
@@ -1404,7 +1468,8 @@ mod timestamp_tests {
             precision: Precision::Second,
             fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(1u64, -1))),
         };
-        assert_eq!(t1, t2)
+        assert_eq!(t1, t2);
+        assert!(t1.ion_eq(&t2));
     }
 
     #[test]
@@ -1421,7 +1486,8 @@ mod timestamp_tests {
             precision: Precision::Second,
             fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(600u64, -5))),
         };
-        assert_eq!(t1, t2)
+        assert_eq!(t1, t2);
+        assert!(t1.ion_eq(&t2));
     }
 }
 
@@ -1552,7 +1618,7 @@ mod ionc_tests {
         #[case] expected: Timestamp,
     ) -> IonResult<()> {
         let actual: Timestamp = source.clone().into();
-        assert_eq!(expected, actual);
+        assert!(expected.ion_eq(&actual));
         let converted_source: IonDateTime = actual.try_into()?;
         assert_eq!(source, converted_source);
         Ok(())

@@ -401,6 +401,8 @@ impl IonEq for OwnedValue {
         use OwnedValue::*;
         match (self, other) {
             (Float(f1), Float(f2)) => return f1.ion_eq(f2),
+            (Decimal(d1), Decimal(d2)) => return d1.ion_eq(d2),
+            (Timestamp(t1), Timestamp(t2)) => return t1.ion_eq(t2),
             (List(seq1), List(seq2)) => return seq1.ion_eq(seq2),
             (SExpression(seq1), SExpression(seq2)) => return seq1.ion_eq(seq2),
             _ => {}

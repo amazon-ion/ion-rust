@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use bigdecimal::{BigDecimal, Signed};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 
+use crate::ion_eq::IonEq;
 use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::magnitude::Magnitude;
@@ -63,6 +64,15 @@ impl Decimal {
         }
     }
 
+    /// Returns `true` if this Decimal is a zero of any sign or exponent.
+    pub fn is_zero(&self) -> bool {
+        match self.coefficient.magnitude() {
+            Magnitude::U64(0) => true,
+            Magnitude::BigUInt(m) => m.is_zero(),
+            _ => false,
+        }
+    }
+
     /// Returns true if this Decimal's coefficient has a negative sign AND a magnitude greater than
     /// zero. Otherwise, returns false. (Negative zero returns false.)
     pub fn is_less_than_zero(&self) -> bool {
@@ -103,6 +113,10 @@ impl Decimal {
     //       separate method for testing Ion equivalence.
     //       See: https://github.com/amzn/ion-rust/issues/220
     fn compare(d1: &Decimal, d2: &Decimal) -> Ordering {
+        if d1.is_zero() && d2.is_zero() {
+            // Ignore the sign/exponent if they're both some flavor of zero.
+            return Ordering::Equal;
+        }
         // Even if the exponents are wildly different, disagreement in the coefficient's signs
         // still tells us which value is bigger. (This approach causes `-0` to be considered less
         // than `0`; see the to-do comment on this method.)
@@ -137,20 +151,6 @@ impl Decimal {
         // magnitudes (16 and 1600) directly. Instead, we need to multiply 16 by 10^2 to compensate
         // for the difference in their exponents (3-1). Then we'll be comparing 1600 to 1600,
         // and can safely conclude that they are equal.
-
-        // But first, a detour: Decimal zeros are a special case because we can't scale them via
-        // multiplication.
-        if *d1.coefficient.magnitude() == Magnitude::U64(0)
-            && *d2.coefficient.magnitude() == Magnitude::U64(0)
-        {
-            // Ion only considers zeros with the same sign to be equal if their exponents are
-            // equal. We already know the exponents are different, but we still need to decide
-            // between Ordering::Greater and Ordering::Less. We can order the zeros by comparing
-            // their exponents.
-            return d1.exponent.cmp(&d2.exponent);
-        }
-
-        // Scale and compare the coefficients
         if d1.exponent > d2.exponent {
             Self::compare_scaled_coefficients(d1, d2)
         } else {
@@ -182,6 +182,12 @@ impl PartialEq for Decimal {
 }
 
 impl Eq for Decimal {}
+
+impl IonEq for Decimal {
+    fn ion_eq(&self, other: &Self) -> bool {
+        self.exponent == other.exponent && self.coefficient == other.coefficient
+    }
+}
 
 impl PartialOrd for Decimal {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -342,6 +348,7 @@ mod decimal_tests {
     use std::convert::TryInto;
     use std::fmt::Write;
 
+    use crate::ion_eq::IonEq;
     use rstest::*;
 
     #[rstest]
@@ -359,15 +366,25 @@ mod decimal_tests {
 
     #[test]
     fn test_decimal_eq_negative_zeros() {
+        // Decimal zeros of any sign/exponent are mathematically equal.
         assert_eq!(Decimal::negative_zero(), Decimal::negative_zero());
-        assert_ne!(
+        assert_eq!(
             Decimal::negative_zero_with_exponent(2),
             Decimal::negative_zero_with_exponent(7)
         );
-        assert_ne!(
+        assert_eq!(
             Decimal::new(0, 0),
             Decimal::new(Coefficient::new(Sign::Negative, 0), 0)
         );
+    }
+
+    #[test]
+    fn test_decimal_ion_eq_negative_zeros() {
+        // To be IonEq, decimal zeros must have the same sign and exponent.
+        assert!(Decimal::negative_zero().ion_eq(&Decimal::negative_zero()));
+        assert!(!Decimal::negative_zero_with_exponent(2)
+            .ion_eq(&Decimal::negative_zero_with_exponent(7)));
+        assert!(!Decimal::new(0, 0).ion_eq(&Decimal::new(Coefficient::new(Sign::Negative, 0), 0)));
     }
 
     #[rstest]
@@ -376,8 +393,8 @@ mod decimal_tests {
     #[case((80, 2), (80, 2), true)]
     #[case((124, -2), (1240, -3), true)]
     #[case((0, 0), (0, 0), true)]
-    #[case((0, -2), (0, 3), false)]
-    #[case((0, 2), (0, 5), false)]
+    #[case((0, -2), (0, 3), true)]
+    #[case((0, 2), (0, 5), true)]
     fn test_decimal_eq<I: Into<Coefficient>>(
         #[case] components1: (I, i64),
         #[case] components2: (I, i64),
@@ -386,6 +403,28 @@ mod decimal_tests {
         let decimal1 = Decimal::new(components1.0.into(), components1.1);
         let decimal2 = Decimal::new(components2.0.into(), components2.1);
         assert_eq!(decimal1 == decimal2, is_equal);
+    }
+
+    #[rstest]
+    // Each tuple is a coefficient/exponent pair that will be used to construct a Decimal.
+    // The boolean indicates whether the two Decimals are expected to be Ion-equal.
+    #[case((80, 2), (80, 2), true)]
+    #[case((124, -2), (124, -2), true)]
+    #[case((-124, -2), (-124, -2), true)]
+    #[case((124, -2), (1240, -3), false)]
+    #[case((0, 0), (0, 0), true)]
+    #[case((0, -2), (0, -3), false)]
+    #[case((0, -2), (0, 3), false)]
+    #[case((0, -2), (0, -2), true)]
+    #[case((0, 2), (0, 5), false)]
+    fn test_decimal_ion_eq<I: Into<Coefficient>>(
+        #[case] components1: (I, i64),
+        #[case] components2: (I, i64),
+        #[case] ion_eq_expected: bool,
+    ) {
+        let decimal1 = Decimal::new(components1.0.into(), components1.1);
+        let decimal2 = Decimal::new(components2.0.into(), components2.1);
+        assert_eq!(decimal1.ion_eq(&decimal2), ion_eq_expected);
     }
 
     #[rstest]
