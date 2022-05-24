@@ -5,6 +5,7 @@ use std::io::Write;
 use arrayvec::ArrayVec;
 use bigdecimal::Zero;
 
+use crate::ion_eq::IonEq;
 use crate::{
     binary::{
         int::DecodedInt, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt, var_uint::VarUInt,
@@ -48,7 +49,7 @@ where
 {
     fn encode_decimal(&mut self, decimal: &Decimal) -> IonResult<usize> {
         // 0d0 has no representation, as per the spec.
-        if decimal == &DECIMAL_POSITIVE_ZERO {
+        if decimal.ion_eq(&DECIMAL_POSITIVE_ZERO) {
             return Ok(0);
         }
 
@@ -137,13 +138,18 @@ mod binary_decimal_tests {
     use super::*;
     use rstest::*;
 
-    /// This test ensures that we implement PartialEq correctly for the special
+    /// This test ensures that we implement [PartialEq] and [IonEq] correctly for the special
     /// decimal value 0d0.
     #[test]
     fn decimal_0d0_is_a_special_zero_value() {
         assert_eq!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 0));
-        assert_ne!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 10));
-        assert_ne!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 100));
+        assert!(DECIMAL_POSITIVE_ZERO.ion_eq(&Decimal::new(0, 0)));
+
+        assert_eq!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 10));
+        assert!(!DECIMAL_POSITIVE_ZERO.ion_eq(&Decimal::new(0, 10)));
+
+        assert_eq!(DECIMAL_POSITIVE_ZERO, Decimal::new(0, 100));
+        assert!(!DECIMAL_POSITIVE_ZERO.ion_eq(&Decimal::new(0, 100)));
     }
 
     #[rstest]

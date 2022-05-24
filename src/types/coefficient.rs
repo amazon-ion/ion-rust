@@ -156,6 +156,7 @@ impl Display for Coefficient {
 
 #[cfg(test)]
 mod coefficient_tests {
+    use crate::ion_eq::IonEq;
     use num_bigint::BigUint;
 
     use crate::types::coefficient::Coefficient;
@@ -191,7 +192,12 @@ mod coefficient_tests {
         let neg_zero = Decimal::new(Coefficient::negative_zero(), 0);
         let pos_zero = Decimal::new(0, 0);
         assert_eq!(neg_zero, neg_zero);
-        assert_ne!(neg_zero, pos_zero);
+        assert!(neg_zero.ion_eq(&neg_zero));
+
+        assert_eq!(neg_zero, pos_zero);
+        assert!(!neg_zero.ion_eq(&pos_zero));
+
         assert_eq!(pos_zero, pos_zero);
+        assert!(pos_zero.ion_eq(&pos_zero));
     }
 }
