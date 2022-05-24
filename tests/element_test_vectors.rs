@@ -696,7 +696,12 @@ mod native_element_tests {
         }
 
         fn non_equivs_skip_list() -> SkipList {
-            &[]
+            &[
+                // Decimal's `eq` considers 123. and 123.0 to be equal (which they are)
+                // but we expect it to test for Ion equality, not value equality.
+                // This is related to https://github.com/amzn/ion-rust/issues/381
+                "ion-tests/iontestdata/good/non-equivs/decimals.ion",
+            ]
         }
 
         fn make_reader() -> Self::ReaderApi {
