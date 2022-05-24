@@ -3,6 +3,8 @@ use std::ops::Range;
 use std::{io, mem};
 
 use bytes::BufMut;
+use num_bigint::Sign;
+use num_traits::Zero;
 
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::uint::DecodedUInt;
@@ -13,7 +15,7 @@ use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::writer::Writer;
-use crate::IonType;
+use crate::{Integer, IonType};
 
 use super::decimal::DecimalBinaryEncoder;
 use super::timestamp::TimestampBinaryEncoder;
@@ -566,8 +568,9 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
     /// Writes an Ion integer with the specified value.
     fn write_i64(&mut self, value: i64) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            let magnitude = value.abs() as u64;
-            let encoded = uint::encode_uint(magnitude);
+            // Get the absolute value of the i64 and store it in a u64.
+            let magnitude: u64 = value.unsigned_abs();
+            let encoded = uint::encode_u64(magnitude);
             let bytes_to_write = encoded.as_bytes();
 
             // The encoded length will never be larger than 8 bytes, so it will
@@ -580,6 +583,44 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
             };
             enc_buffer.push(type_descriptor);
             enc_buffer.extend_from_slice(bytes_to_write);
+
+            Ok(())
+        })
+    }
+
+    /// Writes an Ion integer with the specified value.
+    fn write_integer(&mut self, value: &Integer) -> IonResult<()> {
+        // If the `value` is an `i64`, use `write_i64` and return.
+        let value = match value {
+            Integer::I64(i) => return self.write_i64(*i),
+            Integer::BigInt(i) => i,
+        };
+
+        // From here on, `value` is a `BigInt`.
+        self.write_scalar(|enc_buffer| {
+            if value.is_zero() {
+                enc_buffer.push(0x20);
+                return Ok(());
+            }
+
+            let (sign, magnitude_be_bytes) = value.to_bytes_be();
+
+            let mut type_descriptor: u8 = match sign {
+                Sign::Plus | Sign::NoSign => 0x20,
+                Sign::Minus => 0x30,
+            };
+
+            let encoded_length = magnitude_be_bytes.len();
+            if encoded_length <= 13 {
+                type_descriptor |= encoded_length as u8;
+                enc_buffer.push(type_descriptor);
+            } else {
+                type_descriptor |= 0xEu8;
+                enc_buffer.push(type_descriptor);
+                VarUInt::write_u64(enc_buffer, encoded_length as u64)?;
+            }
+
+            enc_buffer.extend_from_slice(magnitude_be_bytes.as_slice());
 
             Ok(())
         })
@@ -602,7 +643,7 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
     /// Writes an Ion float with the specified value.
     fn write_f64(&mut self, value: f64) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            if value == 0f64 {
+            if value == 0f64 && !value.is_sign_negative() {
                 enc_buffer.push(0x40);
                 return Ok(());
             }
@@ -854,8 +895,10 @@ mod writer_tests {
     use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
     use crate::symbol::Symbol;
     use crate::StreamReader;
+    use num_bigint::BigInt;
     use num_traits::Float;
     use std::convert::TryInto;
+    use std::str::FromStr;
 
     type TestWriter<'a> = RawBinaryWriter<&'a mut Vec<u8>>;
     type TestReader<'a> = Reader<RawBinaryReader<std::io::Cursor<&'a [u8]>>>;
@@ -1091,6 +1134,15 @@ mod writer_tests {
         expect_scalar(reader, IonType::Integer, |r| r.read_i64(), value);
     }
 
+    fn expect_big_integer(reader: &mut TestReader, value: &BigInt) {
+        expect_scalar(
+            reader,
+            IonType::Integer,
+            |r| r.read_integer(),
+            Integer::BigInt(value.clone()),
+        );
+    }
+
     fn expect_float(reader: &mut TestReader, value: f64) {
         expect_scalar(reader, IonType::Float, |r| r.read_f64(), value);
     }
@@ -1162,6 +1214,35 @@ mod writer_tests {
         writer.step_out()?;
         writer.step_out()?;
         Ok(())
+    }
+
+    #[test]
+    fn binary_writer_large_integers() -> IonResult<()> {
+        // 11 byte UInt
+        let big_positive = BigInt::from_str("123456789123456789123456789").unwrap();
+        // 19 byte UInt
+        let very_big_positive =
+            BigInt::from_str("123456789123456789123456789123456789123456789").unwrap();
+        let big_negative = -big_positive.clone();
+        let very_big_negative = -very_big_positive.clone();
+        binary_writer_test(
+            |writer| {
+                writer.write_integer(&Integer::BigInt(BigInt::zero()))?;
+                writer.write_integer(&Integer::BigInt(big_positive.clone()))?;
+                writer.write_integer(&Integer::BigInt(very_big_positive.clone()))?;
+                writer.write_integer(&Integer::BigInt(big_negative.clone()))?;
+                writer.write_integer(&Integer::BigInt(very_big_negative.clone()))?;
+                Ok(())
+            },
+            |reader| {
+                expect_big_integer(reader, &BigInt::zero());
+                expect_big_integer(reader, &big_positive);
+                expect_big_integer(reader, &very_big_positive);
+                expect_big_integer(reader, &big_negative);
+                expect_big_integer(reader, &very_big_negative);
+                Ok(())
+            },
+        )
     }
 
     #[test]

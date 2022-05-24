@@ -1,4 +1,3 @@
-use crate::types::integer::IntAccess;
 use crate::value::writer::ElementWriter;
 use crate::value::{Element, Sequence, Struct, SymbolToken};
 use crate::{IonResult, IonType, RawSymbolTokenRef, Writer};
@@ -56,9 +55,7 @@ impl<W: Writer> NativeElementWriter<W> {
         match element.ion_type() {
             IonType::Null => unreachable!("element has IonType::Null but is_null() was false"),
             IonType::Boolean => self.writer.write_bool(element.as_bool().unwrap()),
-            IonType::Integer => self
-                .writer
-                .write_i64(element.as_integer().unwrap().as_i64().unwrap()),
+            IonType::Integer => self.writer.write_integer(element.as_integer().unwrap()),
             IonType::Float => self.writer.write_f64(element.as_f64().unwrap()),
             IonType::Decimal => self.writer.write_decimal(element.as_decimal().unwrap()),
             IonType::Timestamp => self.writer.write_timestamp(element.as_timestamp().unwrap()),

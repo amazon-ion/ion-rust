@@ -54,7 +54,7 @@ fn quoted_symbol_string_fragment(input: &str) -> IonParseResult<StringFragment> 
 
 /// Matches the next quoted symbol string fragment while respecting the symbol delimiter (`'`).
 fn quoted_symbol_fragment_without_escaped_text(input: &str) -> IonParseResult<StringFragment> {
-    map(verify(is_not("'\\"), |s: &str| !s.is_empty()), |text| {
+    map(verify(is_not(r"'\"), |s: &str| !s.is_empty()), |text| {
         StringFragment::Substring(text)
     })(input)
 }
@@ -185,6 +185,9 @@ mod symbol_parsing_tests {
         parse_equals("'foo bar baz' ", "foo bar baz");
         parse_equals("'foo \"bar\" baz' ", "foo \"bar\" baz");
         parse_equals("'7@#$%^&*()!' ", "7@#$%^&*()!");
+        parse_equals(r"'$99' ", r"$99");
+
+        parse_equals(r"'foo \' foo' ", "foo ' foo");
 
         // Leading whitespace not accepted
         parse_fails(" 'foo' ");

@@ -74,7 +74,7 @@ impl DecodedUInt {
 
     /// Encodes the provided `magnitude` as a UInt and writes it to the provided `sink`.
     pub fn write_u64<W: Write>(sink: &mut W, magnitude: u64) -> IonResult<usize> {
-        let encoded = encode_uint(magnitude);
+        let encoded = encode_u64(magnitude);
         let bytes_to_write = encoded.as_ref();
 
         sink.write_all(bytes_to_write)?;
@@ -105,21 +105,32 @@ impl From<DecodedUInt> for Integer {
     }
 }
 
+/// A buffer for storing a UInt's Big Endian bytes. UInts that can fit in a `u64` will use the
+/// `Stack` storage variant, meaning that no heap allocations are required in the common case.
+#[derive(Clone, Debug, PartialEq)]
+pub enum UIntBeBytes {
+    Stack([u8; mem::size_of::<u64>()]),
+    Heap(Vec<u8>),
+}
+
 /// The big-endian, compact slice of bytes for a UInt (`u64`). Leading zero
 /// octets are not part of the representation. See the [spec] for more
 /// information.
 ///
 /// [spec]: https://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EncodedUInt {
-    be_bytes: [u8; mem::size_of::<u64>()],
+    be_bytes: UIntBeBytes,
     first_occupied_byte: usize,
 }
 
 impl EncodedUInt {
     /// Returns the slice view of the encoded UInt.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.be_bytes[self.first_occupied_byte..]
+        match self.be_bytes {
+            UIntBeBytes::Stack(ref byte_array) => &byte_array[self.first_occupied_byte..],
+            UIntBeBytes::Heap(ref byte_vec) => &byte_vec[self.first_occupied_byte..],
+        }
     }
 }
 
@@ -135,13 +146,13 @@ impl AsRef<[u8]> for EncodedUInt {
 /// ```
 /// use ion_rs::binary::uint;
 ///
-/// let repr = uint::encode_uint(5u64);
+/// let repr = uint::encode_u64(5u64);
 /// assert_eq!(&[0x05], repr.as_bytes());
 ///
-/// let two_bytes = uint::encode_uint(256u64);
+/// let two_bytes = uint::encode_u64(256u64);
 /// assert_eq!(&[0x01, 0x00], two_bytes.as_bytes());
 /// ```
-pub fn encode_uint(magnitude: u64) -> EncodedUInt {
+pub fn encode_u64(magnitude: u64) -> EncodedUInt {
     // We can divide the number of leading zero bits by 8
     // to to get the number of leading zero bytes.
     let empty_leading_bytes: u32 = magnitude.leading_zeros() / 8;
@@ -150,7 +161,23 @@ pub fn encode_uint(magnitude: u64) -> EncodedUInt {
     let magnitude_bytes: [u8; mem::size_of::<u64>()] = magnitude.to_be_bytes();
 
     EncodedUInt {
-        be_bytes: magnitude_bytes,
+        be_bytes: UIntBeBytes::Stack(magnitude_bytes),
+        first_occupied_byte,
+    }
+}
+
+/// Returns the magnitude as big-endian bytes.
+pub fn encode_uinteger(magnitude: &UInteger) -> EncodedUInt {
+    let magnitude: &BigUint = match magnitude {
+        UInteger::U64(m) => return encode_u64(*m),
+        UInteger::BigUInt(m) => m,
+    };
+
+    let be_bytes = UIntBeBytes::Heap(magnitude.to_bytes_be());
+    let first_occupied_byte = 0;
+
+    EncodedUInt {
+        be_bytes,
         first_occupied_byte,
     }
 }
@@ -158,6 +185,7 @@ pub fn encode_uint(magnitude: u64) -> EncodedUInt {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use num_traits::Num;
     use std::io::Cursor;
 
     const READ_ERROR_MESSAGE: &str = "Failed to read a UInt from the provided cursor.";
@@ -188,6 +216,18 @@ mod tests {
     }
 
     #[test]
+    fn test_read_ten_byte_uint() {
+        let data = vec![0xFFu8; 10];
+        let uint = DecodedUInt::read(&mut Cursor::new(data.as_slice()), data.len())
+            .expect(READ_ERROR_MESSAGE);
+        assert_eq!(uint.size_in_bytes(), 10);
+        assert_eq!(
+            uint.value(),
+            &UInteger::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap())
+        );
+    }
+
+    #[test]
     fn test_read_uint_too_large() {
         let mut buffer = Vec::with_capacity(MAX_UINT_SIZE_IN_BYTES + 1);
         for _ in 0..(MAX_UINT_SIZE_IN_BYTES + 1) {
@@ -196,6 +236,16 @@ mod tests {
         let data = buffer.as_slice();
         let _uint = DecodedUInt::read(&mut Cursor::new(data), data.len())
             .expect_err("This exceeded the configured max UInt size.");
+    }
+
+    #[test]
+    fn test_write_ten_byte_uint() {
+        let value = UInteger::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap());
+        let mut buffer: Vec<u8> = vec![];
+        let encoded = super::encode_uinteger(&value);
+        buffer.write_all(&encoded.as_bytes()).unwrap();
+        let expected_bytes = vec![0xFFu8; 10];
+        assert_eq!(expected_bytes.as_slice(), buffer.as_slice());
     }
 
     #[test]
