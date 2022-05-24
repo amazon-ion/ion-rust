@@ -273,7 +273,15 @@ impl Timestamp {
         }
         match mantissa {
             Mantissa::Digits(num_digits) => {
-                let scaled = self.date_time.nanosecond() / 10u32.pow(9 - *num_digits); // 123,000,000 -> 123
+                // Scale the nanoseconds down to the requested number of digits.
+                // Example: if `num_digits` is 3 (that is: millisecond precision), we need to
+                // divide the nanoseconds by 10^(9-3) to get the correct precision:
+                //      123,000,000 nanoseconds / 10^(9-3) = 123 milliseconds
+                let scaled = self.date_time.nanosecond() / 10u32.pow(9 - *num_digits);
+                // If our scaled number has fewer digits than the precision states, add leading
+                // zeros to the output to make up the difference.
+                // Example: `num_digits` is 6 (microsecond precision) but our number of microseconds
+                // is `9500` (only 4 digits), we need to add two leading zeros to make: `009500`.
                 let actual_num_digits = super::num_decimal_digits_in_u64(scaled as u64);
                 let num_leading_zeros = (*num_digits as u64) - actual_num_digits;
                 write!(output, ".")?;
