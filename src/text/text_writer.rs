@@ -65,6 +65,12 @@ impl TextWriterBuilder {
     }
 }
 
+impl Default for TextWriterBuilder {
+    fn default() -> Self {
+        TextWriterBuilder::new()
+    }
+}
+
 /**
  * An application-level text Ion writer. This writer manages a symbol table and so can convert
  * symbol IDs to their corresponding text. However, unlike the BinaryWriter, it is capable of writing

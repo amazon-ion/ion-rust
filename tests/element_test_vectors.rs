@@ -7,7 +7,7 @@ use ion_rs::value::owned::OwnedElement;
 use ion_rs::value::reader::ElementReader;
 use ion_rs::value::writer::{ElementWriter, Format, TextKind};
 use ion_rs::value::{Element, Sequence, SymbolToken};
-use ion_rs::{BinaryWriter, BinaryWriterBuilder, TextWriterBuilder};
+use ion_rs::{BinaryWriterBuilder, TextWriterBuilder};
 
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;

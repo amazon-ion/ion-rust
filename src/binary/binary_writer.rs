@@ -34,6 +34,12 @@ impl BinaryWriterBuilder {
     }
 }
 
+impl Default for BinaryWriterBuilder {
+    fn default() -> Self {
+        BinaryWriterBuilder::new()
+    }
+}
+
 /**
  * An application-level binary Ion writer. This writer manages a symbol table and so can convert
  * symbol IDs to their corresponding text.

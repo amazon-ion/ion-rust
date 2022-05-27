@@ -102,6 +102,12 @@ impl ReaderBuilder {
     }
 }
 
+impl Default for ReaderBuilder {
+    fn default() -> Self {
+        ReaderBuilder::new()
+    }
+}
+
 /// A Reader that uses dynamic dispatch to abstract over the format (text or binary) being
 /// read by an underlying [RawReader].
 pub type Reader<'a> = UserReader<Box<dyn RawReader + 'a>>;

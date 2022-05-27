@@ -121,6 +121,12 @@ impl RawTextWriterBuilder {
     }
 }
 
+impl Default for RawTextWriterBuilder {
+    fn default() -> Self {
+        RawTextWriterBuilder::new()
+    }
+}
+
 #[derive(Debug, PartialEq, Default)]
 struct EncodingLevel {
     container_type: ContainerType,

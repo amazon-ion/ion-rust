@@ -56,6 +56,12 @@ impl RawBinaryWriterBuilder {
     }
 }
 
+impl Default for RawBinaryWriterBuilder {
+    fn default() -> Self {
+        RawBinaryWriterBuilder::new()
+    }
+}
+
 // Ion's length prefixing requires that elements in a stream be encoded out of order.
 // For example, to write the annotated list $ion::["foo", "bar"], the writer must:
 //   1. Encode "foo"
