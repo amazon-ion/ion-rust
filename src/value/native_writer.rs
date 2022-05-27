@@ -86,16 +86,17 @@ impl<W: Writer> NativeElementWriter<W> {
 #[cfg(test)]
 mod tests {
     use crate::ion_eq::IonEq;
+    use crate::text::text_writer::TextWriterBuilder;
     use crate::value::native_writer::NativeElementWriter;
     use crate::value::reader::{native_element_reader, ElementReader};
     use crate::value::writer::ElementWriter;
-    use crate::{IonResult, RawTextWriter, TextWriter};
+    use crate::IonResult;
     use nom::AsBytes;
 
     #[test]
     fn element_roundtrip() -> IonResult<()> {
         let mut buffer = Vec::new();
-        let writer = TextWriter::new(RawTextWriter::new(&mut buffer));
+        let writer = TextWriterBuilder::new().build(&mut buffer)?;
         let mut element_writer = NativeElementWriter::new(writer);
 
         let ion = r#"

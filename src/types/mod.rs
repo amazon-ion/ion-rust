@@ -173,3 +173,19 @@ mod type_test {
         Ok(())
     }
 }
+
+// Represents a level into which the writer has stepped.
+// A writer that has not yet called step_in() is at the top level.
+#[derive(Debug, PartialEq)]
+pub(crate) enum ContainerType {
+    TopLevel,
+    SExpression,
+    List,
+    Struct,
+}
+
+impl Default for ContainerType {
+    fn default() -> Self {
+        ContainerType::TopLevel
+    }
+}

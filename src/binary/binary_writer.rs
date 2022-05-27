@@ -1,4 +1,4 @@
-use crate::binary::raw_binary_writer::RawBinaryWriter;
+use crate::binary::raw_binary_writer::{RawBinaryWriter, RawBinaryWriterBuilder};
 use crate::constants::v1_0::system_symbol_ids;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
@@ -9,6 +9,36 @@ use crate::writer::Writer;
 use crate::{Integer, IonType, SymbolTable};
 use delegate::delegate;
 use std::io::Write;
+
+pub struct BinaryWriterBuilder {
+    // Nothing yet
+}
+
+impl BinaryWriterBuilder {
+    pub fn new() -> Self {
+        BinaryWriterBuilder {}
+    }
+
+    pub fn build<W: Write>(self, sink: W) -> IonResult<BinaryWriter<W>> {
+        let mut raw_writer = RawBinaryWriterBuilder::new().build(sink)?;
+        let symbol_table_writer = RawBinaryWriterBuilder::new().build(Vec::new())?;
+        // TODO: Track whether we've written an IVM and emit it at flush time instead
+        raw_writer.write_ion_version_marker(1, 0)?;
+        let binary_writer = BinaryWriter {
+            raw_writer,
+            symbol_table: Default::default(),
+            num_pending_symbols: 0,
+            symbol_table_writer,
+        };
+        Ok(binary_writer)
+    }
+}
+
+impl Default for BinaryWriterBuilder {
+    fn default() -> Self {
+        BinaryWriterBuilder::new()
+    }
+}
 
 /**
  * An application-level binary Ion writer. This writer manages a symbol table and so can convert
@@ -28,19 +58,6 @@ pub struct BinaryWriter<W: Write> {
 }
 
 impl<W: Write> BinaryWriter<W> {
-    pub fn new(mut raw_writer: RawBinaryWriter<W>) -> Self {
-        // TODO: Track whether we've written an IVM and emit it at flush time instead
-        raw_writer
-            .write_ion_version_marker(1, 0)
-            .expect("Couldn't write IVM.");
-        BinaryWriter {
-            raw_writer,
-            symbol_table: SymbolTable::new(),
-            num_pending_symbols: 0,
-            symbol_table_writer: RawBinaryWriter::new(Vec::new()),
-        }
-    }
-
     fn get_or_create_symbol_id(&mut self, text: &str) -> SymbolId {
         if let Some(symbol_id) = self.symbol_table.sid_for(&text) {
             // If the provided text is in the symbol table, use the associated symbol ID...
@@ -190,25 +207,22 @@ impl<W: Write> Writer for BinaryWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reader::Reader;
+    use crate::reader::ReaderBuilder;
     use crate::stream_reader::StreamReader;
 
-    use crate::RawBinaryReader;
     use crate::StreamItem::Value;
-    use std::io;
 
     #[test]
     fn intern_field_names() -> IonResult<()> {
         let mut buffer = Vec::new();
-        let raw_writer = RawBinaryWriter::new(&mut buffer);
-        let mut binary_writer = BinaryWriter::new(raw_writer);
+        let mut binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
         binary_writer.step_in(IonType::Struct)?;
         binary_writer.set_field_name("foo");
         binary_writer.write_symbol("bar")?;
         binary_writer.step_out()?;
         binary_writer.flush()?;
 
-        let mut reader = Reader::new(RawBinaryReader::new(io::Cursor::new(buffer)));
+        let mut reader = ReaderBuilder::new().build(buffer)?;
         assert_eq!(Value(IonType::Struct), reader.next()?);
         reader.step_in()?;
         assert_eq!(Value(IonType::Symbol), reader.next()?);
@@ -221,13 +235,12 @@ mod tests {
     #[test]
     fn intern_annotations() -> IonResult<()> {
         let mut buffer = Vec::new();
-        let raw_writer = RawBinaryWriter::new(&mut buffer);
-        let mut binary_writer = BinaryWriter::new(raw_writer);
+        let mut binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
         binary_writer.set_annotations(&["foo", "bar"]);
         binary_writer.write_i64(5)?;
         binary_writer.flush()?;
 
-        let mut reader = Reader::new(RawBinaryReader::new(io::Cursor::new(buffer)));
+        let mut reader = ReaderBuilder::new().build(buffer)?;
         assert_eq!(Value(IonType::Integer), reader.next()?);
         let mut annotations = reader.annotations();
         assert_eq!("foo", annotations.next().unwrap()?);
@@ -239,14 +252,13 @@ mod tests {
     #[test]
     fn intern_symbols() -> IonResult<()> {
         let mut buffer = Vec::new();
-        let raw_writer = RawBinaryWriter::new(&mut buffer);
-        let mut binary_writer = BinaryWriter::new(raw_writer);
+        let mut binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
         binary_writer.write_symbol("foo")?;
         binary_writer.write_symbol("bar")?;
         binary_writer.write_symbol("baz")?;
         binary_writer.flush()?;
 
-        let mut reader = Reader::new(RawBinaryReader::new(io::Cursor::new(buffer)));
+        let mut reader = ReaderBuilder::new().build(buffer)?;
         assert_eq!(Value(IonType::Symbol), reader.next()?);
         assert_eq!("foo", reader.read_symbol()?);
         assert_eq!(Value(IonType::Symbol), reader.next()?);

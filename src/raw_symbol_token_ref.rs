@@ -1,5 +1,6 @@
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::types::SymbolId;
+use crate::Symbol;
 
 /// Like RawSymbolToken, but the Text variant holds a borrowed reference instead of a String.
 #[derive(Debug, Clone, PartialEq)]
@@ -37,6 +38,12 @@ impl AsRawSymbolTokenRef for String {
 impl AsRawSymbolTokenRef for &str {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
         RawSymbolTokenRef::Text(self)
+    }
+}
+
+impl AsRawSymbolTokenRef for Symbol {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
+        RawSymbolTokenRef::Text(self.as_ref())
     }
 }
 

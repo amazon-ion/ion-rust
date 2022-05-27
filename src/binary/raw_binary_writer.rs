@@ -13,13 +13,54 @@ use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::types::SymbolId;
+use crate::types::{ContainerType, SymbolId};
 use crate::writer::Writer;
 use crate::{Integer, IonType};
 
 use super::decimal::DecimalBinaryEncoder;
 use super::timestamp::TimestampBinaryEncoder;
 use super::uint;
+
+pub struct RawBinaryWriterBuilder {
+    // Nothing yet
+}
+
+impl RawBinaryWriterBuilder {
+    pub fn new() -> Self {
+        RawBinaryWriterBuilder {}
+    }
+
+    /// Creates a new RawBinaryWriter that will write its encoded output to the provided
+    /// io::Write sink.
+    pub fn build<W: Write>(self, out: W) -> IonResult<RawBinaryWriter<W>> {
+        let mut levels = Vec::with_capacity(INITIAL_ENCODING_LEVELS_CAPACITY);
+        // Create an EncodingLevel to represent the top level. It has no annotations.
+        levels.push(EncodingLevel::new(ContainerType::TopLevel, None, 0, 0));
+        // Create an empty IoRange for top-level leading scalar values.
+        let mut io_ranges = Vec::with_capacity(INITIAL_IO_RANGE_CAPACITY);
+        io_ranges.push(0usize..0);
+        let raw_binary_writer = RawBinaryWriter {
+            buffer: Vec::with_capacity(INITIAL_ENCODING_BUFFER_CAPACITY),
+            io_ranges,
+            levels,
+            out,
+            annotations_all_levels: Vec::with_capacity(INITIAL_ANNOTATIONS_CAPACITY),
+            num_annotations_current_value: 0,
+            field_id: None,
+            contiguous_encoding: Vec::with_capacity(INITIAL_ENCODING_BUFFER_CAPACITY),
+        };
+
+        // Currently, this method cannot fail. However, the other builder APIs return an
+        // IonResult, so we've followed suit here.
+        Ok(raw_binary_writer)
+    }
+}
+
+impl Default for RawBinaryWriterBuilder {
+    fn default() -> Self {
+        RawBinaryWriterBuilder::new()
+    }
+}
 
 // Ion's length prefixing requires that elements in a stream be encoded out of order.
 // For example, to write the annotated list $ion::["foo", "bar"], the writer must:
@@ -60,16 +101,6 @@ type IoRange = Range<usize>;
 // and written to the io::Write sink.
 //
 //     e0 01 00 ea eb 81 81 b8 83 66 6f 6f 83 62 61 72
-
-// Represents a level into which the writer has stepped.
-// A writer that has not yet called step_in() is at the top level.
-#[derive(Debug, PartialEq)]
-enum ContainerType {
-    TopLevel,
-    SExpression,
-    List,
-    Struct,
-}
 
 // Stores information about each level into which the writer has stepped, including its
 // annotations, field_id, and container type.
@@ -157,27 +188,6 @@ const INITIAL_IO_RANGE_CAPACITY: usize = 128;
 const INITIAL_ANNOTATIONS_CAPACITY: usize = 4;
 
 impl<W: Write> RawBinaryWriter<W> {
-    /// Creates a new BinarySystemWriter that will write its encoded output to the provided
-    /// io::Write sink.
-    pub fn new(out: W) -> RawBinaryWriter<W> {
-        let mut levels = Vec::with_capacity(INITIAL_ENCODING_LEVELS_CAPACITY);
-        // Create an EncodingLevel to represent the top level. It has no annotations.
-        levels.push(EncodingLevel::new(ContainerType::TopLevel, None, 0, 0));
-        // Create an empty IoRange for top-level leading scalar values.
-        let mut io_ranges = Vec::with_capacity(INITIAL_IO_RANGE_CAPACITY);
-        io_ranges.push(0usize..0);
-        RawBinaryWriter {
-            buffer: Vec::with_capacity(INITIAL_ENCODING_BUFFER_CAPACITY),
-            io_ranges,
-            levels,
-            out,
-            annotations_all_levels: Vec::with_capacity(INITIAL_ANNOTATIONS_CAPACITY),
-            num_annotations_current_value: 0,
-            field_id: None,
-            contiguous_encoding: Vec::with_capacity(INITIAL_ENCODING_BUFFER_CAPACITY),
-        }
-    }
-
     // Uses the provided closure to encode data to the buffer. Returns the range of the buffer
     // now occupied by the encoded bytes.
     #[inline]
@@ -801,7 +811,7 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
         self.field_id = container.field_id;
         let container_size = container.calculate_final_size(&mut self.io_ranges);
 
-        use ContainerType::*;
+        use crate::types::ContainerType::*;
         let mut type_descriptor: u8 = match container.container_type {
             List => 0xB0,
             SExpression => 0xC0,
@@ -887,12 +897,13 @@ impl<'a, W: Write> Writer for RawBinaryWriter<W> {
 mod writer_tests {
     use std::fmt::Debug;
 
-    use crate::{RawBinaryReader, Reader, StreamItem};
+    use crate::StreamItem;
 
     use rstest::*;
 
     use super::*;
     use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
+    use crate::reader::{Reader, ReaderBuilder};
     use crate::symbol::Symbol;
     use crate::StreamReader;
     use num_bigint::BigInt;
@@ -901,7 +912,7 @@ mod writer_tests {
     use std::str::FromStr;
 
     type TestWriter<'a> = RawBinaryWriter<&'a mut Vec<u8>>;
-    type TestReader<'a> = Reader<RawBinaryReader<std::io::Cursor<&'a [u8]>>>;
+    type TestReader<'a> = Reader<'a>;
 
     /// A reusable test outline for verifying BinarySystemWriter behavior.
     fn binary_writer_test(
@@ -910,7 +921,7 @@ mod writer_tests {
     ) -> IonResult<()> {
         // Create a BinarySystemWriter that writes to a byte vector.
         let mut buffer = vec![];
-        let mut writer = RawBinaryWriter::new(&mut buffer);
+        let mut writer = RawBinaryWriterBuilder::new().build(&mut buffer)?;
         writer.write_ion_version_marker(1, 0)?;
 
         // Call the user's writing function
@@ -919,8 +930,7 @@ mod writer_tests {
 
         // Create a BinaryReader that reads from the BinarySystemWriter's output.
         let data = buffer.as_slice();
-        let cursor = RawBinaryReader::new(io::Cursor::new(data));
-        let mut reader = Reader::new(cursor);
+        let mut reader = ReaderBuilder::new().build(data)?;
 
         // Call the user's verification function
         read_fn(&mut reader)

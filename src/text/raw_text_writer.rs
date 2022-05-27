@@ -9,15 +9,140 @@ use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::{Precision, Timestamp};
+use crate::types::ContainerType;
 use crate::writer::Writer;
 use crate::{Integer, IonType};
+
+pub struct RawTextWriterBuilder {
+    space_between_values: String,
+    indentation: String,
+    space_after_field_name: String,
+    space_after_container_start: String,
+}
+
+impl RawTextWriterBuilder {
+    /// Constructs a text Ion writer with modest (but not strictly minimal) spacing.
+    ///
+    /// For example:
+    /// ```ignore
+    /// {foo: 1, bar: 2, baz: 3} [1, 2, 3] true "hello"
+    /// ```
+    pub fn new() -> RawTextWriterBuilder {
+        RawTextWriterBuilder {
+            // Single space between values
+            space_between_values: String::from(" "),
+            // No indentation
+            indentation: String::new(),
+            // Single space between field names and values
+            space_after_field_name: String::from(" "),
+            // The first value in a container appears next to the opening delimiter
+            space_after_container_start: String::new(),
+        }
+    }
+
+    /// Constructs a 'pretty' text Ion writer that adds human-friendly spacing between values.
+    ///
+    /// For example:
+    /// ```ignore
+    /// {
+    ///     foo: 1,
+    ///     bar: 2,
+    ///     baz: 3
+    /// }
+    /// [
+    ///     1,
+    ///     2,
+    ///     3
+    /// ]
+    /// true
+    /// "hello"
+    /// ```
+    pub fn pretty() -> RawTextWriterBuilder {
+        RawTextWriterBuilder {
+            // Each value appears on its own line
+            space_between_values: String::from("\n"),
+            // Values get four spaces of indentation per level of depth
+            indentation: String::from("    "),
+            // Field names and values are separated by a single space
+            space_after_field_name: String::from(" "),
+            // The first value in a container appears on a line by itself
+            space_after_container_start: String::from("\n"),
+        }
+    }
+
+    pub fn with_space_between_values<S: Into<String>>(
+        mut self,
+        space_between_values: S,
+    ) -> RawTextWriterBuilder {
+        self.space_between_values = space_between_values.into();
+        self
+    }
+
+    pub fn with_indentation<S: Into<String>>(mut self, indentation: S) -> RawTextWriterBuilder {
+        self.indentation = indentation.into();
+        self
+    }
+
+    pub fn with_space_after_field_name<S: Into<String>>(
+        mut self,
+        space_after_field_name: S,
+    ) -> RawTextWriterBuilder {
+        self.space_after_field_name = space_after_field_name.into();
+        self
+    }
+
+    pub fn with_space_after_container_start<S: Into<String>>(
+        mut self,
+        space_after_container_start: S,
+    ) -> RawTextWriterBuilder {
+        self.space_after_field_name = space_after_container_start.into();
+        self
+    }
+
+    /// Constructs a new instance of [RawTextWriter] that writes values to the provided io::Write
+    /// implementation.
+    pub fn build<W: Write>(self, sink: W) -> IonResult<RawTextWriter<W>> {
+        let raw_text_writer = RawTextWriter {
+            output: BufWriter::new(sink),
+            annotations: Vec::new(),
+            field_name: None,
+            containers: vec![EncodingLevel::default()],
+            string_escape_codes: string_escape_code_init(),
+            // TODO: We should consider putting these in a single struct (`WhitespaceConfig`?)
+            //       and `Box`ing it. Each `String` is 24 bytes, making the writer much bigger.
+            space_between_values: self.space_between_values,
+            indentation: self.indentation,
+            space_after_field_name: self.space_after_field_name,
+            space_after_container_start: self.space_after_container_start,
+        };
+        // This method cannot currently fail. It returns an IonResult<_> to be consistent with the
+        // other builder APIs and to allow for fallible setup operations in the future.
+        Ok(raw_text_writer)
+    }
+}
+
+impl Default for RawTextWriterBuilder {
+    fn default() -> Self {
+        RawTextWriterBuilder::new()
+    }
+}
+
+#[derive(Debug, PartialEq, Default)]
+struct EncodingLevel {
+    container_type: ContainerType,
+    child_count: usize,
+}
 
 pub struct RawTextWriter<W: Write> {
     output: BufWriter<W>,
     annotations: Vec<String>,
     field_name: Option<String>,
-    containers: Vec<IonType>,
+    containers: Vec<EncodingLevel>,
     string_escape_codes: Vec<String>,
+    space_between_values: String,
+    indentation: String,
+    space_after_field_name: String,
+    space_after_container_start: String,
 }
 
 /**
@@ -57,18 +182,6 @@ fn string_escape_code_init() -> Vec<String> {
 }
 
 impl<W: Write> RawTextWriter<W> {
-    /// Constructs a new instance of TextWriter that writes values to the provided io::Write
-    /// implementation.
-    pub fn new(sink: W) -> RawTextWriter<W> {
-        RawTextWriter {
-            output: BufWriter::new(sink),
-            annotations: vec![],
-            field_name: None,
-            containers: vec![],
-            string_escape_codes: string_escape_code_init(),
-        }
-    }
-
     /// Returns a reference to the underlying io::Write implementation.
     pub fn output(&self) -> &W {
         self.output.get_ref()
@@ -81,24 +194,65 @@ impl<W: Write> RawTextWriter<W> {
         self.output.get_mut()
     }
 
-    /// Returns true if the TextWriter is currently positioned within a Struct.
+    /// Returns true if the RawTextWriter is currently positioned within a Struct.
     pub fn is_in_struct(&self) -> bool {
-        if let Some(IonType::Struct) = self.containers.last() {
-            return true;
-        }
-        false
+        self.parent_level().container_type == ContainerType::Struct
     }
 
-    // Called after each value is written to emit an appropriate delimiter before the next value.
+    /// Returns the number of values that have already been written in this container.
+    /// Before the first value in a container is written, this returns `0`.
+    /// For the purposes of this method, the top level is considered a container.
+    fn index_within_parent(&self) -> usize {
+        self.parent_level().child_count
+    }
+
+    /// Returns the `&EncodingLevel` into which the RawTextWriter most recently stepped.
+    fn parent_level(&self) -> &EncodingLevel {
+        // `self.containers` is never empty; it always has at least the top level.
+        self.containers.last().unwrap()
+    }
+
+    /// Increments the value returned by [Self::index_within_parent].
+    fn increment_child_count(&mut self) {
+        let parent_level = self.containers.last_mut().unwrap();
+        parent_level.child_count += 1;
+    }
+
+    /// Called after each value is written to emit an appropriate delimiter before the next value.
     fn write_value_delimiter(&mut self) -> IonResult<()> {
-        use IonType::*;
-        let delimiter = match self.containers.last() {
-            Some(Struct) | Some(List) => ",",
-            Some(SExpression) => " ",
-            Some(scalar) => unreachable!("Inside a non-container type: {:?}", scalar),
-            None => "\n", // Top-level values appear on their own line
+        use ContainerType::*;
+        let delimiter = match self.parent_level().container_type {
+            TopLevel => "",
+            Struct | List => ",",
+            SExpression => "",
         };
         write!(self.output, "{}", delimiter)?;
+        Ok(())
+    }
+
+    /// Writes any interstitial whitespace that is appropriate for the current context, including:
+    /// * Whitespace following a container start
+    /// * Whitespace between values
+    /// * Indentation
+    fn write_space_before_value(&mut self) -> IonResult<()> {
+        // If this is the first value in this container...
+        if self.index_within_parent() == 0 {
+            // ...and we're not at the top level...
+            if self.depth() > 0 {
+                // ...then this is the first value inside a container. We'll write the
+                // `space_after_container_start` so it will (e.g.) appear on its own line.
+                write!(&mut self.output, "{}", self.space_after_container_start)?;
+            }
+        } else {
+            // Otherwise, this is not the first value in this container. Emit the container's
+            // delimiter (for example: in a list, write a `,`) before we write the value itself.
+            self.write_value_delimiter()?;
+            write!(&mut self.output, "{}", self.space_between_values)?;
+        }
+        // Write enough indentation for the current level of depth
+        for _ in 0..self.depth() {
+            write!(&mut self.output, "{}", self.indentation)?;
+        }
         Ok(())
     }
 
@@ -169,7 +323,7 @@ impl<W: Write> RawTextWriter<W> {
     fn write_value_metadata(&mut self) -> IonResult<()> {
         if let Some(field_name) = &self.field_name.take() {
             Self::write_symbol_token(&mut self.output, field_name)?;
-            write!(self.output, ":")?;
+            write!(self.output, ":{}", self.space_after_field_name)?;
         } else if self.is_in_struct() {
             return illegal_operation("Values inside a struct must have a field name.");
         }
@@ -193,9 +347,11 @@ impl<W: Write> RawTextWriter<W> {
     where
         F: FnOnce(&mut BufWriter<W>) -> IonResult<()>,
     {
+        self.write_space_before_value()?;
         self.write_value_metadata()?;
         scalar_writer(&mut self.output)?;
-        self.write_value_delimiter()?;
+        // We just wrote another value; bump the child count.
+        self.increment_child_count();
         Ok(())
     }
 
@@ -531,14 +687,29 @@ impl<'a, W: Write> Writer for RawTextWriter<W> {
     /// `step_in` will return an Err(IllegalOperation).
     fn step_in(&mut self, ion_type: IonType) -> IonResult<()> {
         use IonType::*;
+
+        self.write_space_before_value()?;
         self.write_value_metadata()?;
-        match ion_type {
-            Struct => write!(self.output, "{{")?,
-            List => write!(self.output, "[")?,
-            SExpression => write!(self.output, "(")?,
+        let container_type = match ion_type {
+            Struct => {
+                write!(self.output, "{{")?;
+                ContainerType::Struct
+            }
+            List => {
+                write!(self.output, "[")?;
+                ContainerType::List
+            }
+            SExpression => {
+                write!(self.output, "(")?;
+                ContainerType::SExpression
+            }
             _ => return illegal_operation(format!("Cannot step into a(n) {:?}", ion_type)),
-        }
-        self.containers.push(ion_type);
+        };
+        self.containers.push(EncodingLevel {
+            container_type,
+            child_count: 0usize,
+        });
+
         Ok(())
     }
 
@@ -554,26 +725,42 @@ impl<'a, W: Write> Writer for RawTextWriter<W> {
     }
 
     fn parent_type(&self) -> Option<IonType> {
-        self.containers.last().copied()
+        match self.parent_level().container_type {
+            ContainerType::TopLevel => None,
+            ContainerType::List => Some(IonType::List),
+            ContainerType::SExpression => Some(IonType::SExpression),
+            ContainerType::Struct => Some(IonType::Struct),
+        }
     }
 
     fn depth(&self) -> usize {
-        self.containers.len()
+        self.containers.len() - 1
     }
 
     /// Completes the current container. If the TextWriter is not currently positioned inside a
     /// container, `step_out` will return an Err(IllegalOperation).
     fn step_out(&mut self) -> IonResult<()> {
-        use IonType::*;
-        let end_delimiter = match self.containers.pop() {
-            Some(Struct) => "}",
-            Some(List) => "]",
-            Some(SExpression) => ")",
-            Some(scalar) => unreachable!("Inside a non-container type: {:?}", scalar),
-            None => return illegal_operation("Cannot step out of the top level."),
+        use ContainerType::*;
+        let end_delimiter = match self.parent_level().container_type {
+            Struct => "}",
+            List => "]",
+            SExpression => ")",
+            TopLevel => return illegal_operation("cannot step out of the top level"),
         };
+        // Wait to pop() the encoding level until after we've confirmed it wasn't TopLevel
+        let popped_encoding_level = self.containers.pop().unwrap();
+        if popped_encoding_level.child_count > 0 {
+            // If this isn't an empty container, put the closing delimiter on the next line
+            // with proper indentation.
+            if self.space_between_values.contains(&['\n', '\r']) {
+                writeln!(&mut self.output)?;
+                for _ in 0..self.depth() {
+                    write!(&mut self.output, "{}", self.indentation)?;
+                }
+            }
+        }
         write!(self.output, "{}", end_delimiter)?;
-        self.write_value_delimiter()?;
+        self.increment_child_count();
         Ok(())
     }
 
@@ -592,74 +779,100 @@ mod tests {
     use chrono::{FixedOffset, NaiveDate, TimeZone};
 
     use crate::result::IonResult;
-    use crate::text::raw_text_writer::RawTextWriter;
+    use crate::text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder};
     use crate::types::timestamp::Timestamp;
     use crate::writer::Writer;
     use crate::IonType;
 
-    fn writer_test<F>(mut commands: F, expected: &str)
+    fn writer_test_with_builder<F>(builder: RawTextWriterBuilder, mut commands: F, expected: &str)
     where
         F: FnMut(&mut RawTextWriter<&mut Vec<u8>>) -> IonResult<()>,
     {
         let mut output = Vec::new();
-        let mut writer = RawTextWriter::new(&mut output);
+        let mut writer = builder
+            .build(&mut output)
+            .expect("could not create RawTextWriter");
         commands(&mut writer).expect("Invalid TextWriter test commands.");
+        writer.flush().expect("Call to flush() failed.");
         drop(writer);
         assert_eq!(str::from_utf8(&output).unwrap(), expected);
     }
 
+    /// Constructs a [RawTextWriter] using [RawTextReaderBuilder::new], passes it to the
+    /// provided `commands` closure, and then verifies that its output matches `expected_default`.
+    /// Then, constructs a [RawTextWriter] using [RawTextReaderBuilder::pretty], passes it to the
+    /// provided `commands` closure, and then verifies that its output matches `expected_pretty`.
+    fn writer_test<F>(mut commands: F, expected_default: &str, expected_pretty: &str)
+    where
+        F: Fn(&mut RawTextWriter<&mut Vec<u8>>) -> IonResult<()>,
+    {
+        writer_test_with_builder(RawTextWriterBuilder::new(), &mut commands, expected_default);
+        writer_test_with_builder(RawTextWriterBuilder::pretty(), commands, expected_pretty)
+    }
+
+    /// When writing a scalar value, there shouldn't be any difference in output between the
+    /// `default` and `pretty` text writers. This function simply calls `writer_test_with_builder`
+    /// above using the same expected text for both cases.
+    fn write_scalar_test<F>(mut commands: F, expected: &str)
+    where
+        F: Fn(&mut RawTextWriter<&mut Vec<u8>>) -> IonResult<()>,
+    {
+        writer_test_with_builder(RawTextWriterBuilder::new(), &mut commands, expected);
+        writer_test_with_builder(RawTextWriterBuilder::pretty(), commands, expected)
+    }
+
     #[test]
     fn write_null_null() {
-        writer_test(|w| w.write_null(IonType::Null), "null\n");
+        write_scalar_test(|w| w.write_null(IonType::Null), "null");
     }
 
     #[test]
     fn write_null_string() {
-        writer_test(|w| w.write_null(IonType::String), "null.string\n");
+        write_scalar_test(|w| w.write_null(IonType::String), "null.string");
     }
 
     #[test]
     fn write_bool_true() {
-        writer_test(|w| w.write_bool(true), "true\n");
+        write_scalar_test(|w| w.write_bool(true), "true");
     }
 
     #[test]
     fn write_bool_false() {
-        writer_test(|w| w.write_bool(false), "false\n");
+        write_scalar_test(|w| w.write_bool(false), "false");
     }
 
     #[test]
     fn write_i64() {
-        writer_test(|w| w.write_i64(7), "7\n");
+        write_scalar_test(|w| w.write_i64(7), "7");
     }
 
     #[test]
     fn write_f32() {
-        writer_test(|w| w.write_f32(700f32), "7e2\n");
+        write_scalar_test(|w| w.write_f32(700f32), "7e2");
     }
 
     #[test]
     fn write_f64() {
-        writer_test(|w| w.write_f64(700f64), "7e2\n");
+        write_scalar_test(|w| w.write_f64(700f64), "7e2");
     }
 
     #[test]
     fn write_annotated_i64() {
-        writer_test(
+        write_scalar_test(
             |w| {
                 w.set_annotations(&["foo", "bar", "baz quux"]);
                 w.write_i64(7)
             },
-            "foo::bar::'baz quux'::7\n",
+            "foo::bar::'baz quux'::7",
         );
     }
 
     #[test]
     fn write_decimal() {
         let decimal_text = "731221.9948";
-        writer_test(
+        write_scalar_test(
             |w| w.write_big_decimal(&BigDecimal::from_str(decimal_text).unwrap()),
-            &format!("{}\n", decimal_text),
+            decimal_text,
         );
     }
 
@@ -670,10 +883,7 @@ mod tests {
             NaiveDate::from_ymd(2000_i32, 1_u32, 1_u32).and_hms(0_u32, 0_u32, 0_u32);
         let offset = FixedOffset::west(0);
         let datetime = offset.from_utc_datetime(&naive_datetime);
-        writer_test(
-            |w| w.write_datetime(&datetime),
-            "2000-01-01T00:00:00+00:00\n",
-        );
+        write_scalar_test(|w| w.write_datetime(&datetime), "2000-01-01T00:00:00+00:00");
     }
 
     #[test]
@@ -681,7 +891,7 @@ mod tests {
         let timestamp = Timestamp::with_year(2000)
             .build()
             .expect("building timestamp failed");
-        writer_test(|w| w.write_timestamp(&timestamp), "2000T\n");
+        write_scalar_test(|w| w.write_timestamp(&timestamp), "2000T");
     }
 
     #[test]
@@ -690,7 +900,7 @@ mod tests {
             .with_month(8)
             .build()
             .expect("building timestamp failed");
-        writer_test(|w| w.write_timestamp(&timestamp), "2000-08T\n");
+        write_scalar_test(|w| w.write_timestamp(&timestamp), "2000-08T");
     }
 
     #[test]
@@ -698,7 +908,7 @@ mod tests {
         let timestamp = Timestamp::with_ymd(2000, 8, 22)
             .build()
             .expect("building timestamp failed");
-        writer_test(|w| w.write_timestamp(&timestamp), "2000-08-22T\n");
+        write_scalar_test(|w| w.write_timestamp(&timestamp), "2000-08-22T");
     }
 
     #[test]
@@ -707,9 +917,9 @@ mod tests {
             .with_hms(15, 45, 11)
             .build_at_offset(2 * 60)
             .expect("building timestamp failed");
-        writer_test(
+        write_scalar_test(
             |w| w.write_timestamp(&timestamp),
-            "2000-08-22T15:45:11+02:00\n",
+            "2000-08-22T15:45:11+02:00",
         );
     }
 
@@ -718,9 +928,9 @@ mod tests {
         let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
             .build_at_offset(-5 * 60)
             .expect("building timestamp failed");
-        writer_test(
+        write_scalar_test(
             |w| w.write_timestamp(&timestamp),
-            "2000-08-22T15:45:11.931-05:00\n",
+            "2000-08-22T15:45:11.931-05:00",
         );
     }
 
@@ -729,9 +939,27 @@ mod tests {
         let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
             .build_at_unknown_offset()
             .expect("building timestamp failed");
-        writer_test(
+        write_scalar_test(
             |w| w.write_timestamp(&timestamp),
-            "2000-08-22T15:45:11.931-00:00\n",
+            "2000-08-22T15:45:11.931-00:00",
+        );
+    }
+
+    #[test]
+    fn write_blob() {
+        write_scalar_test(|w| w.write_blob("hello".as_bytes()), "{{aGVsbG8=}}");
+    }
+
+    #[test]
+    fn write_clob() {
+        write_scalar_test(|w| w.write_clob("a\"\'\n".as_bytes()), "{{\"a\\\"'\\n\"}}");
+        write_scalar_test(
+            |w| w.write_clob("❤️".as_bytes()),
+            "{{\"\\xe2\\x9d\\xa4\\xef\\xb8\\x8f\"}}",
+        );
+        write_scalar_test(
+            |w| w.write_clob("hello world".as_bytes()),
+            "{{\"hello world\"}}",
         );
     }
 
@@ -743,28 +971,8 @@ mod tests {
                 w.write_i64(21)?;
                 w.write_symbol("bar")
             },
-            "\"foo\"\n21\nbar\n",
-        );
-    }
-
-    #[test]
-    fn write_blob() {
-        writer_test(|w| w.write_blob("hello".as_bytes()), "{{aGVsbG8=}}\n");
-    }
-
-    #[test]
-    fn write_clob() {
-        writer_test(
-            |w| w.write_clob("a\"\'\n".as_bytes()),
-            "{{\"a\\\"'\\n\"}}\n",
-        );
-        writer_test(
-            |w| w.write_clob("❤️".as_bytes()),
-            "{{\"\\xe2\\x9d\\xa4\\xef\\xb8\\x8f\"}}\n",
-        );
-        writer_test(
-            |w| w.write_clob("hello world".as_bytes()),
-            "{{\"hello world\"}}\n",
+            "\"foo\" 21 bar",
+            "\"foo\"\n21\nbar",
         );
     }
 
@@ -778,7 +986,8 @@ mod tests {
                 w.write_symbol("bar")?;
                 w.step_out()
             },
-            "[\"foo\",21,bar,]\n",
+            "[\"foo\", 21, bar]",
+            "[\n    \"foo\",\n    21,\n    bar\n]",
         );
     }
 
@@ -794,7 +1003,8 @@ mod tests {
                 w.step_out()?;
                 w.step_out()
             },
-            "[\"foo\",21,[bar,],]\n",
+            "[\"foo\", 21, [bar]]",
+            "[\n    \"foo\",\n    21,\n    [\n        bar\n    ]\n]",
         );
     }
 
@@ -808,7 +1018,8 @@ mod tests {
                 w.write_symbol("bar")?;
                 w.step_out()
             },
-            "(\"foo\" 21 bar )\n",
+            "(\"foo\" 21 bar)",
+            "(\n    \"foo\"\n    21\n    bar\n)",
         );
     }
 
@@ -826,7 +1037,8 @@ mod tests {
                 w.write_symbol("bar")?;
                 w.step_out()
             },
-            "{a:\"foo\",b:21,c:quux::bar,}\n",
+            "{a: \"foo\", b: 21, c: quux::bar}",
+            "{\n    a: \"foo\",\n    b: 21,\n    c: quux::bar\n}",
         );
     }
 }
