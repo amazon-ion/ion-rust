@@ -13,9 +13,6 @@ use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 use test_generator::test_resources;
 
-/// Buffer size for our writing tests around round-tripping
-const WRITE_BUF_LENGTH: usize = 16 * 1024 * 1024;
-
 /// Concatenates two slices of string slices together.
 #[inline]
 fn concat<'a>(left: &[&'a str], right: &[&'a str]) -> Vec<&'a str> {
@@ -51,22 +48,7 @@ trait RoundTrip {
 
 /// These unit structs implement the [RoundTrip] trait and can be passed throughout the
 /// integration tests to dictate which readers/writers should be used in each test.
-struct IonCElementWriterApi;
 struct NativeElementWriterApi;
-
-impl RoundTrip for IonCElementWriterApi {
-    fn roundtrip<R: ElementReader>(
-        elements: &Vec<OwnedElement>,
-        format: Format,
-        reader: R,
-    ) -> IonResult<Vec<OwnedElement>> {
-        let mut buffer = vec![0; WRITE_BUF_LENGTH];
-        let mut ion_c_element_writer = format.element_writer_for_slice(buffer.as_mut_slice())?;
-        ion_c_element_writer.write_all(elements)?;
-        let bytes = ion_c_element_writer.finish()?;
-        reader.read_all(bytes)
-    }
-}
 
 // TODO: This implementation is not yet being used; the native reader still paired with the ion-c
 //       writer in the interest of minimizing the number of places that test failures need to be
@@ -477,11 +459,29 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "ion_c"))]
 mod ion_c_element_api_tests {
     use super::*;
     use ion_rs::value::ion_c_reader::IonCElementReader;
     use ion_rs::value::reader::ion_c_element_reader;
+
+    struct IonCElementWriterApi;
+
+    impl RoundTrip for IonCElementWriterApi {
+        fn roundtrip<R: ElementReader>(
+            elements: &Vec<OwnedElement>,
+            format: Format,
+            reader: R,
+        ) -> IonResult<Vec<OwnedElement>> {
+            const WRITE_BUF_LENGTH: usize = 16 * 1024 * 1024;
+            let mut buffer = vec![0; WRITE_BUF_LENGTH];
+            let mut ion_c_element_writer =
+                format.element_writer_for_slice(buffer.as_mut_slice())?;
+            ion_c_element_writer.write_all(elements)?;
+            let bytes = ion_c_element_writer.finish()?;
+            reader.read_all(bytes)
+        }
+    }
 
     struct IonCElementApi;
 

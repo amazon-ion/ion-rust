@@ -26,6 +26,9 @@ members = [
   "ion-hash"
 ]
 
+[features]
+ion_c = ["dep:ion-c-sys"]
+
 [dependencies]
 base64 = "0.12"
 bigdecimal = "0.2"
@@ -42,11 +45,10 @@ arrayvec = "0.7"
 # NB: We use the tree dependency here for development and CI.
 #     Note that when publishing you should update the version
 #     so that users can get the correct underlying ion-c-sys version.
-ion-c-sys = { path = "./ion-c-sys", version = "0.4" }
+ion-c-sys = { path = "./ion-c-sys", version = "0.4", optional = true }
 
 [dev-dependencies]
 rstest = "0.9"
-
 # Used by ion-tests integration
 walkdir = "2.3"
 test-generator = "0.3"

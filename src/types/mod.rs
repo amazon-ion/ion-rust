@@ -10,9 +10,14 @@ pub mod integer;
 pub mod magnitude;
 pub mod timestamp;
 
-use crate::result::{illegal_operation, IonError};
-use ion_c_sys::ION_TYPE;
-use std::{convert::TryFrom, fmt};
+#[cfg(feature = "ion_c")]
+use {
+    crate::result::{illegal_operation, IonError},
+    ion_c_sys::ION_TYPE,
+    std::convert::TryFrom,
+};
+
+use std::fmt;
 
 /// Represents the Ion data type of a given value. To learn more about each data type,
 /// read [the Ion Data Model](http://amzn.github.io/ion-docs/docs/spec.html#the-ion-data-model)
@@ -65,6 +70,22 @@ impl IonType {
     }
 }
 
+// Represents a level into which the writer has stepped.
+// A writer that has not yet called step_in() is at the top level.
+#[derive(Debug, PartialEq)]
+pub(crate) enum ContainerType {
+    TopLevel,
+    SExpression,
+    List,
+    Struct,
+}
+
+impl Default for ContainerType {
+    fn default() -> Self {
+        ContainerType::TopLevel
+    }
+}
+
 /// Returns the number of base-10 digits needed to represent `value`.
 fn num_decimal_digits_in_u64(value: u64) -> u64 {
     if value == 0 {
@@ -85,6 +106,7 @@ fn num_decimal_digits_in_u64(value: u64) -> u64 {
     }
 }
 
+#[cfg(feature = "ion_c")]
 impl TryFrom<ION_TYPE> for IonType {
     type Error = IonError;
 
@@ -109,6 +131,7 @@ impl TryFrom<ION_TYPE> for IonType {
     }
 }
 
+#[cfg(feature = "ion_c")]
 impl From<IonType> for ION_TYPE {
     fn from(ion_type: IonType) -> ION_TYPE {
         use IonType::*;
@@ -130,7 +153,7 @@ impl From<IonType> for ION_TYPE {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "ion_c"))]
 mod type_test {
     use super::*;
     use crate::result::IonResult;
@@ -171,21 +194,5 @@ mod type_test {
         };
 
         Ok(())
-    }
-}
-
-// Represents a level into which the writer has stepped.
-// A writer that has not yet called step_in() is at the top level.
-#[derive(Debug, PartialEq)]
-pub(crate) enum ContainerType {
-    TopLevel,
-    SExpression,
-    List,
-    Struct,
-}
-
-impl Default for ContainerType {
-    fn default() -> Self {
-        ContainerType::TopLevel
     }
 }

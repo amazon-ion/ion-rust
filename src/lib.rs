@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
+#[cfg(feature = "ion_c")]
 /// A [`try`]-like macro to workaround the [`Option`]/[`Result`] nested APIs.
 /// These API require checking the type and then calling the appropriate getter function
 /// (which returns a None if you got it wrong). This macro turns the `None` into
