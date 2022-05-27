@@ -1,3 +1,5 @@
+#![cfg(feature = "ion_c")]
+
 use crate::result::IonResult;
 use crate::value::owned::{text_token, OwnedElement, OwnedSequence, OwnedStruct};
 use crate::value::reader::ElementReader;

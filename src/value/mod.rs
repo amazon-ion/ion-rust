@@ -97,7 +97,7 @@
 //! To serialize data, users can use the [`ElementWriter`](writer::ElementWriter) trait to serialize data
 //! from [`Element`] to binary or text Ion:
 //!
-//! ```
+//! ```ignore
 //! use ion_rs::result::IonResult;
 //! use ion_rs::value::Element;
 //! use ion_rs::value::reader::{element_reader, ElementReader};
@@ -110,6 +110,7 @@
 //!     let elems = element_reader().read_all(b"null true 1")?;
 //!
 //!     let mut buf = vec![0u8; BUF_SIZE];
+//!     // This method requires the `ion-c-sys` feature to be enabled
 //!     let mut writer = Format::Binary.element_writer_for_slice(&mut buf)?;
 //!     writer.write_all(elems.iter())?;
 //!
@@ -213,12 +214,16 @@ use num_bigint::BigInt;
 use std::fmt::Debug;
 
 pub mod borrowed;
-pub mod ion_c_reader;
 pub mod native_reader;
 pub mod native_writer;
 pub mod owned;
 pub mod reader;
 pub mod writer;
+
+#[cfg(feature = "ion_c")]
+pub mod ion_c_reader;
+#[cfg(feature = "ion_c")]
+mod ion_c_writer;
 
 /// The shared symbol table source of a given [`SymbolToken`].
 pub trait ImportSource: Debug + PartialEq {
