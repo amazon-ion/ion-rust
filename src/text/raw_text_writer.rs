@@ -792,24 +792,20 @@ mod tests {
         assert_eq!(str::from_utf8(&output).unwrap(), expected);
     }
 
-    /// Constructs a [RawTextWriter] using [RawTextReaderBuilder::standard], passes it to the
-    /// provided `commands` closure, and then verifies that its output matches `expected_standard`.
+    /// Constructs a [RawTextWriter] using [RawTextReaderBuilder::new], passes it to the
+    /// provided `commands` closure, and then verifies that its output matches `expected_default`.
     /// Then, constructs a [RawTextWriter] using [RawTextReaderBuilder::pretty], passes it to the
     /// provided `commands` closure, and then verifies that its output matches `expected_pretty`.
-    fn writer_test<F>(mut commands: F, expected_standard: &str, expected_pretty: &str)
+    fn writer_test<F>(mut commands: F, expected_default: &str, expected_pretty: &str)
     where
         F: Fn(&mut RawTextWriter<&mut Vec<u8>>) -> IonResult<()>,
     {
-        writer_test_with_builder(
-            RawTextWriterBuilder::new(),
-            &mut commands,
-            expected_standard,
-        );
+        writer_test_with_builder(RawTextWriterBuilder::new(), &mut commands, expected_default);
         writer_test_with_builder(RawTextWriterBuilder::pretty(), commands, expected_pretty)
     }
 
     /// When writing a scalar value, there shouldn't be any difference in output between the
-    /// `standard` and `pretty` text writers. This function simply calls `writer_test_with_builder`
+    /// `default` and `pretty` text writers. This function simply calls `writer_test_with_builder`
     /// above using the same expected text for both cases.
     fn write_scalar_test<F>(mut commands: F, expected: &str)
     where
