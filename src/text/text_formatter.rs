@@ -2,13 +2,12 @@ use crate::types::timestamp::Precision;
 use crate::{Decimal, Integer, IonResult, IonType, Timestamp};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use std::convert::TryInto;
-use std::fmt::Write;
 
-pub struct IonValueFormatter<'a, W: Write> {
+pub struct IonValueFormatter<'a, W: std::io::Write> {
     output: &'a mut W,
 }
 
-impl<'a, W: Write> IonValueFormatter<'a, W> {
+impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
     pub fn format_null(&mut self, ion_type: IonType) -> IonResult<()> {
         use IonType::*;
         let null_text = match ion_type {
@@ -129,7 +128,7 @@ impl<'a, W: Write> IonValueFormatter<'a, W> {
 
         write!(self.output, ":{:0>2}", datetime.second())?;
         //                   ^-- delimiting colon, formatted second
-        value.format_fractional_seconds(&mut *self.output)?;
+        value.fmt_fractional_seconds(&mut *self.output)?;
 
         self.format_offset(offset_minutes)?;
         Ok(())
@@ -153,6 +152,7 @@ impl<'a, W: Write> IonValueFormatter<'a, W> {
     }
 }
 
+#[cfg(test)]
 mod formatter_test {
     use crate::text::text_formatter::IonValueFormatter;
     use crate::{Integer, IonResult, IonType, Timestamp};
@@ -160,15 +160,13 @@ mod formatter_test {
 
     fn formatter<F>(mut f: F, expected: &str)
     where
-        F: for<'a> FnMut(&mut IonValueFormatter<'a, String>) -> IonResult<()>,
+        F: for<'a> FnMut(&mut IonValueFormatter<'a, Vec<u8>>) -> IonResult<()>,
     {
-        let mut actual = String::new();
-        let mut ivf = IonValueFormatter {
-            output: &mut actual,
-        };
+        let mut bytes = Vec::new();
+        let mut ivf = IonValueFormatter { output: &mut bytes };
 
         let _ = f(&mut ivf);
-
+        let actual = String::from_utf8(bytes).unwrap();
         assert_eq!(actual, expected)
     }
 
