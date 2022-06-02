@@ -1,10 +1,15 @@
+use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::types::timestamp::Precision;
-use crate::{Decimal, Integer, IonResult, IonType, Timestamp};
+use crate::value::owned::{OwnedSequence, OwnedStruct};
+use crate::value::{Sequence, Struct, SymbolToken};
+use crate::{Decimal, Integer, IonResult, IonType, RawTextWriter, Timestamp};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use std::convert::TryInto;
+use std::io::BufWriter;
 
 pub struct IonValueFormatter<'a, W: std::io::Write> {
-    output: &'a mut W,
+    pub(crate) output: &'a mut W,
+    pub(crate) string_escape_codes: Vec<String>,
 }
 
 impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
@@ -150,20 +155,112 @@ impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
         write!(self.output, "{}{:0>2}:{:0>2}", sign, hours, minutes)?;
         Ok(())
     }
+
+    pub(crate) fn format_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
+        RawTextWriter::write_symbol_token(&mut BufWriter::new(&mut *self.output), value)?;
+        Ok(())
+    }
+
+    pub(crate) fn format_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
+        write!(self.output, "\"")?;
+        RawTextWriter::write_escaped_text_body(&mut BufWriter::new(&mut *self.output), value)?;
+        write!(self.output, "\"")?;
+        Ok(())
+    }
+
+    pub(crate) fn format_clob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
+        // clob_value to be written based on defined STRING_ESCAPE_CODES.
+        const NUM_DELIMITER_BYTES: usize = 4; // {{}}
+        const NUM_HEX_BYTES_PER_BYTE: usize = 4; // \xHH
+
+        let value: &[u8] = value.as_ref();
+
+        // Set aside enough memory to hold a clob containing all hex-encoded bytes
+        let mut clob_value =
+            String::with_capacity((value.len() * NUM_HEX_BYTES_PER_BYTE) + NUM_DELIMITER_BYTES);
+
+        for byte in value.iter().copied() {
+            let c = byte as char;
+            let escaped_byte = &self.string_escape_codes[c as usize];
+            if !escaped_byte.is_empty() {
+                clob_value.push_str(escaped_byte);
+            } else {
+                clob_value.push(c);
+            }
+        }
+        write!(self.output, "{{{{\"{}\"}}}}", clob_value)?;
+        Ok(())
+    }
+
+    pub(crate) fn format_blob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
+        write!(self.output, "{{{{{}}}}}", base64::encode(value))?;
+        Ok(())
+    }
+
+    pub(crate) fn format_struct(&mut self, value: &OwnedStruct) -> IonResult<()> {
+        write!(self.output, "{}", "{ ")?;
+        let mut peekable_itr = value.iter().peekable();
+        while peekable_itr.peek() != None {
+            let (field_name, field_value) = peekable_itr.next().unwrap();
+            self.format_symbol(field_name.text().unwrap())?;
+            write!(self.output, ": ")?;
+            write!(self.output, "{}", field_value)?;
+            if peekable_itr.peek() != None {
+                write!(self.output, ", ")?;
+            }
+        }
+        write!(self.output, "{}", " }")?;
+        Ok(())
+    }
+
+    pub(crate) fn format_sexp(&mut self, value: &OwnedSequence) -> IonResult<()> {
+        write!(self.output, "{}", "( ")?;
+        let mut peekable_itr = value.iter().peekable();
+        while peekable_itr.peek() != None {
+            let sexp_value = peekable_itr.next().unwrap();
+            write!(self.output, "{}", sexp_value)?;
+            if peekable_itr.peek() != None {
+                write!(self.output, ", ")?;
+            }
+        }
+        write!(self.output, "{}", " )")?;
+        Ok(())
+    }
+
+    pub(crate) fn format_list(&mut self, value: &OwnedSequence) -> IonResult<()> {
+        write!(self.output, "{}", "[ ")?;
+        let mut peekable_itr = value.iter().peekable();
+        while peekable_itr.peek() != None {
+            let list_value = peekable_itr.next().unwrap();
+            write!(self.output, "{}", list_value)?;
+            if peekable_itr.peek() != None {
+                write!(self.output, ", ")?;
+            }
+        }
+        write!(self.output, "{}", " ]")?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod formatter_test {
+    use crate::text::raw_text_writer::string_escape_code_init;
     use crate::text::text_formatter::IonValueFormatter;
+    use crate::value::owned::{OwnedElement, OwnedSequence};
+    use crate::value::owned::{OwnedStruct, OwnedValue};
     use crate::{Integer, IonResult, IonType, Timestamp};
     use num_bigint::BigInt;
+    use std::iter::FromIterator;
 
     fn formatter<F>(mut f: F, expected: &str)
     where
         F: for<'a> FnMut(&mut IonValueFormatter<'a, Vec<u8>>) -> IonResult<()>,
     {
         let mut bytes = Vec::new();
-        let mut ivf = IonValueFormatter { output: &mut bytes };
+        let mut ivf = IonValueFormatter {
+            output: &mut bytes,
+            string_escape_codes: string_escape_code_init(),
+        };
 
         let _ = f(&mut ivf);
         let actual = String::from_utf8(bytes).unwrap();
@@ -218,6 +315,76 @@ mod formatter_test {
             .build()
             .expect("building timestamp failed");
         formatter(|ivf| ivf.format_timestamp(&timestamp), "2000-08T");
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_symbol() -> IonResult<()> {
+        formatter(|ivf| ivf.format_symbol("foo"), "foo");
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_string() -> IonResult<()> {
+        formatter(|ivf| ivf.format_string("bar"), "\"bar\"");
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_blob() -> IonResult<()> {
+        formatter(|ivf| ivf.format_blob("hello".as_bytes()), "{{aGVsbG8=}}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_clob() -> IonResult<()> {
+        formatter(
+            |ivf| ivf.format_clob("❤️".as_bytes()),
+            "{{\"\\xe2\\x9d\\xa4\\xef\\xb8\\x8f\"}}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_struct() -> IonResult<()> {
+        formatter(
+            |ivf| {
+                ivf.format_struct(&OwnedStruct::from_iter(
+                    vec![(
+                        "greetings",
+                        OwnedElement::from(OwnedValue::String("hello".into())),
+                    )]
+                    .into_iter(),
+                ))
+            },
+            "{ greetings: \"hello\" }",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_sexp() -> IonResult<()> {
+        formatter(
+            |ivf| {
+                ivf.format_sexp(&OwnedSequence::from_iter(
+                    vec!["hello".to_owned().into(), 5.into(), true.into()].into_iter(),
+                ))
+            },
+            "( \"hello\", 5, true )",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_list() -> IonResult<()> {
+        formatter(
+            |ivf| {
+                ivf.format_list(&OwnedSequence::from_iter(
+                    vec!["hello".to_owned().into(), 5.into(), true.into()].into_iter(),
+                ))
+            },
+            "[ \"hello\", 5, true ]",
+        );
         Ok(())
     }
 }

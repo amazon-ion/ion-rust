@@ -148,7 +148,7 @@ pub struct RawTextWriter<W: Write> {
 /**
  * String escape codes, for Ion Clob.
  */
-fn string_escape_code_init() -> Vec<String> {
+pub(crate) fn string_escape_code_init() -> Vec<String> {
     let mut string_escape_codes = vec![String::new(); 256];
     string_escape_codes[0x00] = "\\0".to_string();
     string_escape_codes[0x07] = "\\a".to_string();
@@ -293,7 +293,7 @@ impl<W: Write> RawTextWriter<W> {
         first == '$' && chars.all(|c| c.is_numeric())
     }
 
-    fn write_symbol_token<A: AsRawSymbolTokenRef>(
+    pub(crate) fn write_symbol_token<A: AsRawSymbolTokenRef>(
         output: &mut BufWriter<W>,
         token: A,
     ) -> IonResult<()> {
@@ -406,7 +406,7 @@ impl<W: Write> RawTextWriter<W> {
 
     /// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
     /// characters escaped.
-    fn write_escaped_text_body<S: AsRef<str>>(
+    pub(crate) fn write_escaped_text_body<S: AsRef<str>>(
         output: &mut BufWriter<W>,
         value: S,
     ) -> IonResult<()> {

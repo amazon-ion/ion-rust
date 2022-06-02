@@ -7,6 +7,8 @@
 
 use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::ion_eq::IonEq;
+use crate::text::raw_text_writer::string_escape_code_init;
+use crate::text::text_formatter::IonValueFormatter;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
@@ -15,6 +17,7 @@ use crate::value::Builder;
 use crate::IonType;
 use num_bigint::BigInt;
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
 use std::rc::Rc;
 
@@ -461,6 +464,35 @@ pub struct OwnedElement {
 impl OwnedElement {
     pub fn new(annotations: Vec<OwnedSymbolToken>, value: OwnedValue) -> Self {
         Self { annotations, value }
+    }
+}
+
+impl Display for OwnedElement {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let mut ivf = IonValueFormatter {
+            output: &mut Vec::new(),
+            string_escape_codes: string_escape_code_init(),
+        };
+
+        match self.ion_type() {
+            IonType::Null => ivf.format_null(IonType::Null),
+            IonType::Boolean => ivf.format_bool(self.as_bool().unwrap()),
+            IonType::Integer => ivf.format_integer(self.as_integer().unwrap()),
+            IonType::Float => ivf.format_float(self.as_f64().unwrap()),
+            IonType::Decimal => ivf.format_decimal(self.as_decimal().unwrap()),
+            IonType::Timestamp => ivf.format_timestamp(self.as_timestamp().unwrap()),
+            IonType::Symbol => ivf.format_symbol(self.as_str().unwrap()),
+            IonType::String => ivf.format_string(self.as_str().unwrap()),
+            IonType::Clob => ivf.format_clob(self.as_bytes().unwrap()),
+            IonType::Blob => ivf.format_blob(self.as_bytes().unwrap()),
+            IonType::Struct => ivf.format_struct(self.as_struct().unwrap()),
+            IonType::SExpression => ivf.format_sexp(self.as_sequence().unwrap()),
+            IonType::List => ivf.format_list(self.as_sequence().unwrap()),
+        }
+        .map_err(|_| std::fmt::Error)?;
+
+        f.write_str(String::from_utf8(ivf.output.to_vec()).unwrap().as_str())?;
+        Ok(())
     }
 }
 
