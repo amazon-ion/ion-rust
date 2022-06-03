@@ -474,6 +474,10 @@ impl Display for OwnedElement {
             string_escape_codes: string_escape_code_init(),
         };
 
+        // display for annotations of this owned_element
+        ivf.format_annotations(&self.annotations)
+            .map_err(|_| std::fmt::Error)?;
+
         match self.ion_type() {
             IonType::Null => ivf.format_null(IonType::Null),
             IonType::Boolean => ivf.format_bool(self.as_bool().unwrap()),

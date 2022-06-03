@@ -1,6 +1,6 @@
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::types::timestamp::Precision;
-use crate::value::owned::{OwnedSequence, OwnedStruct};
+use crate::value::owned::{OwnedSequence, OwnedStruct, OwnedSymbolToken};
 use crate::value::{Sequence, Struct, SymbolToken};
 use crate::{Decimal, Integer, IonResult, IonType, RawTextWriter, Timestamp};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
@@ -13,6 +13,17 @@ pub struct IonValueFormatter<'a, W: std::io::Write> {
 }
 
 impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
+    pub(crate) fn format_annotations(
+        &mut self,
+        annotations: &Vec<OwnedSymbolToken>,
+    ) -> IonResult<()> {
+        for annotation in annotations {
+            self.format_symbol(annotation.text().unwrap())?;
+            write!(self.output, "::")?;
+        }
+        Ok(())
+    }
+
     pub fn format_null(&mut self, ion_type: IonType) -> IonResult<()> {
         use IonType::*;
         let null_text = match ion_type {
