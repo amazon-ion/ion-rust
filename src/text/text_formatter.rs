@@ -209,7 +209,7 @@ impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
     }
 
     pub(crate) fn format_struct(&mut self, value: &OwnedStruct) -> IonResult<()> {
-        write!(self.output, "{}", "{ ")?;
+        write!(self.output, "{{ ")?;
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek() != None {
             let (field_name, field_value) = peekable_itr.next().unwrap();
@@ -220,12 +220,12 @@ impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
                 write!(self.output, ", ")?;
             }
         }
-        write!(self.output, "{}", " }")?;
+        write!(self.output, " }}")?;
         Ok(())
     }
 
     pub(crate) fn format_sexp(&mut self, value: &OwnedSequence) -> IonResult<()> {
-        write!(self.output, "{}", "( ")?;
+        write!(self.output, "( ")?;
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek() != None {
             let sexp_value = peekable_itr.next().unwrap();
@@ -234,12 +234,12 @@ impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
                 write!(self.output, ", ")?;
             }
         }
-        write!(self.output, "{}", " )")?;
+        write!(self.output, " )")?;
         Ok(())
     }
 
     pub(crate) fn format_list(&mut self, value: &OwnedSequence) -> IonResult<()> {
-        write!(self.output, "{}", "[ ")?;
+        write!(self.output, "[ ")?;
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek() != None {
             let list_value = peekable_itr.next().unwrap();
@@ -248,7 +248,7 @@ impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
                 write!(self.output, ", ")?;
             }
         }
-        write!(self.output, "{}", " ]")?;
+        write!(self.output, " ]")?;
         Ok(())
     }
 }
