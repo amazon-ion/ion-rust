@@ -259,6 +259,70 @@ impl Timestamp {
             }
         }
     }
+    /// Writes the fractional seconds portion of a text timestamp, including a leading `.`.
+    pub(crate) fn format_fractional_seconds<W: std::fmt::Write>(
+        &self,
+        mut output: W,
+    ) -> IonResult<()> {
+        if self.fractional_seconds.is_none() {
+            // Nothing to do.
+            return Ok(());
+        }
+        let mantissa = self.fractional_seconds.as_ref().unwrap();
+        if mantissa.is_empty() {
+            // No need to write anything.
+            return Ok(());
+        }
+        match mantissa {
+            Mantissa::Digits(num_digits) => {
+                // Scale the nanoseconds down to the requested number of digits.
+                // Example: if `num_digits` is 3 (that is: millisecond precision), we need to
+                // divide the nanoseconds by 10^(9-3) to get the correct precision:
+                //      123,000,000 nanoseconds / 10^(9-3) = 123 milliseconds
+                let scaled = self.date_time.nanosecond() / 10u32.pow(9 - *num_digits);
+                // If our scaled number has fewer digits than the precision states, add leading
+                // zeros to the output to make up the difference.
+                // Example: `num_digits` is 6 (microsecond precision) but our number of microseconds
+                // is `9500` (only 4 digits), we need to add two leading zeros to make: `009500`.
+                let actual_num_digits = super::num_decimal_digits_in_u64(scaled as u64);
+                let num_leading_zeros = (*num_digits as u64) - actual_num_digits;
+                write!(output, ".")?;
+                for _ in 0..num_leading_zeros {
+                    write!(output, "0")?;
+                }
+                write!(output, "{}", scaled)?;
+                Ok(())
+            }
+            Mantissa::Arbitrary(decimal) => {
+                let exponent = decimal.exponent;
+                let coefficient = &decimal.coefficient;
+                if exponent >= 0 {
+                    // We know that the coefficient is non-zero (the mantissa was not empty),
+                    // so having a positive exponent would result in an illegal fractional
+                    // seconds value.
+                    panic!("found fractional seconds decimal that was >= 1.");
+                }
+
+                let num_digits = decimal.coefficient.number_of_decimal_digits();
+                let abs_exponent = decimal.exponent.unsigned_abs();
+                // At this point, we know that the abs_exponent is greater than num_digits because
+                // the decimal has to be < 1.
+                let num_leading_zeros = abs_exponent - num_digits;
+                write!(output, ".")?;
+                for _ in 0..num_leading_zeros {
+                    write!(output, "0")?;
+                }
+                if coefficient.is_negative_zero() {
+                    write!(output, "0")?;
+                } else if coefficient.sign == Negative {
+                    panic!("cannot have a negative coefficient (other than -0)");
+                } else {
+                    write!(output, "{}", decimal.coefficient)?;
+                }
+                Ok(())
+            }
+        }
+    }
 
     /// Writes the fractional seconds portion of a text timestamp, including a leading `.`.
     pub(crate) fn fmt_fractional_seconds<W: std::io::Write>(&self, mut output: W) -> IonResult<()> {

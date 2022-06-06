@@ -470,7 +470,7 @@ impl OwnedElement {
 impl Display for OwnedElement {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         let mut ivf = IonValueFormatter {
-            output: &mut Vec::new(),
+            output: &mut String::new(),
             string_escape_codes: string_escape_code_init(),
         };
 
@@ -495,7 +495,7 @@ impl Display for OwnedElement {
         }
         .map_err(|_| std::fmt::Error)?;
 
-        f.write_str(String::from_utf8(ivf.output.to_vec()).unwrap().as_str())?;
+        f.write_str(ivf.output)?;
         Ok(())
     }
 }

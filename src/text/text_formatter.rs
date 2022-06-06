@@ -2,17 +2,115 @@ use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::types::timestamp::Precision;
 use crate::value::owned::{OwnedSequence, OwnedStruct, OwnedSymbolToken};
 use crate::value::{Sequence, Struct, SymbolToken};
-use crate::{Decimal, Integer, IonResult, IonType, RawTextWriter, Timestamp};
+use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use std::convert::TryInto;
-use std::io::BufWriter;
 
-pub struct IonValueFormatter<'a, W: std::io::Write> {
+pub struct IonValueFormatter<'a, W: std::fmt::Write> {
     pub(crate) output: &'a mut W,
     pub(crate) string_escape_codes: Vec<String>,
 }
 
-impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
+impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
+    /// Returns `true` if the provided `token`'s text is an 'identifier'. That is, the text starts
+    /// with a `$`, `_` or ASCII letter and is followed by a sequence of `$`, `_`, or ASCII letters
+    /// and numbers. Examples:
+    /// * `firstName`
+    /// * `first_name`
+    /// * `name_1`
+    /// * `$name`
+    /// Unlike other symbols, identifiers don't have to be wrapped in quotes.
+    fn token_is_identifier(token: &str) -> bool {
+        if token.is_empty() {
+            return false;
+        }
+        let mut chars = token.chars();
+        let first = chars.next().unwrap();
+        (first == '$' || first == '_' || first.is_ascii_alphabetic())
+            && chars.all(|c| c == '$' || c == '_' || c.is_ascii_alphanumeric())
+    }
+
+    /// Returns `true` if the provided text is an Ion keyword. Keywords like `true` or `null`
+    /// resemble identifiers, but writers must wrap them in quotes when using them as symbol text.
+    fn token_is_keyword(token: &str) -> bool {
+        const KEYWORDS: &[&str] = &["true", "false", "nan", "null"];
+        KEYWORDS.contains(&token)
+    }
+
+    /// Returns `true` if this token's text resembles a symbol ID literal. For example: `'$99'` is a
+    /// symbol with the text `$99`. However, `$99` (without quotes) is a symbol ID that maps to
+    /// different text.
+    fn token_resembles_symbol_id(token: &str) -> bool {
+        if token.is_empty() {
+            return false;
+        }
+        let mut chars = token.chars();
+        let first = chars.next().unwrap();
+        first == '$' && chars.all(|c| c.is_numeric())
+    }
+
+    pub(crate) fn format_symbol_token<A: AsRawSymbolTokenRef>(
+        &mut self,
+        token: A,
+    ) -> IonResult<()> {
+        match token.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(sid) => write!(self.output, "${}", sid)?,
+            RawSymbolTokenRef::Text(text)
+                if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) =>
+            {
+                // Write the symbol text in single quotes
+                write!(self.output, "'{}'", text)?;
+            }
+            RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text) => {
+                // Write the symbol text without quotes
+                write!(self.output, "{}", text)?
+            }
+            RawSymbolTokenRef::Text(text) => {
+                // Write the symbol text using quotes and escaping any characters that require it.
+                write!(self.output, "\'")?;
+                self.format_escaped_text_body(text)?;
+                write!(self.output, "\'")?;
+            }
+        };
+        Ok(())
+    }
+
+    /// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
+    /// characters escaped.
+    pub(crate) fn format_escaped_text_body<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
+        let mut start = 0usize;
+        let text = value.as_ref();
+        for (byte_index, character) in text.char_indices() {
+            let escaped = match character {
+                '\n' => r"\n",
+                '\r' => r"\r",
+                '\t' => r"\t",
+                '\\' => r"\\",
+                '/' => r"\/",
+                '"' => r#"\""#,
+                '\'' => r"\'",
+                '?' => r"\?",
+                '\x00' => r"\0", // NUL
+                '\x07' => r"\a", // alert BEL
+                '\x08' => r"\b", // backspace
+                '\x0B' => r"\v", // vertical tab
+                '\x0C' => r"\f", // form feed
+                _ => {
+                    // Other characters can be left as-is
+                    continue;
+                }
+            };
+            // If we reach this point, the current character needed to be escaped.
+            // Write all of the text leading up to this character to output, then the escaped
+            // version of this character.
+            write!(self.output, "{}{}", &text[start..byte_index], escaped)?;
+            // Update `start` to point to the first byte after the end of this character.
+            start = byte_index + character.len_utf8();
+        }
+        write!(self.output, "{}", &text[start..])?;
+        Ok(())
+    }
+
     pub(crate) fn format_annotations(
         &mut self,
         annotations: &Vec<OwnedSymbolToken>,
@@ -144,7 +242,7 @@ impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
 
         write!(self.output, ":{:0>2}", datetime.second())?;
         //                   ^-- delimiting colon, formatted second
-        value.fmt_fractional_seconds(&mut *self.output)?;
+        value.format_fractional_seconds(&mut *self.output)?;
 
         self.format_offset(offset_minutes)?;
         Ok(())
@@ -168,13 +266,13 @@ impl<'a, W: std::io::Write> IonValueFormatter<'a, W> {
     }
 
     pub(crate) fn format_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
-        RawTextWriter::write_symbol_token(&mut BufWriter::new(&mut *self.output), value)?;
+        self.format_symbol_token(value)?;
         Ok(())
     }
 
     pub(crate) fn format_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
         write!(self.output, "\"")?;
-        RawTextWriter::write_escaped_text_body(&mut BufWriter::new(&mut *self.output), value)?;
+        self.format_escaped_text_body(value)?;
         write!(self.output, "\"")?;
         Ok(())
     }
@@ -265,16 +363,15 @@ mod formatter_test {
 
     fn formatter<F>(mut f: F, expected: &str)
     where
-        F: for<'a> FnMut(&mut IonValueFormatter<'a, Vec<u8>>) -> IonResult<()>,
+        F: for<'a> FnMut(&mut IonValueFormatter<'a, String>) -> IonResult<()>,
     {
-        let mut bytes = Vec::new();
+        let mut actual = String::new();
         let mut ivf = IonValueFormatter {
-            output: &mut bytes,
+            output: &mut actual,
             string_escape_codes: string_escape_code_init(),
         };
 
         let _ = f(&mut ivf);
-        let actual = String::from_utf8(bytes).unwrap();
         assert_eq!(actual, expected)
     }
 
