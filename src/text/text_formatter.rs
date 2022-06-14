@@ -181,6 +181,8 @@ pub(crate) const fn string_escape_code_init() -> [&'static str; 256] {
     string_escape_codes
 }
 
+/// Provides a text formatter for Ion values
+/// This is used with the Display implementation of `OwnedElement`
 pub struct IonValueFormatter<'a, W: std::fmt::Write> {
     pub(crate) output: &'a mut W,
 }
@@ -405,10 +407,10 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         write!(
             self.output,
             "T{:0>2}:{:0>2}",
+            // ^-- delimiting T, formatted hour, delimiting colon, formatted minute
             datetime.hour(),
             datetime.minute()
         )?;
-        //                   ^-- delimiting T, formatted hour, delimiting colon, formatted minute
         if value.precision == Precision::HourAndMinute {
             self.format_offset(offset_minutes)?;
             return Ok(());
@@ -483,12 +485,10 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
     pub(crate) fn format_struct(&mut self, value: &OwnedStruct) -> IonResult<()> {
         write!(self.output, "{{ ")?;
         let mut peekable_itr = value.iter().peekable();
-        while peekable_itr.peek() != None {
-            let (field_name, field_value) = peekable_itr.next().unwrap();
+        while let Some((field_name, field_value)) = peekable_itr.next() {
             self.format_symbol(field_name.text().unwrap())?;
-            write!(self.output, ": ")?;
-            write!(self.output, "{}", field_value)?;
-            if peekable_itr.peek() != None {
+            write!(self.output, ": {}", field_value)?;
+            if peekable_itr.peek().is_some() {
                 write!(self.output, ", ")?;
             }
         }
