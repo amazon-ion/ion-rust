@@ -468,9 +468,7 @@ impl OwnedElement {
 
 impl Display for OwnedElement {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let mut ivf = IonValueFormatter {
-            output: &mut String::new(),
-        };
+        let mut ivf = IonValueFormatter { output: f };
 
         // display for annotations of this owned_element
         ivf.format_annotations(&self.annotations)
@@ -493,7 +491,6 @@ impl Display for OwnedElement {
         }
         .map_err(|_| std::fmt::Error)?;
 
-        f.write_str(ivf.output)?;
         Ok(())
     }
 }

@@ -6,7 +6,7 @@ use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use std::convert::TryInto;
 
-pub const STRING_ESCAPE_CODES: &'static [&'static str] = &string_escape_code_init();
+pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
 
 /**
  * String escape codes, for Ion Clob.
