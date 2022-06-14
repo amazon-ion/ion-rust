@@ -6,9 +6,183 @@ use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use std::convert::TryInto;
 
+pub const STRING_ESCAPE_CODES: &'static [&'static str] = &string_escape_code_init();
+
+/**
+ * String escape codes, for Ion Clob.
+ */
+pub(crate) const fn string_escape_code_init() -> [&'static str; 256] {
+    let mut string_escape_codes = [""; 256];
+    string_escape_codes[0] = "\\0";
+    string_escape_codes[7] = "\\a";
+    string_escape_codes[8] = "\\b";
+    string_escape_codes['\t' as usize] = "\\t";
+    string_escape_codes['\n' as usize] = "\\n";
+    string_escape_codes[11] = "\\v";
+    string_escape_codes[12] = "\\f";
+    string_escape_codes['\r' as usize] = "\\r";
+    string_escape_codes['\\' as usize] = "\\\\";
+    string_escape_codes['\"' as usize] = "\\\"";
+
+    string_escape_codes[1] = "\\x01";
+    string_escape_codes[2] = "\\x02";
+    string_escape_codes[3] = "\\x03";
+    string_escape_codes[4] = "\\x04";
+    string_escape_codes[5] = "\\x05";
+    string_escape_codes[6] = "\\x06";
+    string_escape_codes[14] = "\\x0e";
+    string_escape_codes[15] = "\\x0f";
+    string_escape_codes[16] = "\\x10";
+    string_escape_codes[17] = "\\x11";
+    string_escape_codes[18] = "\\x12";
+    string_escape_codes[19] = "\\x13";
+    string_escape_codes[20] = "\\x14";
+    string_escape_codes[21] = "\\x15";
+    string_escape_codes[22] = "\\x16";
+    string_escape_codes[23] = "\\x17";
+    string_escape_codes[24] = "\\x18";
+    string_escape_codes[25] = "\\x19";
+    string_escape_codes[26] = "\\x1a";
+    string_escape_codes[27] = "\\x1b";
+    string_escape_codes[28] = "\\x1c";
+    string_escape_codes[29] = "\\x1d";
+    string_escape_codes[30] = "\\x1e";
+    string_escape_codes[31] = "\\x1f";
+
+    string_escape_codes[127] = "\\x7f";
+    string_escape_codes[128] = "\\x80";
+    string_escape_codes[129] = "\\x81";
+    string_escape_codes[130] = "\\x82";
+    string_escape_codes[131] = "\\x83";
+    string_escape_codes[132] = "\\x84";
+    string_escape_codes[133] = "\\x85";
+    string_escape_codes[134] = "\\x86";
+    string_escape_codes[135] = "\\x87";
+    string_escape_codes[136] = "\\x88";
+    string_escape_codes[137] = "\\x89";
+    string_escape_codes[138] = "\\x8a";
+    string_escape_codes[139] = "\\x8b";
+    string_escape_codes[140] = "\\x8c";
+    string_escape_codes[141] = "\\x8d";
+    string_escape_codes[142] = "\\x8e";
+    string_escape_codes[143] = "\\x8f";
+    string_escape_codes[144] = "\\x90";
+    string_escape_codes[145] = "\\x91";
+    string_escape_codes[146] = "\\x92";
+    string_escape_codes[147] = "\\x93";
+    string_escape_codes[148] = "\\x94";
+    string_escape_codes[149] = "\\x95";
+    string_escape_codes[150] = "\\x96";
+    string_escape_codes[151] = "\\x97";
+    string_escape_codes[152] = "\\x98";
+    string_escape_codes[153] = "\\x99";
+    string_escape_codes[154] = "\\x9a";
+    string_escape_codes[155] = "\\x9b";
+    string_escape_codes[156] = "\\x9c";
+    string_escape_codes[157] = "\\x9d";
+    string_escape_codes[158] = "\\x9e";
+    string_escape_codes[159] = "\\x9f";
+    string_escape_codes[160] = "\\xa0";
+    string_escape_codes[161] = "\\xa1";
+    string_escape_codes[162] = "\\xa2";
+    string_escape_codes[163] = "\\xa3";
+    string_escape_codes[164] = "\\xa4";
+    string_escape_codes[165] = "\\xa5";
+    string_escape_codes[166] = "\\xa6";
+    string_escape_codes[167] = "\\xa7";
+    string_escape_codes[168] = "\\xa8";
+    string_escape_codes[169] = "\\xa9";
+    string_escape_codes[170] = "\\xaa";
+    string_escape_codes[171] = "\\xab";
+    string_escape_codes[172] = "\\xac";
+    string_escape_codes[173] = "\\xad";
+    string_escape_codes[174] = "\\xae";
+    string_escape_codes[175] = "\\xaf";
+    string_escape_codes[176] = "\\xb0";
+    string_escape_codes[177] = "\\xb1";
+    string_escape_codes[178] = "\\xb2";
+    string_escape_codes[179] = "\\xb3";
+    string_escape_codes[180] = "\\xb4";
+    string_escape_codes[181] = "\\xb5";
+    string_escape_codes[182] = "\\xb6";
+    string_escape_codes[183] = "\\xb7";
+    string_escape_codes[184] = "\\xb8";
+    string_escape_codes[185] = "\\xb9";
+    string_escape_codes[186] = "\\xba";
+    string_escape_codes[187] = "\\xbb";
+    string_escape_codes[188] = "\\xbc";
+    string_escape_codes[189] = "\\xbd";
+    string_escape_codes[190] = "\\xbe";
+    string_escape_codes[191] = "\\xbf";
+    string_escape_codes[192] = "\\xc0";
+    string_escape_codes[193] = "\\xc1";
+    string_escape_codes[194] = "\\xc2";
+    string_escape_codes[195] = "\\xc3";
+    string_escape_codes[196] = "\\xc4";
+    string_escape_codes[197] = "\\xc5";
+    string_escape_codes[198] = "\\xc6";
+    string_escape_codes[199] = "\\xc7";
+    string_escape_codes[200] = "\\xc8";
+    string_escape_codes[201] = "\\xc9";
+    string_escape_codes[202] = "\\xca";
+    string_escape_codes[203] = "\\xcb";
+    string_escape_codes[204] = "\\xcc";
+    string_escape_codes[205] = "\\xcd";
+    string_escape_codes[206] = "\\xce";
+    string_escape_codes[207] = "\\xcf";
+    string_escape_codes[208] = "\\xd0";
+    string_escape_codes[209] = "\\xd1";
+    string_escape_codes[210] = "\\xd2";
+    string_escape_codes[211] = "\\xd3";
+    string_escape_codes[212] = "\\xd4";
+    string_escape_codes[213] = "\\xd5";
+    string_escape_codes[214] = "\\xd6";
+    string_escape_codes[215] = "\\xd7";
+    string_escape_codes[216] = "\\xd8";
+    string_escape_codes[217] = "\\xd9";
+    string_escape_codes[218] = "\\xda";
+    string_escape_codes[219] = "\\xdb";
+    string_escape_codes[220] = "\\xdc";
+    string_escape_codes[221] = "\\xdd";
+    string_escape_codes[222] = "\\xde";
+    string_escape_codes[223] = "\\xdf";
+    string_escape_codes[224] = "\\xe0";
+    string_escape_codes[225] = "\\xe1";
+    string_escape_codes[226] = "\\xe2";
+    string_escape_codes[227] = "\\xe3";
+    string_escape_codes[228] = "\\xe4";
+    string_escape_codes[229] = "\\xe5";
+    string_escape_codes[230] = "\\xe6";
+    string_escape_codes[231] = "\\xe7";
+    string_escape_codes[232] = "\\xe8";
+    string_escape_codes[233] = "\\xe9";
+    string_escape_codes[234] = "\\xea";
+    string_escape_codes[235] = "\\xeb";
+    string_escape_codes[236] = "\\xec";
+    string_escape_codes[237] = "\\xed";
+    string_escape_codes[238] = "\\xee";
+    string_escape_codes[239] = "\\xef";
+    string_escape_codes[240] = "\\xf0";
+    string_escape_codes[241] = "\\xf1";
+    string_escape_codes[242] = "\\xf2";
+    string_escape_codes[243] = "\\xf3";
+    string_escape_codes[244] = "\\xf4";
+    string_escape_codes[245] = "\\xf5";
+    string_escape_codes[246] = "\\xf6";
+    string_escape_codes[247] = "\\xf7";
+    string_escape_codes[248] = "\\xf8";
+    string_escape_codes[249] = "\\xf9";
+    string_escape_codes[250] = "\\xfa";
+    string_escape_codes[251] = "\\xfb";
+    string_escape_codes[252] = "\\xfc";
+    string_escape_codes[253] = "\\xfd";
+    string_escape_codes[254] = "\\xfe";
+    string_escape_codes[255] = "\\xff";
+    string_escape_codes
+}
+
 pub struct IonValueFormatter<'a, W: std::fmt::Write> {
     pub(crate) output: &'a mut W,
-    pub(crate) string_escape_codes: Vec<String>,
 }
 
 impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
@@ -290,7 +464,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
 
         for byte in value.iter().copied() {
             let c = byte as char;
-            let escaped_byte = &self.string_escape_codes[c as usize];
+            let escaped_byte = &STRING_ESCAPE_CODES[c as usize];
             if !escaped_byte.is_empty() {
                 clob_value.push_str(escaped_byte);
             } else {
@@ -353,7 +527,6 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
 
 #[cfg(test)]
 mod formatter_test {
-    use crate::text::raw_text_writer::string_escape_code_init;
     use crate::text::text_formatter::IonValueFormatter;
     use crate::value::owned::{OwnedElement, OwnedSequence};
     use crate::value::owned::{OwnedStruct, OwnedValue};
@@ -368,7 +541,6 @@ mod formatter_test {
         let mut actual = String::new();
         let mut ivf = IonValueFormatter {
             output: &mut actual,
-            string_escape_codes: string_escape_code_init(),
         };
 
         let _ = f(&mut ivf);

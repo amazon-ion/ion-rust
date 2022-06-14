@@ -7,7 +7,6 @@
 
 use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
 use crate::ion_eq::IonEq;
-use crate::text::raw_text_writer::string_escape_code_init;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
@@ -471,7 +470,6 @@ impl Display for OwnedElement {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         let mut ivf = IonValueFormatter {
             output: &mut String::new(),
-            string_escape_codes: string_escape_code_init(),
         };
 
         // display for annotations of this owned_element

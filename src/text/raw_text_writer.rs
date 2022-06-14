@@ -1,12 +1,12 @@
 use std::convert::TryInto;
 use std::io::{BufWriter, Write};
-use std::mem;
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
+use crate::text::text_formatter::STRING_ESCAPE_CODES;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::{Precision, Timestamp};
 use crate::types::ContainerType;
@@ -107,7 +107,6 @@ impl RawTextWriterBuilder {
             annotations: Vec::new(),
             field_name: None,
             containers: vec![EncodingLevel::default()],
-            string_escape_codes: string_escape_code_init(),
             // TODO: We should consider putting these in a single struct (`WhitespaceConfig`?)
             //       and `Box`ing it. Each `String` is 24 bytes, making the writer much bigger.
             space_between_values: self.space_between_values,
@@ -138,47 +137,10 @@ pub struct RawTextWriter<W: Write> {
     annotations: Vec<String>,
     field_name: Option<String>,
     containers: Vec<EncodingLevel>,
-    string_escape_codes: Vec<String>,
     space_between_values: String,
     indentation: String,
     space_after_field_name: String,
     space_after_container_start: String,
-}
-
-/**
- * String escape codes, for Ion Clob.
- */
-pub(crate) fn string_escape_code_init() -> Vec<String> {
-    let mut string_escape_codes = vec![String::new(); 256];
-    string_escape_codes[0x00] = "\\0".to_string();
-    string_escape_codes[0x07] = "\\a".to_string();
-    string_escape_codes[0x08] = "\\b".to_string();
-    string_escape_codes['\t' as usize] = "\\t".to_string();
-    string_escape_codes['\n' as usize] = "\\n".to_string();
-    string_escape_codes[0x0B] = "\\v".to_string();
-    string_escape_codes[0x0C] = "\\f".to_string();
-    string_escape_codes['\r' as usize] = "\\r".to_string();
-    string_escape_codes['\\' as usize] = "\\\\".to_string();
-    string_escape_codes['\"' as usize] = "\\\"".to_string();
-    for (i, code) in string_escape_codes
-        .iter_mut()
-        .enumerate()
-        .take(0x20)
-        .skip(1)
-    {
-        if code.is_empty() {
-            let _ = mem::replace(code, format!("\\x{:02x}", i));
-        }
-    }
-    for (i, code) in string_escape_codes
-        .iter_mut()
-        .enumerate()
-        .take(0x100)
-        .skip(0x7F)
-    {
-        let _ = mem::replace(code, format!("\\x{:x}", i));
-    }
-    string_escape_codes
 }
 
 impl<W: Write> RawTextWriter<W> {
@@ -657,7 +619,7 @@ impl<'a, W: Write> Writer for RawTextWriter<W> {
 
         for byte in value.iter().copied() {
             let c = byte as char;
-            let escaped_byte = &self.string_escape_codes[c as usize];
+            let escaped_byte = STRING_ESCAPE_CODES[c as usize];
             if !escaped_byte.is_empty() {
                 clob_value.push_str(escaped_byte);
             } else {
