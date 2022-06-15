@@ -1,10 +1,30 @@
 use std::convert::From;
+use std::fmt::{Debug, Display, Formatter};
 use std::{fmt, io};
 
 use thiserror::Error;
 
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;
+
+// If the ion-c-sys feature is enabled, use the actual IonCError type as our IonCErrorSource...
+#[cfg(feature = "ion_c")]
+pub type IonCErrorSource = ion_c_sys::result::IonCError;
+// ...otherwise, use a placeholder error type.
+#[cfg(not(feature = "ion_c"))]
+pub type IonCErrorSource = ErrorStub;
+
+/// Placeholder Error type for error variants that require conditional compilation.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ErrorStub;
+
+impl Display for ErrorStub {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "ion-c error support was not enabled at build time")
+    }
+}
+
+impl std::error::Error for ErrorStub {}
 
 /// Represents the different types of high-level failures that might occur when reading Ion data.
 #[derive(Debug, Error)]
@@ -40,7 +60,7 @@ pub enum IonError {
     #[error("{source:?}")]
     IonCError {
         #[from]
-        source: ion_c_sys::result::IonCError,
+        source: IonCErrorSource,
     },
 }
 
@@ -114,7 +134,7 @@ pub fn illegal_operation_raw<S: AsRef<str>>(operation: S) -> IonError {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "ion_c"))]
 mod test {
     use ion_c_sys::result::*;
     use ion_c_sys::{ion_error_code_IERR_EOF, ion_error_code_IERR_INVALID_ARG};

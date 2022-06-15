@@ -6,12 +6,14 @@ use crate::types::magnitude::Magnitude;
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
 };
-use ion_c_sys::timestamp::{IonDateTime, TSOffsetKind, TSPrecision};
 use num_bigint::BigUint;
 use num_traits::ToPrimitive;
 use std::convert::TryInto;
 use std::fmt::Debug;
 use std::ops::Div;
+
+#[cfg(feature = "ion_c")]
+use ion_c_sys::timestamp::{IonDateTime, TSOffsetKind, TSPrecision};
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd)]
@@ -1020,6 +1022,7 @@ impl From<DateTime<FixedOffset>> for Timestamp {
     }
 }
 
+#[cfg(feature = "ion_c")]
 impl From<ion_c_sys::timestamp::IonDateTime> for Timestamp {
     fn from(ionc_dt: IonDateTime) -> Self {
         use ion_c_sys::timestamp::Mantissa as IonCMantissa;
@@ -1057,6 +1060,7 @@ impl From<ion_c_sys::timestamp::IonDateTime> for Timestamp {
 /// In general there should be 1-to-1 fidelity between these types, but there
 /// is no static way to guarantee this because of [`Decimal`] and the public constructor for
 /// [`IonDateTime`](ion_c_sys::timestamp::IonDateTime).
+#[cfg(feature = "ion_c")]
 impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
     type Error = IonError;
 
@@ -1563,7 +1567,7 @@ mod timestamp_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "ion_c"))]
 mod ionc_tests {
     use super::*;
     use bigdecimal::BigDecimal;

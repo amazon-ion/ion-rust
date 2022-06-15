@@ -4,9 +4,11 @@
 //! as slices or files.
 
 use crate::result::{decoding_error, IonResult};
-use crate::value::ion_c_reader::IonCElementReader;
 use crate::value::native_reader::NativeElementReader;
 use crate::value::owned::OwnedElement;
+
+#[cfg(feature = "ion_c")]
+use crate::value::ion_c_reader::IonCElementReader;
 
 // TODO add/refactor trait/implementation for borrowing over some context
 //      we could make it generic with generic associated types or just have a lifetime
@@ -67,6 +69,13 @@ pub trait ElementReader {
 }
 
 /// Returns an implementation defined [`ElementReader`] instance.
+#[cfg(not(feature = "ion_c"))]
+pub fn element_reader() -> impl ElementReader {
+    native_element_reader()
+}
+
+/// Returns an implementation defined [`ElementReader`] instance.
+#[cfg(feature = "ion_c")]
 pub fn element_reader() -> impl ElementReader {
     ion_c_element_reader()
 }
@@ -75,6 +84,7 @@ pub fn native_element_reader() -> NativeElementReader {
     NativeElementReader {}
 }
 
+#[cfg(feature = "ion_c")]
 pub fn ion_c_element_reader() -> IonCElementReader {
     IonCElementReader {}
 }
