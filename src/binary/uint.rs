@@ -21,6 +21,13 @@ pub struct DecodedUInt {
 }
 
 impl DecodedUInt {
+    pub(crate) fn new(value: UInteger, size_in_bytes: usize) -> Self {
+        DecodedUInt {
+            size_in_bytes,
+            value,
+        }
+    }
+
     /// Reads a UInt with `length` bytes from the provided data source.
     pub fn read<R: IonDataSource>(data_source: &mut R, length: usize) -> IonResult<DecodedUInt> {
         if length > MAX_UINT_SIZE_IN_BYTES {

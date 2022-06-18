@@ -2,13 +2,13 @@ use std::fmt::Display;
 
 use nom::Err::{Error, Failure, Incomplete};
 
+use crate::data_source::ToIonDataSource;
 use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{
     decoding_error, illegal_operation, illegal_operation_raw, IonError, IonResult,
 };
 use crate::stream_reader::StreamReader;
-use crate::text::ion_data_source::ToIonDataSource;
 use crate::text::parent_container::ParentContainer;
 use crate::text::parse_result::IonParseResult;
 use crate::text::parsers::containers::{

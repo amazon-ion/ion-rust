@@ -1,3 +1,5 @@
+use crate::binary::constants::v1_0::IVM;
+use crate::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
 use crate::raw_reader::RawReader;
 use crate::reader::ReaderBuilder;
 use crate::result::IonResult;
@@ -5,9 +7,6 @@ use crate::value::owned;
 use crate::value::owned::{OwnedElement, OwnedSequence, OwnedStruct, OwnedValue};
 use crate::value::reader::ElementReader;
 use crate::{IonType, StreamItem, StreamReader, UserReader};
-
-/// Provides an implementation of [ElementReader] that is backed by a native Rust [Reader].
-pub struct NativeElementReader;
 
 struct NativeElementIterator<R: RawReader> {
     reader: UserReader<R>,
@@ -18,17 +17,6 @@ impl<R: RawReader> Iterator for NativeElementIterator<R> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.materialize_next().transpose()
-    }
-}
-
-impl ElementReader for NativeElementReader {
-    fn iterate_over<'a, 'b>(
-        &'a self,
-        data: &'b [u8],
-    ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'b>> {
-        let reader = ReaderBuilder::new().build(data)?;
-        let iterator = NativeElementIterator { reader };
-        Ok(Box::new(iterator))
     }
 }
 
@@ -120,5 +108,42 @@ impl<R: RawReader> NativeElementIterator<R> {
         }
         self.reader.step_out()?;
         Ok(OwnedStruct::from_iter(child_elements.into_iter()))
+    }
+}
+
+/// Provides an implementation of [ElementReader] that is backed by a native Rust [Reader].
+pub struct NativeElementReader;
+
+impl ElementReader for NativeElementReader {
+    fn iterate_over<'a, 'b>(
+        &'a self,
+        data: &'b [u8],
+    ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'b>> {
+        let reader = ReaderBuilder::new().build(data)?;
+        let iterator = NativeElementIterator { reader };
+        Ok(Box::new(iterator))
+    }
+}
+
+pub struct NonBlockingNativeElementReader;
+
+impl ElementReader for NonBlockingNativeElementReader {
+    fn iterate_over<'a, 'b>(
+        &'a self,
+        data: &'b [u8],
+    ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'b>> {
+        // If the data is binary, create a non-blocking binary reader.
+        if data.starts_with(&IVM) {
+            let raw_reader = RawBinaryBufferReader::new(data);
+            let reader = UserReader::new(raw_reader);
+            let iterator = NativeElementIterator { reader };
+            return Ok(Box::new(iterator));
+        }
+
+        // TODO: There is not yet a non-blocking text reader. When one is available, this code
+        //       path should be modified to use it.
+        let reader = ReaderBuilder::new().build(data)?;
+        let iterator = NativeElementIterator { reader };
+        Ok(Box::new(iterator))
     }
 }

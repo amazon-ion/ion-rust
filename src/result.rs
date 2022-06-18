@@ -1,5 +1,5 @@
 use std::convert::From;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display, Error, Formatter};
 use std::{fmt, io};
 
 use thiserror::Error;
@@ -29,9 +29,6 @@ impl std::error::Error for ErrorStub {}
 /// Represents the different types of high-level failures that might occur when reading Ion data.
 #[derive(Debug, Error)]
 pub enum IonError {
-    // TODO: Add an `IncompleteData` error variant that provides position information,
-    //       what was being read, the number of bytes needed, etc.
-    //       See: https://github.com/amzn/ion-rust/issues/299
     /// Indicates that an IO error was encountered while reading or writing.
     #[error("{source:?}")]
     IoError {
@@ -39,11 +36,15 @@ pub enum IonError {
         source: io::Error,
     },
 
-    #[error("{source:?}")]
-    FmtError {
-        #[from]
-        source: fmt::Error,
-    },
+    /// Indicates that the input buffer did not contain enough data to perform the requested read
+    /// operation. If the input source contains more data, the reader can append it to the buffer
+    /// and try again.
+    #[error("ran out of input while reading {label} at offset {offset}")]
+    Incomplete { label: &'static str, offset: usize },
+
+    /// Indicates that the writer encountered a problem while serializing a given piece of data.
+    #[error("{description}")]
+    EncodingError { description: String },
 
     /// Indicates that the data stream being read contained illegal or otherwise unreadable data.
     #[error("{description}")]
@@ -64,6 +65,14 @@ pub enum IonError {
     },
 }
 
+impl From<fmt::Error> for IonError {
+    fn from(error: Error) -> Self {
+        IonError::EncodingError {
+            description: error.to_string(),
+        }
+    }
+}
+
 // io::Error does not implement Clone, which precludes us from simply deriving an implementation.
 // IonError needs a Clone implementation because we use a jump table of cached IonResult values when
 // parsing type descriptor bytes. The only error type that will be cloned by virtue of using the jump
@@ -76,7 +85,13 @@ impl Clone for IonError {
                 // io::Error implements From<ErrorKind>, and ErrorKind is cloneable.
                 source: io::Error::from(source.kind()),
             },
-            FmtError { source } => FmtError { source: *source },
+            Incomplete { label, offset } => Incomplete {
+                label,
+                offset: *offset,
+            },
+            EncodingError { description } => EncodingError {
+                description: description.clone(),
+            },
             DecodingError { description } => DecodingError {
                 description: description.clone(),
             },
@@ -97,13 +112,31 @@ impl PartialEq for IonError {
         match (self, other) {
             // We can compare the io::Errors' ErrorKinds, offering a weak definition of equality.
             (IoError { source: s1 }, IoError { source: s2 }) => s1.kind() == s2.kind(),
-            (FmtError { source: s1 }, FmtError { source: s2 }) => s1 == s2,
+            (
+                Incomplete {
+                    label: l1,
+                    offset: o1,
+                },
+                Incomplete {
+                    label: l2,
+                    offset: o2,
+                },
+            ) => l1 == l2 && o1 == o2,
+            (EncodingError { description: s1 }, EncodingError { description: s2 }) => s1 == s2,
             (DecodingError { description: s1 }, DecodingError { description: s2 }) => s1 == s2,
             (IllegalOperation { operation: s1 }, IllegalOperation { operation: s2 }) => s1 == s2,
             (IonCError { source: s1 }, IonCError { source: s2 }) => s1 == s2,
             _ => false,
         }
     }
+}
+
+pub fn incomplete_data_error<T>(label: &'static str, offset: usize) -> IonResult<T> {
+    Err(incomplete_data_error_raw(label, offset))
+}
+
+pub fn incomplete_data_error_raw(label: &'static str, offset: usize) -> IonError {
+    IonError::Incomplete { label, offset }
 }
 
 /// A convenience method for creating an IonResult containing an IonError::DecodingError with the

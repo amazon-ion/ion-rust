@@ -38,6 +38,14 @@ const MAGNITUDE_BITS_IN_FINAL_BYTE: usize = 6;
 /// [VarUInt and VarInt Fields](amzn.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields)
 /// section of the binary Ion spec for more details.
 impl VarInt {
+    pub(crate) fn new(value: i64, is_negative: bool, size_in_bytes: usize) -> Self {
+        VarInt {
+            size_in_bytes,
+            value,
+            is_negative,
+        }
+    }
+
     /// Reads a VarInt from the provided data source.
     pub fn read<R: IonDataSource>(data_source: &mut R) -> IonResult<VarInt> {
         // Unlike VarUInt's encoding, the first byte in a VarInt is a special case because

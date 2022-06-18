@@ -6,13 +6,13 @@ use delegate::delegate;
 
 use crate::binary::constants::v1_0::IVM;
 use crate::constants::v1_0::system_symbol_ids;
+use crate::data_source::ToIonDataSource;
 use crate::raw_reader::{RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, decoding_error_raw, IonResult};
 use crate::stream_reader::StreamReader;
 use crate::symbol::Symbol;
 use crate::symbol_table::SymbolTable;
-use crate::text::ion_data_source::ToIonDataSource;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
@@ -119,6 +119,15 @@ pub type Reader<'a> = UserReader<Box<dyn RawReader + 'a>>;
 pub struct UserReader<R: RawReader> {
     raw_reader: R,
     symbol_table: SymbolTable,
+}
+
+impl<R: RawReader> UserReader<R> {
+    pub(crate) fn new(raw_reader: R) -> UserReader<R> {
+        UserReader {
+            raw_reader,
+            symbol_table: SymbolTable::new(),
+        }
+    }
 }
 
 /// Stream components that an application-level [Reader] implementation may encounter.

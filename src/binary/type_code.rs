@@ -30,7 +30,7 @@ pub enum IonTypeCode {
     List,            // 11
     SExpression,     // 12
     Struct,          // 13
-    Annotation,      // 14
+    AnnotationOrIvm, // 14
     Reserved,        // 15
 }
 
@@ -87,7 +87,7 @@ impl TryFrom<u8> for IonTypeCode {
             11 => List,
             12 => SExpression,
             13 => Struct,
-            14 => Annotation,
+            14 => AnnotationOrIvm,
             15 => Reserved,
             _ => {
                 return decoding_error(format!("{:?} is not a valid header type code.", type_code));
@@ -116,7 +116,7 @@ impl IonTypeCode {
             List => 11,
             SExpression => 12,
             Struct => 13,
-            Annotation => 14,
+            AnnotationOrIvm => 14,
             Reserved => 15,
         }
     }

@@ -73,12 +73,22 @@ impl From<UInteger> for Integer {
                 } else {
                     // The u64 was slightly too big to be represented as an i64; it required the
                     // 64th bit to store the magnitude. Up-convert it to a BigInt.
-                    Integer::BigInt(BigInt::from(uint))
+                    big_integer_from_u64(uint)
                 }
             }
-            UInteger::BigUInt(big_uint) => Integer::BigInt(BigInt::from(big_uint)),
+            UInteger::BigUInt(big_uint) => big_integer_from_big_uint(big_uint),
         }
     }
+}
+
+#[inline(never)]
+fn big_integer_from_u64(value: u64) -> Integer {
+    Integer::BigInt(BigInt::from(value))
+}
+
+#[inline(never)]
+fn big_integer_from_big_uint(value: BigUint) -> Integer {
+    Integer::BigInt(BigInt::from(value))
 }
 
 impl TryFrom<&UInteger> for i64 {

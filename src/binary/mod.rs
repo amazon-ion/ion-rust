@@ -9,12 +9,13 @@ pub mod decimal;
 mod header;
 pub mod int;
 mod nibbles;
+pub mod non_blocking;
 pub(crate) mod raw_binary_reader;
 pub mod raw_binary_writer;
 pub mod timestamp;
 mod type_code;
 pub mod uint;
-mod var_int;
-mod var_uint;
+pub mod var_int;
+pub mod var_uint;
 
 pub use type_code::IonTypeCode;

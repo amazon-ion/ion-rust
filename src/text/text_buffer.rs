@@ -117,9 +117,12 @@ impl<R: BufRead> TextBuffer<R> {
         }
         let remaining_bytes = self.remaining_text().len();
         unsafe {
-            // The `copy_within()` method below is unsafe.
-            // https://doc.rust-lang.org/std/primitive.slice.html#method.copy_within
-            // The invariants enforced by the `consume` method guarantee that this will behave safely.
+            // The `as_bytes_mut()` method below is unsafe.
+            // https://doc.rust-lang.org/std/primitive.str.html#method.as_bytes_mut
+            // A [str] is a byte array that is guaranteed to contain valid utf-8. Getting a mutable
+            // reference to the contents of the array means that a user could modify it in such a
+            // way that it was no longer valid utf-8. In this case, the invariants enforced by the
+            // `consume` method guarantee that this will behave safely.
             // Copy the remaining text from the end of the String to the beginning of the String.
             self.line.as_bytes_mut().copy_within(self.line_offset.., 0);
             // Now that the remaining bytes are back at the beginning of the buffer, there's

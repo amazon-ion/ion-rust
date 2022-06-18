@@ -30,6 +30,14 @@ pub struct DecodedInt {
 }
 
 impl DecodedInt {
+    pub(crate) fn new(value: Integer, is_negative: bool, size_in_bytes: usize) -> Self {
+        DecodedInt {
+            size_in_bytes,
+            value,
+            is_negative,
+        }
+    }
+
     /// Reads an Int with `length` bytes from the provided data source.
     pub fn read<R: IonDataSource>(data_source: &mut R, length: usize) -> IonResult<DecodedInt> {
         if length == 0 {
