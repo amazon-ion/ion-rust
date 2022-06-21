@@ -23,7 +23,8 @@ edition = "2021"
 members = [
   "ion-c-sys",
   "ion-c-sys-macros",
-  "ion-hash"
+  "ion-hash",
+  "ion-rs-ffi"
 ]
 
 [features]
