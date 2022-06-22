@@ -49,11 +49,9 @@ pub extern "C" fn read_one(input: *const u8, len: size_t) -> *mut IonResult {
                     ptr: ptr as *mut c_void,
                 })
             }
-            Err(_) => {
-                IonResult::Error(IonError {
-                    message: CString::new("Default Error Message").unwrap().into_raw(),
-                })
-            }
+            Err(_) => IonResult::Error(IonError {
+                message: CString::new("Default Error Message").unwrap().into_raw(),
+            }),
         }
     })
     .unwrap_or_else(|_| {
