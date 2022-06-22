@@ -18,7 +18,7 @@ fn read_symbol_and_string() {
         for input in inputs.iter() {
             let str = CString::new(input.as_bytes()).unwrap();
             let result = Box::from_raw(read_one(str.as_ptr()));
-            match result.deref() {
+            match *result {
                 IonResult::Error(_) => panic!("expected result!"),
                 IonResult::Value(v) => match v.ion_type {
                     IonType::Symbol | IonType::String => {
@@ -34,6 +34,16 @@ fn read_symbol_and_string() {
     };
 }
 
+/// covers unmapped type for code coverage
+#[test]
+fn todo_others() {
+    unsafe {
+        let str = CString::new("1").unwrap();
+        let result = Box::from_raw(read_one(str.as_ptr()));
+        assert!(matches!(*result, IonResult::Error(_)));
+    }
+}
+
 #[test]
 fn nulls_are_null() {
     unsafe {
@@ -41,7 +51,7 @@ fn nulls_are_null() {
         for input in inputs.iter() {
             let str = CString::new(input.as_bytes()).unwrap();
             let result = Box::from_raw(read_one(str.as_ptr()));
-            match result.deref() {
+            match *result {
                 IonResult::Error(_) => panic!("expected result!"),
                 IonResult::Value(v) => {
                     assert_eq!(null_mut(), v.ptr);
