@@ -72,10 +72,10 @@ impl Mantissa {
     fn decimals_compare(d1: &Decimal, d2: &Decimal) -> Ordering {
         // See the [EmptyMantissa] trait for details about `is_empty()`
         if d1.is_empty() && d2.is_empty() {
-            return Ordering::Equal;
+            Ordering::Equal
         } else if d1.coefficient.is_zero() && d2.coefficient.is_zero() {
             // Coefficient zeros' signs don't have to be compared for fractional seconds.
-            return d1.exponent.cmp(&d2.exponent);
+            d1.exponent.cmp(&d2.exponent)
         } else {
             // Exact comparison test
             d1.cmp(d2)
@@ -514,7 +514,7 @@ impl Timestamp {
 
 impl PartialOrd for Timestamp {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 
