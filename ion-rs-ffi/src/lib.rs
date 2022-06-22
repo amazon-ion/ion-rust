@@ -44,14 +44,12 @@ pub extern "C" fn read_one(input: *const u8, len: size_t) -> *mut IonResult {
                         IonType::Null => null_mut(),
                     }
                 };
-                println!("returning value result!");
                 IonResult::Value(IonValue {
                     ion_type: rt,
                     ptr: ptr as *mut c_void,
                 })
             }
             Err(_) => {
-                println!("returning error result!");
                 IonResult::Error(IonError {
                     message: CString::new("Default Error Message").unwrap().into_raw(),
                 })
