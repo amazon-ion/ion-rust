@@ -1,11 +1,11 @@
 extern crate libc;
 
-use libc::c_char;
 use ion_rs_ffi::{IonResult, IonType};
-use std::ffi::{CString, CStr};
+use libc::c_char;
+use std::ffi::{CStr, CString};
 use std::ops::Deref;
 
-#[link(name="ion_rs_ffi")]
+#[link(name = "ion_rs_ffi")]
 extern "C" {
     fn read_one(_input: *const c_char) -> *mut IonResult;
 }
@@ -18,14 +18,15 @@ fn read_one_symbol() {
 
         match result.deref() {
             IonResult::Error(_) => panic!("expected result!"),
-            IonResult::Value(v) => {
-                match v.ion_type {
-                    IonType::Symbol => {
-                        assert_eq!("foo", CStr::from_ptr(v.ptr as *const c_char).to_str().unwrap());
-                    }
-                    _ => panic!("expected Symbol!")
+            IonResult::Value(v) => match v.ion_type {
+                IonType::Symbol => {
+                    assert_eq!(
+                        "foo",
+                        CStr::from_ptr(v.ptr as *const c_char).to_str().unwrap()
+                    );
                 }
-            }
+                _ => panic!("expected Symbol!"),
+            },
         }
     };
 }
@@ -38,7 +39,7 @@ fn bad_ion() {
 
         match result.deref() {
             IonResult::Value(_) => panic!("expected error!"),
-            IonResult::Error(_) => ()
+            IonResult::Error(_) => (),
         }
     };
 }

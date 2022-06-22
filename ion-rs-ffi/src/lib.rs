@@ -1,21 +1,20 @@
 /// ffi api to ion-rs
 extern crate libc;
 
-use libc::{c_char, c_void, size_t};
-use std::ptr::{slice_from_raw_parts, null_mut};
-use ion_rs::IonType as IonRsType;
 use ion_rs::value::ion_c_reader::IonCElementReader;
 use ion_rs::value::reader::ElementReader;
-use std::ffi::CString;
 use ion_rs::value::Element;
+use ion_rs::IonType as IonRsType;
+use libc::{c_char, c_void, size_t};
+use std::ffi::CString;
 use std::panic::catch_unwind;
+use std::ptr::{null_mut, slice_from_raw_parts};
 
 /// Reads a single value from the input, which may be text or binary.
 /// Callers are expected to free the results, both values and errors,
 /// with the free_result function.
 #[no_mangle]
 pub extern "C" fn read_one(input: *const u8, len: size_t) -> *mut IonResult {
-
     let rs_data = unsafe { &*slice_from_raw_parts(input, len) };
 
     let result = catch_unwind(|| {
@@ -28,7 +27,9 @@ pub extern "C" fn read_one(input: *const u8, len: size_t) -> *mut IonResult {
                     IonRsType::Null => IonType::Null,
                     IonRsType::Symbol => IonType::Symbol,
                     IonRsType::String => IonType::String,
-                    _ => { todo!() }
+                    _ => {
+                        todo!()
+                    }
                 };
                 // handling all null values here cuts redundant branching
                 let ptr = if nvl {
@@ -40,25 +41,28 @@ pub extern "C" fn read_one(input: *const u8, len: size_t) -> *mut IonResult {
                             CString::new(e.as_str().unwrap()).unwrap().into_raw()
                         }
                         // should be dead branch, but makes compiler happy
-                        IonType::Null => null_mut()
+                        IonType::Null => null_mut(),
                     }
                 };
                 println!("returning value result!");
-                IonResult::Value(
-                    IonValue { ion_type: rt, ptr: ptr as *mut c_void }
-                )
-            },
+                IonResult::Value(IonValue {
+                    ion_type: rt,
+                    ptr: ptr as *mut c_void,
+                })
+            }
             Err(_) => {
                 println!("returning error result!");
-                IonResult::Error(
-                    IonError { message: CString::new("Default Error Message").unwrap().into_raw() }
-                )
+                IonResult::Error(IonError {
+                    message: CString::new("Default Error Message").unwrap().into_raw(),
+                })
             }
         }
-    }).unwrap_or_else(|_| {
-        IonResult::Error(
-            IonError { message: CString::new("caught panic").unwrap().into_raw() }
-    )});
+    })
+    .unwrap_or_else(|_| {
+        IonResult::Error(IonError {
+            message: CString::new("caught panic").unwrap().into_raw(),
+        })
+    });
 
     Box::into_raw(Box::new(result))
 }
@@ -67,13 +71,15 @@ pub extern "C" fn read_one(input: *const u8, len: size_t) -> *mut IonResult {
 /// It is an error to call more than once for a result.
 #[no_mangle]
 pub extern "C" fn free_result(rptr: *mut IonResult) {
-    unsafe { Box::from_raw(rptr); }
+    unsafe {
+        Box::from_raw(rptr);
+    }
 }
 
 #[repr(C)]
 pub enum IonResult {
     Value(IonValue),
-    Error(IonError)
+    Error(IonError),
 }
 
 #[repr(C)]
@@ -81,7 +87,7 @@ pub enum IonResult {
 pub enum IonType {
     Null,
     String,
-    Symbol
+    Symbol,
 }
 
 /// TODO: consider modeling as enum to capture all the variant
@@ -89,7 +95,7 @@ pub enum IonType {
 #[repr(C)]
 pub struct IonValue {
     pub ion_type: IonType,
-    pub ptr: *mut c_void
+    pub ptr: *mut c_void,
 }
 
 impl Drop for IonValue {
@@ -100,7 +106,7 @@ impl Drop for IonValue {
 
 #[repr(C)]
 pub struct IonError {
-    pub message: *mut c_char
+    pub message: *mut c_char,
 }
 
 impl Drop for IonError {
