@@ -45,7 +45,7 @@ impl Default for Precision {
 /// NaiveDateTime component and the Mantissa will indicate the number of digits from that value
 /// that should be used. If the precision is 10 or more digits, the Mantissa will store the value
 /// itself as a Decimal with the correct precision.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mantissa {
     /// The number of digits of precision in the Timestamp's fractional seconds. For example, a
     /// value of `3` would indicate millisecond precision. A value of `6` would indicate
