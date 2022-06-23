@@ -1634,7 +1634,7 @@ mod timestamp_tests {
         #[case] other: Timestamp,
         #[case] expected: Ordering,
     ) {
-        assert_eq!(this.partial_cmp(&other), Some(expected))
+        assert_eq!(this.cmp(&other), expected)
     }
 
     #[test]
