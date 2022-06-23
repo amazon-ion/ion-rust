@@ -1629,6 +1629,7 @@ mod timestamp_tests {
     #[case::timestamp_with_different_precision(Timestamp::with_year(2020).with_month(3).build().unwrap(), Timestamp::with_year(2020).build().unwrap(), Ordering::Greater)]
     #[case::timestamp_with_same_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Equal)]
     #[case::timestamp_with_different_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
+    #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
     fn timestamp_ordering_tests(
         #[case] this: Timestamp,
         #[case] other: Timestamp,
