@@ -267,7 +267,11 @@ impl Timestamp {
                     Ordering::Less
                 }
             }
-            (Some(Digits(d1)), Some(Digits(d2))) => d1.cmp(d2),
+            (Some(Digits(_d1)), Some(Digits(_d2))) => {
+                let d1 = self.date_time.nanosecond();
+                let d2 = other.date_time.nanosecond();
+                d1.cmp(&d2)
+            }
             (Some(Arbitrary(d1)), Some(Arbitrary(d2))) => Mantissa::decimals_compare(d1, d2),
             (Some(Digits(_d1)), Some(Arbitrary(d2))) => {
                 let d1 = &self.fractional_seconds_as_decimal().unwrap();
@@ -1626,6 +1630,9 @@ mod timestamp_tests {
     #[rstest]
     #[case::timestamp_with_same_year(Timestamp::with_year(2020).build().unwrap(), Timestamp::with_year(2020).build().unwrap(), Ordering::Equal)]
     #[case::timestamp_with_different_year(Timestamp::with_year(2020).build().unwrap(), Timestamp::with_year(2021).build().unwrap(), Ordering::Less)]
+    #[case::timestamp_with_milliseconds(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_milliseconds(449).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_milliseconds(449).build_at_offset(5 * 60).unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_milliseconds_nanoseconds(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_milliseconds(449).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_nanoseconds(449000005).build_at_offset(5 * 60).unwrap(), Ordering::Less)]
+    #[case::timestamp_with_fractional_seconds(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_fractional_seconds(Decimal::new(449u64, -3)).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_nanoseconds(449000000).build_at_offset(5 * 60).unwrap(), Ordering::Equal)]
     #[case::timestamp_with_different_precision(Timestamp::with_year(2020).with_month(3).build().unwrap(), Timestamp::with_year(2020).build().unwrap(), Ordering::Greater)]
     #[case::timestamp_with_same_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Equal)]
     #[case::timestamp_with_different_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
