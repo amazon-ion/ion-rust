@@ -366,12 +366,19 @@ mod integer_tests {
 
     #[rstest]
     #[case::i64(Integer::I64(5), Integer::I64(4), Ordering::Greater)]
+    #[case::i64_equal(Integer::I64(-5), Integer::I64(-5), Ordering::Equal)]
     #[case::i64_gt_big_int(Integer::I64(4), Integer::BigInt(BigInt::from(3)), Ordering::Greater)]
+    #[case::i64_eq_big_int(Integer::I64(3), Integer::BigInt(BigInt::from(3)), Ordering::Equal)]
     #[case::i64_lt_big_int(Integer::I64(-3), Integer::BigInt(BigInt::from(5)), Ordering::Less)]
     #[case::big_int(
         Integer::BigInt(BigInt::from(1100)),
         Integer::BigInt(BigInt::from(-1005)),
         Ordering::Greater
+    )]
+    #[case::big_int(
+        Integer::BigInt(BigInt::from(1100)),
+        Integer::BigInt(BigInt::from(1100)),
+        Ordering::Equal
     )]
     fn integer_ordering_tests(
         #[case] this: Integer,
@@ -383,6 +390,7 @@ mod integer_tests {
 
     #[rstest]
     #[case::u64(UInteger::U64(5), UInteger::U64(4), Ordering::Greater)]
+    #[case::u64_equal(UInteger::U64(5), UInteger::U64(5), Ordering::Equal)]
     #[case::u64_gt_big_uint(
         UInteger::U64(4),
         UInteger::BigUInt(BigUint::from(3u64)),
@@ -393,10 +401,20 @@ mod integer_tests {
         UInteger::BigUInt(BigUint::from(5u64)),
         Ordering::Less
     )]
+    #[case::u64_eq_big_uint(
+        UInteger::U64(3),
+        UInteger::BigUInt(BigUint::from(3u64)),
+        Ordering::Equal
+    )]
     #[case::big_uint(
         UInteger::BigUInt(BigUint::from(1100u64)),
         UInteger::BigUInt(BigUint::from(1005u64)),
         Ordering::Greater
+    )]
+    #[case::big_uint(
+        UInteger::BigUInt(BigUint::from(1005u64)),
+        UInteger::BigUInt(BigUint::from(1005u64)),
+        Ordering::Equal
     )]
     fn unsigned_integer_ordering_tests(
         #[case] this: UInteger,
