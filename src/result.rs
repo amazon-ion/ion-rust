@@ -1,7 +1,9 @@
+use nom::error::ErrorKind;
 use std::convert::From;
 use std::fmt::{Debug, Display, Error, Formatter};
 use std::{fmt, io};
 
+use crate::IonError::IoError;
 use thiserror::Error;
 
 /// A unified Result type representing the outcome of method calls that may fail.
@@ -147,6 +149,7 @@ pub fn decoding_error<T, S: AsRef<str>>(description: S) -> IonResult<T> {
 
 /// A convenience method for creating an IonError::DecodingError with the provided operation
 /// text. Useful for calling Option#ok_or_else.
+#[inline(never)]
 pub fn decoding_error_raw<S: AsRef<str>>(description: S) -> IonError {
     IonError::DecodingError {
         description: description.as_ref().to_string(),
@@ -161,6 +164,7 @@ pub fn illegal_operation<T, S: AsRef<str>>(operation: S) -> IonResult<T> {
 
 /// A convenience method for creating an IonError::IllegalOperation with the provided operation
 /// text. Useful for calling Option#ok_or_else.
+#[inline(never)]
 pub fn illegal_operation_raw<S: AsRef<str>>(operation: S) -> IonError {
     IonError::IllegalOperation {
         operation: operation.as_ref().to_string(),

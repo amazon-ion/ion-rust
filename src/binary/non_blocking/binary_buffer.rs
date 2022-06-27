@@ -380,7 +380,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         // Advance beyond the type descriptor
         self.consume(1);
         // If the type descriptor says we should skip more bytes, skip them.
-        let length = self.read_standard_length(type_descriptor.length_code)?;
+        let length = self.read_length(type_descriptor.length_code)?;
         if self.remaining() < length.value() {
             return incomplete_data_error("a NOP", self.total_consumed());
         }
@@ -394,28 +394,39 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// bytes read. If no additional bytes were read, the returned `VarUInt`'s `size_in_bytes()`
     /// method will return `0`.
     pub fn read_value_length(&mut self, header: Header) -> IonResult<VarUInt> {
-        if header.is_null() {
-            return Ok(VarUInt::new(0, 0));
-        }
-
         use IonType::*;
-        let length: VarUInt = match header.ion_type {
-            Null | Boolean => VarUInt::new(0, 0),
-            Integer | Decimal | String | Symbol | List | SExpression | Clob | Blob => {
-                self.read_standard_length(header.length_code)?
-            }
-            Timestamp => {
-                let length = self.read_standard_length(header.length_code)?;
-                if length.value() <= 1 && !header.is_null() {
-                    return decoding_error(
-                        "found a non-null timestamp (typecode=6) with a length <= 1",
-                    );
-                }
-                length
-            }
-            Float => self.read_float_length(header.length_code)?,
-            Struct => self.read_struct_length(header.length_code)?,
+        // Some type-specific `length` field overrides
+        let length_code = match header.ion_type {
+            // Null (0x0F) and Boolean (0x10, 0x11) are the only types that don't have/use a `length`
+            // field; the header contains the complete value.
+            Null | Boolean => 0,
+            // If a struct has length = 1, its fields are ordered and the actual length follows.
+            // For the time being, this reader does not have any special handling for this case.
+            // Use `0xE` (14) as the length code instead so the call to `read_length` below
+            // consumes a VarUInt.
+            Struct if header.length_code == 1 => length_codes::VAR_UINT,
+            // For any other type, use the header's declared length code.
+            _ => header.length_code,
         };
+
+        // Read the length, potentially consuming a VarUInt in the process.
+        let length = self.read_length(length_code)?;
+
+        // After we get the length, perform some type-specific validation.
+        match header.ion_type {
+            Float => match header.length_code {
+                0 | 4 | 8 | 15 => {}
+                _ => return decoding_error("found a float with an illegal length code"),
+            },
+            Timestamp if !header.is_null() && length.value() <= 1 => {
+                return decoding_error("found a timestamp with length <= 1")
+            }
+            Struct if header.length_code == 1 && length.value() == 0 => {
+                return decoding_error("found an empty ordered struct")
+            }
+            _ => {}
+        };
+
         Ok(length)
     }
 
@@ -428,7 +439,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     ///
     /// If successful, returns an `Ok(_)` that contains the [VarUInt] representation
     /// of the value's length and consumes any additional bytes read.
-    pub fn read_standard_length(&mut self, length_code: u8) -> IonResult<VarUInt> {
+    pub fn read_length(&mut self, length_code: u8) -> IonResult<VarUInt> {
         let length = match length_code {
             length_codes::NULL => VarUInt::new(0, 0),
             length_codes::VAR_UINT => self.read_var_uint()?,
@@ -436,65 +447,6 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         };
 
         Ok(length)
-    }
-
-    /// Interprets a `float` type descriptor's `L` nibble. `float` values can only have a length
-    /// of:
-    ///   * `0` (implicit `0e0`)
-    ///   * `4` (f32)
-    ///   * `8` (f64)
-    ///   * `f` (`null.float`)
-    ///
-    /// See: https://amzn.github.io/ion-docs/docs/binary.html#0x4-float
-    ///
-    /// If successful, returns an `Ok(_)` that contains the [VarUInt] representation of the value's
-    /// length and consumes any additional bytes read.
-    fn read_float_length(&mut self, length_code: u8) -> IonResult<VarUInt> {
-        let length = match length_code {
-            0 => 0,
-            4 => 4,
-            8 => 8,
-            length_codes::NULL => 0,
-            _ => {
-                return decoding_error(format!(
-                    "found a float value with an illegal length: {}",
-                    length_code
-                ))
-            }
-        };
-        Ok(VarUInt::new(length, 0))
-    }
-
-    /// Interprets a `struct` type descriptor's `L` nibble. `struct` lengths are interpreted
-    /// according to the rules described in [read_standard_length] but with one exception:
-    /// `L` values of `1` are treated differently.
-    ///
-    /// A `struct` cannot have a length of `1`. If a `struct` is not empty, it must have at least
-    /// one (field ID, field value) pair; since the ID and value are at least one byte long, a
-    /// length of `1` is impossible.
-    ///
-    /// Ion 1.0 uses this `L` value for a special case:
-    ///
-    /// > When L is 1, the struct has at least one symbol/value pair, the length field exists,
-    /// > and the field name integers are sorted in increasing order.
-    ///
-    /// See: https://amzn.github.io/ion-docs/docs/binary.html#0xd-struct
-    ///
-    /// If successful, returns an `Ok(_)` that contains the [VarUInt] representation of the value's
-    /// length and consumes any additional bytes read.
-    fn read_struct_length(&mut self, length_code: u8) -> IonResult<VarUInt> {
-        if length_code == 1 {
-            // If the length code is `1`, it indicates an ordered struct. This is a special case
-            // of struct; it cannot be empty, and its fields must appear in ascending order of
-            // symbol ID. For the time being, the binary reader doesn't implement any special
-            // handling for it.
-            let length = self.read_var_uint()?;
-            if length.value() == 0 {
-                return decoding_error("found an empty ordered struct");
-            }
-            return Ok(length);
-        }
-        self.read_standard_length(length_code)
     }
 }
 

@@ -105,11 +105,13 @@ impl TypeDescriptor {
 
     #[inline]
     pub fn to_header(self) -> Option<Header> {
-        Some(Header {
-            ion_type: self.ion_type?,
+        let ion_type = self.ion_type?;
+        let header = Header {
+            ion_type,
             ion_type_code: self.ion_type_code,
             length_code: self.length_code,
-        })
+        };
+        Some(header)
     }
 }
 
