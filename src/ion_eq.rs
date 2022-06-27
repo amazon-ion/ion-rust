@@ -25,9 +25,6 @@ use num_traits::Zero;
 /// * Timestamps representing the same point in time at different precisions or at different
 /// timezone offsets are not Ion equivalent.
 ///
-// TODO: `Timestamp` and `Decimal` do not currently implement `IonEq` because their implementations
-//       of `PartialEq` use Ion equivalence rules. We need to disentangle these.
-// See https://github.com/amzn/ion-rust/issues/381
 pub trait IonEq {
     fn ion_eq(&self, other: &Self) -> bool;
 }

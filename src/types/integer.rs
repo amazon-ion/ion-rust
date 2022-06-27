@@ -2,6 +2,7 @@ use crate::result::{decoding_error, IonError};
 use crate::value::Element;
 use num_bigint::{BigInt, BigUint};
 use num_traits::{ToPrimitive, Zero};
+use std::cmp::Ordering;
 use std::ops::{Add, Neg};
 
 /// Provides convenient integer accessors for integer values that are like [`Integer`]
@@ -57,10 +58,64 @@ pub trait IntAccess {
 /// Represents a UInt of any size. Used for reading binary integers and symbol IDs.
 ///
 /// Equality tests do NOT compare across storage types; U64(1) is not the same as BigUInt(1).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum UInteger {
     U64(u64),
     BigUInt(BigUint),
+}
+
+impl UInteger {
+    /// Compares a [u64] integer with a [BigUint] to see if they are equal. This method never
+    /// allocates. It will always prefer to downgrade a BigUint and compare the two integers as
+    /// u64 values. If this is not possible, then the two numbers cannot be equal anyway.
+    fn cross_representation_eq(m1: u64, m2: &BigUint) -> bool {
+        UInteger::cross_representation_cmp(m1, m2) == Ordering::Equal
+    }
+
+    /// Compares a [u64] integer with a [BigUint]. This method never allocates. It will always
+    /// prefer to downgrade a BigUint and compare the two integers as u64 values. If this is
+    /// not possible, then the BigUint is larger than the u64.
+    fn cross_representation_cmp(m1: u64, m2: &BigUint) -> Ordering {
+        // Try to downgrade the BigUint first since that's cheaper than upgrading the u64.
+        if let Some(downgraded_m2) = m2.to_u64() {
+            // If the conversion succeeds, compare the resulting values.
+            return m1.cmp(&downgraded_m2);
+        }
+        // Otherwise, the BigUint must be larger than the u64.
+        Ordering::Less
+    }
+}
+
+impl PartialEq for UInteger {
+    fn eq(&self, other: &Self) -> bool {
+        use UInteger::*;
+        match (self, other) {
+            (U64(m1), U64(m2)) => m1 == m2,
+            (BigUInt(m1), BigUInt(m2)) => m1 == m2,
+            (U64(m1), BigUInt(m2)) => UInteger::cross_representation_eq(*m1, m2),
+            (BigUInt(m1), U64(m2)) => UInteger::cross_representation_eq(*m2, m1),
+        }
+    }
+}
+
+impl Eq for UInteger {}
+
+impl PartialOrd for UInteger {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for UInteger {
+    fn cmp(&self, other: &Self) -> Ordering {
+        use UInteger::*;
+        match (self, other) {
+            (U64(m1), U64(m2)) => m1.cmp(m2),
+            (BigUInt(m1), BigUInt(m2)) => m1.cmp(m2),
+            (U64(m1), BigUInt(m2)) => UInteger::cross_representation_cmp(*m1, m2),
+            (BigUInt(m1), U64(m2)) => UInteger::cross_representation_cmp(*m2, m1).reverse(),
+        }
+    }
 }
 
 impl From<UInteger> for Integer {
@@ -133,6 +188,28 @@ pub enum Integer {
     BigInt(BigInt),
 }
 
+impl Integer {
+    /// Compares a [i64] integer with a [BigInt] to see if they are equal. This method never
+    /// allocates. It will always prefer to downgrade a BigUint and compare the two integers as
+    /// u64 values. If this is not possible, then the two numbers cannot be equal anyway.
+    fn cross_representation_eq(m1: i64, m2: &BigInt) -> bool {
+        Integer::cross_representation_cmp(m1, m2) == Ordering::Equal
+    }
+
+    /// Compares a [i64] integer with a [BigInt]. This method never allocates. It will always
+    /// prefer to downgrade a BigUint and compare the two integers as u64 values. If this is
+    /// not possible, then the BigUint is larger than the u64.
+    fn cross_representation_cmp(m1: i64, m2: &BigInt) -> Ordering {
+        // Try to downgrade the BigUint first since that's cheaper than upgrading the u64.
+        if let Some(downgraded_m2) = m2.to_i64() {
+            // If the conversion succeeds, compare the resulting values.
+            return m1.cmp(&downgraded_m2);
+        }
+        // Otherwise, the BigUint must be larger than the u64.
+        Ordering::Less
+    }
+}
+
 impl IntAccess for Integer {
     #[inline]
     fn as_i64(&self) -> Option<i64> {
@@ -154,15 +231,11 @@ impl IntAccess for Integer {
 impl PartialEq for Integer {
     fn eq(&self, other: &Self) -> bool {
         use Integer::*;
-        match self {
-            I64(my_i64) => match other {
-                I64(other_i64) => my_i64 == other_i64,
-                BigInt(other_bi) => Some(*my_i64) == other_bi.to_i64(),
-            },
-            BigInt(my_bi) => match other {
-                I64(other_i64) => my_bi.to_i64() == Some(*other_i64),
-                BigInt(other_bi) => my_bi == other_bi,
-            },
+        match (self, other) {
+            (I64(m1), I64(m2)) => m1 == m2,
+            (BigInt(m1), BigInt(m2)) => m1 == m2,
+            (I64(m1), BigInt(m2)) => Integer::cross_representation_eq(*m1, m2),
+            (BigInt(m1), I64(m2)) => Integer::cross_representation_eq(*m2, m1),
         }
     }
 }
@@ -177,6 +250,24 @@ impl Neg for Integer {
         match self {
             I64(value) => I64(-value),
             BigInt(value) => BigInt(-value),
+        }
+    }
+}
+
+impl PartialOrd for Integer {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Integer {
+    fn cmp(&self, other: &Self) -> Ordering {
+        use Integer::*;
+        match (self, other) {
+            (I64(m1), I64(m2)) => m1.cmp(m2),
+            (BigInt(m1), BigInt(m2)) => m1.cmp(m2),
+            (I64(m1), BigInt(m2)) => Integer::cross_representation_cmp(*m1, m2),
+            (BigInt(m1), I64(m2)) => Integer::cross_representation_cmp(*m2, m1).reverse(),
         }
     }
 }
@@ -237,9 +328,13 @@ where
 #[cfg(test)]
 mod integer_tests {
     use num_bigint::BigInt;
+    use num_bigint::BigUint;
     use num_traits::Zero;
     // The 'Big' alias helps distinguish between the enum variant and the wrapped numeric type
     use crate::types::integer::Integer::{self, BigInt as Big, I64};
+    use crate::types::integer::UInteger;
+    use rstest::*;
+    use std::cmp::Ordering;
 
     #[test]
     fn is_zero() {
@@ -267,5 +362,65 @@ mod integer_tests {
             Big(BigInt::from(100)) + Big(BigInt::from(1000)),
             Big(BigInt::from(1100))
         );
+    }
+
+    #[rstest]
+    #[case::i64(Integer::I64(5), Integer::I64(4), Ordering::Greater)]
+    #[case::i64_equal(Integer::I64(-5), Integer::I64(-5), Ordering::Equal)]
+    #[case::i64_gt_big_int(Integer::I64(4), Integer::BigInt(BigInt::from(3)), Ordering::Greater)]
+    #[case::i64_eq_big_int(Integer::I64(3), Integer::BigInt(BigInt::from(3)), Ordering::Equal)]
+    #[case::i64_lt_big_int(Integer::I64(-3), Integer::BigInt(BigInt::from(5)), Ordering::Less)]
+    #[case::big_int(
+        Integer::BigInt(BigInt::from(1100)),
+        Integer::BigInt(BigInt::from(-1005)),
+        Ordering::Greater
+    )]
+    #[case::big_int(
+        Integer::BigInt(BigInt::from(1100)),
+        Integer::BigInt(BigInt::from(1100)),
+        Ordering::Equal
+    )]
+    fn integer_ordering_tests(
+        #[case] this: Integer,
+        #[case] other: Integer,
+        #[case] expected: Ordering,
+    ) {
+        assert_eq!(this.cmp(&other), expected)
+    }
+
+    #[rstest]
+    #[case::u64(UInteger::U64(5), UInteger::U64(4), Ordering::Greater)]
+    #[case::u64_equal(UInteger::U64(5), UInteger::U64(5), Ordering::Equal)]
+    #[case::u64_gt_big_uint(
+        UInteger::U64(4),
+        UInteger::BigUInt(BigUint::from(3u64)),
+        Ordering::Greater
+    )]
+    #[case::u64_lt_big_uint(
+        UInteger::U64(3),
+        UInteger::BigUInt(BigUint::from(5u64)),
+        Ordering::Less
+    )]
+    #[case::u64_eq_big_uint(
+        UInteger::U64(3),
+        UInteger::BigUInt(BigUint::from(3u64)),
+        Ordering::Equal
+    )]
+    #[case::big_uint(
+        UInteger::BigUInt(BigUint::from(1100u64)),
+        UInteger::BigUInt(BigUint::from(1005u64)),
+        Ordering::Greater
+    )]
+    #[case::big_uint(
+        UInteger::BigUInt(BigUint::from(1005u64)),
+        UInteger::BigUInt(BigUint::from(1005u64)),
+        Ordering::Equal
+    )]
+    fn unsigned_integer_ordering_tests(
+        #[case] this: UInteger,
+        #[case] other: UInteger,
+        #[case] expected: Ordering,
+    ) {
+        assert_eq!(this.cmp(&other), expected)
     }
 }
