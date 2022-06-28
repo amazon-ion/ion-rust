@@ -1,9 +1,7 @@
-use nom::error::ErrorKind;
 use std::convert::From;
 use std::fmt::{Debug, Display, Error, Formatter};
 use std::{fmt, io};
 
-use crate::IonError::IoError;
 use thiserror::Error;
 
 /// A unified Result type representing the outcome of method calls that may fail.

@@ -56,13 +56,22 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
             data: &self.data,
             start: self.start,
             end: self.end,
-            total_consumed: 0,
+            total_consumed: self.total_consumed,
         }
     }
 
     /// Returns a slice containing all of the buffer's remaining bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.data.as_ref()[self.start..self.end]
+    }
+
+    /// Gets a slice from the buffer starting at `offset` and ending at `offset + length`.
+    /// The caller must check that the buffer contains `length + offset` bytes prior
+    /// to calling this method.
+    pub fn bytes_range(&self, offset: usize, length: usize) -> &[u8] {
+        let from = self.start + offset;
+        let to = from + length;
+        &self.data.as_ref()[from..to]
     }
 
     /// Returns the number of bytes that have been marked as read either via the [consume] method
@@ -114,7 +123,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         if self.is_empty() {
             return incomplete_data_error("a type descriptor", self.total_consumed());
         }
-        let next_byte = self.bytes()[0];
+        let next_byte = self.data.as_ref()[self.start];
         Ok(ION_1_0_TYPE_DESCRIPTORS[next_byte as usize])
     }
 
@@ -201,13 +210,13 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         }
         let first_byte: u8 = self.peek_next_byte().unwrap();
         let no_more_bytes: bool = first_byte >= 0b1000_0000; // If the first bit is 1, we're done.
-        let is_positive: bool = (first_byte & 0b0100_0000) == 0;
-        let sign: i64 = if is_positive { 1 } else { -1 };
+        let is_negative: bool = (first_byte & 0b0100_0000) == 0b0100_0000;
+        let sign: i64 = if is_negative { -1 } else { 1 };
         let mut magnitude = (first_byte & 0b0011_1111) as i64;
 
         if no_more_bytes {
             self.consume(1);
-            return Ok(VarInt::new(magnitude * sign, !is_positive, 1));
+            return Ok(VarInt::new(magnitude * sign, is_negative, 1));
         }
 
         let mut encoded_size_in_bytes = 1;
@@ -226,7 +235,6 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         }
 
         if !terminated {
-            // panic!("incomplete (unterm) varint @ pos {}: {:x?}", self.total_consumed(), self.bytes());
             return incomplete_data_error(
                 "a VarInt",
                 self.total_consumed() + encoded_size_in_bytes,
@@ -243,7 +251,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         self.consume(encoded_size_in_bytes);
         Ok(VarInt::new(
             magnitude * sign,
-            !is_positive,
+            is_negative,
             encoded_size_in_bytes,
         ))
     }

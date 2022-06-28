@@ -32,8 +32,10 @@ struct EncodedValue {
     //
     // See the Rust Performance Book section on measuring type sizes[1] for more information.
     // [1] https://nnethercote.github.io/perf-book/type-sizes.html#measuring-type-sizes
+
+    // The type descriptor byte that identified this value; includes the type code, length code,
+    // and IonType.
     header: Header,
-    field_id: Option<SymbolId>,
 
     // Each encoded value has up to five components, appearing in the following order:
     //
@@ -57,6 +59,9 @@ struct EncodedValue {
     // The number of bytes used to encode the field ID (if present) preceding the Ion value. If
     // `field_id` is undefined, `field_id_length` will be zero.
     field_id_length: u8,
+    // If this value is inside a struct, `field_id` will contain the SymbolId that represents
+    // its field name.
+    field_id: Option<SymbolId>,
     // The number of bytes used to encode the annotations wrapper (if present) preceding the Ion
     // value. If `annotations` is empty, `annotations_length` will be zero.
     annotations_header_length: u8,
@@ -69,6 +74,12 @@ struct EncodedValue {
     // The number of bytes used to encode the value itself, not including the header byte
     // or length fields.
     value_length: usize,
+    // The sum total of:
+    //     field_id_length + annotations_header_length + self.header_length() + self.value_length()
+    // While this can be derived from the above fields, storing it for reuse offers a modest
+    // optimization. `total_length` is needed when stepping into a value, skipping a value,
+    // and reading a value's data.
+    total_length: usize,
 }
 
 impl EncodedValue {
@@ -189,10 +200,7 @@ impl EncodedValue {
     /// field ID (if any), its annotations (if any), its header (type descriptor + length bytes),
     /// and its value.
     fn total_length(&self) -> usize {
-        self.field_id_length as usize
-            + self.annotations_header_length as usize
-            + self.header_length()
-            + self.value_length()
+        self.total_length
     }
 
     fn ion_type(&self) -> IonType {
@@ -216,6 +224,7 @@ impl Default for EncodedValue {
             header_offset: 0,
             header_length: 0,
             value_length: 0,
+            total_length: 0,
         }
     }
 }
@@ -324,19 +333,17 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
         // Temporarily break apart `self` to get simultaneous mutable references to the buffer,
         // the reader state, and the parents.
         let RawBinaryBufferReader {
-            ion_version,
             state,
             buffer,
             parents,
+            ..
         } = self;
 
         // Create a slice of the main buffer that has its own records of how many bytes have been
         // read and how many remain.
         let tx_buffer = buffer.slice();
         TxReader {
-            ion_version: *ion_version,
             state,
-            main_buffer: buffer,
             parent: parents.last(),
             tx_buffer,
             encoded_value: Default::default(),
@@ -350,57 +357,22 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
     /// be [ReaderState::Skipping], indicating that it is mid-stream and awaiting more data.
     fn advance_to_next_item(&mut self) -> IonResult<()> {
         use ReaderState::*;
-        match &mut self.state {
-            // We're done advancing and are ready to try reading the current byte.
-            Ready => Ok(()),
-            // The `Skipping(n)` state means that we ran out of data on a previous call to `next()`.
-            // The only way to fix it is to add more input bytes to the buffer using the `append_bytes`
-            // or `read_from` methods. Adding input bytes to the buffer is only supported
-            // when the generic type `A` is `Vec<u8>`.
-            Skipping(bytes_to_skip) => {
-                let remaining = self.buffer.remaining();
-                if remaining >= *bytes_to_skip {
-                    self.buffer.consume(*bytes_to_skip);
-                    self.state = Ready;
-                    Ok(())
-                } else {
-                    self.buffer.consume(remaining);
-                    *bytes_to_skip -= remaining;
-                    incomplete_data_error("ahead to next item", self.buffer.total_consumed())
-                }
-            }
-            // The reader is currently positioned on the first byte of an IVM. We'll attempt to
-            // advance the buffer's cursor by 4 bytes (the IVM length) to get to the next item.
-            OnIvm => {
-                if self.buffer.remaining() < IVM.len() {
-                    return incomplete_data_error(
-                        "item after Ion version marker",
-                        self.buffer.total_consumed(),
-                    );
-                }
-                self.buffer.consume(IVM.len());
-                self.state = Ready;
-                Ok(())
-            }
-            // The reader is currently positioned on the first byte of a value. We'll attempt to
-            // advance the cursor to the first byte after this value.
-            OnValue(encoded_value) => {
-                let bytes_to_skip = encoded_value.total_length();
-                let remaining_bytes = self.buffer.remaining();
-                if remaining_bytes < bytes_to_skip {
-                    // The buffer doesn't have enough data to reach the next item.
-                    self.buffer.consume(remaining_bytes);
-                    self.state = Skipping(bytes_to_skip - remaining_bytes);
-                    return incomplete_data_error(
-                        "ahead to next item",
-                        self.buffer.total_consumed(),
-                    );
-                }
-                // The reader has enough data to reach the next item.
-                self.buffer.consume(bytes_to_skip);
-                self.state = Ready;
-                Ok(())
-            }
+        let bytes_to_skip = match self.state {
+            Ready => return Ok(()),
+            Skipping(bytes_to_skip) => bytes_to_skip,
+            OnIvm => IVM.len(),
+            OnValue(encoded_value) => encoded_value.total_length(),
+        };
+
+        let bytes_available = self.buffer.remaining();
+        if bytes_available >= bytes_to_skip {
+            self.buffer.consume(bytes_to_skip);
+            self.state = Ready;
+            Ok(())
+        } else {
+            self.buffer.consume(bytes_available);
+            self.state = Skipping(bytes_to_skip - bytes_available);
+            incomplete_data_error("ahead to next item", self.buffer.total_consumed())
         }
     }
 
@@ -481,9 +453,10 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
         }
 
         // Get the slice of buffer bytes that represent the value. This slice may be empty.
-        let start = value_total_length - encoded_value.value_length();
-        let end = value_total_length;
-        let bytes = &self.buffer.bytes()[start..end];
+        let value_offset = value_total_length - encoded_value.value_length();
+        let bytes = self
+            .buffer
+            .bytes_range(value_offset, encoded_value.value_length());
 
         Ok((encoded_value, bytes))
     }
@@ -698,10 +671,9 @@ impl<A: AsRef<[u8]>> StreamReader for RawBinaryBufferReader<A> {
         match representation {
             0 => Ok(false),
             1 => Ok(true),
-            _ => decoding_error(format!(
+            _ => decoding_error(
                 "found a boolean value with an illegal representation (must be 0 or 1): {}",
-                representation
-            )),
+            ),
         }
     }
 
@@ -724,7 +696,7 @@ impl<A: AsRef<[u8]>> StreamReader for RawBinaryBufferReader<A> {
                 return decoding_error("found a negative integer (typecode=3) with a value of 0");
             }
             (NegativeInteger, integer) => -integer,
-            itc => unreachable!("Unexpected IonTypeCode: {:?}", itc),
+            _itc => return decoding_error("unexpected ion type code"),
         };
 
         Ok(value)
@@ -741,12 +713,7 @@ impl<A: AsRef<[u8]>> StreamReader for RawBinaryBufferReader<A> {
             0 => 0f64,
             4 => f64::from(BigEndian::read_f32(bytes)),
             8 => BigEndian::read_f64(bytes),
-            _ => {
-                return decoding_error(&format!(
-                    "encountered a float with an illegal length (must be 0, 4, or 8): {}",
-                    number_of_bytes
-                ))
-            }
+            _ => return decoding_error("encountered a float with an illegal length"),
         };
         Ok(value)
     }
@@ -915,11 +882,10 @@ impl<A: AsRef<[u8]>> StreamReader for RawBinaryBufferReader<A> {
             IonType::List => ContainerType::List,
             IonType::SExpression => ContainerType::SExpression,
             IonType::Struct => ContainerType::Struct,
-            other => {
-                return illegal_operation(format!(
-                    "cannot step into a {}; it is not a container",
-                    other
-                ))
+            _other => {
+                return illegal_operation(
+                    "cannot step in; the reader is not positioned over a container",
+                )
             }
         };
 
@@ -1030,9 +996,7 @@ impl<'a> Iterator for AnnotationsIterator<'a> {
 /// In this way, the RawBinaryBufferReader will never be in a bad state. It only updates when the
 /// TxReader has already found the next item.
 struct TxReader<'a, A: AsRef<[u8]>> {
-    ion_version: (u8, u8),
     state: &'a mut ReaderState,
-    main_buffer: &'a BinaryBuffer<A>,
     parent: Option<&'a Container>,
     tx_buffer: BinaryBuffer<&'a A>,
     encoded_value: EncodedValue,
@@ -1068,11 +1032,13 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         mut type_descriptor: TypeDescriptor,
     ) -> IonResult<RawStreamItem> {
         if type_descriptor.is_nop() {
-            self.consume_nop_padding(type_descriptor)?;
-            if self.is_eof() || self.is_at_end_of_container() {
-                return Ok(RawStreamItem::Nothing);
+            if let Some(item) = self.consume_nop_padding(&mut type_descriptor)? {
+                // We may encounter the end of the file or container while reading NOP padding,
+                // in which case `item` will be RawStreamItem::Nothing.
+                return Ok(item);
             }
-            type_descriptor = self.tx_buffer.peek_type_descriptor()?;
+            // Note that if `consume_nop_padding` reads NOP bytes but doesn't hit EOF, it will
+            // have updated `type_descriptor` by the time we continue on below.
         }
 
         if type_descriptor.is_annotation_wrapper() {
@@ -1104,8 +1070,10 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
             } else {
                 // We've moved beyond any NOP pads. The last field ID we read was a real one.
                 // Record its length and offset information.
-                self.encoded_value.field_id_length = u8::try_from(field_id.size_in_bytes())
-                    .map_err(|_e| decoding_error_raw("found a field ID > 255 bytes long"))?;
+                self.encoded_value.field_id_length = match u8::try_from(field_id.size_in_bytes()) {
+                    Ok(length) => length,
+                    Err(_e) => return decoding_error("found a field ID with more than 255 bytes"),
+                };
                 self.encoded_value.field_id = Some(field_id.value());
                 return if type_descriptor.is_annotation_wrapper() {
                     self.read_annotated_value_header(type_descriptor)
@@ -1130,7 +1098,6 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
     }
 
     /// Reads the unannotated header byte (and any length bytes) for the next value.
-    #[inline]
     fn read_unannotated_value_header(
         &mut self,
         type_descriptor: TypeDescriptor,
@@ -1147,8 +1114,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         self.encoded_value.header = header;
         // Record the *absolute* offset of the type descriptor -- its offset from the beginning of
         // the stream.
-        self.encoded_value.header_offset =
-            self.main_buffer.total_consumed() + self.tx_buffer.total_consumed();
+        self.encoded_value.header_offset = self.tx_buffer.total_consumed();
         // Advance beyond the type descriptor
         self.tx_buffer.consume(1);
 
@@ -1158,6 +1124,10 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
             decoding_error_raw("found a value with a header length field over 255 bytes long")
         })?;
         self.encoded_value.value_length = length.value();
+        self.encoded_value.total_length = self.encoded_value.field_id_length as usize
+            + self.encoded_value.annotations_header_length as usize
+            + self.encoded_value.header_length()
+            + self.encoded_value.value_length();
 
         // If this value was annotated, make sure that the length declared in the header matches
         // the one that was declared in the preceding annotations wrapper.
@@ -1186,7 +1156,10 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
     // NOP padding is not widely used in Ion 1.0. This method is annotated with `inline(never)`
     // to avoid the compiler bloating other methods on the hot path with its rarely used
     // instructions.
-    fn consume_nop_padding(&mut self, mut type_descriptor: TypeDescriptor) -> IonResult<()> {
+    fn consume_nop_padding(
+        &mut self,
+        type_descriptor: &mut TypeDescriptor,
+    ) -> IonResult<Option<RawStreamItem>> {
         // Skip over any number of NOP regions
         while type_descriptor.is_nop() {
             // We're not on a value, but we are at a place where the reader can safely resume
@@ -1196,12 +1169,12 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
             // If we don't reach a value header by the end of this method, make a note to discard
             // these NOP bytes before we do our next attempt. We don't want the reader to have to
             // hold NOP bytes in the buffer if we've already processed them.
-            if self.is_eof() {
-                return Ok(());
+            if self.is_eof() || self.is_at_end_of_container() {
+                return Ok(Some(RawStreamItem::Nothing));
             }
-            type_descriptor = self.tx_buffer.peek_type_descriptor()?;
+            *type_descriptor = self.tx_buffer.peek_type_descriptor()?;
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Populates the annotations-related offsets in the `EncodedValue` based on the information
@@ -1266,7 +1239,6 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         if !matches!((major, minor), (1, 0)) {
             return decoding_error(format!("unsupported Ion version {:X}.{:X}", major, minor));
         }
-        self.ion_version = (major, minor);
         *self.state = ReaderState::OnIvm;
         Ok(RawStreamItem::VersionMarker(major, minor))
     }
@@ -1282,7 +1254,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
     /// reached the end.
     fn is_at_end_of_container(&self) -> bool {
         if let Some(parent) = self.parent {
-            let position = self.main_buffer.total_consumed() + self.tx_buffer.total_consumed();
+            let position = self.tx_buffer.total_consumed();
             if position >= parent.exclusive_end {
                 return true;
             }
