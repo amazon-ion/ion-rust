@@ -107,11 +107,6 @@ impl Decimal {
 
     // Determines whether the first decimal value is greater than, equal to, or less than
     // the second decimal value.
-    // TODO: This currently uses the rules for Ion equivalence to determine if two values are equal.
-    //       This leads to potentially surprising behavior around zeros; in particular, -0 and 0
-    //       are not equal, and zeros with different exponents are not equal. We need to offer a
-    //       separate method for testing Ion equivalence.
-    //       See: https://github.com/amzn/ion-rust/issues/220
     fn compare(d1: &Decimal, d2: &Decimal) -> Ordering {
         if d1.is_zero() && d2.is_zero() {
             // Ignore the sign/exponent if they're both some flavor of zero.
