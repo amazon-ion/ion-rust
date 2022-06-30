@@ -225,6 +225,48 @@ impl Zero for Integer {
     }
 }
 
+// Trivial conversion to Integer::I64 from integers that can safely be converted to an i64
+macro_rules! impl_integer_i64_from {
+    ($($t:ty),*) => ($(
+        impl From<$t> for Integer {
+            fn from(value: $t) -> Integer {
+                let i64_value = i64::from(value);
+                Integer::I64(i64_value)
+            }
+        }
+    )*)
+}
+impl_integer_i64_from!(u8, u16, u32, i8, i16, i32, i64);
+
+// Conversion to Integer from integer types that may or may not fit in an i64
+macro_rules! impl_integer_from {
+    ($($t:ty),*) => ($(
+        impl From<$t> for Integer {
+            fn from(value: $t) -> Integer {
+                match i64::try_from(value) {
+                    Ok(i64_value) => Integer::I64(i64_value),
+                    Err(_) => Integer::BigInt(BigInt::from(value))
+                }
+            }
+        }
+    )*)
+}
+
+impl_integer_from!(isize, usize, u64);
+
+impl From<BigUint> for Integer {
+    fn from(value: BigUint) -> Self {
+        let big_int = BigInt::from(value);
+        Integer::BigInt(big_int)
+    }
+}
+
+impl From<BigInt> for Integer {
+    fn from(value: BigInt) -> Self {
+        Integer::BigInt(value)
+    }
+}
+
 impl<T> IntAccess for T
 where
     T: Element,
