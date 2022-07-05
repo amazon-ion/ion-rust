@@ -75,7 +75,7 @@ struct EncodedValue {
     // or length fields.
     value_length: usize,
     // The sum total of:
-     //     field_id_length + annotations_header_length + header_length + value_length
+    //     field_id_length + annotations_header_length + header_length + value_length
     // While this can be derived from the above fields, storing it for reuse offers a modest
     // optimization. `total_length` is needed when stepping into a value, skipping a value,
     // and reading a value's data.
