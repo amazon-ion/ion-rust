@@ -63,7 +63,7 @@ struct EncodedValue {
     // its field name.
     field_id: Option<SymbolId>,
     // The number of bytes used to encode the annotations wrapper (if present) preceding the Ion
-    // value. If `annotations` is empty, `annotations_length` will be zero.
+    // value. If `annotations` is empty, `annotations_header_length` will be zero.
     annotations_header_length: u8,
     // The number of bytes used to encode the series of symbol IDs inside the annotations wrapper.
     annotations_sequence_length: u8,
