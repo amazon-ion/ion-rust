@@ -106,7 +106,10 @@ fn decimal_from_text_components<'a>(
     let sanitized = exponent_text.trim_start_matches('+').replace('_', "");
     let mut exponent = i64::from_str(&sanitized).expect("parsing exponent as i64 failed");
     // Reduce the exponent by the number of digits that follow the decimal point
-    exponent -= digits_after_dot.chars().filter(|c| c.is_digit(10)).count() as i64;
+    exponent -= digits_after_dot
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .count() as i64;
     Ok(("", Decimal::new(coefficient, exponent)))
 }
 

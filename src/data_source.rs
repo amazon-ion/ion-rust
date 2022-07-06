@@ -337,7 +337,7 @@ impl<'a> ToIonDataSource for &'a [u8] {
     }
 }
 
-impl<'a> ToIonDataSource for Vec<u8> {
+impl ToIonDataSource for Vec<u8> {
     type DataSource = io::Cursor<Self>;
 
     fn to_ion_data_source(self) -> Self::DataSource {

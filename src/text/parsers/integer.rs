@@ -58,7 +58,7 @@ fn base_16_integer_digits(input: &str) -> IonParseResult<&str> {
 /// Recognizes 1 or more consecutive base-16 digits.
 // This function's "1" suffix is a style borrowed from `nom`.
 fn take_base_16_digits1(input: &str) -> IonParseResult<&str> {
-    take_while1(|c: char| c.is_digit(16))(input).upgrade()
+    take_while1(|c: char| c.is_ascii_hexdigit())(input).upgrade()
 }
 
 /// Matches a base-2 notation integer (e.g. `0b0`, `0B1`, or `-0b10_10`) and returns the resulting

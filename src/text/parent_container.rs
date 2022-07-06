@@ -1,7 +1,7 @@
 use crate::IonType;
 
 /// Represents a container that the text reader has stepped into.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParentContainer {
     // The container type the reader has stepped into
     ion_type: IonType,

@@ -15,7 +15,7 @@ pub type IonCErrorSource = ion_c_sys::result::IonCError;
 pub type IonCErrorSource = ErrorStub;
 
 /// Placeholder Error type for error variants that require conditional compilation.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ErrorStub;
 
 impl Display for ErrorStub {

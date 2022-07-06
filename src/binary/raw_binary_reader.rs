@@ -289,7 +289,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
     #[allow(clippy::should_implement_trait)]
     fn next(&mut self) -> IonResult<RawStreamItem> {
         // Skip the remaining bytes of the current value, if any.
-        let _ = self.skip_current_value()?;
+        self.skip_current_value()?;
 
         if let Some(parent) = self.cursor.parents.last() {
             // If the cursor is nested inside a parent object, don't attempt to read beyond the end of
@@ -370,7 +370,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
             self.cursor.value.header = header;
         }
 
-        let _ = self.process_header_by_type_code(header)?;
+        self.process_header_by_type_code(header)?;
 
         self.cursor.index_at_depth += 1;
         self.cursor.value.index_at_depth = self.cursor.index_at_depth;
@@ -547,12 +547,10 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
     {
         self.map_string_bytes(|buffer| match std::str::from_utf8(buffer) {
             Ok(utf8_text) => Ok(f(utf8_text)),
-            Err(utf8_error) => {
-                return decoding_error(&format!(
-                    "The requested string was not valid UTF-8: {:?}",
-                    utf8_error
-                ))
-            }
+            Err(utf8_error) => decoding_error(&format!(
+                "The requested string was not valid UTF-8: {:?}",
+                utf8_error
+            )),
         })?
     }
 

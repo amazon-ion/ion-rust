@@ -510,7 +510,7 @@ impl<W: Write> RawBinaryWriter<W> {
     }
 }
 
-impl<'a, W: Write> Writer for RawBinaryWriter<W> {
+impl<W: Write> Writer for RawBinaryWriter<W> {
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }

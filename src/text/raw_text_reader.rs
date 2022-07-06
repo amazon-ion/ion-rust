@@ -734,14 +734,13 @@ impl<T: ToIonDataSource> StreamReader for RawTextReader<T> {
         let container_type = self.parents.last().unwrap().ion_type();
         match container_type {
             IonType::List => {
-                let _ = self.parse_expected("list delimiter or end", list_delimiter)?;
+                self.parse_expected("list delimiter or end", list_delimiter)?;
             }
             IonType::SExpression => {
-                let _ =
-                    self.parse_expected("s-expression delimiter or end", s_expression_delimiter)?;
+                self.parse_expected("s-expression delimiter or end", s_expression_delimiter)?;
             }
             IonType::Struct => {
-                let _ = self.parse_expected("struct delimiter or end", struct_delimiter)?;
+                self.parse_expected("struct delimiter or end", struct_delimiter)?;
             }
             scalar => unreachable!("Stepping out of a scalar type: {:?}", scalar),
         };

@@ -745,7 +745,7 @@ impl TimestampBuilder {
 
         // Otherwise, apply the offset to our (local) NaiveDateTime and make sure the resulting
         // DateTime<FixedOffset> is valid.
-        return match offset.from_local_datetime(&datetime) {
+        match offset.from_local_datetime(&datetime) {
             LocalResult::None => {
                 illegal_operation(
                     format!(
@@ -765,7 +765,7 @@ impl TimestampBuilder {
                     )
                 )
             }
-        };
+        }
     }
 
     /// Attempt to construct a [Timestamp] using the values configured on the [TimestampBuilder].

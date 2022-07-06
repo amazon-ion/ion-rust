@@ -3,7 +3,7 @@ use crate::types::SymbolId;
 use crate::Symbol;
 
 /// Like RawSymbolToken, but the Text variant holds a borrowed reference instead of a String.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RawSymbolTokenRef<'a> {
     SymbolId(SymbolId),
     Text(&'a str),
@@ -18,7 +18,7 @@ impl<'a> AsRawSymbolTokenRef for RawSymbolTokenRef<'a> {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
         match self {
             RawSymbolTokenRef::SymbolId(sid) => RawSymbolTokenRef::SymbolId(*sid),
-            RawSymbolTokenRef::Text(text) => RawSymbolTokenRef::Text(*text),
+            RawSymbolTokenRef::Text(text) => RawSymbolTokenRef::Text(text),
         }
     }
 }
