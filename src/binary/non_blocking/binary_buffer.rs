@@ -93,7 +93,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// If the buffer is not empty, returns `Some(_)` containing the next byte in the buffer.
     /// Otherwise, returns `None`.
     pub fn peek_next_byte(&self) -> Option<u8> {
-        self.bytes().get(0).copied()
+        self.data.as_ref().get(self.start).copied()
     }
 
     /// If there are at least `n` bytes left in the buffer, returns `Some(_)` containing a slice
@@ -262,7 +262,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     ///
     /// See: https://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields
     pub fn read_uint(&mut self, length: usize) -> IonResult<DecodedUInt> {
-        if length <= mem::size_of::<usize>() {
+        if length <= mem::size_of::<u64>() {
             return self.read_small_uint(length);
         }
 
@@ -271,18 +271,13 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     }
 
     /// Reads the first `length` bytes from the buffer as a `UInt`. The caller must confirm that
-    /// `length` is small enough to fit in a `usize`.
+    /// `length` is small enough to fit in a `u64`.
     #[inline]
     fn read_small_uint(&mut self, length: usize) -> IonResult<DecodedUInt> {
         let uint_bytes = self
             .peek_n_bytes(length)
             .ok_or_else(|| incomplete_data_error_raw("a UInt", self.total_consumed()))?;
-        let mut magnitude: u64 = 0;
-        for &byte in uint_bytes {
-            let byte = u64::from(byte);
-            magnitude <<= 8;
-            magnitude |= byte;
-        }
+        let magnitude = DecodedUInt::small_uint_from_slice(uint_bytes);
         self.consume(length);
         Ok(DecodedUInt::new(UInteger::U64(magnitude), length))
     }

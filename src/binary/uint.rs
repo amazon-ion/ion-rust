@@ -28,6 +28,24 @@ impl DecodedUInt {
         }
     }
 
+    /// Interprets all of the bytes in the provided slice as big-endian unsigned integer bytes.
+    /// The caller must confirm that `uint_bytes` is no longer than 8 bytes long; otherwise,
+    /// overflow may quietly occur.
+    pub(crate) fn small_uint_from_slice(uint_bytes: &[u8]) -> u64 {
+        let mut magnitude: u64 = 0;
+        for &byte in uint_bytes {
+            let byte = u64::from(byte);
+            magnitude <<= 8;
+            magnitude |= byte;
+        }
+        magnitude
+    }
+
+    /// Interprets all of the bytes in the provided slice as big-endian unsigned integer bytes.
+    pub(crate) fn big_uint_from_slice(uint_bytes: &[u8]) -> BigUint {
+        BigUint::from_bytes_be(uint_bytes)
+    }
+
     /// Reads a UInt with `length` bytes from the provided data source.
     pub fn read<R: IonDataSource>(data_source: &mut R, length: usize) -> IonResult<DecodedUInt> {
         if length > MAX_UINT_SIZE_IN_BYTES {

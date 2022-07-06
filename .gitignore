@@ -226,7 +226,8 @@ massif.out.*
 bb.out
 bb.out.*
 
-
+# macOS folder metadata
+**/.DS_Store
 
 ### VisualStudioCode ###
 .vscode/*

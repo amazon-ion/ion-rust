@@ -9,7 +9,7 @@ use crate::result::{
     decoding_error, decoding_error_raw, illegal_operation, illegal_operation_raw,
     incomplete_data_error,
 };
-use crate::types::integer::{IntAccess, UInteger};
+use crate::types::integer::IntAccess;
 use crate::types::SymbolId;
 use crate::{
     Decimal, Integer, IonResult, IonType, RawStreamItem, RawSymbolToken, StreamReader, Timestamp,
@@ -18,6 +18,7 @@ use bytes::{BigEndian, Buf, ByteOrder};
 use num_bigint::BigUint;
 use num_traits::Zero;
 use std::io::Read;
+use std::mem;
 use std::ops::Range;
 
 /// Type, offset, and length information about the serialized value over which the
@@ -475,18 +476,13 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
 
     /// If the reader is currently positioned on a symbol value, parses that value into a `SymbolId`.
     pub fn read_symbol_id(&mut self) -> IonResult<SymbolId> {
-        let (encoded_value, mut buffer) = self.value_and_buffer(IonType::Symbol)?;
-        match buffer.read_uint(encoded_value.value_length())?.value() {
-            UInteger::U64(symbol_id) => {
-                // This will always succeed on 64-bit platforms where u64 and usize are the same.
-                if let Ok(sid) = usize::try_from(*symbol_id) {
-                    Ok(sid)
-                } else {
-                    decoding_error("found a u64 symbol ID that was too large to fit in a usize")
-                }
-            }
-            UInteger::BigUInt(symbol_id) => Self::try_symbol_id_from_big_uint(symbol_id),
+        let (_encoded_value, bytes) = self.value_and_bytes(IonType::Symbol)?;
+        if bytes.len() > mem::size_of::<usize>() {
+            return decoding_error("found a symbol Id that was too large to fit in a usize");
         }
+        let magnitude = DecodedUInt::small_uint_from_slice(bytes);
+        // This cast is safe because we've confirmed the value was small enough to fit in a usize.
+        Ok(magnitude as usize)
     }
 
     /// Tries to downgrade the provided BigUint to a SymbolId (usize).
@@ -628,6 +624,12 @@ impl<A: AsRef<[u8]>> StreamReader for RawBinaryBufferReader<A> {
         Box::new(self.annotations_iter())
     }
 
+    fn has_annotations(&self) -> bool {
+        self.encoded_value()
+            .map(|v| v.annotations_sequence_length > 0)
+            .unwrap_or(false)
+    }
+
     fn field_name(&self) -> IonResult<Self::Symbol> {
         // If the reader is parked on a value...
         self.encoded_value()
@@ -685,9 +687,12 @@ impl<A: AsRef<[u8]>> StreamReader for RawBinaryBufferReader<A> {
     }
 
     fn read_integer(&mut self) -> IonResult<Integer> {
-        let (encoded_value, mut buffer) = self.value_and_buffer(IonType::Integer)?;
-        let uint: DecodedUInt = buffer.read_uint(encoded_value.value_length())?;
-        let value: Integer = uint.into();
+        let (encoded_value, bytes) = self.value_and_bytes(IonType::Integer)?;
+        let value: Integer = if bytes.len() <= mem::size_of::<u64>() {
+            DecodedUInt::small_uint_from_slice(bytes).into()
+        } else {
+            DecodedUInt::big_uint_from_slice(bytes).into()
+        };
 
         use self::IonTypeCode::*;
         let value = match (encoded_value.header.ion_type_code, value) {
@@ -1195,7 +1200,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         // Read the length of the annotations sequence
         let annotations_length = self.tx_buffer.read_var_uint()?;
 
-        // Validate that neither the annotations sequence is not empty.
+        // Validate that the annotations sequence is not empty.
         if annotations_length.value() == 0 {
             return decoding_error("found an annotations wrapper with no annotations");
         }
@@ -1204,7 +1209,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         let expected_value_length = annotations_and_value_length
             - annotations_length.size_in_bytes()
             - annotations_length.value();
-        self.tx_buffer.total_consumed();
+
         if expected_value_length == 0 {
             return decoding_error("found an annotation wrapper with no value");
         }
@@ -1749,7 +1754,7 @@ mod tests {
     fn debug() -> IonResult<()> {
         let data = &[
             0xE0, 0x01, 0x00, 0xEA, // IVM
-            0xc3, 0xd2, 0x84, 0x11, // {'name': true}
+            0xc3, 0xd2, 0x84, 0x11, // ({'name': true})
         ]; // Empty string
         let mut reader = RawBinaryBufferReader::new(data);
         let item = reader.next()?;
