@@ -118,7 +118,7 @@ impl DecodedInt {
     /// Encodes the provided `value` as an Int and writes it to the provided `sink`.
     /// Returns the number of bytes written.
     pub fn write_i64<W: Write>(sink: &mut W, value: i64) -> IonResult<usize> {
-        let magnitude = value.abs() as u64;
+        let magnitude = value.unsigned_abs();
         // Using leading_zeros() to determine how many empty bytes we can ignore.
         // We subtract one from the number of leading bits to leave space for a sign bit
         // and divide by 8 to get the number of bytes.

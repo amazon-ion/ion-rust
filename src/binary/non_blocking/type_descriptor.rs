@@ -120,7 +120,7 @@ impl TypeDescriptor {
 ///
 /// Notably, it stores an `IonType` instead of an `Option<IonType>`, allowing functions that expect
 /// a value header to avoid matching/unwrapping.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Header {
     pub ion_type: IonType,
     // The only time the `ion_type_code` is required is to distinguish between positive

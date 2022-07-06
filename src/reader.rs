@@ -376,10 +376,10 @@ impl<R: RawReader> StreamReader for UserReader<R> {
                 if let Some(symbol) = self.symbol_table.symbol_for(symbol_id) {
                     Ok(symbol.clone())
                 } else {
-                    return decoding_error(format!(
+                    decoding_error(format!(
                         "Found symbol ID ${}, which is not defined.",
                         symbol_id
-                    ));
+                    ))
                 }
             }
             RawSymbolToken::Text(text) => Ok(Symbol::owned(text)),

@@ -448,5 +448,5 @@ mod reader_tests {
 /// Matches the next input character if it is a base-10 digit. This wraps [char::is_digit] in the
 /// nom parsing function signature.
 pub(crate) fn digit(input: &str) -> IResult<&str, char> {
-    satisfy(|c| c.is_digit(10))(input)
+    satisfy(|c| c.is_ascii_digit())(input)
 }

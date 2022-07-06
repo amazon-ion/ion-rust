@@ -132,7 +132,7 @@ impl From<DecodedUInt> for Integer {
 
 /// A buffer for storing a UInt's Big Endian bytes. UInts that can fit in a `u64` will use the
 /// `Stack` storage variant, meaning that no heap allocations are required in the common case.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UIntBeBytes {
     Stack([u8; mem::size_of::<u64>()]),
     Heap(Vec<u8>),
@@ -143,7 +143,7 @@ pub enum UIntBeBytes {
 /// information.
 ///
 /// [spec]: https://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EncodedUInt {
     be_bytes: UIntBeBytes,
     first_occupied_byte: usize,

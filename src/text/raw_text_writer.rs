@@ -406,7 +406,7 @@ impl<W: Write> RawTextWriter<W> {
     }
 }
 
-impl<'a, W: Write> Writer for RawTextWriter<W> {
+impl<W: Write> Writer for RawTextWriter<W> {
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }

@@ -4,7 +4,7 @@ use crate::types::SymbolId;
 /// [RawSymbolToken]s do not store import source information for the token encountered. Similarly,
 /// a [RawSymbolToken] cannot store both a symbol ID _and_ text, which means that it is not suitable
 /// for representing a resolved symbol.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RawSymbolToken {
     SymbolId(SymbolId),
     Text(String),

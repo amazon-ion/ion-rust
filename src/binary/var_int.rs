@@ -105,7 +105,7 @@ impl VarInt {
         ];
 
         // The absolute value of an i64 can be cast losslessly to a u64.
-        let mut magnitude: u64 = value.abs() as u64;
+        let mut magnitude: u64 = value.unsigned_abs();
 
         // Calculate the number of bytes that the encoded version of our value will occupy.
         // We ignore any leading zeros in the value to minimize the encoded size.
