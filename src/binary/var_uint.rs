@@ -7,11 +7,9 @@ use std::mem;
 // These type aliases will simplify the process of changing the data types used to represent each
 // VarUInt's magnitude and byte length in the future.
 // See: https://github.com/amzn/ion-rust/issues/7
-pub type VarUIntStorage = usize;
-pub type VarUIntSizeStorage = usize;
 
 const BITS_PER_ENCODED_BYTE: usize = 7;
-const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<VarUIntStorage>() * 8;
+const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<usize>() * 8;
 const MAX_ENCODED_SIZE_IN_BYTES: usize = STORAGE_SIZE_IN_BITS / BITS_PER_ENCODED_BYTE;
 
 const LOWER_7_BITMASK: u8 = 0b0111_1111;
@@ -22,17 +20,24 @@ const HIGHEST_BIT_VALUE: u8 = 0b1000_0000;
 /// section of the binary Ion spec for more details.
 #[derive(Debug)]
 pub struct VarUInt {
-    value: VarUIntStorage,
-    size_in_bytes: VarUIntSizeStorage,
+    value: usize,
+    size_in_bytes: usize,
 }
 
 impl VarUInt {
+    pub(crate) fn new(value: usize, size_in_bytes: usize) -> Self {
+        VarUInt {
+            value,
+            size_in_bytes,
+        }
+    }
+
     /// Reads a VarUInt from the provided data source.
     pub fn read<R: IonDataSource>(data_source: &mut R) -> IonResult<VarUInt> {
-        let mut magnitude: VarUIntStorage = 0;
+        let mut magnitude: usize = 0;
 
         let mut byte_processor = |byte: u8| {
-            let lower_seven = (LOWER_7_BITMASK & byte) as VarUIntStorage;
+            let lower_seven = (LOWER_7_BITMASK & byte) as usize;
             magnitude <<= 7; // Shifts 0 to 0 in the first iteration
             magnitude |= lower_seven;
             byte < HIGHEST_BIT_VALUE // If the highest bit is zero, continue reading
@@ -104,15 +109,15 @@ impl VarUInt {
 
     /// Returns the magnitude of the unsigned integer
     #[inline(always)]
-    pub fn value(&self) -> VarUIntStorage {
+    pub fn value(&self) -> usize {
         self.value
     }
 
     /// Returns the number of bytes that were read from the data source to construct this
     /// unsigned integer
     #[inline(always)]
-    pub fn size_in_bytes(&self) -> VarUIntSizeStorage {
-        self.size_in_bytes
+    pub fn size_in_bytes(&self) -> usize {
+        self.size_in_bytes as usize
     }
 }
 

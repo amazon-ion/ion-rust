@@ -625,7 +625,6 @@ mod ion_c_element_api_tests {
 mod native_element_tests {
     use super::*;
     use ion_rs::value::native_reader::NativeElementReader;
-    use ion_rs::value::reader::native_element_reader;
 
     struct NativeElementApi;
 
@@ -703,7 +702,7 @@ mod native_element_tests {
         }
 
         fn make_reader() -> Self::ReaderApi {
-            native_element_reader()
+            NativeElementReader
         }
     }
 
@@ -761,5 +760,146 @@ mod native_element_tests {
     //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
     fn native_non_equivs(file_name: &str) {
         non_equivs(NativeElementApi, file_name)
+    }
+}
+
+mod non_blocking_native_element_tests {
+    use super::*;
+    use ion_rs::value::native_reader::NonBlockingNativeElementReader;
+
+    struct NonBlockingNativeElementApi;
+
+    impl ElementApi for NonBlockingNativeElementApi {
+        type ReaderApi = NonBlockingNativeElementReader;
+        type RoundTripper = NativeElementWriterApi;
+
+        fn global_skip_list() -> SkipList {
+            &[
+                // The binary reader does not check whether nested values are longer than their
+                // parent container.
+                "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
+                // ROUND TRIP
+                // These tests have shared symbol table imports in them, which the Reader does not
+                // yet support.
+                "ion-tests/iontestdata/good/subfieldInt.ion",
+                "ion-tests/iontestdata/good/subfieldUInt.ion",
+                "ion-tests/iontestdata/good/subfieldVarInt.ion",
+                "ion-tests/iontestdata/good/subfieldVarUInt.ion",
+                "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
+                "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
+                "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
+                // ---
+                // Requires importing shared symbol tables
+                "ion-tests/iontestdata/good/item1.10n",
+                "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
+                // Requires importing shared symbol tables
+                "ion-tests/iontestdata/good/testfile35.ion",
+                // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
+                "ion-tests/iontestdata/good/utf16.ion",
+                "ion-tests/iontestdata/good/utf32.ion",
+                // NON-EQUIVS
+                "ion-tests/iontestdata/good/non-equivs/localSymbolTableWithAnnotations.ion",
+                "ion-tests/iontestdata/good/non-equivs/symbolTablesUnknownText.ion",
+            ]
+        }
+
+        fn read_one_equivs_skip_list() -> SkipList {
+            &[]
+        }
+
+        fn round_trip_skip_list() -> SkipList {
+            &[
+                "ion-tests/iontestdata/good/item1.10n",
+                "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
+                "ion-tests/iontestdata/good/notVersionMarkers.ion",
+                "ion-tests/iontestdata/good/subfieldInt.ion",
+                "ion-tests/iontestdata/good/subfieldUInt.ion",
+                "ion-tests/iontestdata/good/subfieldVarInt.ion",
+                "ion-tests/iontestdata/good/subfieldVarUInt.ion",
+                "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
+                "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
+                "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
+                "ion-tests/iontestdata/good/utf16.ion",
+                "ion-tests/iontestdata/good/utf32.ion",
+                // These tests have symbols with unknown text. While the raw and system readers
+                // could process these, the user-level `Reader` simply raises an `IonError`.
+                // This is in keeping with the Ion spec, but causes these tests to fail.
+                "ion-tests/iontestdata/good/symbolExplicitZero.10n",
+                "ion-tests/iontestdata/good/symbolImplicitZero.10n",
+                "ion-tests/iontestdata/good/symbolZero.ion",
+            ]
+        }
+
+        fn equivs_skip_list() -> SkipList {
+            &[
+                "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
+                "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
+                "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
+            ]
+        }
+
+        fn non_equivs_skip_list() -> SkipList {
+            &[]
+        }
+
+        fn make_reader() -> Self::ReaderApi {
+            NonBlockingNativeElementReader
+        }
+    }
+
+    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+    fn native_good_roundtrip_text_binary(file_name: &str) {
+        good_roundtrip_text_binary(NonBlockingNativeElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+    fn native_good_roundtrip_binary_text(file_name: &str) {
+        good_roundtrip_binary_text(NonBlockingNativeElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+    fn native_good_roundtrip_text_pretty(file_name: &str) {
+        good_roundtrip_text_pretty(NonBlockingNativeElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+    fn native_good_roundtrip_pretty_text(file_name: &str) {
+        good_roundtrip_pretty_text(NonBlockingNativeElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+    fn native_good_roundtrip_pretty_binary(file_name: &str) {
+        good_roundtrip_pretty_binary(NonBlockingNativeElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+    fn native_good_roundtrip_binary_pretty(file_name: &str) {
+        good_roundtrip_binary_pretty(NonBlockingNativeElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/bad/**/*.10n")]
+    fn native_bad(file_name: &str) {
+        bad(NonBlockingNativeElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
+    fn native_equivs(file_name: &str) {
+        equivs(NonBlockingNativeElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.ion")]
+    // no binary files exist and the macro doesn't like empty globs...
+    // see frehberg/test-generator#12
+    //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
+    fn native_non_equivs(file_name: &str) {
+        non_equivs(NonBlockingNativeElementApi, file_name)
     }
 }

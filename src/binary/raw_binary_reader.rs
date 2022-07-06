@@ -347,7 +347,7 @@ impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
 
         self.clear_annotations();
         let mut expected_annotated_value_length = None;
-        if header.ion_type_code == IonTypeCode::Annotation {
+        if header.ion_type_code == IonTypeCode::AnnotationOrIvm {
             if header.length_code == 0 {
                 // This is actually the first byte in an Ion Version Marker
                 let ivm = self.read_ivm()?;
@@ -996,7 +996,7 @@ where
             }
             Float => self.read_float_length()?,
             Struct => self.read_struct_length()?,
-            Annotation => return decoding_error("found an annotation wrapping an annotation"),
+            AnnotationOrIvm => return decoding_error("found an annotation wrapping an annotation"),
             Reserved => return decoding_error("found an Ion Value with a Reserved type code"),
         };
 

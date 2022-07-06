@@ -5,7 +5,7 @@ const MAX_NIBBLE_VALUE: u8 = 15;
 const NIBBLE_SIZE_IN_BITS: u8 = 4;
 
 /// Given a byte, will return a tuple containing the values of its left and right nibbles.
-pub(crate) fn nibbles_from_byte(byte: u8) -> (u8, u8) {
+pub(crate) const fn nibbles_from_byte(byte: u8) -> (u8, u8) {
     let left = byte >> NIBBLE_SIZE_IN_BITS;
     let right = byte & 0b1111;
     (left, right)

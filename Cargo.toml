@@ -53,6 +53,7 @@ rstest = "0.9"
 walkdir = "2.3"
 test-generator = "0.3"
 pretty-hex = "0.2"
+memmap = "0.7.0"
 
 [profile.release]
 lto = true
