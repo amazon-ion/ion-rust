@@ -64,7 +64,7 @@ struct EncodedValue {
     // its field name.
     field_id: Option<SymbolId>,
     // The number of bytes used to encode the annotations wrapper (if present) preceding the Ion
-    // value. If `annotations` is empty, `annotations_length` will be zero.
+    // value. If `annotations` is empty, `annotations_header_length` will be zero.
     annotations_header_length: u8,
     // The number of bytes used to encode the series of symbol IDs inside the annotations wrapper.
     annotations_sequence_length: u8,
@@ -76,7 +76,7 @@ struct EncodedValue {
     // or length fields.
     value_length: usize,
     // The sum total of:
-    //     field_id_length + annotations_header_length + self.header_length() + self.value_length()
+    //     field_id_length + annotations_header_length + header_length + value_length
     // While this can be derived from the above fields, storing it for reuse offers a modest
     // optimization. `total_length` is needed when stepping into a value, skipping a value,
     // and reading a value's data.

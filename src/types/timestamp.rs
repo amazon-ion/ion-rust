@@ -14,9 +14,10 @@ use std::ops::Div;
 
 #[cfg(feature = "ion_c")]
 use ion_c_sys::timestamp::{IonDateTime, TSOffsetKind, TSPrecision};
+use std::cmp::Ordering;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Precision {
     /// Year-level precision (e.g. `2020T`)
     Year,
@@ -66,6 +67,19 @@ impl Mantissa {
             || d1.eq(d2)
             // Coefficient zeros' signs don't have to match for fractional seconds.
             || (d1.coefficient.is_zero() && d2.coefficient.is_zero() && d1.exponent == d2.exponent)
+    }
+
+    fn decimals_compare(d1: &Decimal, d2: &Decimal) -> Ordering {
+        // See the [EmptyMantissa] trait for details about `is_empty()`
+        if d1.is_empty() && d2.is_empty() {
+            Ordering::Equal
+        } else if d1.coefficient.is_zero() && d2.coefficient.is_zero() {
+            // Coefficient zeros' signs don't have to be compared for fractional seconds.
+            d1.exponent.cmp(&d2.exponent)
+        } else {
+            // Exact comparison test
+            d1.cmp(d2)
+        }
     }
 }
 
@@ -227,6 +241,46 @@ impl Timestamp {
             }
             // This Timestamp's precision is too low to have a fractional seconds field.
             None => None,
+        }
+    }
+
+    /// Tests the fractional seconds fields of two timestamps for ordering. This function will
+    /// only be called if both Timestamps have a precision of [Precision::Second].
+    fn fractional_seconds_compare(&self, other: &Timestamp) -> Ordering {
+        use Mantissa::*;
+        match (
+            self.fractional_seconds.as_ref(),
+            other.fractional_seconds.as_ref(),
+        ) {
+            (None, None) => Ordering::Equal,
+            (Some(m), None) => {
+                if m.is_empty() {
+                    Ordering::Equal
+                } else {
+                    Ordering::Greater
+                }
+            }
+            (None, Some(m)) => {
+                if m.is_empty() {
+                    Ordering::Equal
+                } else {
+                    Ordering::Less
+                }
+            }
+            (Some(Digits(_d1)), Some(Digits(_d2))) => {
+                let d1 = self.date_time.nanosecond();
+                let d2 = other.date_time.nanosecond();
+                d1.cmp(&d2)
+            }
+            (Some(Arbitrary(d1)), Some(Arbitrary(d2))) => Mantissa::decimals_compare(d1, d2),
+            (Some(Digits(_d1)), Some(Arbitrary(d2))) => {
+                let d1 = &self.fractional_seconds_as_decimal().unwrap();
+                Mantissa::decimals_compare(d1, d2)
+            }
+            (Some(Arbitrary(d1)), Some(Digits(_d2))) => {
+                let d2 = &other.fractional_seconds_as_decimal().unwrap();
+                Mantissa::decimals_compare(d1, d2)
+            }
         }
     }
 
@@ -462,6 +516,35 @@ impl Timestamp {
     }
 }
 
+impl PartialOrd for Timestamp {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Timestamp {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let fractional_seconds_comparison = self.fractional_seconds_compare(other);
+        if fractional_seconds_comparison != Ordering::Equal {
+            return fractional_seconds_comparison;
+        }
+
+        let self_datetime = self.date_time.with_nanosecond(0).unwrap();
+        let other_datetime = other.date_time.with_nanosecond(0).unwrap();
+
+        let self_datetime = self
+            .offset
+            .map(|offset| offset.from_utc_datetime(&self_datetime))
+            .unwrap_or_else(|| FixedOffset::east(0).from_utc_datetime(&self_datetime));
+        let other_datetime = other
+            .offset
+            .map(|offset| offset.from_utc_datetime(&other_datetime))
+            .unwrap_or_else(|| FixedOffset::east(0).from_utc_datetime(&other_datetime));
+
+        self_datetime.cmp(&other_datetime)
+    }
+}
+
 /// Two Timestamps are considered equal (though not necessarily IonEq) if they represent the same
 /// instant in time. Precision is ignored. Offsets do not have to match as long as the instants
 /// being represented match. Examples:
@@ -540,6 +623,8 @@ impl IonEq for Timestamp {
         true
     }
 }
+
+impl Eq for Timestamp {}
 
 /// A Builder object for incrementally configuring and finally instantiating a [Timestamp].
 /// For the time being, this type is not publicly visible. Users are expected to use any of the
@@ -1095,6 +1180,8 @@ mod timestamp_tests {
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::{Mantissa, Precision, Timestamp};
     use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+    use rstest::*;
+    use std::cmp::Ordering;
     use std::convert::TryInto;
     use std::str::FromStr;
 
@@ -1105,6 +1192,16 @@ mod timestamp_tests {
         let timestamp2 = builder.build_at_offset(5 * 60)?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamps_with_same_ymd_hms_millis_at_known_offset_are_equal_ordering() -> IonResult<()>
+    {
+        let builder = Timestamp::with_ymd_hms_millis(2021, 2, 5, 16, 43, 51, 192);
+        let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
+        let timestamp2 = builder.build_at_offset(5 * 60)?;
+        assert_eq!(timestamp1 == timestamp2, true);
         Ok(())
     }
 
@@ -1528,6 +1625,24 @@ mod timestamp_tests {
         assert_eq!(1234567, super::first_n_digits_of(7, 123456789));
         assert_eq!(12345678, super::first_n_digits_of(8, 123456789));
         assert_eq!(123456789, super::first_n_digits_of(9, 123456789));
+    }
+
+    #[rstest]
+    #[case::timestamp_with_same_year(Timestamp::with_year(2020).build().unwrap(), Timestamp::with_year(2020).build().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_different_year(Timestamp::with_year(2020).build().unwrap(), Timestamp::with_year(2021).build().unwrap(), Ordering::Less)]
+    #[case::timestamp_with_milliseconds(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_milliseconds(449).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_milliseconds(449).build_at_offset(5 * 60).unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_milliseconds_nanoseconds(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_milliseconds(449).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_nanoseconds(449000005).build_at_offset(5 * 60).unwrap(), Ordering::Less)]
+    #[case::timestamp_with_fractional_seconds(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_fractional_seconds(Decimal::new(449u64, -3)).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_nanoseconds(449000000).build_at_offset(5 * 60).unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_different_precision(Timestamp::with_year(2020).with_month(3).build().unwrap(), Timestamp::with_year(2020).build().unwrap(), Ordering::Greater)]
+    #[case::timestamp_with_same_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_different_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
+    #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
+    fn timestamp_ordering_tests(
+        #[case] this: Timestamp,
+        #[case] other: Timestamp,
+        #[case] expected: Ordering,
+    ) {
+        assert_eq!(this.cmp(&other), expected)
     }
 
     #[test]
