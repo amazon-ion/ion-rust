@@ -603,6 +603,12 @@ impl Element for OwnedElement {
         OwnedElement::new(annotations.into_iter().collect(), self.value)
     }
 
+    fn has_annotation(&self, annotation: &str) -> bool {
+        self.annotations
+            .iter()
+            .any(|a| a.text() == Some(annotation))
+    }
+
     fn is_null(&self) -> bool {
         matches!(&self.value, OwnedValue::Null(_))
     }

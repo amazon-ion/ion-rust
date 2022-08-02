@@ -378,6 +378,12 @@ where
     /// let expected: Vec<String> = strs.iter().map(|s| (*s).into()).collect();
     /// assert_eq!(expected, annotation_strings(&owned_elem));
     /// assert_eq!(expected, annotation_strings(&borrowed_elem));
+    ///
+    /// // check if the element contains a particular annotation
+    /// assert!(&owned_elem.has_annotation("a"));
+    /// assert!(!&owned_elem.has_annotation("d"));
+    /// assert!(&borrowed_elem.has_annotation("a"));
+    /// assert!(!&borrowed_elem.has_annotation("d"));
     /// ```
     ///
     /// Note that this uses a `Box<dyn Iterator<...>>` to capture the borrow cleanly without
@@ -389,6 +395,9 @@ where
 
     /// Return an `Element` with given annotations
     fn with_annotations<I: IntoIterator<Item = Self::SymbolToken>>(self, annotations: I) -> Self;
+
+    /// Return true if an `Element` contains given annotation otherwise return false
+    fn has_annotation(&self, annotation: &str) -> bool;
 
     /// Returns whether this element is a `null` value
     fn is_null(&self) -> bool;
