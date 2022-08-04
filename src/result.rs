@@ -1,3 +1,5 @@
+#[cfg(feature = "serde")]
+use serde::{de, ser};
 use std::convert::From;
 use std::fmt::{Debug, Display, Error, Formatter};
 use std::{fmt, io};
@@ -63,6 +65,24 @@ pub enum IonError {
         #[from]
         source: IonCErrorSource,
     },
+}
+
+#[cfg(feature = "serde")]
+impl de::Error for IonError {
+    fn custom<T: Display>(msg: T) -> Self {
+        IonError::DecodingError {
+            description: msg.to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl ser::Error for IonError {
+    fn custom<T: Display>(msg: T) -> Self {
+        IonError::EncodingError {
+            description: msg.to_string(),
+        }
+    }
 }
 
 impl From<fmt::Error> for IonError {

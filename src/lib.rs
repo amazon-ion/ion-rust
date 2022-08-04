@@ -34,6 +34,8 @@ mod symbol;
 mod symbol_table;
 mod system_reader;
 mod writer;
+#[cfg(feature = "serde")]
+pub mod serde;
 
 pub use data_source::IonDataSource;
 pub use raw_symbol_token::RawSymbolToken;

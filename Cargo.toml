@@ -28,6 +28,7 @@ members = [
 
 [features]
 ion_c = ["dep:ion-c-sys"]
+serde = ["dep:serde"]
 
 [dependencies]
 base64 = "0.12"
@@ -47,6 +48,7 @@ arrayvec = "0.7"
 #     so that users can get the correct underlying ion-c-sys version.
 ion-c-sys = { path = "./ion-c-sys", version = "0.4", optional = true }
 
+serde = { version = "1.0", features = ["derive"], optional = true }
 [dev-dependencies]
 rstest = "0.9"
 # Used by ion-tests integration
