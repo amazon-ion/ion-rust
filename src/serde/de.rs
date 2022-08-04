@@ -1,7 +1,9 @@
 use crate::{IonError, IonResult, IonType, ReaderBuilder, StreamItem, StreamReader, Symbol};
+use chrono::{DateTime, FixedOffset};
 use serde::de;
 use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
+use std::borrow::Cow;
 
 pub fn from_slice<'a, T>(s: &'a [u8]) -> IonResult<T>
 where
@@ -45,7 +47,7 @@ where
 }
 
 pub struct IonDeserializer<R> {
-    reader: R,
+    pub(crate) reader: R,
 }
 
 impl<'de, 'a, R> serde::de::Deserializer<'de> for &'a mut IonDeserializer<R>
@@ -68,6 +70,10 @@ where
                 IonType::Boolean => self.deserialize_bool(visitor),
                 IonType::List => self.deserialize_seq(visitor),
                 IonType::Struct => self.deserialize_struct("", &[], visitor),
+                IonType::Timestamp => visitor.visit_map(TimestampDeserializer::<'a> {
+                    visited: false,
+                    deserializer: self,
+                }),
                 _ => Err(IonError::DecodingError {
                     description: "unexpected ion type".to_string(),
                 }),
@@ -330,13 +336,22 @@ where
 
     fn deserialize_struct<V>(
         self,
-        _name: &'static str,
-        _fields: &'static [&'static str],
+        name: &'static str,
+        fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
+        if name == "$datetime" && fields == ["$datetime"] {
+            let result = visitor.visit_map(TimestampDeserializer {
+                visited: false,
+                deserializer: self,
+            });
+            self.reader.next()?;
+            return result;
+        }
+
         self.reader.step_in()?;
         self.reader.next()?;
         let result = visitor.visit_map(&mut *self)?;
@@ -853,5 +868,88 @@ impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
         Err(IonError::DecodingError {
             description: "expected a string value".to_string(),
         })
+    }
+}
+
+struct TimestampDeserializer<'a, R> {
+    visited: bool,
+    deserializer: &'a mut IonDeserializer<R>,
+}
+
+impl<'a, 'de, R> de::MapAccess<'de> for TimestampDeserializer<'a, R>
+where
+    R: StreamReader<Symbol = Symbol, Item = StreamItem>,
+{
+    type Error = IonError;
+
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, IonError>
+    where
+        K: de::DeserializeSeed<'de>,
+    {
+        if self.visited {
+            return Ok(None);
+        }
+        self.visited = true;
+        seed.deserialize(DatetimeFieldDeserializer).map(Some)
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, IonError>
+    where
+        V: de::DeserializeSeed<'de>,
+    {
+        let timestamp = self.deserializer.reader.read_timestamp()?;
+        let datetime: DateTime<FixedOffset> = timestamp.try_into().unwrap();
+        let datetime_str = datetime.to_rfc3339();
+
+        seed.deserialize(StrDeserializer::new(Cow::from(datetime_str)))
+    }
+}
+
+struct DatetimeFieldDeserializer;
+
+impl<'de> de::Deserializer<'de> for DatetimeFieldDeserializer {
+    type Error = IonError;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, IonError>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_borrowed_str("$datetime")
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 char str string seq
+        bytes byte_buf map struct option unit newtype_struct
+        ignored_any unit_struct tuple_struct tuple enum identifier
+    }
+}
+
+struct StrDeserializer<'a> {
+    key: Cow<'a, str>,
+}
+
+impl<'a> StrDeserializer<'a> {
+    fn new(key: Cow<'a, str>) -> StrDeserializer<'a> {
+        StrDeserializer { key }
+    }
+}
+
+impl<'de> de::Deserializer<'de> for StrDeserializer<'de> {
+    type Error = IonError;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, IonError>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.key {
+            Cow::Borrowed(s) => visitor.visit_borrowed_str(s),
+            Cow::Owned(s) => visitor.visit_string(s),
+        }
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 char str string seq
+        bytes byte_buf map struct option unit newtype_struct
+        ignored_any unit_struct tuple_struct tuple enum identifier
     }
 }

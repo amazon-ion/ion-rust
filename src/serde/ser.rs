@@ -1,7 +1,9 @@
+use chrono::{DateTime, Utc};
 use std::io::Cursor;
 
 use crate::{
-    BinaryWriterBuilder, Integer, IonError, IonResult, IonType, TextWriterBuilder, Writer,
+    BinaryWriterBuilder, Integer, IonError, IonResult, IonType, StreamItem, StreamReader, Symbol,
+    TextWriterBuilder, Timestamp, Writer,
 };
 use serde::ser::Impossible;
 use serde::{ser, Serialize};
@@ -72,7 +74,7 @@ where
 }
 
 pub struct Serializer<E> {
-    writer: E,
+    pub(crate) writer: E,
 }
 
 impl<'a, E> ser::Serializer for &'a mut Serializer<E>
@@ -87,7 +89,7 @@ where
     type SerializeTupleStruct = Self;
     type SerializeTupleVariant = Self;
     type SerializeMap = Self;
-    type SerializeStruct = Self;
+    type SerializeStruct = TableSerializer<'a, E>;
     type SerializeStructVariant = Self;
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
@@ -238,11 +240,15 @@ where
 
     fn serialize_struct(
         self,
-        _name: &'static str,
+        name: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
-        self.writer.step_in(IonType::Struct)?;
-        Ok(self)
+        if name == "$datetime" {
+            Ok(TableSerializer::Timestamp(self))
+        } else {
+            self.writer.step_in(IonType::Struct)?;
+            Ok(TableSerializer::Table(self))
+        }
     }
 
     fn serialize_struct_variant(
@@ -355,30 +361,6 @@ where
     where
         T: Serialize,
     {
-        value.serialize(&mut **self)
-    }
-
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        self.writer.step_out()
-    }
-}
-
-impl<'a, E> ser::SerializeStruct for &'a mut Serializer<E>
-where
-    E: Writer,
-{
-    type Ok = ();
-    type Error = IonError;
-
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        key: &'static str,
-        value: &T,
-    ) -> Result<(), Self::Error>
-    where
-        T: Serialize,
-    {
-        self.writer.set_field_name(key);
         value.serialize(&mut **self)
     }
 
@@ -585,5 +567,238 @@ impl<'a> ser::Serializer for MapKeySerializer {
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         Err(key_must_be_a_string())
+    }
+}
+
+pub enum TableSerializer<'a, E> {
+    Table(&'a mut Serializer<E>),
+    Timestamp(&'a mut Serializer<E>),
+}
+
+pub struct TimestampSerializer<'a, E> {
+    serializer: &'a mut Serializer<E>,
+}
+
+impl<'a, E> ser::Serializer for TimestampSerializer<'a, E>
+where
+    E: Writer,
+{
+    type Ok = ();
+    type Error = IonError;
+
+    fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
+        let datetime = DateTime::parse_from_rfc3339(v).map_err(|e| IonError::EncodingError {
+            description: e.to_string(),
+        })?;
+        let timestamp = Timestamp::from(datetime);
+        self.serializer.writer.write_timestamp(&timestamp)
+    }
+
+    fn serialize_unit_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        variant: &'static str,
+    ) -> Result<Self::Ok, Self::Error> {
+        let datetime =
+            DateTime::parse_from_rfc3339(variant).map_err(|e| IonError::EncodingError {
+                description: e.to_string(),
+            })?;
+        let timestamp = Timestamp::from(datetime);
+        self.serializer.writer.write_timestamp(&timestamp)
+    }
+
+    fn serialize_newtype_struct<T: ?Sized>(
+        self,
+        _name: &'static str,
+        value: &T,
+    ) -> Result<Self::Ok, Self::Error>
+    where
+        T: Serialize,
+    {
+        value.serialize(self)
+    }
+
+    type SerializeSeq = Impossible<(), IonError>;
+    type SerializeTuple = Impossible<(), IonError>;
+    type SerializeTupleStruct = Impossible<(), IonError>;
+    type SerializeTupleVariant = Impossible<(), IonError>;
+    type SerializeMap = Impossible<(), IonError>;
+    type SerializeStruct = Impossible<(), IonError>;
+    type SerializeStructVariant = Impossible<(), IonError>;
+
+    fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error>
+    where
+        T: Serialize,
+    {
+        value.serialize(self)
+    }
+
+    fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_newtype_variant<T: ?Sized>(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _value: &T,
+    ) -> Result<Self::Ok, Self::Error>
+    where
+        T: Serialize,
+    {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_tuple_struct(
+        self,
+        _name: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeTupleStruct, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_tuple_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeTupleVariant, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_struct(
+        self,
+        _name: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeStruct, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+
+    fn serialize_struct_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeStructVariant, Self::Error> {
+        Err(key_must_be_a_string())
+    }
+}
+
+impl<'a, E> ser::SerializeStruct for TableSerializer<'a, E>
+where
+    E: Writer,
+{
+    type Ok = ();
+    type Error = IonError;
+
+    fn serialize_field<T: ?Sized>(
+        &mut self,
+        key: &'static str,
+        value: &T,
+    ) -> Result<Self::Ok, Self::Error>
+    where
+        T: Serialize,
+    {
+        match *self {
+            TableSerializer::Timestamp(ref mut ser) => {
+                if key == "$datetime" {
+                    value.serialize(TimestampSerializer {
+                        serializer: &mut *ser,
+                    })
+                } else {
+                    Err(IonError::EncodingError {
+                        description: "date invalid".to_string(),
+                    })
+                }
+            }
+            TableSerializer::Table(ref mut ser) => {
+                ser.writer.set_field_name(key);
+                value.serialize(&mut **ser)
+            }
+        }
+    }
+
+    fn end(self) -> Result<(), IonError> {
+        match self {
+            TableSerializer::Timestamp(_) => {}
+            TableSerializer::Table(ser) => ser.writer.step_out()?,
+        };
+        Ok(())
     }
 }
