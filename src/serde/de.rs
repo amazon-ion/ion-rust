@@ -951,6 +951,8 @@ impl<'de> de::Deserializer<'de> for StrDeserializer<'de> {
 
 pub struct StreamDeserializer<'de, R, T> {
     de: Deserializer<R>,
+    output: PhantomData<T>,
+    lifetime: PhantomData<&'de ()>,
 }
 
 impl<'de, R, T> StreamDeserializer<'de, R, T>
@@ -961,6 +963,8 @@ where
     pub fn new(read: R) -> Self {
         Self {
             de: Deserializer { reader: read },
+            output: PhantomData,
+            lifetime: PhantomData,
         }
     }
 }
