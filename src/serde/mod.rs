@@ -8,9 +8,9 @@ pub use ser::{to_binary, to_pretty, to_string, Serializer};
 #[cfg(test)]
 mod tests {
     use crate::serde::{from_str, to_binary, to_pretty, to_string};
-    use crate::types::timestamp::Precision;
+    
     use crate::Timestamp;
-    use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
+    use chrono::{DateTime, FixedOffset, Utc};
     use serde::{Deserialize, Serialize};
     use serde_with::serde_as;
 
