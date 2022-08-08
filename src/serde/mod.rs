@@ -2,7 +2,7 @@ pub mod datetime;
 pub mod de;
 pub mod ser;
 
-pub use de::{from_slice, from_str, IonDeserializer};
+pub use de::{from_slice, from_str, Deserializer};
 pub use ser::{to_binary, to_pretty, to_string, Serializer};
 
 #[cfg(test)]

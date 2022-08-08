@@ -1,56 +1,51 @@
+use crate::data_source::ToIonDataSource;
 use crate::{IonError, IonResult, IonType, ReaderBuilder, StreamItem, StreamReader, Symbol};
 use chrono::{DateTime, FixedOffset};
 use serde::de;
 use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use std::borrow::Cow;
+use std::iter::FusedIterator;
+use std::marker::PhantomData;
 
+pub fn from_ion_datasource<'a, T, S>(s: S) -> IonResult<T>
+where
+    T: Deserialize<'a>,
+    S: ToIonDataSource,
+{
+    let mut deserializer = Deserializer {
+        reader: ReaderBuilder::new().build(s)?,
+    };
+
+    // If we are hovering over nothing call next till we have an object
+    while StreamItem::Nothing == deserializer.reader.current() {
+        deserializer.reader.next()?;
+    }
+
+    T::deserialize(&mut deserializer)
+}
+
+#[inline]
 pub fn from_slice<'a, T>(s: &'a [u8]) -> IonResult<T>
 where
     T: Deserialize<'a>,
 {
-    let mut deserializer = IonDeserializer {
-        reader: ReaderBuilder::new().build(s)?,
-    };
-    // Need to move twice
-    deserializer.reader.next()?; // Nothing header
-
-    let t = T::deserialize(&mut deserializer)?;
-
-    if deserializer.reader.ion_type().is_none() {
-        Ok(t)
-    } else {
-        Err(IonError::DecodingError {
-            description: "expected eof".to_string(),
-        })
-    }
+    from_ion_datasource(s)
 }
 
+#[inline]
 pub fn from_str<'a, T>(s: &'a str) -> IonResult<T>
 where
     T: Deserialize<'a>,
 {
-    let mut deserializer = IonDeserializer {
-        reader: ReaderBuilder::new().build(s)?,
-    };
-    deserializer.reader.next()?; // Nothing header
-
-    let t = T::deserialize(&mut deserializer)?;
-
-    if deserializer.reader.ion_type().is_none() {
-        Ok(t)
-    } else {
-        Err(IonError::DecodingError {
-            description: "expected eof".to_string(),
-        })
-    }
+    from_ion_datasource(s)
 }
 
-pub struct IonDeserializer<R> {
+pub struct Deserializer<R> {
     pub(crate) reader: R,
 }
 
-impl<'de, 'a, R> serde::de::Deserializer<'de> for &'a mut IonDeserializer<R>
+impl<'de, 'a, R> serde::de::Deserializer<'de> for &'a mut Deserializer<R>
 where
     R: StreamReader<Symbol = Symbol, Item = StreamItem>,
 {
@@ -407,7 +402,7 @@ where
     }
 }
 
-impl<'de, 'a, R> SeqAccess<'de> for &'a mut IonDeserializer<R>
+impl<'de, 'a, R> SeqAccess<'de> for &'a mut Deserializer<R>
 where
     R: StreamReader<Symbol = Symbol, Item = StreamItem>,
 {
@@ -428,7 +423,7 @@ where
     }
 }
 
-impl<'de, 'a, R> MapAccess<'de> for &'a mut IonDeserializer<R>
+impl<'de, 'a, R> MapAccess<'de> for &'a mut Deserializer<R>
 where
     R: StreamReader<Symbol = Symbol, Item = StreamItem>,
 {
@@ -457,11 +452,11 @@ where
 }
 
 struct VariantAccess<'a, R: 'a> {
-    de: &'a mut IonDeserializer<R>,
+    de: &'a mut Deserializer<R>,
 }
 
 impl<'a, R: 'a> VariantAccess<'a, R> {
-    fn new(de: &'a mut IonDeserializer<R>) -> Self {
+    fn new(de: &'a mut Deserializer<R>) -> Self {
         VariantAccess { de }
     }
 }
@@ -518,11 +513,11 @@ where
 }
 
 struct UnitVariantAccess<'a, R: 'a> {
-    de: &'a mut IonDeserializer<R>,
+    de: &'a mut Deserializer<R>,
 }
 
 impl<'a, R: 'a> UnitVariantAccess<'a, R> {
-    fn new(de: &'a mut IonDeserializer<R>) -> Self {
+    fn new(de: &'a mut Deserializer<R>) -> Self {
         UnitVariantAccess { de }
     }
 }
@@ -873,7 +868,7 @@ impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
 
 struct TimestampDeserializer<'a, R> {
     visited: bool,
-    deserializer: &'a mut IonDeserializer<R>,
+    deserializer: &'a mut Deserializer<R>,
 }
 
 impl<'a, 'de, R> de::MapAccess<'de> for TimestampDeserializer<'a, R>
@@ -952,4 +947,53 @@ impl<'de> de::Deserializer<'de> for StrDeserializer<'de> {
         bytes byte_buf map struct option unit newtype_struct
         ignored_any unit_struct tuple_struct tuple enum identifier
     }
+}
+
+pub struct StreamDeserializer<'de, R, T> {
+    de: Deserializer<R>,
+    failed: bool,
+    output: PhantomData<T>,
+    lifetime: PhantomData<&'de ()>,
+}
+
+impl<'de, R, T> StreamDeserializer<'de, R, T>
+where
+    T: de::Deserialize<'de>,
+    R: StreamReader<Symbol = Symbol, Item = StreamItem>,
+{
+    pub fn new(read: R) -> Self {
+        Self {
+            de: Deserializer { reader: read },
+            failed: false,
+            output: PhantomData,
+            lifetime: PhantomData,
+        }
+    }
+}
+
+impl<'de, R, T> Iterator for StreamDeserializer<'de, R, T>
+where
+    R: StreamReader<Symbol = Symbol, Item = StreamItem>,
+    T: de::Deserialize<'de>,
+{
+    type Item = IonResult<T>;
+
+    fn next(&mut self) -> Option<IonResult<T>> {
+        // Skip any nothing
+        while let StreamItem::Nothing = self.de.reader.current() {
+            match self.de.reader.next() {
+                Ok(_) => (),
+                Err(_) => return None,
+            };
+        }
+
+        Some(T::deserialize(&mut self.de))
+    }
+}
+
+impl<'de, R, T> FusedIterator for StreamDeserializer<'de, R, T>
+where
+    R: StreamReader<Symbol = Symbol, Item = StreamItem>,
+    T: de::Deserialize<'de>,
+{
 }
