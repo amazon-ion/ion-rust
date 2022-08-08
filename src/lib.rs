@@ -29,13 +29,13 @@ pub mod ion_eq;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
 mod reader;
+#[cfg(feature = "serde")]
+pub mod serde;
 mod stream_reader;
 mod symbol;
 mod symbol_table;
 mod system_reader;
 mod writer;
-#[cfg(feature = "serde")]
-pub mod serde;
 
 pub use data_source::IonDataSource;
 pub use raw_symbol_token::RawSymbolToken;
