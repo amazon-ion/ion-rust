@@ -667,7 +667,7 @@ impl<W: Write> Writer for RawBinaryWriter<W> {
     /// Writes an Ion decimal with the specified value.
     fn write_decimal(&mut self, value: &Decimal) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            let _ = enc_buffer.encode_decimal_value(value);
+            let _ = enc_buffer.encode_decimal_value(value)?;
             Ok(())
         })
     }
