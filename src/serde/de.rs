@@ -1,4 +1,5 @@
 use crate::data_source::ToIonDataSource;
+use crate::serde::datetime::ION_BINARY_TIMESTAMP;
 use crate::{IonError, IonResult, IonType, ReaderBuilder, StreamItem, StreamReader, Symbol};
 use chrono::{DateTime, FixedOffset};
 use serde::de;
@@ -8,23 +9,32 @@ use std::borrow::Cow;
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
 
+/// Generic method that can deserialize an object from any given object
+/// that implements `ToIonDateSource`. It also enables `ION_BINARY_TIMESTAMP`
+/// to ensure that `Timestamp` objects are correctly deserialized.
 pub fn from_ion_datasource<'a, T, S>(s: S) -> IonResult<T>
 where
     T: Deserialize<'a>,
     S: ToIonDataSource,
 {
-    let mut deserializer = Deserializer {
-        reader: ReaderBuilder::new().build(s)?,
-    };
+    ION_BINARY_TIMESTAMP.with(move |cell| {
+        cell.set(true);
+        let mut deserializer = Deserializer {
+            reader: ReaderBuilder::new().build(s)?,
+        };
 
-    // If we are hovering over nothing call next till we have an object
-    while StreamItem::Nothing == deserializer.reader.current() {
-        deserializer.reader.next()?;
-    }
+        // If we are hovering over nothing call next till we have an object
+        while StreamItem::Nothing == deserializer.reader.current() {
+            deserializer.reader.next()?;
+        }
 
-    T::deserialize(&mut deserializer)
+        let result = T::deserialize(&mut deserializer)?;
+        cell.set(false);
+        Ok(result)
+    })
 }
 
+/// Deserialize from a binary representation
 #[inline]
 pub fn from_slice<'a, T>(s: &'a [u8]) -> IonResult<T>
 where
@@ -33,6 +43,7 @@ where
     from_ion_datasource(s)
 }
 
+/// Deserialize from a string representation
 #[inline]
 pub fn from_str<'a, T>(s: &'a str) -> IonResult<T>
 where
@@ -41,6 +52,11 @@ where
     from_ion_datasource(s)
 }
 
+/// The deserializer for Amazon Ion, it doesn't care about
+/// whether the reader is reading binary or text representation.
+/// It is important to node that the reader must be a `StreamReader`
+/// where Item = `StreamItem` and Symbol = `Symbol`. This is so we can properly
+/// read the field names and identifiers
 pub struct Deserializer<R> {
     pub(crate) reader: R,
 }

@@ -1,78 +1,93 @@
-use chrono::{DateTime};
+use chrono::DateTime;
 use std::io::Cursor;
 
+use crate::serde::datetime::ION_BINARY_TIMESTAMP;
 use crate::{
-    BinaryWriterBuilder, Integer, IonError, IonResult, IonType, StreamReader,
-    TextWriterBuilder, Timestamp, Writer,
+    BinaryWriterBuilder, Integer, IonError, IonResult, IonType, StreamReader, TextWriterBuilder,
+    Timestamp, Writer,
 };
 use serde::ser::Impossible;
 use serde::{ser, Serialize};
 
+/// Serialize an object into pretty formatted ION text
 pub fn to_pretty<T>(value: &T) -> IonResult<String>
 where
     T: Serialize,
 {
-    let mut cursor = Cursor::new(Vec::new());
+    ION_BINARY_TIMESTAMP.with(move |cell| {
+        cell.set(true);
+        let mut cursor = Cursor::new(Vec::new());
+        let mut serializer = Serializer {
+            writer: TextWriterBuilder::pretty().build(&mut cursor)?,
+        };
 
-    let mut serializer = Serializer {
-        writer: TextWriterBuilder::pretty().build(&mut cursor)?,
-    };
+        value.serialize(&mut serializer)?;
+        serializer.writer.flush()?;
+        drop(serializer);
+        cell.set(false);
 
-    value.serialize(&mut serializer)?;
-    serializer.writer.flush()?;
-    drop(serializer);
+        let bytes = cursor.get_ref().clone();
 
-    let bytes = cursor.get_ref().clone();
-
-    match String::from_utf8(bytes) {
-        Ok(data) => Ok(data),
-        Err(e) => Err(IonError::EncodingError {
-            description: e.to_string(),
-        }),
-    }
+        match String::from_utf8(bytes) {
+            Ok(data) => Ok(data),
+            Err(e) => Err(IonError::EncodingError {
+                description: e.to_string(),
+            }),
+        }
+    })
 }
 
+/// Serialize an object into compact ION text format
 pub fn to_string<T>(value: &T) -> IonResult<String>
 where
     T: Serialize,
 {
-    let mut cursor = Cursor::new(Vec::new());
+    ION_BINARY_TIMESTAMP.with(move |cell| {
+        cell.set(true);
+        let mut cursor = Cursor::new(Vec::new());
+        let mut serializer = Serializer {
+            writer: TextWriterBuilder::new().build(&mut cursor)?,
+        };
 
-    let mut serializer = Serializer {
-        writer: TextWriterBuilder::new().build(&mut cursor)?,
-    };
+        value.serialize(&mut serializer)?;
+        serializer.writer.flush()?;
+        drop(serializer);
+        cell.set(false);
 
-    value.serialize(&mut serializer)?;
-    serializer.writer.flush()?;
-    drop(serializer);
+        let bytes = cursor.get_ref().clone();
 
-    let bytes = cursor.get_ref().clone();
-
-    match String::from_utf8(bytes) {
-        Ok(data) => Ok(data),
-        Err(e) => Err(IonError::EncodingError {
-            description: e.to_string(),
-        }),
-    }
+        match String::from_utf8(bytes) {
+            Ok(data) => Ok(data),
+            Err(e) => Err(IonError::EncodingError {
+                description: e.to_string(),
+            }),
+        }
+    })
 }
 
+/// Serialize an object into ION binary format
 pub fn to_binary<T>(value: &T) -> IonResult<Vec<u8>>
 where
     T: Serialize,
 {
-    let mut cursor = Cursor::new(Vec::new());
+    ION_BINARY_TIMESTAMP.with(move |cell| {
+        cell.set(true);
+        let mut cursor = Cursor::new(Vec::new());
+        let mut serializer = Serializer {
+            writer: BinaryWriterBuilder::new().build(&mut cursor)?,
+        };
 
-    let mut serializer = Serializer {
-        writer: BinaryWriterBuilder::new().build(&mut cursor)?,
-    };
+        value.serialize(&mut serializer)?;
+        serializer.writer.flush()?;
+        drop(serializer);
+        cell.set(false);
 
-    value.serialize(&mut serializer)?;
-    serializer.writer.flush()?;
-    drop(serializer);
-
-    Ok(cursor.get_ref().clone())
+        Ok(cursor.get_ref().clone())
+    })
 }
 
+/// Implements a standard serializer for Amazon ION, it can accept
+/// any writer implementing `Writer`
 pub struct Serializer<E> {
     pub(crate) writer: E,
 }
@@ -92,38 +107,47 @@ where
     type SerializeStruct = TableSerializer<'a, E>;
     type SerializeStructVariant = Self;
 
+    /// Serialize a boolean to an ion bool value
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
         self.writer.write_bool(v)
     }
 
+    /// We serialize all integer types using the `Integer` intermediary type.
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
         self.writer.write_integer(&Integer::from(v))
     }
 
+    /// We serialize all integer types using the `Integer` intermediary type.
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
         self.writer.write_integer(&Integer::from(v))
     }
 
+    /// We serialize all integer types using the `Integer` intermediary type.
     fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
         self.writer.write_integer(&Integer::from(v))
     }
 
+    /// We serialize all integer types using the `Integer` intermediary type.
     fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
         self.writer.write_integer(&Integer::from(v))
     }
 
+    /// We serialize all integer types using the `Integer` intermediary type.
     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
         self.writer.write_integer(&Integer::from(v))
     }
 
+    /// We serialize all integer types using the `Integer` intermediary type.
     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
         self.writer.write_integer(&Integer::from(v))
     }
 
+    /// We serialize all integer types using the `Integer` intermediary type.
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
         self.writer.write_integer(&Integer::from(v))
     }
 
+    /// We serialize all integer types using the `Integer` intermediary type.
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
         self.writer.write_integer(&Integer::from(v))
     }
@@ -238,6 +262,8 @@ where
         Ok(self)
     }
 
+    /// When serializing a structure we need to check,
+    /// if the special $datetime flag is specified
     fn serialize_struct(
         self,
         name: &'static str,
@@ -393,6 +419,9 @@ where
     }
 }
 
+/// This serializer is utilize for handling maps with ion. ION
+/// does not support non-string keys for maps. However, we can support
+/// other key types as long as the key type implements to_string.
 struct MapKeySerializer {}
 
 fn key_must_be_a_string() -> IonError {
@@ -570,11 +599,15 @@ impl<'a> ser::Serializer for MapKeySerializer {
     }
 }
 
+/// This serialize handles the switch of mode between a normal structure
+/// and the intermediary timestamp structure that `Timestamp` is serialized to.
 pub enum TableSerializer<'a, E> {
     Table(&'a mut Serializer<E>),
     Timestamp(&'a mut Serializer<E>),
 }
 
+/// Handles the `Timestamp` serialization by extracing the datetime
+/// out of the interim structure and writing it properly to the Ion writer
 pub struct TimestampSerializer<'a, E> {
     serializer: &'a mut Serializer<E>,
 }
