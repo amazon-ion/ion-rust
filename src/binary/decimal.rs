@@ -6,13 +6,18 @@ use arrayvec::ArrayVec;
 use bigdecimal::Zero;
 
 use crate::ion_eq::IonEq;
-use crate::{binary::{
-    int::DecodedInt, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt, var_uint::VarUInt,
-}, IonError, result::IonResult, types::{
-    coefficient::{Coefficient, Sign},
-    decimal::Decimal,
-    magnitude::Magnitude,
-}};
+use crate::{
+    binary::{
+        int::DecodedInt, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt, var_uint::VarUInt,
+    },
+    result::IonResult,
+    types::{
+        coefficient::{Coefficient, Sign},
+        decimal::Decimal,
+        magnitude::Magnitude,
+    },
+    IonError,
+};
 
 const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
@@ -108,11 +113,12 @@ where
         // We need to know its encoded length before we can write out
         // the preceding type descriptor.
         let mut encoded: ArrayVec<u8, DECIMAL_BUFFER_SIZE> = ArrayVec::new();
-        encoded.encode_decimal(decimal).map_err(|_e| {
-            IonError::EncodingError {
-                description: "found a decimal that was too large for the configured buffer".to_string()
-            }
-        })?;
+        encoded
+            .encode_decimal(decimal)
+            .map_err(|_e| IonError::EncodingError {
+                description: "found a decimal that was too large for the configured buffer"
+                    .to_string(),
+            })?;
 
         // Now that we have the value's encoded bytes, we can encode its header
         // and write it to the output stream.
