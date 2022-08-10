@@ -503,7 +503,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
             let sexp_value = peekable_itr.next().unwrap();
             write!(self.output, "{}", sexp_value)?;
             if peekable_itr.peek() != None {
-                write!(self.output, ", ")?;
+                write!(self.output, " ")?;
             }
         }
         write!(self.output, " )")?;
@@ -650,7 +650,7 @@ mod formatter_test {
                     vec!["hello".to_owned().into(), 5.into(), true.into()].into_iter(),
                 ))
             },
-            "( \"hello\", 5, true )",
+            "( \"hello\" 5 true )",
         );
         Ok(())
     }
