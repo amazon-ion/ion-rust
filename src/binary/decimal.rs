@@ -16,9 +16,10 @@ use crate::{
         decimal::Decimal,
         magnitude::Magnitude,
     },
+    IonError,
 };
 
-const DECIMAL_BUFFER_SIZE: usize = 16;
+const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
     coefficient: Coefficient {
         sign: Sign::Positive,
@@ -108,24 +109,38 @@ where
 
     fn encode_decimal_value(&mut self, decimal: &Decimal) -> IonResult<usize> {
         let mut bytes_written: usize = 0;
-        // First encode the decimal. We need to know the encoded length before
-        // we can compute and write out the type descriptor.
+        // First encode the decimal value to a stack-allocated buffer.
+        // We need to know its encoded length before we can write out
+        // the preceding type descriptor.
         let mut encoded: ArrayVec<u8, DECIMAL_BUFFER_SIZE> = ArrayVec::new();
-        encoded.encode_decimal(decimal)?;
+        encoded
+            .encode_decimal(decimal)
+            .map_err(|_e| IonError::EncodingError {
+                description: "found a decimal that was too large for the configured buffer"
+                    .to_string(),
+            })?;
 
+        // Now that we have the value's encoded bytes, we can encode its header
+        // and write it to the output stream.
         let type_descriptor: u8;
         if encoded.len() <= MAX_INLINE_LENGTH {
+            // The value is small enough to encode its length in the type
+            // descriptor byte.
             type_descriptor = 0x50 | encoded.len() as u8;
             self.write_all(&[type_descriptor])?;
             bytes_written += 1;
         } else {
+            // The value is too large to encode its length in the type descriptor
+            // byte; we'll encode it as a VarUInt that follows the type descriptor
+            // byte instead.
             type_descriptor = 0x5E;
             self.write_all(&[type_descriptor])?;
             bytes_written += 1;
             bytes_written += VarUInt::write_u64(self, encoded.len() as u64)?;
         }
 
-        // Now we can write out the encoded decimal!
+        // Now that we've written the header to the output stream, we can write
+        // the value's encoded bytes.
         self.write_all(&encoded[..])?;
         bytes_written += encoded.len();
 
@@ -135,8 +150,11 @@ where
 
 #[cfg(test)]
 mod binary_decimal_tests {
-    use super::*;
+    use num_bigint::BigUint;
     use rstest::*;
+    use std::str::FromStr;
+
+    use super::*;
 
     /// This test ensures that we implement [PartialEq] and [IonEq] correctly for the special
     /// decimal value 0d0.
@@ -162,5 +180,20 @@ mod binary_decimal_tests {
         assert_eq!(buf.len(), expected);
         assert_eq!(written, expected);
         Ok(())
+    }
+
+    #[test]
+    fn oversized_decimal() {
+        let mut buf = vec![];
+        // Even though our output stream is a growable Vec, the encoder uses a
+        // fixed-size, stack-allocated buffer to encode the body of the decimal.
+        // If it's asked to encode a decimal that won't fit (>32 bytes), it should
+        // return an error.
+        let precise_pi = Decimal::new(
+            BigUint::from_str("31415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679").unwrap(),
+            -99
+        );
+        let result = buf.encode_decimal_value(&precise_pi);
+        assert!(result.is_err());
     }
 }
