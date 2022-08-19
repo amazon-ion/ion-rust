@@ -134,28 +134,32 @@ where
 #[cfg(test)]
 mod binary_timestamp_tests {
     use super::*;
-    use chrono::DateTime;
+    use crate::text::{parsers::timestamp::parse_timestamp, text_value::TextValue};
     use rstest::*;
 
     // These tests show how varying levels of precision affects number of bytes
     // written (for binary encoding of timestamps).
     #[rstest]
-    #[case::y2k_utc("2000-01-01T00:00:00+00:00", 10)] // FIXME: Wrong! Should be 9.
-    #[case::seconds_utc("2021-01-08T14:12:36+00:00", 10)]
-    #[case::seconds_tz("2021-01-08T14:12:36-05:00", 11)]
-    #[case::millis_tz("2021-01-08T14:12:36.888-05:00", 16)]
-    #[case::micros_tz("2021-01-08T14:12:36.888888-05:00", 16)]
+    #[case::y2k_utc("2000-01-01T00:00:00+00:00", 9)]
+    #[case::seconds_utc("2021-01-08T14:12:36+00:00", 9)]
+    #[case::seconds_tz("2021-01-08T14:12:36-05:00", 10)]
+    #[case::millis_tz("2021-01-08T14:12:36.888-05:00", 13)]
+    #[case::micros_tz("2021-01-08T14:12:36.888888-05:00", 14)]
     #[case::nanos_tz("2021-01-08T14:12:36.888888888-05:00", 16)]
     fn timestamp_encoding_bytes_written(
         #[case] input: &str,
         #[case] expected: usize,
     ) -> IonResult<()> {
-        let chrono = DateTime::parse_from_rfc3339(input).unwrap();
-        let timestamp = chrono.into();
-        let mut buf = vec![];
-        let written = buf.encode_timestamp_value(&timestamp)?;
-        assert_eq!(buf.len(), expected);
-        assert_eq!(written, expected);
+        let text_value = parse_timestamp(&(input.to_owned() + " ")).unwrap().1;
+        match text_value {
+            TextValue::Timestamp(timestamp) => {
+                let mut buf = vec![];
+                let written = buf.encode_timestamp_value(&timestamp)?;
+                assert_eq!(buf.len(), expected);
+                assert_eq!(written, expected);
+            }
+            _ => panic!("parse_timestamp() should only return TextValue::Timestamp"),
+        }
         Ok(())
     }
 }
