@@ -1,10 +1,9 @@
-use crate::Timestamp;
-use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
+use crate::{IonError, Timestamp};
+use chrono::{DateTime, FixedOffset, Utc};
 use serde::{self, de, ser, ser::SerializeStruct, Deserialize, Serialize};
 use serde_with::{DeserializeAs, SerializeAs};
 use std::cell::Cell;
 use std::fmt;
-use std::fmt::Write;
 
 thread_local! {
     /// Cell that contains a flag to determine when serialization and deserialization
@@ -24,15 +23,17 @@ impl Serialize for Timestamp {
         S: serde::ser::Serializer,
     {
         ION_BINARY_TIMESTAMP.with(move |cell| {
+            let datetime: DateTime<FixedOffset> = self
+                .clone()
+                .try_into()
+                .map_err(|e: IonError| ser::Error::custom(e.to_string()))?;
             if cell.get() {
-                let datetime: DateTime<FixedOffset> = self.clone().try_into().unwrap();
                 let mut state = serializer.serialize_struct("$datetime", 1)?;
                 state.serialize_field("$datetime", datetime.to_rfc3339().as_str())?;
                 state.end()
             } else {
                 if self.offset.is_some() {
-                    let date_time: DateTime<FixedOffset> = self.clone().try_into().unwrap();
-                    serializer.serialize_str(date_time.to_rfc3339().as_str())
+                    serializer.serialize_str(datetime.to_rfc3339().as_str())
                 } else {
                     self.date_time.serialize(serializer)
                 }
@@ -77,7 +78,10 @@ impl<'de> Deserialize<'de> for Timestamp {
             } else {
                 let string_rep = String::deserialize(deserializer)?;
                 let fixed_date: DateTime<FixedOffset> =
-                    DateTime::parse_from_rfc3339(string_rep.as_str()).unwrap();
+                    match DateTime::parse_from_rfc3339(string_rep.as_str()) {
+                        Ok(data) => Ok(data),
+                        Err(e) => Err(de::Error::custom(e.to_string())),
+                    }?;
                 Ok(Timestamp::from(fixed_date))
             }
         })
@@ -144,7 +148,10 @@ impl<'de> de::Deserialize<'de> for TimestampFromString {
             where
                 E: de::Error,
             {
-                let naive: DateTime<FixedOffset> = DateTime::parse_from_rfc3339(s).unwrap();
+                let naive: DateTime<FixedOffset> = match DateTime::parse_from_rfc3339(s) {
+                    Ok(data) => Ok(data),
+                    Err(e) => Err(de::Error::custom(e.to_string())),
+                }?;
                 Ok(TimestampFromString {
                     value: Timestamp::from(naive),
                 })
@@ -185,7 +192,9 @@ impl<'de> DeserializeAs<'de, DateTime<Utc>> for Timestamp {
         D: de::Deserializer<'de>,
     {
         let d0 = Timestamp::deserialize(deserializer)?;
-        let d1: DateTime<FixedOffset> = d0.try_into().unwrap();
+        let d1: DateTime<FixedOffset> = d0
+            .try_into()
+            .map_err(|e: IonError| de::Error::custom(e.to_string()))?;
         Ok(d1.into())
     }
 }
@@ -196,6 +205,7 @@ impl<'de> DeserializeAs<'de, DateTime<FixedOffset>> for Timestamp {
         D: de::Deserializer<'de>,
     {
         let d0 = Timestamp::deserialize(deserializer)?;
-        Ok(d0.try_into().unwrap())
+        d0.try_into()
+            .map_err(|e: IonError| de::Error::custom(e.to_string()))
     }
 }

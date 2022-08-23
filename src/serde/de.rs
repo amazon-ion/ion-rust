@@ -909,7 +909,7 @@ where
         V: de::DeserializeSeed<'de>,
     {
         let timestamp = self.deserializer.reader.read_timestamp()?;
-        let datetime: DateTime<FixedOffset> = timestamp.try_into().unwrap();
+        let datetime: DateTime<FixedOffset> = timestamp.try_into()?;
         let datetime_str = datetime.to_rfc3339();
 
         seed.deserialize(StrDeserializer::new(Cow::from(datetime_str)))

@@ -3,8 +3,8 @@ use std::io::Cursor;
 
 use crate::serde::datetime::ION_BINARY_TIMESTAMP;
 use crate::{
-    BinaryWriterBuilder, Integer, IonError, IonResult, IonType, StreamReader, TextWriterBuilder,
-    Timestamp, Writer,
+    BinaryWriterBuilder, Integer, IonError, IonResult, IonType, TextWriterBuilder, Timestamp,
+    Writer,
 };
 use serde::ser::Impossible;
 use serde::{ser, Serialize};
