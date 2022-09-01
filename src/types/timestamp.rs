@@ -89,10 +89,10 @@ trait EmptyMantissa {
     /// `Mantissa::Arbitrary(Decimal::new(0, 0))`.
     fn is_empty(&self) -> bool;
 
-    /// Returns true if the Mantissa's value is equivalent to not having specified a
-    /// sub-second precision at all and it ignores the exponent value for a zero coefficient.
-    /// For example, `Mantissa::Digits(0)` or `Mantissa::Arbitrary(Decimal::new(0, 0))`.
-    fn is_empty_ignore_exponent(&self) -> bool;
+    /// Returns true if the Mantissa's value is equivalent to a zero value
+    /// For example, `Mantissa::Digits(0)` or `Mantissa::Arbitrary(Decimal::new(0, x))`.
+    /// For Decimal, it ignores the exponent value for a zero coefficient.
+    fn is_zero(&self) -> bool;
 }
 
 impl EmptyMantissa for Decimal {
@@ -100,7 +100,7 @@ impl EmptyMantissa for Decimal {
         self.coefficient.is_zero() && self.exponent == 0
     }
 
-    fn is_empty_ignore_exponent(&self) -> bool {
+    fn is_zero(&self) -> bool {
         // if the coefficient is zero then ignore the exponent value
         self.coefficient.is_zero()
     }
@@ -117,12 +117,12 @@ impl EmptyMantissa for Mantissa {
         }
     }
 
-    fn is_empty_ignore_exponent(&self) -> bool {
+    fn is_zero(&self) -> bool {
         match self {
             // Look at zero digits of the DateTime's nanoseconds
             Mantissa::Digits(0) => true,
             // Or a Decimal with a coefficient of zero (any sign).
-            Mantissa::Arbitrary(d) => d.is_empty_ignore_exponent(),
+            Mantissa::Arbitrary(d) => d.is_zero(),
             _ => false,
         }
     }
@@ -274,14 +274,14 @@ impl Timestamp {
         ) {
             (None, None) => Ordering::Equal,
             (Some(m), None) => {
-                if m.is_empty_ignore_exponent() {
+                if m.is_zero() {
                     Ordering::Equal
                 } else {
                     Ordering::Greater
                 }
             }
             (None, Some(m)) => {
-                if m.is_empty_ignore_exponent() {
+                if m.is_zero() {
                     Ordering::Equal
                 } else {
                     Ordering::Less
