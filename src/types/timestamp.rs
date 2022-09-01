@@ -121,7 +121,7 @@ impl EmptyMantissa for Mantissa {
         match self {
             // Look at zero digits of the DateTime's nanoseconds
             Mantissa::Digits(0) => true,
-            // Or a Decimal with a coefficient of zero (any sign.
+            // Or a Decimal with a coefficient of zero (any sign).
             Mantissa::Arbitrary(d) => d.is_empty_ignore_exponent(),
             _ => false,
         }
@@ -266,12 +266,7 @@ impl Timestamp {
 
     /// Tests the fractional seconds fields of two timestamps for ordering. This function will
     /// only be called if both Timestamps have a precision of [Precision::Second].
-    // based on the comparison type either Ion comparison or non strict comparison will be performed
-    fn fractional_seconds_compare(
-        &self,
-        other: &Timestamp,
-        comparison_type: ComparisonType,
-    ) -> Ordering {
+    fn fractional_seconds_compare(&self, other: &Timestamp) -> Ordering {
         use Mantissa::*;
         match (
             self.fractional_seconds.as_ref(),
@@ -279,22 +274,14 @@ impl Timestamp {
         ) {
             (None, None) => Ordering::Equal,
             (Some(m), None) => {
-                let is_empty = match comparison_type {
-                    ComparisonType::Ion => m.is_empty(),
-                    ComparisonType::NonStrict => m.is_empty_ignore_exponent(),
-                };
-                if is_empty {
+                if m.is_empty_ignore_exponent() {
                     Ordering::Equal
                 } else {
                     Ordering::Greater
                 }
             }
             (None, Some(m)) => {
-                let is_empty = match comparison_type {
-                    ComparisonType::Ion => m.is_empty(),
-                    ComparisonType::NonStrict => m.is_empty_ignore_exponent(),
-                };
-                if is_empty {
+                if m.is_empty_ignore_exponent() {
                     Ordering::Equal
                 } else {
                     Ordering::Less
@@ -317,24 +304,26 @@ impl Timestamp {
         }
     }
 
-    /// Tests the fractional seconds fields of two timestamps for equality. This function will
+    /// Tests the fractional seconds fields of two timestamps for Ion equality. This function will
     /// only be called if both Timestamps have a precision of [Precision::Second].
-    fn fractional_seconds_equal(&self, other: &Timestamp, comparison_type: ComparisonType) -> bool {
+    fn fractional_seconds_equal(&self, other: &Timestamp) -> bool {
         use Mantissa::*;
-        match (
-            self.fractional_seconds.as_ref(),
-            other.fractional_seconds.as_ref(),
-        ) {
-            (None, None) => true,
-            (Some(m), None) => match comparison_type {
-                ComparisonType::Ion => m.is_empty(),
-                ComparisonType::NonStrict => m.is_empty_ignore_exponent(),
-            },
-            (None, Some(m)) => match comparison_type {
-                ComparisonType::Ion => m.is_empty(),
-                ComparisonType::NonStrict => m.is_empty_ignore_exponent(),
-            },
-            (Some(Digits(d1)), Some(Digits(d2))) => {
+
+        // TODO: make Timestamp::fractional_seconds to be Mantissa when creating a Timestamp to get rid of below conversion
+        // convert Option<&Mantissa> to &Mantissa
+        let m1 = match &self.fractional_seconds {
+            None => &Mantissa::Digits(0),
+            Some(m) => m,
+        };
+
+        let m2 = match &other.fractional_seconds {
+            None => &Mantissa::Digits(0),
+            Some(m) => m,
+        };
+
+        // compare fractional seconds
+        match (m1, m2) {
+            (Digits(d1), Digits(d2)) => {
                 if d1 != d2 {
                     // Different precisions
                     return false;
@@ -343,17 +332,24 @@ impl Timestamp {
                 let d2 = first_n_digits_of(*d2, other.date_time.nanosecond());
                 d1 == d2
             }
-            (Some(Arbitrary(d1)), Some(Arbitrary(d2))) => Mantissa::decimals_equal(d1, d2),
-            (Some(Digits(_d1)), Some(Arbitrary(d2))) => {
-                let d1 = &self.fractional_seconds_as_decimal().unwrap();
-                Mantissa::decimals_equal(d1, d2)
+            (Arbitrary(d1), Arbitrary(d2)) => Mantissa::decimals_equal(d1, d2),
+            (Digits(_d1), Arbitrary(d2)) => {
+                let d1 = match self.fractional_seconds_as_decimal() {
+                    Some(decimal_value) => decimal_value,
+                    None => Decimal::new(0, 0),
+                };
+                Mantissa::decimals_equal(&d1, d2)
             }
-            (Some(Arbitrary(d1)), Some(Digits(_d2))) => {
-                let d2 = &other.fractional_seconds_as_decimal().unwrap();
-                Mantissa::decimals_equal(d1, d2)
+            (Arbitrary(d1), Digits(_d2)) => {
+                let d2 = match other.fractional_seconds_as_decimal() {
+                    Some(decimal_value) => decimal_value,
+                    None => Decimal::new(0, 0),
+                };
+                Mantissa::decimals_equal(d1, &d2)
             }
         }
     }
+
     /// Writes the fractional seconds portion of a text timestamp, including a leading `.`.
     pub(crate) fn format_fractional_seconds<W: std::fmt::Write>(
         &self,
@@ -555,8 +551,6 @@ impl Timestamp {
     }
 }
 
-// TODO: add IonOrd implementation for Ion comparison
-
 impl PartialOrd for Timestamp {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -582,7 +576,7 @@ impl Ord for Timestamp {
         match date_time_comparison {
             // if the datetime comparison is Ordering::Equal,
             // then return fractional seconds comparison result
-            Ordering::Equal => self.fractional_seconds_compare(other, ComparisonType::NonStrict),
+            Ordering::Equal => self.fractional_seconds_compare(other),
             // if datetime comparison is not equal,
             // then no need to check for fractional seconds comparison
             _ => date_time_comparison,
@@ -615,7 +609,7 @@ impl PartialEq for Timestamp {
         // Timestamps with different Mantissa representations are a bit tricky to compare. Once
         // we've established that the fractional seconds match, we can compare all of the other
         // fields in the timestamp by comparing their respective `DateTime`s.
-        if !self.fractional_seconds_equal(other, ComparisonType::NonStrict) {
+        if !self.fractional_seconds_equal(other) {
             return false;
         }
 
@@ -674,9 +668,7 @@ impl IonEq for Timestamp {
             return true;
         }
 
-        if self_dt.second() != other_dt.second()
-            || !self.fractional_seconds_equal(other, ComparisonType::Ion)
-        {
+        if self_dt.second() != other_dt.second() || !self.fractional_seconds_equal(other) {
             return false;
         }
 
