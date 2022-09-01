@@ -304,7 +304,7 @@ impl Timestamp {
         }
     }
 
-    /// Tests the fractional seconds fields of two timestamps for Ion equality. This function will
+    /// Tests the fractional seconds fields of two timestamps for equality. This function will
     /// only be called if both Timestamps have a precision of [Precision::Second].
     fn fractional_seconds_equal(&self, other: &Timestamp) -> bool {
         use Mantissa::*;
@@ -582,19 +582,6 @@ impl Ord for Timestamp {
             _ => date_time_comparison,
         }
     }
-}
-
-/// Represents the comparison type that will be used by Ord implementation of [Timestamp].
-enum ComparisonType {
-    // Ion comparison is stricter and it will only considers two timestamps to be equal,
-    // if they are the same instant with same precision and offset
-    // following are not equal as per Ion comparison:
-    // 2000T                -> January 1st 2000, year precision, unknown local offset
-    // 2000-01-01T00:00:00Z -> January 1st 2000, second precision, UTC
-    Ion,
-    // Non strict comparison which considers two timestamps to be equal
-    // if they are same instant of time and ignores the precision and offset
-    NonStrict,
 }
 
 /// Two Timestamps are considered equal (though not necessarily IonEq) if they represent the same
