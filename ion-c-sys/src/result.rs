@@ -34,7 +34,7 @@ pub enum Position {
 }
 
 // see above
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct LineColumn(pub i32, pub i32);
 
 impl Position {
