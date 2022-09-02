@@ -60,7 +60,7 @@ pub enum TSPrecision {
 /// but in the case of a timestamp with an *unknown UTC offset*, this will be `Unknown`,
 /// and the effective `FixedOffset` will be UTC+00:00--this allows an application to
 /// preserve the difference between UTC+00:00 (zulu time) and UTC-00:00 which is the unknown offset.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TSOffsetKind {
     KnownOffset,
     UnknownOffset,
@@ -91,7 +91,7 @@ pub enum TSOffsetKind {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IonDateTime {
     date_time: DateTime<FixedOffset>,
     precision: TSPrecision,

@@ -13,7 +13,7 @@ use std::num::TryFromIntError;
 ///
 /// `position` is populated when errors come from readers. See [`Position`] for
 /// more information.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct IonCError {
     pub code: i32,
     pub message: &'static str,
@@ -26,7 +26,7 @@ pub struct IonCError {
 ///
 /// If a position is set, `bytes` will always be hydrated while `lines` and
 /// `offset` will only be populated for text readers.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Position {
     Unknown,
     Offset(i64),
@@ -34,7 +34,7 @@ pub enum Position {
 }
 
 // see above
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct LineColumn(pub i32, pub i32);
 
 impl Position {
