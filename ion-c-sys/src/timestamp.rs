@@ -91,7 +91,7 @@ pub enum TSOffsetKind {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IonDateTime {
     date_time: DateTime<FixedOffset>,
     precision: TSPrecision,
