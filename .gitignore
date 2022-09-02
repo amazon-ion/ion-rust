@@ -1,5 +1,5 @@
 # Remove this when we're ready to include Jetbrains IDE settings
-/.idea/
+**/.idea/
 
 # Created by https://www.toptal.com/developers/gitignore/api/c,c++,rust,cmake,clion,visualstudiocode,valgrind
 # Edit at https://www.toptal.com/developers/gitignore?templates=c,c++,rust,cmake,clion,visualstudiocode,valgrind
