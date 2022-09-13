@@ -1,5 +1,6 @@
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
+use crate::text::non_blocking::raw_text_reader::RawTextReader;
 use crate::raw_reader::RawReader;
 use crate::reader::ReaderBuilder;
 use crate::result::IonResult;
@@ -140,9 +141,8 @@ impl ElementReader for NonBlockingNativeElementReader {
             return Ok(Box::new(iterator));
         }
 
-        // TODO: There is not yet a non-blocking text reader. When one is available, this code
-        //       path should be modified to use it.
-        let reader = ReaderBuilder::new().build(data)?;
+        let raw_reader = RawTextReader::new(data);
+        let reader = UserReader::new(raw_reader);
         let iterator = NativeElementIterator { reader };
         Ok(Box::new(iterator))
     }

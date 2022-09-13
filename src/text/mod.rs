@@ -1,4 +1,5 @@
 mod parent_container;
+pub mod non_blocking;
 pub(crate) mod parse_result;
 pub(in crate::text) mod parsers;
 pub mod raw_text_reader;
