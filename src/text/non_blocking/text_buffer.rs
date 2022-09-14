@@ -1,64 +1,133 @@
-use std::io;
-use std::io::BufRead;
+use crate::{IonError, IonResult};
 
-/// A text buffer that pulls more bytes from the input source as needed.
+use std::io::Read;
+
+use thiserror::Error;
+
+/// Represents a span of bytes that have been validated as UTF-8 strings.
 ///
-/// A parser reading from a text stream should use the [load_next_line] method to pull text into
-/// the buffer from the input source. The text currently in the buffer can be accessed via the
-/// [remaining_text] method. When a portion of that text has been processed, the user can discard it
-/// with the [consume] method. If the buffer does not contain enough data to represent a full value,
-/// more data can be pulled into the buffer with [load_next_line]; this additional text will be
-/// visible in the next call to [remaining_text].
-pub(crate) struct TextBuffer<R: BufRead> {
-    // The input source to read from (an io::Cursor, BufReader, File, etc)
-    input: R,
-    // The line we're in the process of parsing.
-    line: String,
-    // How much of the current line we've already parsed.
-    line_offset: usize,
-    // The 1-based index of the line currently being read.
-    // When the LineBuffer is first constructed and no lines
-    // have been read from input, this value is 0.
-    line_number: usize,
-    // Whether `input` above has reached EOF.
-    is_exhausted: bool,
+/// The range of bytes is [.0, .1)
+#[derive(Copy, Clone)]
+struct ValidUtf8Span(usize, usize);
+impl ValidUtf8Span {
+    fn incr_start(&self, bytes: usize) -> ValidUtf8Span {
+        ValidUtf8Span(self.0.wrapping_add(bytes), self.1)
+    }
+
+    fn shift_left(&mut self, bytes: usize) {
+        self.0 = self.0.saturating_sub(bytes);
+        self.1 = self.1.saturating_sub(bytes);
+    }
 }
 
-impl<R: BufRead> TextBuffer<R> {
-    /// Constructs a new LineBuffer that will pull lines of text from the provided input.
-    pub fn new(input: R) -> Self {
+/// Calculates the offset into a slice, where a given subslice is located.
+/// This is used primarily for identifying where a &str comes from within our
+/// TextBuffer's data.
+///
+/// Taken from https://stackoverflow.com/a/50781657
+trait SubsliceOffset {
+    fn subslice_offset(&self, inner: &Self) -> Option<usize>;
+}
+
+impl SubsliceOffset for str {
+    fn subslice_offset(&self, inner: &Self) -> Option<usize> {
+        let this_start = self.as_ptr() as usize;
+        let inner_start = inner.as_ptr() as usize;
+        if inner_start < this_start || inner_start > this_start.wrapping_add(self.len()) {
+            None
+        } else {
+            Some(inner_start .wrapping_sub(this_start))
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum TextError {
+    #[error("Incomplete UTF-8 data at {line}:{column}")]
+    Incomplete { line: usize, column: usize },
+
+    #[error("Invalid UTF-8 sequence in provided data at byte {offset}")]
+    InvalidUtf8 { offset: usize },
+}
+
+impl TextError {
+    fn utf8_error(offset: usize) -> Self {
+        Self::InvalidUtf8 { offset }
+    }
+}
+
+/// Wrapper around an `AsRef<[u8]>` that provides methods to read text, and track lines.
+pub(crate) struct TextBuffer<A: AsRef<[u8]>> {
+    data: A,
+    /// End of our data buffer. This includes any partial UTF-8 bytes.
+    data_end: usize,
+    /// Indicates whether or not the data source has been completely read.
+    data_exhausted: bool,
+    /// The span of our `data` that has been validated as UTF-8.
+    data_utf8: ValidUtf8Span,
+
+    /// The current validated line.
+    line: ValidUtf8Span,
+    /// Offset into the current line that has been read.
+    line_offset: usize,
+    /// Number of lines that have been read.
+    line_number: usize,
+}
+
+impl<A: AsRef<[u8]>> TextBuffer<A> {
+
+    /// Constructs a new TextBuffer that will pull lines of text from the provided input.
+    pub fn new(data: A) -> Self {
+        let data_len = data.as_ref().len();
         Self {
-            input,
-            line: String::with_capacity(128),
+            data,
+            data_end: data_len,
+            data_exhausted: false,
+            data_utf8: ValidUtf8Span(0, 0),
+            line: ValidUtf8Span(0, 0),
             line_offset: 0,
             line_number: 0,
-            is_exhausted: false,
         }
     }
 
-    /// Returns the trailing portion of the buffer that has not yet been marked as read via the
-    /// [consume] method.
+    /// Returns the trailing portion of the current line that has not yet been marked as read via
+    /// the [consume] method.
     pub fn remaining_text(&self) -> &str {
-        &self.line[self.line_offset..]
+        self.string_view(self.line.incr_start(self.line_offset))
     }
 
-    /// Returns the number of lines that have been loaded from input. The number returned may be:
-    /// * Greater than the number of lines that have been marked read via [consume].
-    /// * Less than the number of lines that have been requested via [load_next_line] and
-    ///   [load_next_n_lines] if the input stream was exhausted.
+    /// Returns a &str view of the bytes within `data` specified by `span`.
+    /// This function assumes prior UTF-8 validation has occurred.
+    fn string_view(&self, span: ValidUtf8Span) -> &str {
+        use std::str::from_utf8_unchecked;
+        unsafe { from_utf8_unchecked(&self.data.as_ref()[span.0..span.1]) }
+    }
+
+    /// Returns the amount of data currently available in the buffer that has not been marked as
+    /// read via the [consume] method. This includes data that has not been split into lines yet.
+    pub fn data_remaining(&self) -> usize {
+        self.data_end - (self.line.0 + self.line_offset)
+    }
+
+    /// Returns the number of lines that have been loaded from input.
+    ///
+    /// The number returned may be:
+    ///   * Greater than the number of lines that have been marked read via [consume].
+    ///   * Less than the number of lines that have been requested via [load_next_line] and
+    ///     [load_next_n_lines] if the input stream was exhausted.
     pub fn lines_loaded(&self) -> usize {
         self.line_number
     }
 
-    /// Returns [true] if the buffer is empty and the end of the input source has been reached;
-    /// otherwise, returns false.
     pub fn is_exhausted(&self) -> bool {
-        self.remaining_text().is_empty() && self.is_exhausted
+        self.data_remaining() == 0 && self.data_exhausted
     }
 
     /// Discards [number_of_bytes] bytes from the remaining line.
-    /// If [number_of_bytes] would cause the remaining bytes to be invalid UTF8,
+    ///
+    /// If [number_of_bytes] would cause the remaining bytes to be invalid UTF-8,
     /// this method will panic.
+    ///
     /// If [number_of_bytes] is greater than the number of bytes remaining in the current line,
     /// this method will panic.
     pub fn consume(&mut self, number_of_bytes: usize) {
@@ -69,154 +138,315 @@ impl<R: BufRead> TextBuffer<R> {
         );
         assert!(
             remaining_line.is_char_boundary(number_of_bytes),
-            "Cannot consume() a number of bytes that will leave invalid UTF8 in the current line."
+            "Cannot consume() a number of bytes that will leave invalid UTF-8 in the current line."
         );
         self.line_offset += number_of_bytes;
     }
 
-    /// Reads the next line of text from input, appending it to the end of the buffer.
-    /// If the input is exhausted (i.e. is at EOF), returns Ok(0).
-    pub fn load_next_line(&mut self) -> io::Result<usize> {
+    /// Loads a single line from the underlying data source into the buffer.
+    pub fn load_next_line(&mut self) -> Result<usize, TextError> {
         self.load_next_n_lines(1)
     }
 
-    /// Reads the next [number_of_lines] lines of text from input, appending each one to the end of
-    /// the buffer. If fewer than [number_of_lines] remains in the input, the buffer will load as
-    /// many as possible. If the input is exhausted (i.e. is at EOF), returns Ok(0).
-    pub fn load_next_n_lines(&mut self, number_of_lines: usize) -> io::Result<usize> {
-        self.restack_remaining_text();
-        let mut total_bytes_read = 0;
-        for _ in 0..number_of_lines {
-            let bytes_read = self.input.read_line(&mut self.line)?;
-            if bytes_read == 0 {
-                self.is_exhausted = true;
-                return Ok(total_bytes_read);
-            }
-            // The last line of `self.input` can have bytes that don't end in '\n'
-            if self.line.ends_with('\n') {
-                self.line_number += 1;
-            }
-            total_bytes_read += bytes_read;
+    /// Loads up to `number_of_lines` lines from the underlying data source into the buffer.
+    /// If there are fewer lines this function will load what is available and return success.
+    ///
+    /// If the data source ends on a character boundary, but not an end of line, the data will be
+    /// considered a complete line and loaded. If the data source ends between character boundaries
+    /// for a multi-byte character, an error of TextError::Incomplete is returned.
+    pub fn load_next_n_lines(&mut self, number_of_lines: usize) -> Result<usize, TextError> {
+        use std::str::from_utf8_unchecked;
+        if self.data_utf8.1 == 0 { // We haven't validated any data..
+            self.validate_data()?;
         }
-        Ok(total_bytes_read)
-    }
 
-    /// Provides direct access to the [TextBuffer]'s backing [String]. This can be used to edit the
-    /// input text before it is processed. Note that lines added or removed when using this method
-    /// will not be reflected in subsequent calls to [lines_loaded].
-    pub fn inner(&mut self) -> &mut String {
-        &mut self.line
-    }
+        if self.line.1 >= self.data_end {
+            self.data_exhausted = true;
+            return Ok(0)
+        }
 
-    /// Removes the part of the current line that has already been consumed and moves any remaining
-    /// text back to the beginning of the buffer.
-    fn restack_remaining_text(&mut self) {
-        if self.line_offset == 0 {
-            // Nothing to do.
-            return;
-        }
-        let remaining_bytes = self.remaining_text().len();
-        unsafe {
-            // The `as_bytes_mut()` method below is unsafe.
-            // https://doc.rust-lang.org/std/primitive.str.html#method.as_bytes_mut
-            // A [str] is a byte array that is guaranteed to contain valid utf-8. Getting a mutable
-            // reference to the contents of the array means that a user could modify it in such a
-            // way that it was no longer valid utf-8. In this case, the invariants enforced by the
-            // `consume` method guarantee that this will behave safely.
-            // Copy the remaining text from the end of the String to the beginning of the String.
-            self.line.as_bytes_mut().copy_within(self.line_offset.., 0);
-            // Now that the remaining bytes are back at the beginning of the buffer, there's
-            // some garbage where the old data used to be. When we go to truncate the line to its
-            // new, shorter length, `truncate` will check to make sure that the buffer's contents
-            // are still valid utf8. It does this by looking at the next byte after the end to see
-            // if it's the beginning of a character. Since our buffer has garbage data, it's possible
-            // that test will fail and it will cause a panic. To prevent this, we simply set the
-            // next byte after truncated end of the buffer to zero.
-            self.line.as_bytes_mut()[remaining_bytes] = 0;
-            // Truncate the String to drop any data.
-            self.line.truncate(remaining_bytes)
-        }
+        // Safe: `data_utf8` contains the span of `data` that is valid UTF-8. `line` is
+        // contained within the `data_utf8` span. The start of `line` is calculated by finding the
+        // offset into our data after we walk UTF-8 characters and find EOLs, ensuring that we are
+        // always aligned to the start of UTF-8 sequences.
+        let source = unsafe { from_utf8_unchecked(&self.data.as_ref()[self.line.1..self.data_utf8.1]) };
+
+        let (count, line) = source.split_inclusive('\n').take(number_of_lines)
+                        .enumerate()
+                        .last().take()
+                        .unwrap_or((0, ""));
+
+        let bytes_read = match source.subslice_offset(line) {
+            Some(n) => {
+                // We need to ensure that there is no partial UTF-8 data trailing on the end of
+                // this line. If we have data that isn't validated, and our last character isn't a
+                // '\n', then we need to signal that our data is incomplete.
+                if self.data_end > self.data_utf8.1 && !line.ends_with('\n') {
+                    return Err(TextError::Incomplete { line: self.line_number + count + 1, column: line.chars().count() })
+                }
+
+                self.line.0 += self.line_offset;
+                self.line.1 += n + line.bytes().len();
+                n + line.bytes().len()
+            }
+            None => return Err(TextError::Incomplete { line: self.line_number + count + 1, column: 0}),
+        };
+        self.line_number += count + 1; // Enumerate starts at 0.
         self.line_offset = 0;
+
+        self.data_utf8.0 = self.line.0;
+        Ok(bytes_read)
+    }
+
+    /// This function validates the UTF-8, and trims any trailing data that causes the UTF8
+    /// validation to fail. This is to help in the case of updating the data as new data is
+    /// obtained asynchronously.
+    fn validate_data(&mut self) -> Result<(), TextError> {
+        use std::str::from_utf8;
+        // If we've already validated data, and new data was appended, we only have to validate the
+        // new append with any partial data that was invalid before the append.
+        let ValidUtf8Span(valid_start, valid_end) = self.data_utf8;
+
+        let new_end = match from_utf8(&self.data.as_ref()[valid_end..]) {
+            Ok(_valid) => self.data.as_ref().len(),
+            Err(error) => {
+                // Errors are OK here, as long as we do not have a length of erroneous data. OK
+                // errors need to be partial multi-byte characters at the end of the buffer, which
+                // imply that the data isn't complete.
+                let upto = error.valid_up_to();
+                if upto > 0 && error.error_len().is_none() {
+                    upto + valid_start
+                } else {
+                    Err(TextError::utf8_error(upto))?
+                }
+            }
+        };
+
+        self.data_utf8 = ValidUtf8Span(valid_start, new_end);
+        Ok(())
     }
 }
 
+impl TextBuffer<Vec<u8>> {
+    /// Moves any unread bytes to the front of the `Vec<u8>`, making room for more data at the
+    /// tail. This method should only be called when the bytes remaining in the buffer represent an
+    /// incomplete value; as such, the required `memcpy` should typically be quite small.
+    ///
+    /// This function will invalidate any data returned by `remaining_text` as the bytes in the
+    /// buffer will have shifted.
+    fn restack(&mut self) {
+        // Shift off all of our consumed data, leaving the buffer to start with the current line's
+        // unconsumed data.
+        let prev_start = self.line.0;
+        self.data.copy_within(self.line.0 .. self.data_end, 0);
+        self.data_end -= self.line.0;
+        self.data.truncate(self.data_end);
+
+        // The shift invalidates all of our ValidUtf8Spans.. so we need to adjust.
+        self.data_utf8.shift_left(prev_start);
+        self.line.shift_left(prev_start);
+    }
+
+    /// Copies the provided bytes to the end of the input buffer.
+    pub fn append_bytes(&mut self, bytes: &[u8]) -> Result<(), TextError> {
+        self.restack();
+        self.data.extend_from_slice(bytes);
+        self.data_end += bytes.len();
+        self.data_exhausted = false;
+        self.validate_data()
+    }
+
+    /// Tries to read `length` bytes from `source`. Unlike [append_bytes], this method does not do
+    /// any copying. A slice of the reader's buffer is handed to `source` so it can be populated
+    /// directly.
+    pub fn read_from<R: Read>(&mut self, mut source: R, length: usize) -> IonResult<usize> {
+        self.restack();
+        self.reserve_capacity(length);
+
+        let read_buffer = &mut self.data.as_mut_slice()[self.data_end..];
+        let bytes_read = source.read(read_buffer)?;
+
+        // We have new data, so we need to ensure that it is valid UTF-8.
+        if self.validate_data().is_err() {
+            Err(IonError::DecodingError { description: "Invalid UTF-8 sequence in data".to_owned() })?
+        }
+
+        self.data_end += bytes_read;
+        self.data_exhausted = false;
+
+        Ok(bytes_read)
+    }
+
+    /// Extends the underlying `Vec<u8>` so that there are `length` bytes available beyond
+    /// `self.end`. This block of zeroed out bytes can then be used as an input I/O buffer for
+    /// calls to `read_from`.
+    fn reserve_capacity(&mut self, length: usize) {
+        let capacity = self.data.len() - self.data_end;
+        if capacity < length {
+            self.data.resize(self.data.len() + length - capacity, 0);
+        }
+    }
+}
+
+impl<A: AsRef<[u8]>> From<A> for TextBuffer<A> {
+   fn from(data: A) -> Self {
+       Self::new(data)
+   }
+}
+
 #[cfg(test)]
-pub(crate) mod text_buffer_tests {
+mod tests {
     use super::*;
-    use std::{io, str};
 
-    fn text_buffer(text: &str) -> TextBuffer<io::Cursor<&str>> {
-        let input = io::Cursor::new(text);
-        TextBuffer::new(input)
+    fn text_buffer(source: &str) -> TextBuffer<&[u8]> {
+        TextBuffer::new(source.as_bytes())
     }
 
     #[test]
-    fn test_restack() {
-        // This test accesses TextBuffer internals, which isn't typical for a unit tests.
-        // However, the restack() function uses `unsafe` code and so warrants additional scrutiny.
-        let mut buffer = text_buffer("foo\nbar\nbaz\nquux\n");
-        assert_eq!(buffer.load_next_line().unwrap(), 4);
-        assert_eq!(buffer.remaining_text(), "foo\n");
-        assert_eq!(buffer.line_offset, 0);
-        buffer.consume(2);
-        assert_eq!(buffer.remaining_text(), "o\n");
-        assert_eq!(buffer.line_offset, 2);
-        buffer.restack_remaining_text();
-        assert_eq!(buffer.line_offset, 0);
-        assert_eq!(buffer.remaining_text(), "o\n");
+    fn restack() {
+        let source = "first line\nsecond line\n";
+        let mut input = TextBuffer::new(source.as_bytes().to_owned());
+        // Should be reading: "first line"
+        match input.load_next_line() {
+            Ok(11) => (),
+            wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
+        }
+        assert_eq!(input.remaining_text(), "first line\n");
+        input.consume(11);
+
+        match input.load_next_line() {
+            Ok(12) => (),
+            wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
+        }
+        assert_eq!(input.remaining_text(), "second line\n");
+
+        input.restack();
+
+        assert_eq!(input.remaining_text(), "second line\n");
+
+        input.consume(12);
+        input.restack();
+        assert_eq!(input.remaining_text(), "");
     }
 
     #[test]
-    fn test_empty_restack() {
-        // This test accesses TextBuffer internals, which isn't typical for a unit tests.
-        // However, the restack() function uses `unsafe` code and so warrants additional scrutiny.
-        let mut buffer = text_buffer("foo\nbar\nbaz\nquux\n");
-        assert_eq!(buffer.load_next_line().unwrap(), 4);
-        assert_eq!(buffer.remaining_text(), "foo\n");
-        assert_eq!(buffer.line_offset, 0);
-        buffer.consume(4);
-        assert_eq!(buffer.remaining_text(), "");
-        assert_eq!(buffer.line_offset, 4);
-        buffer.restack_remaining_text();
-        assert_eq!(buffer.line_offset, 0);
-        assert_eq!(buffer.remaining_text(), "");
+    fn append() {
+        let source = r#"first line
+        second line
+        "#;
+        let mut input = TextBuffer::new(source.as_bytes().to_owned());
+        let size = input.load_next_line().unwrap();
+        assert_eq!(input.remaining_text().trim(), "first line");
+        assert_eq!(input.lines_loaded(), 1);
+        input.consume(size);
+
+        input.append_bytes("third line".as_bytes()).expect("Invalid UTF-8 detected on append");
+
+        let size = input.load_next_line().unwrap();
+        assert_eq!(input.remaining_text().trim(), "second line");
+        assert_eq!(input.lines_loaded(), 2);
+        input.consume(size);
+
+        let size = input.load_next_line().unwrap();
+        assert_eq!(input.remaining_text().trim(), "third line");
+        assert_eq!(input.lines_loaded(), 3);
+        input.consume(size);
     }
 
     #[test]
-    fn test_consume() {
-        let mut buffer = text_buffer("foo bar baz quux");
-        buffer.load_next_line().unwrap();
-        assert_eq!(buffer.remaining_text(), "foo bar baz quux");
-        buffer.consume(4);
-        assert_eq!(buffer.remaining_text(), "bar baz quux");
-        buffer.consume(5);
-        assert_eq!(buffer.remaining_text(), "az quux");
-        buffer.consume(6);
-        assert_eq!(buffer.remaining_text(), "x");
+    fn read_from() {
+        let source = r#"first line"#;
+        let mut input = TextBuffer::new(source.as_bytes().to_owned());
+        let size = input.load_next_line().unwrap();
+        assert_eq!(input.remaining_text().trim(), "first line");
+        input.consume(size);
+
+        let more = "second line";
+        match input.read_from(more.as_bytes(), more.len()) {
+            Ok(x) if x == more.len() => (),
+            wrong => panic!("Unexpected response from read_from: {:?}", wrong),
+        }
+        input.load_next_line().unwrap();
+        assert_eq!(input.remaining_text().trim(), more);
+        assert_eq!(input.lines_loaded(), 2);
+    }
+
+    #[test]
+    fn partial_utf8() {
+        let atom_modified = &[0xe2, 0x9a, 0x9b, 0xef, 0xb8, 0x8f];
+        let source: &[u8] = &[0x57, 0x65, 0x20, 0x4c, 0x6f, 0x76,
+                              0x65, 0x20, 0x49, 0x6f, 0x6e, 0x21,
+        ];
+        let mut input = TextBuffer::new(source.to_owned());
+        input.append_bytes(&atom_modified[..5]).expect("unable to add partial UTF-8 character");
+        // This should fail since we have a partial UTF-8 sequence in the first line.
+        match input.load_next_line() {
+            Err(TextError::Incomplete { line, column }) => {
+                assert_eq!(line, 1);
+                assert_eq!(column, 13);
+            }
+            wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
+        }
+
+        input.append_bytes(&atom_modified[5..]).expect("unable to fix UTF-8 character..");
+        // This should succeed, since the entire UTF-8 sequence is now available.
+        match input.load_next_line() {
+            Ok(x) if x == atom_modified.len() + source.len() => (),
+            wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
+        }
+    }
+
+    #[test]
+    fn consume() {
+        let source = r#"first line"#;
+        let mut input = TextBuffer::new(source.as_bytes().to_owned());
+        input.load_next_line().unwrap();
+
+        assert_eq!(input.remaining_text(), "first line");
+
+        input.consume(6);
+        assert_eq!(input.remaining_text(), "line");
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn invalid_utf8_consume() {
+        let source = "😎";
+        let mut input = TextBuffer::new(source.as_bytes().to_owned());
+        input.load_next_line().unwrap();
+        input.consume(1);
     }
 
     #[test]
     #[should_panic]
-    fn test_consume_err_illegal_utf8_offset() {
-        let mut buffer = text_buffer("😎");
-        buffer.load_next_line().unwrap();
-        // This jumps into the middle of the emoji.
-        // If it were to succeed, the next call to remaining_text() would panic.
-        buffer.consume(1);
+    fn consume_too_many_bytes() {
+        let source = "foo";
+        let mut input = TextBuffer::new(source.as_bytes().to_owned());
+        input.load_next_line().unwrap();
+        input.consume(75);
     }
 
     #[test]
-    #[should_panic]
-    fn test_consume_err_too_many_bytes() {
-        let mut buffer = text_buffer("foo");
-        buffer.load_next_line().unwrap();
-        // There are only 3 bytes in the buffer.
-        // We cannot consume more bytes than are available.
-        buffer.consume(75);
+    fn validate_subslice_offset() {
+        let data = "foo bar baz halb blah";
+        let subdata = &data[4..7];
+        assert_eq!(subdata, "bar");
+        assert_eq!(data.subslice_offset(subdata), Some(4));
+        assert_eq!(data.subslice_offset(&data[8..11]), Some(8));
+
+        let bogus = unsafe {
+            let slice = std::slice::from_raw_parts(data.as_ptr().wrapping_add(50), 10);
+            std::str::from_utf8_unchecked(slice)
+        };
+        assert_eq!(data.subslice_offset(bogus), None);
+        let otherdata = "something entirely different";
+        let othersubdata = &otherdata[4..7];
+        assert_eq!(data.subslice_offset(othersubdata), None);
     }
 
     #[test]
-    fn test_load_next_line() {
+    fn load_next_line() {
         let mut buffer = text_buffer("foo\nbar\nbaz\nquux\n");
         assert_eq!(buffer.load_next_line().unwrap(), 4);
         assert_eq!(buffer.remaining_text(), "foo\n");
@@ -234,7 +464,7 @@ pub(crate) mod text_buffer_tests {
     }
 
     #[test]
-    fn test_load_next_n_lines() {
+    fn load_next_n_lines() {
         let mut buffer = text_buffer("foo\nbar\nbaz\nquux\n");
         assert_eq!(buffer.load_next_n_lines(3).unwrap(), 12);
         assert_eq!(buffer.remaining_text(), "foo\nbar\nbaz\n");
@@ -249,7 +479,7 @@ pub(crate) mod text_buffer_tests {
     }
 
     #[test]
-    fn test_is_exhausted() {
+    fn is_exhausted() {
         let mut buffer = text_buffer("foo\nbar\n");
         assert_eq!(buffer.load_next_line().unwrap(), 4);
         assert_eq!(buffer.remaining_text(), "foo\n");
@@ -274,7 +504,7 @@ pub(crate) mod text_buffer_tests {
     fn invalid_utf8_returns_err() {
         // Invalid UTF-8 data
         let data = &[0xf1, 0xf2, 0xc2, 0x80];
-        let mut buffer = TextBuffer::new(io::Cursor::new(data));
+        let mut buffer = TextBuffer::new(data);
         assert!(buffer.load_next_line().is_err());
     }
 }

@@ -2,11 +2,10 @@ use std::fmt::Display;
 
 use nom::Err::{Error, Failure, Incomplete};
 
-use crate::data_source::ToIonDataSource;
 use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{
-    decoding_error, illegal_operation, illegal_operation_raw, IonError, IonResult,
+    decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError, IonResult,
 };
 use crate::stream_reader::StreamReader;
 use crate::text::parent_container::ParentContainer;
@@ -16,7 +15,7 @@ use crate::text::parsers::containers::{
     struct_delimiter, struct_field_name_or_end, struct_field_value,
 };
 use crate::text::parsers::top_level::{stream_item, RawTextStreamItem};
-use crate::text::text_buffer::TextBuffer;
+use crate::text::non_blocking::text_buffer::TextBuffer;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
@@ -25,8 +24,8 @@ use crate::IonType;
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
 
-pub struct RawTextReader<T: ToIonDataSource> {
-    buffer: TextBuffer<T::DataSource>,
+pub struct RawTextReader<A: AsRef<[u8]>> {
+    buffer: TextBuffer<A>,
     // If the reader is not positioned over a value inside a struct, this is None.
     current_field_name: Option<RawSymbolToken>,
     // If the reader has not yet begun reading at the current level or is positioned over an IVM,
@@ -53,14 +52,14 @@ pub(crate) enum RootParseResult<O> {
     Ok(O),
     Eof,
     NoMatch,
+    Incomplete(usize, usize),
     Failure(String),
 }
 
-impl<T: ToIonDataSource> RawTextReader<T> {
-    pub fn new(input: T) -> RawTextReader<T> {
-        let text_source = input.to_ion_data_source();
+impl<A: AsRef<[u8]>> RawTextReader<A> {
+    pub fn new(input: A) -> RawTextReader<A> {
         RawTextReader {
-            buffer: TextBuffer::new(text_source),
+            buffer: TextBuffer::new(input),
             current_field_name: None,
             current_value: None,
             current_ivm: None,
@@ -182,6 +181,7 @@ impl<T: ToIonDataSource> RawTextReader<T> {
                 self.current_value = Some(value);
                 Ok(())
             }
+            RootParseResult::Incomplete(line, column) => incomplete_text_error(line, column),
             RootParseResult::Eof => {
                 // The top level is the only depth at which EOF is legal. If we encounter an EOF,
                 // double check that the buffer doesn't actually have a value in it. See the
@@ -252,12 +252,8 @@ impl<T: ToIonDataSource> RawTextReader<T> {
     {
         match self.parse_next(parser) {
             Ok(Some(value)) => Ok(value),
-            Ok(None) => decoding_error(format!(
-                "Unexpected end of input while reading {} on line {}: '{}'",
-                entity_name,
-                self.buffer.lines_loaded(),
-                self.buffer.remaining_text()
-            )),
+            Ok(None) => incomplete_text_error(self.buffer.lines_loaded(), 0),
+            Err(IonError::IncompleteText { line, column}) => incomplete_text_error(line, column),
             Err(e) => decoding_error(format!(
                 "Parsing error occurred while parsing {} near line {}:\n'{}'\n{}",
                 entity_name,
@@ -274,6 +270,7 @@ impl<T: ToIonDataSource> RawTextReader<T> {
     {
         match self.parse_next_nom(parser) {
             RootParseResult::Ok(item) => Ok(Some(item)),
+            RootParseResult::Incomplete(line, column) => incomplete_text_error(line, column),
             RootParseResult::Eof => Ok(None),
             RootParseResult::NoMatch => {
                 // Return an error that contains the text currently in the buffer (i.e. what we
@@ -297,6 +294,8 @@ impl<T: ToIonDataSource> RawTextReader<T> {
     where
         P: Fn(&str) -> IonParseResult<O>,
     {
+        use super::text_buffer::TextError;
+
         let RawTextReader {
             ref mut is_eof,
             ref mut buffer,
@@ -334,6 +333,12 @@ impl<T: ToIonDataSource> RawTextReader<T> {
                         Ok(_bytes_loaded) => {
                             // Retry the parser on the extended buffer in the next loop iteration
                             continue;
+                        }
+                        Err(TextError::Incomplete { line, column }) => {
+                            // If load_next_line() returns TextError::Incomplete, then that means
+                            // it has incomplete UTF-8 data in the buffer, suggesting the user is
+                            // not done providing the ion data.
+                            return RootParseResult::Incomplete(line, column);
                         }
                         Err(e) => {
                             let error_message =
@@ -378,9 +383,12 @@ impl<T: ToIonDataSource> RawTextReader<T> {
         // EOF are ambiguous.
         const SENTINEL_ION_TEXT: &str = "\n0\n";
         // Make a note of the buffer's length; we're about to modify it.
-        let original_length = self.buffer.remaining_text().len();
+        let mut remaining_text = self.buffer.remaining_text().to_owned();
+        let original_length = remaining_text.len();
+
         // Append our sentinel value to the end of the input buffer.
-        self.buffer.inner().push_str(SENTINEL_ION_TEXT);
+        remaining_text.push_str(SENTINEL_ION_TEXT);
+
         // If the buffer contained a value, the newline will indicate that the contents of the
         // buffer were complete. For example:
         // * the integer `7` becomes `7\n`; it wasn't the first digit in a truncated `755`.
@@ -395,7 +403,7 @@ impl<T: ToIonDataSource> RawTextReader<T> {
         //   there aren't any more long-form string segments in the sequence.
         //
         // Attempt to parse the updated buffer.
-        let value = match stream_item(self.buffer.remaining_text()) {
+        let value = match stream_item(&remaining_text) {
             Ok(("\n", RawTextStreamItem::AnnotatedTextValue(value)))
                 if value.annotations().is_empty()
                     && *value.value() == TextValue::Integer(Integer::I64(0)) =>
@@ -436,15 +444,6 @@ impl<T: ToIonDataSource> RawTextReader<T> {
             }
         };
 
-        // If we didn't consume the sentinel value, remove the sentinel value from the buffer.
-        // Doing so makes this method idempotent.
-        if self.buffer.remaining_text().ends_with(SENTINEL_ION_TEXT) {
-            let length = self.buffer.remaining_text().len();
-            self.buffer
-                .inner()
-                .truncate(length - SENTINEL_ION_TEXT.len());
-        }
-
         value
     }
 
@@ -460,6 +459,27 @@ impl<T: ToIonDataSource> RawTextReader<T> {
     }
 }
 
+impl RawTextReader<Vec<u8>> {
+
+    fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
+        match self.buffer.append_bytes(bytes) {
+            Err(e) => decoding_error(e.to_string()),
+            Ok(()) => {
+                self.is_eof = false;
+                Ok(())
+            }
+        }
+    }
+
+    fn read_from<R: std::io::Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
+        let res = self.buffer.read_from(source, length);
+        if res.is_ok() {
+            self.is_eof = false;
+        }
+        res
+    }
+}
+
 // Returned by the `annotations()` method below if there is no current value.
 const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
 
@@ -471,7 +491,7 @@ const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
 //       materializing it and then attempt to materialize it when the user calls `read_TYPE`. This
 //       would take less memory and would only materialize values that the user requests.
 //       See: https://github.com/amzn/ion-rust/issues/322
-impl<T: ToIonDataSource> StreamReader for RawTextReader<T> {
+impl<A: AsRef<[u8]>> StreamReader for RawTextReader<A> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;
 
@@ -765,14 +785,14 @@ mod reader_tests {
     use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
     use crate::result::IonResult;
     use crate::stream_reader::StreamReader;
-    use crate::text::raw_text_reader::RawTextReader;
+    use crate::text::non_blocking::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoAnnotations, TextValue};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::IonType;
     use crate::RawStreamItem::Nothing;
 
-    fn next_type(reader: &mut RawTextReader<&str>, ion_type: IonType, is_null: bool) {
+    fn next_type<T: AsRef<[u8]>>(reader: &mut RawTextReader<T>, ion_type: IonType, is_null: bool) {
         assert_eq!(
             reader.next().unwrap(),
             RawStreamItem::nullable_value(ion_type, is_null)
@@ -786,6 +806,55 @@ mod reader_tests {
             .map(|a| a.expect("annotation with unknown text"))
             .collect();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_basic_incomplete() -> IonResult<()> {
+        let ion_data = r#"
+        [1, 2, 3
+        "#;
+        let mut reader = RawTextReader::new(ion_data.as_bytes().to_owned());
+        next_type(&mut reader, IonType::List, false);
+        reader.step_in()?;
+        next_type(&mut reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?, 1);
+        next_type(&mut reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?, 2);
+        match reader.next() {
+            // the failure occurs after reading the \n after 3, so it is identified on line 3.
+            Err(IonError::IncompleteText { line, .. }) => assert_eq!(line, 3),
+            Err(e) => panic!("unexpected error when parsing partial data: {}", e),
+            Ok(_) => panic!("unexpected successful parsing of partial data."),
+        }
+        reader.append_bytes("]".as_bytes()).expect("Unable to append bytes");
+        next_type(&mut reader, IonType::Integer, false);
+        assert_eq!(reader.read_i64()?, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_utf8_incomplete() -> IonResult<()> {
+        let source: &[u8] = &[0x22, 0x57, 0x65, 0x20, 0x4c, 0x6f,
+                              0x76, 0x65, 0x20, 0x49, 0x6f, 0x6e,
+                              0x21, 0xe2, 0x9a, 0x9b, 0xef, 0xb8,
+                              0x8f, 0x22
+        ];
+
+        // This will initialize our reader with the full source but end just short of
+        // the end of the utf-8 sequence \xe29a9befb88f.
+        let mut reader = RawTextReader::new(source[0..18].to_owned());
+
+        match reader.next() {
+            Err(IonError::IncompleteText { line, column }) => {
+                assert_eq!(line, 1);
+                assert_eq!(column, 14); // failure at start of multi-byte sequence.
+            }
+            Err(e) => panic!("unexpected error after partial utf-8 data: {}", e),
+            Ok(item) => panic!("unexpected successful parsing of partial utf-8 data: {:?}", item),
+        }
+        reader.append_bytes(&source[18..])?;
+        next_type(&mut reader, IonType::String, false);
+        Ok(())
     }
 
     #[test]
