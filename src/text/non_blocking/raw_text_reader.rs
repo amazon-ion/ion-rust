@@ -5,9 +5,11 @@ use nom::Err::{Error, Failure, Incomplete};
 use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{
-    decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError, IonResult,
+    decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError,
+    IonResult,
 };
 use crate::stream_reader::StreamReader;
+use crate::text::non_blocking::text_buffer::TextBuffer;
 use crate::text::parent_container::ParentContainer;
 use crate::text::parse_result::IonParseResult;
 use crate::text::parsers::containers::{
@@ -15,7 +17,6 @@ use crate::text::parsers::containers::{
     struct_delimiter, struct_field_name_or_end, struct_field_value,
 };
 use crate::text::parsers::top_level::{stream_item, RawTextStreamItem};
-use crate::text::non_blocking::text_buffer::TextBuffer;
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
@@ -253,7 +254,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
         match self.parse_next(parser) {
             Ok(Some(value)) => Ok(value),
             Ok(None) => incomplete_text_error(self.buffer.lines_loaded(), 0),
-            Err(IonError::IncompleteText { line, column}) => incomplete_text_error(line, column),
+            Err(IonError::IncompleteText { line, column }) => incomplete_text_error(line, column),
             Err(e) => decoding_error(format!(
                 "Parsing error occurred while parsing {} near line {}:\n'{}'\n{}",
                 entity_name,
@@ -460,7 +461,6 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
 }
 
 impl RawTextReader<Vec<u8>> {
-
     fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
         match self.buffer.append_bytes(bytes) {
             Err(e) => decoding_error(e.to_string()),
@@ -826,7 +826,9 @@ mod reader_tests {
             Err(e) => panic!("unexpected error when parsing partial data: {}", e),
             Ok(_) => panic!("unexpected successful parsing of partial data."),
         }
-        reader.append_bytes("]".as_bytes()).expect("Unable to append bytes");
+        reader
+            .append_bytes("]".as_bytes())
+            .expect("Unable to append bytes");
         next_type(&mut reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?, 3);
         Ok(())
@@ -834,10 +836,9 @@ mod reader_tests {
 
     #[test]
     fn test_utf8_incomplete() -> IonResult<()> {
-        let source: &[u8] = &[0x22, 0x57, 0x65, 0x20, 0x4c, 0x6f,
-                              0x76, 0x65, 0x20, 0x49, 0x6f, 0x6e,
-                              0x21, 0xe2, 0x9a, 0x9b, 0xef, 0xb8,
-                              0x8f, 0x22
+        let source: &[u8] = &[
+            0x22, 0x57, 0x65, 0x20, 0x4c, 0x6f, 0x76, 0x65, 0x20, 0x49, 0x6f, 0x6e, 0x21, 0xe2,
+            0x9a, 0x9b, 0xef, 0xb8, 0x8f, 0x22,
         ];
 
         // This will initialize our reader with the full source but end just short of
@@ -850,7 +851,10 @@ mod reader_tests {
                 assert_eq!(column, 14); // failure at start of multi-byte sequence.
             }
             Err(e) => panic!("unexpected error after partial utf-8 data: {}", e),
-            Ok(item) => panic!("unexpected successful parsing of partial utf-8 data: {:?}", item),
+            Ok(item) => panic!(
+                "unexpected successful parsing of partial utf-8 data: {:?}",
+                item
+            ),
         }
         reader.append_bytes(&source[18..])?;
         next_type(&mut reader, IonType::String, false);

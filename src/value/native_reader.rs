@@ -1,9 +1,9 @@
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
-use crate::text::non_blocking::raw_text_reader::RawTextReader;
 use crate::raw_reader::RawReader;
 use crate::reader::ReaderBuilder;
 use crate::result::IonResult;
+use crate::text::non_blocking::raw_text_reader::RawTextReader;
 use crate::value::owned;
 use crate::value::owned::{OwnedElement, OwnedSequence, OwnedStruct, OwnedValue};
 use crate::value::reader::ElementReader;

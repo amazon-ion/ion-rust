@@ -36,7 +36,7 @@ impl SubsliceOffset for str {
         if inner_start < this_start || inner_start > this_start.wrapping_add(self.len()) {
             None
         } else {
-            Some(inner_start .wrapping_sub(this_start))
+            Some(inner_start.wrapping_sub(this_start))
         }
     }
 }
@@ -75,7 +75,6 @@ pub(crate) struct TextBuffer<A: AsRef<[u8]>> {
 }
 
 impl<A: AsRef<[u8]>> TextBuffer<A> {
-
     /// Constructs a new TextBuffer that will pull lines of text from the provided input.
     pub fn new(data: A) -> Self {
         let data_len = data.as_ref().len();
@@ -156,25 +155,30 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
     /// for a multi-byte character, an error of TextError::Incomplete is returned.
     pub fn load_next_n_lines(&mut self, number_of_lines: usize) -> Result<usize, TextError> {
         use std::str::from_utf8_unchecked;
-        if self.data_utf8.1 == 0 { // We haven't validated any data..
+        if self.data_utf8.1 == 0 {
+            // We haven't validated any data..
             self.validate_data()?;
         }
 
         if self.line.1 >= self.data_end {
             self.data_exhausted = true;
-            return Ok(0)
+            return Ok(0);
         }
 
         // Safe: `data_utf8` contains the span of `data` that is valid UTF-8. `line` is
         // contained within the `data_utf8` span. The start of `line` is calculated by finding the
         // offset into our data after we walk UTF-8 characters and find EOLs, ensuring that we are
         // always aligned to the start of UTF-8 sequences.
-        let source = unsafe { from_utf8_unchecked(&self.data.as_ref()[self.line.1..self.data_utf8.1]) };
+        let source =
+            unsafe { from_utf8_unchecked(&self.data.as_ref()[self.line.1..self.data_utf8.1]) };
 
-        let (count, line) = source.split_inclusive('\n').take(number_of_lines)
-                        .enumerate()
-                        .last().take()
-                        .unwrap_or((0, ""));
+        let (count, line) = source
+            .split_inclusive('\n')
+            .take(number_of_lines)
+            .enumerate()
+            .last()
+            .take()
+            .unwrap_or((0, ""));
 
         let bytes_read = match source.subslice_offset(line) {
             Some(n) => {
@@ -182,14 +186,22 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
                 // this line. If we have data that isn't validated, and our last character isn't a
                 // '\n', then we need to signal that our data is incomplete.
                 if self.data_end > self.data_utf8.1 && !line.ends_with('\n') {
-                    return Err(TextError::Incomplete { line: self.line_number + count + 1, column: line.chars().count() })
+                    return Err(TextError::Incomplete {
+                        line: self.line_number + count + 1,
+                        column: line.chars().count(),
+                    });
                 }
 
                 self.line.0 += self.line_offset;
                 self.line.1 += n + line.bytes().len();
                 n + line.bytes().len()
             }
-            None => return Err(TextError::Incomplete { line: self.line_number + count + 1, column: 0}),
+            None => {
+                return Err(TextError::Incomplete {
+                    line: self.line_number + count + 1,
+                    column: 0,
+                })
+            }
         };
         self.line_number += count + 1; // Enumerate starts at 0.
         self.line_offset = 0;
@@ -238,7 +250,7 @@ impl TextBuffer<Vec<u8>> {
         // Shift off all of our consumed data, leaving the buffer to start with the current line's
         // unconsumed data.
         let prev_start = self.line.0;
-        self.data.copy_within(self.line.0 .. self.data_end, 0);
+        self.data.copy_within(self.line.0..self.data_end, 0);
         self.data_end -= self.line.0;
         self.data.truncate(self.data_end);
 
@@ -268,7 +280,9 @@ impl TextBuffer<Vec<u8>> {
 
         // We have new data, so we need to ensure that it is valid UTF-8.
         if self.validate_data().is_err() {
-            Err(IonError::DecodingError { description: "Invalid UTF-8 sequence in data".to_owned() })?
+            Err(IonError::DecodingError {
+                description: "Invalid UTF-8 sequence in data".to_owned(),
+            })?
         }
 
         self.data_end += bytes_read;
@@ -289,9 +303,9 @@ impl TextBuffer<Vec<u8>> {
 }
 
 impl<A: AsRef<[u8]>> From<A> for TextBuffer<A> {
-   fn from(data: A) -> Self {
-       Self::new(data)
-   }
+    fn from(data: A) -> Self {
+        Self::new(data)
+    }
 }
 
 #[cfg(test)]
@@ -340,7 +354,9 @@ mod tests {
         assert_eq!(input.lines_loaded(), 1);
         input.consume(size);
 
-        input.append_bytes("third line".as_bytes()).expect("Invalid UTF-8 detected on append");
+        input
+            .append_bytes("third line".as_bytes())
+            .expect("Invalid UTF-8 detected on append");
 
         let size = input.load_next_line().unwrap();
         assert_eq!(input.remaining_text().trim(), "second line");
@@ -374,11 +390,13 @@ mod tests {
     #[test]
     fn partial_utf8() {
         let atom_modified = &[0xe2, 0x9a, 0x9b, 0xef, 0xb8, 0x8f];
-        let source: &[u8] = &[0x57, 0x65, 0x20, 0x4c, 0x6f, 0x76,
-                              0x65, 0x20, 0x49, 0x6f, 0x6e, 0x21,
+        let source: &[u8] = &[
+            0x57, 0x65, 0x20, 0x4c, 0x6f, 0x76, 0x65, 0x20, 0x49, 0x6f, 0x6e, 0x21,
         ];
         let mut input = TextBuffer::new(source.to_owned());
-        input.append_bytes(&atom_modified[..5]).expect("unable to add partial UTF-8 character");
+        input
+            .append_bytes(&atom_modified[..5])
+            .expect("unable to add partial UTF-8 character");
         // This should fail since we have a partial UTF-8 sequence in the first line.
         match input.load_next_line() {
             Err(TextError::Incomplete { line, column }) => {
@@ -388,7 +406,9 @@ mod tests {
             wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
         }
 
-        input.append_bytes(&atom_modified[5..]).expect("unable to fix UTF-8 character..");
+        input
+            .append_bytes(&atom_modified[5..])
+            .expect("unable to fix UTF-8 character..");
         // This should succeed, since the entire UTF-8 sequence is now available.
         match input.load_next_line() {
             Ok(x) if x == atom_modified.len() + source.len() => (),
@@ -407,7 +427,6 @@ mod tests {
         input.consume(6);
         assert_eq!(input.remaining_text(), "line");
     }
-
 
     #[test]
     #[should_panic]
