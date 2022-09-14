@@ -134,7 +134,10 @@ where
 #[cfg(test)]
 mod binary_timestamp_tests {
     use super::*;
-    use crate::text::{parsers::timestamp::parse_timestamp, text_value::TextValue};
+    use crate::IonType;
+    use crate::reader;
+    use crate::ReaderBuilder;
+    use crate::StreamReader;
     use rstest::*;
 
     // These tests show how varying levels of precision affects number of bytes
@@ -150,14 +153,15 @@ mod binary_timestamp_tests {
         #[case] input: &str,
         #[case] expected: usize,
     ) -> IonResult<()> {
-        let text_value = parse_timestamp(&(input.to_owned() + " ")).unwrap().1;
-        match text_value {
-            TextValue::Timestamp(timestamp) => {
+        let mut reader = ReaderBuilder::new().build(input).unwrap();
+        match reader.next().unwrap() {
+            reader::StreamItem::Value(IonType::Timestamp) => {
+                let timestamp = reader.read_timestamp().unwrap();
                 let mut buf = vec![];
                 let written = buf.encode_timestamp_value(&timestamp)?;
                 assert_eq!(buf.len(), expected);
                 assert_eq!(written, expected);
-            }
+            },
             _ => panic!("parse_timestamp() should only return TextValue::Timestamp"),
         }
         Ok(())
