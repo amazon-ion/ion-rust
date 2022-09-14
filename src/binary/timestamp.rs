@@ -134,6 +134,7 @@ where
 #[cfg(test)]
 mod binary_timestamp_tests {
     use super::*;
+    use crate::reader;
     use crate::IonType;
     use crate::reader;
     use crate::ReaderBuilder;
@@ -161,8 +162,8 @@ mod binary_timestamp_tests {
                 let written = buf.encode_timestamp_value(&timestamp)?;
                 assert_eq!(buf.len(), expected);
                 assert_eq!(written, expected);
-            },
-            _ => panic!("parse_timestamp() should only return TextValue::Timestamp"),
+            }
+            _ => panic!("reader.next() should only return reader::StreamItem::Value(IonType::Timestamp)"),
         }
         Ok(())
     }
