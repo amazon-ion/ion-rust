@@ -88,11 +88,21 @@ trait EmptyMantissa {
     /// sub-second precision at all. For example, `Mantissa::Digits(0)` or
     /// `Mantissa::Arbitrary(Decimal::new(0, 0))`.
     fn is_empty(&self) -> bool;
+
+    /// Returns true if the Mantissa's value is equivalent to a zero value
+    /// For example, `Mantissa::Digits(0)` or `Mantissa::Arbitrary(Decimal::new(0, x))`.
+    /// For Decimal, it ignores the exponent value for a zero coefficient.
+    fn is_zero(&self) -> bool;
 }
 
 impl EmptyMantissa for Decimal {
     fn is_empty(&self) -> bool {
         self.coefficient.is_zero() && self.exponent == 0
+    }
+
+    fn is_zero(&self) -> bool {
+        // if the coefficient is zero then ignore the exponent value
+        self.coefficient.is_zero()
     }
 }
 
@@ -103,6 +113,16 @@ impl EmptyMantissa for Mantissa {
             Mantissa::Digits(0) => true,
             // Or a Decimal with a coefficient of zero (any sign) and an exponent of zero.
             Mantissa::Arbitrary(d) => d.is_empty(),
+            _ => false,
+        }
+    }
+
+    fn is_zero(&self) -> bool {
+        match self {
+            // Look at zero digits of the DateTime's nanoseconds
+            Mantissa::Digits(0) => true,
+            // Or a Decimal with a coefficient of zero (any sign).
+            Mantissa::Arbitrary(d) => d.is_zero(),
             _ => false,
         }
     }
@@ -254,14 +274,14 @@ impl Timestamp {
         ) {
             (None, None) => Ordering::Equal,
             (Some(m), None) => {
-                if m.is_empty() {
+                if m.is_zero() {
                     Ordering::Equal
                 } else {
                     Ordering::Greater
                 }
             }
             (None, Some(m)) => {
-                if m.is_empty() {
+                if m.is_zero() {
                     Ordering::Equal
                 } else {
                     Ordering::Less
@@ -288,14 +308,22 @@ impl Timestamp {
     /// only be called if both Timestamps have a precision of [Precision::Second].
     fn fractional_seconds_equal(&self, other: &Timestamp) -> bool {
         use Mantissa::*;
-        match (
-            self.fractional_seconds.as_ref(),
-            other.fractional_seconds.as_ref(),
-        ) {
-            (None, None) => true,
-            (Some(m), None) => m.is_empty(),
-            (None, Some(m)) => m.is_empty(),
-            (Some(Digits(d1)), Some(Digits(d2))) => {
+
+        // TODO: make Timestamp::fractional_seconds to be Mantissa when creating a Timestamp to get rid of below conversion
+        // convert Option<&Mantissa> to &Mantissa
+        let m1 = match &self.fractional_seconds {
+            None => &Mantissa::Digits(0),
+            Some(m) => m,
+        };
+
+        let m2 = match &other.fractional_seconds {
+            None => &Mantissa::Digits(0),
+            Some(m) => m,
+        };
+
+        // compare fractional seconds
+        match (m1, m2) {
+            (Digits(d1), Digits(d2)) => {
                 if d1 != d2 {
                     // Different precisions
                     return false;
@@ -304,17 +332,24 @@ impl Timestamp {
                 let d2 = first_n_digits_of(*d2, other.date_time.nanosecond());
                 d1 == d2
             }
-            (Some(Arbitrary(d1)), Some(Arbitrary(d2))) => Mantissa::decimals_equal(d1, d2),
-            (Some(Digits(_d1)), Some(Arbitrary(d2))) => {
-                let d1 = &self.fractional_seconds_as_decimal().unwrap();
-                Mantissa::decimals_equal(d1, d2)
+            (Arbitrary(d1), Arbitrary(d2)) => Mantissa::decimals_equal(d1, d2),
+            (Digits(_d1), Arbitrary(d2)) => {
+                let d1 = match self.fractional_seconds_as_decimal() {
+                    Some(decimal_value) => decimal_value,
+                    None => Decimal::new(0, 0),
+                };
+                Mantissa::decimals_equal(&d1, d2)
             }
-            (Some(Arbitrary(d1)), Some(Digits(_d2))) => {
-                let d2 = &other.fractional_seconds_as_decimal().unwrap();
-                Mantissa::decimals_equal(d1, d2)
+            (Arbitrary(d1), Digits(_d2)) => {
+                let d2 = match other.fractional_seconds_as_decimal() {
+                    Some(decimal_value) => decimal_value,
+                    None => Decimal::new(0, 0),
+                };
+                Mantissa::decimals_equal(d1, &d2)
             }
         }
     }
+
     /// Writes the fractional seconds portion of a text timestamp, including a leading `.`.
     pub(crate) fn format_fractional_seconds<W: std::fmt::Write>(
         &self,
@@ -524,11 +559,6 @@ impl PartialOrd for Timestamp {
 
 impl Ord for Timestamp {
     fn cmp(&self, other: &Self) -> Ordering {
-        let fractional_seconds_comparison = self.fractional_seconds_compare(other);
-        if fractional_seconds_comparison != Ordering::Equal {
-            return fractional_seconds_comparison;
-        }
-
         let self_datetime = self.date_time.with_nanosecond(0).unwrap();
         let other_datetime = other.date_time.with_nanosecond(0).unwrap();
 
@@ -541,7 +571,16 @@ impl Ord for Timestamp {
             .map(|offset| offset.from_utc_datetime(&other_datetime))
             .unwrap_or_else(|| FixedOffset::east(0).from_utc_datetime(&other_datetime));
 
-        self_datetime.cmp(&other_datetime)
+        let date_time_comparison = self_datetime.cmp(&other_datetime);
+
+        match date_time_comparison {
+            // if the datetime comparison is Ordering::Equal,
+            // then return fractional seconds comparison result
+            Ordering::Equal => self.fractional_seconds_compare(other),
+            // if datetime comparison is not equal,
+            // then no need to check for fractional seconds comparison
+            _ => date_time_comparison,
+        }
     }
 }
 
@@ -1637,6 +1676,7 @@ mod timestamp_tests {
     #[case::timestamp_with_same_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Equal)]
     #[case::timestamp_with_different_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
     #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
+    #[case::timestamp_with_second_precison_and_year_precision(Timestamp::with_ymd(2001, 1, 1).build().unwrap(), Timestamp::with_ymd_hms(2001, 1, 1, 0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000u128, -20)).build_at_unknown_offset().unwrap(), Ordering::Equal)]
     fn timestamp_ordering_tests(
         #[case] this: Timestamp,
         #[case] other: Timestamp,
