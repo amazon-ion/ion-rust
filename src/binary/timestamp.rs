@@ -136,7 +136,6 @@ mod binary_timestamp_tests {
     use super::*;
     use crate::reader;
     use crate::IonType;
-    use crate::reader;
     use crate::ReaderBuilder;
     use crate::StreamReader;
     use rstest::*;
