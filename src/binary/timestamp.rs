@@ -162,7 +162,9 @@ mod binary_timestamp_tests {
                 assert_eq!(buf.len(), expected);
                 assert_eq!(written, expected);
             }
-            _ => panic!("reader.next() should only return reader::StreamItem::Value(IonType::Timestamp)"),
+            _ => panic!(
+                "reader.next() should only return reader::StreamItem::Value(IonType::Timestamp)"
+            ),
         }
         Ok(())
     }
