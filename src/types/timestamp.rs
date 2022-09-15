@@ -1162,10 +1162,16 @@ impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
             (Precision::Month, _) => TSPrecision::Month,
             (Precision::Day, _) => TSPrecision::Day,
             (Precision::HourAndMinute, _) => TSPrecision::Minute,
-            (Precision::Second, mantissa) => TSPrecision::Fractional(match mantissa {
-                Mantissa::Digits(digits) => IonCMantissa::Digits(digits),
-                Mantissa::Arbitrary(fraction) => IonCMantissa::Fraction(fraction.try_into()?),
-            }),
+            (Precision::Second, mantissa) => {
+                if mantissa.is_zero() {
+                    TSPrecision::Second
+                } else {
+                    TSPrecision::Fractional(match mantissa {
+                        Mantissa::Digits(digits) => IonCMantissa::Digits(digits),
+                        Mantissa::Arbitrary(fraction) => IonCMantissa::Fraction(fraction.try_into()?),
+                    })
+                }
+            }
         };
         let date_time = offset.from_utc_datetime(&self.date_time);
 
