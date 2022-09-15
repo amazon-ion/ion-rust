@@ -1168,7 +1168,9 @@ impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
                 } else {
                     TSPrecision::Fractional(match mantissa {
                         Mantissa::Digits(digits) => IonCMantissa::Digits(digits),
-                        Mantissa::Arbitrary(fraction) => IonCMantissa::Fraction(fraction.try_into()?),
+                        Mantissa::Arbitrary(fraction) => {
+                            IonCMantissa::Fraction(fraction.try_into()?)
+                        }
                     })
                 }
             }
