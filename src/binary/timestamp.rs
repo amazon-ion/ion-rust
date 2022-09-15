@@ -75,25 +75,23 @@ where
                     bytes_written += VarUInt::write_u64(self, utc.minute() as u64)?;
                     if timestamp.precision > Precision::HourAndMinute {
                         bytes_written += VarUInt::write_u64(self, utc.second() as u64)?;
-                        if let Some(ref mantissa) = timestamp.fractional_seconds {
-                            // TODO: Both branches encode directly due to one
-                            // branch owning vs borrowing the decimal
-                            // representation. #286 should provide a fix.
-                            match mantissa {
-                                Mantissa::Digits(precision) => {
-                                    // Consider the following case: `2000-01-01T00:00:00.123Z`.
-                                    // That's 123 millis, or 123,000,000 nanos.
-                                    // Our mantissa is 0.123, or 123d-3.
-                                    let scaled = utc.nanosecond() / 10u32.pow(9 - *precision); // 123,000,000 -> 123
-                                    let exponent = (*precision as i64).neg(); // -3
-                                    let fractional = Decimal::new(scaled, exponent); // 123d-3
-                                    bytes_written += self.encode_decimal(&fractional)?;
-                                }
-                                Mantissa::Arbitrary(decimal) => {
-                                    bytes_written += self.encode_decimal(decimal)?;
-                                }
-                            };
-                        }
+                        // TODO: Both branches encode directly due to one
+                        // branch owning vs borrowing the decimal
+                        // representation. #286 should provide a fix.
+                        match &timestamp.fractional_seconds {
+                            Mantissa::Digits(precision) => {
+                                // Consider the following case: `2000-01-01T00:00:00.123Z`.
+                                // That's 123 millis, or 123,000,000 nanos.
+                                // Our mantissa is 0.123, or 123d-3.
+                                let scaled = utc.nanosecond() / 10u32.pow(9 - *precision); // 123,000,000 -> 123
+                                let exponent = (*precision as i64).neg(); // -3
+                                let fractional = Decimal::new(scaled, exponent); // 123d-3
+                                bytes_written += self.encode_decimal(&fractional)?;
+                            }
+                            Mantissa::Arbitrary(decimal) => {
+                                bytes_written += self.encode_decimal(&decimal)?;
+                            }
+                        };
                     }
                 }
             }

@@ -1,6 +1,6 @@
 use crate::ion_eq::IonEq;
 use crate::result::{illegal_operation, illegal_operation_raw, IonError, IonResult};
-use crate::types::coefficient::Sign::Negative;
+use crate::types::coefficient::Sign;
 use crate::types::decimal::Decimal;
 use crate::types::magnitude::Magnitude;
 use chrono::{
@@ -75,7 +75,11 @@ impl Mantissa {
             Ordering::Equal
         } else if d1.coefficient.is_zero() && d2.coefficient.is_zero() {
             // Coefficient zeros' signs don't have to be compared for fractional seconds.
-            d1.exponent.cmp(&d2.exponent)
+            if d1.coefficient.sign() == Sign::Positive {
+                d2.exponent.cmp(&d1.exponent)
+            } else {
+                d1.exponent.cmp(&d2.exponent)
+            }
         } else {
             // Exact comparison test
             d1.cmp(d2)
@@ -147,7 +151,7 @@ pub struct Timestamp {
     pub(crate) date_time: NaiveDateTime,
     pub(crate) offset: Option<FixedOffset>,
     pub(crate) precision: Precision,
-    pub(crate) fractional_seconds: Option<Mantissa>,
+    pub(crate) fractional_seconds: Mantissa,
 }
 
 // TODO: Timestamp does not yet provide useful accessors for its individual fields. It can be
@@ -163,7 +167,7 @@ impl Timestamp {
     {
         let mut timestamp: Timestamp = datetime.into();
         if precision < Precision::Second {
-            timestamp.fractional_seconds = None;
+            timestamp.fractional_seconds = Mantissa::Digits(0);
         }
         timestamp.precision = precision;
         timestamp
@@ -173,18 +177,16 @@ impl Timestamp {
     /// fractional seconds; otherwise, returns None.
     ///
     /// For example, a Timestamp with 553 milliseconds would return a Decimal scale of 3.
-    pub fn fractional_seconds_scale(&self) -> Option<i64> {
+    pub fn fractional_seconds_scale(&self) -> i64 {
         // This function is used when comparing two Timestamps with different Mantissa representations.
         use Mantissa::*;
-        match self.fractional_seconds.as_ref() {
+        match &self.fractional_seconds {
             // number_of_digits represent number of digits of precision in the Timestamp's fractional seconds.
             // this is equivalent to the decimal scale when we convert the fractional seconds into a decimal
             // and return its scale
-            Some(Digits(number_of_digits)) => Some(*number_of_digits as i64),
+            Digits(number_of_digits) => *number_of_digits as i64,
             // This timestamp already stores its fractional seconds as a Decimal; return the scale of this Decimal.
-            Some(Arbitrary(decimal)) => Some(decimal.scale()),
-            // This Timestamp's precision is too low to have a fractional seconds field.
-            None => None,
+            Arbitrary(decimal) => decimal.scale(),
         }
     }
 
@@ -193,13 +195,13 @@ impl Timestamp {
     ///
     /// For example, a Timestamp with 553 milliseconds would return a Decimal with
     /// coefficient 553, exponent -3.
-    pub(crate) fn fractional_seconds_as_decimal(&self) -> Option<Decimal> {
+    pub(crate) fn fractional_seconds_as_decimal(&self) -> Decimal {
         // This function is used when comparing two Timestamps with different Mantissa representations.
         use Mantissa::*;
-        match self.fractional_seconds.as_ref() {
+        match &self.fractional_seconds {
             // This timestamp stores its fractional seconds in its `date_time` field.
             // We'll need to convert the date_time's nanoseconds to a Decimal and return it.
-            Some(Digits(number_of_digits)) => {
+            Digits(number_of_digits) => {
                 const MAX_NANOSECOND_DIGITS: u32 = 9; // If it were 10, it'd be > a second
                 let nanoseconds = self.date_time.nanosecond();
                 let leading_zeros = MAX_NANOSECOND_DIGITS
@@ -207,15 +209,13 @@ impl Timestamp {
                 let coefficient = if leading_zeros >= *number_of_digits {
                     0
                 } else {
-                    first_n_digits_of(*number_of_digits - leading_zeros, nanoseconds)
+                    first_n_digits_of(number_of_digits - leading_zeros, nanoseconds)
                 };
                 let exponent = -i64::from(*number_of_digits);
-                Some(Decimal::new(coefficient, exponent))
+                Decimal::new(coefficient, exponent)
             }
             // This timestamp already stores its fractional seconds as a Decimal; return a clone.
-            Some(Arbitrary(decimal)) => Some(decimal.clone()),
-            // This Timestamp's precision is too low to have a fractional seconds field.
-            None => None,
+            Arbitrary(decimal) => decimal.clone(),
         }
     }
 
@@ -225,17 +225,17 @@ impl Timestamp {
     /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
     /// number of nanoseconds, losing precision. Similarly, a Timestamp with milliseconds would
     /// also return a number of nanoseconds, erroneously gaining precision.
-    fn fractional_seconds_as_nanoseconds(&self) -> Option<u32> {
+    fn fractional_seconds_as_nanoseconds(&self) -> u32 {
         // This function is used when converting a Timestamp to a DateTime<FixedOffset> or
         // NaiveDateTime.
         use Mantissa::*;
-        match self.fractional_seconds.as_ref() {
+        match &self.fractional_seconds {
             // This timestamp already stores its fractional seconds in its `date_time` field.
             // We can ignore the `number_of_digits` (which tracks its precision) and simply return
             // `self.date_time`'s nanoseconds.
-            Some(Digits(_number_of_digits)) => Some(self.date_time.nanosecond()),
+            Digits(_number_of_digits) => self.date_time.nanosecond(),
             // This timestamp stores its fractional seconds as a Decimal. Down-convert it to a u32.
-            Some(Arbitrary(decimal)) => {
+            Arbitrary(decimal) => {
                 const NANOSECONDS_EXPONENT: i64 = -9;
                 let exponent_delta = decimal.exponent - NANOSECONDS_EXPONENT;
                 let magnitude = match decimal.coefficient.magnitude() {
@@ -252,15 +252,13 @@ impl Timestamp {
                                 .div(BigUint::from(10f64.powi(exponent_delta.abs() as i32) as u64))
                                 .to_u32()
                                 .expect("failed to convert BigUint magnitude to u32");
-                            return Some(nanoseconds);
+                            return nanoseconds;
                         }
                     }
                 };
                 let nanoseconds = (magnitude as f64 * 10f64.powi(exponent_delta as i32)) as u32;
-                Some(nanoseconds)
+                nanoseconds
             }
-            // This Timestamp's precision is too low to have a fractional seconds field.
-            None => None,
         }
     }
 
@@ -268,38 +266,20 @@ impl Timestamp {
     /// only be called if both Timestamps have a precision of [Precision::Second].
     fn fractional_seconds_compare(&self, other: &Timestamp) -> Ordering {
         use Mantissa::*;
-        match (
-            self.fractional_seconds.as_ref(),
-            other.fractional_seconds.as_ref(),
-        ) {
-            (None, None) => Ordering::Equal,
-            (Some(m), None) => {
-                if m.is_zero() {
-                    Ordering::Equal
-                } else {
-                    Ordering::Greater
-                }
-            }
-            (None, Some(m)) => {
-                if m.is_zero() {
-                    Ordering::Equal
-                } else {
-                    Ordering::Less
-                }
-            }
-            (Some(Digits(_d1)), Some(Digits(_d2))) => {
+        match (&self.fractional_seconds, &other.fractional_seconds) {
+            (Digits(_d1), Digits(_d2)) => {
                 let d1 = self.date_time.nanosecond();
                 let d2 = other.date_time.nanosecond();
                 d1.cmp(&d2)
             }
-            (Some(Arbitrary(d1)), Some(Arbitrary(d2))) => Mantissa::decimals_compare(d1, d2),
-            (Some(Digits(_d1)), Some(Arbitrary(d2))) => {
-                let d1 = &self.fractional_seconds_as_decimal().unwrap();
-                Mantissa::decimals_compare(d1, d2)
+            (Arbitrary(d1), Arbitrary(d2)) => Mantissa::decimals_compare(&d1, &d2),
+            (Digits(_d1), Arbitrary(d2)) => {
+                let d1 = self.fractional_seconds_as_decimal();
+                Mantissa::decimals_compare(&d1, &d2)
             }
-            (Some(Arbitrary(d1)), Some(Digits(_d2))) => {
-                let d2 = &other.fractional_seconds_as_decimal().unwrap();
-                Mantissa::decimals_compare(d1, d2)
+            (Arbitrary(d1), Digits(_d2)) => {
+                let d2 = other.fractional_seconds_as_decimal();
+                Mantissa::decimals_compare(&d1, &d2)
             }
         }
     }
@@ -311,15 +291,9 @@ impl Timestamp {
 
         // TODO: make Timestamp::fractional_seconds to be Mantissa when creating a Timestamp to get rid of below conversion
         // convert Option<&Mantissa> to &Mantissa
-        let m1 = match &self.fractional_seconds {
-            None => &Mantissa::Digits(0),
-            Some(m) => m,
-        };
+        let m1 = &self.fractional_seconds;
 
-        let m2 = match &other.fractional_seconds {
-            None => &Mantissa::Digits(0),
-            Some(m) => m,
-        };
+        let m2 = &other.fractional_seconds;
 
         // compare fractional seconds
         match (m1, m2) {
@@ -332,20 +306,14 @@ impl Timestamp {
                 let d2 = first_n_digits_of(*d2, other.date_time.nanosecond());
                 d1 == d2
             }
-            (Arbitrary(d1), Arbitrary(d2)) => Mantissa::decimals_equal(d1, d2),
+            (Arbitrary(d1), Arbitrary(d2)) => Mantissa::decimals_equal(&d1, &d2),
             (Digits(_d1), Arbitrary(d2)) => {
-                let d1 = match self.fractional_seconds_as_decimal() {
-                    Some(decimal_value) => decimal_value,
-                    None => Decimal::new(0, 0),
-                };
-                Mantissa::decimals_equal(&d1, d2)
+                let d1 = self.fractional_seconds_as_decimal();
+                Mantissa::decimals_equal(&d1, &d2)
             }
             (Arbitrary(d1), Digits(_d2)) => {
-                let d2 = match other.fractional_seconds_as_decimal() {
-                    Some(decimal_value) => decimal_value,
-                    None => Decimal::new(0, 0),
-                };
-                Mantissa::decimals_equal(d1, &d2)
+                let d2 = other.fractional_seconds_as_decimal();
+                Mantissa::decimals_equal(&d1, &d2)
             }
         }
     }
@@ -355,11 +323,7 @@ impl Timestamp {
         &self,
         mut output: W,
     ) -> IonResult<()> {
-        if self.fractional_seconds.is_none() {
-            // Nothing to do.
-            return Ok(());
-        }
-        let mantissa = self.fractional_seconds.as_ref().unwrap();
+        let mantissa = &self.fractional_seconds;
         if mantissa.is_empty() {
             // No need to write anything.
             return Ok(());
@@ -405,7 +369,7 @@ impl Timestamp {
                 }
                 if coefficient.is_negative_zero() {
                     write!(output, "0")?;
-                } else if coefficient.sign == Negative {
+                } else if coefficient.sign == Sign::Negative {
                     panic!("cannot have a negative coefficient (other than -0)");
                 } else {
                     write!(output, "{}", decimal.coefficient)?;
@@ -417,11 +381,7 @@ impl Timestamp {
 
     /// Writes the fractional seconds portion of a text timestamp, including a leading `.`.
     pub(crate) fn fmt_fractional_seconds<W: std::io::Write>(&self, mut output: W) -> IonResult<()> {
-        if self.fractional_seconds.is_none() {
-            // Nothing to do.
-            return Ok(());
-        }
-        let mantissa = self.fractional_seconds.as_ref().unwrap();
+        let mantissa = &self.fractional_seconds;
         if mantissa.is_empty() {
             // No need to write anything.
             return Ok(());
@@ -467,7 +427,7 @@ impl Timestamp {
                 }
                 if coefficient.is_negative_zero() {
                     write!(output, "0")?;
-                } else if coefficient.sign == Negative {
+                } else if coefficient.sign == Sign::Negative {
                     panic!("cannot have a negative coefficient (other than -0)");
                 } else {
                     write!(output, "{}", decimal.coefficient)?;
@@ -843,7 +803,9 @@ impl TimestampBuilder {
                     );
                 }
             }
-            timestamp.fractional_seconds = self.fractional_seconds;
+            if let Some(fractional_seconds) = self.fractional_seconds {
+                timestamp.fractional_seconds = fractional_seconds;
+            }
         }
         Ok(timestamp)
     }
@@ -1078,7 +1040,7 @@ fn downconvert_to_naive_datetime_with_nanoseconds(timestamp: &Timestamp) -> Naiv
         // its fractional seconds, attempt to convert it to a number of nanoseconds.
         // This operation may add or lose precision, but is necessary to conform with
         // chrono's expectations.
-        let nanoseconds = timestamp.fractional_seconds_as_nanoseconds().unwrap_or(0);
+        let nanoseconds = timestamp.fractional_seconds_as_nanoseconds();
         // Copy `self.date_time` and set the copy's nanoseconds to this new value.
         // Modifying the nanoseconds should never be invalid.
         timestamp.date_time.with_nanosecond(nanoseconds).unwrap()
@@ -1123,7 +1085,7 @@ impl From<NaiveDateTime> for Timestamp {
             date_time,
             offset: None,
             precision: Precision::Second,
-            fractional_seconds: Some(Mantissa::Digits(9)),
+            fractional_seconds: Mantissa::Digits(0),
         }
     }
 }
@@ -1136,7 +1098,7 @@ impl From<DateTime<FixedOffset>> for Timestamp {
         // Get a copy of the offset to store separately
         let offset = Some(*fixed_offset_date_time.offset());
         let precision = Precision::Second;
-        let fractional_seconds = Some(Mantissa::Digits(9));
+        let fractional_seconds = Mantissa::Digits(0);
         Timestamp {
             date_time,
             offset,
@@ -1164,12 +1126,12 @@ impl From<ion_c_sys::timestamp::IonDateTime> for Timestamp {
             TSPrecision::Fractional(_) => Precision::Second,
         };
         let fractional_seconds = if let TSPrecision::Fractional(mantissa) = ionc_dt.precision() {
-            Some(match mantissa {
+            match mantissa {
                 IonCMantissa::Digits(digits) => Mantissa::Digits(*digits),
                 IonCMantissa::Fraction(fraction) => Mantissa::Arbitrary(fraction.clone().into()),
-            })
+            }
         } else {
-            None
+            Mantissa::Digits(0)
         };
         let date_time = ionc_dt.into_datetime().naive_utc();
         Timestamp {
@@ -1200,8 +1162,7 @@ impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
             (Precision::Month, _) => TSPrecision::Month,
             (Precision::Day, _) => TSPrecision::Day,
             (Precision::HourAndMinute, _) => TSPrecision::Minute,
-            (Precision::Second, None) => TSPrecision::Second,
-            (Precision::Second, Some(mantissa)) => TSPrecision::Fractional(match mantissa {
+            (Precision::Second, mantissa) => TSPrecision::Fractional(match mantissa {
                 Mantissa::Digits(digits) => IonCMantissa::Digits(digits),
                 Mantissa::Arbitrary(fraction) => IonCMantissa::Fraction(fraction.try_into()?),
             }),
@@ -1578,7 +1539,7 @@ mod timestamp_tests {
             .unwrap_or_else(|e| panic!("Couldn't build timestamp: {:?}", e));
 
         assert_eq!(timestamp1.precision, Precision::Second);
-        assert_eq!(timestamp1.fractional_seconds, Some(Mantissa::Digits(3)));
+        assert_eq!(timestamp1.fractional_seconds, Mantissa::Digits(3));
         assert_eq!(timestamp1, timestamp2);
         assert_eq!(timestamp2, timestamp3);
 
@@ -1613,31 +1574,21 @@ mod timestamp_tests {
             .with_fractional_seconds(Decimal::new(553u64, -6))
             .build_at_offset(-5 * 60)?;
 
-        assert_eq!(
-            timestamp_with_micro_seconds
-                .fractional_seconds_scale()
-                .unwrap(),
-            6
-        );
+        assert_eq!(timestamp_with_micro_seconds.fractional_seconds_scale(), 6);
 
         // Set fractional seconds with milliseconds
         let timestamp_with_milliseconds = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
             .with_milliseconds(449)
             .build_at_offset(-5 * 60)?;
 
-        assert_eq!(
-            timestamp_with_milliseconds
-                .fractional_seconds_scale()
-                .unwrap(),
-            3
-        );
+        assert_eq!(timestamp_with_milliseconds.fractional_seconds_scale(), 3);
 
         // Set a fractional seconds as Decimal with low precision
         let timestamp_with_seconds =
             Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60)?;
 
-        // For low precision fractional_seconds_scale should return a None
-        assert_eq!(timestamp_with_seconds.fractional_seconds_scale(), None);
+        // For low precision fractional_seconds_scale should return 0
+        assert_eq!(timestamp_with_seconds.fractional_seconds_scale(), 0);
         Ok(())
     }
 
@@ -1676,7 +1627,7 @@ mod timestamp_tests {
     #[case::timestamp_with_same_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Equal)]
     #[case::timestamp_with_different_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
     #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
-    #[case::timestamp_with_second_precison_and_year_precision(Timestamp::with_ymd(2001, 1, 1).build().unwrap(), Timestamp::with_ymd_hms(2001, 1, 1, 0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000u128, -20)).build_at_unknown_offset().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_second_precison_and_year_precision(Timestamp::with_ymd(2001, 1, 1).build().unwrap(), Timestamp::with_ymd_hms(2001, 1, 1, 0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000u128, -20)).build_at_unknown_offset().unwrap(), Ordering::Less)]
     fn timestamp_ordering_tests(
         #[case] this: Timestamp,
         #[case] other: Timestamp,
@@ -1691,13 +1642,13 @@ mod timestamp_tests {
             date_time: NaiveDateTime::from_str("1857-05-29T19:25:59.100").unwrap(),
             offset: Some(FixedOffset::east(60 * 60 * 23 + 60 * 59)),
             precision: Precision::Second,
-            fractional_seconds: Some(Mantissa::Digits(1)),
+            fractional_seconds: Mantissa::Digits(1),
         };
         let t2 = Timestamp {
             date_time: NaiveDateTime::from_str("1857-05-29T19:25:59").unwrap(),
             offset: Some(FixedOffset::east(60 * 60 * 23 + 60 * 59)),
             precision: Precision::Second,
-            fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(1u64, -1))),
+            fractional_seconds: Mantissa::Arbitrary(Decimal::new(1u64, -1)),
         };
         assert_eq!(t1, t2);
         assert!(t1.ion_eq(&t2));
@@ -1709,13 +1660,13 @@ mod timestamp_tests {
             date_time: NaiveDateTime::from_str("2001-08-01T18:18:49.006").unwrap(),
             offset: Some(FixedOffset::east(60 * 60 * 1 + 60 * 1)),
             precision: Precision::Second,
-            fractional_seconds: Some(Mantissa::Digits(5)),
+            fractional_seconds: Mantissa::Digits(5),
         };
         let t2 = Timestamp {
             date_time: NaiveDateTime::from_str("2001-08-01T18:18:49").unwrap(),
             offset: Some(FixedOffset::east(60 * 60 * 1 + 60 * 1)),
             precision: Precision::Second,
-            fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(600u64, -5))),
+            fractional_seconds: Mantissa::Arbitrary(Decimal::new(600u64, -5)),
         };
         assert_eq!(t1, t2);
         assert!(t1.ion_eq(&t2));
