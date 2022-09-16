@@ -8,7 +8,7 @@ use crate::result::{
     decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError,
     IonResult,
 };
-use crate::stream_reader::StreamReader;
+use crate::stream_reader::IonReader;
 use crate::text::non_blocking::text_buffer::TextBuffer;
 use crate::text::parent_container::ParentContainer;
 use crate::text::parse_result::IonParseResult;
@@ -491,7 +491,7 @@ const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
 //       materializing it and then attempt to materialize it when the user calls `read_TYPE`. This
 //       would take less memory and would only materialize values that the user requests.
 //       See: https://github.com/amzn/ion-rust/issues/322
-impl<A: AsRef<[u8]>> StreamReader for RawTextReader<A> {
+impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;
 
@@ -784,7 +784,7 @@ mod reader_tests {
     use crate::raw_reader::RawStreamItem;
     use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
     use crate::result::IonResult;
-    use crate::stream_reader::StreamReader;
+    use crate::stream_reader::IonReader;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoAnnotations, TextValue};
     use crate::types::decimal::Decimal;
