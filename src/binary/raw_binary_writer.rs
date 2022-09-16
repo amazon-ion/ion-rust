@@ -14,7 +14,7 @@ use crate::result::{illegal_operation, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::{ContainerType, SymbolId};
-use crate::writer::Writer;
+use crate::writer::IonWriter;
 use crate::{Integer, IonType};
 
 use super::decimal::DecimalBinaryEncoder;
@@ -510,7 +510,7 @@ impl<W: Write> RawBinaryWriter<W> {
     }
 }
 
-impl<W: Write> Writer for RawBinaryWriter<W> {
+impl<W: Write> IonWriter for RawBinaryWriter<W> {
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }
@@ -905,7 +905,7 @@ mod writer_tests {
     use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
     use crate::reader::{Reader, ReaderBuilder};
     use crate::symbol::Symbol;
-    use crate::StreamReader;
+    use crate::IonReader;
     use num_bigint::BigInt;
     use num_traits::Float;
     use std::convert::TryInto;

@@ -12,7 +12,7 @@ use crate::result::{
 use crate::types::integer::IntAccess;
 use crate::types::SymbolId;
 use crate::{
-    Decimal, Integer, IonResult, IonType, RawStreamItem, RawSymbolToken, StreamReader, Timestamp,
+    Decimal, Integer, IonReader, IonResult, IonType, RawStreamItem, RawSymbolToken, Timestamp,
 };
 use bytes::{BigEndian, Buf, ByteOrder};
 use num_bigint::BigUint;
@@ -548,7 +548,7 @@ impl RawBinaryBufferReader<Vec<u8>> {
     }
 }
 
-impl<A: AsRef<[u8]>> StreamReader for RawBinaryBufferReader<A> {
+impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;
 

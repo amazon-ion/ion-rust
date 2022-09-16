@@ -3,10 +3,10 @@
 use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
 use ion_rs::value::native_writer::NativeElementWriter;
-use ion_rs::value::owned::OwnedElement;
+use ion_rs::value::owned::Element;
 use ion_rs::value::reader::ElementReader;
 use ion_rs::value::writer::{ElementWriter, Format, TextKind};
-use ion_rs::value::{Element, Sequence, SymbolToken};
+use ion_rs::value::{IonElement, IonSequence, IonSymbolToken};
 use ion_rs::{BinaryWriterBuilder, TextWriterBuilder};
 
 use std::fs::read;
@@ -40,10 +40,10 @@ trait RoundTrip {
     /// Encodes `elements` to a buffer in the specified Ion `format` and then reads them back into
     /// a `Vec<OwnedElement>` using the provided reader.
     fn roundtrip<R: ElementReader>(
-        elements: &Vec<OwnedElement>,
+        elements: &Vec<Element>,
         format: Format,
         reader: R,
-    ) -> IonResult<Vec<OwnedElement>>;
+    ) -> IonResult<Vec<Element>>;
 }
 
 /// These unit structs implement the [RoundTrip] trait and can be passed throughout the
@@ -56,10 +56,10 @@ struct NativeElementWriterApi;
 //       native writer so we can fix any failures it produces.
 impl RoundTrip for NativeElementWriterApi {
     fn roundtrip<R: ElementReader>(
-        elements: &Vec<OwnedElement>,
+        elements: &Vec<Element>,
         format: Format,
         reader: R,
-    ) -> IonResult<Vec<OwnedElement>> {
+    ) -> IonResult<Vec<Element>> {
         // Unlike the C writer, the Rust writer can write into a growing Vec.
         // No need for an aggressive preallocation.
         let mut buffer = Vec::with_capacity(2048);
@@ -101,9 +101,9 @@ trait ElementApi {
 
     /// Asserts the given elements can be round-tripped and equivalent, then returns the new elements.
     fn assert_round_trip(
-        source_elements: &Vec<OwnedElement>,
+        source_elements: &Vec<Element>,
         format: Format,
-    ) -> IonResult<Vec<OwnedElement>> {
+    ) -> IonResult<Vec<Element>> {
         let new_elements =
             Self::RoundTripper::roundtrip(source_elements, format, Self::make_reader())?;
         assert!(
@@ -115,7 +115,7 @@ trait ElementApi {
         Ok(new_elements)
     }
 
-    fn not_eq_error_message(e1: &Vec<OwnedElement>, e2: &Vec<OwnedElement>) -> String {
+    fn not_eq_error_message(e1: &Vec<Element>, e2: &Vec<Element>) -> String {
         if e1.len() != e2.len() {
             return format!("e1 has {} elements, e2 has {} elements", e1.len(), e2.len());
         }
@@ -181,8 +181,8 @@ trait ElementApi {
     fn read_group_embedded<R, S, F>(reader: &R, raw_group: &S, group_assert: &F) -> IonResult<()>
     where
         R: ElementReader,
-        S: Sequence,
-        F: Fn(&Vec<OwnedElement>, &Vec<OwnedElement>),
+        S: IonSequence,
+        F: Fn(&Vec<Element>, &Vec<Element>),
     {
         let group_res: IonResult<Vec<_>> = raw_group
             .iter()
@@ -224,8 +224,8 @@ trait ElementApi {
     ) -> IonResult<()>
     where
         // group index, value 1 index, value 1, value 2 index, value 2
-        F1: Fn(usize, usize, &OwnedElement, usize, &OwnedElement),
-        F2: Fn(&Vec<OwnedElement>, &Vec<OwnedElement>),
+        F1: Fn(usize, usize, &Element, usize, &Element),
+        F2: Fn(&Vec<Element>, &Vec<Element>),
     {
         let group_lists = Self::read_file(&reader, file_name)?;
         for (group_index, group_list) in group_lists.iter().enumerate() {
@@ -256,7 +256,7 @@ trait ElementApi {
         Ok(())
     }
 
-    fn read_file(reader: &Self::ReaderApi, file_name: &str) -> IonResult<Vec<OwnedElement>> {
+    fn read_file(reader: &Self::ReaderApi, file_name: &str) -> IonResult<Vec<Element>> {
         // TODO have a better API that doesn't require buffering into memory everything...
         let data = read(file_name)?;
         let result = reader.read_all(&data);
