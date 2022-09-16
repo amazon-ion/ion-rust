@@ -822,7 +822,10 @@ mod reader_tests {
         assert_eq!(reader.read_i64()?, 2);
         match reader.next() {
             // the failure occurs after reading the \n after 3, so it is identified on line 3.
-            Err(IonError::IncompleteText { line, .. }) => assert_eq!(line, 3),
+            Err(IonError::IncompleteText { line, column }) => {
+                assert_eq!(line, 2);
+                assert_eq!(column, 0);
+            }
             Err(e) => panic!("unexpected error when parsing partial data: {}", e),
             Ok(_) => panic!("unexpected successful parsing of partial data."),
         }
@@ -847,7 +850,7 @@ mod reader_tests {
 
         match reader.next() {
             Err(IonError::IncompleteText { line, column }) => {
-                assert_eq!(line, 1);
+                assert_eq!(line, 0); // Line is still 0 since we haven't actually seen a '\n' yet.
                 assert_eq!(column, 14); // failure at start of multi-byte sequence.
             }
             Err(e) => panic!("unexpected error after partial utf-8 data: {}", e),

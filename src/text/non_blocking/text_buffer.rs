@@ -66,12 +66,14 @@ pub(crate) struct TextBuffer<A: AsRef<[u8]>> {
     /// The span of our `data` that has been validated as UTF-8.
     data_utf8: ValidUtf8Span,
 
-    /// The current validated line.
+    /// The current validated line data (can contain multiple lines).
     line: ValidUtf8Span,
     /// Offset into the current line that has been read.
     line_offset: usize,
     /// Number of lines that have been read.
     line_number: usize,
+    /// Tracks what column the line data ended on. This is used when reporting errors.
+    line_end_column: usize,
 }
 
 impl<A: AsRef<[u8]>> TextBuffer<A> {
@@ -86,6 +88,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
             line: ValidUtf8Span(0, 0),
             line_offset: 0,
             line_number: 0,
+            line_end_column: 0,
         }
     }
 
@@ -186,16 +189,24 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
                 // a trailing incomplete sequence.
                 self.line.0 += self.line_offset;
                 self.line.1 += n + line.bytes().len();
+
+                self.line_end_column = line.chars().count();
                 n + line.bytes().len()
             }
             None => {
+                // We did not find any lines within source. This means that the data we have
+                // remaining is an incomplete sequence.
                 return Err(TextError::Incomplete {
-                    line: self.line_number + count + 1,
-                    column: 0,
+                    line: self.line_number,
+                    column: self.line_end_column,
                 })
             }
         };
-        self.line_number += count + 1; // Enumerate starts at 0.
+        self.line_number += count;
+        if line.ends_with('\n') {
+            self.line_number += 1;
+            self.line_end_column -= 1;
+        }
         self.line_offset = 0;
 
         self.data_utf8.0 = self.line.0;
@@ -341,17 +352,15 @@ mod tests {
 
     #[test]
     fn append() {
-        let source = r#"first line
-        second line
-        "#;
+        let source = "first line\nsecond line\n";
         let mut input = TextBuffer::new(source.as_bytes().to_owned());
         let size = input.load_next_line().unwrap();
-        assert_eq!(input.remaining_text().trim(), "first line");
+        assert_eq!(input.remaining_text(), "first line\n");
         assert_eq!(input.lines_loaded(), 1);
         input.consume(size);
 
         input
-            .append_bytes("third line".as_bytes())
+            .append_bytes("third line\n".as_bytes())
             .expect("Invalid UTF-8 detected on append");
 
         let size = input.load_next_line().unwrap();
@@ -367,19 +376,19 @@ mod tests {
 
     #[test]
     fn read_from() {
-        let source = r#"first line"#;
+        let source = "first line\n";
         let mut input = TextBuffer::new(source.as_bytes().to_owned());
         let size = input.load_next_line().unwrap();
-        assert_eq!(input.remaining_text().trim(), "first line");
+        assert_eq!(input.remaining_text(), "first line\n");
         input.consume(size);
 
-        let more = "second line";
+        let more = "second line\n";
         match input.read_from(more.as_bytes(), more.len()) {
             Ok(x) if x == more.len() => (),
             wrong => panic!("Unexpected response from read_from: {:?}", wrong),
         }
         input.load_next_line().unwrap();
-        assert_eq!(input.remaining_text().trim(), more);
+        assert_eq!(input.remaining_text(), more);
         assert_eq!(input.lines_loaded(), 2);
     }
 
