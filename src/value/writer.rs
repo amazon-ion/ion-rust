@@ -3,7 +3,7 @@
 //! Provides utility to serialize Ion data from [`Element`](super::Element) into common targets
 //! such as byte buffers or files.
 
-use super::Element;
+use super::IonElement;
 use crate::result::IonResult;
 
 pub use Format::*;
@@ -17,12 +17,12 @@ pub trait ElementWriter {
     type Output;
 
     /// Serializes a single [`Element`] as a top-level value.
-    fn write<E: Element>(&mut self, element: &E) -> IonResult<()>;
+    fn write<E: IonElement>(&mut self, element: &E) -> IonResult<()>;
 
     /// Serializes a collection of [`Element`] as a series of top-level values.
     ///
     /// This will return [`Err`] if writing any element causes a failure.
-    fn write_all<'a, E: Element + 'a, I: IntoIterator<Item = &'a E>>(
+    fn write_all<'a, E: IonElement + 'a, I: IntoIterator<Item = &'a E>>(
         &'a mut self,
         elements: I,
     ) -> IonResult<()> {

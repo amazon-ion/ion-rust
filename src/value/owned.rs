@@ -5,7 +5,7 @@
 //! This API is simpler to manage with respect to borrowing lifetimes, but requires full
 //! ownership of data to do so.
 
-use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
+use super::{ImportSource, IonElement, IonSequence, IonStruct, IonSymbolToken};
 use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::types::decimal::Decimal;
@@ -56,13 +56,13 @@ impl ImportSource for OwnedImportSource {
 
 /// An owned implementation of [`SymbolToken`].
 #[derive(Debug, Clone)]
-pub struct OwnedSymbolToken {
+pub struct SymbolToken {
     text: Option<Rc<str>>,
     local_sid: Option<SymbolId>,
     source: Option<OwnedImportSource>,
 }
 
-impl OwnedSymbolToken {
+impl SymbolToken {
     fn new(
         text: Option<Rc<str>>,
         local_sid: Option<SymbolId>,
@@ -79,18 +79,18 @@ impl OwnedSymbolToken {
 /// Constructs an [`OwnedSymbolToken`] with unknown text and a local ID.
 /// A common case for binary parsing (though technically relevant in text).
 #[inline]
-pub fn local_sid_token(local_sid: SymbolId) -> OwnedSymbolToken {
-    OwnedSymbolToken::new(None, Some(local_sid), None)
+pub fn local_sid_token(local_sid: SymbolId) -> SymbolToken {
+    SymbolToken::new(None, Some(local_sid), None)
 }
 
 /// Constructs an [`OwnedSymbolToken`] with just text.
 /// A common case for text and synthesizing tokens.
 #[inline]
-pub fn text_token<T: Into<Rc<str>>>(text: T) -> OwnedSymbolToken {
-    OwnedSymbolToken::new(Some(text.into()), None, None)
+pub fn text_token<T: Into<Rc<str>>>(text: T) -> SymbolToken {
+    SymbolToken::new(Some(text.into()), None, None)
 }
 
-impl PartialEq for OwnedSymbolToken {
+impl PartialEq for SymbolToken {
     fn eq(&self, other: &Self) -> bool {
         if other.text != None || self.text != None {
             // if either side has text, we only compare text
@@ -102,16 +102,16 @@ impl PartialEq for OwnedSymbolToken {
     }
 }
 
-impl Eq for OwnedSymbolToken {}
+impl Eq for SymbolToken {}
 
-impl<T: Into<Rc<str>>> From<T> for OwnedSymbolToken {
+impl<T: Into<Rc<str>>> From<T> for SymbolToken {
     /// Constructs an owned token that has only text.
     fn from(text: T) -> Self {
         text_token(text)
     }
 }
 
-impl SymbolToken for OwnedSymbolToken {
+impl IonSymbolToken for SymbolToken {
     type ImportSource = OwnedImportSource;
 
     fn text(&self) -> Option<&str> {
@@ -127,15 +127,15 @@ impl SymbolToken for OwnedSymbolToken {
     }
 
     fn with_text(self, text: &'static str) -> Self {
-        OwnedSymbolToken::new(Some(Rc::from(text)), self.local_sid, self.source)
+        SymbolToken::new(Some(Rc::from(text)), self.local_sid, self.source)
     }
 
     fn with_local_sid(self, local_sid: SymbolId) -> Self {
-        OwnedSymbolToken::new(self.text, Some(local_sid), self.source)
+        SymbolToken::new(self.text, Some(local_sid), self.source)
     }
 
     fn with_source(self, table: &'static str, sid: SymbolId) -> Self {
-        OwnedSymbolToken::new(
+        SymbolToken::new(
             self.text,
             self.local_sid,
             Some(OwnedImportSource::new(table, sid)),
@@ -143,72 +143,72 @@ impl SymbolToken for OwnedSymbolToken {
     }
 
     fn text_token(text: &'static str) -> Self {
-        OwnedSymbolToken::new(Some(Rc::from(text)), None, None)
+        SymbolToken::new(Some(Rc::from(text)), None, None)
     }
 
     fn local_sid_token(local_sid: usize) -> Self {
-        OwnedSymbolToken::new(None, Some(local_sid), None)
+        SymbolToken::new(None, Some(local_sid), None)
     }
 }
 
 /// An owned implementation of [`Builder`].
-impl Builder for OwnedElement {
-    type Element = OwnedElement;
-    type SymbolToken = OwnedSymbolToken;
-    type Sequence = OwnedSequence;
-    type Struct = OwnedStruct;
+impl Builder for Element {
+    type Element = Element;
+    type SymbolToken = SymbolToken;
+    type Sequence = Sequence;
+    type Struct = Struct;
     type ImportSource = OwnedImportSource;
 
     fn new_null(e_type: IonType) -> Self::Element {
-        OwnedValue::Null(e_type).into()
+        Value::Null(e_type).into()
     }
 
     fn new_bool(bool: bool) -> Self::Element {
-        OwnedValue::Boolean(bool).into()
+        Value::Boolean(bool).into()
     }
 
     fn new_string(str: &'static str) -> Self::Element {
-        OwnedValue::String(str.into()).into()
+        Value::String(str.into()).into()
     }
 
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element {
-        OwnedValue::Symbol(sym).into()
+        Value::Symbol(sym).into()
     }
 
     fn new_i64(int: i64) -> Self::Element {
-        OwnedValue::Integer(Integer::I64(int)).into()
+        Value::Integer(Integer::I64(int)).into()
     }
 
     fn new_big_int(big_int: BigInt) -> Self::Element {
-        OwnedValue::Integer(Integer::BigInt(big_int)).into()
+        Value::Integer(Integer::BigInt(big_int)).into()
     }
 
     fn new_decimal(decimal: Decimal) -> Self::Element {
-        OwnedValue::Decimal(decimal).into()
+        Value::Decimal(decimal).into()
     }
 
     fn new_timestamp(timestamp: Timestamp) -> Self::Element {
-        OwnedValue::Timestamp(timestamp).into()
+        Value::Timestamp(timestamp).into()
     }
 
     fn new_f64(float: f64) -> Self::Element {
-        OwnedValue::Float(float).into()
+        Value::Float(float).into()
     }
 
     fn new_clob(bytes: &[u8]) -> Self::Element {
-        OwnedValue::Clob(bytes.into()).into()
+        Value::Clob(bytes.into()).into()
     }
 
     fn new_blob(bytes: &[u8]) -> Self::Element {
-        OwnedValue::Blob(bytes.into()).into()
+        Value::Blob(bytes.into()).into()
     }
 
     fn new_list<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element {
-        OwnedValue::List(seq.into_iter().collect()).into()
+        Value::List(seq.into_iter().collect()).into()
     }
 
     fn new_sexp<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element {
-        OwnedValue::SExpression(seq.into_iter().collect()).into()
+        Value::SExpression(seq.into_iter().collect()).into()
     }
 
     fn new_struct<
@@ -218,26 +218,26 @@ impl Builder for OwnedElement {
     >(
         structure: I,
     ) -> Self::Element {
-        OwnedValue::Struct(structure.into_iter().collect()).into()
+        Value::Struct(structure.into_iter().collect()).into()
     }
 }
 
 /// An owned implementation of [`Sequence`]
 #[derive(Debug, Clone)]
-pub struct OwnedSequence {
-    children: Vec<OwnedElement>,
+pub struct Sequence {
+    children: Vec<Element>,
 }
 
-impl OwnedSequence {
-    pub fn new(children: Vec<OwnedElement>) -> Self {
+impl Sequence {
+    pub fn new(children: Vec<Element>) -> Self {
         Self { children }
     }
 }
 
-impl FromIterator<OwnedElement> for OwnedSequence {
+impl FromIterator<Element> for Sequence {
     /// Returns an owned sequence from the given iterator of elements.
-    fn from_iter<I: IntoIterator<Item = OwnedElement>>(iter: I) -> Self {
-        let mut children: Vec<OwnedElement> = Vec::new();
+    fn from_iter<I: IntoIterator<Item = Element>>(iter: I) -> Self {
+        let mut children: Vec<Element> = Vec::new();
         for elem in iter {
             children.push(elem);
         }
@@ -245,8 +245,8 @@ impl FromIterator<OwnedElement> for OwnedSequence {
     }
 }
 
-impl Sequence for OwnedSequence {
-    type Element = OwnedElement;
+impl IonSequence for Sequence {
+    type Element = Element;
 
     fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(self.children.iter())
@@ -265,22 +265,22 @@ impl Sequence for OwnedSequence {
     }
 }
 
-impl PartialEq for OwnedSequence {
+impl PartialEq for Sequence {
     fn eq(&self, other: &Self) -> bool {
         self.children == other.children
     }
 }
 
-impl Eq for OwnedSequence {}
+impl Eq for Sequence {}
 
 /// An owned implementation of [`Struct`]
 #[derive(Debug, Clone)]
-pub struct OwnedStruct {
-    text_fields: HashMap<Rc<str>, Vec<(OwnedSymbolToken, OwnedElement)>>,
-    no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)>,
+pub struct Struct {
+    text_fields: HashMap<Rc<str>, Vec<(SymbolToken, Element)>>,
+    no_text_fields: Vec<(SymbolToken, Element)>,
 }
 
-impl OwnedStruct {
+impl Struct {
     fn eq_text_fields(&self, other: &Self) -> bool {
         // check if both the text_fields have same (field_name,value) pairs
         self.text_fields.iter().all(|(key, value)| {
@@ -302,16 +302,15 @@ impl OwnedStruct {
     }
 }
 
-impl<K, V> FromIterator<(K, V)> for OwnedStruct
+impl<K, V> FromIterator<(K, V)> for Struct
 where
-    K: Into<OwnedSymbolToken>,
-    V: Into<OwnedElement>,
+    K: Into<SymbolToken>,
+    V: Into<Element>,
 {
     /// Returns an owned struct from the given iterator of field names/values.
     fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        let mut text_fields: HashMap<Rc<str>, Vec<(OwnedSymbolToken, OwnedElement)>> =
-            HashMap::new();
-        let mut no_text_fields: Vec<(OwnedSymbolToken, OwnedElement)> = Vec::new();
+        let mut text_fields: HashMap<Rc<str>, Vec<(SymbolToken, Element)>> = HashMap::new();
+        let mut no_text_fields: Vec<(SymbolToken, Element)> = Vec::new();
 
         for (k, v) in iter {
             let key = k.into();
@@ -335,9 +334,9 @@ where
     }
 }
 
-impl Struct for OwnedStruct {
-    type FieldName = OwnedSymbolToken;
-    type Element = OwnedElement;
+impl IonStruct for Struct {
+    type FieldName = SymbolToken;
+    type Element = Element;
 
     fn iter<'a>(
         &'a self,
@@ -376,7 +375,7 @@ impl Struct for OwnedStruct {
     }
 }
 
-impl PartialEq for OwnedStruct {
+impl PartialEq for Struct {
     fn eq(&self, other: &Self) -> bool {
         // check if both text_fields and no_text_fields have same length
         self.text_fields.len() == other.text_fields.len() && self.no_text_fields.len() == other.no_text_fields.len()
@@ -390,17 +389,17 @@ impl PartialEq for OwnedStruct {
     }
 }
 
-impl Eq for OwnedStruct {}
+impl Eq for Struct {}
 
-impl IonEq for OwnedSequence {
+impl IonEq for Sequence {
     fn ion_eq(&self, other: &Self) -> bool {
         self.children.ion_eq(&other.children)
     }
 }
 
-impl IonEq for OwnedValue {
+impl IonEq for Value {
     fn ion_eq(&self, other: &Self) -> bool {
-        use OwnedValue::*;
+        use Value::*;
         match (self, other) {
             (Float(f1), Float(f2)) => return f1.ion_eq(f2),
             (Decimal(d1), Decimal(d2)) => return d1.ion_eq(d2),
@@ -414,13 +413,13 @@ impl IonEq for OwnedValue {
     }
 }
 
-impl IonEq for OwnedElement {
+impl IonEq for Element {
     fn ion_eq(&self, other: &Self) -> bool {
         self.annotations == other.annotations && self.value.ion_eq(&other.value)
     }
 }
 
-impl IonEq for Vec<OwnedElement> {
+impl IonEq for Vec<Element> {
     fn ion_eq(&self, other: &Self) -> bool {
         if self.len() != other.len() {
             return false;
@@ -436,37 +435,37 @@ impl IonEq for Vec<OwnedElement> {
 
 /// Variants for all owned version _values_ within an [`Element`].
 #[derive(Debug, Clone, PartialEq)]
-pub enum OwnedValue {
+pub enum Value {
     Null(IonType),
     Integer(Integer),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
     String(String),
-    Symbol(OwnedSymbolToken),
+    Symbol(SymbolToken),
     Boolean(bool),
     Blob(Vec<u8>),
     Clob(Vec<u8>),
-    SExpression(OwnedSequence),
-    List(OwnedSequence),
-    Struct(OwnedStruct),
+    SExpression(Sequence),
+    List(Sequence),
+    Struct(Struct),
     // TODO fill this in with the rest of the value types...
 }
 
 /// An owned implementation of [`Element`]
 #[derive(Debug, Clone)]
-pub struct OwnedElement {
-    annotations: Vec<OwnedSymbolToken>,
-    value: OwnedValue,
+pub struct Element {
+    annotations: Vec<SymbolToken>,
+    value: Value,
 }
 
-impl OwnedElement {
-    pub fn new(annotations: Vec<OwnedSymbolToken>, value: OwnedValue) -> Self {
+impl Element {
+    pub fn new(annotations: Vec<SymbolToken>, value: Value) -> Self {
         Self { annotations, value }
     }
 }
 
-impl Display for OwnedElement {
+impl Display for Element {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         let mut ivf = IonValueFormatter { output: f };
 
@@ -495,88 +494,88 @@ impl Display for OwnedElement {
     }
 }
 
-impl PartialEq for OwnedElement {
+impl PartialEq for Element {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value && self.annotations == other.annotations
     }
 }
 
-impl Eq for OwnedElement {}
+impl Eq for Element {}
 
-impl From<OwnedValue> for OwnedElement {
-    fn from(val: OwnedValue) -> Self {
+impl From<Value> for Element {
+    fn from(val: Value) -> Self {
         Self::new(vec![], val)
     }
 }
 
-impl From<IonType> for OwnedElement {
+impl From<IonType> for Element {
     fn from(ion_type: IonType) -> Self {
-        OwnedValue::Null(ion_type).into()
+        Value::Null(ion_type).into()
     }
 }
 
-impl From<i64> for OwnedElement {
+impl From<i64> for Element {
     fn from(i64_val: i64) -> Self {
-        OwnedValue::Integer(Integer::I64(i64_val)).into()
+        Value::Integer(Integer::I64(i64_val)).into()
     }
 }
 
-impl From<BigInt> for OwnedElement {
+impl From<BigInt> for Element {
     fn from(big_int_val: BigInt) -> Self {
-        OwnedValue::Integer(Integer::BigInt(big_int_val)).into()
+        Value::Integer(Integer::BigInt(big_int_val)).into()
     }
 }
 
-impl From<f64> for OwnedElement {
+impl From<f64> for Element {
     fn from(f64_val: f64) -> Self {
-        OwnedValue::Float(f64_val).into()
+        Value::Float(f64_val).into()
     }
 }
 
-impl From<Decimal> for OwnedElement {
+impl From<Decimal> for Element {
     fn from(decimal_val: Decimal) -> Self {
-        OwnedValue::Decimal(decimal_val).into()
+        Value::Decimal(decimal_val).into()
     }
 }
 
-impl From<Timestamp> for OwnedElement {
+impl From<Timestamp> for Element {
     fn from(timestamp_val: Timestamp) -> Self {
-        OwnedValue::Timestamp(timestamp_val).into()
+        Value::Timestamp(timestamp_val).into()
     }
 }
 
-impl From<bool> for OwnedElement {
+impl From<bool> for Element {
     fn from(bool_val: bool) -> Self {
-        OwnedValue::Boolean(bool_val).into()
+        Value::Boolean(bool_val).into()
     }
 }
 
-impl From<String> for OwnedElement {
+impl From<String> for Element {
     fn from(string_val: String) -> Self {
-        OwnedValue::String(string_val).into()
+        Value::String(string_val).into()
     }
 }
 
-impl From<OwnedSymbolToken> for OwnedElement {
-    fn from(sym_val: OwnedSymbolToken) -> Self {
-        OwnedValue::Symbol(sym_val).into()
+impl From<SymbolToken> for Element {
+    fn from(sym_val: SymbolToken) -> Self {
+        Value::Symbol(sym_val).into()
     }
 }
 
-impl From<OwnedStruct> for OwnedElement {
-    fn from(struct_val: OwnedStruct) -> Self {
-        OwnedValue::Struct(struct_val).into()
+impl From<Struct> for Element {
+    fn from(struct_val: Struct) -> Self {
+        Value::Struct(struct_val).into()
     }
 }
 
-impl Element for OwnedElement {
-    type SymbolToken = OwnedSymbolToken;
-    type Sequence = OwnedSequence;
-    type Struct = OwnedStruct;
-    type Builder = OwnedElement;
+impl IonElement for Element {
+    type SymbolToken = SymbolToken;
+    type Sequence = Sequence;
+    type Struct = Struct;
+    type Builder = Element;
 
     fn ion_type(&self) -> IonType {
-        use OwnedValue::*;
+        use Value::*;
 
         match &self.value {
             Null(t) => *t,
@@ -600,7 +599,7 @@ impl Element for OwnedElement {
     }
 
     fn with_annotations<I: IntoIterator<Item = Self::SymbolToken>>(self, annotations: I) -> Self {
-        OwnedElement::new(annotations.into_iter().collect(), self.value)
+        Element::new(annotations.into_iter().collect(), self.value)
     }
 
     fn has_annotation(&self, annotation: &str) -> bool {
@@ -610,76 +609,76 @@ impl Element for OwnedElement {
     }
 
     fn is_null(&self) -> bool {
-        matches!(&self.value, OwnedValue::Null(_))
+        matches!(&self.value, Value::Null(_))
     }
 
     fn as_integer(&self) -> Option<&Integer> {
         match &self.value {
-            OwnedValue::Integer(i) => Some(i),
+            Value::Integer(i) => Some(i),
             _ => None,
         }
     }
 
     fn as_f64(&self) -> Option<f64> {
         match &self.value {
-            OwnedValue::Float(f) => Some(*f),
+            Value::Float(f) => Some(*f),
             _ => None,
         }
     }
 
     fn as_decimal(&self) -> Option<&Decimal> {
         match &self.value {
-            OwnedValue::Decimal(d) => Some(d),
+            Value::Decimal(d) => Some(d),
             _ => None,
         }
     }
 
     fn as_timestamp(&self) -> Option<&Timestamp> {
         match &self.value {
-            OwnedValue::Timestamp(t) => Some(t),
+            Value::Timestamp(t) => Some(t),
             _ => None,
         }
     }
 
     fn as_str(&self) -> Option<&str> {
         match &self.value {
-            OwnedValue::String(text) => Some(text),
-            OwnedValue::Symbol(sym) => sym.text(),
+            Value::String(text) => Some(text),
+            Value::Symbol(sym) => sym.text(),
             _ => None,
         }
     }
 
     fn as_sym(&self) -> Option<&Self::SymbolToken> {
         match &self.value {
-            OwnedValue::Symbol(sym) => Some(sym),
+            Value::Symbol(sym) => Some(sym),
             _ => None,
         }
     }
 
     fn as_bool(&self) -> Option<bool> {
         match &self.value {
-            OwnedValue::Boolean(b) => Some(*b),
+            Value::Boolean(b) => Some(*b),
             _ => None,
         }
     }
 
     fn as_bytes(&self) -> Option<&[u8]> {
         match &self.value {
-            OwnedValue::Blob(bytes) | OwnedValue::Clob(bytes) => Some(bytes),
+            Value::Blob(bytes) | Value::Clob(bytes) => Some(bytes),
             _ => None,
         }
     }
 
     fn as_sequence(&self) -> Option<&Self::Sequence> {
         match &self.value {
-            OwnedValue::SExpression(seq) | OwnedValue::List(seq) => Some(seq),
+            Value::SExpression(seq) | Value::List(seq) => Some(seq),
             _ => None,
         }
     }
 
     fn as_struct(&self) -> Option<&Self::Struct> {
         match &self.value {
-            OwnedValue::Struct(structure) => Some(structure),
+            Value::Struct(structure) => Some(structure),
             _ => None,
         }
     }
@@ -693,19 +692,19 @@ mod value_tests {
     #[rstest(
         elem1,elem2,
         case::str(
-            OwnedElement::new_string("hello"),
+            Element::new_string("hello"),
             "hello".to_string().into()
         ),
         case::sym_with_text(
-            OwnedElement::new_symbol(text_token("hello")),
+            Element::new_symbol(text_token("hello")),
             text_token("hello").into()
         ),
     case::struct_(
-            OwnedElement::new_struct(vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter()),
-            OwnedStruct::from_iter(vec![("greetings", OwnedElement::from(OwnedValue::String("hello".into())))].into_iter()).into()
+            Element::new_struct(vec![("greetings", Element::from(Value::String("hello".into())))].into_iter()),
+            Struct::from_iter(vec![("greetings", Element::from(Value::String("hello".into())))].into_iter()).into()
         ),
     )]
-    fn owned_element_accessors(elem1: OwnedElement, elem2: OwnedElement) {
+    fn owned_element_accessors(elem1: Element, elem2: Element) {
         // assert if both the element construction creates the same element
         assert_eq!(elem1, elem2);
     }

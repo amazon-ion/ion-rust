@@ -10,7 +10,7 @@ use crate::data_source::ToIonDataSource;
 use crate::raw_reader::{RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, decoding_error_raw, IonResult};
-use crate::stream_reader::StreamReader;
+use crate::stream_reader::IonReader;
 use crate::symbol::Symbol;
 use crate::symbol_table::SymbolTable;
 use crate::types::decimal::Decimal;
@@ -272,7 +272,7 @@ impl<R: RawReader> UserReader<R> {
     }
 }
 
-impl<R: RawReader> StreamReader for UserReader<R> {
+impl<R: RawReader> IonReader for UserReader<R> {
     type Item = StreamItem;
     type Symbol = Symbol;
 

@@ -9,7 +9,7 @@ use crate::Integer;
  * This trait captures the format-agnostic encoding functionality needed to write native Rust types
  * to a stream as Ion values.
  */
-pub trait Writer {
+pub trait IonWriter {
     /// Returns the (major, minor) version of the Ion stream being written. If ion_version is called
     /// before an Ion Version Marker has been emitted, the version (1, 0) will be returned.
     fn ion_version(&self) -> (u8, u8);

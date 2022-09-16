@@ -1,5 +1,5 @@
 use crate::result::{decoding_error, IonError};
-use crate::value::Element;
+use crate::value::IonElement;
 use num_bigint::{BigInt, BigUint};
 use num_traits::{ToPrimitive, Zero};
 use std::cmp::Ordering;
@@ -21,8 +21,8 @@ pub trait IntAccess {
     /// assert_eq!(big_int.as_i64(), i64_int.as_i64());
     ///
     /// // works on element too
-    /// let big_elem: OwnedElement = OwnedValue::Integer(big_int).into();
-    /// let i64_elem: BorrowedElement = BorrowedValue::Integer(i64_int).into();
+    /// let big_elem: Element = Value::Integer(big_int).into();
+    /// let i64_elem: ElementRef = ValueRef::Integer(i64_int).into();
     ///
     /// assert_eq!(big_elem.as_i64(), i64_elem.as_i64());
     /// ```
@@ -47,9 +47,9 @@ pub trait IntAccess {
     /// assert_eq!(None, i64_int.as_big_int());
     ///
     /// // works on element too
-    /// let big_elem: BorrowedElement = BorrowedValue::Integer(big_int).into();
+    /// let big_elem: ElementRef = ValueRef::Integer(big_int).into();
     /// assert_eq!(BigInt::from_str("100").unwrap(), *big_elem.as_big_int().unwrap());
-    /// let i64_elem: OwnedElement = OwnedValue::Integer(i64_int).into();
+    /// let i64_elem: Element = Value::Integer(i64_int).into();
     /// assert_eq!(None, i64_elem.as_big_int());
     /// ```
     fn as_big_int(&self) -> Option<&BigInt>;
@@ -360,7 +360,7 @@ impl From<BigInt> for Integer {
 
 impl<T> IntAccess for T
 where
-    T: Element,
+    T: IonElement,
 {
     fn as_i64(&self) -> Option<i64> {
         match self.as_integer() {
