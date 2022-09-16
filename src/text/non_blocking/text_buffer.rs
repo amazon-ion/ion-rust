@@ -10,7 +10,7 @@ use thiserror::Error;
 #[derive(Copy, Clone)]
 struct ValidUtf8Span(usize, usize);
 impl ValidUtf8Span {
-    fn incr_start(&self, bytes: usize) -> ValidUtf8Span {
+    fn increment_start(&self, bytes: usize) -> ValidUtf8Span {
         ValidUtf8Span(self.0.wrapping_add(bytes), self.1)
     }
 
@@ -92,7 +92,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
     /// Returns the trailing portion of the current line that has not yet been marked as read via
     /// the [consume] method.
     pub fn remaining_text(&self) -> &str {
-        self.string_view(self.line.incr_start(self.line_offset))
+        self.string_view(self.line.increment_start(self.line_offset))
     }
 
     /// Returns a &str view of the bytes within `data` specified by `span`.
@@ -104,7 +104,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
 
     /// Returns the amount of data currently available in the buffer that has not been marked as
     /// read via the [consume] method. This includes data that has not been split into lines yet.
-    pub fn data_remaining(&self) -> usize {
+    pub fn bytes_remaining(&self) -> usize {
         self.data_end - (self.line.0 + self.line_offset)
     }
 
@@ -119,7 +119,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
     }
 
     pub fn is_exhausted(&self) -> bool {
-        self.data_remaining() == 0 && self.data_exhausted
+        self.bytes_remaining() == 0 && self.data_exhausted
     }
 
     /// Discards [number_of_bytes] bytes from the remaining line.
@@ -182,16 +182,8 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
 
         let bytes_read = match source.subslice_offset(line) {
             Some(n) => {
-                // We need to ensure that there is no partial UTF-8 data trailing on the end of
-                // this line. If we have data that isn't validated, and our last character isn't a
-                // '\n', then we need to signal that our data is incomplete.
-                if self.data_end > self.data_utf8.1 && !line.ends_with('\n') {
-                    return Err(TextError::Incomplete {
-                        line: self.line_number + count + 1,
-                        column: line.chars().count(),
-                    });
-                }
-
+                // We return the resulting valid data, even if the line is not ended and we have
+                // a trailing incomplete sequence.
                 self.line.0 += self.line_offset;
                 self.line.1 += n + line.bytes().len();
                 n + line.bytes().len()
@@ -216,20 +208,24 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
     fn validate_data(&mut self) -> Result<(), TextError> {
         use std::str::from_utf8;
         // If we've already validated data, and new data was appended, we only have to validate the
-        // new append with any partial data that was invalid before the append.
+        // appended data with any partial data that was invalid before the append.
         let ValidUtf8Span(valid_start, valid_end) = self.data_utf8;
 
         let new_end = match from_utf8(&self.data.as_ref()[valid_end..]) {
-            Ok(_valid) => self.data.as_ref().len(),
+            Ok(_valid) => {
+                // All of the data is valid UTF-8.
+                self.data.as_ref().len()
+            }
             Err(error) => {
-                // Errors are OK here, as long as we do not have a length of erroneous data. OK
-                // errors need to be partial multi-byte characters at the end of the buffer, which
-                // imply that the data isn't complete.
-                let upto = error.valid_up_to();
-                if upto > 0 && error.error_len().is_none() {
-                    upto + valid_start
+                let last_valid_offset = error.valid_up_to();
+                if last_valid_offset > 0 && error.error_len().is_none() {
+                    // There is an incomplete multi-byte sequence at the end of the data.
+                    // We'll assume the remaining bytes for that sequence will be appended later
+                    // and mark everything up to the start of that sequence as valid.
+                    last_valid_offset + valid_start
                 } else {
-                    Err(TextError::utf8_error(upto))?
+                    // The input contained an invalid UTF-8 sequence.
+                    Err(TextError::utf8_error(last_valid_offset))?
                 }
             }
         };
@@ -389,29 +385,35 @@ mod tests {
 
     #[test]
     fn partial_utf8() {
+        // atom_modified is a multi-byte unicode character with a variation.
+        // The first 3 bytes represent the character '⚛' (atom). The trailing
+        // 3 bytes represent the variation which adds a purple background.
         let atom_modified = &[0xe2, 0x9a, 0x9b, 0xef, 0xb8, 0x8f];
-        let source: &[u8] = &[
-            0x57, 0x65, 0x20, 0x4c, 0x6f, 0x76, 0x65, 0x20, 0x49, 0x6f, 0x6e, 0x21,
-        ];
-        let mut input = TextBuffer::new(source.to_owned());
+        let source: &str = "We Love Ion! ";
+        let mut input = TextBuffer::new(source.as_bytes().to_owned());
+        // Add only part of our atom character, copying all but the last byte of the modifier.
         input
-            .append_bytes(&atom_modified[..5])
+            .append_bytes(&atom_modified[..=4])
             .expect("unable to add partial UTF-8 character");
-        // This should fail since we have a partial UTF-8 sequence in the first line.
+
+        // This should succeed, and provide access to all of the data up to the start of the
+        // incomplete sequence. Unfortunately, the 'invalid' sequence starts with the modifier, so
+        // the atom symbol is returned.
         match input.load_next_line() {
-            Err(TextError::Incomplete { line, column }) => {
-                assert_eq!(line, 1);
-                assert_eq!(column, 13);
-            }
+            Ok(16) => (),
             wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
         }
 
         input
             .append_bytes(&atom_modified[5..])
             .expect("unable to fix UTF-8 character..");
-        // This should succeed, since the entire UTF-8 sequence is now available.
+        // This read should read the remaining 3 bytes of the modifier, and our remaining text
+        // should match the entire sequence.
         match input.load_next_line() {
-            Ok(x) if x == atom_modified.len() + source.len() => (),
+            Ok(3) => {
+                assert_eq!(&input.remaining_text().as_bytes()[..13], source.as_bytes());
+                assert_eq!(&input.remaining_text().as_bytes()[13..], atom_modified);
+            }
             wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
         }
     }

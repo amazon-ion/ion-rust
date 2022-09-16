@@ -393,7 +393,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
         // If the buffer contained a value, the newline will indicate that the contents of the
         // buffer were complete. For example:
         // * the integer `7` becomes `7\n`; it wasn't the first digit in a truncated `755`.
-        // * the boolean `true` becomes `false\n`; it wasn't actually half of the
+        // * the boolean `false` becomes `false\n`; it wasn't actually half of the
         //   identifier `falseTeeth`.
         //
         // If the buffer contained a value that's written in segments, the extra `0` will indicate
