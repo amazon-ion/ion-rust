@@ -199,7 +199,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
                 return Err(TextError::Incomplete {
                     line: self.line_number,
                     column: self.line_end_column,
-                })
+                });
             }
         };
         self.line_number += count;
@@ -445,6 +445,8 @@ mod tests {
         let source = "😎";
         let mut input = TextBuffer::new(source.as_bytes().to_owned());
         input.load_next_line().unwrap();
+        // This jumps into the middle of the emoji.
+        // If it were to succeed, the next call to remaining_text() would panic.
         input.consume(1);
     }
 
@@ -454,6 +456,8 @@ mod tests {
         let source = "foo";
         let mut input = TextBuffer::new(source.as_bytes().to_owned());
         input.load_next_line().unwrap();
+        // There are only 3 bytes in the buffer.
+        // We cannot consume more bytes than are available.
         input.consume(75);
     }
 
