@@ -5,10 +5,7 @@
 
 use crate::result::{decoding_error, IonResult};
 use crate::value::native_reader::NativeElementReader;
-use crate::value::owned::OwnedElement;
-
-#[cfg(feature = "ion_c")]
-use crate::value::ion_c_reader::IonCElementReader;
+use crate::value::owned::Element;
 
 // TODO add/refactor trait/implementation for borrowing over some context
 //      we could make it generic with generic associated types or just have a lifetime
@@ -36,12 +33,12 @@ pub trait ElementReader {
     fn iterate_over<'a, 'b>(
         &'a self,
         data: &'b [u8],
-    ) -> IonResult<Box<dyn Iterator<Item = IonResult<OwnedElement>> + 'b>>;
+    ) -> IonResult<Box<dyn Iterator<Item = IonResult<Element>> + 'b>>;
 
     /// Parses given Ion over a given slice into an [`Vec`] returning an
     /// [`IonError`](crate::result::IonError) if any error occurs during the parse.
     #[inline]
-    fn read_all(&self, data: &[u8]) -> IonResult<Vec<OwnedElement>> {
+    fn read_all(&self, data: &[u8]) -> IonResult<Vec<Element>> {
         self.iterate_over(data)?.collect()
     }
 
@@ -49,7 +46,7 @@ pub trait ElementReader {
     /// Returns [`IonError`](crate::result::IonError) if any error occurs during the parse
     /// or there is more than one top-level [`Element`](super::Element) in the data.
     #[inline]
-    fn read_one(&self, data: &[u8]) -> IonResult<OwnedElement> {
+    fn read_one(&self, data: &[u8]) -> IonResult<Element> {
         let mut iter = self.iterate_over(data)?;
         match iter.next() {
             Some(Ok(elem)) => {
@@ -69,24 +66,12 @@ pub trait ElementReader {
 }
 
 /// Returns an implementation defined [`ElementReader`] instance.
-#[cfg(not(feature = "ion_c"))]
 pub fn element_reader() -> impl ElementReader {
     native_element_reader()
 }
 
-/// Returns an implementation defined [`ElementReader`] instance.
-#[cfg(feature = "ion_c")]
-pub fn element_reader() -> impl ElementReader {
-    ion_c_element_reader()
-}
-
 pub fn native_element_reader() -> NativeElementReader {
     NativeElementReader {}
-}
-
-#[cfg(feature = "ion_c")]
-pub fn ion_c_element_reader() -> IonCElementReader {
-    IonCElementReader {}
 }
 
 #[cfg(test)]
@@ -94,9 +79,9 @@ mod reader_tests {
     use super::*;
     use crate::types::integer::Integer;
     use crate::types::timestamp::Timestamp as TS;
-    use crate::value::owned::OwnedValue::*;
+    use crate::value::owned::Value::*;
     use crate::value::owned::*;
-    use crate::value::Element;
+    use crate::value::IonElement;
     use crate::IonType;
     use bigdecimal::BigDecimal;
     use num_bigint::BigInt;
@@ -258,7 +243,7 @@ mod reader_tests {
         vec![
             vec!["a", "b"].into_iter().map(|s| String(s.into()).into()).collect(),
         ].into_iter()
-            .map(|elems: Vec<OwnedElement>| List(elems.into_iter().collect()).into())
+            .map(|elems: Vec<Element>| List(elems.into_iter().collect()).into())
             .collect(),
     )]
     #[case::sexps(
@@ -268,7 +253,7 @@ mod reader_tests {
         vec![
             vec!["e", "f", "g"].into_iter().map(|s| Symbol(s.into()).into()).collect(),
         ].into_iter()
-            .map(|elems: Vec<OwnedElement>| SExpression(elems.into_iter().collect()).into())
+            .map(|elems: Vec<Element>| SExpression(elems.into_iter().collect()).into())
             .collect(),
     )]
     #[case::structs(
@@ -286,18 +271,15 @@ mod reader_tests {
                 (text_token("bool_field"), Boolean(true)),
             ]
         ].into_iter()
-            .map(|fields: Vec<(OwnedSymbolToken, OwnedValue)>| {
+            .map(|fields: Vec<(SymbolToken, Value)>| {
                 Struct(
                     fields.into_iter().map(|(tok, val)| {
-                        (tok, OwnedElement::new(vec![text_token("a")], val))
+                        (tok, Element::new(vec![text_token("a")], val))
                     }).collect()).into()
             })
             .collect(),
     )]
-    fn read_and_compare(
-        #[case] input: &[u8],
-        #[case] expected: Vec<OwnedElement>,
-    ) -> IonResult<()> {
+    fn read_and_compare(#[case] input: &[u8], #[case] expected: Vec<Element>) -> IonResult<()> {
         let actual = element_reader().read_all(input)?;
         assert_eq!(expected, actual);
         Ok(())

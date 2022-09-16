@@ -1,30 +1,11 @@
 use std::convert::From;
-use std::fmt::{Debug, Display, Error, Formatter};
+use std::fmt::{Debug, Error};
 use std::{fmt, io};
 
 use thiserror::Error;
 
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;
-
-// If the ion-c-sys feature is enabled, use the actual IonCError type as our IonCErrorSource...
-#[cfg(feature = "ion_c")]
-pub type IonCErrorSource = ion_c_sys::result::IonCError;
-// ...otherwise, use a placeholder error type.
-#[cfg(not(feature = "ion_c"))]
-pub type IonCErrorSource = ErrorStub;
-
-/// Placeholder Error type for error variants that require conditional compilation.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct ErrorStub;
-
-impl Display for ErrorStub {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "ion-c error support was not enabled at build time")
-    }
-}
-
-impl std::error::Error for ErrorStub {}
 
 /// Represents the different types of high-level failures that might occur when reading Ion data.
 #[derive(Debug, Error)]
@@ -62,13 +43,6 @@ pub enum IonError {
         "The user has performed an operation that is not legal in the current state: {operation}"
     )]
     IllegalOperation { operation: String },
-
-    /// Indicates that the underlying failure is due to a problem in [`ion_c_sys`].
-    #[error("{source:?}")]
-    IonCError {
-        #[from]
-        source: IonCErrorSource,
-    },
 }
 
 impl From<fmt::Error> for IonError {
@@ -108,7 +82,6 @@ impl Clone for IonError {
             IllegalOperation { operation } => IllegalOperation {
                 operation: operation.clone(),
             },
-            IonCError { source } => IonCError { source: *source },
         }
     }
 }
@@ -135,7 +108,6 @@ impl PartialEq for IonError {
             (EncodingError { description: s1 }, EncodingError { description: s2 }) => s1 == s2,
             (DecodingError { description: s1 }, DecodingError { description: s2 }) => s1 == s2,
             (IllegalOperation { operation: s1 }, IllegalOperation { operation: s2 }) => s1 == s2,
-            (IonCError { source: s1 }, IonCError { source: s2 }) => s1 == s2,
             _ => false,
         }
     }
@@ -184,24 +156,5 @@ pub fn illegal_operation<T, S: AsRef<str>>(operation: S) -> IonResult<T> {
 pub fn illegal_operation_raw<S: AsRef<str>>(operation: S) -> IonError {
     IonError::IllegalOperation {
         operation: operation.as_ref().to_string(),
-    }
-}
-
-#[cfg(all(test, feature = "ion_c"))]
-mod test {
-    use ion_c_sys::result::*;
-    use ion_c_sys::{ion_error_code_IERR_EOF, ion_error_code_IERR_INVALID_ARG};
-
-    use super::*;
-
-    #[test]
-    fn ion_c_error_eq() {
-        // make sure we can actually convert an Ion C error
-        let e1: IonError = IonCError::from(ion_error_code_IERR_EOF).into();
-        let e2: IonError = IonCError::from(ion_error_code_IERR_INVALID_ARG).into();
-
-        // make sure eq/clone works
-        assert_eq!(e1, e1.clone());
-        assert_ne!(e1, e2);
     }
 }

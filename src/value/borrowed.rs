@@ -4,10 +4,10 @@
 //!
 //! Specifically, all implementations are tied to some particular lifetime, generally linked
 //! to a parser implementation of some sort or some context from which the borrow can occur.
-//! For simple values, the values are inlined (see [`BorrowedValue`]), but for things that are
+//! For simple values, the values are inlined (see [`ValueRef`]), but for things that are
 //! backed by octets or string data, `&[u8]` and `&str` are used.
 
-use super::{Element, ImportSource, Sequence, Struct, SymbolToken};
+use super::{ImportSource, IonElement, IonSequence, IonStruct, IonSymbolToken};
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
@@ -20,26 +20,26 @@ use std::iter::FromIterator;
 
 /// A borrowed implementation of [`ImportSource`].
 #[derive(Debug, Copy, Clone)]
-pub struct BorrowedImportSource<'val> {
+pub struct ImportSourceRef<'val> {
     table: &'val str,
     sid: SymbolId,
 }
 
-impl<'val> BorrowedImportSource<'val> {
+impl<'val> ImportSourceRef<'val> {
     pub fn new(table: &'val str, sid: SymbolId) -> Self {
         Self { table, sid }
     }
 }
 
-impl<'val> PartialEq for BorrowedImportSource<'val> {
+impl<'val> PartialEq for ImportSourceRef<'val> {
     fn eq(&self, other: &Self) -> bool {
         self.table == other.table && self.sid == other.sid
     }
 }
 
-impl<'val> Eq for BorrowedImportSource<'val> {}
+impl<'val> Eq for ImportSourceRef<'val> {}
 
-impl<'val> ImportSource for BorrowedImportSource<'val> {
+impl<'val> ImportSource for ImportSourceRef<'val> {
     fn table(&self) -> &str {
         self.table
     }
@@ -51,17 +51,17 @@ impl<'val> ImportSource for BorrowedImportSource<'val> {
 
 /// A borrowed implementation of [`SymbolToken`].
 #[derive(Debug, Copy, Clone)]
-pub struct BorrowedSymbolToken<'val> {
+pub struct SymbolTokenRef<'val> {
     text: Option<&'val str>,
     local_sid: Option<SymbolId>,
-    source: Option<BorrowedImportSource<'val>>,
+    source: Option<ImportSourceRef<'val>>,
 }
 
-impl<'val> BorrowedSymbolToken<'val> {
+impl<'val> SymbolTokenRef<'val> {
     fn new(
         text: Option<&'val str>,
         local_sid: Option<SymbolId>,
-        source: Option<BorrowedImportSource<'val>>,
+        source: Option<ImportSourceRef<'val>>,
     ) -> Self {
         Self {
             text,
@@ -71,21 +71,21 @@ impl<'val> BorrowedSymbolToken<'val> {
     }
 }
 
-/// Constructs an [`BorrowedSymbolToken`] with unknown text and a local ID.
+/// Constructs a [`SymbolTokenRef`] with unknown text and a local ID.
 /// A common case for binary parsing (though technically relevant in text).
 #[inline]
-pub fn local_sid_token<'val>(local_sid: SymbolId) -> BorrowedSymbolToken<'val> {
-    BorrowedSymbolToken::new(None, Some(local_sid), None)
+pub fn local_sid_token<'val>(local_sid: SymbolId) -> SymbolTokenRef<'val> {
+    SymbolTokenRef::new(None, Some(local_sid), None)
 }
 
-/// Constructs an [`BorrowedSymbolToken`] with just text.
+/// Constructs a [`SymbolTokenRef`] with just text.
 /// A common case for text and synthesizing tokens.
 #[inline]
-pub fn text_token(text: &str) -> BorrowedSymbolToken {
-    BorrowedSymbolToken::new(Some(text), None, None)
+pub fn text_token(text: &str) -> SymbolTokenRef {
+    SymbolTokenRef::new(Some(text), None, None)
 }
 
-impl<'val> PartialEq for BorrowedSymbolToken<'val> {
+impl<'val> PartialEq for SymbolTokenRef<'val> {
     fn eq(&self, other: &Self) -> bool {
         if other.text != None || self.text != None {
             // if either side has text, we only compare text
@@ -97,16 +97,16 @@ impl<'val> PartialEq for BorrowedSymbolToken<'val> {
     }
 }
 
-impl<'val> Eq for BorrowedSymbolToken<'val> {}
+impl<'val> Eq for SymbolTokenRef<'val> {}
 
-impl<'val> From<&'val str> for BorrowedSymbolToken<'val> {
+impl<'val> From<&'val str> for SymbolTokenRef<'val> {
     fn from(text: &'val str) -> Self {
         Self::new(Some(text), None, None)
     }
 }
 
-impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
-    type ImportSource = BorrowedImportSource<'val>;
+impl<'val> IonSymbolToken for SymbolTokenRef<'val> {
+    type ImportSource = ImportSourceRef<'val>;
 
     fn text(&self) -> Option<&str> {
         self.text
@@ -121,88 +121,88 @@ impl<'val> SymbolToken for BorrowedSymbolToken<'val> {
     }
 
     fn with_text(self, text: &'static str) -> Self {
-        BorrowedSymbolToken::new(Some(text), self.local_sid, self.source)
+        SymbolTokenRef::new(Some(text), self.local_sid, self.source)
     }
 
     fn with_local_sid(self, local_sid: SymbolId) -> Self {
-        BorrowedSymbolToken::new(self.text, Some(local_sid), self.source)
+        SymbolTokenRef::new(self.text, Some(local_sid), self.source)
     }
 
     fn with_source(self, table: &'static str, sid: SymbolId) -> Self {
-        BorrowedSymbolToken::new(
+        SymbolTokenRef::new(
             self.text,
             self.local_sid,
-            Some(BorrowedImportSource::new(table, sid)),
+            Some(ImportSourceRef::new(table, sid)),
         )
     }
 
     fn text_token(text: &'static str) -> Self {
-        BorrowedSymbolToken::new(Some(text), None, None)
+        SymbolTokenRef::new(Some(text), None, None)
     }
 
     fn local_sid_token(local_sid: usize) -> Self {
-        BorrowedSymbolToken::new(None, Some(local_sid), None)
+        SymbolTokenRef::new(None, Some(local_sid), None)
     }
 }
 
 /// A borrowed implementation of [`Builder`].
-impl<'val> Builder for BorrowedElement<'val> {
-    type Element = BorrowedElement<'val>;
-    type SymbolToken = BorrowedSymbolToken<'val>;
-    type Sequence = BorrowedSequence<'val>;
-    type Struct = BorrowedStruct<'val>;
-    type ImportSource = BorrowedImportSource<'val>;
+impl<'val> Builder for ElementRef<'val> {
+    type Element = ElementRef<'val>;
+    type SymbolToken = SymbolTokenRef<'val>;
+    type Sequence = SequenceRef<'val>;
+    type Struct = StructRef<'val>;
+    type ImportSource = ImportSourceRef<'val>;
 
     fn new_null(e_type: IonType) -> Self::Element {
-        BorrowedValue::Null(e_type).into()
+        ValueRef::Null(e_type).into()
     }
 
     fn new_bool(bool: bool) -> Self::Element {
-        BorrowedValue::Boolean(bool).into()
+        ValueRef::Boolean(bool).into()
     }
 
     fn new_string(str: &'static str) -> Self::Element {
-        BorrowedValue::String(str).into()
+        ValueRef::String(str).into()
     }
 
     fn new_symbol(sym: Self::SymbolToken) -> Self::Element {
-        BorrowedValue::Symbol(sym).into()
+        ValueRef::Symbol(sym).into()
     }
 
     fn new_i64(int: i64) -> Self::Element {
-        BorrowedValue::Integer(Integer::I64(int)).into()
+        ValueRef::Integer(Integer::I64(int)).into()
     }
 
     fn new_big_int(big_int: BigInt) -> Self::Element {
-        BorrowedValue::Integer(Integer::BigInt(big_int)).into()
+        ValueRef::Integer(Integer::BigInt(big_int)).into()
     }
 
     fn new_decimal(decimal: Decimal) -> Self::Element {
-        BorrowedValue::Decimal(decimal).into()
+        ValueRef::Decimal(decimal).into()
     }
 
     fn new_timestamp(timestamp: Timestamp) -> Self::Element {
-        BorrowedValue::Timestamp(timestamp).into()
+        ValueRef::Timestamp(timestamp).into()
     }
 
     fn new_f64(float: f64) -> Self::Element {
-        BorrowedValue::Float(float).into()
+        ValueRef::Float(float).into()
     }
 
     fn new_clob(bytes: &'static [u8]) -> Self::Element {
-        BorrowedValue::Clob(bytes).into()
+        ValueRef::Clob(bytes).into()
     }
 
     fn new_blob(bytes: &'static [u8]) -> Self::Element {
-        BorrowedValue::Blob(bytes).into()
+        ValueRef::Blob(bytes).into()
     }
 
     fn new_list<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element {
-        BorrowedValue::List(seq.into_iter().collect()).into()
+        ValueRef::List(seq.into_iter().collect()).into()
     }
 
     fn new_sexp<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element {
-        BorrowedValue::SExpression(seq.into_iter().collect()).into()
+        ValueRef::SExpression(seq.into_iter().collect()).into()
     }
 
     fn new_struct<
@@ -212,26 +212,26 @@ impl<'val> Builder for BorrowedElement<'val> {
     >(
         structure: I,
     ) -> Self::Element {
-        BorrowedValue::Struct(structure.into_iter().collect()).into()
+        ValueRef::Struct(structure.into_iter().collect()).into()
     }
 }
 
 /// A borrowed implementation of [`Sequence`].
 #[derive(Debug, Clone)]
-pub struct BorrowedSequence<'val> {
-    children: Vec<BorrowedElement<'val>>,
+pub struct SequenceRef<'val> {
+    children: Vec<ElementRef<'val>>,
 }
 
-impl<'val> BorrowedSequence<'val> {
-    pub fn new(children: Vec<BorrowedElement<'val>>) -> Self {
+impl<'val> SequenceRef<'val> {
+    pub fn new(children: Vec<ElementRef<'val>>) -> Self {
         Self { children }
     }
 }
 
-impl<'val> FromIterator<BorrowedElement<'val>> for BorrowedSequence<'val> {
+impl<'val> FromIterator<ElementRef<'val>> for SequenceRef<'val> {
     /// Returns an borrowed sequence from the given iterator of elements.
-    fn from_iter<I: IntoIterator<Item = BorrowedElement<'val>>>(iter: I) -> Self {
-        let mut children: Vec<BorrowedElement> = Vec::new();
+    fn from_iter<I: IntoIterator<Item = ElementRef<'val>>>(iter: I) -> Self {
+        let mut children: Vec<ElementRef> = Vec::new();
         for elem in iter {
             children.push(elem);
         }
@@ -239,8 +239,8 @@ impl<'val> FromIterator<BorrowedElement<'val>> for BorrowedSequence<'val> {
     }
 }
 
-impl<'val> Sequence for BorrowedSequence<'val> {
-    type Element = BorrowedElement<'val>;
+impl<'val> IonSequence for SequenceRef<'val> {
+    type Element = ElementRef<'val>;
 
     fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
         Box::new(self.children.iter())
@@ -259,22 +259,22 @@ impl<'val> Sequence for BorrowedSequence<'val> {
     }
 }
 
-impl<'val> PartialEq for BorrowedSequence<'val> {
+impl<'val> PartialEq for SequenceRef<'val> {
     fn eq(&self, other: &Self) -> bool {
         self.children == other.children
     }
 }
 
-impl<'val> Eq for BorrowedSequence<'val> {}
+impl<'val> Eq for SequenceRef<'val> {}
 
 /// A borrowed implementation of [`Struct`]
 #[derive(Debug, Clone)]
-pub struct BorrowedStruct<'val> {
-    text_fields: HashMap<String, Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>>,
-    no_text_fields: Vec<(BorrowedSymbolToken<'val>, BorrowedElement<'val>)>,
+pub struct StructRef<'val> {
+    text_fields: HashMap<String, Vec<(SymbolTokenRef<'val>, ElementRef<'val>)>>,
+    no_text_fields: Vec<(SymbolTokenRef<'val>, ElementRef<'val>)>,
 }
 
-impl<'val> BorrowedStruct<'val> {
+impl<'val> StructRef<'val> {
     fn eq_text_fields(&self, other: &Self) -> bool {
         // check if both the text_fields have same (field_name,value) pairs
         self.text_fields.iter().all(|(key, value)| {
@@ -296,16 +296,15 @@ impl<'val> BorrowedStruct<'val> {
     }
 }
 
-impl<'val, K, V> FromIterator<(K, V)> for BorrowedStruct<'val>
+impl<'val, K, V> FromIterator<(K, V)> for StructRef<'val>
 where
-    K: Into<BorrowedSymbolToken<'val>>,
-    V: Into<BorrowedElement<'val>>,
+    K: Into<SymbolTokenRef<'val>>,
+    V: Into<ElementRef<'val>>,
 {
     /// Returns a borrowed struct from the given iterator of field names/values.
     fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        let mut text_fields: HashMap<String, Vec<(BorrowedSymbolToken, BorrowedElement)>> =
-            HashMap::new();
-        let mut no_text_fields: Vec<(BorrowedSymbolToken, BorrowedElement)> = Vec::new();
+        let mut text_fields: HashMap<String, Vec<(SymbolTokenRef, ElementRef)>> = HashMap::new();
+        let mut no_text_fields: Vec<(SymbolTokenRef, ElementRef)> = Vec::new();
 
         for (k, v) in iter {
             let key = k.into();
@@ -329,9 +328,9 @@ where
     }
 }
 
-impl<'val> Struct for BorrowedStruct<'val> {
-    type FieldName = BorrowedSymbolToken<'val>;
-    type Element = BorrowedElement<'val>;
+impl<'val> IonStruct for StructRef<'val> {
+    type FieldName = SymbolTokenRef<'val>;
+    type Element = ElementRef<'val>;
 
     fn iter<'a>(
         &'a self,
@@ -369,7 +368,7 @@ impl<'val> Struct for BorrowedStruct<'val> {
     }
 }
 
-impl<'val> PartialEq for BorrowedStruct<'val> {
+impl<'val> PartialEq for StructRef<'val> {
     fn eq(&self, other: &Self) -> bool {
         // check if both text_fields and no_text_fields have same length
         self.text_fields.len() == other.text_fields.len() && self.no_text_fields.len() == other.no_text_fields.len()
@@ -383,125 +382,125 @@ impl<'val> PartialEq for BorrowedStruct<'val> {
     }
 }
 
-impl<'val> Eq for BorrowedStruct<'val> {}
+impl<'val> Eq for StructRef<'val> {}
 
 // TODO replace the references with `Cow` and bridge to the owned APIs for mutability
 
 /// Variants for all borrowed version _values_ within an [`Element`].
 #[derive(Debug, Clone, PartialEq)]
-pub enum BorrowedValue<'val> {
+pub enum ValueRef<'val> {
     Null(IonType),
     Integer(Integer),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
     String(&'val str),
-    Symbol(BorrowedSymbolToken<'val>),
+    Symbol(SymbolTokenRef<'val>),
     Boolean(bool),
     Blob(&'val [u8]),
     Clob(&'val [u8]),
-    SExpression(BorrowedSequence<'val>),
-    List(BorrowedSequence<'val>),
-    Struct(BorrowedStruct<'val>),
+    SExpression(SequenceRef<'val>),
+    List(SequenceRef<'val>),
+    Struct(StructRef<'val>),
     // TODO fill this in with the rest...
 }
 
 /// A borrowed implementation of [`Element`]
 #[derive(Debug, Clone)]
-pub struct BorrowedElement<'val> {
-    annotations: Vec<BorrowedSymbolToken<'val>>,
-    value: BorrowedValue<'val>,
+pub struct ElementRef<'val> {
+    annotations: Vec<SymbolTokenRef<'val>>,
+    value: ValueRef<'val>,
 }
 
-impl<'val> BorrowedElement<'val> {
-    pub fn new(annotations: Vec<BorrowedSymbolToken<'val>>, value: BorrowedValue<'val>) -> Self {
+impl<'val> ElementRef<'val> {
+    pub fn new(annotations: Vec<SymbolTokenRef<'val>>, value: ValueRef<'val>) -> Self {
         Self { annotations, value }
     }
 }
 
-impl<'val> PartialEq for BorrowedElement<'val> {
+impl<'val> PartialEq for ElementRef<'val> {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value && self.annotations == other.annotations
     }
 }
 
-impl<'val> Eq for BorrowedElement<'val> {}
+impl<'val> Eq for ElementRef<'val> {}
 
-impl<'val> From<BorrowedValue<'val>> for BorrowedElement<'val> {
-    /// Constructs a [`BorrowedElement`] without annotations from this value.
-    fn from(val: BorrowedValue<'val>) -> Self {
+impl<'val> From<ValueRef<'val>> for ElementRef<'val> {
+    /// Constructs an [`ElementRef`] without annotations from this value.
+    fn from(val: ValueRef<'val>) -> Self {
         Self::new(vec![], val)
     }
 }
 
-impl<'val> From<IonType> for BorrowedElement<'val> {
+impl<'val> From<IonType> for ElementRef<'val> {
     fn from(ion_type: IonType) -> Self {
-        BorrowedValue::Null(ion_type).into()
+        ValueRef::Null(ion_type).into()
     }
 }
 
-impl<'val> From<i64> for BorrowedElement<'val> {
+impl<'val> From<i64> for ElementRef<'val> {
     fn from(i64_val: i64) -> Self {
-        BorrowedValue::Integer(Integer::I64(i64_val)).into()
+        ValueRef::Integer(Integer::I64(i64_val)).into()
     }
 }
 
-impl<'val> From<BigInt> for BorrowedElement<'val> {
+impl<'val> From<BigInt> for ElementRef<'val> {
     fn from(big_int_val: BigInt) -> Self {
-        BorrowedValue::Integer(Integer::BigInt(big_int_val)).into()
+        ValueRef::Integer(Integer::BigInt(big_int_val)).into()
     }
 }
 
-impl<'val> From<f64> for BorrowedElement<'val> {
+impl<'val> From<f64> for ElementRef<'val> {
     fn from(f64_val: f64) -> Self {
-        BorrowedValue::Float(f64_val).into()
+        ValueRef::Float(f64_val).into()
     }
 }
 
-impl<'val> From<Decimal> for BorrowedElement<'val> {
+impl<'val> From<Decimal> for ElementRef<'val> {
     fn from(decimal_val: Decimal) -> Self {
-        BorrowedValue::Decimal(decimal_val).into()
+        ValueRef::Decimal(decimal_val).into()
     }
 }
 
-impl<'val> From<Timestamp> for BorrowedElement<'val> {
+impl<'val> From<Timestamp> for ElementRef<'val> {
     fn from(timestamp_val: Timestamp) -> Self {
-        BorrowedValue::Timestamp(timestamp_val).into()
+        ValueRef::Timestamp(timestamp_val).into()
     }
 }
 
-impl<'val> From<bool> for BorrowedElement<'val> {
+impl<'val> From<bool> for ElementRef<'val> {
     fn from(bool_val: bool) -> Self {
-        BorrowedValue::Boolean(bool_val).into()
+        ValueRef::Boolean(bool_val).into()
     }
 }
 
-impl<'val> From<&'val str> for BorrowedElement<'val> {
+impl<'val> From<&'val str> for ElementRef<'val> {
     fn from(string_val: &'val str) -> Self {
-        BorrowedValue::String(string_val).into()
+        ValueRef::String(string_val).into()
     }
 }
 
-impl<'val> From<BorrowedSymbolToken<'val>> for BorrowedElement<'val> {
-    fn from(sym_val: BorrowedSymbolToken<'val>) -> Self {
-        BorrowedValue::Symbol(sym_val).into()
+impl<'val> From<SymbolTokenRef<'val>> for ElementRef<'val> {
+    fn from(sym_val: SymbolTokenRef<'val>) -> Self {
+        ValueRef::Symbol(sym_val).into()
     }
 }
 
-impl<'val> From<BorrowedStruct<'val>> for BorrowedElement<'val> {
-    fn from(struct_val: BorrowedStruct<'val>) -> Self {
-        BorrowedValue::Struct(struct_val).into()
+impl<'val> From<StructRef<'val>> for ElementRef<'val> {
+    fn from(struct_val: StructRef<'val>) -> Self {
+        ValueRef::Struct(struct_val).into()
     }
 }
 
-impl<'val> Element for BorrowedElement<'val> {
-    type SymbolToken = BorrowedSymbolToken<'val>;
-    type Sequence = BorrowedSequence<'val>;
-    type Struct = BorrowedStruct<'val>;
-    type Builder = BorrowedElement<'val>;
+impl<'val> IonElement for ElementRef<'val> {
+    type SymbolToken = SymbolTokenRef<'val>;
+    type Sequence = SequenceRef<'val>;
+    type Struct = StructRef<'val>;
+    type Builder = ElementRef<'val>;
 
     fn ion_type(&self) -> IonType {
-        use BorrowedValue::*;
+        use ValueRef::*;
         match &self.value {
             Null(t) => *t,
             Integer(_) => IonType::Integer,
@@ -524,7 +523,7 @@ impl<'val> Element for BorrowedElement<'val> {
     }
 
     fn with_annotations<I: IntoIterator<Item = Self::SymbolToken>>(self, annotations: I) -> Self {
-        BorrowedElement::new(annotations.into_iter().collect(), self.value)
+        ElementRef::new(annotations.into_iter().collect(), self.value)
     }
 
     fn has_annotation(&self, annotation: &str) -> bool {
@@ -534,76 +533,76 @@ impl<'val> Element for BorrowedElement<'val> {
     }
 
     fn is_null(&self) -> bool {
-        matches!(&self.value, BorrowedValue::Null(_))
+        matches!(&self.value, ValueRef::Null(_))
     }
 
     fn as_integer(&self) -> Option<&Integer> {
         match &self.value {
-            BorrowedValue::Integer(i) => Some(i),
+            ValueRef::Integer(i) => Some(i),
             _ => None,
         }
     }
 
     fn as_f64(&self) -> Option<f64> {
         match &self.value {
-            BorrowedValue::Float(f) => Some(*f),
+            ValueRef::Float(f) => Some(*f),
             _ => None,
         }
     }
 
     fn as_decimal(&self) -> Option<&Decimal> {
         match &self.value {
-            BorrowedValue::Decimal(d) => Some(d),
+            ValueRef::Decimal(d) => Some(d),
             _ => None,
         }
     }
 
     fn as_timestamp(&self) -> Option<&Timestamp> {
         match &self.value {
-            BorrowedValue::Timestamp(t) => Some(t),
+            ValueRef::Timestamp(t) => Some(t),
             _ => None,
         }
     }
 
     fn as_str(&self) -> Option<&str> {
         match &self.value {
-            BorrowedValue::String(text) => Some(*text),
-            BorrowedValue::Symbol(sym) => sym.text(),
+            ValueRef::String(text) => Some(*text),
+            ValueRef::Symbol(sym) => sym.text(),
             _ => None,
         }
     }
 
     fn as_sym(&self) -> Option<&Self::SymbolToken> {
         match &self.value {
-            BorrowedValue::Symbol(sym) => Some(sym),
+            ValueRef::Symbol(sym) => Some(sym),
             _ => None,
         }
     }
 
     fn as_bool(&self) -> Option<bool> {
         match &self.value {
-            BorrowedValue::Boolean(b) => Some(*b),
+            ValueRef::Boolean(b) => Some(*b),
             _ => None,
         }
     }
 
     fn as_bytes(&self) -> Option<&[u8]> {
         match &self.value {
-            BorrowedValue::Blob(bytes) | BorrowedValue::Clob(bytes) => Some(bytes),
+            ValueRef::Blob(bytes) | ValueRef::Clob(bytes) => Some(bytes),
             _ => None,
         }
     }
 
     fn as_sequence(&self) -> Option<&Self::Sequence> {
         match &self.value {
-            BorrowedValue::SExpression(seq) | BorrowedValue::List(seq) => Some(seq),
+            ValueRef::SExpression(seq) | ValueRef::List(seq) => Some(seq),
             _ => None,
         }
     }
 
     fn as_struct(&self) -> Option<&Self::Struct> {
         match &self.value {
-            BorrowedValue::Struct(structure) => Some(structure),
+            ValueRef::Struct(structure) => Some(structure),
             _ => None,
         }
     }
@@ -617,19 +616,19 @@ mod borrowed_value_tests {
     #[rstest(
     elem1,elem2,
         case::str(
-            BorrowedElement::new_string("hello"),
+            ElementRef::new_string("hello"),
             "hello".into()
         ),
         case::sym_with_text(
-            BorrowedElement::new_symbol(text_token("hello")),
+            ElementRef::new_symbol(text_token("hello")),
             text_token("hello").into()
         ),
         case::struct_(
-            BorrowedElement::new_struct(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello")))].into_iter()),
-            BorrowedStruct::from_iter(vec![("greetings", BorrowedElement::from(BorrowedValue::String("hello")))].into_iter()).into()
+            ElementRef::new_struct(vec![("greetings", ElementRef::from(ValueRef::String("hello")))].into_iter()),
+            StructRef::from_iter(vec![("greetings", ElementRef::from(ValueRef::String("hello")))].into_iter()).into()
         ),
     )]
-    fn owned_element_accessors(elem1: BorrowedElement, elem2: BorrowedElement) {
+    fn owned_element_accessors(elem1: ElementRef, elem2: ElementRef) {
         // assert if both the element construction creates the same element
         assert_eq!(elem1, elem2);
     }

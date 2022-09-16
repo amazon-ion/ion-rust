@@ -21,7 +21,7 @@
 //! ```
 //! use ion_rs::IonType;
 //! use ion_rs::result::IonResult;
-//! use ion_rs::value::{Element, Struct};
+//! use ion_rs::value::{IonElement, IonStruct};
 //! use ion_rs::value::reader::element_reader;
 //! use ion_rs::value::reader::ElementReader;
 //!
@@ -44,7 +44,7 @@
 //! ```
 //! # use ion_rs::IonType;
 //! # use ion_rs::result::IonResult;
-//! # use ion_rs::value::{Element, Struct};
+//! # use ion_rs::value::{IonElement, IonStruct};
 //! # use ion_rs::value::reader::element_reader;
 //! # use ion_rs::value::reader::ElementReader;
 //! # fn main() -> IonResult<()> {
@@ -68,7 +68,7 @@
 //! # use ion_rs::IonType;
 //! # use ion_rs::result::IonResult;
 //! use ion_rs::types::integer::IntAccess;
-//! # use ion_rs::value::{Element,  Struct};
+//! # use ion_rs::value::{IonElement,  IonStruct};
 //! # use ion_rs::value::reader::element_reader;
 //! # use ion_rs::value::reader::ElementReader;
 //! # fn main() -> IonResult<()> {
@@ -129,19 +129,19 @@
 //! and converts [`SymbolToken::text()`] into an owned `String`:
 //!
 //! ```
-//! use ion_rs::value::SymbolToken;
-//! use ion_rs::value::borrowed::BorrowedSymbolToken;
-//! use ion_rs::value::owned::OwnedSymbolToken;
+//! use ion_rs::value::IonSymbolToken;
+//! use ion_rs::value::borrowed::SymbolTokenRef;
+//! use ion_rs::value::owned::SymbolToken;
 //!
-//! fn extract_text<T: SymbolToken>(tok: &T) -> String {
+//! fn extract_text<T: IonSymbolToken>(tok: &T) -> String {
 //!     tok.text().unwrap().into()
 //! }
 //!
-//! let owned_token: OwnedSymbolToken = "hello".into();
+//! let owned_token: SymbolToken = "hello".into();
 //!
 //! // owned value to emphasize lifetime
 //! let text = String::from("hello");
-//! let borrowed_token: BorrowedSymbolToken = text.as_str().into();
+//! let borrowed_token: SymbolTokenRef = text.as_str().into();
 //!
 //! let owned_text = extract_text(&owned_token);
 //! let borrowed_text = extract_text(&borrowed_token);
@@ -154,43 +154,43 @@
 //! that may not have text (so data could be dropped):
 //!
 //! ```
-//! use ion_rs::value::{Element, SymbolToken};
+//! use ion_rs::value::{IonElement, IonSymbolToken};
 //! use ion_rs::value::borrowed::{
-//!     BorrowedValue,
-//!     BorrowedElement,
+//!     ValueRef,
+//!     ElementRef,
 //!     local_sid_token as borrowed_local_sid_token,
 //!     text_token as borrowed_text_token
 //! };
 //! use ion_rs::value::owned::{
-//!     OwnedValue,
-//!     OwnedElement,
+//!     Value,
+//!     Element,
 //!     local_sid_token as owned_local_sid_token,
 //!     text_token as owned_text_token
 //! };
 //!
-//! fn extract_annotations<T: Element>(elem: &T) -> Vec<Option<String>> {
+//! fn extract_annotations<T: IonElement>(elem: &T) -> Vec<Option<String>> {
 //!     elem.annotations().map(
 //!         |tok| tok.text().map(|text_ref| text_ref.to_string())
 //!     ).collect()
 //! }
 //!
-//! let owned_elem = OwnedElement::new(
+//! let owned_elem = Element::new(
 //!     vec![
 //!         owned_local_sid_token(300).with_source("foo", 12),
 //!         owned_text_token("hello")
 //!     ],
-//!     OwnedValue::String("world".into())
+//!     Value::String("world".into())
 //! );
 //!
 //! // owned values to emphasize lifetime
 //! let strings: Vec<String> =
 //!     vec!["hello", "world"].iter().map(|x| x.to_string()).collect();
-//! let borrowed_elem = BorrowedElement::new(
+//! let borrowed_elem = ElementRef::new(
 //!     vec![
 //!         borrowed_local_sid_token(200).with_source("bar", 9),
 //!         borrowed_text_token(&strings[0])
 //!     ],
-//!     BorrowedValue::String(&strings[1])
+//!     ValueRef::String(&strings[1])
 //! );
 //!
 //! let owned_annotations = extract_annotations(&owned_elem);
@@ -219,11 +219,6 @@ pub mod native_writer;
 pub mod owned;
 pub mod reader;
 pub mod writer;
-
-#[cfg(feature = "ion_c")]
-pub mod ion_c_reader;
-#[cfg(feature = "ion_c")]
-mod ion_c_writer;
 
 /// The shared symbol table source of a given [`SymbolToken`].
 pub trait ImportSource: Debug + PartialEq {
@@ -291,7 +286,7 @@ pub trait ImportSource: Debug + PartialEq {
 /// which is not a typical (but certainly valid) usage pattern.
 ///
 /// [symbol-data-model]: https://amzn.github.io/ion-docs/docs/symbols.html#data-model
-pub trait SymbolToken: Debug + PartialEq {
+pub trait IonSymbolToken: Debug + PartialEq {
     type ImportSource: ImportSource + ?Sized;
 
     /// The text of the token, which may be `None` if no text is associated with the token
@@ -333,7 +328,7 @@ pub trait SymbolToken: Debug + PartialEq {
 
 /// Represents a either a borrowed or owned Ion datum.  There are/will be specific APIs for
 /// _borrowed_ and _owned_ implementations, but this trait unifies operations on either.
-pub trait Element
+pub trait IonElement
 where
     Self: From<i64>
         + From<bool>
@@ -344,9 +339,12 @@ where
         + Debug
         + PartialEq,
 {
-    type SymbolToken: SymbolToken + Debug + PartialEq;
-    type Sequence: Sequence<Element = Self> + ?Sized + Debug + PartialEq;
-    type Struct: Struct<FieldName = Self::SymbolToken, Element = Self> + ?Sized + Debug + PartialEq;
+    type SymbolToken: IonSymbolToken + Debug + PartialEq;
+    type Sequence: IonSequence<Element = Self> + ?Sized + Debug + PartialEq;
+    type Struct: IonStruct<FieldName = Self::SymbolToken, Element = Self>
+        + ?Sized
+        + Debug
+        + PartialEq;
     type Builder: Builder<SymbolToken = Self::SymbolToken, Element = Self> + ?Sized;
 
     /// The type of data this element represents.
@@ -361,18 +359,18 @@ where
     /// # use ion_rs::value::borrowed::*;
     /// // simple function to extract the annotations to owned strings.
     /// // will panic if the text is not there!
-    /// fn annotation_strings<T: Element>(elem: &T) -> Vec<String> {
+    /// fn annotation_strings<T: IonElement>(elem: &T) -> Vec<String> {
     ///     elem.annotations().map(|tok| tok.text().unwrap().into()).collect()
     /// }
     ///
     /// let strs = vec!["a", "b", "c"];
-    /// let owned_elem = OwnedElement::new(
+    /// let owned_elem = Element::new(
     ///     strs.iter().map(|s| (*s).into()).collect(),
-    ///     OwnedValue::String("moo".into())
+    ///     Value::String("moo".into())
     /// );
-    /// let borrowed_elem = BorrowedElement::new(
+    /// let borrowed_elem = ElementRef::new(
     ///     strs.iter().map(|s| (*s).into()).collect(),
-    ///     BorrowedValue::String("moo")
+    ///     ValueRef::String("moo")
     /// );
     ///
     /// let expected: Vec<String> = strs.iter().map(|s| (*s).into()).collect();
@@ -464,8 +462,8 @@ where
 }
 
 /// Represents the _value_ of sequences of Ion elements (i.e. `list` and `sexp`).
-pub trait Sequence: Debug + PartialEq {
-    type Element: Element + ?Sized;
+pub trait IonSequence: Debug + PartialEq {
+    type Element: IonElement + ?Sized;
 
     /// The children of the sequence.
     ///
@@ -488,9 +486,9 @@ pub trait Sequence: Debug + PartialEq {
 }
 
 /// Represents the _value_ of `struct` of Ion elements.
-pub trait Struct: Debug + PartialEq {
-    type FieldName: SymbolToken + ?Sized;
-    type Element: Element + ?Sized;
+pub trait IonStruct: Debug + PartialEq {
+    type FieldName: IonSymbolToken + ?Sized;
+    type Element: IonElement + ?Sized;
 
     /// The fields of the structure.
     ///
@@ -511,9 +509,9 @@ pub trait Struct: Debug + PartialEq {
     /// ```
     /// # use ion_rs::value::*;
     /// # use ion_rs::value::borrowed::*;
-    /// let fields: Vec<(&str, BorrowedValue)>= vec![("e", "f"), ("g", "h")]
-    ///     .into_iter().map(|(k, v)| (k, BorrowedValue::String(v))).collect();
-    /// let borrowed: BorrowedStruct = fields.into_iter().collect();
+    /// let fields: Vec<(&str, ValueRef)>= vec![("e", "f"), ("g", "h")]
+    ///     .into_iter().map(|(k, v)| (k, ValueRef::String(v))).collect();
+    /// let borrowed: StructRef = fields.into_iter().collect();
     /// assert_eq!("h", borrowed.get("g".to_string()).map(|e| e.as_str()).flatten().unwrap());
     /// ```
     ///
@@ -521,9 +519,9 @@ pub trait Struct: Debug + PartialEq {
     /// ```
     /// # use ion_rs::value::*;
     /// # use ion_rs::value::owned::*;
-    /// let fields: Vec<(&str, OwnedValue)>= vec![("a", "b"), ("c", "d")]
-    ///     .into_iter().map(|(k, v)| (k, OwnedValue::String(v.into()))).collect();
-    /// let owned: OwnedStruct = fields.into_iter().collect();
+    /// let fields: Vec<(&str, Value)>= vec![("a", "b"), ("c", "d")]
+    ///     .into_iter().map(|(k, v)| (k, Value::String(v.into()))).collect();
+    /// let owned: Struct = fields.into_iter().collect();
     /// assert_eq!("d", owned.get("c".to_string()).map(|e| e.as_str()).flatten().unwrap());
     /// ```
     fn get<T: AsRef<str>>(&self, field_name: T) -> Option<&Self::Element>;
@@ -536,9 +534,9 @@ pub trait Struct: Debug + PartialEq {
     /// ```
     /// # use ion_rs::value::*;
     /// # use ion_rs::value::borrowed::*;
-    /// let fields: Vec<(&str, BorrowedValue)>= vec![("a", "b"), ("c", "d"), ("c", "e")]
-    ///     .into_iter().map(|(k, v)| (k, BorrowedValue::String(v))).collect();
-    /// let borrowed: BorrowedStruct = fields.into_iter().collect();
+    /// let fields: Vec<(&str, ValueRef)>= vec![("a", "b"), ("c", "d"), ("c", "e")]
+    ///     .into_iter().map(|(k, v)| (k, ValueRef::String(v))).collect();
+    /// let borrowed: StructRef = fields.into_iter().collect();
     /// assert_eq!(
     ///     vec!["d", "e"],
     ///     borrowed.get_all("c").flat_map(|e| e.as_str()).collect::<Vec<&str>>()
@@ -549,9 +547,9 @@ pub trait Struct: Debug + PartialEq {
     /// ```
     /// # use ion_rs::value::*;
     /// # use ion_rs::value::owned::*;
-    /// let fields: Vec<(&str, OwnedValue)>= vec![("d", "e"), ("d", "f"), ("g", "h")]
-    ///     .into_iter().map(|(k, v)| (k, OwnedValue::String(v.into()))).collect();
-    /// let owned: OwnedStruct = fields.into_iter().collect();
+    /// let fields: Vec<(&str, Value)>= vec![("d", "e"), ("d", "f"), ("g", "h")]
+    ///     .into_iter().map(|(k, v)| (k, Value::String(v.into()))).collect();
+    /// let owned: Struct = fields.into_iter().collect();
     /// assert_eq!(
     ///     vec!["e", "f"],
     ///     owned.get_all("d").flat_map(|e| e.as_str()).collect::<Vec<&str>>()
@@ -564,10 +562,10 @@ pub trait Struct: Debug + PartialEq {
 }
 
 pub trait Builder {
-    type Element: Element + ?Sized;
-    type SymbolToken: SymbolToken + PartialEq;
-    type Sequence: Sequence<Element = Self::Element> + ?Sized;
-    type Struct: Struct<FieldName = Self::SymbolToken, Element = Self::Element> + ?Sized;
+    type Element: IonElement + ?Sized;
+    type SymbolToken: IonSymbolToken + PartialEq;
+    type Sequence: IonSequence<Element = Self::Element> + ?Sized;
+    type Struct: IonStruct<FieldName = Self::SymbolToken, Element = Self::Element> + ?Sized;
     type ImportSource: ImportSource;
 
     /// Builds a `null` from IonType using Builder.
@@ -623,7 +621,7 @@ mod generic_value_tests {
     use crate::types::timestamp::Timestamp;
     use crate::value::borrowed::*;
     use crate::value::owned::*;
-    use crate::value::Element;
+    use crate::value::IonElement;
     use crate::{value, IonType};
     use chrono::*;
     use rstest::*;
@@ -634,12 +632,12 @@ mod generic_value_tests {
         DateTime::parse_from_rfc3339(text.as_ref()).unwrap().into()
     }
 
-    struct CaseAnnotations<E: Element> {
+    struct CaseAnnotations<E: IonElement> {
         elem: E,
         annotations: Vec<E::SymbolToken>,
     }
 
-    fn annotations_text_case<E: Element>() -> CaseAnnotations<E> {
+    fn annotations_text_case<E: IonElement>() -> CaseAnnotations<E> {
         CaseAnnotations {
             elem: E::Builder::new_i64(10).with_annotations(vec![
                 E::SymbolToken::text_token("foo"),
@@ -654,7 +652,7 @@ mod generic_value_tests {
         }
     }
 
-    fn annotations_local_sid_case<E: Element>() -> CaseAnnotations<E>
+    fn annotations_local_sid_case<E: IonElement>() -> CaseAnnotations<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -670,7 +668,7 @@ mod generic_value_tests {
         }
     }
 
-    fn annotations_source_case<E: Element>() -> CaseAnnotations<E>
+    fn annotations_source_case<E: IonElement>() -> CaseAnnotations<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -686,7 +684,7 @@ mod generic_value_tests {
         }
     }
 
-    fn no_annotations_case<E: Element>() -> CaseAnnotations<E>
+    fn no_annotations_case<E: IonElement>() -> CaseAnnotations<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -697,26 +695,26 @@ mod generic_value_tests {
     }
 
     #[rstest]
-    #[case::owned_annotations_text(annotations_text_case::<OwnedElement>())]
-    #[case::borrowed_annotations_text(annotations_text_case::<BorrowedElement>())]
-    #[case::owned_annotations_local_sid(annotations_local_sid_case::<OwnedElement>())]
-    #[case::borrowed_annotations_local_sid(annotations_local_sid_case::<BorrowedElement>())]
-    #[case::owned_annotations_source(annotations_source_case::<OwnedElement>())]
-    #[case::borrowed_annotations_source(annotations_source_case::<BorrowedElement>())]
-    #[case::owned_no_annotations(no_annotations_case::<OwnedElement>())]
-    #[case::borrowed_no_annotations(no_annotations_case::<BorrowedElement>())]
-    fn annotations_with_element<E: Element>(#[case] input: CaseAnnotations<E>) {
+    #[case::owned_annotations_text(annotations_text_case::<Element>())]
+    #[case::borrowed_annotations_text(annotations_text_case::<ElementRef>())]
+    #[case::owned_annotations_local_sid(annotations_local_sid_case::<Element>())]
+    #[case::borrowed_annotations_local_sid(annotations_local_sid_case::<ElementRef>())]
+    #[case::owned_annotations_source(annotations_source_case::<Element>())]
+    #[case::borrowed_annotations_source(annotations_source_case::<ElementRef>())]
+    #[case::owned_no_annotations(no_annotations_case::<Element>())]
+    #[case::borrowed_no_annotations(no_annotations_case::<ElementRef>())]
+    fn annotations_with_element<E: IonElement>(#[case] input: CaseAnnotations<E>) {
         let actual: Vec<&E::SymbolToken> = input.elem.annotations().collect();
         let expected: Vec<&E::SymbolToken> = input.annotations.iter().collect();
         assert_eq!(actual, expected);
     }
 
-    struct CaseSym<E: Element> {
+    struct CaseSym<E: IonElement> {
         eq_annotations: Vec<E::SymbolToken>,
         ne_annotations: Vec<E::SymbolToken>,
     }
 
-    fn sym_text_case<E: Element>() -> CaseSym<E>
+    fn sym_text_case<E: IonElement>() -> CaseSym<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -738,7 +736,7 @@ mod generic_value_tests {
         }
     }
 
-    fn sym_local_sid_case<E: Element>() -> CaseSym<E>
+    fn sym_local_sid_case<E: IonElement>() -> CaseSym<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -755,7 +753,7 @@ mod generic_value_tests {
         }
     }
 
-    fn sym_source_case<E: Element>() -> CaseSym<E>
+    fn sym_source_case<E: IonElement>() -> CaseSym<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -782,13 +780,13 @@ mod generic_value_tests {
     /// Each case is a set of tokens that are the same, and a set of tokens that are not ever equal to the first.
     /// This should test symmetry/transitivity/commutativity
     #[rstest]
-    #[case::owned_sym_text(sym_text_case::<OwnedElement>())]
-    #[case::borrowed_sym_text(sym_text_case::<BorrowedElement>())]
-    #[case::owned_sym_local_sid(sym_local_sid_case::<OwnedElement>())]
-    #[case::borrowed_sym_local_sid(sym_local_sid_case::<BorrowedElement>())]
-    #[case::owned_sym_source(sym_source_case::<OwnedElement>())]
-    #[case::borrowed_sym_source(sym_source_case::<BorrowedElement>())]
-    fn symbol_token_eq<E: Element>(#[case] input: CaseSym<E>) {
+    #[case::owned_sym_text(sym_text_case::<Element>())]
+    #[case::borrowed_sym_text(sym_text_case::<ElementRef>())]
+    #[case::owned_sym_local_sid(sym_local_sid_case::<Element>())]
+    #[case::borrowed_sym_local_sid(sym_local_sid_case::<ElementRef>())]
+    #[case::owned_sym_source(sym_source_case::<Element>())]
+    #[case::borrowed_sym_source(sym_source_case::<ElementRef>())]
+    fn symbol_token_eq<E: IonElement>(#[case] input: CaseSym<E>) {
         // check if equivalent vector contains set of tokens that are all equal
         for eq_this_token in &input.eq_annotations {
             for eq_other_token in &input.eq_annotations {
@@ -806,14 +804,14 @@ mod generic_value_tests {
     }
 
     /// A struct that defines input case for `struct_accessors` method
-    struct CaseStruct<E: Element> {
+    struct CaseStruct<E: IonElement> {
         /// set of struct elements that are the same
         eq_annotations: Vec<E>,
         /// set of struct elements that are never equal to `eq_annotations`
         ne_annotations: Vec<E>,
     }
 
-    fn struct_with_local_sid_case<E: Element>() -> CaseStruct<E>
+    fn struct_with_local_sid_case<E: IonElement>() -> CaseStruct<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -876,7 +874,7 @@ mod generic_value_tests {
         }
     }
 
-    fn struct_with_import_source_case<E: Element>() -> CaseStruct<E>
+    fn struct_with_import_source_case<E: IonElement>() -> CaseStruct<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -925,7 +923,7 @@ mod generic_value_tests {
         }
     }
 
-    fn struct_with_multiple_fields_case<E: Element>() -> CaseStruct<E>
+    fn struct_with_multiple_fields_case<E: IonElement>() -> CaseStruct<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -1018,7 +1016,7 @@ mod generic_value_tests {
         }
     }
 
-    fn struct_with_duplicates_in_multiple_fields_case<E: Element>() -> CaseStruct<E>
+    fn struct_with_duplicates_in_multiple_fields_case<E: IonElement>() -> CaseStruct<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -1103,7 +1101,7 @@ mod generic_value_tests {
         }
     }
 
-    fn struct_with_duplicate_fieldnames_case<E: Element>() -> CaseStruct<E>
+    fn struct_with_duplicate_fieldnames_case<E: IonElement>() -> CaseStruct<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -1194,17 +1192,17 @@ mod generic_value_tests {
     }
 
     #[rstest]
-    #[case::owned_struct_with_local_sid(struct_with_local_sid_case::<OwnedElement>())]
-    #[case::borrowed_struct_with_local_sid(struct_with_local_sid_case::<BorrowedElement>())]
-    #[case::owned_struct_with_import_source(struct_with_import_source_case::<OwnedElement>())]
-    #[case::borrowed_struct_with_import_source(struct_with_import_source_case::<BorrowedElement>())]
-    #[case::owned_struct_with_multiple_fields(struct_with_multiple_fields_case::<OwnedElement>())]
-    #[case::borrowed_struct_with_multiple_fields(struct_with_multiple_fields_case::<BorrowedElement>())]
-    #[case::owned_struct_with_duplicates_in_multiple_fields(struct_with_duplicates_in_multiple_fields_case::<OwnedElement>())]
-    #[case::borrowed_struct_with_duplicates_in_multiple_fields(struct_with_duplicates_in_multiple_fields_case::<BorrowedElement>())]
-    #[case::owned_struct_with_duplicate_fieldnames(struct_with_duplicate_fieldnames_case::<OwnedElement>())]
-    #[case::borrowed_struct_with_duplicate_fieldnames(struct_with_duplicate_fieldnames_case::<BorrowedElement>())]
-    fn struct_accessors<E: Element>(#[case] input: CaseStruct<E>) {
+    #[case::owned_struct_with_local_sid(struct_with_local_sid_case::<Element>())]
+    #[case::borrowed_struct_with_local_sid(struct_with_local_sid_case::<ElementRef>())]
+    #[case::owned_struct_with_import_source(struct_with_import_source_case::<Element>())]
+    #[case::borrowed_struct_with_import_source(struct_with_import_source_case::<ElementRef>())]
+    #[case::owned_struct_with_multiple_fields(struct_with_multiple_fields_case::<Element>())]
+    #[case::borrowed_struct_with_multiple_fields(struct_with_multiple_fields_case::<ElementRef>())]
+    #[case::owned_struct_with_duplicates_in_multiple_fields(struct_with_duplicates_in_multiple_fields_case::<Element>())]
+    #[case::borrowed_struct_with_duplicates_in_multiple_fields(struct_with_duplicates_in_multiple_fields_case::<ElementRef>())]
+    #[case::owned_struct_with_duplicate_fieldnames(struct_with_duplicate_fieldnames_case::<Element>())]
+    #[case::borrowed_struct_with_duplicate_fieldnames(struct_with_duplicate_fieldnames_case::<ElementRef>())]
+    fn struct_accessors<E: IonElement>(#[case] input: CaseStruct<E>) {
         // check if equivalent vector contains set of structs that are all equal
         for eq_this_struct in &input.eq_annotations {
             for eq_other_struct in &input.eq_annotations {
@@ -1253,14 +1251,14 @@ mod generic_value_tests {
 
     type ElemAssertFunc<E> = dyn Fn(&E);
 
-    struct Case<E: Element> {
+    struct Case<E: IonElement> {
         elem: E,
         ion_type: IonType,
         ops: Vec<ElemOp>,
         op_assert: Box<dyn Fn(&E)>,
     }
 
-    fn null_case<E: Element>() -> Case<E> {
+    fn null_case<E: IonElement>() -> Case<E> {
         Case {
             elem: E::Builder::new_null(IonType::Null),
             ion_type: IonType::Null,
@@ -1269,7 +1267,7 @@ mod generic_value_tests {
         }
     }
 
-    fn bool_case<E: Element>() -> Case<E> {
+    fn bool_case<E: IonElement>() -> Case<E> {
         Case {
             elem: true.into(),
             ion_type: IonType::Boolean,
@@ -1282,7 +1280,7 @@ mod generic_value_tests {
         }
     }
 
-    fn i64_case<E: Element>() -> Case<E> {
+    fn i64_case<E: IonElement>() -> Case<E> {
         Case {
             elem: 100.into(),
             ion_type: IonType::Integer,
@@ -1297,7 +1295,7 @@ mod generic_value_tests {
         }
     }
 
-    fn big_int_case<E: Element>() -> Case<E> {
+    fn big_int_case<E: IonElement>() -> Case<E> {
         Case {
             elem: BigInt::from(100).into(),
             ion_type: IonType::Integer,
@@ -1311,7 +1309,7 @@ mod generic_value_tests {
         }
     }
 
-    fn f64_case<E: Element>() -> Case<E> {
+    fn f64_case<E: IonElement>() -> Case<E> {
         Case {
             elem: 16.0.into(),
             ion_type: IonType::Float,
@@ -1324,7 +1322,7 @@ mod generic_value_tests {
         }
     }
 
-    fn timestamp_case<E: Element>() -> Case<E> {
+    fn timestamp_case<E: IonElement>() -> Case<E> {
         Case {
             elem: make_timestamp("2014-10-16T12:01:00-00:00").into(),
             ion_type: IonType::Timestamp,
@@ -1341,7 +1339,7 @@ mod generic_value_tests {
         }
     }
 
-    fn decimal_case<E: Element>() -> Case<E> {
+    fn decimal_case<E: IonElement>() -> Case<E> {
         Case {
             elem: Decimal::new(8, 3).into(),
             ion_type: IonType::Decimal,
@@ -1354,7 +1352,7 @@ mod generic_value_tests {
         }
     }
 
-    fn string_case<E: Element>() -> Case<E> {
+    fn string_case<E: IonElement>() -> Case<E> {
         Case {
             elem: E::Builder::new_string("hello"),
             ion_type: IonType::String,
@@ -1363,7 +1361,7 @@ mod generic_value_tests {
         }
     }
 
-    fn symbol_case<E: Element>() -> Case<E>
+    fn symbol_case<E: IonElement>() -> Case<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -1378,7 +1376,7 @@ mod generic_value_tests {
         }
     }
 
-    fn symbol_with_local_sid_case<E: Element>() -> Case<E>
+    fn symbol_with_local_sid_case<E: IonElement>() -> Case<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -1390,10 +1388,11 @@ mod generic_value_tests {
         }
     }
 
-    fn symbol_with_import_source_case<E: Element>() -> Case<E>
+    fn symbol_with_import_source_case<E: IonElement>() -> Case<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
-        <<E as value::Element>::SymbolToken as value::SymbolToken>::ImportSource: Debug + PartialEq,
+        <<E as value::IonElement>::SymbolToken as value::IonSymbolToken>::ImportSource:
+            Debug + PartialEq,
     {
         Case {
             elem: E::Builder::new_symbol(
@@ -1419,7 +1418,7 @@ mod generic_value_tests {
         }
     }
 
-    fn symbol_with_import_source_and_text_case<E: Element>() -> Case<E>
+    fn symbol_with_import_source_and_text_case<E: IonElement>() -> Case<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -1443,7 +1442,7 @@ mod generic_value_tests {
         }
     }
 
-    fn blob_case<E: Element>() -> Case<E> {
+    fn blob_case<E: IonElement>() -> Case<E> {
         Case {
             elem: E::Builder::new_blob(b"hello"),
             ion_type: IonType::Blob,
@@ -1452,7 +1451,7 @@ mod generic_value_tests {
         }
     }
 
-    fn clob_case<E: Element>() -> Case<E> {
+    fn clob_case<E: IonElement>() -> Case<E> {
         Case {
             elem: E::Builder::new_clob(b"goodbye"),
             ion_type: IonType::Clob,
@@ -1461,7 +1460,7 @@ mod generic_value_tests {
         }
     }
 
-    fn list_case<E: Element>() -> Case<E> {
+    fn list_case<E: IonElement>() -> Case<E> {
         Case {
             elem: E::Builder::new_list(vec![true.into(), false.into()].into_iter()),
             ion_type: IonType::List,
@@ -1480,7 +1479,7 @@ mod generic_value_tests {
         }
     }
 
-    fn sexp_case<E: Element>() -> Case<E> {
+    fn sexp_case<E: IonElement>() -> Case<E> {
         Case {
             elem: E::Builder::new_sexp(vec![true.into(), false.into()].into_iter()),
             ion_type: IonType::SExpression,
@@ -1498,7 +1497,7 @@ mod generic_value_tests {
         }
     }
 
-    fn struct_case<E: Element>() -> Case<E>
+    fn struct_case<E: IonElement>() -> Case<E>
     where
         E::Builder: Builder<SymbolToken = E::SymbolToken>,
     {
@@ -1524,41 +1523,41 @@ mod generic_value_tests {
     // TODO add more tests to remove the separate Owned/Borrowed tests and only keep generic tests
 
     #[rstest]
-    #[case::owned_null(null_case::<OwnedElement>())]
-    #[case::borrowed_null(null_case::<BorrowedElement>())]
-    #[case::owned_bool(bool_case::<OwnedElement>())]
-    #[case::borrowed_bool(bool_case::<BorrowedElement>())]
-    #[case::owned_i64(i64_case::<OwnedElement>())]
-    #[case::borrowed_i64(i64_case::<BorrowedElement>())]
-    #[case::owned_big_int(big_int_case::<OwnedElement>())]
-    #[case::borrowed_big_int(big_int_case::<BorrowedElement>())]
-    #[case::owned_f64(f64_case::<OwnedElement>())]
-    #[case::borrowed_f64(f64_case::<BorrowedElement>())]
-    #[case::owned_decimal(decimal_case::<OwnedElement>())]
-    #[case::borrowed_decimal(decimal_case::<BorrowedElement>())]
-    #[case::owned_timestamp(timestamp_case::<OwnedElement>())]
-    #[case::borrowed_timestamp(timestamp_case::<BorrowedElement>())]
-    #[case::owned_string(string_case::<OwnedElement>())]
-    #[case::borrowed_string(string_case::<BorrowedElement>())]
-    #[case::owned_blob(blob_case::<OwnedElement>())]
-    #[case::borrowed_blob(blob_case::<BorrowedElement>())]
-    #[case::owned_clob(clob_case::<OwnedElement>())]
-    #[case::borrowed_clob(clob_case::<BorrowedElement>())]
-    #[case::owned_list(list_case::<OwnedElement>())]
-    #[case::borrowed_list(list_case::<BorrowedElement>())]
-    #[case::owned_sexp(sexp_case::<OwnedElement>())]
-    #[case::borrowed_sexp(sexp_case::<BorrowedElement>())]
-    #[case::owned_struct(struct_case::<OwnedElement>())]
-    #[case::borrowed_struct(struct_case::<BorrowedElement>())]
-    #[case::owned_symbol(symbol_case::<OwnedElement>())]
-    #[case::borrowed_symbol(symbol_case::<BorrowedElement>())]
-    #[case::owned_symbol_with_local_sid(symbol_with_local_sid_case::<OwnedElement>())]
-    #[case::borrowed_symbol_with_local_sid(symbol_with_local_sid_case::<BorrowedElement>())]
-    #[case::owned_symbol_with_import_source(symbol_with_import_source_case::<OwnedElement>())]
-    #[case::borrowed_symbol_with_import_source(symbol_with_import_source_case::<BorrowedElement>())]
-    #[case::owned_symbol_with_import_source_and_text(symbol_with_import_source_and_text_case::<OwnedElement>())]
-    #[case::borrowed_symbol_with_import_source_and_text(symbol_with_import_source_and_text_case::<BorrowedElement>())]
-    fn element_accessors<E: Element>(#[case] input_case: Case<E>) {
+    #[case::owned_null(null_case::<Element>())]
+    #[case::borrowed_null(null_case::<ElementRef>())]
+    #[case::owned_bool(bool_case::<Element>())]
+    #[case::borrowed_bool(bool_case::<ElementRef>())]
+    #[case::owned_i64(i64_case::<Element>())]
+    #[case::borrowed_i64(i64_case::<ElementRef>())]
+    #[case::owned_big_int(big_int_case::<Element>())]
+    #[case::borrowed_big_int(big_int_case::<ElementRef>())]
+    #[case::owned_f64(f64_case::<Element>())]
+    #[case::borrowed_f64(f64_case::<ElementRef>())]
+    #[case::owned_decimal(decimal_case::<Element>())]
+    #[case::borrowed_decimal(decimal_case::<ElementRef>())]
+    #[case::owned_timestamp(timestamp_case::<Element>())]
+    #[case::borrowed_timestamp(timestamp_case::<ElementRef>())]
+    #[case::owned_string(string_case::<Element>())]
+    #[case::borrowed_string(string_case::<ElementRef>())]
+    #[case::owned_blob(blob_case::<Element>())]
+    #[case::borrowed_blob(blob_case::<ElementRef>())]
+    #[case::owned_clob(clob_case::<Element>())]
+    #[case::borrowed_clob(clob_case::<ElementRef>())]
+    #[case::owned_list(list_case::<Element>())]
+    #[case::borrowed_list(list_case::<ElementRef>())]
+    #[case::owned_sexp(sexp_case::<Element>())]
+    #[case::borrowed_sexp(sexp_case::<ElementRef>())]
+    #[case::owned_struct(struct_case::<Element>())]
+    #[case::borrowed_struct(struct_case::<ElementRef>())]
+    #[case::owned_symbol(symbol_case::<Element>())]
+    #[case::borrowed_symbol(symbol_case::<ElementRef>())]
+    #[case::owned_symbol_with_local_sid(symbol_with_local_sid_case::<Element>())]
+    #[case::borrowed_symbol_with_local_sid(symbol_with_local_sid_case::<ElementRef>())]
+    #[case::owned_symbol_with_import_source(symbol_with_import_source_case::<Element>())]
+    #[case::borrowed_symbol_with_import_source(symbol_with_import_source_case::<ElementRef>())]
+    #[case::owned_symbol_with_import_source_and_text(symbol_with_import_source_and_text_case::<Element>())]
+    #[case::borrowed_symbol_with_import_source_and_text(symbol_with_import_source_and_text_case::<ElementRef>())]
+    fn element_accessors<E: IonElement>(#[case] input_case: Case<E>) {
         // table of negative assertions for each operation
         let neg_table: Vec<(ElemOp, &ElemAssertFunc<E>)> = vec![
             (IsNull, &|e| assert_eq!(false, e.is_null())),

@@ -4,7 +4,7 @@ use crate::text::raw_text_writer::RawTextWriter;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::value::writer::TextKind;
-use crate::writer::Writer;
+use crate::writer::IonWriter;
 use crate::{Integer, IonType, RawTextWriterBuilder, SymbolTable};
 use delegate::delegate;
 use std::io::Write;
@@ -81,7 +81,7 @@ pub struct TextWriter<W: Write> {
     symbol_table: SymbolTable,
 }
 
-impl<W: Write> Writer for TextWriter<W> {
+impl<W: Write> IonWriter for TextWriter<W> {
     fn supports_text_symbol_tokens(&self) -> bool {
         // The TextWriter can always write text field names, annotations, and symbols.
         true
@@ -180,8 +180,8 @@ impl<W: Write> Writer for TextWriter<W> {
 mod tests {
     use super::*;
     use crate::reader::ReaderBuilder;
+    use crate::IonReader;
     use crate::StreamItem::Value;
-    use crate::StreamReader;
 
     #[test]
     fn resolve_symbol_ids() -> IonResult<()> {

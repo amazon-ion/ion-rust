@@ -10,7 +10,7 @@ use crate::text::text_formatter::STRING_ESCAPE_CODES;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::{Precision, Timestamp};
 use crate::types::ContainerType;
-use crate::writer::Writer;
+use crate::writer::IonWriter;
 use crate::{Integer, IonType};
 
 pub struct RawTextWriterBuilder {
@@ -406,7 +406,7 @@ impl<W: Write> RawTextWriter<W> {
     }
 }
 
-impl<W: Write> Writer for RawTextWriter<W> {
+impl<W: Write> IonWriter for RawTextWriter<W> {
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }
@@ -743,7 +743,7 @@ mod tests {
     use crate::result::IonResult;
     use crate::text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder};
     use crate::types::timestamp::Timestamp;
-    use crate::writer::Writer;
+    use crate::writer::IonWriter;
     use crate::IonType;
 
     fn writer_test_with_builder<F>(builder: RawTextWriterBuilder, mut commands: F, expected: &str)

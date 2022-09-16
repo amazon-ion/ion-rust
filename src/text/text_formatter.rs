@@ -1,7 +1,7 @@
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::types::timestamp::Precision;
-use crate::value::owned::{OwnedSequence, OwnedStruct, OwnedSymbolToken};
-use crate::value::{Sequence, Struct, SymbolToken};
+use crate::value::owned::{Sequence, Struct, SymbolToken};
+use crate::value::{IonSequence, IonStruct, IonSymbolToken};
 use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use std::convert::TryInto;
@@ -287,10 +287,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub(crate) fn format_annotations(
-        &mut self,
-        annotations: &Vec<OwnedSymbolToken>,
-    ) -> IonResult<()> {
+    pub(crate) fn format_annotations(&mut self, annotations: &Vec<SymbolToken>) -> IonResult<()> {
         for annotation in annotations {
             self.format_symbol(annotation.text().unwrap())?;
             write!(self.output, "::")?;
@@ -482,7 +479,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub(crate) fn format_struct(&mut self, value: &OwnedStruct) -> IonResult<()> {
+    pub(crate) fn format_struct(&mut self, value: &Struct) -> IonResult<()> {
         write!(self.output, "{{ ")?;
         let mut peekable_itr = value.iter().peekable();
         while let Some((field_name, field_value)) = peekable_itr.next() {
@@ -496,7 +493,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub(crate) fn format_sexp(&mut self, value: &OwnedSequence) -> IonResult<()> {
+    pub(crate) fn format_sexp(&mut self, value: &Sequence) -> IonResult<()> {
         write!(self.output, "( ")?;
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek() != None {
@@ -510,7 +507,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub(crate) fn format_list(&mut self, value: &OwnedSequence) -> IonResult<()> {
+    pub(crate) fn format_list(&mut self, value: &Sequence) -> IonResult<()> {
         write!(self.output, "[ ")?;
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek() != None {
@@ -528,8 +525,8 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
 #[cfg(test)]
 mod formatter_test {
     use crate::text::text_formatter::IonValueFormatter;
-    use crate::value::owned::{OwnedElement, OwnedSequence};
-    use crate::value::owned::{OwnedStruct, OwnedValue};
+    use crate::value::owned::{Element, Sequence};
+    use crate::value::owned::{Struct, Value};
     use crate::{Integer, IonResult, IonType, Timestamp};
     use num_bigint::BigInt;
     use std::iter::FromIterator;
@@ -629,12 +626,8 @@ mod formatter_test {
     fn test_format_struct() -> IonResult<()> {
         formatter(
             |ivf| {
-                ivf.format_struct(&OwnedStruct::from_iter(
-                    vec![(
-                        "greetings",
-                        OwnedElement::from(OwnedValue::String("hello".into())),
-                    )]
-                    .into_iter(),
+                ivf.format_struct(&Struct::from_iter(
+                    vec![("greetings", Element::from(Value::String("hello".into())))].into_iter(),
                 ))
             },
             "{ greetings: \"hello\" }",
@@ -646,7 +639,7 @@ mod formatter_test {
     fn test_format_sexp() -> IonResult<()> {
         formatter(
             |ivf| {
-                ivf.format_sexp(&OwnedSequence::from_iter(
+                ivf.format_sexp(&Sequence::from_iter(
                     vec!["hello".to_owned().into(), 5.into(), true.into()].into_iter(),
                 ))
             },
@@ -659,7 +652,7 @@ mod formatter_test {
     fn test_format_list() -> IonResult<()> {
         formatter(
             |ivf| {
-                ivf.format_list(&OwnedSequence::from_iter(
+                ivf.format_list(&Sequence::from_iter(
                     vec!["hello".to_owned().into(), 5.into(), true.into()].into_iter(),
                 ))
             },
