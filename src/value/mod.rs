@@ -220,11 +220,6 @@ pub mod owned;
 pub mod reader;
 pub mod writer;
 
-#[cfg(feature = "ion_c")]
-pub mod ion_c_reader;
-#[cfg(feature = "ion_c")]
-mod ion_c_writer;
-
 /// The shared symbol table source of a given [`SymbolToken`].
 pub trait ImportSource: Debug + PartialEq {
     /// The name of the shared symbol table that the token is from.
