@@ -23,6 +23,12 @@ pub enum IonError {
     #[error("ran out of input while reading {label} at offset {offset}")]
     Incomplete { label: &'static str, offset: usize },
 
+    /// Indicates that the text input did not contain enough data to perform the requested read
+    /// operation. If the input source contains more data, the reader can append it to the buffer
+    /// and try again.
+    #[error("ran out of input while reading at line: {line} column: {column}")]
+    IncompleteText { line: usize, column: usize },
+
     /// Indicates that the writer encountered a problem while serializing a given piece of data.
     #[error("{description}")]
     EncodingError { description: String },
@@ -62,6 +68,10 @@ impl Clone for IonError {
             Incomplete { label, offset } => Incomplete {
                 label,
                 offset: *offset,
+            },
+            IncompleteText { line, column } => IncompleteText {
+                line: *line,
+                column: *column,
             },
             EncodingError { description } => EncodingError {
                 description: description.clone(),
@@ -109,6 +119,14 @@ pub fn incomplete_data_error<T>(label: &'static str, offset: usize) -> IonResult
 
 pub fn incomplete_data_error_raw(label: &'static str, offset: usize) -> IonError {
     IonError::Incomplete { label, offset }
+}
+
+pub fn incomplete_text_error<T>(line: usize, column: usize) -> IonResult<T> {
+    Err(incomplete_text_error_raw(line, column))
+}
+
+pub fn incomplete_text_error_raw(line: usize, column: usize) -> IonError {
+    IonError::IncompleteText { line, column }
 }
 
 /// A convenience method for creating an IonResult containing an IonError::DecodingError with the
