@@ -30,7 +30,8 @@ impl RawTextWriterBuilder {
         }
     }
 
-    /// Constructs a 'lines' text Ion writer that adds human-friendly newlines between top-level values.
+    /// Constructs a 'lines' text Ion writer that adds UNIX and human-friendly newlines between
+    /// top-level values.
     ///
     /// For example:
     /// ```ignore
@@ -39,6 +40,7 @@ impl RawTextWriterBuilder {
     /// true
     /// "hello"
     /// ```
+    // This doesn't solve the problem of final newlines. Should find a way to solve that some day.
     pub fn lines() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
             whitespace_config: WhitespaceConfig { ..LINES_WS_CONFIG },
@@ -113,6 +115,8 @@ impl RawTextWriterBuilder {
             annotations: Vec::new(),
             field_name: None,
             containers: vec![EncodingLevel::default()],
+            // Should we validate here that all the strings in `whitespace_config` actually are
+            // semantically whitespace?
             whitespace_config: Box::new(self.whitespace_config),
         };
         // This method cannot currently fail. It returns an IonResult<_> to be consistent with the
