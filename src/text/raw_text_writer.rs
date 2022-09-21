@@ -26,7 +26,9 @@ impl RawTextWriterBuilder {
     /// ```
     pub fn new() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            whitespace_config: WhitespaceConfig { ..DEFAULT_WS_CONFIG },
+            whitespace_config: WhitespaceConfig {
+                ..DEFAULT_WS_CONFIG
+            },
         }
     }
 
