@@ -15,7 +15,7 @@ use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::decimal::Decimal;
-use crate::types::magnitude::Magnitude;
+use crate::types::integer::UInteger;
 
 /// Matches the text representation of a decimal value and returns the resulting [Decimal]
 /// as a [TextValue::Decimal].
@@ -88,16 +88,16 @@ fn decimal_from_text_components<'a>(
     // Ion's parsing rules should only let through strings of digits and underscores. Since
     // we've just removed the underscores above, the `from_str` methods below should always
     // succeed.
-    let magnitude: Magnitude = if magnitude_text.len() < MAX_U64_DIGITS {
+    let magnitude: UInteger = if magnitude_text.len() < MAX_U64_DIGITS {
         let value = u64::from_str(&magnitude_text)
             .or_fatal_parse_error(input, "parsing coefficient magnitude as u64 failed")?
             .1;
-        Magnitude::U64(value)
+        UInteger::U64(value)
     } else {
         let value = BigUint::from_str(&magnitude_text)
             .or_fatal_parse_error(input, "parsing coefficient magnitude as u64 failed")?
             .1;
-        Magnitude::BigUInt(value)
+        UInteger::BigUInt(value)
     };
 
     let coefficient = Coefficient::new(sign, magnitude);

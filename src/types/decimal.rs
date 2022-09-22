@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use bigdecimal::{BigDecimal, Signed};
@@ -6,8 +7,12 @@ use num_bigint::{BigInt, BigUint, ToBigUint};
 use crate::ion_eq::IonEq;
 use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
+<<<<<<< HEAD
 use crate::types::magnitude::Magnitude;
-use num_traits::Zero;
+=======
+use crate::types::integer::UInteger;
+>>>>>>> Collapse Magnitude with UInteger
+use num_traits::{ToPrimitive, Zero};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
@@ -15,7 +20,7 @@ use std::ops::Neg;
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
 #[derive(Clone, Debug)]
 pub struct Decimal {
-    // A Coefficient is a Sign/Magnitude pair supporting integers of arbitrary size
+    // A Coefficient is a Sign/UInteger pair supporting integers of arbitrary size
     pub(crate) coefficient: Coefficient,
     pub(crate) exponent: i64,
 }
@@ -34,7 +39,9 @@ impl Decimal {
     /// Returns scale of the Decimal value
     /// If zero or positive, a scale indicates the number of digits to the right of the decimal point.
     /// If negative, the unscaled value of the number is multiplied by ten to the power of the negation of the scale.
-    /// For example, a scale of -3 means the unscaled value is multiplied by 1000.
+    /// For example:
+    ///   a scale of -3 means the unscaled value is multiplied by 1000.
+    ///   a scale of 2 means the unscaled value is divided by 100.
     pub fn scale(&self) -> i64 {
         self.exponent.neg()
     }
@@ -45,6 +52,12 @@ impl Decimal {
             return self.coefficient.number_of_decimal_digits() + self.exponent as u64;
         }
         self.coefficient.number_of_decimal_digits()
+    }
+
+    /// Returns the Sign of the Decimal value.
+    /// Unscaled zero values may have either a Positive or Negative Sign.
+    pub fn sign(&self) -> Sign {
+        self.coefficient.sign
     }
 
     /// Constructs a Decimal with the value `-0d0`. This is provided as a convenience method
@@ -67,8 +80,8 @@ impl Decimal {
     /// Returns `true` if this Decimal is a zero of any sign or exponent.
     pub fn is_zero(&self) -> bool {
         match self.coefficient.magnitude() {
-            Magnitude::U64(0) => true,
-            Magnitude::BigUInt(m) => m.is_zero(),
+            UInteger::U64(0) => true,
+            UInteger::BigUInt(m) => m.is_zero(),
             _ => false,
         }
     }
@@ -77,8 +90,8 @@ impl Decimal {
     /// zero. Otherwise, returns false. (Negative zero returns false.)
     pub fn is_less_than_zero(&self) -> bool {
         match (self.coefficient.sign(), self.coefficient.magnitude()) {
-            (Sign::Negative, Magnitude::U64(m)) if *m > 0 => true,
-            (Sign::Negative, Magnitude::BigUInt(m)) if m > &BigUint::zero() => true,
+            (Sign::Negative, UInteger::U64(m)) if *m > 0 => true,
+            (Sign::Negative, UInteger::BigUInt(m)) if m > &BigUint::zero() => true,
             _ => false,
         }
     }
@@ -88,8 +101,8 @@ impl Decimal {
         // If the coefficient has a magnitude of zero, the Decimal is a zero of some precision
         // and so is not >= 1.
         match &self.coefficient.magnitude {
-            Magnitude::U64(magnitude) if magnitude.is_zero() => return false,
-            Magnitude::BigUInt(magnitude) if magnitude.is_zero() => return false,
+            UInteger::U64(magnitude) if magnitude.is_zero() => return false,
+            UInteger::BigUInt(magnitude) if magnitude.is_zero() => return false,
             _ => {}
         }
 
@@ -166,7 +179,7 @@ impl Decimal {
         // This lets us compare 80 and 80, determining that the decimals are equal.
         let mut scaled_coefficient: BigUint = d1.coefficient.magnitude().to_biguint().unwrap();
         scaled_coefficient *= BigUint::from(10u64).pow(exponent_delta as u32);
-        Magnitude::BigUInt(scaled_coefficient).cmp(d2.coefficient.magnitude())
+        UInteger::BigUInt(scaled_coefficient).cmp(d2.coefficient.magnitude())
     }
 }
 

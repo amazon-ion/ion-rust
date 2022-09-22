@@ -1,6 +1,7 @@
 use crate::result::{decoding_error, IonError};
 use crate::value::IonElement;
-use num_bigint::{BigInt, BigUint};
+use num_bigint::{BigInt, BigUint, ToBigUint};
+use num_integer::Integer as _;
 use num_traits::{ToPrimitive, Zero};
 use std::cmp::Ordering;
 use std::ops::{Add, Neg};
@@ -55,9 +56,8 @@ pub trait IntAccess {
     fn as_big_int(&self) -> Option<&BigInt>;
 }
 
-/// Represents a UInt of any size. Used for reading binary integers and symbol IDs.
-///
-/// Equality tests do NOT compare across storage types; U64(1) is not the same as BigUInt(1).
+/// Represents a UInt of any size. Used for reading binary integers and symbol Ids.
+/// Use to represent the unsigned magnitude of Decimal values and fractional seconds.
 #[derive(Debug, Clone)]
 pub enum UInteger {
     U64(u64),
@@ -83,6 +83,31 @@ impl UInteger {
         }
         // Otherwise, the BigUint must be larger than the u64.
         Ordering::Less
+    }
+
+    /// Returns the number of digits in the non-scaled integer representation of the UInteger.
+    pub(crate) fn number_of_decimal_digits(&self) -> u64 {
+        match self {
+            UInteger::U64(u64_value) => super::num_decimal_digits_in_u64(*u64_value),
+            UInteger::BigUInt(big_uint_value) => {
+                UInteger::calculate_big_uint_digits(big_uint_value)
+            }
+        }
+    }
+
+    fn calculate_big_uint_digits(int: &BigUint) -> u64 {
+        if int.is_zero() {
+            return 1;
+        }
+        let mut digits = 0;
+        let mut int_value = int.to_owned();
+        let ten: BigUint = BigUint::from(10u64);
+        while int_value > BigUint::zero() {
+            let (quotient, _) = BigUint::div_rem(&int_value, &ten);
+            int_value = quotient;
+            digits += 1;
+        }
+        digits
     }
 }
 
@@ -132,6 +157,90 @@ impl From<UInteger> for Integer {
                 }
             }
             UInteger::BigUInt(big_uint) => big_integer_from_big_uint(big_uint),
+        }
+    }
+}
+
+impl From<BigUint> for UInteger {
+    fn from(value: BigUint) -> Self {
+        // prefer a compact representation for the magnitude
+        match value.to_u64() {
+            Some(unsigned) => UInteger::U64(unsigned),
+            None => UInteger::BigUInt(value),
+        }
+    }
+}
+
+impl From<UInteger> for BigUint {
+    fn from(value: UInteger) -> Self {
+        use UInteger::*;
+        match value {
+            U64(m) => BigUint::from(m),
+            BigUInt(m) => m,
+        }
+    }
+}
+
+impl ToBigUint for UInteger {
+    fn to_biguint(&self) -> Option<BigUint> {
+        // This implementation never fails, but the trait requires an `Option` return type.
+        Some(self.clone().into())
+    }
+}
+
+// This macro makes it possible to turn unsigned int primitives into a Coefficient using `.into()`.
+// Note that it works for both signed and unsigned ints. The resulting UInteger will be the
+// absolute value of the integer being converted.
+macro_rules! impl_uinteger_from_small_unsigned_int_types {
+    ($($t:ty),*) => ($(
+        impl From<$t> for UInteger {
+            fn from(value: $t) -> UInteger {
+                UInteger::U64(value as u64)
+            }
+        }
+    )*)
+}
+
+impl_uinteger_from_small_unsigned_int_types!(u8, u16, u32, u64, usize);
+
+macro_rules! impl_uinteger_from_small_signed_int_types {
+    ($($t:ty),*) => ($(
+        impl From<$t> for UInteger {
+            fn from(value: $t) -> UInteger {
+                // Discard the sign and convert the value to a u64.
+                let magnitude: u64 = value.checked_abs()
+                        .and_then(|v| Some(v.abs() as u64))
+                        // If .abs() fails, it's because <$t>::MIN.abs() cannot be represented
+                        // as a $t. We can handle this case by simply using <$>::MAX + 1
+                        .unwrap_or_else(|| (<$t>::MAX as u64) + 1);
+                UInteger::U64(magnitude)
+            }
+        }
+    )*)
+}
+
+impl_uinteger_from_small_signed_int_types!(i8, i16, i32, i64, isize);
+
+impl From<u128> for UInteger {
+    fn from(value: u128) -> UInteger {
+        UInteger::BigUInt(BigUint::from(value))
+    }
+}
+
+impl From<i128> for UInteger {
+    fn from(value: i128) -> UInteger {
+        UInteger::BigUInt(value.abs().to_biguint().unwrap())
+    }
+}
+
+impl From<Integer> for UInteger {
+    fn from(value: Integer) -> Self {
+        match value {
+            Integer::I64(i) => i.into(),
+            // num_bigint::BigInt's `into_parts` consumes the BigInt and returns a
+            // (sign: Sign, magnitude: BigUint) tuple. We only care about the magnitude, so we
+            // extract it here with `.1` ---------------v and then convert the BigUint to a UInteger
+            Integer::BigInt(i) => i.into_parts().1.into(), // <-- using `.into()`
         }
     }
 }
