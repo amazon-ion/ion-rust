@@ -40,7 +40,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
         let element_annotations = element.annotations().map(|token| {
             if let Some(text) = token.text() {
                 RawSymbolTokenRef::Text(text)
-            } else if let Some(sid) = token.local_sid() {
+            } else if let Some(sid) = token.symbol_id() {
                 RawSymbolTokenRef::SymbolId(sid)
             } else {
                 unreachable!("cannot write annotation with neither text nor symbol ID")

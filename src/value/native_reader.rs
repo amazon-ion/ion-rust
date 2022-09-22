@@ -4,7 +4,6 @@ use crate::raw_reader::RawReader;
 use crate::reader::ReaderBuilder;
 use crate::result::IonResult;
 use crate::text::non_blocking::raw_text_reader::RawTextReader;
-use crate::value::owned;
 use crate::value::owned::{Element, Sequence, Struct, Value};
 use crate::value::reader::ElementReader;
 use crate::{IonReader, IonType, StreamItem, UserReader};
@@ -43,10 +42,7 @@ impl<R: RawReader> NativeElementIterator<R> {
         // and allows us to skip the heap allocation in the common case.
         if self.reader.has_annotations() {
             for annotation in self.reader.annotations() {
-                // If the annotation couldn't be resolved to text, early return the error.
-                let annotation = annotation?;
-                let symbol = owned::text_token(annotation.as_ref());
-                annotations.push(symbol);
+                annotations.push(annotation?);
             }
         }
 
@@ -65,7 +61,7 @@ impl<R: RawReader> NativeElementIterator<R> {
                     Float => Value::Float(self.reader.read_f64()?),
                     Decimal => Value::Decimal(self.reader.read_decimal()?),
                     Timestamp => Value::Timestamp(self.reader.read_timestamp()?),
-                    Symbol => Value::Symbol(owned::text_token(self.reader.read_symbol()?.as_ref())),
+                    Symbol => Value::Symbol(self.reader.read_symbol()?),
                     String => Value::String(self.reader.read_string()?),
                     Clob => Value::Clob(self.reader.read_clob()?),
                     Blob => Value::Blob(self.reader.read_blob()?),
@@ -99,11 +95,11 @@ impl<R: RawReader> NativeElementIterator<R> {
         let mut child_elements = Vec::new();
         self.reader.step_in()?;
         while let StreamItem::Value(_) | StreamItem::Null(_) = self.reader.next()? {
-            let field = self.reader.field_name()?;
+            let field_name = self.reader.field_name()?;
             let value = self
                 .materialize_current()?
                 .expect("materialize_current() returned None for user data");
-            child_elements.push((owned::text_token(field.as_ref()), value));
+            child_elements.push((field_name, value));
         }
         self.reader.step_out()?;
         Ok(Struct::from_iter(child_elements.into_iter()))

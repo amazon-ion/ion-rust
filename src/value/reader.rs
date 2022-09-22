@@ -82,7 +82,7 @@ mod reader_tests {
     use crate::value::owned::Value::*;
     use crate::value::owned::*;
     use crate::value::IonElement;
-    use crate::IonType;
+    use crate::{IonType, Symbol};
     use bigdecimal::BigDecimal;
     use num_bigint::BigInt;
     use rstest::*;
@@ -266,15 +266,15 @@ mod reader_tests {
         "#,
         vec![
             vec![
-                (text_token("string_field"), String("oink!".into())),
-                (text_token("string_field"), String("moo!".into())),
-                (text_token("bool_field"), Boolean(true)),
+                (Symbol::owned("string_field"), String("oink!".into())),
+                (Symbol::owned("string_field"), String("moo!".into())),
+                (Symbol::owned("bool_field"), Boolean(true)),
             ]
         ].into_iter()
-            .map(|fields: Vec<(SymbolToken, Value)>| {
+            .map(|fields: Vec<(Symbol, Value)>| {
                 Struct(
                     fields.into_iter().map(|(tok, val)| {
-                        (tok, Element::new(vec![text_token("a")], val))
+                        (tok, Element::new(vec![Symbol::owned("a")], val))
                     }).collect()).into()
             })
             .collect(),

@@ -778,11 +778,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         if popped_encoding_level.child_count > 0 {
             // If this isn't an empty container, put the closing delimiter on the next line
             // with proper indentation.
-            if self
-                .whitespace_config
-                .space_between_nested_values
-                .contains(&['\n', '\r'])
-            {
+            if self.space_between_values.contains(['\n', '\r']) {
                 writeln!(&mut self.output)?;
                 for _ in 0..self.depth() {
                     write!(&mut self.output, "{}", self.whitespace_config.indentation)?;
