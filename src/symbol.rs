@@ -1,8 +1,9 @@
+use crate::result::decoding_error;
+use crate::IonResult;
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
 use std::rc::Rc;
 
 /// Stores or points to the text of a given [Symbol].
@@ -12,28 +13,28 @@ enum SymbolText {
     Shared(Rc<str>),
     // This Symbol owns its own text
     Owned(String),
+    // This Symbol is equivalent to SID zero (`$0`)
+    Unknown,
 }
 
-impl AsRef<str> for SymbolText {
-    fn as_ref(&self) -> &str {
-        match self {
-            SymbolText::Owned(ref text) => text.as_str(),
-            SymbolText::Shared(ref rc) => rc.as_ref(),
-        }
-    }
-}
-
-impl<A: AsRef<str>> PartialEq<A> for SymbolText {
-    fn eq(&self, other: &A) -> bool {
-        // Compare the Symbols' text, not their ownership models
-        self.as_ref() == other.as_ref()
+impl SymbolText {
+    fn text(&self) -> Option<&str> {
+        let text = match self {
+            SymbolText::Shared(s) => s.as_ref(),
+            SymbolText::Owned(s) => s.as_str(),
+            SymbolText::Unknown => return None,
+        };
+        Some(text)
     }
 }
 
 impl Hash for SymbolText {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Hash the Symbol's text, ignore where/how it's stored.
-        self.as_ref().hash(state)
+        match self {
+            SymbolText::Shared(text) => text.hash(state),
+            SymbolText::Owned(text) => text.hash(state),
+            SymbolText::Unknown => 0.hash(state),
+        }
     }
 }
 
@@ -42,21 +43,48 @@ impl Clone for SymbolText {
         match self {
             SymbolText::Owned(text) => SymbolText::Owned(text.to_owned()),
             SymbolText::Shared(text) => SymbolText::Shared(Rc::clone(text)),
+            SymbolText::Unknown => SymbolText::Unknown,
         }
     }
 }
 
-/// The text of a fully resolved field name, annotation, or symbol value. The text stored in this
-/// Symbol may be either a `String` or a shared reference to text in a symbol table.
-#[derive(Debug, Hash, Clone, Eq)]
+impl PartialEq<Self> for SymbolText {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl PartialOrd<Self> for SymbolText {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SymbolText {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self.text(), other.text()) {
+            // If both Symbols have known text, delegate the comparison to their text.
+            (Some(s1), Some(s2)) => s1.cmp(s2),
+            // Otherwise, $0 (unknown text) is treated as 'less than' known text
+            (Some(_), None) => Ordering::Greater,
+            (None, Some(_)) => Ordering::Less,
+            (None, None) => Ordering::Equal,
+        }
+    }
+}
+
+/// The text of a fully resolved field name, annotation, or symbol value. If the symbol has known
+/// text (that is: the symbol is not `$0`), it will be stored as either a `String` or a shared
+/// reference to text in a symbol table.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct Symbol {
     text: SymbolText,
 }
 
 impl Symbol {
-    pub fn owned(text: String) -> Symbol {
+    pub fn owned<I: Into<String>>(text: I) -> Symbol {
         Symbol {
-            text: SymbolText::Owned(text),
+            text: SymbolText::Owned(text.into()),
         }
     }
 
@@ -65,62 +93,68 @@ impl Symbol {
             text: SymbolText::Shared(text),
         }
     }
+
+    pub fn unknown_text() -> Symbol {
+        Symbol {
+            text: SymbolText::Unknown,
+        }
+    }
+
+    pub fn text(&self) -> Option<&str> {
+        self.text.text()
+    }
+
+    pub fn text_or_error(&self) -> IonResult<&str> {
+        match self.text() {
+            Some(text) => Ok(text),
+            None => decoding_error("symbol has unknown text"),
+        }
+    }
+}
+
+impl From<&str> for Symbol {
+    fn from(text: &str) -> Self {
+        Symbol::owned(text)
+    }
 }
 
 impl Display for Symbol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.text.as_ref())
+        match self.text() {
+            None => write!(f, "$0"),
+            Some(text) => write!(f, "'{}'", text),
+        }
     }
 }
 
 impl<A: AsRef<str>> PartialEq<A> for Symbol {
     fn eq(&self, other: &A) -> bool {
-        self.text.as_ref() == other.as_ref()
+        self.text()
+            // If the symbol has known text, compare it to the provide text
+            .map(|t| t == other.as_ref())
+            // If there's no text, it's definitely not equivalent to the provided text
+            .unwrap_or(false)
     }
 }
 
 impl PartialEq<Symbol> for String {
     fn eq(&self, other: &Symbol) -> bool {
-        self.as_str() == other.as_ref()
+        other.text().map(|t| t == self.as_str()).unwrap_or(false)
     }
 }
 
 impl PartialEq<Symbol> for &str {
     fn eq(&self, other: &Symbol) -> bool {
-        self == &other.as_ref()
+        other.text().map(|t| &t == self).unwrap_or(false)
     }
 }
 
-impl AsRef<str> for Symbol {
-    fn as_ref(&self) -> &str {
-        self.text.as_ref()
-    }
-}
-
-impl Deref for Symbol {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        self.text.as_ref()
-    }
-}
-
-// Allows a HashMap<Symbol, _> to do lookups with a &str instead of a &Symbol
+// Note that this method panics if the Symbol has unknown text! This is unfortunate but is required
+// in order to allow a HashMap<Symbol, _> to do lookups with a &str instead of a &Symbol
 impl Borrow<str> for Symbol {
     fn borrow(&self) -> &str {
-        self.as_ref()
-    }
-}
-
-impl<A: AsRef<str>> PartialOrd<A> for Symbol {
-    fn partial_cmp(&self, other: &A) -> Option<Ordering> {
-        self.text.as_ref().partial_cmp(other.as_ref())
-    }
-}
-
-impl Ord for Symbol {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.text.as_ref().cmp(other.as_ref())
+        self.text()
+            .expect("cannot borrow a &str from a Symbol with unknown text")
     }
 }
 
@@ -131,10 +165,10 @@ mod symbol_tests {
     #[test]
     fn ordering_and_eq() {
         let mut symbols = vec![
-            Symbol::owned("foo".to_owned()),
+            Symbol::owned("foo"),
             Symbol::shared(Rc::from("bar")),
             Symbol::shared(Rc::from("baz")),
-            Symbol::owned("quux".to_owned()),
+            Symbol::owned("quux"),
         ];
         // Sort the list to demonstrate that our Ord implementation works.
         symbols.as_mut_slice().sort();
@@ -142,10 +176,10 @@ mod symbol_tests {
         // We can compare the sorted version of the vec above to this one and it will
         // be considered equal.
         let expected = vec![
-            Symbol::owned("bar".to_owned()),
-            Symbol::owned("baz".to_owned()),
-            Symbol::owned("foo".to_owned()),
-            Symbol::owned("quux".to_owned()),
+            Symbol::owned("bar"),
+            Symbol::owned("baz"),
+            Symbol::owned("foo"),
+            Symbol::owned("quux"),
         ];
         assert_eq!(symbols, expected)
     }

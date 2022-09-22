@@ -6,7 +6,7 @@ use ion_rs::value::native_writer::NativeElementWriter;
 use ion_rs::value::owned::Element;
 use ion_rs::value::reader::ElementReader;
 use ion_rs::value::writer::{ElementWriter, Format, TextKind};
-use ion_rs::value::{IonElement, IonSequence, IonSymbolToken};
+use ion_rs::value::{IonElement, IonSequence};
 use ion_rs::{BinaryWriterBuilder, TextWriterBuilder};
 
 use std::fs::read;

@@ -88,11 +88,10 @@ impl<W: Write> BinaryWriter<W> {
             .set_field_name(system_symbol_ids::SYMBOLS);
         self.symbol_table_writer.step_in(IonType::List)?;
         for symbol in pending_symbols {
-            if let Some(text) = symbol {
-                self.symbol_table_writer.write_string(text)?;
-            } else {
-                self.symbol_table_writer.write_null(IonType::Null)?;
-            }
+            match symbol.text() {
+                Some(text) => self.symbol_table_writer.write_string(text),
+                None => self.symbol_table_writer.write_null(IonType::Null),
+            }?;
         }
         self.symbol_table_writer.step_out()?; // End symbols list
 
@@ -227,7 +226,7 @@ mod tests {
         reader.step_in()?;
         assert_eq!(Value(IonType::Symbol), reader.next()?);
         assert_eq!("foo", reader.field_name()?);
-        assert_eq!("bar", reader.read_symbol()?.as_ref());
+        assert_eq!("bar", reader.read_symbol()?.text_or_error()?);
 
         Ok(())
     }

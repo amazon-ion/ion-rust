@@ -9,7 +9,7 @@ use crate::types::SymbolId;
 // SymbolTable instances always have at least system symbols; they are never empty.
 #[allow(clippy::len_without_is_empty)]
 pub struct SymbolTable {
-    symbols_by_id: Vec<Option<Symbol>>,
+    symbols_by_id: Vec<Symbol>,
     ids_by_text: HashMap<Symbol, SymbolId>,
 }
 
@@ -56,7 +56,7 @@ impl SymbolTable {
         let id = self.symbols_by_id.len();
         let rc: Rc<str> = Rc::from(text);
         let symbol = Symbol::shared(rc);
-        self.symbols_by_id.push(Some(symbol.clone()));
+        self.symbols_by_id.push(symbol.clone());
         self.ids_by_text.insert(symbol, id);
         id
     }
@@ -65,7 +65,7 @@ impl SymbolTable {
     /// encounters null or non-string values in a stream's symbol table.
     pub fn add_placeholder(&mut self) -> SymbolId {
         let sid = self.symbols_by_id.len();
-        self.symbols_by_id.push(None);
+        self.symbols_by_id.push(Symbol::unknown_text());
         sid
     }
 
@@ -86,14 +86,15 @@ impl SymbolTable {
     /// If defined, returns the text associated with the provided Symbol ID.
     pub fn text_for(&self, sid: SymbolId) -> Option<&str> {
         self.symbols_by_id
+            // If the SID is out of bounds, returns None
             .get(sid)?
-            .as_ref()
-            .map(|symbol| symbol.as_ref())
+            // If the text is unknown, returns None
+            .text()
     }
 
     /// If defined, returns the Symbol associated with the provided Symbol ID.
     pub fn symbol_for(&self, sid: SymbolId) -> Option<&Symbol> {
-        self.symbols_by_id.get(sid)?.as_ref()
+        self.symbols_by_id.get(sid)
     }
 
     /// Returns true if the provided symbol ID maps to an entry in the symbol table (i.e. it is in
@@ -111,9 +112,9 @@ impl SymbolTable {
 
     /// Returns a slice of references to the symbol text stored in the table.
     ///
-    /// The symbol table can contain symbols with unknown text; if the text for a given symbol is
-    /// unknown, the corresponding entry in the slice will be [None].
-    pub fn symbols(&self) -> &[Option<Symbol>] {
+    /// The symbol table can contain symbols with unknown text; see the documentation for
+    /// [Symbol] for more information.
+    pub fn symbols(&self) -> &[Symbol] {
         &self.symbols_by_id
     }
 
@@ -121,9 +122,9 @@ impl SymbolTable {
     /// symbol ID. If a symbol table append occurs during reading, this function can be used to
     /// easily view the new symbols that has been added to the table.
     ///
-    /// The symbol table can contain symbols with unknown text; if the text for a given symbol is
-    /// unknown, the corresponding entry in the slice will be [None].
-    pub fn symbols_tail(&self, start: usize) -> &[Option<Symbol>] {
+    /// The symbol table can contain symbols with unknown text; see the documentation for
+    /// [Symbol] for more information.
+    pub fn symbols_tail(&self, start: usize) -> &[Symbol] {
         &self.symbols_by_id[start..]
     }
 
