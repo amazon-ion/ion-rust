@@ -87,6 +87,12 @@ impl Symbol {
     }
 }
 
+impl From<&str> for Symbol {
+    fn from(text: &str) -> Self {
+        Symbol::owned(text)
+    }
+}
+
 impl Display for Symbol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.text() {

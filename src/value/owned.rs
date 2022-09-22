@@ -5,7 +5,7 @@
 //! This API is simpler to manage with respect to borrowing lifetimes, but requires full
 //! ownership of data to do so.
 
-use super::{ImportSource, IonElement, IonSequence, IonStruct, IonSymbolToken};
+use super::{IonElement, IonSequence, IonStruct, IonSymbolToken};
 use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::types::decimal::Decimal;
@@ -13,151 +13,60 @@ use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::value::Builder;
-use crate::IonType;
+use crate::{IonType, Symbol};
 use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
 use std::rc::Rc;
 
-/// An owned implementation of  [`ImportSource`].
-#[derive(Debug, Clone)]
-pub struct OwnedImportSource {
-    table: Rc<str>,
-    sid: SymbolId,
-}
-
-impl OwnedImportSource {
-    pub fn new<T: Into<Rc<str>>>(table: T, sid: SymbolId) -> Self {
-        Self {
-            table: table.into(),
-            sid,
-        }
-    }
-}
-
-impl PartialEq for OwnedImportSource {
-    fn eq(&self, other: &Self) -> bool {
-        self.table == other.table && self.sid == other.sid
-    }
-}
-
-impl Eq for OwnedImportSource {}
-
-impl ImportSource for OwnedImportSource {
-    fn table(&self) -> &str {
-        &self.table
-    }
-
-    fn sid(&self) -> usize {
-        self.sid
-    }
-}
-
-/// An owned implementation of [`SymbolToken`].
-#[derive(Debug, Clone)]
-pub struct SymbolToken {
-    text: Option<Rc<str>>,
-    local_sid: Option<SymbolId>,
-    source: Option<OwnedImportSource>,
-}
-
-impl SymbolToken {
-    fn new(
-        text: Option<Rc<str>>,
-        local_sid: Option<SymbolId>,
-        source: Option<OwnedImportSource>,
-    ) -> Self {
-        Self {
-            text,
-            local_sid,
-            source,
-        }
-    }
-}
-
-/// Constructs an [`OwnedSymbolToken`] with unknown text and a local ID.
-/// A common case for binary parsing (though technically relevant in text).
-#[inline]
-pub fn local_sid_token(local_sid: SymbolId) -> SymbolToken {
-    SymbolToken::new(None, Some(local_sid), None)
-}
-
-/// Constructs an [`OwnedSymbolToken`] with just text.
-/// A common case for text and synthesizing tokens.
-#[inline]
-pub fn text_token<T: Into<Rc<str>>>(text: T) -> SymbolToken {
-    SymbolToken::new(Some(text.into()), None, None)
-}
-
-impl PartialEq for SymbolToken {
-    fn eq(&self, other: &Self) -> bool {
-        if other.text != None || self.text != None {
-            // if either side has text, we only compare text
-            other.text == self.text
-        } else {
-            // no text--so the sources must be the same (all local symbols with no source are the same)
-            other.source == self.source
-        }
-    }
-}
-
-impl Eq for SymbolToken {}
-
-impl<T: Into<Rc<str>>> From<T> for SymbolToken {
-    /// Constructs an owned token that has only text.
-    fn from(text: T) -> Self {
-        text_token(text)
-    }
-}
-
-impl IonSymbolToken for SymbolToken {
-    type ImportSource = OwnedImportSource;
-
+impl IonSymbolToken for Symbol {
     fn text(&self) -> Option<&str> {
-        self.text.as_ref().map(|s| s.as_ref())
+        self.text()
     }
 
-    fn local_sid(&self) -> Option<usize> {
-        self.local_sid
-    }
-
-    fn source(&self) -> Option<&Self::ImportSource> {
-        self.source.as_ref()
+    fn symbol_id(&self) -> Option<SymbolId> {
+        self.text().is_none().then(|| Some(0)).unwrap_or(None)
     }
 
     fn with_text(self, text: &'static str) -> Self {
-        SymbolToken::new(Some(Rc::from(text)), self.local_sid, self.source)
+        Symbol::owned(text)
     }
 
-    fn with_local_sid(self, local_sid: SymbolId) -> Self {
-        SymbolToken::new(self.text, Some(local_sid), self.source)
-    }
-
-    fn with_source(self, table: &'static str, sid: SymbolId) -> Self {
-        SymbolToken::new(
-            self.text,
-            self.local_sid,
-            Some(OwnedImportSource::new(table, sid)),
-        )
+    fn with_symbol_id(self, _local_sid: SymbolId) -> Self {
+        // Because `Symbol` represents a fully resolved symbol...
+        if self.text().is_some() {
+            // ...if we already have text, we can discard the symbol ID.
+            return self;
+        }
+        // Otherwise, the text is unknown.
+        Symbol::unknown_text()
     }
 
     fn text_token(text: &'static str) -> Self {
-        SymbolToken::new(Some(Rc::from(text)), None, None)
+        Symbol::owned(text)
     }
 
-    fn local_sid_token(local_sid: usize) -> Self {
-        SymbolToken::new(None, Some(local_sid), None)
+    fn symbol_id_token(_local_sid: SymbolId) -> Self {
+        // Because `Symbol` represents a fully resolved symbol, constructing one from a symbol ID
+        // alone means that it has no defined text and is therefore equivalent to SID 0.
+        Symbol::unknown_text()
     }
+}
+
+/// Constructs a [`SymbolTokenRef`] with just text.
+/// A common case for text and synthesizing tokens.
+#[inline]
+pub fn text_token(text: &str) -> Symbol {
+    Symbol::owned(text)
 }
 
 /// An owned implementation of [`Builder`].
 impl Builder for Element {
     type Element = Element;
-    type SymbolToken = SymbolToken;
+    type SymbolToken = Symbol;
     type Sequence = Sequence;
     type Struct = Struct;
-    type ImportSource = OwnedImportSource;
 
     fn new_null(e_type: IonType) -> Self::Element {
         Value::Null(e_type).into()
@@ -276,8 +185,8 @@ impl Eq for Sequence {}
 /// An owned implementation of [`Struct`]
 #[derive(Debug, Clone)]
 pub struct Struct {
-    text_fields: HashMap<Rc<str>, Vec<(SymbolToken, Element)>>,
-    no_text_fields: Vec<(SymbolToken, Element)>,
+    text_fields: HashMap<Rc<str>, Vec<(Symbol, Element)>>,
+    no_text_fields: Vec<(Symbol, Element)>,
 }
 
 impl Struct {
@@ -304,13 +213,13 @@ impl Struct {
 
 impl<K, V> FromIterator<(K, V)> for Struct
 where
-    K: Into<SymbolToken>,
+    K: Into<Symbol>,
     V: Into<Element>,
 {
     /// Returns an owned struct from the given iterator of field names/values.
     fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        let mut text_fields: HashMap<Rc<str>, Vec<(SymbolToken, Element)>> = HashMap::new();
-        let mut no_text_fields: Vec<(SymbolToken, Element)> = Vec::new();
+        let mut text_fields: HashMap<Rc<str>, Vec<(Symbol, Element)>> = HashMap::new();
+        let mut no_text_fields: Vec<(Symbol, Element)> = Vec::new();
 
         for (k, v) in iter {
             let key = k.into();
@@ -335,7 +244,7 @@ where
 }
 
 impl IonStruct for Struct {
-    type FieldName = SymbolToken;
+    type FieldName = Symbol;
     type Element = Element;
 
     fn iter<'a>(
@@ -442,25 +351,24 @@ pub enum Value {
     Decimal(Decimal),
     Timestamp(Timestamp),
     String(String),
-    Symbol(SymbolToken),
+    Symbol(Symbol),
     Boolean(bool),
     Blob(Vec<u8>),
     Clob(Vec<u8>),
     SExpression(Sequence),
     List(Sequence),
     Struct(Struct),
-    // TODO fill this in with the rest of the value types...
 }
 
 /// An owned implementation of [`Element`]
 #[derive(Debug, Clone)]
 pub struct Element {
-    annotations: Vec<SymbolToken>,
+    annotations: Vec<Symbol>,
     value: Value,
 }
 
 impl Element {
-    pub fn new(annotations: Vec<SymbolToken>, value: Value) -> Self {
+    pub fn new(annotations: Vec<Symbol>, value: Value) -> Self {
         Self { annotations, value }
     }
 }
@@ -556,8 +464,8 @@ impl From<String> for Element {
     }
 }
 
-impl From<SymbolToken> for Element {
-    fn from(sym_val: SymbolToken) -> Self {
+impl From<Symbol> for Element {
+    fn from(sym_val: Symbol) -> Self {
         Value::Symbol(sym_val).into()
     }
 }
@@ -569,7 +477,7 @@ impl From<Struct> for Element {
 }
 
 impl IonElement for Element {
-    type SymbolToken = SymbolToken;
+    type SymbolToken = Symbol;
     type Sequence = Sequence;
     type Struct = Struct;
     type Builder = Element;
@@ -696,8 +604,8 @@ mod value_tests {
             "hello".to_string().into()
         ),
         case::sym_with_text(
-            Element::new_symbol(text_token("hello")),
-            text_token("hello").into()
+            Element::new_symbol(Symbol::owned("hello")),
+            Symbol::owned("hello").into()
         ),
     case::struct_(
             Element::new_struct(vec![("greetings", Element::from(Value::String("hello".into())))].into_iter()),

@@ -7,7 +7,7 @@
 //! For simple values, the values are inlined (see [`ValueRef`]), but for things that are
 //! backed by octets or string data, `&[u8]` and `&str` are used.
 
-use super::{ImportSource, IonElement, IonSequence, IonStruct, IonSymbolToken};
+use super::{IonElement, IonSequence, IonStruct, IonSymbolToken};
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
@@ -18,56 +18,16 @@ use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::iter::FromIterator;
 
-/// A borrowed implementation of [`ImportSource`].
-#[derive(Debug, Copy, Clone)]
-pub struct ImportSourceRef<'val> {
-    table: &'val str,
-    sid: SymbolId,
-}
-
-impl<'val> ImportSourceRef<'val> {
-    pub fn new(table: &'val str, sid: SymbolId) -> Self {
-        Self { table, sid }
-    }
-}
-
-impl<'val> PartialEq for ImportSourceRef<'val> {
-    fn eq(&self, other: &Self) -> bool {
-        self.table == other.table && self.sid == other.sid
-    }
-}
-
-impl<'val> Eq for ImportSourceRef<'val> {}
-
-impl<'val> ImportSource for ImportSourceRef<'val> {
-    fn table(&self) -> &str {
-        self.table
-    }
-
-    fn sid(&self) -> usize {
-        self.sid
-    }
-}
-
 /// A borrowed implementation of [`SymbolToken`].
 #[derive(Debug, Copy, Clone)]
 pub struct SymbolTokenRef<'val> {
     text: Option<&'val str>,
     local_sid: Option<SymbolId>,
-    source: Option<ImportSourceRef<'val>>,
 }
 
 impl<'val> SymbolTokenRef<'val> {
-    fn new(
-        text: Option<&'val str>,
-        local_sid: Option<SymbolId>,
-        source: Option<ImportSourceRef<'val>>,
-    ) -> Self {
-        Self {
-            text,
-            local_sid,
-            source,
-        }
+    fn new(text: Option<&'val str>, local_sid: Option<SymbolId>) -> Self {
+        Self { text, local_sid }
     }
 }
 
@@ -75,24 +35,24 @@ impl<'val> SymbolTokenRef<'val> {
 /// A common case for binary parsing (though technically relevant in text).
 #[inline]
 pub fn local_sid_token<'val>(local_sid: SymbolId) -> SymbolTokenRef<'val> {
-    SymbolTokenRef::new(None, Some(local_sid), None)
+    SymbolTokenRef::new(None, Some(local_sid))
 }
 
 /// Constructs a [`SymbolTokenRef`] with just text.
 /// A common case for text and synthesizing tokens.
 #[inline]
 pub fn text_token(text: &str) -> SymbolTokenRef {
-    SymbolTokenRef::new(Some(text), None, None)
+    SymbolTokenRef::new(Some(text), None)
 }
 
 impl<'val> PartialEq for SymbolTokenRef<'val> {
     fn eq(&self, other: &Self) -> bool {
-        if other.text != None || self.text != None {
-            // if either side has text, we only compare text
-            other.text == self.text
-        } else {
-            // no text--so the sources must be the same (all local symbols with no source are the same)
-            other.source == self.source
+        match (self.text(), other.text()) {
+            // SymbolTokenRef is a resolved symbol; if there's no text, it's because the symbol
+            // explicitly has undefined text.
+            (Some(text), Some(other_text)) => text == other_text,
+            (None, None) => true,
+            _ => false,
         }
     }
 }
@@ -101,47 +61,33 @@ impl<'val> Eq for SymbolTokenRef<'val> {}
 
 impl<'val> From<&'val str> for SymbolTokenRef<'val> {
     fn from(text: &'val str) -> Self {
-        Self::new(Some(text), None, None)
+        Self::new(Some(text), None)
     }
 }
 
 impl<'val> IonSymbolToken for SymbolTokenRef<'val> {
-    type ImportSource = ImportSourceRef<'val>;
-
     fn text(&self) -> Option<&str> {
         self.text
     }
 
-    fn local_sid(&self) -> Option<usize> {
+    fn symbol_id(&self) -> Option<usize> {
         self.local_sid
     }
 
-    fn source(&self) -> Option<&Self::ImportSource> {
-        self.source.as_ref()
-    }
-
     fn with_text(self, text: &'static str) -> Self {
-        SymbolTokenRef::new(Some(text), self.local_sid, self.source)
+        SymbolTokenRef::new(Some(text), self.local_sid)
     }
 
-    fn with_local_sid(self, local_sid: SymbolId) -> Self {
-        SymbolTokenRef::new(self.text, Some(local_sid), self.source)
-    }
-
-    fn with_source(self, table: &'static str, sid: SymbolId) -> Self {
-        SymbolTokenRef::new(
-            self.text,
-            self.local_sid,
-            Some(ImportSourceRef::new(table, sid)),
-        )
+    fn with_symbol_id(self, local_sid: SymbolId) -> Self {
+        SymbolTokenRef::new(self.text, Some(local_sid))
     }
 
     fn text_token(text: &'static str) -> Self {
-        SymbolTokenRef::new(Some(text), None, None)
+        SymbolTokenRef::new(Some(text), None)
     }
 
-    fn local_sid_token(local_sid: usize) -> Self {
-        SymbolTokenRef::new(None, Some(local_sid), None)
+    fn symbol_id_token(local_sid: usize) -> Self {
+        SymbolTokenRef::new(None, Some(local_sid))
     }
 }
 
@@ -151,7 +97,6 @@ impl<'val> Builder for ElementRef<'val> {
     type SymbolToken = SymbolTokenRef<'val>;
     type Sequence = SequenceRef<'val>;
     type Struct = StructRef<'val>;
-    type ImportSource = ImportSourceRef<'val>;
 
     fn new_null(e_type: IonType) -> Self::Element {
         ValueRef::Null(e_type).into()

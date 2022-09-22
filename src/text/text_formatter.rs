@@ -1,8 +1,8 @@
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::types::timestamp::Precision;
-use crate::value::owned::{Sequence, Struct, SymbolToken};
-use crate::value::{IonSequence, IonStruct, IonSymbolToken};
-use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Timestamp};
+use crate::value::owned::{Sequence, Struct};
+use crate::value::{IonSequence, IonStruct};
+use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Symbol, Timestamp};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
 use std::convert::TryInto;
 
@@ -287,9 +287,9 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub(crate) fn format_annotations(&mut self, annotations: &Vec<SymbolToken>) -> IonResult<()> {
+    pub(crate) fn format_annotations(&mut self, annotations: &Vec<Symbol>) -> IonResult<()> {
         for annotation in annotations {
-            self.format_symbol(annotation.text().unwrap())?;
+            self.format_symbol(annotation)?;
             write!(self.output, "::")?;
         }
         Ok(())
