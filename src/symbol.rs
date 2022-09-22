@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 /// Stores or points to the text of a given [Symbol].
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Eq)]
 enum SymbolText {
     // This Symbol refers to a string in the symbol table
     Shared(Rc<str>),
@@ -48,10 +48,35 @@ impl Clone for SymbolText {
     }
 }
 
+impl PartialEq<Self> for SymbolText {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl PartialOrd<Self> for SymbolText {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SymbolText {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self.text(), other.text()) {
+            // If both Symbols have known text, delegate the comparison to their text.
+            (Some(s1), Some(s2)) => s1.cmp(s2),
+            // Otherwise, $0 (unknown text) is treated as 'less than' known text
+            (Some(_), None) => Ordering::Greater,
+            (None, Some(_)) => Ordering::Less,
+            (None, None) => Ordering::Equal,
+        }
+    }
+}
+
 /// The text of a fully resolved field name, annotation, or symbol value. If the symbol has known
 /// text (that is: the symbol is not `$0`), it will be stored as either a `String` or a shared
 /// reference to text in a symbol table.
-#[derive(Debug, Hash, Clone, Eq)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct Symbol {
     text: SymbolText,
 }
@@ -130,37 +155,6 @@ impl Borrow<str> for Symbol {
     fn borrow(&self) -> &str {
         self.text()
             .expect("cannot borrow a &str from a Symbol with unknown text")
-    }
-}
-
-impl<A: AsRef<str>> PartialOrd<A> for Symbol {
-    fn partial_cmp(&self, other: &A) -> Option<Ordering> {
-        self.text().map(|t| t.cmp(other.as_ref()))
-    }
-}
-
-impl PartialEq<Self> for Symbol {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl PartialOrd<Self> for Symbol {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Symbol {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self.text(), other.text()) {
-            // If both Symbols have known text, delegate the comparison to their text.
-            (Some(s1), Some(s2)) => s1.cmp(s2),
-            // Otherwise, $0 (unknown text) is treated as 'less than' known text
-            (Some(_), None) => Ordering::Greater,
-            (None, Some(_)) => Ordering::Less,
-            (None, None) => Ordering::Equal,
-        }
     }
 }
 

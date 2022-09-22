@@ -496,10 +496,10 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
     pub(crate) fn format_sexp(&mut self, value: &Sequence) -> IonResult<()> {
         write!(self.output, "( ")?;
         let mut peekable_itr = value.iter().peekable();
-        while peekable_itr.peek() != None {
+        while peekable_itr.peek().is_some() {
             let sexp_value = peekable_itr.next().unwrap();
             write!(self.output, "{}", sexp_value)?;
-            if peekable_itr.peek() != None {
+            if peekable_itr.peek().is_some() {
                 write!(self.output, " ")?;
             }
         }
@@ -510,10 +510,10 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
     pub(crate) fn format_list(&mut self, value: &Sequence) -> IonResult<()> {
         write!(self.output, "[ ")?;
         let mut peekable_itr = value.iter().peekable();
-        while peekable_itr.peek() != None {
+        while peekable_itr.peek().is_some() {
             let list_value = peekable_itr.next().unwrap();
             write!(self.output, "{}", list_value)?;
-            if peekable_itr.peek() != None {
+            if peekable_itr.peek().is_some() {
                 write!(self.output, ", ")?;
             }
         }

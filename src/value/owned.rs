@@ -26,7 +26,7 @@ impl IonSymbolToken for Symbol {
     }
 
     fn symbol_id(&self) -> Option<SymbolId> {
-        self.text().is_none().then(|| Some(0)).unwrap_or(None)
+        self.text().is_none().then_some(0)
     }
 
     fn with_text(self, text: &'static str) -> Self {

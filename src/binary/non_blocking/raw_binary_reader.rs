@@ -1273,7 +1273,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
     /// * Out of tx_buffer bytes
     fn is_eof(&self) -> bool {
         // We're at the top level
-        self.parent == None
+        self.parent.is_none()
             && self.encoded_value.annotations_header_length == 0
             && self.tx_buffer.is_empty()
     }
