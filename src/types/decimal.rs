@@ -60,8 +60,8 @@ impl Decimal {
     /// Returns None if the magnitude is too large to fit a u64.
     pub fn unscaled_as_u64(&self) -> Option<u64> {
         match self.coefficient.magnitude() {
-            Magnitude::U64(m) => { Some(*m) }
-            Magnitude::BigUInt(m) => { m.to_u64() }
+            Magnitude::U64(m) => Some(*m),
+            Magnitude::BigUInt(m) => m.to_u64(),
         }
     }
 
@@ -69,8 +69,8 @@ impl Decimal {
     /// This may allocate a BigUint if the magnitude is fitable in a u64.
     pub fn unscaled_as_biguint(&self) -> Cow<BigUint> {
         match self.coefficient.magnitude() {
-            Magnitude::BigUInt(m) => { Cow::Borrowed(m) }
-            Magnitude::U64(m) => { Cow::Owned(BigUint::from(*m)) }
+            Magnitude::BigUInt(m) => Cow::Borrowed(m),
+            Magnitude::U64(m) => Cow::Owned(BigUint::from(*m)),
         }
     }
 
@@ -562,7 +562,11 @@ mod decimal_tests {
     #[case(Decimal::new(31, 0), Some(31), BigUint::from(31 as u64))]
     #[case(Decimal::new(BigUint::from(31 as u64), 0), Some(31), BigUint::from(31 as u64))]
     #[case(Decimal::new(BigUint::new(vec![12, 34, 56, 78, 90]), 0), None, BigUint::new(vec![12, 34, 56, 78, 90]))]
-    fn test_unscaled_magnitude(#[case] value: Decimal, #[case] as_u64: Option<u64>, #[case] as_bui: BigUint) {
+    fn test_unscaled_magnitude(
+        #[case] value: Decimal,
+        #[case] as_u64: Option<u64>,
+        #[case] as_bui: BigUint,
+    ) {
         assert_eq!(value.unscaled_as_u64(), as_u64);
         assert_eq!(*value.unscaled_as_biguint(), as_bui);
     }
