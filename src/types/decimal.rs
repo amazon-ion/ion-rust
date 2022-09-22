@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use bigdecimal::{BigDecimal, Signed};
@@ -7,7 +8,7 @@ use crate::ion_eq::IonEq;
 use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::magnitude::Magnitude;
-use num_traits::Zero;
+use num_traits::{ToPrimitive, Zero};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
@@ -34,7 +35,9 @@ impl Decimal {
     /// Returns scale of the Decimal value
     /// If zero or positive, a scale indicates the number of digits to the right of the decimal point.
     /// If negative, the unscaled value of the number is multiplied by ten to the power of the negation of the scale.
-    /// For example, a scale of -3 means the unscaled value is multiplied by 1000.
+    /// For example:
+    ///   a scale of -3 means the unscaled value is multiplied by 1000.
+    ///   a scale of 2 means the unscaled value is divided by 100.
     pub fn scale(&self) -> i64 {
         self.exponent.neg()
     }
@@ -45,6 +48,30 @@ impl Decimal {
             return self.coefficient.number_of_decimal_digits() + self.exponent as u64;
         }
         self.coefficient.number_of_decimal_digits()
+    }
+
+    /// Returns the Sign of the Decimal value.
+    /// Unscaled zero values may have either a Positive or Negative Sign.
+    pub fn sign(&self) -> Sign {
+        self.coefficient.sign
+    }
+
+    /// Returns the unscaled magnitude of the Decimal value as a u64.
+    /// Returns None if the magnitude is too large to fit a u64.
+    pub fn unscaled_as_u64(&self) -> Option<u64> {
+        match self.coefficient.magnitude() {
+            Magnitude::U64(m) => { Some(*m) }
+            Magnitude::BigUInt(m) => { m.to_u64() }
+        }
+    }
+
+    /// Returns the unscaled magnitude of the Decimal value as a BigUInt.
+    /// This may allocate a BigUint if the magnitude is fitable in a u64.
+    pub fn unscaled_as_biguint(&self) -> Cow<BigUint> {
+        match self.coefficient.magnitude() {
+            Magnitude::BigUInt(m) => { Cow::Borrowed(m) }
+            Magnitude::U64(m) => { Cow::Owned(BigUint::from(*m)) }
+        }
     }
 
     /// Constructs a Decimal with the value `-0d0`. This is provided as a convenience method
@@ -520,5 +547,23 @@ mod decimal_tests {
     #[case(Decimal::new(BigUint::from(u128::MAX), -2), 39)]
     fn test_precision(#[case] value: Decimal, #[case] expected: u64) {
         assert_eq!(value.precision(), expected);
+    }
+
+    #[rstest]
+    #[case(Decimal::new(1, 0), true)]
+    #[case(Decimal::new(0, 0), true)]
+    #[case(Decimal::negative_zero(), false)]
+    #[case(Decimal::new(-1, 0), false)]
+    fn test_sign(#[case] value: Decimal, #[case] positive: bool) {
+        assert_eq!(value.sign() == Sign::Positive, positive);
+    }
+
+    #[rstest]
+    #[case(Decimal::new(31, 0), Some(31), BigUint::from(31 as u64))]
+    #[case(Decimal::new(BigUint::from(31 as u64), 0), Some(31), BigUint::from(31 as u64))]
+    #[case(Decimal::new(BigUint::new(vec![12, 34, 56, 78, 90]), 0), None, BigUint::new(vec![12, 34, 56, 78, 90]))]
+    fn test_unscaled_magnitude(#[case] value: Decimal, #[case] as_u64: Option<u64>, #[case] as_bui: BigUint) {
+        assert_eq!(value.unscaled_as_u64(), as_u64);
+        assert_eq!(*value.unscaled_as_biguint(), as_bui);
     }
 }
