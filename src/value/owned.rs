@@ -14,8 +14,8 @@ use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::value::Builder;
 use crate::{IonType, Symbol};
+use hashlink::LinkedHashMap;
 use num_bigint::BigInt;
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
 use std::rc::Rc;
@@ -188,7 +188,7 @@ impl Eq for Sequence {}
 /// An owned implementation of [`Struct`]
 #[derive(Debug, Clone)]
 pub struct Struct {
-    text_fields: HashMap<Rc<str>, Vec<(Symbol, Element)>>,
+    text_fields: LinkedHashMap<Rc<str>, Vec<(Symbol, Element)>>,
     no_text_fields: Vec<(Symbol, Element)>,
 }
 
@@ -221,7 +221,7 @@ where
 {
     /// Returns an owned struct from the given iterator of field names/values.
     fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        let mut text_fields: HashMap<Rc<str>, Vec<(Symbol, Element)>> = HashMap::new();
+        let mut text_fields: LinkedHashMap<Rc<str>, Vec<(Symbol, Element)>> = LinkedHashMap::new();
         let mut no_text_fields: Vec<(Symbol, Element)> = Vec::new();
 
         for (k, v) in iter {

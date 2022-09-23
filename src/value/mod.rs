@@ -1298,16 +1298,32 @@ mod generic_value_tests {
     {
         Case {
             elem: E::Builder::new_struct(
-                vec![(
-                    E::SymbolToken::text_token("greetings"),
-                    E::Builder::new_string("hello"),
-                )]
+                vec![
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::SymbolToken::text_token("name"),
+                        E::Builder::new_string("ion"),
+                    ),
+                ]
                 .into_iter(),
             ),
             ion_type: IonType::Struct,
             ops: vec![AsStruct],
             op_assert: Box::new(|e: &E| {
                 let actual = e.as_struct().unwrap();
+
+                // verify that the field order is maintained when creating Struct
+                assert_eq!(
+                    actual.iter().next(),
+                    Some((
+                        &E::SymbolToken::text_token("greetings"),
+                        &E::Builder::new_string("hello"),
+                    ))
+                );
+
                 assert_eq!(
                     actual.get("greetings"),
                     Some(&E::Builder::new_string("hello"))

@@ -14,8 +14,8 @@ use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::value::Builder;
 use crate::IonType;
+use hashlink::LinkedHashMap;
 use num_bigint::BigInt;
-use std::collections::HashMap;
 use std::iter::FromIterator;
 
 /// A borrowed implementation of [`SymbolToken`].
@@ -215,7 +215,7 @@ impl<'val> Eq for SequenceRef<'val> {}
 /// A borrowed implementation of [`Struct`]
 #[derive(Debug, Clone)]
 pub struct StructRef<'val> {
-    text_fields: HashMap<String, Vec<(SymbolTokenRef<'val>, ElementRef<'val>)>>,
+    text_fields: LinkedHashMap<String, Vec<(SymbolTokenRef<'val>, ElementRef<'val>)>>,
     no_text_fields: Vec<(SymbolTokenRef<'val>, ElementRef<'val>)>,
 }
 
@@ -248,7 +248,8 @@ where
 {
     /// Returns a borrowed struct from the given iterator of field names/values.
     fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        let mut text_fields: HashMap<String, Vec<(SymbolTokenRef, ElementRef)>> = HashMap::new();
+        let mut text_fields: LinkedHashMap<String, Vec<(SymbolTokenRef, ElementRef)>> =
+            LinkedHashMap::new();
         let mut no_text_fields: Vec<(SymbolTokenRef, ElementRef)> = Vec::new();
 
         for (k, v) in iter {
