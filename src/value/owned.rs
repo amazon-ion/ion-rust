@@ -18,7 +18,9 @@ use hashlink::LinkedHashMap;
 use num_bigint::BigInt;
 use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
-use std::rc::Rc;
+
+use crate::symbol_ref::AsSymbolRef;
+use smallvec::SmallVec;
 
 impl IonSymbolToken for Symbol {
     fn text(&self) -> Option<&str> {
@@ -185,32 +187,67 @@ impl PartialEq for Sequence {
 
 impl Eq for Sequence {}
 
-/// An owned implementation of [`Struct`]
+/// An owned implementation of [`IonStruct`]
 #[derive(Debug, Clone)]
 pub struct Struct {
-    text_fields: LinkedHashMap<Rc<str>, Vec<(Symbol, Element)>>,
-    no_text_fields: Vec<(Symbol, Element)>,
+    // A mapping of field name to any values associated with that name.
+    // If a field name is repeated, each value will be in the associated SmallVec.
+    // Since repeated field names are not common, we store the values in a SmallVec;
+    // the first value will be stored directly in the map while additional values will
+    // be stored elsewhere on the heap.
+    fields: LinkedHashMap<Symbol, SmallVec<[Element; 1]>>,
+    // `fields.len()` will only tell us the number of *distinct* field names. If the struct
+    // contains any repeated field names, it will be an under-count. Therefore, we track the number
+    // of fields separately.
+    number_of_fields: usize,
 }
 
 impl Struct {
-    fn eq_text_fields(&self, other: &Self) -> bool {
-        // check if both the text_fields have same (field_name,value) pairs
-        self.text_fields.iter().all(|(key, value)| {
-            value
-                .iter()
-                .all(|(_my_s, my_v)| other.get_all(key).any(|other_v| my_v.ion_eq(other_v)))
-                && value.len() == other.get_all(key).count()
-        })
+    /// Returns an iterator over the field name/value pairs in this Struct.
+    pub fn fields(&self) -> impl Iterator<Item = (&Symbol, &Element)> {
+        self.fields
+            .iter()
+            .flat_map(|(name, values)| values.iter().map(move |value| (name, value)))
     }
 
-    fn eq_no_text_fields(&self, other: &Self) -> bool {
-        // check if both the no_text_fields are same values
-        self.no_text_fields.iter().all(|(my_k, my_v)| {
-            other
-                .no_text_fields
-                .iter()
-                .any(|(other_k, other_v)| my_k == other_k && my_v.ion_eq(other_v))
-        })
+    fn fields_eq(&self, other: &Self) -> bool {
+        // For each (field name, field value list) in `self`...
+        for (field_name, field_values) in &self.fields {
+            // ...get the corresponding field value list from `other`.
+            let other_values = match other.fields.get(field_name) {
+                // If there's no such list, they're not equal.
+                None => return false,
+                Some(values) => values,
+            };
+
+            // If `other` has a corresponding list but it's a different length, they're not equal.
+            if field_values.len() != other_values.len() {
+                return false;
+            }
+
+            // If any of the values in `self`'s value list are not also in `other`'s value list,
+            // they're not equal.
+            if field_values.iter().any(|value| {
+                other_values
+                    .iter()
+                    .all(|other_value| !value.ion_eq(other_value))
+            }) {
+                return false;
+            }
+        }
+
+        // If all of the above conditions hold, the two structs are equal.
+        true
+    }
+
+    /// Returns the number of fields in this Struct.
+    pub fn len(&self) -> usize {
+        self.number_of_fields
+    }
+
+    /// Returns `true` if this struct has zero fields.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -221,27 +258,24 @@ where
 {
     /// Returns an owned struct from the given iterator of field names/values.
     fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        let mut text_fields: LinkedHashMap<Rc<str>, Vec<(Symbol, Element)>> = LinkedHashMap::new();
-        let mut no_text_fields: Vec<(Symbol, Element)> = Vec::new();
+        let mut fields: LinkedHashMap<Symbol, SmallVec<[Element; 1]>> = LinkedHashMap::new();
+        let mut number_of_fields: usize = 0;
 
-        for (k, v) in iter {
-            let key = k.into();
-            let val = v.into();
+        for (field_name, field_value) in iter {
+            let field_name = field_name.into();
+            let field_value = field_value.into();
 
-            match key.text() {
-                Some(text) => {
-                    let vals = text_fields.entry(text.into()).or_insert_with(Vec::new);
-                    vals.push((key, val));
-                }
-                None => {
-                    no_text_fields.push((key, val));
-                }
-            }
+            fields
+                .entry(field_name)
+                .or_insert_with(SmallVec::new)
+                .push(field_value);
+
+            number_of_fields += 1;
         }
 
         Self {
-            text_fields,
-            no_text_fields,
+            fields,
+            number_of_fields,
         }
     }
 }
@@ -253,51 +287,59 @@ impl IonStruct for Struct {
     fn iter<'a>(
         &'a self,
     ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a> {
-        // convert &(k, v) -> (&k, &v)
-        // flattens the fields_with_text_key HashMap and chains with fields_with_no_text_key
-        // to return all fields with iterator
-        Box::new(
-            self.text_fields
-                .values()
-                .flatten()
-                .into_iter()
-                .chain(self.no_text_fields.iter())
-                .map(|(k, v)| (k, v)),
-        )
+        Box::new(self.fields())
     }
 
-    fn get<T: AsRef<str>>(&self, field_name: T) -> Option<&Self::Element> {
-        self.text_fields
-            .get(field_name.as_ref())?
-            .last()
-            .map(|(_s, v)| v)
+    fn get<A: AsSymbolRef>(&self, field_name: A) -> Option<&Self::Element> {
+        match field_name.as_symbol_ref().text() {
+            None => {
+                // Build a cheap, stack-allocated `Symbol` that represents unknown text
+                let symbol = Symbol::unknown_text();
+                // Use the unknown text symbol to look up matching field values
+                self.fields.get(&symbol)?.last()
+            }
+            Some(text) => {
+                // Otherwise, look it up by text
+                self.fields.get(text)?.last()
+            }
+        }
     }
 
-    fn get_all<'a, T: AsRef<str>>(
+    fn get_all<'a, A: AsSymbolRef>(
         &'a self,
-        field_name: T,
+        field_name: A,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
-        Box::new(
-            self.text_fields
-                .get(field_name.as_ref())
-                .into_iter()
-                .flat_map(|v| v.iter())
-                .map(|(_s, v)| v),
-        )
+        // TODO: This method has to box its return value, which is why we're not re-using it
+        //       for the implementation of the `get` method. Once we remove the `Box`
+        //       (via GATs or RPITIT?) we can have `get` call `get_all`.
+        let values = match field_name.as_symbol_ref().text() {
+            None => {
+                // Build a cheap, stack-allocated `Symbol` that represents unknown text
+                let symbol = Symbol::unknown_text();
+                self.fields.get(&symbol)
+            }
+            Some(text) => {
+                // Otherwise, look it up by text
+                self.fields.get(text)
+            }
+        };
+
+        match values {
+            Some(values) => Box::new(values.iter()),
+            None => Box::new(None.iter()), // An empty iterator
+        }
     }
 }
 
 impl PartialEq for Struct {
     fn eq(&self, other: &Self) -> bool {
         // check if both text_fields and no_text_fields have same length
-        self.text_fields.len() == other.text_fields.len() && self.no_text_fields.len() == other.no_text_fields.len()
-            // check if text_fields and no_text_fields are equal
+        self.len() == other.len()
             // we need to test equality in both directions for both text_fields and no_text_fields
             // A good example for this is annotated vs not annotated values in struct
             //  { a:4, a:4 } vs. { a:4, a:a::4 } // returns true
             //  { a:4, a:a::4 } vs. { a:4, a:4 } // returns false
-            && self.eq_text_fields(other) && other.eq_text_fields(self)
-            && self.eq_no_text_fields(other) && other.eq_no_text_fields(self)
+            && self.fields_eq(other) && other.fields_eq(self)
     }
 }
 

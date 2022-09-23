@@ -39,6 +39,7 @@ num-integer = "0.1.44"
 num-traits = "0.2"
 arrayvec = "0.7"
 hashlink = "0.8.1"
+smallvec = "1.9.0"
 
 [dev-dependencies]
 rstest = "0.9"
