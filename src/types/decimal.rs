@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use bigdecimal::{BigDecimal, Signed};
@@ -7,12 +6,8 @@ use num_bigint::{BigInt, BigUint, ToBigUint};
 use crate::ion_eq::IonEq;
 use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
-<<<<<<< HEAD
-use crate::types::magnitude::Magnitude;
-=======
 use crate::types::integer::UInteger;
->>>>>>> Collapse Magnitude with UInteger
-use num_traits::{ToPrimitive, Zero};
+use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
