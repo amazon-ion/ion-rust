@@ -3,7 +3,7 @@ use crate::value::IonElement;
 use num_bigint::{BigInt, BigUint, ToBigUint};
 use num_traits::{ToPrimitive, Zero};
 use std::cmp::Ordering;
-use std::ops::{Add, Div, Neg};
+use std::ops::{Add, Neg};
 
 /// Provides convenient integer accessors for integer values that are like [`Integer`]
 pub trait IntAccess {
@@ -99,10 +99,10 @@ impl UInteger {
             return 1;
         }
         let mut digits = 0;
-        let mut remainder = int.to_owned();
+        let mut dividend = int.to_owned();
         let ten: BigUint = BigUint::from(10u64);
-        while remainder > BigUint::zero() {
-            remainder = remainder.div(&ten);
+        while dividend > BigUint::zero() {
+            dividend /= &ten;
             digits += 1;
         }
         digits
