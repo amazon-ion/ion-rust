@@ -57,7 +57,7 @@ impl IonSymbolToken for Symbol {
     }
 }
 
-/// Constructs a [`SymbolTokenRef`] with just text.
+/// Constructs a [`Symbol`] with just text.
 /// A common case for text and synthesizing tokens.
 #[inline]
 pub fn text_token(text: &str) -> Symbol {

@@ -215,6 +215,7 @@ pub mod borrowed;
 pub mod native_reader;
 pub mod native_writer;
 pub mod owned;
+mod raw_element_reader;
 pub mod reader;
 pub mod writer;
 
