@@ -1,10 +1,9 @@
 use crate::result::{decoding_error, IonError};
 use crate::value::IonElement;
 use num_bigint::{BigInt, BigUint, ToBigUint};
-use num_integer::Integer as _;
 use num_traits::{ToPrimitive, Zero};
 use std::cmp::Ordering;
-use std::ops::{Add, Neg};
+use std::ops::{Add, Div, Neg};
 
 /// Provides convenient integer accessors for integer values that are like [`Integer`]
 pub trait IntAccess {
@@ -85,7 +84,7 @@ impl UInteger {
         Ordering::Less
     }
 
-    /// Returns the number of digits in the non-scaled integer representation of the UInteger.
+    /// Returns the number of digits in the base-10 representation of the UInteger.
     pub(crate) fn number_of_decimal_digits(&self) -> u64 {
         match self {
             UInteger::U64(u64_value) => super::num_decimal_digits_in_u64(*u64_value),
@@ -100,11 +99,10 @@ impl UInteger {
             return 1;
         }
         let mut digits = 0;
-        let mut int_value = int.to_owned();
+        let mut remainder = int.to_owned();
         let ten: BigUint = BigUint::from(10u64);
-        while int_value > BigUint::zero() {
-            let (quotient, _) = BigUint::div_rem(&int_value, &ten);
-            int_value = quotient;
+        while remainder > BigUint::zero() {
+            remainder = remainder.div(&ten);
             digits += 1;
         }
         digits
@@ -583,5 +581,15 @@ mod integer_tests {
         #[case] expected: Ordering,
     ) {
         assert_eq!(this.cmp(&other), expected)
+    }
+
+    #[rstest]
+    #[case(UInteger::U64(1), 1)] // only one test case for U64 as that's delegated to another impl
+    #[case(UInteger::BigUInt(BigUint::from(0u64)), 1)]
+    #[case(UInteger::BigUInt(BigUint::from(1u64)), 1)]
+    #[case(UInteger::BigUInt(BigUint::from(10u64)), 2)]
+    #[case(UInteger::BigUInt(BigUint::from(3117u64)), 4)]
+    fn uint_decimal_digits_test(#[case] uint: UInteger, #[case] expected: i32) {
+        assert_eq!(uint.number_of_decimal_digits(), expected as u64)
     }
 }

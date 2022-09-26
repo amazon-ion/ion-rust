@@ -34,9 +34,7 @@ impl Decimal {
     /// Returns scale of the Decimal value
     /// If zero or positive, a scale indicates the number of digits to the right of the decimal point.
     /// If negative, the unscaled value of the number is multiplied by ten to the power of the negation of the scale.
-    /// For example:
-    ///   a scale of -3 means the unscaled value is multiplied by 1000.
-    ///   a scale of 2 means the unscaled value is divided by 100.
+    /// For example, a scale of -3 means the unscaled value is multiplied by 1000.
     pub fn scale(&self) -> i64 {
         self.exponent.neg()
     }
@@ -47,12 +45,6 @@ impl Decimal {
             return self.coefficient.number_of_decimal_digits() + self.exponent as u64;
         }
         self.coefficient.number_of_decimal_digits()
-    }
-
-    /// Returns the Sign of the Decimal value.
-    /// Unscaled zero values may have either a Positive or Negative Sign.
-    pub fn sign(&self) -> Sign {
-        self.coefficient.sign
     }
 
     /// Constructs a Decimal with the value `-0d0`. This is provided as a convenience method
