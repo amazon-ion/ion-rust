@@ -56,7 +56,7 @@ pub trait IntAccess {
 }
 
 /// Represents a UInt of any size. Used for reading binary integers and symbol Ids.
-/// Use to represent the unsigned magnitude of Decimal values and fractional seconds.
+/// Used to represent the unsigned magnitude of Decimal values and fractional seconds.
 #[derive(Debug, Clone)]
 pub enum UInteger {
     U64(u64),
@@ -186,7 +186,7 @@ impl ToBigUint for UInteger {
     }
 }
 
-// This macro makes it possible to turn unsigned int primitives into a Coefficient using `.into()`.
+// This macro makes it possible to turn unsigned int primitives into a UInteger using `.into()`.
 // Note that it works for both signed and unsigned ints. The resulting UInteger will be the
 // absolute value of the integer being converted.
 macro_rules! impl_uinteger_from_small_unsigned_int_types {
@@ -205,13 +205,8 @@ macro_rules! impl_uinteger_from_small_signed_int_types {
     ($($t:ty),*) => ($(
         impl From<$t> for UInteger {
             fn from(value: $t) -> UInteger {
-                // Discard the sign and convert the value to a u64.
-                let magnitude: u64 = value.checked_abs()
-                        .and_then(|v| Some(v.abs() as u64))
-                        // If .abs() fails, it's because <$t>::MIN.abs() cannot be represented
-                        // as a $t. We can handle this case by simply using <$>::MAX + 1
-                        .unwrap_or_else(|| (<$t>::MAX as u64) + 1);
-                UInteger::U64(magnitude)
+                let abs_value = value.unsigned_abs();
+                UInteger::U64(abs_value.try_into().unwrap())
             }
         }
     )*)
