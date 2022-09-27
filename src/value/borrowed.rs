@@ -8,6 +8,7 @@
 //! backed by octets or string data, `&[u8]` and `&str` are used.
 
 use super::{IonElement, IonSequence, IonStruct, IonSymbolToken};
+use crate::symbol_ref::AsSymbolRef;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
@@ -293,24 +294,29 @@ impl<'val> IonStruct for StructRef<'val> {
         )
     }
 
-    fn get<T: AsRef<str>>(&self, field_name: T) -> Option<&Self::Element> {
-        self.text_fields
-            .get(field_name.as_ref())?
-            .last()
-            .map(|(_s, v)| v)
+    fn get<T: AsSymbolRef>(&self, field_name: T) -> Option<&Self::Element> {
+        if let Some(text) = field_name.as_symbol_ref().text() {
+            self.text_fields.get(text)?.last().map(|(_s, v)| v)
+        } else {
+            self.no_text_fields.last().map(|(_name, value)| value)
+        }
     }
 
-    fn get_all<'a, T: AsRef<str>>(
+    fn get_all<'a, T: AsSymbolRef>(
         &'a self,
         field_name: T,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
-        Box::new(
-            self.text_fields
-                .get(field_name.as_ref())
-                .into_iter()
-                .flat_map(|v| v.iter())
-                .map(|(_s, v)| v),
-        )
+        if let Some(text) = field_name.as_symbol_ref().text() {
+            Box::new(
+                self.text_fields
+                    .get(text)
+                    .into_iter()
+                    .flat_map(|v| v.iter())
+                    .map(|(_s, v)| v),
+            )
+        } else {
+            Box::new(self.no_text_fields.iter().map(|(_name, value)| value))
+        }
     }
 }
 

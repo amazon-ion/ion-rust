@@ -396,7 +396,7 @@ fn equivs<E: ElementApi>(_element_api: E, file_name: &str) {
             |group_index, this_index, this, that_index, that| {
                 assert!(
                     this.ion_eq(that),
-                    "in group {}, index {} ({:?}) was not ion_eq to index {} ({:?})",
+                    "in group {}, index {} ({}) was not ion_eq to index {} ({})",
                     group_index,
                     this_index,
                     this,
@@ -419,7 +419,7 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
                 if std::ptr::eq(this, that) {
                     assert!(
                         this.ion_eq(that),
-                        "in group {}, index {} ({:?}) was not ion_eq to index {} ({:?})",
+                        "in group {}, index {} ({}) was not ion_eq to index {} ({})",
                         group_index,
                         this_index,
                         this,
@@ -429,7 +429,7 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
                 } else {
                     assert!(
                         !this.ion_eq(that),
-                        "in group {}, index {} ({:?}) was unexpectedly ion_eq to index {} ({:?})",
+                        "in group {}, index {} ({}) was unexpectedly ion_eq to index {} ({})",
                         group_index,
                         this_index,
                         this,
