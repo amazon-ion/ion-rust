@@ -652,7 +652,7 @@ mod value_tests {
             Element::new_symbol(Symbol::owned("hello")),
             Symbol::owned("hello").into()
         ),
-    case::struct_(
+        case::struct_(
             Element::new_struct(vec![("greetings", Element::from(Value::String("hello".into())))].into_iter()),
             Struct::from_iter(vec![("greetings", Element::from(Value::String("hello".into())))].into_iter()).into()
         ),
@@ -660,5 +660,97 @@ mod value_tests {
     fn owned_element_accessors(elem1: Element, elem2: Element) {
         // assert if both the element construction creates the same element
         assert_eq!(elem1, elem2);
+    }
+
+    #[rstest(
+        container, length,
+        case::struct_(
+            Element::new_struct(
+                vec![
+                    ("greetings", Element::from(Value::String("hello".into()))),
+                    ("name", Element::from(Value::String("Ion".into())))
+                ].into_iter()
+            ),
+            2
+        ),
+        case::list(
+            Element::new_list(
+                vec![
+                    Element::from("greetings".to_owned()),
+                    Element::from(5),
+                    Element::from(true)
+                ].into_iter()
+            ),
+            3
+        ),
+        case::sexp(
+            Element::new_sexp(vec![Element::from(5), Element::from(true)].into_iter()),
+            2
+        ),
+    )]
+    fn owned_container_len_test(container: Element, length: usize) {
+        match container.ion_type() {
+            IonType::List | IonType::SExpression => {
+                // check length for given sequence value
+                assert_eq!(container.as_sequence().unwrap().len(), length);
+            }
+            IonType::Struct => {
+                // check length for given struct value
+                assert_eq!(container.as_struct().unwrap().len(), length);
+            }
+            _ => {
+                unreachable!("This test is only for container type elements")
+            }
+        }
+    }
+
+    #[rstest(
+        container, is_empty,
+        case::struct_(
+                Element::new_struct(
+                vec![
+                    ("greetings", Element::from(Value::String("hello".into()))),
+                    ("name", Element::from(Value::String("Ion".into())))
+                ].into_iter()
+            ),
+            false
+        ),
+        case::list(
+            Element::new_list(
+                vec![
+                    Element::from("greetings".to_owned()),
+                    Element::from(5),
+                    Element::from(true)
+                ].into_iter()
+            ),
+            false
+        ),
+        case::list_empty(
+            Element::new_list(vec![].into_iter()),
+            true
+        ),
+        case::sexp(
+            Element::new_sexp(vec![Element::from(5), Element::from(true)].into_iter()),
+            false
+        ),
+        case::sexp_empty(
+            Element::new_sexp(vec![].into_iter()),
+            true
+        ),
+    )]
+    fn owned_container_is_empty_test(container: Element, is_empty: bool) {
+        match container.ion_type() {
+            IonType::List | IonType::SExpression => {
+                // check length for given sequence value
+                assert_eq!(container.as_sequence().unwrap().is_empty(), is_empty);
+            }
+            IonType::Struct => {
+                // check length for given struct value
+                assert_eq!(container.as_struct().unwrap().is_empty(), is_empty);
+            }
+            _ => {
+                unreachable!("This test is only for container type elements")
+            }
+        }
     }
 }
