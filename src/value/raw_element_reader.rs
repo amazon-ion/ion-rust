@@ -1,7 +1,7 @@
 use crate::result::{decoding_error, illegal_operation, illegal_operation_raw};
 use crate::text::parent_container::ParentContainer;
 use crate::value::owned::Element;
-use crate::value::{IonElement, IonSequence, IonStruct, IonSymbolToken};
+use crate::value::{IonElement, IonSequence, IonStruct};
 use crate::{
     Decimal, Integer, IonError, IonReader, IonResult, IonType, RawStreamItem, Symbol, Timestamp,
 };
@@ -10,26 +10,12 @@ use std::mem;
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
 
-struct ElementIteratorItem<S: IonSymbolToken> {
-    // If the Iterator item is a field then the field_name is set as the field name of that field
-    // Otherwise this is set as None
-    field_name: Option<S>,
-    value: Element,
-}
-
-impl<S: IonSymbolToken> ElementIteratorItem<S> {
-    fn field_name(&self) -> &Option<S> {
-        &self.field_name
-    }
-
-    fn value(&self) -> &Element {
-        &self.value
-    }
-}
-
-pub struct RawElementReader {
+// TODO: Add an IonElementReader trait implementation
+pub struct ElementReader {
     // Represents the element that will be read using this reader
     element: Element,
+    // If the reader is not positioned on a struct the iterator item will store (None, _element_)
+    // Otherwise it will store (Some(_field_name_), _element_)
     current_iter: Box<dyn Iterator<Item = (Option<Symbol>, Element)>>,
     iter_stack: Vec<Box<dyn Iterator<Item = (Option<Symbol>, Element)>>>,
     // If the reader is not positioned over a value inside a struct, this is None.
@@ -41,9 +27,9 @@ pub struct RawElementReader {
     parents: Vec<ParentContainer>,
 }
 
-impl RawElementReader {
-    pub fn new(input: Element) -> RawElementReader {
-        RawElementReader {
+impl ElementReader {
+    pub fn new(input: Element) -> ElementReader {
+        ElementReader {
             element: input,
             current_iter: Box::new(std::iter::empty()),
             iter_stack: vec![],
@@ -130,7 +116,7 @@ impl RawElementReader {
     }
 }
 
-impl IonReader for RawElementReader {
+impl IonReader for ElementReader {
     type Item = RawStreamItem;
     type Symbol = Symbol;
 
@@ -433,7 +419,7 @@ impl IonReader for RawElementReader {
     }
 }
 
-fn next_type(reader: &mut RawElementReader, ion_type: IonType, is_null: bool) {
+fn next_type(reader: &mut ElementReader, ion_type: IonType, is_null: bool) {
     assert_eq!(
         reader.next().unwrap(),
         RawStreamItem::nullable_value(ion_type, is_null)
@@ -442,6 +428,7 @@ fn next_type(reader: &mut RawElementReader, ion_type: IonType, is_null: bool) {
 
 #[cfg(test)]
 mod reader_tests {
+    use crate::value::Builder;
     use rstest::*;
 
     use super::*;
@@ -450,7 +437,7 @@ mod reader_tests {
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::value::owned::text_token;
-    use crate::value::reader::{element_reader, ElementReader};
+    use crate::value::reader::{element_reader, ElementReader as NonStreamElementReader};
     use crate::IonType;
 
     fn load_element(text: &str) -> Element {
@@ -459,7 +446,7 @@ mod reader_tests {
             .expect("parsing failed unexpectedly")
     }
 
-    fn next_type(reader: &mut RawElementReader, ion_type: IonType, is_null: bool) {
+    fn next_type(reader: &mut ElementReader, ion_type: IonType, is_null: bool) {
         assert_eq!(
             reader.next().unwrap(),
             RawStreamItem::nullable_value(ion_type, is_null)
@@ -473,7 +460,7 @@ mod reader_tests {
             [1, 2, 3]
         "#,
         );
-        let reader = &mut RawElementReader::new(ion_data);
+        let reader = &mut ElementReader::new(ion_data);
 
         next_type(reader, IonType::List, false);
         reader.step_in()?;
@@ -503,7 +490,7 @@ mod reader_tests {
             }
         "#,
         );
-        let reader = &mut RawElementReader::new(ion_data);
+        let reader = &mut ElementReader::new(ion_data);
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
         next_type(reader, IonType::List, false);
@@ -543,7 +530,7 @@ mod reader_tests {
         "#,
         );
 
-        let reader = &mut RawElementReader::new(ion_data);
+        let reader = &mut ElementReader::new(ion_data);
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
         next_type(reader, IonType::Integer, false);
@@ -560,6 +547,8 @@ mod reader_tests {
     }
 
     #[rstest]
+    #[case(" null ", Element::new_null(IonType::Null))]
+    #[case(" null.string ", Element::new_null(IonType::String))]
     #[case(" true ", true)]
     #[case(" false ", false)]
     #[case(" 738 ", 738)]
@@ -568,11 +557,13 @@ mod reader_tests {
     #[case(" 2007-07-12T ", Timestamp::with_ymd(2007, 7, 12).build().unwrap())]
     #[case(" foo ", text_token("foo"))]
     #[case(" \"hi!\" ", "hi!".to_owned())]
+    #[case(" {{ZW5jb2RlZA==}} ", Element::new_blob("encoded".as_bytes()))]
+    #[case(" {{\"hello\"}} ", Element::new_clob("hello".as_bytes()))]
     fn test_read_single_top_level_values<E: Into<Element>>(
         #[case] text: &str,
         #[case] expected_value: E,
     ) {
-        let reader = &mut RawElementReader::new(load_element(text));
+        let reader = &mut ElementReader::new(load_element(text));
         let expected_element = expected_value.into();
         next_type(
             reader,
@@ -583,6 +574,32 @@ mod reader_tests {
         //       AnnotatedTextValue any more. We're directly accessing `current_value` as a hack.
         let actual_element = reader.current_value.clone();
         assert_eq!(actual_element.unwrap(), expected_element);
+    }
+
+    #[rstest]
+    #[case(" foo::bar::null ", Element::new_null(IonType::Null).with_annotations(vec![text_token("foo"), text_token("bar")]))]
+    #[case(" foo::true ", Element::new_bool(true).with_annotations(vec![text_token("foo")]))]
+    #[case(" 'foo'::5 ", Element::new_i64(5).with_annotations(vec![text_token("foo")]))]
+    fn test_top_level_values_with_annotations<E: Into<Element>>(
+        #[case] text: &str,
+        #[case] expected_value: E,
+    ) {
+        let reader = &mut ElementReader::new(load_element(text));
+        let expected_element = expected_value.into();
+        next_type(
+            reader,
+            expected_element.ion_type(),
+            expected_element.is_null(),
+        );
+        // TODO: Redo (or remove?) this test. There's not an API that exposes the
+        //       AnnotatedTextValue any more. We're directly accessing `current_value` as a hack.
+        let actual_element = reader.current_value.clone();
+        // check if both the elements are equal, this also considers annotations equality
+        assert_eq!(actual_element.unwrap(), expected_element);
+
+        // verify if the annotations are read without error
+        let reader_annotations: IonResult<Vec<Symbol>> = reader.annotations().collect();
+        assert!(reader_annotations.is_ok());
     }
 
     #[test]
@@ -596,7 +613,7 @@ mod reader_tests {
             )
         "#,
         );
-        let mut reader = RawElementReader::new(pretty_ion);
+        let mut reader = ElementReader::new(pretty_ion);
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::SExpression));
         reader.step_in()?;
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Struct));
