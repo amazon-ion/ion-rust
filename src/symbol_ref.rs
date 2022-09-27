@@ -39,7 +39,7 @@ impl<'a, A: AsRef<str> + 'a> AsSymbolRef for A {
     }
 }
 
-// Owned `Symbol` values can be viewed as a `SymbolRef`. ue to lifetime conflicts in the
+// Owned `Symbol` values can be viewed as a `SymbolRef`. Due to lifetime conflicts in the
 // trait definitions, this cannot be achieved with `AsRef` or `Borrow`.
 impl AsSymbolRef for Symbol {
     fn as_symbol_ref(&self) -> SymbolRef {
