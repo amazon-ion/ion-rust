@@ -14,7 +14,7 @@ use crate::{
     types::{
         coefficient::{Coefficient, Sign},
         decimal::Decimal,
-        magnitude::Magnitude,
+        integer::UInteger,
     },
     IonError,
 };
@@ -23,7 +23,7 @@ const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
     coefficient: Coefficient {
         sign: Sign::Positive,
-        magnitude: Magnitude::U64(0),
+        magnitude: UInteger::U64(0),
     },
     exponent: 0,
 };
@@ -75,8 +75,8 @@ where
         } else {
             // Otherwise, allocate a Vec<u8> with the necessary representation.
             let mut coefficient_bytes = match decimal.coefficient.magnitude() {
-                Magnitude::U64(unsigned) => unsigned.to_be_bytes().into(),
-                Magnitude::BigUInt(big) => big.to_bytes_be(),
+                UInteger::U64(unsigned) => unsigned.to_be_bytes().into(),
+                UInteger::BigUInt(big) => big.to_bytes_be(),
             };
 
             let first_byte: &mut u8 = &mut coefficient_bytes[0];
