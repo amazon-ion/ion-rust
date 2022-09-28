@@ -70,9 +70,7 @@ impl Mantissa {
 
     fn decimals_compare(d1: &Decimal, d2: &Decimal) -> Ordering {
         // See the [EmptyMantissa] trait for details about `is_empty()`
-        if d1.is_empty() && d2.is_empty() {
-            Ordering::Equal
-        } else if d1.coefficient.is_zero() && d2.coefficient.is_zero() {
+        if d1.is_empty() && d2.is_empty() || d1.coefficient.is_zero() && d2.coefficient.is_zero() {
             // Coefficient zeros' signs don't have to be compared for fractional seconds.
             // When testing for ordering rather than equivalence, we only care that
             // Timestamps are pointing to the same point in time, regardless of Precision
