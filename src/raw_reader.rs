@@ -1,17 +1,17 @@
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::stream_reader::StreamReader;
+use crate::stream_reader::IonReader;
 use crate::types::IonType;
 use crate::{Decimal, Integer, IonResult, Timestamp};
 use std::fmt::{Display, Formatter};
 
 /// `RawReader` is a shorthand for a [Reader](crate::Reader) implementation that returns [RawStreamItem]s and
 /// uses [RawSymbolToken] to represent its field names, annotations, and symbol values.
-pub trait RawReader: StreamReader<Item = RawStreamItem, Symbol = RawSymbolToken> {
+pub trait RawReader: IonReader<Item = RawStreamItem, Symbol = RawSymbolToken> {
     // Defines no additional functionality
 }
 impl<T> RawReader for T
 where
-    T: StreamReader<Item = RawStreamItem, Symbol = RawSymbolToken>,
+    T: IonReader<Item = RawStreamItem, Symbol = RawSymbolToken>,
 {
     // No additional implementations are necessary
 }
@@ -21,7 +21,7 @@ where
 ///       invoked. For the moment, calling these methods via dynamic dispatch will result in a
 ///       panic. Longer-term, they will be replaced by object safe methods.
 ///       See: https://github.com/amzn/ion-rust/issues/335
-impl<R: RawReader + ?Sized> StreamReader for Box<R> {
+impl<R: RawReader + ?Sized> IonReader for Box<R> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;
 

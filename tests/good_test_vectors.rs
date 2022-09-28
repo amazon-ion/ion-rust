@@ -9,7 +9,7 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use ion_rs::result::{decoding_error, IonResult};
-use ion_rs::{IonType, Reader, ReaderBuilder, StreamReader};
+use ion_rs::{IonReader, IonType, Reader, ReaderBuilder};
 
 const GOOD_TEST_FILES_PATH: &str = "ion-tests/iontestdata/good/";
 

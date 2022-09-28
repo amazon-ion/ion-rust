@@ -12,7 +12,7 @@ use crate::system_reader::LstPosition::*;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
-use crate::{IonType, RawBinaryReader, StreamReader, SymbolTable};
+use crate::{IonReader, IonType, RawBinaryReader, SymbolTable};
 
 /// Tracks where the [SystemReader] is in the process of reading a local symbol table.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -493,7 +493,7 @@ impl<R: RawReader> SystemReader<R> {
     }
 }
 
-impl<R: RawReader> StreamReader for SystemReader<R> {
+impl<R: RawReader> IonReader for SystemReader<R> {
     type Item = SystemStreamItem;
     type Symbol = Symbol;
 

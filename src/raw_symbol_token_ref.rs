@@ -43,7 +43,10 @@ impl AsRawSymbolTokenRef for &str {
 
 impl AsRawSymbolTokenRef for Symbol {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
-        RawSymbolTokenRef::Text(self.as_ref())
+        match self.text() {
+            Some(text) => RawSymbolTokenRef::Text(text),
+            None => RawSymbolTokenRef::SymbolId(0),
+        }
     }
 }
 

@@ -10,7 +10,7 @@ use crate::text::text_formatter::STRING_ESCAPE_CODES;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::{Precision, Timestamp};
 use crate::types::ContainerType;
-use crate::writer::Writer;
+use crate::writer::IonWriter;
 use crate::{Integer, IonType};
 
 pub struct RawTextWriterBuilder {
@@ -406,7 +406,7 @@ impl<W: Write> RawTextWriter<W> {
     }
 }
 
-impl<W: Write> Writer for RawTextWriter<W> {
+impl<W: Write> IonWriter for RawTextWriter<W> {
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }
@@ -714,7 +714,7 @@ impl<W: Write> Writer for RawTextWriter<W> {
         if popped_encoding_level.child_count > 0 {
             // If this isn't an empty container, put the closing delimiter on the next line
             // with proper indentation.
-            if self.space_between_values.contains(&['\n', '\r']) {
+            if self.space_between_values.contains(['\n', '\r']) {
                 writeln!(&mut self.output)?;
                 for _ in 0..self.depth() {
                     write!(&mut self.output, "{}", self.indentation)?;
@@ -743,7 +743,7 @@ mod tests {
     use crate::result::IonResult;
     use crate::text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder};
     use crate::types::timestamp::Timestamp;
-    use crate::writer::Writer;
+    use crate::writer::IonWriter;
     use crate::IonType;
 
     fn writer_test_with_builder<F>(builder: RawTextWriterBuilder, mut commands: F, expected: &str)

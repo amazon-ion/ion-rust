@@ -5,7 +5,7 @@ use crate::result::{illegal_operation, IonResult};
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
-use crate::writer::Writer;
+use crate::writer::IonWriter;
 use crate::{Integer, IonType, SymbolTable};
 use delegate::delegate;
 use std::io::Write;
@@ -88,11 +88,10 @@ impl<W: Write> BinaryWriter<W> {
             .set_field_name(system_symbol_ids::SYMBOLS);
         self.symbol_table_writer.step_in(IonType::List)?;
         for symbol in pending_symbols {
-            if let Some(text) = symbol {
-                self.symbol_table_writer.write_string(text)?;
-            } else {
-                self.symbol_table_writer.write_null(IonType::Null)?;
-            }
+            match symbol.text() {
+                Some(text) => self.symbol_table_writer.write_string(text),
+                None => self.symbol_table_writer.write_null(IonType::Null),
+            }?;
         }
         self.symbol_table_writer.step_out()?; // End symbols list
 
@@ -108,7 +107,7 @@ impl<W: Write> BinaryWriter<W> {
     }
 }
 
-impl<W: Write> Writer for BinaryWriter<W> {
+impl<W: Write> IonWriter for BinaryWriter<W> {
     fn supports_text_symbol_tokens(&self) -> bool {
         // The BinaryWriter can always write text field names, annotations, and symbols
         // after first adding the provided text to the symbol table.
@@ -208,7 +207,7 @@ impl<W: Write> Writer for BinaryWriter<W> {
 mod tests {
     use super::*;
     use crate::reader::ReaderBuilder;
-    use crate::stream_reader::StreamReader;
+    use crate::stream_reader::IonReader;
 
     use crate::StreamItem::Value;
 
@@ -227,7 +226,7 @@ mod tests {
         reader.step_in()?;
         assert_eq!(Value(IonType::Symbol), reader.next()?);
         assert_eq!("foo", reader.field_name()?);
-        assert_eq!("bar", reader.read_symbol()?.as_ref());
+        assert_eq!("bar", reader.read_symbol()?.text_or_error()?);
 
         Ok(())
     }

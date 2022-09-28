@@ -2,7 +2,7 @@ use crate::ion_eq::IonEq;
 use crate::result::{illegal_operation, illegal_operation_raw, IonError, IonResult};
 use crate::types::coefficient::Sign;
 use crate::types::decimal::Decimal;
-use crate::types::magnitude::Magnitude;
+use crate::types::integer::UInteger;
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
 };
@@ -12,8 +12,6 @@ use std::convert::TryInto;
 use std::fmt::Debug;
 use std::ops::Div;
 
-#[cfg(feature = "ion_c")]
-use ion_c_sys::timestamp::{IonDateTime, TSOffsetKind, TSPrecision};
 use std::cmp::Ordering;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
@@ -239,8 +237,8 @@ impl Timestamp {
                 const NANOSECONDS_EXPONENT: i64 = -9;
                 let exponent_delta = decimal.exponent - NANOSECONDS_EXPONENT;
                 let magnitude = match decimal.coefficient.magnitude() {
-                    Magnitude::U64(magnitude) => *magnitude,
-                    Magnitude::BigUInt(magnitude) => {
+                    UInteger::U64(magnitude) => *magnitude,
+                    UInteger::BigUInt(magnitude) => {
                         // If the magnitude is small enough to fit in a u64, do the conversion.
                         if let Ok(small_magnitude) = u64::try_from(magnitude) {
                             small_magnitude
@@ -1108,79 +1106,6 @@ impl From<DateTime<FixedOffset>> for Timestamp {
     }
 }
 
-#[cfg(feature = "ion_c")]
-impl From<ion_c_sys::timestamp::IonDateTime> for Timestamp {
-    fn from(ionc_dt: IonDateTime) -> Self {
-        use ion_c_sys::timestamp::Mantissa as IonCMantissa;
-
-        let offset = match ionc_dt.offset_kind() {
-            TSOffsetKind::KnownOffset => Some(*ionc_dt.as_datetime().offset()),
-            TSOffsetKind::UnknownOffset => None,
-        };
-        let precision = match ionc_dt.precision() {
-            TSPrecision::Year => Precision::Year,
-            TSPrecision::Month => Precision::Month,
-            TSPrecision::Day => Precision::Day,
-            TSPrecision::Minute => Precision::HourAndMinute,
-            TSPrecision::Second => Precision::Second,
-            TSPrecision::Fractional(_) => Precision::Second,
-        };
-        let fractional_seconds = if let TSPrecision::Fractional(mantissa) = ionc_dt.precision() {
-            match mantissa {
-                IonCMantissa::Digits(digits) => Mantissa::Digits(*digits),
-                IonCMantissa::Fraction(fraction) => Mantissa::Arbitrary(fraction.clone().into()),
-            }
-        } else {
-            Mantissa::Digits(0)
-        };
-        let date_time = ionc_dt.into_datetime().naive_utc();
-        Timestamp {
-            date_time,
-            offset,
-            precision,
-            fractional_seconds,
-        }
-    }
-}
-
-/// In general there should be 1-to-1 fidelity between these types, but there
-/// is no static way to guarantee this because of [`Decimal`] and the public constructor for
-/// [`IonDateTime`](ion_c_sys::timestamp::IonDateTime).
-#[cfg(feature = "ion_c")]
-impl TryInto<ion_c_sys::timestamp::IonDateTime> for Timestamp {
-    type Error = IonError;
-
-    fn try_into(self) -> Result<IonDateTime, Self::Error> {
-        use ion_c_sys::timestamp::Mantissa as IonCMantissa;
-
-        let (offset_kind, offset) = match self.offset {
-            None => (TSOffsetKind::UnknownOffset, FixedOffset::east(0)),
-            Some(offset) => (TSOffsetKind::KnownOffset, offset),
-        };
-        let precision = match (self.precision, self.fractional_seconds) {
-            (Precision::Year, _) => TSPrecision::Year,
-            (Precision::Month, _) => TSPrecision::Month,
-            (Precision::Day, _) => TSPrecision::Day,
-            (Precision::HourAndMinute, _) => TSPrecision::Minute,
-            (Precision::Second, mantissa) => {
-                if mantissa.is_zero() {
-                    TSPrecision::Second
-                } else {
-                    TSPrecision::Fractional(match mantissa {
-                        Mantissa::Digits(digits) => IonCMantissa::Digits(digits),
-                        Mantissa::Arbitrary(fraction) => {
-                            IonCMantissa::Fraction(fraction.try_into()?)
-                        }
-                    })
-                }
-            }
-        };
-        let date_time = offset.from_utc_datetime(&self.date_time);
-
-        Ok(IonDateTime::try_new(date_time, precision, offset_kind)?)
-    }
-}
-
 #[cfg(test)]
 mod timestamp_tests {
     use crate::ion_eq::IonEq;
@@ -1678,139 +1603,5 @@ mod timestamp_tests {
         };
         assert_eq!(t1, t2);
         assert!(t1.ion_eq(&t2));
-    }
-}
-
-#[cfg(all(test, feature = "ion_c"))]
-mod ionc_tests {
-    use super::*;
-    use bigdecimal::BigDecimal;
-    use ion_c_sys::timestamp as ionc_ts;
-    use rstest::*;
-
-    fn fractional(lit: &str) -> ionc_ts::Mantissa {
-        ionc_ts::Mantissa::Fraction(BigDecimal::parse_bytes(lit.as_bytes(), 10).unwrap())
-    }
-
-    fn decimal(lit: &str) -> Decimal {
-        BigDecimal::parse_bytes(lit.as_bytes(), 10).unwrap().into()
-    }
-
-    /// Creates an `IonDateTime` from constituent components or panics.
-    fn ionc_dt(dt_lit: &str, precision: TSPrecision, offset_kind: TSOffsetKind) -> IonDateTime {
-        let dt = DateTime::parse_from_rfc3339(dt_lit).unwrap();
-        IonDateTime::try_new(dt, precision, offset_kind).unwrap()
-    }
-
-    #[rstest]
-    #[case::year(
-        ionc_dt(
-            "2020-01-01T00:01:00Z",
-            ionc_ts::TSPrecision::Year,
-            ionc_ts::TSOffsetKind::UnknownOffset
-        ),
-        Timestamp::with_year(2020).build().unwrap()
-    )]
-    #[case::month(
-        ionc_dt(
-            "2020-01-01T00:01:00Z",
-            ionc_ts::TSPrecision::Month,
-            ionc_ts::TSOffsetKind::UnknownOffset
-        ),
-        Timestamp::with_year(2020)
-            .with_month(1)
-            .build()
-            .unwrap()
-    )]
-    #[case::day(
-        ionc_dt(
-            "2020-01-01T00:01:00Z",
-            ionc_ts::TSPrecision::Day,
-            ionc_ts::TSOffsetKind::UnknownOffset
-        ),
-        Timestamp::with_year(2020)
-            .with_month(1)
-            .with_day(1)
-            .build()
-            .unwrap()
-    )]
-    #[case::minute_unknown(
-        ionc_dt(
-            "2020-01-01T00:01:00Z",
-            ionc_ts::TSPrecision::Minute,
-            ionc_ts::TSOffsetKind::UnknownOffset
-        ),
-        Timestamp::with_ymd(2020, 1, 1)
-            .with_hour_and_minute(0, 1)
-            .build_at_unknown_offset()
-            .unwrap()
-    )]
-    #[case::minute_minus0800(
-        ionc_dt(
-            "2020-01-01T00:01:00-08:00",
-            ionc_ts::TSPrecision::Minute,
-            ionc_ts::TSOffsetKind::KnownOffset
-        ),
-        Timestamp::with_ymd(2020, 1, 1)
-            .with_hour_and_minute(0, 1)
-            .build_at_offset(-8 * 60)
-            .unwrap()
-    )]
-    #[case::second_plus0400(
-        ionc_dt(
-            "2020-01-01T00:01:23+04:00",
-            ionc_ts::TSPrecision::Second,
-            ionc_ts::TSOffsetKind::KnownOffset
-        ),
-        Timestamp::with_ymd(2020, 1, 1)
-            .with_hms(0, 1, 23)
-            .build_at_offset(4 * 60)
-            .unwrap()
-    )]
-    #[case::millis_zulu(
-        ionc_dt(
-            "2020-01-01T00:01:23.678Z",
-            ionc_ts::TSPrecision::Fractional(ionc_ts::Mantissa::Digits(3)),
-            ionc_ts::TSOffsetKind::KnownOffset
-        ),
-        Timestamp::with_ymd(2020, 1, 1)
-            .with_hms(0, 1, 23)
-            .with_milliseconds(678)
-            .build_at_offset(0)
-            .unwrap()
-    )]
-    #[case::fivedigits_zulu(
-        ionc_dt(
-            "2020-01-01T00:01:23.6789Z",
-            ionc_ts::TSPrecision::Fractional(ionc_ts::Mantissa::Digits(4)),
-            ionc_ts::TSOffsetKind::KnownOffset
-        ),
-        Timestamp::with_ymd(2020, 1, 1)
-            .with_hms(0, 1, 23)
-            .with_nanoseconds_and_precision(678900000, 4)
-            .build_at_offset(0)
-            .unwrap()
-    )]
-    #[case::beyondnanos_zulu(
-        ionc_dt(
-            "2020-01-01T00:01:23.999888777Z",
-            ionc_ts::TSPrecision::Fractional(fractional("0.99988877766")),
-            ionc_ts::TSOffsetKind::KnownOffset
-        ),
-        Timestamp::with_ymd(2020, 1, 1)
-            .with_hms(0, 1, 23)
-            .with_fractional_seconds(decimal("0.99988877766"))
-            .build_at_offset(0)
-            .unwrap()
-    )]
-    fn convert_from_to_ionc(
-        #[case] source: IonDateTime,
-        #[case] expected: Timestamp,
-    ) -> IonResult<()> {
-        let actual: Timestamp = source.clone().into();
-        assert!(expected.ion_eq(&actual));
-        let converted_source: IonDateTime = actual.try_into()?;
-        assert_eq!(source, converted_source);
-        Ok(())
     }
 }

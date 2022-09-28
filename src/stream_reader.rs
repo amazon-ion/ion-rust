@@ -11,7 +11,7 @@ use crate::types::IonType;
  * Once a value has successfully been read from the stream using one of the read_* functions,
  * calling that function again may return an Err. This is left to the discretion of the implementor.
  */
-pub trait StreamReader {
+pub trait IonReader {
     /// The type returned by calls to [Self::next], indicating the next entity in the stream.
     /// Reader implementations representing different levels of abstraction will surface
     /// different sets of encoding artifacts. While an application-level Reader would only surface

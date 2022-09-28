@@ -1,16 +1,16 @@
 use crate::value::writer::ElementWriter;
-use crate::value::{Element, Sequence, Struct, SymbolToken};
-use crate::{IonResult, IonType, RawSymbolTokenRef, Writer};
+use crate::value::{IonElement, IonSequence, IonStruct, IonSymbolToken};
+use crate::{IonResult, IonType, IonWriter, RawSymbolTokenRef};
 
 /// Writes [Element] instances to the underlying [Writer] implementation.
-pub struct NativeElementWriter<W: Writer> {
+pub struct NativeElementWriter<W: IonWriter> {
     writer: W,
 }
 
-impl<W: Writer> ElementWriter for NativeElementWriter<W> {
+impl<W: IonWriter> ElementWriter for NativeElementWriter<W> {
     type Output = W;
 
-    fn write<E: Element>(&mut self, element: &E) -> IonResult<()> {
+    fn write<E: IonElement>(&mut self, element: &E) -> IonResult<()> {
         self.write_element(None, element)
     }
 
@@ -20,7 +20,7 @@ impl<W: Writer> ElementWriter for NativeElementWriter<W> {
     }
 }
 
-impl<W: Writer> NativeElementWriter<W> {
+impl<W: IonWriter> NativeElementWriter<W> {
     /// Constructs a new `NativeElementWriter` that wraps the provided [Writer] implementation.
     pub fn new(writer: W) -> Self {
         NativeElementWriter { writer }
@@ -28,7 +28,7 @@ impl<W: Writer> NativeElementWriter<W> {
 
     /// Recursively writes the given `element` and its child elements (if any) to the underlying
     /// writer.
-    fn write_element<E: Element>(
+    fn write_element<E: IonElement>(
         &mut self,
         field_name: Option<&str>,
         element: &E,
@@ -40,7 +40,7 @@ impl<W: Writer> NativeElementWriter<W> {
         let element_annotations = element.annotations().map(|token| {
             if let Some(text) = token.text() {
                 RawSymbolTokenRef::Text(text)
-            } else if let Some(sid) = token.local_sid() {
+            } else if let Some(sid) = token.symbol_id() {
                 RawSymbolTokenRef::SymbolId(sid)
             } else {
                 unreachable!("cannot write annotation with neither text nor symbol ID")

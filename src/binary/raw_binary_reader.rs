@@ -22,7 +22,7 @@ use std::io;
 
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error_raw, IonError};
-use crate::stream_reader::StreamReader;
+use crate::stream_reader::IonReader;
 use crate::types::decimal::Decimal;
 use crate::types::integer::{IntAccess, Integer};
 use crate::types::timestamp::Timestamp;
@@ -276,7 +276,7 @@ macro_rules! read_safety_checks {
     };
 }
 
-impl<R: IonDataSource> StreamReader for RawBinaryReader<R> {
+impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;
 
@@ -1187,7 +1187,7 @@ mod tests {
     use crate::raw_reader::{RawStreamItem, RawStreamItem::*};
     use crate::raw_symbol_token::local_sid_token;
     use crate::result::{IonError, IonResult};
-    use crate::stream_reader::StreamReader;
+    use crate::stream_reader::IonReader;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::types::IonType;

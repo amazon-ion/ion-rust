@@ -133,9 +133,9 @@ where
 mod binary_timestamp_tests {
     use super::*;
     use crate::reader;
+    use crate::IonReader;
     use crate::IonType;
     use crate::ReaderBuilder;
-    use crate::StreamReader;
     use rstest::*;
 
     // These tests show how varying levels of precision affects number of bytes
