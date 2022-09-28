@@ -79,6 +79,7 @@ where
                         // branch owning vs borrowing the decimal
                         // representation. #286 should provide a fix.
                         match &timestamp.fractional_seconds {
+                            Mantissa::Digits(0) => {}, // Do nothing.
                             Mantissa::Digits(precision) => {
                                 // Consider the following case: `2000-01-01T00:00:00.123Z`.
                                 // That's 123 millis, or 123,000,000 nanos.

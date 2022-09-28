@@ -9,6 +9,7 @@ use chrono::{
 use num_bigint::BigUint;
 use num_traits::ToPrimitive;
 use std::convert::TryInto;
+use std::default;
 use std::fmt::Debug;
 use std::ops::Div;
 
@@ -73,15 +74,20 @@ impl Mantissa {
             Ordering::Equal
         } else if d1.coefficient.is_zero() && d2.coefficient.is_zero() {
             // Coefficient zeros' signs don't have to be compared for fractional seconds.
-            if d1.coefficient.sign() == Sign::Positive {
-                d2.exponent.cmp(&d1.exponent)
-            } else {
-                d1.exponent.cmp(&d2.exponent)
-            }
+
+            // When testing for ordering rather than equivalence, we only care that 
+            // Timestamps are pointing to the same point in time, regardless of Precision
+            Ordering::Equal
         } else {
             // Exact comparison test
             d1.cmp(d2)
         }
+    }
+}
+
+impl Default for Mantissa {
+    fn default() -> Self {
+        Self::Digits(0)
     }
 }
 
@@ -165,7 +171,7 @@ impl Timestamp {
     {
         let mut timestamp: Timestamp = datetime.into();
         if precision < Precision::Second {
-            timestamp.fractional_seconds = Mantissa::Digits(0);
+            timestamp.fractional_seconds = Mantissa::default();
         }
         timestamp.precision = precision;
         timestamp
@@ -287,14 +293,8 @@ impl Timestamp {
     fn fractional_seconds_equal(&self, other: &Timestamp) -> bool {
         use Mantissa::*;
 
-        // TODO: make Timestamp::fractional_seconds to be Mantissa when creating a Timestamp to get rid of below conversion
-        // convert Option<&Mantissa> to &Mantissa
-        let m1 = &self.fractional_seconds;
-
-        let m2 = &other.fractional_seconds;
-
         // compare fractional seconds
-        match (m1, m2) {
+        match (&self.fractional_seconds, &other.fractional_seconds) {
             (Digits(d1), Digits(d2)) => {
                 if d1 != d2 {
                     // Different precisions
@@ -1560,7 +1560,7 @@ mod timestamp_tests {
     #[case::timestamp_with_same_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Equal)]
     #[case::timestamp_with_different_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
     #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
-    #[case::timestamp_with_second_precison_and_year_precision(Timestamp::with_ymd(2001, 1, 1).build().unwrap(), Timestamp::with_ymd_hms(2001, 1, 1, 0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000u128, -20)).build_at_unknown_offset().unwrap(), Ordering::Less)]
+    #[case::timestamp_with_second_precison_and_year_precision(Timestamp::with_ymd(2001, 1, 1).build().unwrap(), Timestamp::with_ymd_hms(2001, 1, 1, 0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000u128, -20)).build_at_unknown_offset().unwrap(), Ordering::Equal)]
     fn timestamp_ordering_tests(
         #[case] this: Timestamp,
         #[case] other: Timestamp,
