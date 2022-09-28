@@ -74,8 +74,7 @@ impl Mantissa {
             Ordering::Equal
         } else if d1.coefficient.is_zero() && d2.coefficient.is_zero() {
             // Coefficient zeros' signs don't have to be compared for fractional seconds.
-
-            // When testing for ordering rather than equivalence, we only care that 
+            // When testing for ordering rather than equivalence, we only care that
             // Timestamps are pointing to the same point in time, regardless of Precision
             Ordering::Equal
         } else {
@@ -260,7 +259,7 @@ impl Timestamp {
                         }
                     }
                 };
-                
+
                 (magnitude as f64 * 10f64.powi(exponent_delta as i32)) as u32
             }
         }
