@@ -9,7 +9,7 @@ use chrono::{
 use num_bigint::BigUint;
 use num_traits::ToPrimitive;
 use std::convert::TryInto;
-use std::default;
+
 use std::fmt::Debug;
 use std::ops::Div;
 
@@ -260,8 +260,8 @@ impl Timestamp {
                         }
                     }
                 };
-                let nanoseconds = (magnitude as f64 * 10f64.powi(exponent_delta as i32)) as u32;
-                nanoseconds
+                
+                (magnitude as f64 * 10f64.powi(exponent_delta as i32)) as u32
             }
         }
     }
@@ -276,14 +276,14 @@ impl Timestamp {
                 let d2 = other.date_time.nanosecond();
                 d1.cmp(&d2)
             }
-            (Arbitrary(d1), Arbitrary(d2)) => Mantissa::decimals_compare(&d1, &d2),
+            (Arbitrary(d1), Arbitrary(d2)) => Mantissa::decimals_compare(d1, d2),
             (Digits(_d1), Arbitrary(d2)) => {
                 let d1 = self.fractional_seconds_as_decimal();
-                Mantissa::decimals_compare(&d1, &d2)
+                Mantissa::decimals_compare(&d1, d2)
             }
             (Arbitrary(d1), Digits(_d2)) => {
                 let d2 = other.fractional_seconds_as_decimal();
-                Mantissa::decimals_compare(&d1, &d2)
+                Mantissa::decimals_compare(d1, &d2)
             }
         }
     }
@@ -304,14 +304,14 @@ impl Timestamp {
                 let d2 = first_n_digits_of(*d2, other.date_time.nanosecond());
                 d1 == d2
             }
-            (Arbitrary(d1), Arbitrary(d2)) => Mantissa::decimals_equal(&d1, &d2),
+            (Arbitrary(d1), Arbitrary(d2)) => Mantissa::decimals_equal(d1, d2),
             (Digits(_d1), Arbitrary(d2)) => {
                 let d1 = self.fractional_seconds_as_decimal();
-                Mantissa::decimals_equal(&d1, &d2)
+                Mantissa::decimals_equal(&d1, d2)
             }
             (Arbitrary(d1), Digits(_d2)) => {
                 let d2 = other.fractional_seconds_as_decimal();
-                Mantissa::decimals_equal(&d1, &d2)
+                Mantissa::decimals_equal(d1, &d2)
             }
         }
     }
@@ -1591,13 +1591,13 @@ mod timestamp_tests {
     fn ion_eq_fraction_seconds_mixed_mantissa_2() {
         let t1 = Timestamp {
             date_time: NaiveDateTime::from_str("2001-08-01T18:18:49.006").unwrap(),
-            offset: Some(FixedOffset::east(60 * 60 * 1 + 60 * 1)),
+            offset: Some(FixedOffset::east(60 * 60 + 60)),
             precision: Precision::Second,
             fractional_seconds: Mantissa::Digits(5),
         };
         let t2 = Timestamp {
             date_time: NaiveDateTime::from_str("2001-08-01T18:18:49").unwrap(),
-            offset: Some(FixedOffset::east(60 * 60 * 1 + 60 * 1)),
+            offset: Some(FixedOffset::east(60 * 60 + 60)),
             precision: Precision::Second,
             fractional_seconds: Mantissa::Arbitrary(Decimal::new(600u64, -5)),
         };

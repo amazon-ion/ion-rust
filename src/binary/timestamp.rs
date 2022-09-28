@@ -90,7 +90,7 @@ where
                                 bytes_written += self.encode_decimal(&fractional)?;
                             }
                             Mantissa::Arbitrary(decimal) => {
-                                bytes_written += self.encode_decimal(&decimal)?;
+                                bytes_written += self.encode_decimal(decimal)?;
                             }
                         };
                     }
