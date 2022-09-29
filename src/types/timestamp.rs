@@ -8,11 +8,10 @@ use chrono::{
 };
 use num_bigint::BigUint;
 use num_traits::ToPrimitive;
-use std::convert::TryInto;
-use std::fmt::Debug;
-use std::ops::Div;
-
 use std::cmp::Ordering;
+use std::convert::TryInto;
+use std::fmt::{Debug, Display, Formatter};
+use std::ops::Div;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
@@ -349,10 +348,7 @@ impl Timestamp {
     }
 
     /// Writes the fractional seconds portion of a text timestamp, including a leading `.`.
-    pub(crate) fn format_fractional_seconds<W: std::fmt::Write>(
-        &self,
-        mut output: W,
-    ) -> IonResult<()> {
+    fn format_fractional_seconds<W: std::fmt::Write>(&self, output: &mut W) -> IonResult<()> {
         if self.fractional_seconds.is_none() {
             // Nothing to do.
             return Ok(());
@@ -413,66 +409,80 @@ impl Timestamp {
         }
     }
 
-    /// Writes the fractional seconds portion of a text timestamp, including a leading `.`.
-    pub(crate) fn fmt_fractional_seconds<W: std::io::Write>(&self, mut output: W) -> IonResult<()> {
-        if self.fractional_seconds.is_none() {
-            // Nothing to do.
-            return Ok(());
-        }
-        let mantissa = self.fractional_seconds.as_ref().unwrap();
-        if mantissa.is_empty() {
-            // No need to write anything.
-            return Ok(());
-        }
-        match mantissa {
-            Mantissa::Digits(num_digits) => {
-                // Scale the nanoseconds down to the requested number of digits.
-                // Example: if `num_digits` is 3 (that is: millisecond precision), we need to
-                // divide the nanoseconds by 10^(9-3) to get the correct precision:
-                //      123,000,000 nanoseconds / 10^(9-3) = 123 milliseconds
-                let scaled = self.date_time.nanosecond() / 10u32.pow(9 - *num_digits);
-                // If our scaled number has fewer digits than the precision states, add leading
-                // zeros to the output to make up the difference.
-                // Example: `num_digits` is 6 (microsecond precision) but our number of microseconds
-                // is `9500` (only 4 digits), we need to add two leading zeros to make: `009500`.
-                let actual_num_digits = super::num_decimal_digits_in_u64(scaled as u64);
-                let num_leading_zeros = (*num_digits as u64) - actual_num_digits;
-                write!(output, ".")?;
-                for _ in 0..num_leading_zeros {
-                    write!(output, "0")?;
-                }
-                write!(output, "{}", scaled)?;
-                Ok(())
-            }
-            Mantissa::Arbitrary(decimal) => {
-                let exponent = decimal.exponent;
-                let coefficient = &decimal.coefficient;
-                if exponent >= 0 {
-                    // We know that the coefficient is non-zero (the mantissa was not empty),
-                    // so having a positive exponent would result in an illegal fractional
-                    // seconds value.
-                    panic!("found fractional seconds decimal that was >= 1.");
-                }
+    pub(crate) fn write_timestamp<'a, W: std::fmt::Write>(&self, output: &mut W) -> IonResult<()> {
+        let (offset_minutes, datetime) = if let Some(minutes) = self.offset {
+            // Create a datetime with the appropriate offset that we can use for formatting.
+            let datetime: DateTime<FixedOffset> = self.clone().try_into()?;
+            // Convert the offset to minutes --v
+            (Some(minutes.local_minus_utc() / 60), datetime)
+        } else {
+            // Our timestamp has an unknown offset. Per the spec, this means it makes no
+            // assertions about *where* it was recorded, but its fields are still in UTC.
+            // Create a UTC datetime that we can use for formatting.
+            let datetime: NaiveDateTime = self.clone().try_into()?;
+            let datetime: DateTime<FixedOffset> = FixedOffset::east(0).from_utc_datetime(&datetime);
+            (None, datetime)
+        };
 
-                let num_digits = decimal.coefficient.number_of_decimal_digits();
-                let abs_exponent = decimal.exponent.unsigned_abs();
-                // At this point, we know that the abs_exponent is greater than num_digits because
-                // the decimal has to be < 1.
-                let num_leading_zeros = abs_exponent - num_digits;
-                write!(output, ".")?;
-                for _ in 0..num_leading_zeros {
-                    write!(output, "0")?;
-                }
-                if coefficient.is_negative_zero() {
-                    write!(output, "0")?;
-                } else if coefficient.sign == Negative {
-                    panic!("cannot have a negative coefficient (other than -0)");
-                } else {
-                    write!(output, "{}", decimal.coefficient)?;
-                }
-                Ok(())
-            }
+        write!(output, "{:0>4}", datetime.year())?;
+        //                     ^-- 0-padded, right aligned, 4-digit year
+        if self.precision == Precision::Year {
+            write!(output, "T")?;
+            return Ok(());
         }
+
+        write!(output, "-{:0>2}", datetime.month())?;
+        //                   ^-- delimiting hyphen and 0-padded, right aligned, 2-digit month
+        if self.precision == Precision::Month {
+            write!(output, "T")?;
+            return Ok(());
+        }
+
+        write!(output, "-{:0>2}", datetime.day())?;
+        //                   ^-- delimiting hyphen and 0-padded, right aligned, 2-digit day
+        if self.precision == Precision::Day {
+            write!(output, "T")?;
+            return Ok(());
+        }
+
+        write!(
+            output,
+            "T{:0>2}:{:0>2}",
+            // ^-- delimiting T, formatted hour, delimiting colon, formatted minute
+            datetime.hour(),
+            datetime.minute()
+        )?;
+        if self.precision == Precision::HourAndMinute {
+            self.format_offset(offset_minutes, output)?;
+            return Ok(());
+        }
+
+        write!(output, ":{:0>2}", datetime.second())?;
+        //                   ^-- delimiting colon, formatted second
+        self.format_fractional_seconds(output)?;
+        self.format_offset(offset_minutes, output)?;
+        Ok(())
+    }
+
+    fn format_offset<W: std::fmt::Write>(
+        &self,
+        offset_minutes: Option<i32>,
+        output: &mut W,
+    ) -> IonResult<()> {
+        if offset_minutes.is_none() {
+            write!(output, "-00:00")?;
+            return Ok(());
+        }
+        let offset_minutes = offset_minutes.unwrap();
+
+        const MINUTES_PER_HOUR: i32 = 60;
+        // Split the offset into a sign and magnitude for formatting
+        let sign = if offset_minutes >= 0 { "+" } else { "-" };
+        let offset_minutes = offset_minutes.abs();
+        let hours = offset_minutes / MINUTES_PER_HOUR;
+        let minutes = offset_minutes % MINUTES_PER_HOUR;
+        write!(output, "{}{:0>2}:{:0>2}", sign, hours, minutes)?;
+        Ok(())
     }
 
     // ============================================================================
@@ -546,6 +556,14 @@ impl Timestamp {
     /// Returns the precision that has been specified in the [Timestamp].
     pub fn precision(&self) -> Precision {
         self.precision
+    }
+}
+
+/// Formats an ISO-8601 timestamp of appropriate precision and offset.
+impl Display for Timestamp {
+    fn fmt(&self, output: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        self.write_timestamp(output).map_err(|_| std::fmt::Error)?;
+        Ok(())
     }
 }
 
@@ -1154,6 +1172,7 @@ mod timestamp_tests {
     use rstest::*;
     use std::cmp::Ordering;
     use std::convert::TryInto;
+    use std::io::Write;
     use std::str::FromStr;
 
     #[test]
@@ -1651,5 +1670,23 @@ mod timestamp_tests {
         };
         assert_eq!(t1, t2);
         assert!(t1.ion_eq(&t2));
+    }
+
+    #[rstest]
+    #[case(Timestamp::with_year(3030).build().unwrap(), "3030T")]
+    #[case(Timestamp::with_year(3030).with_month(11).build().unwrap(), "3030-11T")]
+    #[case(Timestamp::with_ymd(3030, 03, 31).build().unwrap(), "3030-03-31T")]
+    #[case(Timestamp::with_ymd(3030, 03, 31).with_hour_and_minute(17, 31).build_at_unknown_offset().unwrap(), "3030-03-31T17:31-00:00")]
+    #[case(Timestamp::with_ymd(3030, 03, 31).with_hour_and_minute(17, 31).build_at_offset(-420).unwrap(), "3030-03-31T17:31-07:00")]
+    #[case(Timestamp::with_ymd(3030, 03, 31).with_hour_and_minute(17, 31).build_utc_fields_at_offset(-420).unwrap(), "3030-03-31T10:31-07:00")]
+    #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).build_at_offset(0).unwrap(), "3030-03-31T17:31:57+00:00")]
+    #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).with_milliseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.027+00:00")]
+    #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).with_microseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000027+00:00")]
+    #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).with_nanoseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000000027+00:00")]
+    #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).with_fractional_seconds(Decimal::new(27, -12)).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000000000027+00:00")]
+    fn test_display(#[case] ts: Timestamp, #[case] expect: String) {
+        let mut buf = Vec::new();
+        write!(&mut buf, "{}", ts);
+        assert_eq!(expect, String::from_utf8(buf).unwrap());
     }
 }

@@ -1,10 +1,7 @@
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::types::timestamp::Precision;
 use crate::value::owned::{Sequence, Struct};
 use crate::value::{IonSequence, IonStruct};
 use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Symbol, Timestamp};
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
-use std::convert::TryInto;
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
 
@@ -366,76 +363,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
     }
 
     pub fn format_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
-        let (offset_minutes, datetime) = if let Some(minutes) = value.offset {
-            // Create a datetime with the appropriate offset that we can use for formatting.
-            let datetime: DateTime<FixedOffset> = value.clone().try_into()?;
-            // Convert the offset to minutes --v
-            (Some(minutes.local_minus_utc() / 60), datetime)
-        } else {
-            // Our timestamp has an unknown offset. Per the spec, this means it makes no
-            // assertions about *where* it was recorded, but its fields are still in UTC.
-            // Create a UTC datetime that we can use for formatting.
-            let datetime: NaiveDateTime = value.clone().try_into()?;
-            let datetime: DateTime<FixedOffset> = FixedOffset::east(0).from_utc_datetime(&datetime);
-            (None, datetime)
-        };
-
-        write!(self.output, "{:0>4}", datetime.year())?;
-        //                     ^-- 0-padded, right aligned, 4-digit year
-        if value.precision == Precision::Year {
-            write!(self.output, "T")?;
-            return Ok(());
-        }
-
-        write!(self.output, "-{:0>2}", datetime.month())?;
-        //                   ^-- delimiting hyphen and 0-padded, right aligned, 2-digit month
-        if value.precision == Precision::Month {
-            write!(self.output, "T")?;
-            return Ok(());
-        }
-
-        write!(self.output, "-{:0>2}", datetime.day())?;
-        //                   ^-- delimiting hyphen and 0-padded, right aligned, 2-digit day
-        if value.precision == Precision::Day {
-            write!(self.output, "T")?;
-            return Ok(());
-        }
-
-        write!(
-            self.output,
-            "T{:0>2}:{:0>2}",
-            // ^-- delimiting T, formatted hour, delimiting colon, formatted minute
-            datetime.hour(),
-            datetime.minute()
-        )?;
-        if value.precision == Precision::HourAndMinute {
-            self.format_offset(offset_minutes)?;
-            return Ok(());
-        }
-
-        write!(self.output, ":{:0>2}", datetime.second())?;
-        //                   ^-- delimiting colon, formatted second
-        value.format_fractional_seconds(&mut *self.output)?;
-
-        self.format_offset(offset_minutes)?;
-        Ok(())
-    }
-
-    fn format_offset(&mut self, offset_minutes: Option<i32>) -> IonResult<()> {
-        if offset_minutes.is_none() {
-            write!(self.output, "-00:00")?;
-            return Ok(());
-        }
-        let offset_minutes = offset_minutes.unwrap();
-
-        const MINUTES_PER_HOUR: i32 = 60;
-        // Split the offset into a sign and magnitude for formatting
-        let sign = if offset_minutes >= 0 { "+" } else { "-" };
-        let offset_minutes = offset_minutes.abs();
-        let hours = offset_minutes / MINUTES_PER_HOUR;
-        let minutes = offset_minutes % MINUTES_PER_HOUR;
-        write!(self.output, "{}{:0>2}:{:0>2}", sign, hours, minutes)?;
-        Ok(())
+        value.write_timestamp(self.output)
     }
 
     pub(crate) fn format_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
