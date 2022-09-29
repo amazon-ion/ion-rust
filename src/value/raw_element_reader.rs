@@ -546,6 +546,38 @@ mod reader_tests {
         Ok(())
     }
 
+    #[test]
+    fn test_read_container_with_mixed_scalars() -> IonResult<()> {
+        let ion_data = load_element(
+            r#"
+            [ {{ZW5jb2RlZA==}}, {{"hello"}}, 4.5e0, 4.5, 2007-07-12T, foo, "hi!" ]
+        "#,
+        );
+
+        let reader = &mut ElementReader::new(ion_data);
+        next_type(reader, IonType::List, false);
+        reader.step_in()?;
+        next_type(reader, IonType::Blob, false);
+        assert_eq!(&reader.read_blob()?, "encoded".as_bytes());
+        next_type(reader, IonType::Clob, false);
+        assert_eq!(&reader.read_clob()?, "hello".as_bytes());
+        next_type(reader, IonType::Float, false);
+        assert_eq!(reader.read_f64()?, 4.5);
+        next_type(reader, IonType::Decimal, false);
+        assert_eq!(reader.read_decimal()?, Decimal::new(45, -1));
+        next_type(reader, IonType::Timestamp, false);
+        assert_eq!(
+            reader.read_timestamp()?,
+            Timestamp::with_ymd(2007, 7, 12).build().unwrap()
+        );
+        next_type(reader, IonType::Symbol, false);
+        assert_eq!(reader.read_symbol()?, text_token("foo"));
+        next_type(reader, IonType::String, false);
+        assert_eq!(reader.read_string()?, "hi!".to_string());
+        reader.step_out()?;
+        Ok(())
+    }
+
     #[rstest]
     #[case(" null ", Element::new_null(IonType::Null))]
     #[case(" null.string ", Element::new_null(IonType::String))]
