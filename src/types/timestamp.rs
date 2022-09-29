@@ -409,7 +409,7 @@ impl Timestamp {
         }
     }
 
-    pub(crate) fn write_timestamp<'a, W: std::fmt::Write>(&self, output: &mut W) -> IonResult<()> {
+    pub(crate) fn format<W: std::fmt::Write>(&self, output: &mut W) -> IonResult<()> {
         let (offset_minutes, datetime) = if let Some(minutes) = self.offset {
             // Create a datetime with the appropriate offset that we can use for formatting.
             let datetime: DateTime<FixedOffset> = self.clone().try_into()?;
@@ -469,18 +469,19 @@ impl Timestamp {
         offset_minutes: Option<i32>,
         output: &mut W,
     ) -> IonResult<()> {
-        if offset_minutes.is_none() {
-            write!(output, "-00:00")?;
-            return Ok(());
-        }
-        let offset_minutes = offset_minutes.unwrap();
+        let (sign, hours, minutes) = match offset_minutes {
+            None => ("-", 0, 0),
+            Some(offset_minutes) => {
+                const MINUTES_PER_HOUR: i32 = 60;
+                // Split the offset into a sign and magnitude for formatting
+                let sign = if offset_minutes >= 0 { "+" } else { "-" };
+                let offset_minutes = offset_minutes.abs();
+                let hours = offset_minutes / MINUTES_PER_HOUR;
+                let minutes = offset_minutes % MINUTES_PER_HOUR;
 
-        const MINUTES_PER_HOUR: i32 = 60;
-        // Split the offset into a sign and magnitude for formatting
-        let sign = if offset_minutes >= 0 { "+" } else { "-" };
-        let offset_minutes = offset_minutes.abs();
-        let hours = offset_minutes / MINUTES_PER_HOUR;
-        let minutes = offset_minutes % MINUTES_PER_HOUR;
+                (sign, hours, minutes)
+            }
+        };
         write!(output, "{}{:0>2}:{:0>2}", sign, hours, minutes)?;
         Ok(())
     }
@@ -562,7 +563,7 @@ impl Timestamp {
 /// Formats an ISO-8601 timestamp of appropriate precision and offset.
 impl Display for Timestamp {
     fn fmt(&self, output: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        self.write_timestamp(output).map_err(|_| std::fmt::Error)?;
+        self.format(output).map_err(|_| std::fmt::Error)?;
         Ok(())
     }
 }
@@ -1686,7 +1687,7 @@ mod timestamp_tests {
     #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).with_fractional_seconds(Decimal::new(27, -12)).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000000000027+00:00")]
     fn test_display(#[case] ts: Timestamp, #[case] expect: String) {
         let mut buf = Vec::new();
-        write!(&mut buf, "{}", ts);
+        write!(&mut buf, "{}", ts).unwrap();
         assert_eq!(expect, String::from_utf8(buf).unwrap());
     }
 }

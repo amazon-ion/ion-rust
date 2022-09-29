@@ -363,7 +363,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
     }
 
     pub fn format_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
-        value.write_timestamp(self.output)
+        value.format(self.output)
     }
 
     pub(crate) fn format_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
