@@ -1,14 +1,13 @@
-use std::convert::TryInto;
 use std::io::{BufWriter, Write};
 
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Timelike};
+use chrono::{DateTime, FixedOffset};
 
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::text::text_formatter::STRING_ESCAPE_CODES;
 use crate::types::decimal::Decimal;
-use crate::types::timestamp::{Precision, Timestamp};
+use crate::types::timestamp::Timestamp;
 use crate::types::ContainerType;
 use crate::writer::IonWriter;
 use crate::{Integer, IonType};
@@ -325,24 +324,6 @@ impl<W: Write> RawTextWriter<W> {
         })
     }
 
-    // Helper method for [write_timestamp]. Writes the timestamp to output using +/-HH:MM format.
-    fn write_offset(output: &mut BufWriter<W>, offset_minutes: Option<i32>) -> IonResult<()> {
-        if offset_minutes.is_none() {
-            write!(output, "-00:00")?;
-            return Ok(());
-        }
-        let offset_minutes = offset_minutes.unwrap();
-
-        const MINUTES_PER_HOUR: i32 = 60;
-        // Split the offset into a sign and magnitude for formatting
-        let sign = if offset_minutes >= 0 { "+" } else { "-" };
-        let offset_minutes = offset_minutes.abs();
-        let hours = offset_minutes / MINUTES_PER_HOUR;
-        let minutes = offset_minutes % MINUTES_PER_HOUR;
-        write!(output, "{}{:0>2}:{:0>2}", sign, hours, minutes)?;
-        Ok(())
-    }
-
     /// Writes the provided DateTime value as an Ion timestamp.
     #[deprecated(
         since = "0.6.1",
@@ -533,56 +514,8 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
 
     /// Writes the provided Timestamp as an Ion timestamp.
     fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
-        // A space to format the offset
         self.write_scalar(|output| {
-            let (offset_minutes, datetime) = if let Some(minutes) = value.offset {
-                // Create a datetime with the appropriate offset that we can use for formatting.
-                let datetime: DateTime<FixedOffset> = value.clone().try_into()?;
-                // Convert the offset to minutes --v
-                (Some(minutes.local_minus_utc() / 60), datetime)
-            } else {
-                // Our timestamp has an unknown offset. Per the spec, this means it makes no
-                // assertions about *where* it was recorded, but its fields are still in UTC.
-                // Create a UTC datetime that we can use for formatting.
-                let datetime: NaiveDateTime = value.clone().try_into()?;
-                let datetime: DateTime<FixedOffset> =
-                    FixedOffset::east(0).from_utc_datetime(&datetime);
-                (None, datetime)
-            };
-
-            write!(output, "{:0>4}", datetime.year())?;
-            //                     ^-- 0-padded, right aligned, 4-digit year
-            if value.precision == Precision::Year {
-                write!(output, "T")?;
-                return Ok(());
-            }
-
-            write!(output, "-{:0>2}", datetime.month())?;
-            //                   ^-- delimiting hyphen and 0-padded, right aligned, 2-digit month
-            if value.precision == Precision::Month {
-                write!(output, "T")?;
-                return Ok(());
-            }
-
-            write!(output, "-{:0>2}", datetime.day())?;
-            //                   ^-- delimiting hyphen and 0-padded, right aligned, 2-digit day
-            if value.precision == Precision::Day {
-                write!(output, "T")?;
-                return Ok(());
-            }
-
-            write!(output, "T{:0>2}:{:0>2}", datetime.hour(), datetime.minute())?;
-            //                   ^-- delimiting T, formatted hour, delimiting colon, formatted minute
-            if value.precision == Precision::HourAndMinute {
-                RawTextWriter::write_offset(output, offset_minutes)?;
-                return Ok(());
-            }
-
-            write!(output, ":{:0>2}", datetime.second())?;
-            //                   ^-- delimiting colon, formatted second
-            value.fmt_fractional_seconds(&mut *output)?;
-
-            RawTextWriter::write_offset(output, offset_minutes)?;
+            write!(output, "{}", value)?;
             Ok(())
         })
     }
