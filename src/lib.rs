@@ -27,6 +27,7 @@ pub use raw_symbol_token::RawSymbolToken;
 pub use raw_symbol_token_ref::RawSymbolTokenRef;
 
 pub use symbol::Symbol;
+pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
 
 pub use types::decimal::Decimal;

@@ -59,7 +59,7 @@ impl IonSymbolToken for Symbol {
     }
 }
 
-/// Constructs a [`SymbolTokenRef`] with just text.
+/// Constructs a [`Symbol`] with just text.
 /// A common case for text and synthesizing tokens.
 #[inline]
 pub fn text_token(text: &str) -> Symbol {
@@ -333,9 +333,9 @@ impl IonStruct for Struct {
 
 impl PartialEq for Struct {
     fn eq(&self, other: &Self) -> bool {
-        // check if both text_fields and no_text_fields have same length
+        // check if both fields have same length
         self.len() == other.len()
-            // we need to test equality in both directions for both text_fields and no_text_fields
+            // we need to test equality in both directions for both fields
             // A good example for this is annotated vs not annotated values in struct
             //  { a:4, a:4 } vs. { a:4, a:a::4 } // returns true
             //  { a:4, a:a::4 } vs. { a:4, a:4 } // returns false

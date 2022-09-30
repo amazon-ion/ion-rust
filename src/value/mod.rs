@@ -131,7 +131,7 @@
 //! ```
 //! use ion_rs::Symbol;
 //! use ion_rs::value::IonSymbolToken;
-//! use ion_rs::value::borrowed::SymbolTokenRef;
+//! use ion_rs::SymbolRef;
 //!
 //! fn extract_text<T: IonSymbolToken>(tok: &T) -> String {
 //!     tok.text().unwrap().into()
@@ -141,7 +141,7 @@
 //!
 //! // owned value to emphasize lifetime
 //! let text = String::from("hello");
-//! let borrowed_token: SymbolTokenRef = text.as_str().into();
+//! let borrowed_token: SymbolRef = text.as_str().into();
 //!
 //! let owned_text = extract_text(&owned_token);
 //! let borrowed_text = extract_text(&borrowed_token);
