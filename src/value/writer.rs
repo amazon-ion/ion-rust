@@ -43,7 +43,7 @@ pub trait ElementWriter {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TextKind {
     Compact,
-    Newline,
+    Lines,
     Pretty,
 }
 

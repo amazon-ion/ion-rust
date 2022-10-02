@@ -38,7 +38,7 @@ impl TextWriterBuilder {
     /// ```
     pub fn lines() -> TextWriterBuilder {
         TextWriterBuilder {
-            text_kind: TextKind::Newline,
+            text_kind: TextKind::Lines,
         }
     }
 
@@ -71,7 +71,7 @@ impl TextWriterBuilder {
         let builder = match self.text_kind {
             TextKind::Compact => RawTextWriterBuilder::new(),
             TextKind::Pretty => RawTextWriterBuilder::pretty(),
-            TextKind::Newline => RawTextWriterBuilder::lines(),
+            TextKind::Lines => RawTextWriterBuilder::lines(),
         };
         let raw_writer = builder.build(sink)?;
         let text_writer = TextWriter {
