@@ -46,7 +46,9 @@ impl RawTextWriterBuilder {
     //TODO: https://github.com/amzn/ion-rust/issues/437
     pub fn lines() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            whitespace_config: WhitespaceConfig { ..LINES_WHITESPACE_CONFIG },
+            whitespace_config: WhitespaceConfig {
+                ..LINES_WHITESPACE_CONFIG
+            },
         }
     }
 
@@ -69,7 +71,9 @@ impl RawTextWriterBuilder {
     /// ```
     pub fn pretty() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            whitespace_config: WhitespaceConfig { ..PRETTY_WHITESPACE_CONFIG },
+            whitespace_config: WhitespaceConfig {
+                ..PRETTY_WHITESPACE_CONFIG
+            },
         }
     }
 
@@ -783,7 +787,11 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         if popped_encoding_level.child_count > 0 {
             // If this isn't an empty container, put the closing delimiter on the next line
             // with proper indentation.
-            if self.whitespace_config.space_between_nested_values.contains(['\n', '\r']) {
+            if self
+                .whitespace_config
+                .space_between_nested_values
+                .contains(['\n', '\r'])
+            {
                 writeln!(&mut self.output)?;
                 for _ in 0..self.depth() {
                     write!(&mut self.output, "{}", self.whitespace_config.indentation)?;
@@ -853,11 +861,7 @@ mod tests {
             &mut commands,
             expected_pretty,
         );
-        writer_test_with_builder(
-            RawTextWriterBuilder::lines(),
-            commands,
-            expected_lines,
-        )
+        writer_test_with_builder(RawTextWriterBuilder::lines(), commands, expected_lines)
     }
 
     /// When writing a scalar value, there shouldn't be any difference in output between the
@@ -1022,7 +1026,7 @@ mod tests {
                 w.write_bool(true)?;
                 w.write_bool(false)
             },
-             "true  false"
+            "true  false",
         );
     }
 
@@ -1038,7 +1042,7 @@ mod tests {
                 w.write_symbol("bar")?;
                 w.step_out()
             },
-            "true [\"foo\",  21,  bar]" // extra spaces between nested values only
+            "true [\"foo\",  21,  bar]", // extra spaces between nested values only
         );
     }
 
@@ -1053,7 +1057,7 @@ mod tests {
                 w.write_symbol("bar")?;
                 w.step_out()
             },
-            "[\n \"foo\",\n 21,\n bar\n]" // single space indentation differs from pretty()
+            "[\n \"foo\",\n 21,\n bar\n]", // single space indentation differs from pretty()
         );
     }
 
@@ -1067,7 +1071,7 @@ mod tests {
                 w.write_string("foo")?;
                 w.step_out()
             },
-            "{a:   \"foo\"}"
+            "{a:   \"foo\"}",
         );
     }
 
@@ -1081,7 +1085,7 @@ mod tests {
                 w.write_string("foo")?;
                 w.step_out()
             },
-            "{   a: \"foo\"}"
+            "{   a: \"foo\"}",
         );
     }
 
