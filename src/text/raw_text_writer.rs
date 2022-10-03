@@ -278,7 +278,7 @@ impl<W: Write> RawTextWriter<W> {
             write!(&mut self.output, "{}", value_spacer)?;
         }
 
-        if self.whitespace_config.indentation != "" {
+        if !self.whitespace_config.indentation.is_empty() {
             // Write enough indentation for the current level of depth
             for _ in 0..self.depth() {
                 write!(&mut self.output, "{}", self.whitespace_config.indentation)?;
