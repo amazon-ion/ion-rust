@@ -203,6 +203,7 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
+use crate::symbol_ref::AsSymbolRef;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
@@ -490,7 +491,7 @@ pub trait IonStruct: Debug + PartialEq {
     /// let owned: Struct = fields.into_iter().collect();
     /// assert_eq!("d", owned.get("c".to_string()).map(|e| e.as_str()).flatten().unwrap());
     /// ```
-    fn get<T: AsRef<str>>(&self, field_name: T) -> Option<&Self::Element>;
+    fn get<T: AsSymbolRef>(&self, field_name: T) -> Option<&Self::Element>;
 
     /// Returns an iterator with all the values corresponding to the field_name in the struct or
     /// returns an empty iterator if the field_name does not exist in the struct
@@ -521,7 +522,7 @@ pub trait IonStruct: Debug + PartialEq {
     ///     owned.get_all("d").flat_map(|e| e.as_str()).collect::<Vec<&str>>()
     /// );
     /// ```
-    fn get_all<'a, T: AsRef<str>>(
+    fn get_all<'a, T: AsSymbolRef>(
         &'a self,
         field_name: T,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
@@ -1298,16 +1299,32 @@ mod generic_value_tests {
     {
         Case {
             elem: E::Builder::new_struct(
-                vec![(
-                    E::SymbolToken::text_token("greetings"),
-                    E::Builder::new_string("hello"),
-                )]
+                vec![
+                    (
+                        E::SymbolToken::text_token("greetings"),
+                        E::Builder::new_string("hello"),
+                    ),
+                    (
+                        E::SymbolToken::text_token("name"),
+                        E::Builder::new_string("ion"),
+                    ),
+                ]
                 .into_iter(),
             ),
             ion_type: IonType::Struct,
             ops: vec![AsStruct],
             op_assert: Box::new(|e: &E| {
                 let actual = e.as_struct().unwrap();
+
+                // verify that the field order is maintained when creating Struct
+                assert_eq!(
+                    actual.iter().next(),
+                    Some((
+                        &E::SymbolToken::text_token("greetings"),
+                        &E::Builder::new_string("hello"),
+                    ))
+                );
+
                 assert_eq!(
                     actual.get("greetings"),
                     Some(&E::Builder::new_string("hello"))
