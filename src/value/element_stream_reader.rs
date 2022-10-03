@@ -11,7 +11,8 @@ use std::mem;
 const INITIAL_PARENTS_CAPACITY: usize = 16;
 
 // TODO: Add an IonElementReader trait implementation
-pub struct ElementReader {
+// TODO: once ElementReader trait is removed this can  use the name `ElementReader`
+pub struct ElementStreamReader {
     // Represents the element that will be read using this reader
     element: Element,
     // If the reader is not positioned on a struct the iterator item will store (None, _element_)
@@ -27,9 +28,9 @@ pub struct ElementReader {
     parents: Vec<ParentContainer>,
 }
 
-impl ElementReader {
-    pub fn new(input: Element) -> ElementReader {
-        ElementReader {
+impl ElementStreamReader {
+    pub fn new(input: Element) -> ElementStreamReader {
+        ElementStreamReader {
             element: input,
             current_iter: Box::new(std::iter::empty()),
             iter_stack: vec![],
@@ -116,7 +117,7 @@ impl ElementReader {
     }
 }
 
-impl IonReader for ElementReader {
+impl IonReader for ElementStreamReader {
     type Item = RawStreamItem;
     type Symbol = Symbol;
 
@@ -419,7 +420,7 @@ impl IonReader for ElementReader {
     }
 }
 
-fn next_type(reader: &mut ElementReader, ion_type: IonType, is_null: bool) {
+fn next_type(reader: &mut ElementStreamReader, ion_type: IonType, is_null: bool) {
     assert_eq!(
         reader.next().unwrap(),
         RawStreamItem::nullable_value(ion_type, is_null)
@@ -446,7 +447,7 @@ mod reader_tests {
             .expect("parsing failed unexpectedly")
     }
 
-    fn next_type(reader: &mut ElementReader, ion_type: IonType, is_null: bool) {
+    fn next_type(reader: &mut ElementStreamReader, ion_type: IonType, is_null: bool) {
         assert_eq!(
             reader.next().unwrap(),
             RawStreamItem::nullable_value(ion_type, is_null)
@@ -460,7 +461,7 @@ mod reader_tests {
             [1, 2, 3]
         "#,
         );
-        let reader = &mut ElementReader::new(ion_data);
+        let reader = &mut ElementStreamReader::new(ion_data);
 
         next_type(reader, IonType::List, false);
         reader.step_in()?;
@@ -490,7 +491,7 @@ mod reader_tests {
             }
         "#,
         );
-        let reader = &mut ElementReader::new(ion_data);
+        let reader = &mut ElementStreamReader::new(ion_data);
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
         next_type(reader, IonType::List, false);
@@ -530,7 +531,7 @@ mod reader_tests {
         "#,
         );
 
-        let reader = &mut ElementReader::new(ion_data);
+        let reader = &mut ElementStreamReader::new(ion_data);
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
         next_type(reader, IonType::Integer, false);
@@ -554,7 +555,7 @@ mod reader_tests {
         "#,
         );
 
-        let reader = &mut ElementReader::new(ion_data);
+        let reader = &mut ElementStreamReader::new(ion_data);
         next_type(reader, IonType::List, false);
         reader.step_in()?;
         next_type(reader, IonType::Blob, false);
@@ -595,7 +596,7 @@ mod reader_tests {
         #[case] text: &str,
         #[case] expected_value: E,
     ) {
-        let reader = &mut ElementReader::new(load_element(text));
+        let reader = &mut ElementStreamReader::new(load_element(text));
         let expected_element = expected_value.into();
         next_type(
             reader,
@@ -616,7 +617,7 @@ mod reader_tests {
         #[case] text: &str,
         #[case] expected_value: E,
     ) {
-        let reader = &mut ElementReader::new(load_element(text));
+        let reader = &mut ElementStreamReader::new(load_element(text));
         let expected_element = expected_value.into();
         next_type(
             reader,
@@ -645,7 +646,7 @@ mod reader_tests {
             )
         "#,
         );
-        let mut reader = ElementReader::new(pretty_ion);
+        let mut reader = ElementStreamReader::new(pretty_ion);
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::SExpression));
         reader.step_in()?;
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Struct));
