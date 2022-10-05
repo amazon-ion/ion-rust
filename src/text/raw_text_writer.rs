@@ -13,10 +13,7 @@ use crate::writer::IonWriter;
 use crate::{Integer, IonType};
 
 pub struct RawTextWriterBuilder {
-    space_between_values: String,
-    indentation: String,
-    space_after_field_name: String,
-    space_after_container_start: String,
+    whitespace_config: WhitespaceConfig,
 }
 
 impl RawTextWriterBuilder {
@@ -28,14 +25,29 @@ impl RawTextWriterBuilder {
     /// ```
     pub fn new() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            // Single space between values
-            space_between_values: String::from(" "),
-            // No indentation
-            indentation: String::new(),
-            // Single space between field names and values
-            space_after_field_name: String::from(" "),
-            // The first value in a container appears next to the opening delimiter
-            space_after_container_start: String::new(),
+            whitespace_config: WhitespaceConfig {
+                ..COMPACT_WHITESPACE_CONFIG
+            },
+        }
+    }
+
+    /// Constructs a 'lines' text Ion writer that adds UNIX and human-friendly newlines between
+    /// top-level values.
+    ///
+    /// For example:
+    /// ```ignore
+    /// {foo: 1, bar: 2, baz: 3}
+    /// [1, 2, 3]
+    /// true
+    /// "hello"
+    /// ```
+    // This doesn't solve the problem of final newlines. Should find a way to solve that some day.
+    //TODO: https://github.com/amzn/ion-rust/issues/437
+    pub fn lines() -> RawTextWriterBuilder {
+        RawTextWriterBuilder {
+            whitespace_config: WhitespaceConfig {
+                ..LINES_WHITESPACE_CONFIG
+            },
         }
     }
 
@@ -58,43 +70,46 @@ impl RawTextWriterBuilder {
     /// ```
     pub fn pretty() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            // Each value appears on its own line
-            space_between_values: String::from("\n"),
-            // Values get four spaces of indentation per level of depth
-            indentation: String::from("    "),
-            // Field names and values are separated by a single space
-            space_after_field_name: String::from(" "),
-            // The first value in a container appears on a line by itself
-            space_after_container_start: String::from("\n"),
+            whitespace_config: WhitespaceConfig {
+                ..PRETTY_WHITESPACE_CONFIG
+            },
         }
     }
 
-    pub fn with_space_between_values<S: Into<String>>(
+    pub fn with_space_between_top_level_values(
         mut self,
-        space_between_values: S,
+        space_between_top_level_values: &'static str,
     ) -> RawTextWriterBuilder {
-        self.space_between_values = space_between_values.into();
+        self.whitespace_config.space_between_top_level_values = space_between_top_level_values;
         self
     }
 
-    pub fn with_indentation<S: Into<String>>(mut self, indentation: S) -> RawTextWriterBuilder {
-        self.indentation = indentation.into();
+    pub fn with_space_between_nested_values(
+        mut self,
+        space_between_values: &'static str,
+    ) -> RawTextWriterBuilder {
+        self.whitespace_config.space_between_nested_values = space_between_values;
         self
     }
 
-    pub fn with_space_after_field_name<S: Into<String>>(
-        mut self,
-        space_after_field_name: S,
-    ) -> RawTextWriterBuilder {
-        self.space_after_field_name = space_after_field_name.into();
+    pub fn with_indentation(mut self, indentation: &'static str) -> RawTextWriterBuilder {
+        self.whitespace_config.indentation = indentation;
         self
     }
 
-    pub fn with_space_after_container_start<S: Into<String>>(
+    pub fn with_space_after_field_name(
         mut self,
-        space_after_container_start: S,
+        space_after_field_name: &'static str,
     ) -> RawTextWriterBuilder {
-        self.space_after_field_name = space_after_container_start.into();
+        self.whitespace_config.space_after_field_name = space_after_field_name;
+        self
+    }
+
+    pub fn with_space_after_container_start(
+        mut self,
+        space_after_container_start: &'static str,
+    ) -> RawTextWriterBuilder {
+        self.whitespace_config.space_after_container_start = space_after_container_start;
         self
     }
 
@@ -106,12 +121,10 @@ impl RawTextWriterBuilder {
             annotations: Vec::new(),
             field_name: None,
             containers: vec![EncodingLevel::default()],
-            // TODO: We should consider putting these in a single struct (`WhitespaceConfig`?)
-            //       and `Box`ing it. Each `String` is 24 bytes, making the writer much bigger.
-            space_between_values: self.space_between_values,
-            indentation: self.indentation,
-            space_after_field_name: self.space_after_field_name,
-            space_after_container_start: self.space_after_container_start,
+            // Should we validate here that all the strings in `whitespace_config` actually are
+            // semantically whitespace?
+            //TODO: https://github.com/amzn/ion-rust/issues/438
+            whitespace_config: Box::new(self.whitespace_config),
         };
         // This method cannot currently fail. It returns an IonResult<_> to be consistent with the
         // other builder APIs and to allow for fallible setup operations in the future.
@@ -131,15 +144,58 @@ struct EncodingLevel {
     child_count: usize,
 }
 
+struct WhitespaceConfig {
+    // Top-level values are independent of other values in the stream, we may separate differently
+    space_between_top_level_values: &'static str,
+    // Non-top-level values are within a container
+    space_between_nested_values: &'static str,
+    // Indentation is repeated before nested values, corresponding to the level of nesting
+    indentation: &'static str,
+    // e.g. after 'foo:' in "{foo: bar}"
+    space_after_field_name: &'static str,
+    // Between the container open and any value in it
+    space_after_container_start: &'static str,
+}
+
+static COMPACT_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
+    // Single space between top level values
+    space_between_top_level_values: " ",
+    // Single space between values
+    space_between_nested_values: " ",
+    // No indentation
+    indentation: "",
+    // Single space between field names and values
+    space_after_field_name: " ",
+    // The first value in a container appears next to the opening delimiter
+    space_after_container_start: "",
+};
+
+static LINES_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
+    // Each value appears on its own line
+    space_between_top_level_values: "\n",
+    // Otherwise use the compact/default layout from `DEFAULT_WS_CONFIG`
+    ..COMPACT_WHITESPACE_CONFIG
+};
+
+static PRETTY_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
+    // Each top-level value starts on its own line
+    space_between_top_level_values: "\n",
+    // Each value appears on its own line
+    space_between_nested_values: "\n",
+    // Values get four spaces of indentation per level of depth
+    indentation: "    ",
+    // Field names and values are separated by a single space
+    space_after_field_name: " ",
+    // The first value in a container appears on a line by itself
+    space_after_container_start: "\n",
+};
+
 pub struct RawTextWriter<W: Write> {
     output: BufWriter<W>,
     annotations: Vec<String>,
     field_name: Option<String>,
     containers: Vec<EncodingLevel>,
-    space_between_values: String,
-    indentation: String,
-    space_after_field_name: String,
-    space_after_container_start: String,
+    whitespace_config: Box<WhitespaceConfig>,
 }
 
 impl<W: Write> RawTextWriter<W> {
@@ -202,17 +258,30 @@ impl<W: Write> RawTextWriter<W> {
             if self.depth() > 0 {
                 // ...then this is the first value inside a container. We'll write the
                 // `space_after_container_start` so it will (e.g.) appear on its own line.
-                write!(&mut self.output, "{}", self.space_after_container_start)?;
+                write!(
+                    &mut self.output,
+                    "{}",
+                    self.whitespace_config.space_after_container_start
+                )?;
             }
         } else {
             // Otherwise, this is not the first value in this container. Emit the container's
             // delimiter (for example: in a list, write a `,`) before we write the value itself.
             self.write_value_delimiter()?;
-            write!(&mut self.output, "{}", self.space_between_values)?;
+
+            let value_spacer = if self.depth() == 0 {
+                &self.whitespace_config.space_between_top_level_values
+            } else {
+                &self.whitespace_config.space_between_nested_values
+            };
+            write!(&mut self.output, "{}", value_spacer)?;
         }
-        // Write enough indentation for the current level of depth
-        for _ in 0..self.depth() {
-            write!(&mut self.output, "{}", self.indentation)?;
+
+        if !self.whitespace_config.indentation.is_empty() {
+            // Write enough indentation for the current level of depth
+            for _ in 0..self.depth() {
+                write!(&mut self.output, "{}", self.whitespace_config.indentation)?;
+            }
         }
         Ok(())
     }
@@ -284,7 +353,11 @@ impl<W: Write> RawTextWriter<W> {
     fn write_value_metadata(&mut self) -> IonResult<()> {
         if let Some(field_name) = &self.field_name.take() {
             Self::write_symbol_token(&mut self.output, field_name)?;
-            write!(self.output, ":{}", self.space_after_field_name)?;
+            write!(
+                self.output,
+                ":{}",
+                self.whitespace_config.space_after_field_name
+            )?;
         } else if self.is_in_struct() {
             return illegal_operation("Values inside a struct must have a field name.");
         }
@@ -647,10 +720,14 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         if popped_encoding_level.child_count > 0 {
             // If this isn't an empty container, put the closing delimiter on the next line
             // with proper indentation.
-            if self.space_between_values.contains(['\n', '\r']) {
+            if self
+                .whitespace_config
+                .space_between_nested_values
+                .contains(['\n', '\r'])
+            {
                 writeln!(&mut self.output)?;
                 for _ in 0..self.depth() {
-                    write!(&mut self.output, "{}", self.indentation)?;
+                    write!(&mut self.output, "{}", self.whitespace_config.indentation)?;
                 }
             }
         }
@@ -693,27 +770,43 @@ mod tests {
         assert_eq!(str::from_utf8(&output).unwrap(), expected);
     }
 
-    /// Constructs a [RawTextWriter] using [RawTextReaderBuilder::new], passes it to the
+    /// Constructs a [RawTextWriter] using [RawTextReaderBuilder::default], passes it to the
     /// provided `commands` closure, and then verifies that its output matches `expected_default`.
     /// Then, constructs a [RawTextWriter] using [RawTextReaderBuilder::pretty], passes it to the
     /// provided `commands` closure, and then verifies that its output matches `expected_pretty`.
-    fn writer_test<F>(mut commands: F, expected_default: &str, expected_pretty: &str)
-    where
+    /// Finally, constructs a [RawTextWriter] using [RawTextReaderBuilder::lines], passes it to the
+    /// provided `commands` closure, and then verifies that its output matches `expected_lines`.
+    fn writer_test<F>(
+        mut commands: F,
+        expected_default: &str,
+        expected_pretty: &str,
+        expected_lines: &str,
+    ) where
         F: Fn(&mut RawTextWriter<&mut Vec<u8>>) -> IonResult<()>,
     {
-        writer_test_with_builder(RawTextWriterBuilder::new(), &mut commands, expected_default);
-        writer_test_with_builder(RawTextWriterBuilder::pretty(), commands, expected_pretty)
+        writer_test_with_builder(
+            RawTextWriterBuilder::default(),
+            &mut commands,
+            expected_default,
+        );
+        writer_test_with_builder(
+            RawTextWriterBuilder::pretty(),
+            &mut commands,
+            expected_pretty,
+        );
+        writer_test_with_builder(RawTextWriterBuilder::lines(), commands, expected_lines)
     }
 
     /// When writing a scalar value, there shouldn't be any difference in output between the
-    /// `default` and `pretty` text writers. This function simply calls `writer_test_with_builder`
-    /// above using the same expected text for both cases.
+    /// `default`, `pretty`, and `lines` text writers. This function simply calls `writer_test_with_builder`
+    /// above using the same expected text for all cases.
     fn write_scalar_test<F>(mut commands: F, expected: &str)
     where
         F: Fn(&mut RawTextWriter<&mut Vec<u8>>) -> IonResult<()>,
     {
-        writer_test_with_builder(RawTextWriterBuilder::new(), &mut commands, expected);
-        writer_test_with_builder(RawTextWriterBuilder::pretty(), commands, expected)
+        writer_test_with_builder(RawTextWriterBuilder::default(), &mut commands, expected);
+        writer_test_with_builder(RawTextWriterBuilder::pretty(), &mut commands, expected);
+        writer_test_with_builder(RawTextWriterBuilder::lines(), commands, expected)
     }
 
     #[test]
@@ -859,6 +952,77 @@ mod tests {
     }
 
     #[test]
+    fn with_space_between_top_level_values() {
+        writer_test_with_builder(
+            RawTextWriterBuilder::new().with_space_between_top_level_values("  "),
+            |w| {
+                w.write_bool(true)?;
+                w.write_bool(false)
+            },
+            "true  false",
+        );
+    }
+
+    #[test]
+    fn with_space_between_nested_values() {
+        writer_test_with_builder(
+            RawTextWriterBuilder::new().with_space_between_nested_values("  "),
+            |w| {
+                w.write_bool(true)?;
+                w.step_in(IonType::List)?;
+                w.write_string("foo")?;
+                w.write_i64(21)?;
+                w.write_symbol("bar")?;
+                w.step_out()
+            },
+            "true [\"foo\",  21,  bar]", // extra spaces between nested values only
+        );
+    }
+
+    #[test]
+    fn with_indentation() {
+        writer_test_with_builder(
+            RawTextWriterBuilder::pretty().with_indentation(" "),
+            |w| {
+                w.step_in(IonType::List)?;
+                w.write_string("foo")?;
+                w.write_i64(21)?;
+                w.write_symbol("bar")?;
+                w.step_out()
+            },
+            "[\n \"foo\",\n 21,\n bar\n]", // single space indentation differs from pretty()
+        );
+    }
+
+    #[test]
+    fn with_space_after_field_name() {
+        writer_test_with_builder(
+            RawTextWriterBuilder::new().with_space_after_field_name("   "),
+            |w| {
+                w.step_in(IonType::Struct)?;
+                w.set_field_name("a");
+                w.write_string("foo")?;
+                w.step_out()
+            },
+            "{a:   \"foo\"}",
+        );
+    }
+
+    #[test]
+    fn with_space_after_container_start() {
+        writer_test_with_builder(
+            RawTextWriterBuilder::new().with_space_after_container_start("   "),
+            |w| {
+                w.step_in(IonType::Struct)?;
+                w.set_field_name("a");
+                w.write_string("foo")?;
+                w.step_out()
+            },
+            "{   a: \"foo\"}",
+        );
+    }
+
+    #[test]
     fn write_stream() {
         writer_test(
             |w| {
@@ -867,6 +1031,7 @@ mod tests {
                 w.write_symbol("bar")
             },
             "\"foo\" 21 bar",
+            "\"foo\"\n21\nbar",
             "\"foo\"\n21\nbar",
         );
     }
@@ -883,6 +1048,7 @@ mod tests {
             },
             "[\"foo\", 21, bar]",
             "[\n    \"foo\",\n    21,\n    bar\n]",
+            "[\"foo\", 21, bar]",
         );
     }
 
@@ -900,6 +1066,7 @@ mod tests {
             },
             "[\"foo\", 21, [bar]]",
             "[\n    \"foo\",\n    21,\n    [\n        bar\n    ]\n]",
+            "[\"foo\", 21, [bar]]",
         );
     }
 
@@ -915,6 +1082,7 @@ mod tests {
             },
             "(\"foo\" 21 bar)",
             "(\n    \"foo\"\n    21\n    bar\n)",
+            "(\"foo\" 21 bar)",
         );
     }
 
@@ -934,6 +1102,7 @@ mod tests {
             },
             "{a: \"foo\", b: 21, c: quux::bar}",
             "{\n    a: \"foo\",\n    b: 21,\n    c: quux::bar\n}",
+            "{a: \"foo\", b: 21, c: quux::bar}",
         );
     }
 }
