@@ -1,8 +1,10 @@
 use crate::Symbol;
+use std::borrow::Borrow;
+use std::hash::{Hash, Hasher};
 
 /// A reference to a fully resolved symbol. Like `Symbol` (a fully resolved symbol with a
 /// static lifetime), a `SymbolRef` may have known or undefined text.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct SymbolRef<'a> {
     text: Option<&'a str>,
 }
@@ -36,6 +38,30 @@ impl<'a, A: AsRef<str> + 'a> AsSymbolRef for A {
         SymbolRef {
             text: Some(self.as_ref()),
         }
+    }
+}
+
+impl<'a> Hash for SymbolRef<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self.text {
+            None => 0.hash(state),
+            Some(text) => text.hash(state),
+        }
+    }
+}
+
+impl<'a> From<&'a str> for SymbolRef<'a> {
+    fn from(text: &'a str) -> Self {
+        Self { text: Some(text) }
+    }
+}
+
+// Note that this method panics if the SymbolRef has unknown text! This is unfortunate but is required
+// in order to allow a HashMap<SymbolRef, _> to do lookups with a &str instead of a &SymbolRef
+impl<'a> Borrow<str> for SymbolRef<'a> {
+    fn borrow(&self) -> &str {
+        self.text()
+            .expect("cannot borrow a &str from a SymbolRef with unknown text")
     }
 }
 
