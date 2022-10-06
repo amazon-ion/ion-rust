@@ -17,6 +17,7 @@ use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
 use crate::{IonType, RawBinaryReader, RawTextReader};
+use std::fmt::{Display, Formatter};
 
 /// Configures and constructs new instances of [Reader].
 pub struct ReaderBuilder {}
@@ -143,6 +144,29 @@ pub enum StreamItem {
     /// * after the reader has stepped out of a container, but before the reader has called next()
     /// * after the reader has read the last item in a container
     Nothing,
+}
+
+impl StreamItem {
+    /// If `is_null` is `true`, returns `StreamItem::Value(ion_type)`. Otherwise,
+    /// returns `StreamItem::Null(ion_type)`.
+    pub fn nullable_value(ion_type: IonType, is_null: bool) -> StreamItem {
+        if is_null {
+            StreamItem::Null(ion_type)
+        } else {
+            StreamItem::Value(ion_type)
+        }
+    }
+}
+
+impl Display for StreamItem {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use StreamItem::*;
+        match self {
+            Value(ion_type) => write!(f, "null.{}", ion_type),
+            Null(ion_type) => write!(f, "{}", ion_type),
+            Nothing => write!(f, "nothing/end-of-sequence"),
+        }
+    }
 }
 
 impl<R: RawReader> UserReader<R> {
