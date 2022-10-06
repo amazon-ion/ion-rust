@@ -323,10 +323,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
     }
 
     pub fn format_integer(&mut self, value: &Integer) -> IonResult<()> {
-        match value {
-            Integer::I64(i) => write!(self.output, "{}", i)?,
-            Integer::BigInt(i) => write!(self.output, "{}", i)?,
-        }
+        write!(self.output, "{}", value)?;
         Ok(())
     }
 
