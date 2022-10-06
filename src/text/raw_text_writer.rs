@@ -532,13 +532,10 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
 
     /// Writes an Ion `integer` with the specified value to the output stream.
     fn write_integer(&mut self, value: &Integer) -> IonResult<()> {
-        match value {
-            Integer::I64(i) => self.write_i64(*i),
-            Integer::BigInt(i) => self.write_scalar(|output| {
-                write!(output, "{}", i)?;
-                Ok(())
-            }),
-        }
+        self.write_scalar(|output| {
+            write!(output, "{}", value)?;
+            Ok(())
+        })
     }
 
     /// Writes the provided f64 value as an Ion float.

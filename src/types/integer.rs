@@ -3,6 +3,7 @@ use crate::value::IonElement;
 use num_bigint::{BigInt, BigUint, ToBigUint};
 use num_traits::{ToPrimitive, Zero};
 use std::cmp::Ordering;
+use std::fmt::{Display, Formatter};
 use std::ops::{Add, Neg};
 
 /// Provides convenient integer accessors for integer values that are like [`Integer`]
@@ -418,6 +419,15 @@ impl Zero for Integer {
     }
 }
 
+impl Display for UInteger {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &self {
+            UInteger::U64(i) => write!(f, "{}", i),
+            UInteger::BigUInt(i) => write!(f, "{}", i),
+        }
+    }
+}
+
 // Trivial conversion to Integer::I64 from integers that can safely be converted to an i64
 macro_rules! impl_integer_i64_from {
     ($($t:ty),*) => ($(
@@ -479,9 +489,20 @@ where
     }
 }
 
+impl Display for Integer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &self {
+            Integer::I64(i) => write!(f, "{}", i),
+            Integer::BigInt(i) => write!(f, "{}", i),
+        }
+    }
+}
+
 #[cfg(test)]
 mod integer_tests {
     use num_bigint::BigInt;
+    use std::io::Write;
+
     use num_bigint::BigUint;
     use num_traits::Zero;
     // The 'Big' alias helps distinguish between the enum variant and the wrapped numeric type
@@ -586,5 +607,28 @@ mod integer_tests {
     #[case(UInteger::BigUInt(BigUint::from(3117u64)), 4)]
     fn uint_decimal_digits_test(#[case] uint: UInteger, #[case] expected: i32) {
         assert_eq!(uint.number_of_decimal_digits(), expected as u64)
+    }
+
+    #[rstest]
+    #[case(Integer::I64(5), "5")]
+    #[case(Integer::I64(-5), "-5")]
+    #[case(Integer::I64(0), "0")]
+    #[case(Integer::BigInt(BigInt::from(1100)), "1100")]
+    #[case(Integer::BigInt(BigInt::from(-1100)), "-1100")]
+    fn int_display_test(#[case] value: Integer, #[case] expect: String) {
+        let mut buf = Vec::new();
+        write!(&mut buf, "{}", value).unwrap();
+        assert_eq!(expect, String::from_utf8(buf).unwrap());
+    }
+
+    #[rstest]
+    #[case(UInteger::U64(5), "5")]
+    #[case(UInteger::U64(0), "0")]
+    #[case(UInteger::BigUInt(BigUint::from(0u64)), "0")]
+    #[case(UInteger::BigUInt(BigUint::from(1100u64)), "1100")]
+    fn uint_display_test(#[case] value: UInteger, #[case] expect: String) {
+        let mut buf = Vec::new();
+        write!(&mut buf, "{}", value).unwrap();
+        assert_eq!(expect, String::from_utf8(buf).unwrap());
     }
 }
