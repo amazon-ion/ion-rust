@@ -162,9 +162,9 @@ impl Display for StreamItem {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use StreamItem::*;
         match self {
-            Value(ion_type) => write!(f, "null.{}", ion_type),
-            Null(ion_type) => write!(f, "{}", ion_type),
-            Nothing => write!(f, "nothing/end-of-sequence"),
+            Value(ion_type) => write!(f, "{}", ion_type),
+            Null(ion_type) => write!(f, "null.{}", ion_type),
+            Nothing => write!(f, ""),
         }
     }
 }

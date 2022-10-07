@@ -128,6 +128,16 @@ impl ElementStreamReader {
             _ => unreachable!("Can not step into a scalar type"),
         }
     }
+
+    fn current_value_as<T, F>(&self, expect_message: &'static str, map_fn: F) -> IonResult<T>
+    where
+        F: Fn(&Element) -> Option<T>,
+    {
+        self.current_value
+            .as_ref()
+            .and_then(map_fn)
+            .ok_or_else(|| self.expected(expect_message))
+    }
 }
 
 impl IonReader for ElementStreamReader {
@@ -193,18 +203,11 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_bool(&mut self) -> IonResult<bool> {
-        self.current_value
-            .as_ref()
-            .and_then(|v| v.as_bool())
-            .ok_or_else(|| self.expected("bool value"))
+        self.current_value_as("bool value", |v| v.as_bool())
     }
 
     fn read_integer(&mut self) -> IonResult<Integer> {
-        self.current_value
-            .as_ref()
-            .and_then(|v| v.as_integer())
-            .map(|v| v.to_owned())
-            .ok_or_else(|| self.expected("int value"))
+        self.current_value_as("int value", |v| v.as_integer().map(|i| i.to_owned()))
     }
 
     fn read_i64(&mut self) -> IonResult<i64> {
@@ -222,26 +225,15 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_f32(&mut self) -> IonResult<f32> {
-        self.current_value
-            .as_ref()
-            .and_then(|v| v.as_f64())
-            .map(|v| v as f32)
-            .ok_or_else(|| self.expected("float value"))
+        self.current_value_as("int value", |v| v.as_f64().map(|f| f as f32))
     }
 
     fn read_f64(&mut self) -> IonResult<f64> {
-        self.current_value
-            .as_ref()
-            .and_then(|v| v.as_f64())
-            .ok_or_else(|| self.expected("float value"))
+        self.current_value_as("float value", |v| v.as_f64())
     }
 
     fn read_decimal(&mut self) -> IonResult<Decimal> {
-        self.current_value
-            .as_ref()
-            .and_then(|v| v.as_decimal())
-            .map(|v| v.to_owned())
-            .ok_or_else(|| self.expected("decimal value"))
+        self.current_value_as("decimal value", |v| v.as_decimal().map(|i| i.to_owned()))
     }
 
     fn read_string(&mut self) -> IonResult<String> {
@@ -268,11 +260,7 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_symbol(&mut self) -> IonResult<Self::Symbol> {
-        self.current_value
-            .as_ref()
-            .and_then(|v| v.as_sym())
-            .map(|v| v.to_owned())
-            .ok_or_else(|| self.expected("symbol value"))
+        self.current_value_as("symbol value", |v| v.as_sym().map(|i| i.to_owned()))
     }
 
     fn read_blob(&mut self) -> IonResult<Vec<u8>> {
@@ -306,11 +294,9 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_timestamp(&mut self) -> IonResult<Timestamp> {
-        self.current_value
-            .as_ref()
-            .and_then(|v| v.as_timestamp())
-            .ok_or_else(|| self.expected("timestamp value"))
-            .cloned()
+        self.current_value_as("timestamp value", |v| {
+            v.as_timestamp().map(|i| i.to_owned())
+        })
     }
 
     fn step_in(&mut self) -> IonResult<()> {
@@ -382,7 +368,7 @@ impl IonReader for ElementStreamReader {
 
     fn ion_version(&self) -> (u8, u8) {
         // An `Element` doesn't have an Ion version associated with it
-        // Since `Element`s are an in-memory representation fo Ion data, all versions of 1.x share the same Ion  version.
+        // Since `Element`s are an in-memory representation fo Ion data, all versions of 1.x share the same Ion version.
         (1, 0)
     }
 }
