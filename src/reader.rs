@@ -164,7 +164,7 @@ impl Display for StreamItem {
         match self {
             Value(ion_type) => write!(f, "{}", ion_type),
             Null(ion_type) => write!(f, "null.{}", ion_type),
-            Nothing => write!(f, ""),
+            Nothing => Ok(()),
         }
     }
 }

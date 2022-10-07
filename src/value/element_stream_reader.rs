@@ -225,7 +225,7 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_f32(&mut self) -> IonResult<f32> {
-        self.current_value_as("int value", |v| v.as_f64().map(|f| f as f32))
+        self.current_value_as("float value", |v| v.as_f64().map(|f| f as f32))
     }
 
     fn read_f64(&mut self) -> IonResult<f64> {
