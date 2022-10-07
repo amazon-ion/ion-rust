@@ -131,7 +131,7 @@
 //! ```
 //! use ion_rs::Symbol;
 //! use ion_rs::value::IonSymbolToken;
-//! use ion_rs::value::borrowed::SymbolTokenRef;
+//! use ion_rs::SymbolRef;
 //!
 //! fn extract_text<T: IonSymbolToken>(tok: &T) -> String {
 //!     tok.text().unwrap().into()
@@ -141,7 +141,7 @@
 //!
 //! // owned value to emphasize lifetime
 //! let text = String::from("hello");
-//! let borrowed_token: SymbolTokenRef = text.as_str().into();
+//! let borrowed_token: SymbolRef = text.as_str().into();
 //!
 //! let owned_text = extract_text(&owned_token);
 //! let borrowed_text = extract_text(&borrowed_token);
@@ -203,6 +203,7 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
+use crate::symbol_ref::AsSymbolRef;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
@@ -491,7 +492,7 @@ pub trait IonStruct: Debug + PartialEq {
     /// let owned: Struct = fields.into_iter().collect();
     /// assert_eq!("d", owned.get("c".to_string()).map(|e| e.as_str()).flatten().unwrap());
     /// ```
-    fn get<T: AsRef<str>>(&self, field_name: T) -> Option<&Self::Element>;
+    fn get<T: AsSymbolRef>(&self, field_name: T) -> Option<&Self::Element>;
 
     /// Returns an iterator with all the values corresponding to the field_name in the struct or
     /// returns an empty iterator if the field_name does not exist in the struct
@@ -522,7 +523,7 @@ pub trait IonStruct: Debug + PartialEq {
     ///     owned.get_all("d").flat_map(|e| e.as_str()).collect::<Vec<&str>>()
     /// );
     /// ```
-    fn get_all<'a, T: AsRef<str>>(
+    fn get_all<'a, T: AsSymbolRef>(
         &'a self,
         field_name: T,
     ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;

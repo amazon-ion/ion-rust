@@ -17,6 +17,7 @@ mod raw_symbol_token_ref;
 mod reader;
 mod stream_reader;
 mod symbol;
+mod symbol_ref;
 mod symbol_table;
 mod system_reader;
 mod writer;
@@ -26,6 +27,7 @@ pub use raw_symbol_token::RawSymbolToken;
 pub use raw_symbol_token_ref::RawSymbolTokenRef;
 
 pub use symbol::Symbol;
+pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
 
 pub use types::decimal::Decimal;

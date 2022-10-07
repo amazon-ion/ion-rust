@@ -1,8 +1,9 @@
 use crate::result::{decoding_error, IonError};
 use crate::value::IonElement;
-use num_bigint::{BigInt, BigUint};
+use num_bigint::{BigInt, BigUint, ToBigUint};
 use num_traits::{ToPrimitive, Zero};
 use std::cmp::Ordering;
+use std::fmt::{Display, Formatter};
 use std::ops::{Add, Neg};
 
 /// Provides convenient integer accessors for integer values that are like [`Integer`]
@@ -55,9 +56,8 @@ pub trait IntAccess {
     fn as_big_int(&self) -> Option<&BigInt>;
 }
 
-/// Represents a UInt of any size. Used for reading binary integers and symbol IDs.
-///
-/// Equality tests do NOT compare across storage types; U64(1) is not the same as BigUInt(1).
+/// Represents a UInt of any size. Used for reading binary integers and symbol Ids.
+/// Used to represent the unsigned magnitude of Decimal values and fractional seconds.
 #[derive(Debug, Clone)]
 pub enum UInteger {
     U64(u64),
@@ -83,6 +83,30 @@ impl UInteger {
         }
         // Otherwise, the BigUint must be larger than the u64.
         Ordering::Less
+    }
+
+    /// Returns the number of digits in the base-10 representation of the UInteger.
+    pub(crate) fn number_of_decimal_digits(&self) -> u64 {
+        match self {
+            UInteger::U64(u64_value) => super::num_decimal_digits_in_u64(*u64_value),
+            UInteger::BigUInt(big_uint_value) => {
+                UInteger::calculate_big_uint_digits(big_uint_value)
+            }
+        }
+    }
+
+    fn calculate_big_uint_digits(int: &BigUint) -> u64 {
+        if int.is_zero() {
+            return 1;
+        }
+        let mut digits = 0;
+        let mut dividend = int.to_owned();
+        let ten: BigUint = BigUint::from(10u64);
+        while dividend > BigUint::zero() {
+            dividend /= &ten;
+            digits += 1;
+        }
+        digits
     }
 }
 
@@ -132,6 +156,85 @@ impl From<UInteger> for Integer {
                 }
             }
             UInteger::BigUInt(big_uint) => big_integer_from_big_uint(big_uint),
+        }
+    }
+}
+
+impl From<BigUint> for UInteger {
+    fn from(value: BigUint) -> Self {
+        // prefer a compact representation for the magnitude
+        match value.to_u64() {
+            Some(unsigned) => UInteger::U64(unsigned),
+            None => UInteger::BigUInt(value),
+        }
+    }
+}
+
+impl From<UInteger> for BigUint {
+    fn from(value: UInteger) -> Self {
+        use UInteger::*;
+        match value {
+            U64(m) => BigUint::from(m),
+            BigUInt(m) => m,
+        }
+    }
+}
+
+impl ToBigUint for UInteger {
+    fn to_biguint(&self) -> Option<BigUint> {
+        // This implementation never fails, but the trait requires an `Option` return type.
+        Some(self.clone().into())
+    }
+}
+
+// This macro makes it possible to turn unsigned int primitives into a UInteger using `.into()`.
+// Note that it works for both signed and unsigned ints. The resulting UInteger will be the
+// absolute value of the integer being converted.
+macro_rules! impl_uinteger_from_small_unsigned_int_types {
+    ($($t:ty),*) => ($(
+        impl From<$t> for UInteger {
+            fn from(value: $t) -> UInteger {
+                UInteger::U64(value as u64)
+            }
+        }
+    )*)
+}
+
+impl_uinteger_from_small_unsigned_int_types!(u8, u16, u32, u64, usize);
+
+macro_rules! impl_uinteger_from_small_signed_int_types {
+    ($($t:ty),*) => ($(
+        impl From<$t> for UInteger {
+            fn from(value: $t) -> UInteger {
+                let abs_value = value.unsigned_abs();
+                UInteger::U64(abs_value.try_into().unwrap())
+            }
+        }
+    )*)
+}
+
+impl_uinteger_from_small_signed_int_types!(i8, i16, i32, i64, isize);
+
+impl From<u128> for UInteger {
+    fn from(value: u128) -> UInteger {
+        UInteger::BigUInt(BigUint::from(value))
+    }
+}
+
+impl From<i128> for UInteger {
+    fn from(value: i128) -> UInteger {
+        UInteger::BigUInt(value.abs().to_biguint().unwrap())
+    }
+}
+
+impl From<Integer> for UInteger {
+    fn from(value: Integer) -> Self {
+        match value {
+            Integer::I64(i) => i.into(),
+            // num_bigint::BigInt's `into_parts` consumes the BigInt and returns a
+            // (sign: Sign, magnitude: BigUint) tuple. We only care about the magnitude, so we
+            // extract it here with `.1` ---------------v and then convert the BigUint to a UInteger
+            Integer::BigInt(i) => i.into_parts().1.into(), // <-- using `.into()`
         }
     }
 }
@@ -316,6 +419,15 @@ impl Zero for Integer {
     }
 }
 
+impl Display for UInteger {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &self {
+            UInteger::U64(i) => write!(f, "{}", i),
+            UInteger::BigUInt(i) => write!(f, "{}", i),
+        }
+    }
+}
+
 // Trivial conversion to Integer::I64 from integers that can safely be converted to an i64
 macro_rules! impl_integer_i64_from {
     ($($t:ty),*) => ($(
@@ -377,9 +489,20 @@ where
     }
 }
 
+impl Display for Integer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match &self {
+            Integer::I64(i) => write!(f, "{}", i),
+            Integer::BigInt(i) => write!(f, "{}", i),
+        }
+    }
+}
+
 #[cfg(test)]
 mod integer_tests {
     use num_bigint::BigInt;
+    use std::io::Write;
+
     use num_bigint::BigUint;
     use num_traits::Zero;
     // The 'Big' alias helps distinguish between the enum variant and the wrapped numeric type
@@ -474,5 +597,38 @@ mod integer_tests {
         #[case] expected: Ordering,
     ) {
         assert_eq!(this.cmp(&other), expected)
+    }
+
+    #[rstest]
+    #[case(UInteger::U64(1), 1)] // only one test case for U64 as that's delegated to another impl
+    #[case(UInteger::BigUInt(BigUint::from(0u64)), 1)]
+    #[case(UInteger::BigUInt(BigUint::from(1u64)), 1)]
+    #[case(UInteger::BigUInt(BigUint::from(10u64)), 2)]
+    #[case(UInteger::BigUInt(BigUint::from(3117u64)), 4)]
+    fn uint_decimal_digits_test(#[case] uint: UInteger, #[case] expected: i32) {
+        assert_eq!(uint.number_of_decimal_digits(), expected as u64)
+    }
+
+    #[rstest]
+    #[case(Integer::I64(5), "5")]
+    #[case(Integer::I64(-5), "-5")]
+    #[case(Integer::I64(0), "0")]
+    #[case(Integer::BigInt(BigInt::from(1100)), "1100")]
+    #[case(Integer::BigInt(BigInt::from(-1100)), "-1100")]
+    fn int_display_test(#[case] value: Integer, #[case] expect: String) {
+        let mut buf = Vec::new();
+        write!(&mut buf, "{}", value).unwrap();
+        assert_eq!(expect, String::from_utf8(buf).unwrap());
+    }
+
+    #[rstest]
+    #[case(UInteger::U64(5), "5")]
+    #[case(UInteger::U64(0), "0")]
+    #[case(UInteger::BigUInt(BigUint::from(0u64)), "0")]
+    #[case(UInteger::BigUInt(BigUint::from(1100u64)), "1100")]
+    fn uint_display_test(#[case] value: UInteger, #[case] expect: String) {
+        let mut buf = Vec::new();
+        write!(&mut buf, "{}", value).unwrap();
+        assert_eq!(expect, String::from_utf8(buf).unwrap());
     }
 }

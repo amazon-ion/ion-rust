@@ -26,6 +26,22 @@ impl TextWriterBuilder {
         }
     }
 
+    /// Constructs a newline-delimited text Ion writer that adds UNIX and human-friendly newlines
+    /// between top-level values.
+    ///
+    /// For example:
+    /// ```ignore
+    /// {foo: 1, bar: 2, baz: 3}
+    /// [1, 2, 3]
+    /// true
+    /// "hello"
+    /// ```
+    pub fn lines() -> TextWriterBuilder {
+        TextWriterBuilder {
+            text_kind: TextKind::Lines,
+        }
+    }
+
     /// Constructs a 'pretty' text Ion writer that adds human-friendly spacing between values.
     ///
     /// For example:
@@ -55,6 +71,7 @@ impl TextWriterBuilder {
         let builder = match self.text_kind {
             TextKind::Compact => RawTextWriterBuilder::new(),
             TextKind::Pretty => RawTextWriterBuilder::pretty(),
+            TextKind::Lines => RawTextWriterBuilder::lines(),
         };
         let raw_writer = builder.build(sink)?;
         let text_writer = TextWriter {
