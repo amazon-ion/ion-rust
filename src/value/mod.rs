@@ -213,6 +213,7 @@ use num_bigint::BigInt;
 use std::fmt::Debug;
 
 pub mod borrowed;
+mod element_stream_reader;
 pub mod native_reader;
 pub mod native_writer;
 pub mod owned;
