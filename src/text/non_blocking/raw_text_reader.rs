@@ -420,9 +420,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                 // again. Return the value we found.
                 RootParseResult::Ok(value)
             }
-            Err(Incomplete(_needed)) => {
-                RootParseResult::Incomplete(self.buffer.lines_loaded(), 0)
-            }
+            Err(Incomplete(_needed)) => RootParseResult::Incomplete(self.buffer.lines_loaded(), 0),
             Err(Error(ion_parse_error)) => {
                 RootParseResult::Failure(format!(
                     "Parsing error occurred near line {}: '{}': '{:?}'",
