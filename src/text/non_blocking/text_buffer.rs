@@ -284,6 +284,7 @@ impl TextBuffer<Vec<u8>> {
 
         let read_buffer = &mut self.data.as_mut_slice()[self.data_end..];
         let bytes_read = source.read(read_buffer)?;
+        self.data.resize(self.data_end + bytes_read, 0);
 
         // We have new data, so we need to ensure that it is valid UTF-8.
         if self.validate_data().is_err() {
@@ -306,6 +307,10 @@ impl TextBuffer<Vec<u8>> {
         if capacity < length {
             self.data.resize(self.data.len() + length - capacity, 0);
         }
+    }
+
+    pub fn buffer_size(&self) -> usize {
+        self.data.len()
     }
 }
 

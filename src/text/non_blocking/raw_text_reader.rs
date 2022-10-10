@@ -421,11 +421,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                 RootParseResult::Ok(value)
             }
             Err(Incomplete(_needed)) => {
-                RootParseResult::Failure(format!(
-                    "Unexpected end of input on line {}: '{}'",
-                    self.buffer.lines_loaded(),
-                    &self.buffer.remaining_text()[..original_length] // Don't show the extra `\n0\n`
-                ))
+                RootParseResult::Incomplete(self.buffer.lines_loaded(), 0)
             }
             Err(Error(ion_parse_error)) => {
                 RootParseResult::Failure(format!(
@@ -461,7 +457,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
 }
 
 impl RawTextReader<Vec<u8>> {
-    fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
+    pub fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
         match self.buffer.append_bytes(bytes) {
             Err(e) => decoding_error(e.to_string()),
             Ok(()) => {
@@ -471,12 +467,16 @@ impl RawTextReader<Vec<u8>> {
         }
     }
 
-    fn read_from<R: std::io::Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
+    pub fn read_from<R: std::io::Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
         let res = self.buffer.read_from(source, length);
         if res.is_ok() {
             self.is_eof = false;
         }
         res
+    }
+
+    pub fn buffer_size(&self) -> usize {
+        self.buffer.buffer_size()
     }
 }
 
