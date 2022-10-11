@@ -741,7 +741,6 @@ mod reader_tests {
 
         let mut reader = RawTextReader::new(&source[..]);
 
-
         let result = reader.next();
         // Blob..
         assert!(result.is_ok());
@@ -761,5 +760,4 @@ mod reader_tests {
 
         Ok(())
     }
-
 }
