@@ -708,8 +708,8 @@ mod reader_tests {
     fn incomplete_struct_read() -> IonResult<()> {
         let mut source = String::from("{{");
         (0..4084).for_each(|_| source.push_str("A"));
-        source.push_str("}}{foo: 0, ");
-        (0..4088).for_each(|_| source.push_str(" "));
+        source.push_str("}}{foo: null.float, ");
+        (0..4096).for_each(|_| source.push_str(" "));
         source.push_str("}");
 
         let mut reader = RawTextReader::new(&source[..]);
@@ -723,6 +723,8 @@ mod reader_tests {
 
         let result = reader.next();
         assert!(result.is_ok());
+        assert_eq!(IonType::Float, reader.ion_type().unwrap());
+        assert_eq!(IonType::Float, reader.read_null()?);
 
         let result = reader.step_out();
         assert!(result.is_ok());
@@ -734,10 +736,12 @@ mod reader_tests {
     fn incomplete_struct_error() -> IonResult<()> {
         let mut source = String::from("{{");
         (0..4084).for_each(|_| source.push_str("A"));
-        source.push_str("}}{foo: 0, ");
-        (0..4088).for_each(|_| source.push_str(" "));
+        source.push_str("}}{foo: 0e0, ");
+        (0..4096).for_each(|_| source.push_str(" "));
 
         let mut reader = RawTextReader::new(&source[..]);
+
+
         let result = reader.next();
         // Blob..
         assert!(result.is_ok());
@@ -748,10 +752,14 @@ mod reader_tests {
 
         let result = reader.next();
         assert!(result.is_ok());
+        assert_eq!(false, reader.has_annotations());
+        assert_eq!(0.0, reader.read_f32()?);
+        assert_eq!(IonType::Struct, reader.parent_type().unwrap());
 
         let result = reader.step_out();
         assert!(result.is_err());
 
         Ok(())
     }
+
 }
