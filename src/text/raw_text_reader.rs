@@ -230,25 +230,7 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
     }
 
     fn step_in(&mut self) -> IonResult<()> {
-        self.feed_if_needed()?;
-        match self.reader.step_in() {
-            Err(err @ IonError::IncompleteText { .. }) => {
-                // We received an incomplete.. and need more data..
-                loop {
-                    // If there is no more data to read, we need to bubble the incomplete up to the
-                    // caller.
-                    if 0 == self.read_source(1024)? {
-                        return Err(err);
-                    }
-
-                    match self.reader.step_in() {
-                        Err(IonError::IncompleteText { .. }) => (),
-                        other => return other,
-                    }
-                }
-            }
-            other => other,
-        }
+        self.reader.step_in()
     }
 
     fn step_out(&mut self) -> IonResult<()> {
@@ -686,6 +668,7 @@ mod reader_tests {
     #[test]
     // This test generates a large blob of over 4kb, which exceeds the default buffer size when
     // reading, which will cause an Incomplete error and trigger the RawTextReader to read more
+    //
     // data from the source.
     fn incomplete_blob_read() -> IonResult<()> {
         let mut source = String::from("{{");
@@ -718,6 +701,57 @@ mod reader_tests {
         let mut reader = RawTextReader::new(&source[..]);
         let result = reader.next();
         assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn incomplete_struct_read() -> IonResult<()> {
+        let mut source = String::from("{{");
+        (0..4084).for_each(|_| source.push_str("A"));
+        source.push_str("}}{foo: 0, ");
+        (0..4088).for_each(|_| source.push_str(" "));
+        source.push_str("}");
+
+        let mut reader = RawTextReader::new(&source[..]);
+        let result = reader.next();
+        // Blob..
+        assert!(result.is_ok());
+        // Struct start..
+        let result = reader.next();
+        assert!(result.is_ok());
+        assert!(reader.step_in().is_ok());
+
+        let result = reader.next();
+        assert!(result.is_ok());
+
+        let result = reader.step_out();
+        assert!(result.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn incomplete_struct_error() -> IonResult<()> {
+        let mut source = String::from("{{");
+        (0..4084).for_each(|_| source.push_str("A"));
+        source.push_str("}}{foo: 0, ");
+        (0..4088).for_each(|_| source.push_str(" "));
+
+        let mut reader = RawTextReader::new(&source[..]);
+        let result = reader.next();
+        // Blob..
+        assert!(result.is_ok());
+        // Struct start..
+        let result = reader.next();
+        assert!(result.is_ok());
+        assert!(reader.step_in().is_ok());
+
+        let result = reader.next();
+        assert!(result.is_ok());
+
+        let result = reader.step_out();
+        assert!(result.is_err());
+
         Ok(())
     }
 }
