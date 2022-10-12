@@ -467,6 +467,9 @@ pub trait IonStruct: Debug + PartialEq {
     type FieldsIterator<'a>: Iterator<Item = (&'a Self::FieldName, &'a Self::Element)>
     where
         Self: 'a;
+    type ValuesIterator<'a>: Iterator<Item = &'a Self::Element>
+    where
+        Self: 'a;
 
     /// The fields of the structure.
     ///
@@ -531,10 +534,7 @@ pub trait IonStruct: Debug + PartialEq {
     ///     owned.get_all("d").flat_map(|e| e.as_str()).collect::<Vec<&str>>()
     /// );
     /// ```
-    fn get_all<'a, T: AsSymbolRef>(
-        &'a self,
-        field_name: T,
-    ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
+    fn get_all<'a, T: AsSymbolRef>(&'a self, field_name: T) -> Self::ValuesIterator<'a>;
 }
 
 pub trait Builder {

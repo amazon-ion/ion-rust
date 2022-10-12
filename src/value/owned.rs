@@ -21,7 +21,7 @@ use std::iter::FromIterator;
 use std::rc::Rc;
 
 use crate::symbol_ref::AsSymbolRef;
-use crate::value::iterators::{ElementsIterator, StructFieldIterator, SymbolsIterator};
+use crate::value::iterators::{ElementsIterator, FieldIterator, SymbolsIterator};
 use smallvec::SmallVec;
 
 impl IonSymbolToken for Symbol {
@@ -197,11 +197,11 @@ type IndexVec = SmallVec<[usize; 1]>;
 struct Fields {
     // Key/value pairs in the order they were inserted
     by_index: Vec<(Symbol, Element)>,
-    // Maps symbols to a list of indexes where they may be found in `by_index` above
+    // Maps symbols to a list of indexes where values may be found in `by_index` above
     by_name: HashMap<Symbol, IndexVec>,
 }
 
-struct FieldValuesIterator<'a> {
+pub struct FieldValuesIterator<'a> {
     current: usize,
     indexes: Option<&'a IndexVec>,
     by_index: &'a Vec<(Symbol, Element)>,
@@ -222,7 +222,7 @@ impl<'a> Iterator for FieldValuesIterator<'a> {
 }
 
 impl Fields {
-    fn get_indexes<'a, A: AsSymbolRef>(&'a self, field_name: A) -> Option<&IndexVec> {
+    fn get_indexes<A: AsSymbolRef>(&self, field_name: A) -> Option<&IndexVec> {
         match field_name.as_symbol_ref().text() {
             // If the provided field name symbol has undefined text...
             None => {
@@ -357,21 +357,19 @@ where
 impl IonStruct for Struct {
     type FieldName = Symbol;
     type Element = Element;
-    type FieldsIterator<'a> = StructFieldIterator<'a>;
+    type FieldsIterator<'a> = FieldIterator<'a>;
+    type ValuesIterator<'a> = FieldValuesIterator<'a>;
 
-    fn iter<'a>(&'a self) -> StructFieldIterator<'a> {
-        StructFieldIterator::new(&self.fields.by_index)
+    fn iter<'a>(&'a self) -> FieldIterator<'a> {
+        FieldIterator::new(&self.fields.by_index)
     }
 
     fn get<A: AsSymbolRef>(&self, field_name: A) -> Option<&Self::Element> {
         self.fields.get_last(field_name)
     }
 
-    fn get_all<'a, A: AsSymbolRef>(
-        &'a self,
-        field_name: A,
-    ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
-        Box::new(self.fields.get_all(field_name))
+    fn get_all<'a, A: AsSymbolRef>(&'a self, field_name: A) -> FieldValuesIterator<'a> {
+        self.fields.get_all(field_name)
     }
 }
 

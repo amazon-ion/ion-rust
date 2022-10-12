@@ -34,14 +34,9 @@ macro_rules! create_new_slice_iterator_type {
     )*)
 }
 create_new_slice_iterator_type!(
-    // Owned
     SymbolsIterator => Symbol,
-    ElementsIterator => Element,
-    // TODO: this should be Item = (&Symbol, &Element), not Item = &(Symbol, Element)
-    FieldsIterator => (Symbol, Element)
+    ElementsIterator => Element
 );
-
-pub type FieldRef<'a> = (SymbolRef<'a>, ElementRef<'a>);
 
 macro_rules! create_new_ref_slice_iterator_type {
     ($($iterator_name:ident => $item_name:ident),*) => ($(
@@ -76,30 +71,58 @@ macro_rules! create_new_ref_slice_iterator_type {
 
 create_new_ref_slice_iterator_type!(
     SymbolRefIterator => SymbolRef,
-    ElementRefIterator => ElementRef,
-    FieldRefIterator => FieldRef
+    ElementRefIterator => ElementRef
 );
 
-pub struct StructFieldIterator<'a> {
+pub struct FieldIterator<'a> {
     values: Option<std::slice::Iter<'a, (Symbol, Element)>>,
 }
 
 // Provide 'new' and 'empty' constructors for our new iterator type
-impl<'a> StructFieldIterator<'a> {
+impl<'a> FieldIterator<'a> {
     pub(crate) fn new(data: &'a [(Symbol, Element)]) -> Self {
-        StructFieldIterator {
+        FieldIterator {
             values: Some(data.iter()),
         }
     }
 
-    pub(crate) fn empty() -> StructFieldIterator<'static> {
-        StructFieldIterator { values: None }
+    pub(crate) fn empty() -> FieldIterator<'static> {
+        FieldIterator { values: None }
     }
 }
 
 // Implement the Iterator trait for our new type
-impl<'a> Iterator for StructFieldIterator<'a> {
+impl<'a> Iterator for FieldIterator<'a> {
     type Item = (&'a Symbol, &'a Element);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.values
+            .as_mut()
+            // Get the next &(name, value) and convert it to (&name, &value)
+            .and_then(|iter| iter.next().map(|field| (&field.0, &field.1)))
+    }
+}
+
+pub struct FieldRefIterator<'iter, 'data> {
+    values: Option<std::slice::Iter<'iter, (SymbolRef<'data>, ElementRef<'data>)>>,
+}
+
+// Provide 'new' and 'empty' constructors for our new iterator type
+impl<'iter, 'data> FieldRefIterator<'iter, 'data> {
+    pub(crate) fn new(data: &'iter [(SymbolRef<'data>, ElementRef<'data>)]) -> Self {
+        FieldRefIterator {
+            values: Some(data.iter()),
+        }
+    }
+
+    pub(crate) fn empty() -> FieldRefIterator<'static, 'static> {
+        FieldRefIterator { values: None }
+    }
+}
+
+// Implement the Iterator trait for our new type
+impl<'iter, 'data> Iterator for FieldRefIterator<'iter, 'data> {
+    type Item = (&'iter SymbolRef<'data>, &'iter ElementRef<'data>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.values

@@ -83,6 +83,13 @@ impl AsSymbolRef for &Symbol {
     }
 }
 
+impl<'borrow, 'data> AsSymbolRef for &'borrow SymbolRef<'data> {
+    fn as_symbol_ref(&self) -> SymbolRef<'data> {
+        // This is essentially free; the only data inside is an Option<&str>
+        (*self).clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
