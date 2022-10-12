@@ -35,6 +35,7 @@ jobs:
         with:
           profile: minimal
           toolchain: beta
+          components: rustfmt, clippy
           override: true
       - name: Cargo Build 
         uses: actions-rs/cargo@v1
