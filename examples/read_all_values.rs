@@ -62,7 +62,7 @@ fn read_all_values<R: RawReader>(reader: &mut R) -> IonResult<usize> {
                 match ion_type {
                     Struct | List | SExpression => reader.step_in()?,
                     String => {
-                        let _text = reader.map_string(|_s| ())?;
+                        reader.map_string(|_s| ())?;
                     }
                     Symbol => {
                         let _symbol_id = reader.read_symbol()?;
@@ -83,10 +83,10 @@ fn read_all_values<R: RawReader>(reader: &mut R) -> IonResult<usize> {
                         let _boolean = reader.read_bool()?;
                     }
                     Blob => {
-                        let _blob = reader.map_blob(|_b| ())?;
+                        reader.map_blob(|_b| ())?;
                     }
                     Clob => {
-                        let _clob = reader.map_clob(|_c| ())?;
+                        reader.map_clob(|_c| ())?;
                     }
                     Null => {}
                 }

@@ -26,7 +26,7 @@ fn contains_path(paths: &[&str], file_name: &str) -> bool {
     paths
         .iter()
         // TODO construct the paths in a not so hacky way
-        .map(|p| p.replace("/", &PATH_SEPARATOR.to_string()))
+        .map(|p| p.replace('/', &PATH_SEPARATOR.to_string()))
         .any(|p| p == file_name)
 }
 
@@ -110,7 +110,7 @@ trait ElementApi {
             source_elements.ion_eq(&new_elements),
             "Roundtrip via {:?} failed: {}",
             format,
-            Self::not_eq_error_message(&source_elements, &new_elements)
+            Self::not_eq_error_message(source_elements, &new_elements)
         );
         Ok(new_elements)
     }
