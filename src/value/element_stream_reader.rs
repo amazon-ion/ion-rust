@@ -79,7 +79,7 @@ impl ElementStreamReader {
         // If the parent is not empty that means we are inside a container
         // Get the next value of the container using the iterator
         let next_item = self.current_iter.next();
-        if next_item == None {
+        if next_item.is_none() {
             // If there are no next values left within the iterator
             // then early return
             self.current_value = None;

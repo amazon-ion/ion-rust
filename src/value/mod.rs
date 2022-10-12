@@ -361,7 +361,7 @@ where
     /// be replaced with static polymorphism.
     ///
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
-    fn annotations<'a>(&'a self) -> Self::AnnotationsIterator<'a>;
+    fn annotations(&self) -> Self::AnnotationsIterator<'_>;
 
     /// Return an `Element` with given annotations
     fn with_annotations<I: IntoIterator<Item = Self::SymbolToken>>(self, annotations: I) -> Self;
@@ -447,7 +447,7 @@ pub trait IonSequence: Debug + PartialEq {
     /// be replaced with static polymorphism.
     ///
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
-    fn iter<'a>(&'a self) -> Self::ElementsIterator<'a>;
+    fn iter(&self) -> Self::ElementsIterator<'_>;
 
     /// Returns a reference to the element in the sequence at the given index or
     /// returns `None` if the index is out of the bounds.
@@ -478,7 +478,7 @@ pub trait IonStruct: Debug + PartialEq {
     /// be replaced with static polymorphism.
     ///
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
-    fn iter<'a>(&'a self) -> Self::FieldsIterator<'a>;
+    fn iter(&self) -> Self::FieldsIterator<'_>;
 
     /// Returns the last value corresponding to the field_name in the struct or
     /// returns `None` if the field_name does not exist in the struct
@@ -534,7 +534,7 @@ pub trait IonStruct: Debug + PartialEq {
     ///     owned.get_all("d").flat_map(|e| e.as_str()).collect::<Vec<&str>>()
     /// );
     /// ```
-    fn get_all<'a, T: AsSymbolRef>(&'a self, field_name: T) -> Self::ValuesIterator<'a>;
+    fn get_all<T: AsSymbolRef>(&self, field_name: T) -> Self::ValuesIterator<'_>;
 }
 
 pub trait Builder {

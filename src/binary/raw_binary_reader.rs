@@ -91,7 +91,7 @@ struct EncodedValue {
 impl EncodedValue {
     /// Returns the offset of the current value's type descriptor byte.
     fn header_offset(&self) -> usize {
-        self.header_offset as usize
+        self.header_offset
     }
 
     /// Returns the length of this value's header, including the type descriptor byte and any
@@ -526,7 +526,7 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
         let coefficient_size_in_bytes =
             self.cursor.value.value_length - exponent_var_int.size_in_bytes();
 
-        let exponent = exponent_var_int.value() as i64;
+        let exponent = exponent_var_int.value();
         let coefficient = self.read_int(coefficient_size_in_bytes)?;
 
         if coefficient.is_negative_zero() {
@@ -938,7 +938,7 @@ where
     #[inline(always)]
     fn read_var_int(&mut self) -> IonResult<VarInt> {
         let var_int = VarInt::read(&mut self.data_source)?;
-        self.cursor.bytes_read += var_int.size_in_bytes() as usize;
+        self.cursor.bytes_read += var_int.size_in_bytes();
         Ok(var_int)
     }
 

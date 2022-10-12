@@ -170,7 +170,7 @@ impl<'val> IonSequence for SequenceRef<'val> {
     type Element = ElementRef<'val>;
     type ElementsIterator<'a> = ElementRefIterator<'a, 'val> where 'val: 'a;
 
-    fn iter<'a>(&'a self) -> Self::ElementsIterator<'a> {
+    fn iter(&self) -> Self::ElementsIterator<'_> {
         ElementRefIterator::new(&self.children)
     }
 
@@ -258,7 +258,7 @@ where
 
             by_name
                 .entry(field_name.clone())
-                .or_insert_with(|| IndexVec::new())
+                .or_insert_with(IndexVec::new)
                 .push(by_index.len());
             by_index.push((field_name, field_value));
         }

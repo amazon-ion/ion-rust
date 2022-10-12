@@ -172,7 +172,7 @@ impl IonSequence for Sequence {
     type Element = Element;
     type ElementsIterator<'a> = ElementsIterator<'a>;
 
-    fn iter<'a>(&'a self) -> Self::ElementsIterator<'a> {
+    fn iter(&self) -> Self::ElementsIterator<'_> {
         ElementsIterator::new(&self.children)
     }
 
@@ -337,7 +337,7 @@ where
 
             by_name
                 .entry(field_name.clone())
-                .or_insert_with(|| IndexVec::new())
+                .or_insert_with(IndexVec::new)
                 .push(by_index.len());
             by_index.push((field_name, field_value));
         }
@@ -353,7 +353,7 @@ impl IonStruct for Struct {
     type FieldsIterator<'a> = FieldIterator<'a>;
     type ValuesIterator<'a> = FieldValuesIterator<'a>;
 
-    fn iter<'a>(&'a self) -> FieldIterator<'a> {
+    fn iter(&self) -> FieldIterator<'_> {
         FieldIterator::new(&self.fields.by_index)
     }
 
@@ -361,7 +361,7 @@ impl IonStruct for Struct {
         self.fields.get_last(field_name)
     }
 
-    fn get_all<'a, A: AsSymbolRef>(&'a self, field_name: A) -> FieldValuesIterator<'a> {
+    fn get_all<A: AsSymbolRef>(&self, field_name: A) -> FieldValuesIterator<'_> {
         self.fields.get_all(field_name)
     }
 }
@@ -610,7 +610,7 @@ impl IonElement for Element {
         }
     }
 
-    fn annotations<'a>(&'a self) -> Self::AnnotationsIterator<'a> {
+    fn annotations(&self) -> Self::AnnotationsIterator<'_> {
         SymbolsIterator::new(&self.annotations)
     }
 
