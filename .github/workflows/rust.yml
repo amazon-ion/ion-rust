@@ -34,6 +34,8 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
+          # We're temporarily testing against `beta` to have access to GATs. When Rust v1.65 is released in
+          # 2022-11, we should change this back to `stable`.
           toolchain: beta
           components: rustfmt, clippy
           override: true

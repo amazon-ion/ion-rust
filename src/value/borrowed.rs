@@ -13,7 +13,7 @@ use crate::symbol_ref::{AsSymbolRef, SymbolRef};
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
-use crate::value::iterators::{ElementRefIterator, FieldRefIterator};
+use crate::value::iterators::{ElementRefIterator, FieldRefIterator, FieldValueRefsIterator};
 use crate::value::Builder;
 use crate::IonType;
 use num_bigint::BigInt;
@@ -274,27 +274,8 @@ struct FieldRefs<'a> {
     by_name: HashMap<SymbolRef<'a>, IndexVec>,
 }
 
-pub struct FieldValueRefsIterator<'iter, 'data> {
-    current: usize,
-    indexes: Option<&'iter IndexVec>,
-    fields: &'iter Vec<(SymbolRef<'data>, ElementRef<'data>)>,
-}
-
-impl<'iter, 'data> Iterator for FieldValueRefsIterator<'iter, 'data> {
-    type Item = &'iter ElementRef<'data>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.indexes
-            .and_then(|i| i.get(self.current))
-            .and_then(|i| {
-                self.current += 1;
-                self.fields.get(*i)
-            })
-            .map(|(_name, value)| value)
-    }
-}
-
 impl<'data> FieldRefs<'data> {
+    /// Gets all of the indexes that contain a value associated with the given field name.
     fn get_indexes<A: AsSymbolRef>(&self, field_name: A) -> Option<&IndexVec> {
         match field_name.as_symbol_ref().text() {
             // If the provided field name symbol has undefined text...
@@ -311,10 +292,7 @@ impl<'data> FieldRefs<'data> {
         }
     }
 
-    fn number_of_values<A: AsSymbolRef>(&self, field_name: A) -> usize {
-        self.get_indexes(field_name).map(|i| i.len()).unwrap_or(0)
-    }
-
+    /// Iterates over the values found at the specified indexes.
     fn get_values_at_indexes<'iter>(
         &'iter self,
         indexes: &'iter IndexVec,
@@ -326,6 +304,14 @@ impl<'data> FieldRefs<'data> {
         }
     }
 
+    /// Gets the last value in the Struct that is associated with the specified field name.
+    ///
+    /// Note that the Ion data model views a struct as a bag of (name, value) pairs and does not
+    /// have a notion of field ordering. In most use cases, field names are distinct and the last
+    /// appearance of a field in the struct's serialized form will have been the _only_ appearance.
+    /// If a field name appears more than once, this method makes the arbitrary decision to return
+    /// the value associated with the last appearance. If your application uses structs that repeat
+    /// field names, you are encouraged to use [get_all] instead.
     fn get_last<'iter, A: AsSymbolRef>(
         &'iter self,
         field_name: A,
@@ -336,6 +322,7 @@ impl<'data> FieldRefs<'data> {
             .map(|(_name, value)| value)
     }
 
+    /// Iterates over all of the values associated with the given field name.
     fn get_all<'iter, A: AsSymbolRef>(
         &'iter self,
         field_name: A,
@@ -348,6 +335,7 @@ impl<'data> FieldRefs<'data> {
         }
     }
 
+    /// Iterates over all of the (field name, field value) pairs in the struct.
     fn iter<'iter>(
         &'iter self,
     ) -> impl Iterator<Item = &'iter (SymbolRef<'data>, ElementRef<'data>)> {
