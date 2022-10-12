@@ -13,6 +13,7 @@ use crate::symbol_ref::{AsSymbolRef, SymbolRef};
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
+use crate::value::iterators::ElementRefIterator;
 use crate::value::Builder;
 use crate::IonType;
 use hashlink::LinkedHashMap;
@@ -159,9 +160,10 @@ impl<'val> FromIterator<ElementRef<'val>> for SequenceRef<'val> {
 
 impl<'val> IonSequence for SequenceRef<'val> {
     type Element = ElementRef<'val>;
+    type ElementsIterator<'a> = ElementRefIterator<'a, 'val> where 'val: 'a;
 
-    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
-        Box::new(self.children.iter())
+    fn iter<'a>(&'a self) -> Self::ElementsIterator<'a> {
+        ElementRefIterator::new(&self.children)
     }
 
     fn get(&self, index: usize) -> Option<&Self::Element> {
@@ -272,6 +274,8 @@ where
 impl<'val> IonStruct for StructRef<'val> {
     type FieldName = SymbolRef<'val>;
     type Element = ElementRef<'val>;
+    type FieldsIterator<'a> =
+        Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a> where Self: 'a;
 
     fn iter<'a>(
         &'a self,
@@ -493,6 +497,7 @@ impl<'val> IonElement for ElementRef<'val> {
     type Sequence = SequenceRef<'val>;
     type Struct = StructRef<'val>;
     type Builder = ElementRef<'val>;
+    type AnnotationsIterator<'a> = Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a> where 'val: 'a;
 
     fn ion_type(&self) -> IonType {
         use ValueRef::*;

@@ -214,6 +214,7 @@ use std::fmt::Debug;
 
 pub mod borrowed;
 mod element_stream_reader;
+mod iterators;
 pub mod native_reader;
 pub mod native_writer;
 pub mod owned;
@@ -314,6 +315,9 @@ where
         + Debug
         + PartialEq;
     type Builder: Builder<SymbolToken = Self::SymbolToken, Element = Self> + ?Sized;
+    type AnnotationsIterator<'a>: Iterator<Item = &'a Self::SymbolToken>
+    where
+        Self: 'a;
 
     /// The type of data this element represents.
     fn ion_type(&self) -> IonType;
@@ -357,7 +361,7 @@ where
     /// be replaced with static polymorphism.
     ///
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
-    fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a>;
+    fn annotations<'a>(&'a self) -> Self::AnnotationsIterator<'a>;
 
     /// Return an `Element` with given annotations
     fn with_annotations<I: IntoIterator<Item = Self::SymbolToken>>(self, annotations: I) -> Self;
@@ -432,6 +436,9 @@ where
 /// Represents the _value_ of sequences of Ion elements (i.e. `list` and `sexp`).
 pub trait IonSequence: Debug + PartialEq {
     type Element: IonElement + ?Sized;
+    type ElementsIterator<'a>: Iterator<Item = &'a Self::Element>
+    where
+        Self: 'a;
 
     /// The children of the sequence.
     ///
@@ -440,7 +447,7 @@ pub trait IonSequence: Debug + PartialEq {
     /// be replaced with static polymorphism.
     ///
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
-    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a>;
+    fn iter<'a>(&'a self) -> Self::ElementsIterator<'a>;
 
     /// Returns a reference to the element in the sequence at the given index or
     /// returns `None` if the index is out of the bounds.
@@ -457,6 +464,9 @@ pub trait IonSequence: Debug + PartialEq {
 pub trait IonStruct: Debug + PartialEq {
     type FieldName: IonSymbolToken + ?Sized;
     type Element: IonElement + ?Sized;
+    type FieldsIterator<'a>: Iterator<Item = (&'a Self::FieldName, &'a Self::Element)>
+    where
+        Self: 'a;
 
     /// The fields of the structure.
     ///
@@ -465,9 +475,7 @@ pub trait IonStruct: Debug + PartialEq {
     /// be replaced with static polymorphism.
     ///
     /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
-    fn iter<'a>(
-        &'a self,
-    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a>;
+    fn iter<'a>(&'a self) -> Self::FieldsIterator<'a>;
 
     /// Returns the last value corresponding to the field_name in the struct or
     /// returns `None` if the field_name does not exist in the struct

@@ -34,7 +34,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
+          toolchain: beta
           override: true
       - name: Cargo Build 
         uses: actions-rs/cargo@v1

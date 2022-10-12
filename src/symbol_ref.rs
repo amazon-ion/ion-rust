@@ -75,6 +75,14 @@ impl AsSymbolRef for Symbol {
     }
 }
 
+impl AsSymbolRef for &Symbol {
+    fn as_symbol_ref(&self) -> SymbolRef {
+        self.text()
+            .map(SymbolRef::with_text)
+            .unwrap_or_else(SymbolRef::with_unknown_text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
