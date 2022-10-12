@@ -13,11 +13,12 @@ use crate::symbol_ref::{AsSymbolRef, SymbolRef};
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
-use crate::value::iterators::{ElementRefIterator, FieldRefIterator, FieldValueRefsIterator};
+use crate::value::iterators::{
+    ElementRefIterator, FieldRefIterator, FieldValueRefsIterator, IndexVec, SymbolRefIterator,
+};
 use crate::value::Builder;
 use crate::IonType;
 use num_bigint::BigInt;
-use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::rc::Rc;
@@ -260,10 +261,6 @@ where
         Self { fields }
     }
 }
-
-// A convenient type alias for a vector capable of storing a single `usize` inline
-// without heap allocation.
-type IndexVec = SmallVec<[usize; 1]>;
 
 // This collection is broken out into its own type to allow instances of it to be shared with Rc.
 #[derive(Debug)]
@@ -533,7 +530,7 @@ impl<'val> IonElement for ElementRef<'val> {
     type Sequence = SequenceRef<'val>;
     type Struct = StructRef<'val>;
     type Builder = ElementRef<'val>;
-    type AnnotationsIterator<'a> = Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a> where 'val: 'a;
+    type AnnotationsIterator<'a> = SymbolRefIterator<'a, 'val> where 'val: 'a;
 
     fn ion_type(&self) -> IonType {
         use ValueRef::*;
@@ -554,8 +551,8 @@ impl<'val> IonElement for ElementRef<'val> {
         }
     }
 
-    fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a> {
-        Box::new(self.annotations.iter())
+    fn annotations<'a>(&'a self) -> SymbolRefIterator<'a, 'val> {
+        SymbolRefIterator::new(&self.annotations)
     }
 
     fn with_annotations<I: IntoIterator<Item = Self::SymbolToken>>(self, annotations: I) -> Self {

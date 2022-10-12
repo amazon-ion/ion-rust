@@ -1,6 +1,7 @@
 use crate::value::borrowed::ElementRef;
 use crate::value::owned::Element;
 use crate::{Symbol, SymbolRef};
+use smallvec::SmallVec;
 // This macro defines a new iterator type for a given `Iterator => Item` type name pair.
 //
 // The implementation produced can be used to iterate over any `Vec<Item>` or `&[Item]`.
@@ -88,6 +89,10 @@ create_new_ref_slice_iterator_type!(
     // Used for iterating over a SequenceRef's ElementRefs
     ElementRefIterator => ElementRef
 );
+
+// A convenient type alias for a vector capable of storing a single `usize` inline
+// without heap allocation. This type should not be used in public interfaces directly.
+pub(crate) type IndexVec = SmallVec<[usize; 1]>;
 
 /// Iterates over the (field name, field value) pairs in a Struct.
 pub struct FieldIterator<'a> {

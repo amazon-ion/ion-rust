@@ -22,9 +22,8 @@ use std::rc::Rc;
 
 use crate::symbol_ref::AsSymbolRef;
 use crate::value::iterators::{
-    ElementsIterator, FieldIterator, FieldValuesIterator, SymbolsIterator,
+    ElementsIterator, FieldIterator, FieldValuesIterator, IndexVec, SymbolsIterator,
 };
-use smallvec::SmallVec;
 
 impl IonSymbolToken for Symbol {
     fn text(&self) -> Option<&str> {
@@ -191,8 +190,6 @@ impl PartialEq for Sequence {
 }
 
 impl Eq for Sequence {}
-
-type IndexVec = SmallVec<[usize; 1]>;
 
 // This collection is broken out into its own type to allow instances of it to be shared with Rc.
 #[derive(Debug)]
