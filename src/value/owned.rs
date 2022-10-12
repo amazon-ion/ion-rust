@@ -142,12 +142,16 @@ impl Builder for Element {
 /// An owned implementation of [`Sequence`]
 #[derive(Debug, Clone)]
 pub struct Sequence {
-    children: Vec<Element>,
+    // TODO: Since we've moved the elements Vec to the heap, we could consider replacing it with a
+    //       SmallVec that can store some number of elements (4? 8?) inline. We'd need to benchmark.
+    children: Rc<Vec<Element>>,
 }
 
 impl Sequence {
     pub fn new(children: Vec<Element>) -> Self {
-        Self { children }
+        Self {
+            children: Rc::new(children),
+        }
     }
 }
 
@@ -158,7 +162,9 @@ impl FromIterator<Element> for Sequence {
         for elem in iter {
             children.push(elem);
         }
-        Self { children }
+        Self {
+            children: Rc::new(children),
+        }
     }
 }
 

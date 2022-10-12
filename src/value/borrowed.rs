@@ -140,12 +140,16 @@ impl<'val> Builder for ElementRef<'val> {
 /// A borrowed implementation of [`Sequence`].
 #[derive(Debug, Clone)]
 pub struct SequenceRef<'val> {
-    children: Vec<ElementRef<'val>>,
+    // TODO: Since we've moved the elements Vec to the heap, we could consider replacing it with a
+    //       SmallVec that can store some number of elements (4? 8?) inline. We'd need to benchmark.
+    children: Rc<Vec<ElementRef<'val>>>,
 }
 
 impl<'val> SequenceRef<'val> {
     pub fn new(children: Vec<ElementRef<'val>>) -> Self {
-        Self { children }
+        Self {
+            children: Rc::new(children),
+        }
     }
 }
 
@@ -156,7 +160,9 @@ impl<'val> FromIterator<ElementRef<'val>> for SequenceRef<'val> {
         for elem in iter {
             children.push(elem);
         }
-        Self { children }
+        Self {
+            children: Rc::new(children),
+        }
     }
 }
 
