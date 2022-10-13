@@ -280,19 +280,19 @@ struct FieldRefs<'a> {
 impl<'data> FieldRefs<'data> {
     /// Gets all of the indexes that contain a value associated with the given field name.
     fn get_indexes<A: AsSymbolRef>(&self, field_name: A) -> Option<&IndexVec> {
-        match field_name.as_symbol_ref().text() {
-            // If the provided field name symbol has undefined text...
-            None => {
-                // ...then build a cheap, stack-allocated `Symbol` that represents unknown text
+        field_name
+            .as_symbol_ref()
+            .text()
+            .map(|text| {
+                // If the symbol has defined text, look it up by &str
+                self.by_name.get(text)
+            })
+            .unwrap_or_else(|| {
+                // Otherwise, construct a SymbolRef with unknown text...
                 let symbol = SymbolRef::with_unknown_text();
                 // ...and use the unknown text symbol to look up matching field values
                 self.by_name.get(&symbol)
-            }
-            Some(text) => {
-                // Otherwise, look it up by text
-                self.by_name.get(text)
-            }
-        }
+            })
     }
 
     /// Iterates over the values found at the specified indexes.

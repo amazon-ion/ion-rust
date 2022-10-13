@@ -355,12 +355,6 @@ where
     /// assert!(&borrowed_elem.has_annotation("a"));
     /// assert!(!&borrowed_elem.has_annotation("d"));
     /// ```
-    ///
-    /// Note that this uses a `Box<dyn Iterator<...>>` to capture the borrow cleanly without
-    /// without [generic associated types (GAT)][gat].  In theory, when GAT lands, this could
-    /// be replaced with static polymorphism.
-    ///
-    /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
     fn annotations(&self) -> Self::AnnotationsIterator<'_>;
 
     /// Return an `Element` with given annotations
@@ -441,12 +435,6 @@ pub trait IonSequence: Debug + PartialEq {
         Self: 'a;
 
     /// The children of the sequence.
-    ///
-    /// Note that this uses a `Box<dyn Iterator<...>>` to capture the borrow cleanly without
-    /// without [generic associated types (GAT)][gat].  In theory, when GAT lands, this could
-    /// be replaced with static polymorphism.
-    ///
-    /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
     fn iter(&self) -> Self::ElementsIterator<'_>;
 
     /// Returns a reference to the element in the sequence at the given index or
@@ -472,12 +460,6 @@ pub trait IonStruct: Debug + PartialEq {
         Self: 'a;
 
     /// The fields of the structure.
-    ///
-    /// Note that this uses a `Box<dyn Iterator<...>>` to capture the borrow cleanly without
-    /// without [generic associated types (GAT)][gat].  In theory, when GAT lands, this could
-    /// be replaced with static polymorphism.
-    ///
-    /// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
     fn iter(&self) -> Self::FieldsIterator<'_>;
 
     /// Returns the last value corresponding to the field_name in the struct or

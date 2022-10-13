@@ -36,6 +36,7 @@ jobs:
           profile: minimal
           # We're temporarily testing against `beta` to have access to GATs. When Rust v1.65 is released in
           # 2022-11, we should change this back to `stable`.
+          # See: https://github.com/amzn/ion-rust/issues/443
           toolchain: beta
           components: rustfmt, clippy
           override: true

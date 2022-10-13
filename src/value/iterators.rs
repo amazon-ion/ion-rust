@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 //
 // The implementation produced can be used to iterate over any `Vec<Item>` or `&[Item]`.
 macro_rules! create_new_slice_iterator_type {
-    ($($iterator_name:ident => $item_name:ty),*) => ($(
+    ($($iterator_name:ident => $item_name:ty),+) => ($(
         // Define a new type called '$iterator_name' that's a thin wrapper around a slice iterator.
         // We wrap the slice iterator in an `Option` so we can provide the functionality of an empty
         // iterator without requiring that an empty Vec or slice be provided. This sidesteps some
@@ -49,7 +49,7 @@ create_new_slice_iterator_type!(
 // Like the `create_new_slice_iterator_type` macro defined above, but works for Ref types that have
 // an additional lifetime.
 macro_rules! create_new_ref_slice_iterator_type {
-    ($($iterator_name:ident => $item_name:ident),*) => ($(
+    ($($iterator_name:ident => $item_name:ident),+) => ($(
         // Define a new type called '$iterator_name' that's a thin wrapper around a slice iterator.
         // We wrap the slice iterator in an `Option` so we can provide the functionality of an empty
         // iterator without requiring that an empty Vec or slice be provided. This sidesteps some
