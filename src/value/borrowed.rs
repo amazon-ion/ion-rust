@@ -13,12 +13,15 @@ use crate::symbol_ref::{AsSymbolRef, SymbolRef};
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
+use crate::value::iterators::{
+    ElementRefIterator, FieldRefIterator, FieldValueRefsIterator, IndexVec, SymbolRefIterator,
+};
 use crate::value::Builder;
 use crate::IonType;
-use hashlink::LinkedHashMap;
 use num_bigint::BigInt;
-use smallvec::SmallVec;
+use std::collections::HashMap;
 use std::iter::FromIterator;
+use std::rc::Rc;
 
 impl<'a> IonSymbolToken for SymbolRef<'a> {
     fn text(&self) -> Option<&str> {
@@ -137,12 +140,16 @@ impl<'val> Builder for ElementRef<'val> {
 /// A borrowed implementation of [`Sequence`].
 #[derive(Debug, Clone)]
 pub struct SequenceRef<'val> {
-    children: Vec<ElementRef<'val>>,
+    // TODO: Since we've moved the elements Vec to the heap, we could consider replacing it with a
+    //       SmallVec that can store some number of elements (4? 8?) inline. We'd need to benchmark.
+    children: Rc<Vec<ElementRef<'val>>>,
 }
 
 impl<'val> SequenceRef<'val> {
     pub fn new(children: Vec<ElementRef<'val>>) -> Self {
-        Self { children }
+        Self {
+            children: Rc::new(children),
+        }
     }
 }
 
@@ -153,15 +160,18 @@ impl<'val> FromIterator<ElementRef<'val>> for SequenceRef<'val> {
         for elem in iter {
             children.push(elem);
         }
-        Self { children }
+        Self {
+            children: Rc::new(children),
+        }
     }
 }
 
 impl<'val> IonSequence for SequenceRef<'val> {
     type Element = ElementRef<'val>;
+    type ElementsIterator<'a> = ElementRefIterator<'a, 'val> where 'val: 'a;
 
-    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
-        Box::new(self.children.iter())
+    fn iter(&self) -> Self::ElementsIterator<'_> {
+        ElementRefIterator::new(&self.children)
     }
 
     fn get(&self, index: usize) -> Option<&Self::Element> {
@@ -188,42 +198,33 @@ impl<'val> Eq for SequenceRef<'val> {}
 /// A borrowed implementation of [`Struct`]
 #[derive(Debug, Clone)]
 pub struct StructRef<'val> {
-    // A mapping of field name to any values associated with that name.
-    // If a field name is repeated, each value will be in the associated SmallVec.
-    // Since repeated field names are not common, we store the values in a SmallVec;
-    // the first value will be stored directly in the map while additional values will
-    // be stored elsewhere on the heap.
-    fields: LinkedHashMap<SymbolRef<'val>, SmallVec<[ElementRef<'val>; 1]>>,
-    // `fields.len()` will only tell us the number of *distinct* field names. If the struct
-    // contains any repeated field names, it will be an under-count. Therefore, we track the number
-    // of fields separately.
-    number_of_fields: usize,
+    fields: Rc<FieldRefs<'val>>,
 }
 
 impl<'val> StructRef<'val> {
     fn fields_eq(&self, other: &Self) -> bool {
-        // For each (field name, field value list) in `self`...
-        for (field_name, field_values) in &self.fields {
-            // ...get the corresponding field value list from `other`.
-            let other_values = match other.fields.get(field_name) {
-                // If there's no such list, they're not equal.
+        // For each field name in `self`, get the list of indexes that contain a value with that name.
+        for (field_name, field_value_indexes) in &self.fields.by_name {
+            let other_value_indexes = match other.fields.get_indexes(field_name) {
+                Some(indexes) => indexes,
+                // The other struct doesn't have a field with this name so they're not equal.
                 None => return false,
-                Some(values) => values,
             };
 
-            // If `other` has a corresponding list but it's a different length, they're not equal.
-            if field_values.len() != other_values.len() {
+            if field_value_indexes.len() != other_value_indexes.len() {
+                // The other struct has fields with the same name, but a different number of them.
                 return false;
             }
 
-            // If any of the values in `self`'s value list are not also in `other`'s value list,
-            // they're not equal.
-            if field_values.iter().any(|value| {
-                other_values
-                    .iter()
-                    .all(|other_value| !value.ion_eq(other_value))
-            }) {
-                return false;
+            for field_value in self.fields.get_values_at_indexes(field_value_indexes) {
+                if other
+                    .fields
+                    .get_values_at_indexes(other_value_indexes)
+                    .all(|other_value| !field_value.ion_eq(other_value))
+                {
+                    // Couldn't find an equivalent field in the other struct
+                    return false;
+                }
             }
         }
 
@@ -233,7 +234,7 @@ impl<'val> StructRef<'val> {
 
     /// Returns the number of fields in this Struct.
     pub fn len(&self) -> usize {
-        self.number_of_fields
+        self.fields.by_index.len()
     }
 
     /// Returns `true` if this struct has zero fields.
@@ -249,84 +250,126 @@ where
 {
     /// Returns a borrowed struct from the given iterator of field names/values.
     fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        let mut fields: LinkedHashMap<SymbolRef<'val>, SmallVec<[ElementRef<'val>; 1]>> =
-            LinkedHashMap::new();
-        let mut number_of_fields: usize = 0;
+        let mut by_index = Vec::new();
+        let mut by_name = HashMap::new();
+        for (field_name, field_value) in iter {
+            let field_name = field_name.into();
+            let field_value = field_value.into();
 
-        for (k, v) in iter {
-            let key = k.into();
-            let val = v.into();
-
-            fields.entry(key).or_insert_with(SmallVec::new).push(val);
-
-            number_of_fields += 1;
+            by_name
+                .entry(field_name.clone())
+                .or_insert_with(IndexVec::new)
+                .push(by_index.len());
+            by_index.push((field_name, field_value));
         }
 
-        Self {
-            fields,
-            number_of_fields,
+        let fields = Rc::new(FieldRefs { by_index, by_name });
+        Self { fields }
+    }
+}
+
+// This collection is broken out into its own type to allow instances of it to be shared with Rc.
+#[derive(Debug)]
+struct FieldRefs<'a> {
+    // Key/value pairs in the order they were inserted
+    by_index: Vec<(SymbolRef<'a>, ElementRef<'a>)>,
+    // Maps symbols to a list of indexes where values may be found in `by_index` above
+    by_name: HashMap<SymbolRef<'a>, IndexVec>,
+}
+
+impl<'data> FieldRefs<'data> {
+    /// Gets all of the indexes that contain a value associated with the given field name.
+    fn get_indexes<A: AsSymbolRef>(&self, field_name: A) -> Option<&IndexVec> {
+        field_name
+            .as_symbol_ref()
+            .text()
+            .map(|text| {
+                // If the symbol has defined text, look it up by &str
+                self.by_name.get(text)
+            })
+            .unwrap_or_else(|| {
+                // Otherwise, construct a SymbolRef with unknown text...
+                let symbol = SymbolRef::with_unknown_text();
+                // ...and use the unknown text symbol to look up matching field values
+                self.by_name.get(&symbol)
+            })
+    }
+
+    /// Iterates over the values found at the specified indexes.
+    fn get_values_at_indexes<'iter>(
+        &'iter self,
+        indexes: &'iter IndexVec,
+    ) -> FieldValueRefsIterator<'iter, 'data> {
+        FieldValueRefsIterator {
+            current: 0,
+            indexes: Some(indexes),
+            fields: &self.by_index,
         }
+    }
+
+    /// Gets the last value in the Struct that is associated with the specified field name.
+    ///
+    /// Note that the Ion data model views a struct as a bag of (name, value) pairs and does not
+    /// have a notion of field ordering. In most use cases, field names are distinct and the last
+    /// appearance of a field in the struct's serialized form will have been the _only_ appearance.
+    /// If a field name appears more than once, this method makes the arbitrary decision to return
+    /// the value associated with the last appearance. If your application uses structs that repeat
+    /// field names, you are encouraged to use [get_all] instead.
+    fn get_last<'iter, A: AsSymbolRef>(
+        &'iter self,
+        field_name: A,
+    ) -> Option<&'iter ElementRef<'data>> {
+        self.get_indexes(field_name)
+            .and_then(|indexes| indexes.last())
+            .and_then(|index| self.by_index.get(*index))
+            .map(|(_name, value)| value)
+    }
+
+    /// Iterates over all of the values associated with the given field name.
+    fn get_all<'iter, A: AsSymbolRef>(
+        &'iter self,
+        field_name: A,
+    ) -> FieldValueRefsIterator<'iter, 'data> {
+        let indexes = self.get_indexes(field_name);
+        FieldValueRefsIterator {
+            current: 0,
+            indexes,
+            fields: &self.by_index,
+        }
+    }
+
+    /// Iterates over all of the (field name, field value) pairs in the struct.
+    fn iter<'iter>(
+        &'iter self,
+    ) -> impl Iterator<Item = &'iter (SymbolRef<'data>, ElementRef<'data>)> {
+        self.by_index.iter()
     }
 }
 
 impl<'val> IonStruct for StructRef<'val> {
     type FieldName = SymbolRef<'val>;
     type Element = ElementRef<'val>;
+    type FieldsIterator<'a> = FieldRefIterator<'a, 'val> where 'val: 'a;
+    type ValuesIterator<'a> = FieldValueRefsIterator<'a, 'val> where 'val: 'a;
 
-    fn iter<'a>(
-        &'a self,
-    ) -> Box<dyn Iterator<Item = (&'a Self::FieldName, &'a Self::Element)> + 'a> {
+    fn iter<'a>(&'a self) -> FieldRefIterator<'a, 'val> {
         // flattens the fields map
-        Box::new(
-            self.fields
-                .iter()
-                .flat_map(|(name, values)| values.iter().map(move |value| (name, value))),
-        )
+        FieldRefIterator::new(&self.fields.by_index)
     }
 
     fn get<T: AsSymbolRef>(&self, field_name: T) -> Option<&Self::Element> {
-        match field_name.as_symbol_ref().text() {
-            None => {
-                // Build a cheap, stack-allocated `SymbolRef` that represents unknown text
-                let symbol = SymbolRef::with_unknown_text();
-                // Use the unknown text symbol to look up matching field values
-                self.fields.get(&symbol)?.last()
-            }
-            Some(text) => {
-                // Otherwise, look it up by text
-                self.fields.get(text)?.last()
-            }
-        }
+        self.fields.get_last(field_name)
     }
 
-    fn get_all<'a, T: AsSymbolRef>(
-        &'a self,
-        field_name: T,
-    ) -> Box<dyn Iterator<Item = &'a Self::Element> + 'a> {
-        let values = match field_name.as_symbol_ref().text() {
-            None => {
-                // Build a cheap, stack-allocated `SymbolRef` that represents unknown text
-                let symbol = SymbolRef::with_unknown_text();
-                // Use the unknown text symbol to look up matching field values
-                self.fields.get(&symbol)
-            }
-            Some(text) => {
-                // Otherwise, look it up by text
-                self.fields.get(text)
-            }
-        };
-
-        match values {
-            None => Box::new(std::iter::empty()),
-            Some(values) => Box::new(values.iter()),
-        }
+    fn get_all<'a, T: AsSymbolRef>(&'a self, field_name: T) -> FieldValueRefsIterator<'a, 'val> {
+        self.fields.get_all(field_name)
     }
 }
 
 impl<'val> PartialEq for StructRef<'val> {
     fn eq(&self, other: &Self) -> bool {
         // check if both fields have same length
-        self.fields.len() == other.fields.len()
+        self.len() == other.len()
         // we need to test equality in both directions for both fields
         // A good example for this is annotated vs not annotated values in struct
         //  { a:4, a:4 } vs. { a:4, a:a::4 } // returns true
@@ -493,6 +536,7 @@ impl<'val> IonElement for ElementRef<'val> {
     type Sequence = SequenceRef<'val>;
     type Struct = StructRef<'val>;
     type Builder = ElementRef<'val>;
+    type AnnotationsIterator<'a> = SymbolRefIterator<'a, 'val> where 'val: 'a;
 
     fn ion_type(&self) -> IonType {
         use ValueRef::*;
@@ -513,8 +557,8 @@ impl<'val> IonElement for ElementRef<'val> {
         }
     }
 
-    fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::SymbolToken> + 'a> {
-        Box::new(self.annotations.iter())
+    fn annotations<'a>(&'a self) -> SymbolRefIterator<'a, 'val> {
+        SymbolRefIterator::new(&self.annotations)
     }
 
     fn with_annotations<I: IntoIterator<Item = Self::SymbolToken>>(self, annotations: I) -> Self {

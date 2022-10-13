@@ -1,5 +1,6 @@
 use crate::result::{decoding_error, illegal_operation, illegal_operation_raw};
 use crate::text::parent_container::ParentContainer;
+use crate::value::iterators::SymbolsIterator;
 use crate::value::owned::Element;
 use crate::value::{IonElement, IonSequence, IonStruct};
 use crate::{
@@ -78,7 +79,7 @@ impl ElementStreamReader {
         // If the parent is not empty that means we are inside a container
         // Get the next value of the container using the iterator
         let next_item = self.current_iter.next();
-        if next_item == None {
+        if next_item.is_none() {
             // If there are no next values left within the iterator
             // then early return
             self.current_value = None;
@@ -176,7 +177,7 @@ impl IonReader for ElementStreamReader {
             .current_value
             .as_ref()
             .map(|value| value.annotations())
-            .unwrap_or_else(|| Box::new(std::iter::empty()))
+            .unwrap_or_else(|| SymbolsIterator::empty())
             .cloned()
             // The annotations are already in memory and are already resolved to text, so
             // this step cannot fail. Map each token to Ok(token).

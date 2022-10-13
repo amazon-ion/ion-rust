@@ -117,7 +117,7 @@ impl VarUInt {
     /// unsigned integer
     #[inline(always)]
     pub fn size_in_bytes(&self) -> usize {
-        self.size_in_bytes as usize
+        self.size_in_bytes
     }
 }
 

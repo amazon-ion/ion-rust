@@ -125,7 +125,7 @@ impl DecodedInt {
         let empty_leading_bytes: u32 = (magnitude.leading_zeros() - 1) >> 3;
         let first_occupied_byte = empty_leading_bytes as usize;
 
-        let mut magnitude_bytes: [u8; mem::size_of::<u64>()] = (magnitude as u64).to_be_bytes();
+        let mut magnitude_bytes: [u8; mem::size_of::<u64>()] = magnitude.to_be_bytes();
         let bytes_to_write: &mut [u8] = &mut magnitude_bytes[first_occupied_byte..];
         if value < 0 {
             bytes_to_write[0] |= 0b1000_0000;

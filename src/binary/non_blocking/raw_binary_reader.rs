@@ -86,7 +86,7 @@ struct EncodedValue {
 impl EncodedValue {
     /// Returns the offset of the current value's type descriptor byte.
     fn header_offset(&self) -> usize {
-        self.header_offset as usize
+        self.header_offset
     }
 
     /// Returns the length of this value's header, including the type descriptor byte and any
@@ -734,7 +734,7 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
         let coefficient_size_in_bytes =
             encoded_value.value_length() - exponent_var_int.size_in_bytes();
 
-        let exponent = exponent_var_int.value() as i64;
+        let exponent = exponent_var_int.value();
         let coefficient = buffer.read_int(coefficient_size_in_bytes)?;
 
         if coefficient.is_negative_zero() {
