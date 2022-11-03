@@ -255,9 +255,6 @@ impl TextBuffer<Vec<u8>> {
     /// This function will invalidate any data returned by `remaining_text` as the bytes in the
     /// buffer will have shifted.
     fn restack(&mut self) {
-        let rem = self.remaining_text().to_owned();
-        // let prev_last = rem[rem.len()-10..];
-        // let prev_first = rem[0..10];
         let shift_offset = self.line.0 + self.line_offset;
 
         // Shift off all of our consumed data, leaving the buffer to start with the current line's
@@ -319,10 +316,6 @@ impl TextBuffer<Vec<u8>> {
         if capacity < length {
             self.data.resize(self.data.len() + length - capacity, 0);
         }
-    }
-
-    pub fn buffer_size(&self) -> usize {
-        self.data.capacity()
     }
 }
 
@@ -409,12 +402,6 @@ mod tests {
             wrong => panic!("Unexpected response from read_from: {:?}", wrong),
         }
         assert_eq!(input.data_end, 12);
-        // we did not load the whole string here, so we want to read the rest, which will trigger
-        // the buffer to grow.
-        match input.read_from((&more[source.len()..]).as_bytes(), 10) {
-            Ok(x) if x == more.len() - source.len() => (),
-            wrong => panic!("Unexpected response from read_from: {:?}", wrong),
-        }
 
         input.load_next_line().unwrap();
         assert_eq!(input.remaining_text(), more);

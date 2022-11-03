@@ -119,7 +119,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
 
         // Unset variables holding onto information about the previous position.
         self.current_ivm = None;
-        if let None = self.carried_state {
+        if self.carried_state.is_none() {
             self.current_value = None;
             self.current_field_name = None;
         }
@@ -550,10 +550,6 @@ impl RawTextReader<Vec<u8>> {
         }
         res
     }
-
-    pub fn buffer_size(&self) -> usize {
-        self.buffer.buffer_size()
-    }
 }
 
 // Returned by the `annotations()` method below if there is no current value.
@@ -576,8 +572,6 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
     }
 
     fn next(&mut self) -> IonResult<RawStreamItem> {
-        use super::text_buffer::TextError;
-
         // Parse the next value from the stream, storing it in `self.current_value`.
         self.load_next_value()?;
 

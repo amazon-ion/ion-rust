@@ -58,7 +58,7 @@ impl ReaderBuilder {
                 // we can move into the reader.
                 let owned_header = Vec::from(&header[..total_bytes_read]);
                 // The file was too short to be binary Ion. Construct a text Reader.
-                return Ok(Self::make_text_reader(owned_header)?);
+                return Self::make_text_reader(owned_header);
             }
             total_bytes_read += bytes_read;
         }

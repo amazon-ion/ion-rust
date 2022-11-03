@@ -59,11 +59,6 @@ impl<T: ToIonDataSource> RawTextReader<T> {
         self.bytes_fed += bytes_read;
         Ok(bytes_read)
     }
-
-    // Returns the number of bytes unconsumed in the underlying reader.
-    fn reader_remaining(&self) -> usize {
-        self.bytes_fed - self.reader.bytes_read()
-    }
 }
 
 impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
