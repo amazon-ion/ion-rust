@@ -642,7 +642,6 @@ mod reader_tests {
     #[test]
     // This test generates a large blob of over 4kb, which exceeds the default buffer size when
     // reading, which will cause an Incomplete error and trigger the RawTextReader to read more
-    //
     // data from the source.
     fn incomplete_blob_read() -> IonResult<()> {
         let mut source = String::from("{{");
