@@ -134,6 +134,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
     /// this method will panic.
     pub fn consume(&mut self, number_of_bytes: usize) {
         let remaining_line = self.remaining_text();
+
         assert!(
             number_of_bytes <= remaining_line.len(),
             "Cannot consume() more bytes than are left in the current line."
@@ -222,10 +223,10 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
         // appended data with any partial data that was invalid before the append.
         let ValidUtf8Span(valid_start, valid_end) = self.data_utf8;
 
-        let new_end = match from_utf8(&self.data.as_ref()[valid_end..]) {
+        let new_end = match from_utf8(&self.data.as_ref()[valid_end..self.data_end]) {
             Ok(_valid) => {
                 // All of the data is valid UTF-8.
-                self.data.as_ref().len()
+                self.data_end
             }
             Err(error) => {
                 let last_valid_offset = error.valid_up_to();
@@ -254,22 +255,32 @@ impl TextBuffer<Vec<u8>> {
     /// This function will invalidate any data returned by `remaining_text` as the bytes in the
     /// buffer will have shifted.
     fn restack(&mut self) {
+        let rem = self.remaining_text().to_owned();
+        // let prev_last = rem[rem.len()-10..];
+        // let prev_first = rem[0..10];
+        let shift_offset = self.line.0 + self.line_offset;
+
         // Shift off all of our consumed data, leaving the buffer to start with the current line's
         // unconsumed data.
-        let prev_start = self.line.0;
-        self.data.copy_within(self.line.0..self.data_end, 0);
-        self.data_end -= self.line.0;
-        self.data.truncate(self.data_end);
+        self.data.copy_within(shift_offset..self.data_end, 0);
+        self.data_end -= shift_offset;
 
         // The shift invalidates all of our ValidUtf8Spans.. so we need to adjust.
-        self.data_utf8.shift_left(prev_start);
-        self.line.shift_left(prev_start);
+        self.data_utf8.shift_left(shift_offset);
+        self.line.shift_left(shift_offset);
+        self.line_offset = 0;
     }
 
     /// Copies the provided bytes to the end of the input buffer.
     pub fn append_bytes(&mut self, bytes: &[u8]) -> Result<(), TextError> {
         self.restack();
-        self.data.extend_from_slice(bytes);
+        let remaining = self.data.len() - self.data_end;
+        if bytes.len() > remaining {
+            let needed = bytes.len() - remaining;
+            self.data.resize(self.data.len() + needed, 0);
+        }
+        let dst = &mut self.data[self.data_end..self.data_end + bytes.len()];
+        dst.copy_from_slice(bytes);
         self.data_end += bytes.len();
         self.data_exhausted = false;
         self.validate_data()
@@ -284,7 +295,7 @@ impl TextBuffer<Vec<u8>> {
 
         let read_buffer = &mut self.data.as_mut_slice()[self.data_end..];
         let bytes_read = source.read(read_buffer)?;
-        self.data.resize(self.data_end + bytes_read, 0);
+        self.data_end += bytes_read;
 
         // We have new data, so we need to ensure that it is valid UTF-8.
         if self.validate_data().is_err() {
@@ -293,8 +304,9 @@ impl TextBuffer<Vec<u8>> {
             })?
         }
 
-        self.data_end += bytes_read;
-        self.data_exhausted = false;
+        if self.data_end > 0 {
+            self.data_exhausted = false;
+        }
 
         Ok(bytes_read)
     }
@@ -310,7 +322,7 @@ impl TextBuffer<Vec<u8>> {
     }
 
     pub fn buffer_size(&self) -> usize {
-        self.data.len()
+        self.data.capacity()
     }
 }
 
@@ -385,13 +397,25 @@ mod tests {
         let mut input = TextBuffer::new(source.as_bytes().to_owned());
         let size = input.load_next_line().unwrap();
         assert_eq!(input.remaining_text(), "first line\n");
+        assert_eq!(input.data_end, 11);
         input.consume(size);
 
+        // At this point our buffer should be sized to fit the first line, but since we have
+        // consumed all of the first line, reading `more.len()` bytes will grow the buffer by
+        // the whatever is needed to accomodate the diffence in `more`'s size.
         let more = "second line\n";
         match input.read_from(more.as_bytes(), more.len()) {
             Ok(x) if x == more.len() => (),
             wrong => panic!("Unexpected response from read_from: {:?}", wrong),
         }
+        assert_eq!(input.data_end, 12);
+        // we did not load the whole string here, so we want to read the rest, which will trigger
+        // the buffer to grow.
+        match input.read_from((&more[source.len()..]).as_bytes(), 10) {
+            Ok(x) if x == more.len() - source.len() => (),
+            wrong => panic!("Unexpected response from read_from: {:?}", wrong),
+        }
+
         input.load_next_line().unwrap();
         assert_eq!(input.remaining_text(), more);
         assert_eq!(input.lines_loaded(), 2);

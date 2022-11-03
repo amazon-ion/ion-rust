@@ -1,5 +1,3 @@
-use std::io::BufRead;
-
 use crate::data_source::ToIonDataSource;
 use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
@@ -11,7 +9,7 @@ use crate::{Decimal, Integer, IonError, IonType};
 use crate::text::non_blocking::raw_text_reader::RawTextReader as NonBlockingReader;
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
-const READER_BUFFER_CAPACITY: usize = 1024 * 4;
+const READER_DEFAULT_BUFFER_CAPACITY: usize = 1024 * 4;
 
 pub struct RawTextReader<T: ToIonDataSource> {
     source: T::DataSource,
@@ -19,35 +17,33 @@ pub struct RawTextReader<T: ToIonDataSource> {
     reader: NonBlockingReader<Vec<u8>>,
     // The number of bytes fed to the inner reader.
     bytes_fed: usize,
-}
-
-/// Represents the final outcome of a [RawTextReader]'s attempt to parse the next value in the stream.
-///
-/// `IonParseResult<'a>` is not suitable for this purpose; its lifetime, `'a`, causes
-/// the result to hold a reference to the [RawTextReader]'s buffer even after parsing has finished,
-/// making it difficult to perform the necessary bookkeeping that follows finding the next value.
-///
-/// This type is intentionally limited in what it stores to avoid having a lifetime.
-#[derive(Eq, PartialEq, Debug)]
-pub(crate) enum RootParseResult<O> {
-    Ok(O),
-    Eof,
-    NoMatch,
-    Failure(String),
+    // The maximum amount of data to read at once.
+    max_read_size: usize,
 }
 
 impl<T: ToIonDataSource> RawTextReader<T> {
-    pub fn new(input: T) -> RawTextReader<T> {
-        let buffer = Vec::with_capacity(READER_BUFFER_CAPACITY);
-        RawTextReader {
+    pub fn new(input: T) -> IonResult<RawTextReader<T>> {
+        Self::new_with_size(input, READER_DEFAULT_BUFFER_CAPACITY)
+    }
+
+    pub fn new_with_size(input: T, size: usize) -> IonResult<RawTextReader<T>> {
+        let buffer = Vec::with_capacity(size);
+        let mut reader = RawTextReader {
             source: input.to_ion_data_source(),
             reader: NonBlockingReader::new(buffer),
             bytes_fed: 0,
-        }
+            max_read_size: size,
+        };
+        reader.read_source(size)?;
+        Ok(reader)
     }
 
     pub fn bytes_read(&self) -> usize {
         self.reader.bytes_read()
+    }
+
+    pub fn stream_done(&mut self) {
+        self.reader.stream_done();
     }
 
     // Read up to `length` bytes from the source, into the underlying non-blocking reader.
@@ -68,26 +64,6 @@ impl<T: ToIonDataSource> RawTextReader<T> {
     fn reader_remaining(&self) -> usize {
         self.bytes_fed - self.reader.bytes_read()
     }
-
-    // Read data into the underlying non-blocking reader if we have more data in our source,
-    // and the non-blocking reader has less than 1/4 of a full buffer.
-    //
-    // The 1/4 full buffer is fairly arbitrary, but provides some headroom so we're not constantly
-    // reading, while at the same time ensuring we have enough data that we don't land on a false
-    // type boundary.
-    fn feed_if_needed(&mut self) -> IonResult<()> {
-        let more_source = self.source.fill_buf().map(|b| !b.is_empty())?;
-        let add_source = more_source && self.reader_remaining() < self.reader.buffer_size() / 4;
-        if self.bytes_fed == 0 || add_source {
-            let size = if self.bytes_fed == 0 {
-                READER_BUFFER_CAPACITY
-            } else {
-                self.reader.buffer_size() - self.reader_remaining()
-            };
-            self.read_source(size)?;
-        }
-        Ok(())
-    }
 }
 
 impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
@@ -99,25 +75,30 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
     }
 
     fn next(&mut self) -> IonResult<RawStreamItem> {
-        self.feed_if_needed()?;
+        let mut read_size = self.max_read_size;
 
-        match self.reader.next() {
-            Err(err @ IonError::IncompleteText { .. }) => {
-                // We received an incomplete.. and need more data..
-                loop {
-                    // If there is no more data to read, we need to bubble the incomplete up to the
-                    // caller.
-                    if 0 == self.read_source(1024)? {
-                        return Err(err);
-                    }
-
-                    match self.reader.next() {
-                        Err(IonError::IncompleteText { .. }) => (),
-                        other => return other,
+        loop {
+            let result = self.reader.next();
+            if let Err(IonError::IncompleteText { .. }) = result {
+                let bytes_read = self.read_source(read_size)?;
+                // if we have no bytes, and our stream has been marked as fully loaded, then we
+                // need to bubble up the error. Otherwise, if our stream has not been marked as
+                // loaded, then we need to mark it as loaded and retry.
+                if 0 == bytes_read {
+                    if self.reader.is_stream_done() {
+                        return result;
+                    } else {
+                        self.reader.stream_done();
                     }
                 }
+                // The assumption here is that most buffer sizes will start at a magnitude the user
+                // is comfortable with in terms of memory usage. So if we're reading more in order
+                // to reach a parsable point we do not want to start consuming more than an order of
+                // magnitude more memory just to get there.
+                read_size = std::cmp::min(read_size * 2, self.max_read_size * 10);
+            } else {
+                return result;
             }
-            other => other,
         }
     }
 
@@ -234,24 +215,17 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
     }
 
     fn step_out(&mut self) -> IonResult<()> {
-        self.feed_if_needed()?;
-        match self.reader.step_out() {
-            Err(err @ IonError::IncompleteText { .. }) => {
-                // We received an incomplete.. and need more data..
-                loop {
-                    // If there is no more data to read, we need to bubble the incomplete up to the
-                    // caller.
-                    if 0 == self.read_source(1024)? {
-                        return Err(err);
-                    }
-
-                    match self.reader.step_out() {
-                        Err(IonError::IncompleteText { .. }) => (),
-                        other => return other,
-                    }
+        let mut read_size = self.max_read_size;
+        loop {
+            let result = self.reader.step_out();
+            if let Err(IonError::IncompleteText { .. }) = result {
+                if 0 == self.read_source(read_size)? {
+                    return result;
                 }
+            } else {
+                return result;
             }
-            other => other,
+            read_size = std::cmp::min(read_size * 2, self.max_read_size * 10);
         }
     }
 
@@ -298,7 +272,7 @@ mod reader_tests {
         let ion_data = r#"
             0 [1, 2, 3] (4 5) 6
         "#;
-        let reader = &mut RawTextReader::new(ion_data);
+        let reader = &mut RawTextReader::new(ion_data)?;
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?, 0);
 
@@ -331,7 +305,7 @@ mod reader_tests {
             }
             11
         "#;
-        let reader = &mut RawTextReader::new(ion_data);
+        let reader = &mut RawTextReader::new(ion_data)?;
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
         next_type(reader, IonType::List, false);
@@ -372,7 +346,7 @@ mod reader_tests {
             42
         "#;
 
-        let reader = &mut RawTextReader::new(ion_data);
+        let reader = &mut RawTextReader::new(ion_data)?;
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
         next_type(reader, IonType::Integer, false);
@@ -408,7 +382,7 @@ mod reader_tests {
             ('''foo''')
         "#;
 
-        let reader = &mut RawTextReader::new(ion_data);
+        let reader = &mut RawTextReader::new(ion_data)?;
         next_type(reader, IonType::Null, true);
 
         next_type(reader, IonType::Boolean, false);
@@ -493,7 +467,7 @@ mod reader_tests {
             km::36 // width
         "#;
 
-        let reader = &mut RawTextReader::new(ion_data);
+        let reader = &mut RawTextReader::new(ion_data)?;
 
         next_type(reader, IonType::String, false);
         assert_eq!(reader.read_string()?, String::from("(486958) 2014 MU69"));
@@ -526,7 +500,7 @@ mod reader_tests {
         "#;
         // TODO: Check for annotations after OwnedSymbolToken
 
-        let reader = &mut RawTextReader::new(ion_data);
+        let reader = &mut RawTextReader::new(ion_data)?;
         next_type(reader, IonType::Null, true);
         annotations_eq(reader, &["mercury"]);
 
@@ -620,7 +594,7 @@ mod reader_tests {
                 {a:1, b:2 }     // without trailing comma
             )
         "#;
-        let mut reader = RawTextReader::new(&pretty_ion[..]);
+        let mut reader = RawTextReader::new(&pretty_ion[..])?;
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::SExpression));
         reader.step_in()?;
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Struct));
@@ -645,7 +619,7 @@ mod reader_tests {
         let pretty_ion = br#"
             false::23
         "#;
-        let mut reader = RawTextReader::new(&pretty_ion[..]);
+        let mut reader = RawTextReader::new(&pretty_ion[..])?;
         let result = reader.next();
         println!("{:?}", result);
         assert!(result.is_err());
@@ -658,7 +632,7 @@ mod reader_tests {
         let pretty_ion = br#"
             nan::23
         "#;
-        let mut reader = RawTextReader::new(&pretty_ion[..]);
+        let mut reader = RawTextReader::new(&pretty_ion[..])?;
         let result = reader.next();
         println!("{:?}", result);
         assert!(result.is_err());
@@ -678,9 +652,8 @@ mod reader_tests {
         (0..4200).for_each(|_| source.push_str("A"));
         source.push_str(" }}");
 
-        let mut reader = RawTextReader::new(&source[..]);
+        let mut reader = RawTextReader::new(&source[..])?;
         let result = reader.next();
-        println!("{:?}", result);
         assert!(result.is_ok());
         Ok(())
     }
@@ -698,21 +671,21 @@ mod reader_tests {
         // buffer read boundary.
         (0..4200).for_each(|_| source.push_str("A"));
 
-        let mut reader = RawTextReader::new(&source[..]);
+        let mut reader = RawTextReader::new(&source[..])?;
         let result = reader.next();
         assert!(result.is_err());
         Ok(())
     }
 
     #[test]
-    fn incomplete_struct_read() -> IonResult<()> {
+    fn buffered_struct_read() -> IonResult<()> {
         let mut source = String::from("{{");
-        (0..4084).for_each(|_| source.push_str("A"));
-        source.push_str("}}{foo: null.float, ");
+        (0..4083).for_each(|_| source.push_str("A"));
+        source.push_str("}}{foo:null.float");
         (0..4096).for_each(|_| source.push_str(" "));
         source.push_str("}");
 
-        let mut reader = RawTextReader::new(&source[..]);
+        let mut reader = RawTextReader::new(&source[..])?;
         let result = reader.next();
         // Blob..
         assert!(result.is_ok());
@@ -733,13 +706,13 @@ mod reader_tests {
     }
 
     #[test]
-    fn incomplete_struct_error() -> IonResult<()> {
+    fn buffered_struct_error() -> IonResult<()> {
         let mut source = String::from("{{");
         (0..4084).for_each(|_| source.push_str("A"));
-        source.push_str("}}{foo: 0e0, ");
+        source.push_str("}}{foo: 0e0,");
         (0..4096).for_each(|_| source.push_str(" "));
 
-        let mut reader = RawTextReader::new(&source[..]);
+        let mut reader = RawTextReader::new(&source[..])?;
 
         let result = reader.next();
         // Blob..
@@ -757,6 +730,223 @@ mod reader_tests {
 
         let result = reader.step_out();
         assert!(result.is_err());
+
+        Ok(())
+    }
+
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    // Simple struct to track metrics around reading.
+    struct ReaderMetrics {
+        bytes_read: usize,
+    }
+
+    // An ion data source for use in testing when and how much data is read during parsing.
+    struct TestIonSource {
+        data: &'static str,
+        current: usize,
+        metrics: Rc<RefCell<ReaderMetrics>>,
+    }
+
+    impl TestIonSource {
+        fn new(data: &'static str) -> (TestIonSource, Rc<RefCell<ReaderMetrics>>) {
+            let metrics = Rc::new(RefCell::new(ReaderMetrics { bytes_read: 0 }));
+
+            (
+                TestIonSource {
+                    data,
+                    metrics: metrics.clone(),
+                    current: 0,
+                },
+                metrics,
+            )
+        }
+    }
+
+    impl crate::data_source::ToIonDataSource for TestIonSource {
+        type DataSource = Self;
+
+        fn to_ion_data_source(self) -> Self::DataSource {
+            self
+        }
+    }
+
+    impl std::io::BufRead for TestIonSource {
+        fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+            Ok(self.data[self.current..].as_bytes())
+        }
+
+        fn consume(&mut self, amt: usize) {
+            self.current += amt;
+        }
+    }
+
+    impl std::io::Read for TestIonSource {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let size = std::cmp::min(self.data.len() - self.current, buf.len());
+            buf[..size].copy_from_slice(&self.data.as_bytes()[self.current..self.current + size]);
+            self.metrics.borrow_mut().bytes_read += size;
+            self.current += size;
+            Ok(size)
+        }
+    }
+
+    #[test]
+    // This test validates that the last value in the text buffer is not consumed unless the user
+    // has flagged the stream as being completely loaded.
+    fn verify_end_of_stream() -> IonResult<()> {
+        let (source, metrics) = TestIonSource::new("2002-10-15");
+
+        // create our reader with a starting buffer size of 4. This verifies that the reader will
+        // return an incomplete if the token read completely consumes the buffer, since 4
+        // characters would allow the reader to parse an integer from the year.
+        let mut reader = RawTextReader::new_with_size(source, 4)?;
+        assert_eq!(4, metrics.borrow().bytes_read); // Verify we read the buffer size specified.
+
+        let result = reader.next();
+        assert!(result.is_ok());
+        assert_eq!(10, metrics.borrow().bytes_read);
+
+        Ok(())
+    }
+
+    #[test]
+    fn incomplete_string() -> IonResult<()> {
+        const BUF_SIZE: usize = 12;
+        const SOURCE: &str = "\"hello world\"";
+
+        // We create a reader that will read the first 12 bytes of the string. When the reader
+        // parses this value it should result in an incomplete error from the non-blocking reader,
+        // which will cause the blocking reader to read more data, and retry.
+        let (source, metrics) = TestIonSource::new(SOURCE);
+        let mut reader = RawTextReader::new_with_size(source, BUF_SIZE)?;
+        assert_eq!(BUF_SIZE, metrics.borrow().bytes_read);
+
+        // Since the buffer will contain a fully delimited value we will be able to read the string
+        // without marking the stream as complete.
+        let result = reader.next();
+        assert!(result.is_ok());
+        assert_eq!(SOURCE.len(), metrics.borrow().bytes_read);
+        assert_eq!(IonType::String, reader.ion_type().unwrap());
+
+        let result = reader.next();
+        assert!(result.is_ok());
+        assert_eq!(None, reader.ion_type());
+
+        Ok(())
+    }
+
+    #[test]
+    fn incomplete_symbol() -> IonResult<()> {
+        const BUF_SIZE: usize = 3;
+        const SOURCE: &str = "foo ";
+
+        // We create a reader that will read the first 3 bytes of the string. When the reader
+        // parses this value it should result in an incomplete error from the non-blocking reader,
+        // which will cause the blocking reader to read more data, and retry.
+        let (source, metrics) = TestIonSource::new(SOURCE);
+        let mut reader = RawTextReader::new_with_size(source, BUF_SIZE)?;
+        assert_eq!(BUF_SIZE, metrics.borrow().bytes_read);
+
+        let result = reader.next();
+        assert_eq!(SOURCE.len(), metrics.borrow().bytes_read);
+        assert!(result.is_ok());
+        assert_eq!(IonType::Symbol, reader.ion_type().unwrap());
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn repro_multi_container() -> IonResult<()> {
+        // Original file is 1952 bytes, so this does not suggest we are at a buffer boundary.
+        // The source that results in the faulty parse is the last struct in the last s-expression.
+        const SOURCE: &str = r#"
+// Nested Structs (with fields in different order) within a Sexp (ordered sequence)
+(
+    ({
+        a:{aa:11, bb:22},
+        b:{aa:11, bb:22},
+    })
+    ({
+        a:{bb:22, aa:11},
+        b:{bb:22, aa:11},
+    })
+    ({
+        a:{aa:11, bb:22},
+        b:{bb:32, aa:11},
+    })
+    ({
+        a:{bb:22, aa:11},
+        b:{aa:41, bb:22},
+    })
+
+    ({
+        b:{aa:11, bb:22},
+        a:{aa:51, bb:22},
+    })
+    ({
+        b:{bb:22, aa:11},
+        a:{bb:62, aa:11},
+    })
+    ({
+        b:{bb:22, aa:11},
+        a:{aa:71, bb:22},
+    })
+    ({
+        b:{aa:11, bb:22},
+        a:{bb:82, aa:11},
+    })
+)"#;
+        const BUF_SIZE: usize = SOURCE.len() - 10;
+        let (source, values) = TestIonSource::new(SOURCE);
+        let mut reader = RawTextReader::new_with_size(source, BUF_SIZE)?;
+        assert_eq!(BUF_SIZE, values.borrow().bytes_read);
+
+        let result = reader.next();
+        assert_eq!(BUF_SIZE, values.borrow().bytes_read);
+        assert!(result.is_ok());
+        assert_eq!(IonType::SExpression, reader.ion_type().unwrap());
+
+        let result = reader.step_in();
+        assert!(result.is_ok());
+        reader.next()?;
+
+        println!("Source: {}  Buffer Size: {}", SOURCE.len(), BUF_SIZE);
+
+        for i in 0..8 {
+            println!("> Parsing inner s-expr {}", i);
+            assert_eq!(IonType::SExpression, reader.ion_type().unwrap());
+            assert!(reader.step_in().is_ok());
+            assert!(reader.next().is_ok());
+
+            assert_eq!(IonType::Struct, reader.ion_type().unwrap());
+            assert!(reader.step_in().is_ok());
+            assert!(reader.next().is_ok());
+
+            assert_eq!(IonType::Struct, reader.ion_type().unwrap());
+
+            let result = reader.step_out();
+            println!("result of step_out: {:?}", result);
+
+            assert!(result.is_ok());
+            assert!(reader.next().is_ok());
+            // TODO: test struct.. test values.
+            assert!(reader.step_out().is_ok());
+            assert!(reader.next().is_ok());
+        }
+
+        let result = reader.step_out();
+        assert!(result.is_ok());
+
+        // We should read nothing..
+        let result = reader.next();
+        match result {
+            Ok(Nothing) => (),
+            wrong => panic!("Unexpected result when calling reader.next(): {:?}", wrong),
+        }
+        assert_eq!(SOURCE.len(), values.borrow().bytes_read);
 
         Ok(())
     }

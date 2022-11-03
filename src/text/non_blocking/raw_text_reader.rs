@@ -25,6 +25,15 @@ use crate::IonType;
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
 
+// Represents reader state that can be carried over between calls to `next`.
+// Currently this is used to communicate state when `next` needs to return due to lack of data.
+enum ReaderState {
+    // A previous `next` call was able to parse the struct field's name, but not the value.
+    StructFieldValue,
+    // A previous `next` call popped the container, but was unable to find an outter container's delimeter or end.
+    ContainerDelimeter,
+}
+
 pub struct RawTextReader<A: AsRef<[u8]>> {
     buffer: TextBuffer<A>,
     // If the reader is not positioned over a value inside a struct, this is None.
@@ -37,8 +46,13 @@ pub struct RawTextReader<A: AsRef<[u8]>> {
     // Otherwise, it is None.
     current_ivm: Option<(u8, u8)>,
     bytes_read: usize,
+    // True if the current text buffer is exhausted.
     is_eof: bool,
+    // True if the caller has indicated that all data has been read for the 'stream'.
+    is_eos: bool,
     parents: Vec<ParentContainer>,
+    // Optional state from previous read attempts.
+    carried_state: Option<ReaderState>,
 }
 
 /// Represents the final outcome of a [RawTextReader]'s attempt to parse the next value in the stream.
@@ -66,12 +80,25 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             current_ivm: None,
             bytes_read: 0,
             is_eof: false,
+            is_eos: false,
             parents: Vec::with_capacity(INITIAL_PARENTS_CAPACITY),
+            carried_state: None,
         }
     }
 
     pub fn bytes_read(&self) -> usize {
         self.bytes_read
+    }
+
+    // Mark the data stream as being complete. This tells the reader that all data has been read
+    // into the reader.
+    pub fn stream_done(&mut self) {
+        self.is_eos = true;
+    }
+
+    // Returns true if the stream has been marked as completely loaded via `stream_done`.
+    pub fn is_stream_done(&self) -> bool {
+        self.is_eos
     }
 
     fn load_next_value(&mut self) -> IonResult<()> {
@@ -92,8 +119,10 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
 
         // Unset variables holding onto information about the previous position.
         self.current_ivm = None;
-        self.current_value = None;
-        self.current_field_name = None;
+        if let None = self.carried_state {
+            self.current_value = None;
+            self.current_field_name = None;
+        }
 
         if self.parents.is_empty() {
             // The `parents` stack is empty. We're at the top level.
@@ -124,15 +153,32 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             IonType::List => self.next_list_value(),
             IonType::SExpression => self.next_s_expression_value(),
             IonType::Struct => {
-                // If the reader finds a field name...
-                if let Some(field_name) = self.next_struct_field_name()? {
-                    // ...remember it and return the field value that follows.
-                    self.current_field_name = Some(field_name);
-                    let field_value_result = self.next_struct_field_value()?;
-                    Ok(Some(field_value_result))
-                } else {
-                    // Otherwise, this is the end of the struct.
+                // If we haven't carried over a state indicating that we have read our field name,
+                // then we need to read it.
+                let have_name = matches!(self.carried_state, Some(ReaderState::StructFieldValue));
+                let result = (!have_name).then(|| self.next_struct_field_name());
+
+                if let Some(Ok(None)) = result {
+                    // Read field name, resulted in no value.
                     Ok(None)
+                } else {
+                    // We either have a field name, or an error occurred..
+                    match result {
+                        None => (), // We have a field name from a previous call to this function..
+                        Some(err @ Err(_)) => {
+                            // error occurred, bubble up.
+                            err?;
+                        }
+                        Some(Ok(field_name)) => {
+                            // Read field name, we need to store it.
+                            self.current_field_name = field_name;
+                            // Note our state so we can start here if reading the value fails.
+                            self.carried_state = Some(ReaderState::StructFieldValue);
+                        }
+                    }
+                    let field_value = self.next_struct_field_value()?;
+                    self.carried_state = None; // All done, reset our state.
+                    Ok(Some(field_value))
                 }
             }
             other => unreachable!(
@@ -184,17 +230,24 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             }
             RootParseResult::Incomplete(line, column) => incomplete_text_error(line, column),
             RootParseResult::Eof => {
-                // The top level is the only depth at which EOF is legal. If we encounter an EOF,
-                // double check that the buffer doesn't actually have a value in it. See the
-                // comments in [parse_value_at_eof] for a detailed explanation of this.
-                let item = self.parse_value_at_eof();
-                if item == RootParseResult::Eof {
-                    // This is a genuine EOF; make a note of it and clear the current value.
-                    self.is_eof = true;
-                    self.current_value = None;
-                    return Ok(());
+                // We are only concerned with EOF behaviors when we are at the end of the stream,
+                // AND at the end of the buffer.
+                if self.is_eos {
+                    // The top level is the only depth at which EOF is legal. If we encounter an EOF,
+                    // double check that the buffer doesn't actually have a value in it. See the
+                    // comments in [parse_value_at_eof] for a detailed explanation of this.
+                    let item = self.parse_value_at_eof();
+                    if item == RootParseResult::Eof {
+                        // This is a genuine EOF; make a note of it and clear the current value.
+                        self.is_eof = true;
+                        self.current_value = None;
+                        return Ok(());
+                    }
+                    self.process_stream_item(item)
+                } else {
+                    // If we are not at the end of the stream, we need to get more data.
+                    incomplete_text_error(0, 0)
                 }
-                self.process_stream_item(item)
             }
             RootParseResult::NoMatch => {
                 // The parser didn't recognize the text in the input buffer.
@@ -253,7 +306,18 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
     {
         match self.parse_next(parser) {
             Ok(Some(value)) => Ok(value),
-            Ok(None) => incomplete_text_error(self.buffer.lines_loaded(), 0),
+            Ok(None) => {
+                if !self.is_eos {
+                    incomplete_text_error(self.buffer.lines_loaded(), 0)
+                } else {
+                    decoding_error(format!(
+                        "Unexpected end of input while reading {} on line {}: '{}'",
+                        entity_name,
+                        self.buffer.lines_loaded(),
+                        self.buffer.remaining_text()
+                    ))
+                }
+            }
             Err(IonError::IncompleteText { line, column }) => incomplete_text_error(line, column),
             Err(e) => decoding_error(format!(
                 "Parsing error occurred while parsing {} near line {}:\n'{}'\n{}",
@@ -274,14 +338,20 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             RootParseResult::Incomplete(line, column) => incomplete_text_error(line, column),
             RootParseResult::Eof => Ok(None),
             RootParseResult::NoMatch => {
-                // Return an error that contains the text currently in the buffer (i.e. what we
-                // were attempting to parse.)
-                let error_message = format!(
-                    "unrecognized input near line {}: '{}'",
-                    self.buffer.lines_loaded(),
-                    self.buffer.remaining_text(),
-                );
-                decoding_error(error_message)
+                // If we are not at the end of the stream we could be missing a match due to partial
+                // data.
+                if !self.is_eos {
+                    // Return an error that contains the text currently in the buffer (i.e. what we
+                    // were attempting to parse.)
+                    let error_message = format!(
+                        "unrecognized input near line {}: '{}'",
+                        self.buffer.lines_loaded(),
+                        self.buffer.remaining_text(),
+                    );
+                    decoding_error(error_message)
+                } else {
+                    incomplete_text_error(0, 0)
+                }
             }
             RootParseResult::Failure(error_message) => decoding_error(error_message),
         }
@@ -383,8 +453,10 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
         // An arbitrary, cheap-to-parse Ion value that we append to the buffer when its contents at
         // EOF are ambiguous.
         const SENTINEL_ION_TEXT: &str = "\n0\n";
-        // Make a note of the buffer's length; we're about to modify it.
+        // We unfortunately need to copy here in order to append the SENTINEL_ION_TEXT, since we
+        // aren't guaranteed a vector-backed reader.
         let mut remaining_text = self.buffer.remaining_text().to_owned();
+        // Make a note of the buffer's length; we're about to modify it.
         let original_length = remaining_text.len();
 
         // Append our sentinel value to the end of the input buffer.
@@ -415,6 +487,12 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                 RootParseResult::Eof
             }
             Ok((_remaining_text, value)) => {
+                // If we match, and try to consume the remaining buffer in its entirety before we
+                // know the data has been fully loaded we need to treat it as an incomplete error
+                // so that we do not inadvertently succeed on a partial parse.
+                if original_length == self.buffer.remaining_text().len() && !self.is_eos {
+                    return RootParseResult::Incomplete(0, 0);
+                }
                 // We found something else. The zero is still in the buffer; we can leave it there.
                 // The reader's `is_eof` flag has been set, so the text buffer will never be used
                 // again. Return the value we found.
@@ -498,6 +576,8 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
     }
 
     fn next(&mut self) -> IonResult<RawStreamItem> {
+        use super::text_buffer::TextError;
+
         // Parse the next value from the stream, storing it in `self.current_value`.
         self.load_next_value()?;
 
@@ -721,29 +801,37 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
     }
 
     fn step_out(&mut self) -> IonResult<()> {
-        if self.parents.is_empty() {
-            return illegal_operation(
-                "Cannot call `step_out()` when the reader is at the top level.",
-            );
-        }
+        // It is possible to fail partway through stepping out, after we've popped the parent off
+        // and started looking for an outer container's delimiter. So we first need to check our
+        // carried state and see if we're re-attempting step_out.
+        if !matches!(self.carried_state, Some(ReaderState::ContainerDelimeter)) {
+            if self.parents.is_empty() {
+                return illegal_operation(
+                    "Cannot call `step_out()` when the reader is at the top level.",
+                );
+            }
 
-        // The container we're stepping out of.
-        let parent = self.parents.last().unwrap();
+            // The container we're stepping out of.
+            let parent = self.parents.last().unwrap();
 
-        // If we're not at the end of the current container, advance the cursor until we are.
-        // Unlike the binary reader, which can skip-scan, the text reader must visit every value
-        // between its current position and the end of the container.
-        if !parent.is_exhausted() {
-            while let RawStreamItem::Value(_) | RawStreamItem::Null(_) = self.next()? {}
-        }
+            // If we're not at the end of the current container, advance the cursor until we are.
+            // Unlike the binary reader, which can skip-scan, the text reader must visit every value
+            // between its current position and the end of the container.
+            if !parent.is_exhausted() {
+                while let RawStreamItem::Value(_) | RawStreamItem::Null(_) = self.next()? {}
+            }
 
-        // Remove the parent container from the stack and clear the current value.
-        let _ = self.parents.pop();
-        self.current_value = None;
+            // Remove the parent container from the stack and clear the current value.
+            let _ = self.parents.pop();
+            self.current_value = None;
 
-        if self.parents.is_empty() {
-            // We're at the top level; nothing left to do.
-            return Ok(());
+            if self.parents.is_empty() {
+                // We're at the top level; nothing left to do.
+                return Ok(());
+            }
+            // We have stepped out and need to track that we have in just in case we error due to
+            // incomplete text while looking.
+            self.carried_state = Some(ReaderState::ContainerDelimeter);
         }
 
         // We've stepped out, but the reader isn't at the top level. We're still inside another
@@ -762,6 +850,8 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
             }
             scalar => unreachable!("Stepping out of a scalar type: {:?}", scalar),
         };
+
+        self.carried_state = None; // Reset carried over state since we're done.
         Ok(())
     }
 
@@ -825,7 +915,7 @@ mod reader_tests {
                 assert_eq!(column, 0);
             }
             Err(e) => panic!("unexpected error when parsing partial data: {}", e),
-            Ok(_) => panic!("unexpected successful parsing of partial data."),
+            Ok(item) => panic!("unexpected successful parsing of partial data: {:?}", item),
         }
         reader
             .append_bytes("]".as_bytes())
@@ -974,6 +1064,7 @@ mod reader_tests {
     #[case(" {{\"hello\"}} ", TextValue::Clob(Vec::from("hello".as_bytes())))]
     fn test_read_single_top_level_values(#[case] text: &str, #[case] expected_value: TextValue) {
         let reader = &mut RawTextReader::new(text);
+        reader.stream_done();
         next_type(
             reader,
             expected_value.ion_type(),
@@ -1004,6 +1095,7 @@ mod reader_tests {
         "#;
 
         let reader = &mut RawTextReader::new(ion_data);
+        reader.stream_done();
         next_type(reader, IonType::Null, true);
 
         next_type(reader, IonType::Boolean, false);
@@ -1122,6 +1214,7 @@ mod reader_tests {
         // TODO: Check for annotations after OwnedSymbolToken
 
         let reader = &mut RawTextReader::new(ion_data);
+        reader.stream_done();
         next_type(reader, IonType::Null, true);
         annotations_eq(reader, &["mercury"]);
 

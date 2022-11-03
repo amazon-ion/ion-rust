@@ -58,7 +58,7 @@ impl ReaderBuilder {
                 // we can move into the reader.
                 let owned_header = Vec::from(&header[..total_bytes_read]);
                 // The file was too short to be binary Ion. Construct a text Reader.
-                return Ok(Self::make_text_reader(owned_header));
+                return Ok(Self::make_text_reader(owned_header)?);
             }
             total_bytes_read += bytes_read;
         }
@@ -81,17 +81,17 @@ impl ReaderBuilder {
             _ => {
                 // It's not binary, assume it's text
                 let full_input = io::Cursor::new(header).chain(input);
-                Ok(Self::make_text_reader(full_input))
+                Ok(Self::make_text_reader(full_input)?)
             }
         }
     }
 
-    fn make_text_reader<'a, I: 'a + ToIonDataSource>(data: I) -> Reader<'a> {
-        let raw_reader = Box::new(RawTextReader::new(data));
-        Reader {
+    fn make_text_reader<'a, I: 'a + ToIonDataSource>(data: I) -> IonResult<Reader<'a>> {
+        let raw_reader = Box::new(RawTextReader::new(data)?);
+        Ok(Reader {
             raw_reader,
             symbol_table: SymbolTable::new(),
-        }
+        })
     }
 
     fn make_binary_reader<'a, I: 'a + ToIonDataSource>(data: I) -> Reader<'a> {

@@ -767,7 +767,7 @@ mod tests {
     use super::*;
 
     fn system_reader_for(ion: &str) -> SystemReader<RawTextReader<&str>> {
-        let raw_reader = RawTextReader::new(ion);
+        let raw_reader = RawTextReader::new(ion).expect("unable to initialize reader");
         SystemReader::new(raw_reader)
     }
 
