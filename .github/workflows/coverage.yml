@@ -22,8 +22,10 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          # nightly can be very volatile--pin this to a version we know works well...
-          toolchain: nightly-2022-10-12
+          # Coverage requires the nightly toolchain because it uses the presently unstable `-Z profile` feature
+          # See: https://github.com/rust-lang/rust/issues/42524
+          # See also: https://github.com/actions-rs/grcov#usage
+          toolchain: nightly-2022-10-12 # nightly can be very volatile--pin this to a version we know works well
           override: true
       - name: Cargo Test
         uses: actions-rs/cargo@v1
