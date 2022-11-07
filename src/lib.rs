@@ -10,11 +10,13 @@ pub mod text;
 pub mod types;
 pub mod value;
 
+mod catalog;
 pub mod constants;
 pub mod ion_eq;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
 mod reader;
+mod shared_symbol_table;
 mod stream_reader;
 mod symbol;
 mod symbol_ref;
