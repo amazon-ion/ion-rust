@@ -9,13 +9,13 @@ use std::fmt::{Display, Formatter};
 pub trait RawReader: IonReader<Item = RawStreamItem, Symbol = RawSymbolToken> {
     // Mark the stream as complete. This allows the reader to understand when partial parses on
     // data boundaries are not possible.
-    fn stream_done(&mut self);
+    fn stream_complete(&mut self);
 }
 impl<T> RawReader for T
 where
     T: IonReader<Item = RawStreamItem, Symbol = RawSymbolToken>,
 {
-    fn stream_done(&mut self) {}
+    fn stream_complete(&mut self) {}
 }
 
 /// Allows a Box<dyn RawReader> to be used as a RawReader.

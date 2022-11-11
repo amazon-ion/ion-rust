@@ -136,7 +136,7 @@ impl ElementReader for NonBlockingNativeElementReader {
         }
 
         let mut raw_reader = RawTextReader::new(data);
-        raw_reader.stream_done();
+        raw_reader.stream_complete();
         let reader = UserReader::new(raw_reader);
         let iterator = NativeElementIterator { reader };
         Ok(Box::new(iterator))

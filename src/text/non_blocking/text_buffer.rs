@@ -121,6 +121,11 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
         self.line_number
     }
 
+    /// Returns the number of characters into the line that have been consumed.
+    pub fn line_offset(&self) -> usize {
+        self.line_offset
+    }
+
     pub fn is_exhausted(&self) -> bool {
         self.bytes_remaining() == 0 && self.data_exhausted
     }
@@ -255,6 +260,7 @@ impl TextBuffer<Vec<u8>> {
     /// This function will invalidate any data returned by `remaining_text` as the bytes in the
     /// buffer will have shifted.
     fn restack(&mut self) {
+        println!("restacking..");
         let shift_offset = self.line.0 + self.line_offset;
 
         // Shift off all of our consumed data, leaving the buffer to start with the current line's
