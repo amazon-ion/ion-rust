@@ -338,9 +338,7 @@ impl TextBuffer<Vec<u8>> {
             })?
         }
 
-        if self.data_end > 0 {
-            self.data_exhausted = false;
-        }
+        self.data_exhausted = self.data_end == 0;
 
         Ok(bytes_read)
     }
