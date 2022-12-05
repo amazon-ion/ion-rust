@@ -15,8 +15,6 @@ pub struct RawTextReader<T: ToIonDataSource> {
     source: T::DataSource,
     // The inner non-blocking reader.
     reader: NonBlockingReader<Vec<u8>>,
-    // The number of bytes fed to the inner reader.
-    bytes_fed: usize,
     // The expected read size. The reader will read larger amounts when incomplete errors are
     // reached back-to-back, but this represents the read size that will occur first.
     expected_read_size: usize,
@@ -32,7 +30,6 @@ impl<T: ToIonDataSource> RawTextReader<T> {
         let mut reader = RawTextReader {
             source: input.to_ion_data_source(),
             reader: NonBlockingReader::new(buffer),
-            bytes_fed: 0,
             expected_read_size: size,
         };
         reader.read_source(size)?;
@@ -49,7 +46,6 @@ impl<T: ToIonDataSource> RawTextReader<T> {
                 break;
             }
         }
-        self.bytes_fed += bytes_read;
         Ok(bytes_read)
     }
 }
@@ -673,12 +669,14 @@ mod reader_tests {
         source.push_str("}");
 
         let mut reader = RawTextReader::new(&source[..])?;
-        let result = reader.next();
+        reader.next()?;
         // Blob..
-        assert!(result.is_ok());
+        assert_eq!(IonType::Blob, reader.ion_type().unwrap());
+
         // Struct start..
         let result = reader.next();
         assert!(result.is_ok());
+        assert_eq!(IonType::Struct, reader.ion_type().unwrap());
         assert!(reader.step_in().is_ok());
 
         let result = reader.next();

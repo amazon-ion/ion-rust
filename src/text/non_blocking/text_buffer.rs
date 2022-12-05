@@ -7,7 +7,7 @@ use thiserror::Error;
 /// Represents a span of bytes that have been validated as UTF-8 strings.
 ///
 /// The range of bytes is [.0, .1)
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 struct ValidUtf8Span(usize, usize);
 impl ValidUtf8Span {
     fn increment_start(&self, bytes: usize) -> ValidUtf8Span {
@@ -18,6 +18,13 @@ impl ValidUtf8Span {
         self.0 = self.0.saturating_sub(bytes);
         self.1 = self.1.saturating_sub(bytes);
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct Checkpoint {
+    pub line: ValidUtf8Span,
+    pub line_number: usize,
+    pub offset: usize,
 }
 
 /// Calculates the offset into a slice, where a given subslice is located.
@@ -74,6 +81,8 @@ pub(crate) struct TextBuffer<A: AsRef<[u8]>> {
     line_number: usize,
     /// Tracks what column the line data ended on. This is used when reporting errors.
     line_end_column: usize,
+    /// Save point for rolling back. Invalidated by `append_bytes`, and `read_from`.
+    checkpoint: Option<Checkpoint>,
 }
 
 impl<A: AsRef<[u8]>> TextBuffer<A> {
@@ -89,6 +98,27 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
             line_offset: 0,
             line_number: 0,
             line_end_column: 0,
+            checkpoint: None,
+        }
+    }
+
+    /// Save a checkpoint that can be rolled back to.
+    /// This stores the line information (offset, line number, span of our UTF8 data, etc) so that
+    /// we can rollback to it later if needed. The data stored here is invalidated on a read_from,
+    /// or append_bytes.
+    pub fn checkpoint(&mut self) {
+        self.checkpoint = Some(Checkpoint {
+            line: self.line,
+            line_number: self.line_number,
+            offset: self.line_offset,
+        })
+    }
+
+    pub fn rollback(&mut self) {
+        if let Some(checkpoint) = self.checkpoint.take() {
+            self.line_offset = checkpoint.offset;
+            self.line = checkpoint.line;
+            self.line_number = checkpoint.line_number;
         }
     }
 
@@ -260,7 +290,6 @@ impl TextBuffer<Vec<u8>> {
     /// This function will invalidate any data returned by `remaining_text` as the bytes in the
     /// buffer will have shifted.
     fn restack(&mut self) {
-        println!("restacking..");
         let shift_offset = self.line.0 + self.line_offset;
 
         // Shift off all of our consumed data, leaving the buffer to start with the current line's
@@ -276,6 +305,7 @@ impl TextBuffer<Vec<u8>> {
 
     /// Copies the provided bytes to the end of the input buffer.
     pub fn append_bytes(&mut self, bytes: &[u8]) -> Result<(), TextError> {
+        self.checkpoint = None;
         self.restack();
         let remaining = self.data.len() - self.data_end;
         if bytes.len() > remaining {
@@ -293,6 +323,7 @@ impl TextBuffer<Vec<u8>> {
     /// any copying. A slice of the reader's buffer is handed to `source` so it can be populated
     /// directly.
     pub fn read_from<R: Read>(&mut self, mut source: R, length: usize) -> IonResult<usize> {
+        self.checkpoint = None;
         self.restack();
         self.reserve_capacity(length);
 
@@ -562,5 +593,44 @@ mod tests {
         let data = &[0xf1, 0xf2, 0xc2, 0x80];
         let mut buffer = TextBuffer::new(data);
         assert!(buffer.load_next_line().is_err());
+    }
+
+    #[test]
+    fn rollback() {
+        // In order to handle any sort of transactional parsing in the readers, we need to have the
+        // ability to unconsume
+        let mut buffer = text_buffer("foo\nbar\n");
+        assert_eq!(buffer.load_next_line().unwrap(), 4);
+
+        buffer.checkpoint();
+        match buffer.checkpoint {
+            Some(check) => {
+                assert_eq!(check.offset, 0);
+                match check.line {
+                    ValidUtf8Span(start, end) => {
+                        assert_eq!(start, 0);
+                        assert_eq!(end, 4);
+                    }
+                }
+            }
+            None => panic!("no checkpoint generated."),
+        }
+
+        assert_eq!(buffer.remaining_text(), "foo\n");
+        buffer.consume(4); // We've moved beyond "foo"
+        assert_eq!(buffer.line_offset, 4);
+
+        buffer.rollback(); // Roll back to the start.
+        assert_eq!(buffer.line_offset, 0);
+        assert_eq!(buffer.remaining_text(), "foo\n");
+
+        // Check again, but this time with a readline at the end.
+        buffer.checkpoint();
+        assert_eq!(buffer.remaining_text(), "foo\n");
+        buffer.consume(4); // We've moved beyond "foo"
+
+        assert_eq!(buffer.line_offset, 4);
+        assert_eq!(buffer.load_next_line().unwrap(), 4);
+        assert_eq!(buffer.remaining_text(), "bar\n");
     }
 }
