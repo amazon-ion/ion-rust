@@ -405,7 +405,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
     }
 
     pub(crate) fn format_struct(&mut self, value: &Struct) -> IonResult<()> {
-        write!(self.output, "{{ ")?;
+        write!(self.output, "{{")?;
         let mut peekable_itr = value.iter().peekable();
         while let Some((field_name, field_value)) = peekable_itr.next() {
             self.format_symbol(field_name.text().unwrap())?;
@@ -414,12 +414,12 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
                 write!(self.output, ", ")?;
             }
         }
-        write!(self.output, " }}")?;
+        write!(self.output, "}}")?;
         Ok(())
     }
 
     pub(crate) fn format_sexp(&mut self, value: &Sequence) -> IonResult<()> {
-        write!(self.output, "( ")?;
+        write!(self.output, "(")?;
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek().is_some() {
             let sexp_value = peekable_itr.next().unwrap();
@@ -428,12 +428,12 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
                 write!(self.output, " ")?;
             }
         }
-        write!(self.output, " )")?;
+        write!(self.output, ")")?;
         Ok(())
     }
 
     pub(crate) fn format_list(&mut self, value: &Sequence) -> IonResult<()> {
-        write!(self.output, "[ ")?;
+        write!(self.output, "[")?;
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek().is_some() {
             let list_value = peekable_itr.next().unwrap();
@@ -442,7 +442,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
                 write!(self.output, ", ")?;
             }
         }
-        write!(self.output, " ]")?;
+        write!(self.output, "]")?;
         Ok(())
     }
 }
@@ -555,7 +555,7 @@ mod formatter_test {
                     vec![("greetings", Element::from(Value::String("hello".into())))].into_iter(),
                 ))
             },
-            "{ greetings: \"hello\" }",
+            "{greetings: \"hello\"}",
         );
         Ok(())
     }
@@ -568,7 +568,7 @@ mod formatter_test {
                     vec!["hello".to_owned().into(), 5.into(), true.into()].into_iter(),
                 ))
             },
-            "( \"hello\" 5 true )",
+            "(\"hello\" 5 true)",
         );
         Ok(())
     }
@@ -581,7 +581,7 @@ mod formatter_test {
                     vec!["hello".to_owned().into(), 5.into(), true.into()].into_iter(),
                 ))
             },
-            "[ \"hello\", 5, true ]",
+            "[\"hello\", 5, true]",
         );
         Ok(())
     }
