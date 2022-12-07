@@ -460,6 +460,34 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
 }
 
 #[cfg(test)]
+mod impl_display_for_element_tests {
+    use super::*;
+    use ion_rs::value::native_writer::NativeElementWriter;
+    use ion_rs::value::reader::element_reader;
+    use ion_rs::{IonResult, TextWriterBuilder};
+    use std::fs::read;
+
+    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+    fn test_to_string(file_name: &str) -> IonResult<()> {
+        let data = read(file_name)?;
+        let result = element_reader().read_all(&data)?;
+
+        for element in result {
+            let mut buffer = Vec::with_capacity(2048);
+            let mut writer = NativeElementWriter::new(TextWriterBuilder::new().build(&mut buffer)?);
+            writer.write(&element)?;
+            writer.finish()?;
+
+            let expected_string = std::str::from_utf8(buffer.as_slice()).unwrap().to_string();
+
+            assert_eq!(element.to_string(), expected_string);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 mod native_element_tests {
     use super::*;
     use ion_rs::value::native_reader::NativeElementReader;

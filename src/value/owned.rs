@@ -440,7 +440,7 @@ pub enum Value {
     Struct(Struct),
 }
 
-/// An owned implementation of [`Element`]
+/// An owned implementation of [`IonElement`]
 #[derive(Debug, Clone)]
 pub struct Element {
     annotations: Vec<Symbol>,
@@ -461,20 +461,20 @@ impl Display for Element {
         ivf.format_annotations(&self.annotations)
             .map_err(|_| std::fmt::Error)?;
 
-        match self.ion_type() {
-            IonType::Null => ivf.format_null(IonType::Null),
-            IonType::Boolean => ivf.format_bool(self.as_bool().unwrap()),
-            IonType::Integer => ivf.format_integer(self.as_integer().unwrap()),
-            IonType::Float => ivf.format_float(self.as_f64().unwrap()),
-            IonType::Decimal => ivf.format_decimal(self.as_decimal().unwrap()),
-            IonType::Timestamp => ivf.format_timestamp(self.as_timestamp().unwrap()),
-            IonType::Symbol => ivf.format_symbol(self.as_str().unwrap()),
-            IonType::String => ivf.format_string(self.as_str().unwrap()),
-            IonType::Clob => ivf.format_clob(self.as_bytes().unwrap()),
-            IonType::Blob => ivf.format_blob(self.as_bytes().unwrap()),
-            IonType::Struct => ivf.format_struct(self.as_struct().unwrap()),
-            IonType::SExpression => ivf.format_sexp(self.as_sequence().unwrap()),
-            IonType::List => ivf.format_list(self.as_sequence().unwrap()),
+        match &self.value {
+            Value::Null(ion_type) => ivf.format_null(*ion_type),
+            Value::Boolean(bool) => ivf.format_bool(*bool),
+            Value::Integer(integer) => ivf.format_integer(integer),
+            Value::Float(float) => ivf.format_float(*float),
+            Value::Decimal(decimal) => ivf.format_decimal(decimal),
+            Value::Timestamp(timestamp) => ivf.format_timestamp(timestamp),
+            Value::Symbol(symbol) => ivf.format_symbol(symbol),
+            Value::String(string) => ivf.format_string(string),
+            Value::Clob(clob) => ivf.format_clob(clob),
+            Value::Blob(blob) => ivf.format_blob(blob),
+            Value::Struct(struct_) => ivf.format_struct(struct_),
+            Value::SExpression(sexp) => ivf.format_sexp(sexp),
+            Value::List(list) => ivf.format_list(list),
         }
         .map_err(|_| std::fmt::Error)?;
 
