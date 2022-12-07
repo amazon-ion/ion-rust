@@ -35,7 +35,9 @@ enum ReaderState {
     SteppingOut {
         // The depth the reader is attempting to step-out to.
         target_depth: usize,
-        // Whether the step_out process is looking for the parent container or not.
+        // Whether the step_out process is searching for the parent container's delimiter. If true,
+        // then when continuing, the function will jump to searching for the delimiter. Otherwise it
+        // will continue exhausting the elements within the container.
         finding_parent: bool,
     },
 }
@@ -670,9 +672,9 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
     }
 
     fn next(&mut self) -> IonResult<RawStreamItem> {
-        // If we failed previously, we need to continue doing what we were doing. We could have
-        // failed in a step_out, when the user called next, or in a next, when the user called
-        // step_out, etc. so we need to account for it everywhere.
+        // Failures due to incomplete data can occur any time the reader needs to advance, which
+        // can occur in a call to `next()` or `step_out()`. (Note that in some cases the
+        // implementations of `next()` and `step_out()` may invoke each other transitively.)
         self.continue_state()?;
 
         // Parse the next value from the stream, storing it in `self.current_value`.
@@ -911,8 +913,9 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
         };
 
         // If an incomplete error occurs during a step_out, we will re-enter step_out and:
-        //    If we have any error other than ContainerDelimiter, we need to finish exhausting
-        //    the current container and complete the step_out that failed.
+        //    Using the state information from the previous attempt, we will either continue
+        //    exhausting the container, or continue looking for the parent container's delimiter,
+        //    or end.
         //
         //    Once the failed step_out is done, we need to "bubble up" and step_out of any of
         //    the parent containers that the failed step_out was nested in. Since we have lost
