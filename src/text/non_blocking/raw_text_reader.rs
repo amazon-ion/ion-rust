@@ -25,6 +25,34 @@ use crate::IonType;
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
 
+// Represents the current actions being carried out by the reader.
+#[derive(PartialEq, Debug)]
+enum ReaderState {
+    // Ready to read any value, no existing errors, no partial parses.
+    Ready,
+    // A previous `step_out` call failed to complete, but may have progressed through some values.
+    // We need to continue the step_out before doing anything else.
+    SteppingOut {
+        // The depth the reader is attempting to step-out to.
+        target_depth: usize,
+        // Whether the step_out process is searching for the parent container's delimiter. If true,
+        // then when continuing, the function will jump to searching for the delimiter. Otherwise it
+        // will continue exhausting the elements within the container.
+        finding_parent: bool,
+    },
+}
+
+impl ReaderState {
+    // Returns true if the current ReaderState is Ready.
+    fn is_ready(&self) -> bool {
+        *self == Self::Ready
+    }
+
+    fn reset(&mut self) {
+        *self = Self::Ready;
+    }
+}
+
 pub struct RawTextReader<A: AsRef<[u8]>> {
     buffer: TextBuffer<A>,
     // If the reader is not positioned over a value inside a struct, this is None.
@@ -36,9 +64,19 @@ pub struct RawTextReader<A: AsRef<[u8]>> {
     //     Some(major_version, minor_version)
     // Otherwise, it is None.
     current_ivm: Option<(u8, u8)>,
-    bytes_read: usize,
+    // True if the current text buffer is exhausted.
     is_eof: bool,
+    // True if the caller has indicated that all data has been read for the 'stream'.
+    is_eos: bool,
     parents: Vec<ParentContainer>,
+    // Current state of the reader. This state, combined with `need_continue` will signal if an
+    // action needs to be completed (need_continue = true) or if we are attempting for the first
+    // time (need_continue = false).
+    state: ReaderState,
+    // The "call depth" of the current nested step_out.
+    step_out_nest: usize,
+    // Tracking whether or not we need to continue a previously failed state.
+    need_continue: bool,
 }
 
 /// Represents the final outcome of a [RawTextReader]'s attempt to parse the next value in the stream.
@@ -64,14 +102,24 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             current_field_name: None,
             current_value: None,
             current_ivm: None,
-            bytes_read: 0,
             is_eof: false,
+            is_eos: false,
             parents: Vec::with_capacity(INITIAL_PARENTS_CAPACITY),
+            state: ReaderState::Ready,
+            step_out_nest: 0,
+            need_continue: false,
         }
     }
 
-    pub fn bytes_read(&self) -> usize {
-        self.bytes_read
+    // Mark the data stream as being complete. This tells the reader that all data has been read
+    // into the reader.
+    pub fn stream_complete(&mut self) {
+        self.is_eos = true;
+    }
+
+    // Returns true if the stream has been marked as completely loaded via `stream_complete`.
+    pub fn is_stream_complete(&self) -> bool {
+        self.is_eos
     }
 
     fn load_next_value(&mut self) -> IonResult<()> {
@@ -124,14 +172,20 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             IonType::List => self.next_list_value(),
             IonType::SExpression => self.next_s_expression_value(),
             IonType::Struct => {
-                // If the reader finds a field name...
+                self.buffer.checkpoint();
                 if let Some(field_name) = self.next_struct_field_name()? {
                     // ...remember it and return the field value that follows.
                     self.current_field_name = Some(field_name);
-                    let field_value_result = self.next_struct_field_value()?;
+                    let field_value_result = match self.next_struct_field_value() {
+                        Err(e) => {
+                            self.current_field_name = None;
+                            self.buffer.rollback();
+                            return Err(e);
+                        }
+                        Ok(v) => v,
+                    };
                     Ok(Some(field_value_result))
                 } else {
-                    // Otherwise, this is the end of the struct.
                     Ok(None)
                 }
             }
@@ -161,6 +215,95 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
         Ok(())
     }
 
+    // This function implements the logic of `step_out`, but is extracted in order to make tracking
+    // of the step_out depth, which is handled by the actual `step_out` function, easier.
+    //
+    // See `step_out` for more info about how we handle errors when stepping out.
+    fn step_out_impl(&mut self) -> IonResult<()> {
+        let (target_depth, find_parent) = match self.state {
+            ReaderState::Ready => (self.depth() - 1, false),
+            ReaderState::SteppingOut {
+                target_depth,
+                finding_parent,
+            } => (target_depth, finding_parent),
+        };
+
+        // `find_parent` indicates that we previously failed to step_out and still need to find the
+        // delimiter, or end, for our parent container. We check it here, to see if we need to
+        // still exhaust the elements of our current container.
+        if !find_parent {
+            if self.parents.is_empty() {
+                return illegal_operation(
+                    "Cannot call `step_out()` when the reader is at the top level.",
+                );
+            }
+
+            // The container we're stepping out of.
+            let parent = self.parents.last().unwrap();
+
+            // If we're not at the end of the current container, advance the cursor until we are.
+            // Unlike the binary reader, which can skip-scan, the text reader must visit every value
+            // between its current position and the end of the container.
+            if !parent.is_exhausted() {
+                while let RawStreamItem::Value(_) | RawStreamItem::Null(_) = self.next()? {}
+            }
+
+            // Remove the parent container from the stack and clear the current value.
+            let _ = self.parents.pop();
+            self.current_value = None;
+
+            if self.parents.is_empty() {
+                // We're at the top level; nothing left to do.
+                return Ok(());
+            }
+            // We have reached a point where the original parent is no longer known, so if an error
+            // occurs while finishing up our step_out, we need to know where to start from.
+            self.state = ReaderState::SteppingOut {
+                target_depth,
+                finding_parent: true,
+            };
+        }
+
+        // We've stepped out, but the reader isn't at the top level. We're still inside another
+        // container. Make sure the container was followed by either the appropriate delimiter
+        // or the end of its parent.
+        let container_type = self.parents.last().unwrap().ion_type();
+        match container_type {
+            IonType::List => {
+                self.parse_expected("list delimiter or end", list_delimiter)?;
+            }
+            IonType::SExpression => {
+                self.parse_expected("s-expression delimiter or end", s_expression_delimiter)?;
+            }
+            IonType::Struct => {
+                self.parse_expected("struct delimiter or end", struct_delimiter)?;
+            }
+            scalar => unreachable!("stepping out of a scalar type: {:?}", scalar),
+        };
+
+        self.state = ReaderState::SteppingOut {
+            target_depth,
+            finding_parent: false,
+        };
+
+        Ok(())
+    }
+
+    /// Continues any previously incomplete parsing attempt.
+    fn continue_state(&mut self) -> IonResult<()> {
+        if self.need_continue {
+            self.need_continue = false;
+            let result = match self.state {
+                // Previously Attempted to step_out, and failed.
+                ReaderState::SteppingOut { .. } => self.step_out(),
+                ReaderState::Ready => Ok(()),
+            };
+            result
+        } else {
+            Ok(())
+        }
+    }
+
     fn process_stream_item(
         &mut self,
         read_result: RootParseResult<RawTextStreamItem>,
@@ -184,17 +327,24 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             }
             RootParseResult::Incomplete(line, column) => incomplete_text_error(line, column),
             RootParseResult::Eof => {
-                // The top level is the only depth at which EOF is legal. If we encounter an EOF,
-                // double check that the buffer doesn't actually have a value in it. See the
-                // comments in [parse_value_at_eof] for a detailed explanation of this.
-                let item = self.parse_value_at_eof();
-                if item == RootParseResult::Eof {
-                    // This is a genuine EOF; make a note of it and clear the current value.
-                    self.is_eof = true;
-                    self.current_value = None;
-                    return Ok(());
+                // We are only concerned with EOF behaviors when we are at the end of the stream,
+                // AND at the end of the buffer.
+                if self.is_eos {
+                    // The top level is the only depth at which EOF is legal. If we encounter an EOF,
+                    // double check that the buffer doesn't actually have a value in it. See the
+                    // comments in [parse_value_at_eof] for a detailed explanation of this.
+                    let item = self.parse_value_at_eof();
+                    if item == RootParseResult::Eof {
+                        // This is a genuine EOF; make a note of it and clear the current value.
+                        self.is_eof = true;
+                        self.current_value = None;
+                        return Ok(());
+                    }
+                    self.process_stream_item(item)
+                } else {
+                    // If we are not at the end of the stream, we need to get more data.
+                    incomplete_text_error(self.buffer.lines_loaded(), self.buffer.line_offset())
                 }
-                self.process_stream_item(item)
             }
             RootParseResult::NoMatch => {
                 // The parser didn't recognize the text in the input buffer.
@@ -253,7 +403,18 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
     {
         match self.parse_next(parser) {
             Ok(Some(value)) => Ok(value),
-            Ok(None) => incomplete_text_error(self.buffer.lines_loaded(), 0),
+            Ok(None) => {
+                if !self.is_eos {
+                    incomplete_text_error(self.buffer.lines_loaded(), self.buffer.line_offset())
+                } else {
+                    decoding_error(format!(
+                        "unexpected end of input while reading {} on line {}: '{}'",
+                        entity_name,
+                        self.buffer.lines_loaded(),
+                        self.buffer.remaining_text()
+                    ))
+                }
+            }
             Err(IonError::IncompleteText { line, column }) => incomplete_text_error(line, column),
             Err(e) => decoding_error(format!(
                 "Parsing error occurred while parsing {} near line {}:\n'{}'\n{}",
@@ -274,14 +435,20 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             RootParseResult::Incomplete(line, column) => incomplete_text_error(line, column),
             RootParseResult::Eof => Ok(None),
             RootParseResult::NoMatch => {
-                // Return an error that contains the text currently in the buffer (i.e. what we
-                // were attempting to parse.)
-                let error_message = format!(
-                    "unrecognized input near line {}: '{}'",
-                    self.buffer.lines_loaded(),
-                    self.buffer.remaining_text(),
-                );
-                decoding_error(error_message)
+                // If we are not at the end of the stream we could be missing a match due to partial
+                // data.
+                if self.is_eos {
+                    // Return an error that contains the text currently in the buffer (i.e. what we
+                    // were attempting to parse.)
+                    let error_message = format!(
+                        "unrecognized input near line {}: '{}'",
+                        self.buffer.lines_loaded(),
+                        self.buffer.remaining_text(),
+                    );
+                    decoding_error(error_message)
+                } else {
+                    incomplete_text_error(self.buffer.lines_loaded(), self.buffer.line_offset())
+                }
             }
             RootParseResult::Failure(error_message) => decoding_error(error_message),
         }
@@ -300,7 +467,6 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
         let RawTextReader {
             ref mut is_eof,
             ref mut buffer,
-            ref mut bytes_read,
             ..
         } = *self;
 
@@ -356,7 +522,6 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                     // text representation of the value that we found.
                     let bytes_consumed = length_before_parse - length_after_parse;
                     buffer.consume(bytes_consumed);
-                    *bytes_read += bytes_consumed;
                     return RootParseResult::Ok(value);
                 }
                 Err(Error(_e)) => return RootParseResult::<O>::NoMatch,
@@ -383,8 +548,10 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
         // An arbitrary, cheap-to-parse Ion value that we append to the buffer when its contents at
         // EOF are ambiguous.
         const SENTINEL_ION_TEXT: &str = "\n0\n";
-        // Make a note of the buffer's length; we're about to modify it.
+        // We unfortunately need to copy here in order to append the SENTINEL_ION_TEXT, since we
+        // aren't guaranteed a vector-backed reader.
         let mut remaining_text = self.buffer.remaining_text().to_owned();
+        // Make a note of the text's length; we're about to modify it.
         let original_length = remaining_text.len();
 
         // Append our sentinel value to the end of the input buffer.
@@ -415,17 +582,22 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                 RootParseResult::Eof
             }
             Ok((_remaining_text, value)) => {
+                // If we match, and try to consume the remaining buffer in its entirety before we
+                // know the data has been fully loaded we need to treat it as an incomplete error
+                // so that we do not inadvertently succeed on a partial parse.
+                if original_length == self.buffer.remaining_text().len() && !self.is_eos {
+                    return RootParseResult::Incomplete(
+                        self.buffer.lines_loaded(),
+                        self.buffer.line_offset(),
+                    );
+                }
                 // We found something else. The zero is still in the buffer; we can leave it there.
                 // The reader's `is_eof` flag has been set, so the text buffer will never be used
                 // again. Return the value we found.
                 RootParseResult::Ok(value)
             }
             Err(Incomplete(_needed)) => {
-                RootParseResult::Failure(format!(
-                    "Unexpected end of input on line {}: '{}'",
-                    self.buffer.lines_loaded(),
-                    &self.buffer.remaining_text()[..original_length] // Don't show the extra `\n0\n`
-                ))
+                RootParseResult::Incomplete(self.buffer.lines_loaded(), self.buffer.line_offset())
             }
             Err(Error(ion_parse_error)) => {
                 RootParseResult::Failure(format!(
@@ -461,7 +633,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
 }
 
 impl RawTextReader<Vec<u8>> {
-    fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
+    pub fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
         match self.buffer.append_bytes(bytes) {
             Err(e) => decoding_error(e.to_string()),
             Ok(()) => {
@@ -471,7 +643,7 @@ impl RawTextReader<Vec<u8>> {
         }
     }
 
-    fn read_from<R: std::io::Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
+    pub fn read_from<R: std::io::Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
         let res = self.buffer.read_from(source, length);
         if res.is_ok() {
             self.is_eof = false;
@@ -500,6 +672,11 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
     }
 
     fn next(&mut self) -> IonResult<RawStreamItem> {
+        // Failures due to incomplete data can occur any time the reader needs to advance, which
+        // can occur in a call to `next()` or `step_out()`. (Note that in some cases the
+        // implementations of `next()` and `step_out()` may invoke each other transitively.)
+        self.continue_state()?;
+
         // Parse the next value from the stream, storing it in `self.current_value`.
         self.load_next_value()?;
 
@@ -723,47 +900,51 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
     }
 
     fn step_out(&mut self) -> IonResult<()> {
-        if self.parents.is_empty() {
-            return illegal_operation(
-                "Cannot call `step_out()` when the reader is at the top level.",
-            );
-        }
-
-        // The container we're stepping out of.
-        let parent = self.parents.last().unwrap();
-
-        // If we're not at the end of the current container, advance the cursor until we are.
-        // Unlike the binary reader, which can skip-scan, the text reader must visit every value
-        // between its current position and the end of the container.
-        if !parent.is_exhausted() {
-            while let RawStreamItem::Value(_) | RawStreamItem::Null(_) = self.next()? {}
-        }
-
-        // Remove the parent container from the stack and clear the current value.
-        let _ = self.parents.pop();
-        self.current_value = None;
-
-        if self.parents.is_empty() {
-            // We're at the top level; nothing left to do.
-            return Ok(());
-        }
-
-        // We've stepped out, but the reader isn't at the top level. We're still inside another
-        // container. Make sure the container was followed by either the appropriate delimiter
-        // or the end of its parent.
-        let container_type = self.parents.last().unwrap().ion_type();
-        match container_type {
-            IonType::List => {
-                self.parse_expected("list delimiter or end", list_delimiter)?;
-            }
-            IonType::SExpression => {
-                self.parse_expected("s-expression delimiter or end", s_expression_delimiter)?;
-            }
-            IonType::Struct => {
-                self.parse_expected("struct delimiter or end", struct_delimiter)?;
-            }
-            scalar => unreachable!("Stepping out of a scalar type: {:?}", scalar),
+        let (target_depth, find_parent) = match self.state {
+            ReaderState::Ready => (self.depth().saturating_sub(1), false),
+            ReaderState::SteppingOut {
+                target_depth,
+                finding_parent,
+            } => (target_depth, finding_parent),
         };
+        self.state = ReaderState::SteppingOut {
+            target_depth,
+            finding_parent: find_parent,
+        };
+
+        // If an incomplete error occurs during a step_out, we will re-enter step_out and:
+        //    Using the state information from the previous attempt, we will either continue
+        //    exhausting the container, or continue looking for the parent container's delimiter,
+        //    or end.
+        //
+        //    Once the failed step_out is done, we need to "bubble up" and step_out of any of
+        //    the parent containers that the failed step_out was nested in. Since we have lost
+        //    the call stack that we would normally lean on, we keep track of the depth we want
+        //    to step out to and the nesting of step_out calls. We handle all step_outs like
+        //    normal, until we have completed the exhaustion and delimiter steps for the
+        //    container. Then, if the current step_out call is nested, we return. Otherwise, we
+        //    loop back and continue executing step_outs for the parent container(s) until we have
+        //    reached the target depth.
+        loop {
+            self.step_out_nest += 1;
+            let result = self.step_out_impl();
+            self.step_out_nest -= 1;
+
+            if let Err(IonError::IncompleteText { .. }) = result {
+                self.need_continue = true;
+            }
+            let _ = result?;
+
+            // If we are a nested call, we're done for now.
+            if self.step_out_nest != 0 {
+                break;
+            } else if target_depth == self.depth() {
+                // We've reached our desired depth, so we can reset our state, and target
+                // depth.
+                self.state = ReaderState::Ready;
+                break;
+            }
+        }
         Ok(())
     }
 
@@ -827,7 +1008,7 @@ mod reader_tests {
                 assert_eq!(column, 0);
             }
             Err(e) => panic!("unexpected error when parsing partial data: {}", e),
-            Ok(_) => panic!("unexpected successful parsing of partial data."),
+            Ok(item) => panic!("unexpected successful parsing of partial data: {:?}", item),
         }
         reader
             .append_bytes("]".as_bytes())
@@ -976,6 +1157,7 @@ mod reader_tests {
     #[case(" {{\"hello\"}} ", TextValue::Clob(Vec::from("hello".as_bytes())))]
     fn test_read_single_top_level_values(#[case] text: &str, #[case] expected_value: TextValue) {
         let reader = &mut RawTextReader::new(text);
+        reader.stream_complete();
         next_type(
             reader,
             expected_value.ion_type(),
@@ -1006,6 +1188,7 @@ mod reader_tests {
         "#;
 
         let reader = &mut RawTextReader::new(ion_data);
+        reader.stream_complete();
         next_type(reader, IonType::Null, true);
 
         next_type(reader, IonType::Boolean, false);
@@ -1124,6 +1307,7 @@ mod reader_tests {
         // TODO: Check for annotations after OwnedSymbolToken
 
         let reader = &mut RawTextReader::new(ion_data);
+        reader.stream_complete();
         next_type(reader, IonType::Null, true);
         annotations_eq(reader, &["mercury"]);
 
@@ -1259,6 +1443,345 @@ mod reader_tests {
         let result = reader.next();
         println!("{:?}", result);
         assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    // Ensure that field names and values are bundled transactionally so that we do not move past
+    // the field name, in the event of a failed field value parse. This is limited to scalar values
+    // and reading the start of a container ends the transaction.
+    fn rollback_field_name() -> IonResult<()> {
+        // We'll initialize the buffer with the first 9 characters, which will cause an incomplete
+        // text error due to the ambiguous parse.
+        //             | Init.  |  |
+        let source = r#"{field: 10}"#;
+
+        let mut reader = RawTextReader::new(source[..10].as_bytes().to_owned());
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Struct));
+
+        reader.step_in()?;
+        assert_eq!(reader.depth(), 1);
+
+        match reader.next() {
+            Err(IonError::IncompleteText { .. }) => {
+                assert!(reader.field_name().is_err());
+                reader.read_from(&mut source[10..].as_bytes(), 3)?;
+                reader.stream_complete();
+                reader.next()?;
+            }
+            other => panic!("unexpected return from next: {:?}", other),
+        }
+
+        assert_eq!(reader.ion_type().unwrap(), IonType::Integer);
+        assert_eq!(reader.field_name()?.text(), Some("field"));
+
+        Ok(())
+    }
+
+    #[test]
+    // Test the happy path of reaching an IncompleteText error while stepping out of a container.
+    // The happy part, is that we're just going to re-call `step_out` after feeding more data into
+    // the buffer.
+    fn resume_step_out() -> IonResult<()> {
+        // The spacing on this is important, since we need to know where (approximately) the
+        // incomplete error occurs. We provide the first 47 characters, which is everything in the
+        // string up to, and including, the 'w' in 'somewhere'.
+        //
+        //              |    Initial Data Provided to the reader       | Added after Incomplete |
+        //              [..............................................][.......................]
+        let source = r#"{field:{another_field:{foo:"We should fail somewhere in this string.."}}}"#;
+
+        let mut reader = RawTextReader::new(source[..47].as_bytes().to_owned());
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Struct));
+
+        reader.step_in()?;
+        assert_eq!(reader.depth(), 1);
+
+        reader.next()?;
+
+        reader.step_in()?;
+        assert_eq!(reader.depth(), 2);
+
+        match reader.step_out() {
+            Err(IonError::IncompleteText { .. }) => {
+                assert_eq!(reader.depth(), 3); // we should fail at depth 3, within the foo field.
+                reader.read_from(&mut source[47..].as_bytes(), 512)?;
+
+                // Resume our initial step_out, this should bring us back to depth 1.
+                reader.step_out()?;
+                assert_eq!(reader.depth(), 1);
+            }
+            other => panic!("Expected to get an incomplete error: {:?}", other),
+        }
+        // Step out to the root of the document.
+        reader.step_out()?;
+        assert_eq!(0, reader.depth()); // we should be at the root level.
+        Ok(())
+    }
+
+    // Test stepping out of an inner struct which has trailing fields and ensure all fields are
+    // exhausted.
+    #[test]
+    fn resume_step_out_exhaustion() -> IonResult<()> {
+        // The spacing on this is important, since we need to know where (approximately) the
+        // incomplete error occurs. We provide the first 47 characters, which is everything in the
+        // string up to, and including, the 'w' in 'somewhere'.
+        //
+        //              |    Initial Data Provided to the reader       | Added after Incomplete |
+        //              [..............................................][.......................]
+        let source = r#"{field:{another_field:{foo:"We should fail somewhere in this string..", number: 3}}, other_field: 21}"#;
+
+        let mut reader = RawTextReader::new(source[..47].as_bytes().to_owned());
+
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Struct));
+
+        // Stepping into the top level struct..
+        reader.step_in()?;
+        assert_eq!(reader.depth(), 1);
+
+        reader.next()?;
+        assert_eq!(reader.field_name()?.text(), Some("field"));
+
+        // Stepping into the `field` struct.
+        reader.step_in()?;
+        assert_eq!(reader.depth(), 2);
+
+        reader.next()?;
+        assert_eq!(reader.field_name()?.text(), Some("another_field"));
+
+        // Step out of `field`.. after this we should be at `other_Field`.
+        match reader.step_out() {
+            Err(IonError::IncompleteText { .. }) => {
+                assert_eq!(reader.depth(), 3); // we should fail at depth 3, within the foo field.
+                reader.read_from(&mut source[47..].as_bytes(), 512)?;
+                reader.stream_complete();
+
+                // Resume our initial step_out, this should bring us back to depth 1.
+                reader.step_out()?;
+                assert_eq!(reader.depth(), 1);
+            }
+            other => panic!("Expected to get an incomplete error: {:?}", other),
+        }
+        // We've stepped out of the inner structs, and we should be at the last field in the outter
+        // most container.
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.field_name()?.text(), Some("other_field"));
+        assert_eq!(reader.read_i64()?, 21);
+
+        // Step out to the root of the document.
+        reader.step_out()?;
+        assert_eq!(0, reader.depth()); // we should be at the root level.
+        Ok(())
+    }
+
+    #[test]
+    fn resume_step_out_exhaustion2() -> IonResult<()> {
+        // For this source, we're going to initialize the reader with a partial source, from the
+        // first byte to the start of the line with "quux". The last character of the buffer will
+        // be the end-of-line, from the "baz" definition (offset 62).
+        let source = r#"{
+            foo: 1,
+            bar: 2,
+            baz: 3,
+            quux: 4,
+        }"#;
+
+        // We first read up to the start of the line "quux" is on.
+        let mut reader = RawTextReader::new(source[..62].as_bytes().to_owned());
+
+        // Advance the reader, so that we can step_in to the struct.
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Struct));
+        reader.step_in()?; // Step into the top level struct.
+
+        // Read 'foo'..
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.field_name()?.text(), Some("foo"));
+        assert_eq!(reader.read_i64()?, 1);
+
+        // Read "bar"
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.field_name()?.text(), Some("bar"));
+        assert_eq!(reader.read_i64()?, 2);
+
+        // We have provided up to the "quux" definition in our buffer, and have read up to and
+        // including the "bar" definition. Now we step_out, which should cause an incomplete error.
+        match reader.step_out() {
+            Err(IonError::IncompleteText { .. }) => {
+                // After receiving the incomplete error, the reader should not let us doing
+                // anything other than completing the step_out. If we call next here, we should
+                // still get an IncompleteText error.
+                assert!(matches!(
+                    reader.next(),
+                    Err(IonError::IncompleteText { .. })
+                ));
+
+                // After the incomplete error, we'll provide the rest of the buffer which should
+                // let us complete our step_out.
+                reader.read_from(&mut source[62..].as_bytes(), 512)?;
+                // Since we've provided the entirety of the source, we'll mark the stream complete.
+                reader.stream_complete();
+                // Stepping out should succeed, and leave us back at the top level.
+                reader.step_out()?;
+                assert_eq!(reader.depth(), 0);
+            }
+            other => panic!("Expected to get an incomplete error: {:?}", other),
+        }
+        // We have stepped out, and should now be at the end of the stream.
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Nothing);
+
+        Ok(())
+    }
+
+    #[test]
+    fn resume_failed_step_out_with_next() -> IonResult<()> {
+        // This test is the same as resume_Step_out_exhaustion2, but we're going to make sure that
+        // calling other functions (like next) after a failed step_out, continues the step_out and
+        // avances like we'd expect.
+        let source = r#"{
+            foo: 1,
+            bar: 2,
+            baz: 3,
+            quux: 4,
+        }"#;
+
+        // We first read up to the start of the line "quux" is on.
+        let mut reader = RawTextReader::new(source[..62].as_bytes().to_owned());
+
+        // Advance the reader, so that we can step_in to the struct.
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Struct));
+        reader.step_in()?; // Step into the top level struct.
+
+        // Read 'foo'..
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.field_name()?.text(), Some("foo"));
+        assert_eq!(reader.read_i64()?, 1);
+
+        // Read "bar"
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.field_name()?.text(), Some("bar"));
+        assert_eq!(reader.read_i64()?, 2);
+
+        // We have provided up to the "quux" definition in our buffer, and have read up to and
+        // including the "bar" definition. Now we step_out, which should cause an incomplete error.
+        match reader.step_out() {
+            Err(IonError::IncompleteText { .. }) => {
+                // After receiving the incomplete error, the reader should not let us do anything
+                // that doesn't result in completing the failed step_out. If we call next now, we
+                // should get another IncompleteText error.
+                assert!(matches!(
+                    reader.next(),
+                    Err(IonError::IncompleteText { .. })
+                ));
+
+                // After the incomplete error, we'll provide the rest of the buffer which should
+                // let us complete our step_out.
+                reader.read_from(&mut source[62..].as_bytes(), 512)?;
+                // Since we've provided the entirety of the source, we'll mark the stream complete.
+                reader.stream_complete();
+                // Calling next will continue the step_out, and follow up by moving to the next
+                // value.
+                reader.next()?;
+                assert_eq!(reader.depth(), 0);
+            }
+            other => panic!("Expected to get an incomplete error: {:?}", other),
+        }
+        // At this point, we should have successfully stepped out, and advanced with the `next`,
+        // reaching the end of the document.
+        //let result = reader.next()?;
+        assert_eq!(reader.current(), RawStreamItem::Nothing);
+
+        Ok(())
+    }
+
+    #[test]
+    fn resume_step_out_from_failed_next() -> IonResult<()> {
+        // This test is the same as resume_step_out_exhaustion2, but is a bit more simple. Rather
+        // than stepping out, we're going to get to the struct, and then call `next`. This should
+        // bring us to the end of the document, but we'll fail part way through and the user will
+        // expect to have to call `next` again.
+        let source = r#"{
+            foo: 1,
+            bar: 2,
+            baz: 3,
+            quux: 4,
+        }"#;
+
+        // We first read up to the start of the line "quux" is on.
+        let mut reader = RawTextReader::new(source[..62].as_bytes().to_owned());
+
+        // Advance the reader, so that we can step_in to the struct.
+        let mut result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Struct));
+
+        match reader.next() {
+            Err(IonError::IncompleteText { .. }) => {
+                reader.read_from(&mut source[62..].as_bytes(), 512)?;
+                reader.stream_complete();
+                result = reader.next()?;
+            }
+            other => panic!("unexpected result from next: {:?}", other),
+        }
+
+        // At this point, we should have successfully stepped out, and advanced with the `next`,
+        // reaching the end of the document.
+        //let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Nothing);
+
+        Ok(())
+    }
+
+    #[test]
+    fn failed_step_out_no_values() -> IonResult<()> {
+        // This test is just to ensure that once we fail, and need to continue a step_out, the
+        // reader doesn't provide any functionality to read values, whether they are previous
+        // values, or parsing new.
+        let source = r#"{
+            foo: 1,
+            bar: 2,
+            baz: 3,
+            quux: 4,
+        }"#;
+
+        // We first read up to the start of the line "quux" is on.
+        let mut reader = RawTextReader::new(source[..62].as_bytes().to_owned());
+
+        // Advance the reader, so that we can step_in to the struct.
+        let result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Struct));
+        reader.step_in()?; // Step in, so we can read a value first..
+
+        let mut result = reader.next()?;
+        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.field_name()?.text(), Some("foo"));
+
+        match reader.step_out() {
+            Err(IonError::IncompleteText { .. }) => {
+                // We received the incomplete, and now we want to make sure that no previously
+                // parsed data is available, and that the reader won't try to start parsing more.
+                match reader.read_i64() {
+                    Err(IonError::IllegalOperation { .. }) => (),
+                    other => panic!("unexpected result from read_i64: {:?}", other),
+                }
+
+                reader.read_from(&mut source[62..].as_bytes(), 512)?;
+                reader.stream_complete();
+                result = reader.next()?;
+            }
+            other => panic!("unexpected result from next: {:?}", other),
+        }
+        assert_eq!(result, RawStreamItem::Nothing);
+
         Ok(())
     }
 }
