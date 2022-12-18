@@ -1,5 +1,7 @@
 use crate::ion_eq::IonEq;
-use crate::result::{illegal_operation, illegal_operation_raw, IonError, IonResult};
+use crate::result::{
+    encoding_error, illegal_operation, illegal_operation_raw, IonError, IonResult,
+};
 use crate::types::coefficient::Sign::Negative;
 use crate::types::decimal::Decimal;
 use crate::types::integer::UInteger;
@@ -385,7 +387,9 @@ impl Timestamp {
                     // We know that the coefficient is non-zero (the mantissa was not empty),
                     // so having a positive exponent would result in an illegal fractional
                     // seconds value.
-                    panic!("found fractional seconds decimal that was >= 1.");
+                    return encoding_error(
+                        "found fractional seconds decimal that was >= 1.".to_string(),
+                    );
                 }
 
                 let num_digits = decimal.coefficient.number_of_decimal_digits();
@@ -400,7 +404,9 @@ impl Timestamp {
                 if coefficient.is_negative_zero() {
                     write!(output, "0")?;
                 } else if coefficient.sign == Negative {
-                    panic!("cannot have a negative coefficient (other than -0)");
+                    return encoding_error(
+                        "fractional seconds cannot have a negative coefficient (other than -0)",
+                    );
                 } else {
                     write!(output, "{}", decimal.coefficient)?;
                 }
@@ -848,7 +854,8 @@ impl TimestampBuilder {
 
         // Copy the fractional seconds from the builder to the Timestamp.
         if self.precision == Precision::Second {
-            if let Some(Mantissa::Arbitrary(ref decimal)) = self.fractional_seconds {
+            timestamp.fractional_seconds = self.fractional_seconds;
+            if let Some(Mantissa::Arbitrary(ref decimal)) = &timestamp.fractional_seconds {
                 if decimal.is_less_than_zero() {
                     return illegal_operation(
                         "cannot create a timestamp with negative fractional seconds",
@@ -859,8 +866,10 @@ impl TimestampBuilder {
                         "cannot create a timestamp with a fractional seconds >= 1.0",
                     );
                 }
+                if decimal.is_zero() && decimal.exponent >= 0 {
+                    timestamp.fractional_seconds = None;
+                }
             }
-            timestamp.fractional_seconds = self.fractional_seconds;
         }
         Ok(timestamp)
     }
@@ -1570,6 +1579,21 @@ mod timestamp_tests {
                 .fractional_seconds_scale()
                 .unwrap(),
             6
+        );
+
+        // Set fractional seconds as Decimal with 0 coefficient and non-negative exponent
+        // "Fractions whose coefficient is zero and exponent is greater than -1 are ignored."
+        let timestamp_with_redundant_fractional_seconds =
+            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+                .with_fractional_seconds(Decimal::new(0, 6))
+                .build_at_offset(-5 * 60)?;
+        assert_eq!(
+            timestamp_with_redundant_fractional_seconds.precision,
+            Precision::Second
+        );
+        assert_eq!(
+            timestamp_with_redundant_fractional_seconds.fractional_seconds_scale(),
+            None
         );
 
         // Set fractional seconds with milliseconds

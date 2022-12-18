@@ -144,6 +144,21 @@ pub fn decoding_error_raw<S: AsRef<str>>(description: S) -> IonError {
     }
 }
 
+/// A convenience method for creating an IonResult containing an IonError::EncodingError with the
+/// provided description text.
+pub fn encoding_error<T, S: AsRef<str>>(description: S) -> IonResult<T> {
+    Err(encoding_error_raw(description))
+}
+
+/// A convenience method for creating an IonError::EncodingError with the provided operation
+/// text. Useful for calling Option#ok_or_else.
+#[inline(never)]
+pub fn encoding_error_raw<S: AsRef<str>>(description: S) -> IonError {
+    IonError::EncodingError {
+        description: description.as_ref().to_string(),
+    }
+}
+
 /// A convenience method for creating an IonResult containing an IonError::IllegalOperation with the
 /// provided operation text.
 pub fn illegal_operation<T, S: AsRef<str>>(operation: S) -> IonResult<T> {
