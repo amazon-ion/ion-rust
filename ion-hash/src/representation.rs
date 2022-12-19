@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 //! This file provides an extension trait [`Representation`] that is implemented
-//! for Ion types found in the [`Element`] API. In the fullness of time, this
+//! for Ion types found in the [`IonElement`] API. In the fullness of time, this
 //! file should not exist as we should be using the Ion "raw" binary writer
 //! instead. This implementation fills in that gap, and is focused on coverage
 //! and not speed.
@@ -15,14 +15,14 @@ use ion_rs::types::integer::Integer;
 use ion_rs::{
     result::IonResult,
     types::timestamp::Timestamp,
-    value::{Element, Sequence, Struct, SymbolToken},
+    value::{IonElement, IonSequence, IonStruct, IonSymbolToken},
     IonType,
 };
 
 pub(crate) trait RepresentationEncoder {
     fn update_with_representation<E>(&mut self, elem: &E) -> IonResult<()>
     where
-        E: Element + ?Sized,
+        E: IonElement + ?Sized,
     {
         match elem.ion_type() {
             IonType::Null | IonType::Boolean => {} // these types have no representation
@@ -46,17 +46,17 @@ pub(crate) trait RepresentationEncoder {
     fn write_repr_timestamp(&mut self, value: Option<&Timestamp>) -> IonResult<()>;
     fn write_repr_symbol<S>(&mut self, value: Option<&S>) -> IonResult<()>
     where
-        S: SymbolToken + ?Sized;
+        S: IonSymbolToken + ?Sized;
     fn write_repr_string(&mut self, value: Option<&str>) -> IonResult<()>;
     fn write_repr_blob(&mut self, value: Option<&[u8]>) -> IonResult<()>;
     fn write_repr_seq<S>(&mut self, value: Option<&S>) -> IonResult<()>
     where
-        S: Sequence + ?Sized;
+        S: IonSequence + ?Sized;
     fn write_repr_struct<E, S, F>(&mut self, value: Option<&S>) -> IonResult<()>
     where
-        E: Element + ?Sized,
-        S: Struct<FieldName = F, Element = E> + ?Sized,
-        F: SymbolToken + ?Sized;
+        E: IonElement + ?Sized,
+        S: IonStruct<FieldName = F, Element = E> + ?Sized,
+        F: IonSymbolToken + ?Sized;
 }
 
 impl<D> RepresentationEncoder for ElementHasher<D>
@@ -141,18 +141,14 @@ where
 
     fn write_repr_symbol<S>(&mut self, value: Option<&S>) -> IonResult<()>
     where
-        S: SymbolToken + ?Sized,
+        S: IonSymbolToken + ?Sized,
     {
-        match value {
-            Some(s) => match s.text() {
-                Some(s) => self.write_repr_string(Some(s))?,
-                None => {
-                    todo!("hash SymbolToken without text")
-                }
-            },
-            None => {}
+        // There are no representation bytes for null symbols or unknown-text symbols.
+        if let Some(symbol) = value {
+            if let Some(text) = symbol.text() {
+                self.write_repr_string(Some(text))?;
+            }
         }
-
         Ok(())
     }
 
@@ -176,7 +172,7 @@ where
 
     fn write_repr_seq<S>(&mut self, value: Option<&S>) -> IonResult<()>
     where
-        S: Sequence + ?Sized,
+        S: IonSequence + ?Sized,
     {
         if let Some(seq) = value {
             for elem in seq.iter() {
@@ -187,7 +183,7 @@ where
         Ok(())
     }
 
-    /// Iterates over a `Struct`, computing the "field hash" of each field
+    /// Iterates over an `IonStruct`, computing the "field hash" of each field
     /// (key-value pair). The field hash is defined in the spec as:
     ///
     /// ```text
@@ -198,12 +194,12 @@ where
     /// iterator).
     fn write_repr_struct<E, S, F>(&mut self, value: Option<&S>) -> IonResult<()>
     where
-        E: Element + ?Sized,
-        S: Struct<FieldName = F, Element = E> + ?Sized,
-        F: SymbolToken + ?Sized,
+        E: IonElement + ?Sized,
+        S: IonStruct<FieldName = F, Element = E> + ?Sized,
+        F: IonSymbolToken + ?Sized,
     {
-        if let Some(strukt) = value {
-            let mut hashes: Vec<_> = strukt
+        if let Some(struct_) = value {
+            let mut hashes: Vec<_> = struct_
                 .iter()
                 .map(|(key, value)| struct_field_hash::<D, _, _>(key, value))
                 .collect::<IonResult<_>>()?;
@@ -222,8 +218,8 @@ where
 fn struct_field_hash<D, F, E>(key: &F, value: &E) -> IonResult<Output<D>>
 where
     D: Update + FixedOutput + Reset + Clone + Default,
-    F: SymbolToken + ?Sized,
-    E: Element + ?Sized,
+    F: IonSymbolToken + ?Sized,
+    E: IonElement + ?Sized,
 {
     let mut hasher = ElementHasher::new(D::default());
 

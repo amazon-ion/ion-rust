@@ -5,10 +5,16 @@ use digest::{FixedOutput, Reset, Update};
 use ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::integer::IntAccess;
+use ion_rs::value::owned::Element;
 use ion_rs::value::reader::{element_reader, ElementReader};
+use ion_rs::value::writer::ElementWriter;
 use ion_rs::value::*;
+use ion_rs::IonWriter;
+use std::convert::From;
+use std::fmt::Debug;
 use std::fs::read;
 use std::iter::FromIterator;
+use thiserror::Error;
 
 #[derive(Default, Clone)]
 struct IdentityDigest(Vec<u8>);
@@ -81,11 +87,14 @@ fn without_trailing_zeros(data: &[u8]) -> &[u8] {
 }
 
 const IGNORE_LIST: &[&'static str] = &[
-    // These struct tests contain types that aren't yet supported
-    r#"{annotated_value:hello::{},clob:{{"hello"}},bool:false,struct:{},int:5,symbol:hello,timestamp:2017-01-01T00:00:00-00:00,list:[1,2,3],sexp:(1 2 3),float:4.9406564584124654418e-324,'null':null,string:"hello",blob:{{aGVsbG8=}},neg_int:-6,decimal:123.45}"#,
-    r#"{a:{d:[1,2,3],b:{c:5}},e:6}"#,
     // Uses md5 (not identity)
     r#"{Metrics:{'Event.Catchup':[{Value:0,Unit:ms}],'FanoutCache.Time':[{Value:1,Unit:ms}]}}"#,
+    // ion-rust doesn't have full support for unknown symbols yet, so we can't properly read these test cases.
+    // The ion-hash crate, however, does have full support for symbols with unknown text.
+    // See `mod unknown_symbol_text_tests` at the end of this file for equivalent tests.
+    "'$0'",
+    "{'$0':1}",
+    "'$0'::{}",
 ];
 
 fn should_ignore(test_name: &str) -> bool {
@@ -107,18 +116,21 @@ fn should_ignore(test_name: &str) -> bool {
 }
 
 #[test]
-fn ion_hash_tests() -> IonResult<()> {
-    test_file("tests/ion_hash_tests.ion")
+fn ion_hash_tests() -> IonHashTestResult<()> {
+    test_file("ion-hash-test/ion_hash_tests.ion")
 }
 
-fn test_file(file_name: &str) -> IonResult<()> {
-    let data = read(file_name)?;
+fn test_file(file_name: &str) -> IonHashTestResult<()> {
+    let data = read(file_name).map_err(|source| ion_rs::IonError::IoError { source })?;
     let elems = element_reader().read_all(&data)?;
     test_all(elems)
 }
 
-fn test_all<E: Element>(elems: Vec<E>) -> IonResult<()> {
+fn test_all<E: IonElement>(elems: Vec<E>) -> IonHashTestResult<()> {
+    let mut failures: Vec<IonHashTestError> = vec![];
     for case in &elems {
+        let annotated_test_name = test_case_name_from_annotation(case);
+
         let case = case.as_struct().expect("test cases are structs");
         let expect = case
             .get("expect")
@@ -135,7 +147,7 @@ fn test_all<E: Element>(elems: Vec<E>) -> IonResult<()> {
         // While we could clone the text case, it's just as simple to just
         // inline the call to `test_case` and avoid the clone.
         match (case.get("ion"), case.get("10n")) {
-            (Some(text), None) => test_case(text, expect)?,
+            (Some(text), None) => test_case(annotated_test_name, text, expect),
             (None, Some(binary)) => {
                 // The sexp contains a binary value without the BVM.
                 let value = seq_to_bytes(binary);
@@ -148,24 +160,42 @@ fn test_all<E: Element>(elems: Vec<E>) -> IonResult<()> {
                     .into_iter()
                     .nth(0)
                     .expect("10n test case should have a single element (there were none)");
-                test_case(&elem, expect)?;
+                test_case(annotated_test_name, &elem, expect)
             }
             _ => {
                 unreachable!("test case structs must have either an `ion` field or  an `10n` field")
             }
-        };
+        }
+        .unwrap_or_else(|e| failures.push(e));
     }
-
-    Ok(())
+    match failures.len() {
+        0 => Ok(()),
+        1 => Err(failures.pop().unwrap()),
+        _ => Err(IonHashTestError::MultipleTestsFailed { causes: failures }),
+    }
 }
 
 /// A single test case. `input` is the input to ion-hash, while `expect` is a
 /// "program" that we use to validate ion-hash computed the right result.
 // There are two generics here due to the difference between text and binary
 // cases. Binary cases need another call to `element_reader` and the calling
-// function might be generic over `Element`.
-fn test_case<E1: Element, E2: Element>(input: &E1, expect: &E2) -> IonResult<()> {
-    let test_case_name = test_case_name(input)?;
+// function might be generic over `IonElement`.
+fn test_case<E1: IonElement, E2: IonElement>(
+    test_case_name: Option<String>,
+    input: &E1,
+    expect: &E2,
+) -> IonHashTestResult<()> {
+    let test_case_name = match test_case_name {
+        Some(name) => name,
+        None => test_case_name_from_value(input).map_err(|e| IonHashTestError::TestError {
+            test_case_name: None,
+            message: Some(format!(
+                "Unable to determine test case name for {:?}",
+                input
+            )),
+            cause: Some(Box::new(e)),
+        })?,
+    };
 
     if should_ignore(&test_case_name) {
         println!("skipping: {}", test_case_name);
@@ -175,26 +205,32 @@ fn test_case<E1: Element, E2: Element>(input: &E1, expect: &E2) -> IonResult<()>
     // Uncomment me if you're trying to debug a panic!
     // eprintln!("running: {}", test_case_name);
 
-    let strukt = expect.as_struct().expect("`expect` should be a struct");
-    let expected = expected_hash(strukt)?;
+    let struct_ = expect.as_struct().expect("`expect` should be a struct");
+    let expected = expected_hash(struct_)?;
 
     let result = IdentityDigest::hash_element(input)?;
 
     // Ignore trailing empty bytes caused by the identity digest producing a
     // variable sized result. Without this, any test failure will write lots of
     // stuff to your console which can be annoying since it takes forever.
-    assert_eq!(
-        format!("{:02x?}", without_trailing_zeros(&expected[..])),
-        format!("{:02x?}", without_trailing_zeros(&result[..])),
-        "test case {} failed",
-        test_case_name
-    );
+    let expected_string = format!("{:02x?}", without_trailing_zeros(&expected[..]));
+    let actual_string = format!("{:02x?}", without_trailing_zeros(&result[..]));
 
-    Ok(())
+    if expected_string != actual_string {
+        Err(IonHashTestError::TestFailed {
+            test_case_name: test_case_name.to_string(),
+            message: Some(format!(
+                "expected: {}\nwas: {}",
+                expected_string, actual_string
+            )),
+        })
+    } else {
+        Ok(())
+    }
 }
 
-fn expected_hash<S: Struct + ?Sized>(strukt: &S) -> IonResult<Vec<u8>> {
-    let identity = if let Some(identity) = strukt.get("identity") {
+fn expected_hash<S: IonStruct + ?Sized>(struct_: &S) -> IonResult<Vec<u8>> {
+    let identity = if let Some(identity) = struct_.get("identity") {
         identity.as_sequence().expect("`identity` should be a sexp")
     } else {
         illegal_operation("only identity tests are implemented")?
@@ -221,32 +257,28 @@ fn expected_hash<S: Struct + ?Sized>(strukt: &S) -> IonResult<Vec<u8>> {
 
 /// Test cases may be annotated with a test name. Or, not! If they aren't, the
 /// name of the test is the Ion text representation of the input value.
-// TODO: Once `dumper` lands, use it to generate test names for un-annotated
-// test cases. For now, they're simply numbered.
-fn test_case_name<E: Element>(ion: &E) -> IonResult<String> {
-    let annotations: Vec<_> = ion
+fn test_case_name_from_value<E: IonElement>(test_input_ion: &E) -> IonResult<String> {
+    let mut buf = Vec::new();
+    let text_writer = ion_rs::TextWriterBuilder::new().build(&mut buf)?;
+    let mut element_writer = ion_rs::value::native_writer::NativeElementWriter::new(text_writer);
+    element_writer.write(test_input_ion)?;
+    let mut text_writer = element_writer.finish()?;
+    text_writer.flush()?;
+    drop(text_writer);
+
+    Ok(String::from_utf8_lossy(&*buf).to_string())
+}
+
+fn test_case_name_from_annotation<E: IonElement>(test_case_ion: &E) -> Option<String> {
+    test_case_ion
         .annotations()
-        .map(|it| it.text().unwrap().to_string())
-        .collect();
-    match &annotations[..] {
-        [] => {
-            use ion_rs::value::writer::{ElementWriter, Format, TextKind};
-
-            let mut buf = vec![0u8; 4096];
-            let mut writer = Format::Text(TextKind::Compact).element_writer_for_slice(&mut buf)?;
-            writer.write(ion)?;
-            let result = writer.finish()?;
-
-            Ok(String::from_utf8_lossy(result).to_string())
-        }
-        [single] => Ok(single.clone()),
-        _ => unimplemented!(),
-    }
+        .next()
+        .map(|tok| tok.text().unwrap().into())
 }
 
 /// The test file is full of byte arrays represented as SExps of hex-formatted
 /// bytes. This method extracts the bytes into a Vec.
-fn seq_to_bytes<E: Element>(elem: &E) -> Vec<u8> {
+fn seq_to_bytes<E: IonElement>(elem: &E) -> Vec<u8> {
     elem.as_sequence()
         .expect("expected a sequence")
         .iter()
@@ -256,4 +288,77 @@ fn seq_to_bytes<E: Element>(elem: &E) -> Vec<u8> {
                 .expect("expected a sequence of bytes") as u8
         })
         .collect()
+}
+
+type IonHashTestResult<T> = Result<T, IonHashTestError>;
+
+#[derive(Debug, Error)]
+pub enum IonHashTestError {
+    /// Indicates that an IO error was encountered while reading or writing.
+    #[error("{source:?}")]
+    IonRsError {
+        #[from]
+        source: ion_rs::IonError,
+    },
+
+    #[error("FAIL: {test_case_name}: {message:?}")]
+    TestFailed {
+        test_case_name: String,
+        message: Option<String>,
+    },
+
+    #[error("ERROR: {test_case_name:?}: {message:?} {cause:?}")]
+    TestError {
+        test_case_name: Option<String>,
+        message: Option<String>,
+        cause: Option<Box<dyn Debug>>,
+    },
+
+    #[error("FAIL: {causes:?}")]
+    MultipleTestsFailed { causes: Vec<IonHashTestError> },
+}
+
+mod unknown_symbol_text_tests {
+    use super::*;
+    use ion_rs::Symbol;
+
+    #[test]
+    fn test_unknown_symbol_text() {
+        let unknown_symbol = Element::from(Symbol::unknown_text());
+        let digest = IdentityDigest::hash_element(&unknown_symbol).unwrap();
+
+        let expected_string = format!("{:02x?}", &[0x0b, 0x71, 0x0e]);
+        let actual_string = format!("{:02x?}", without_trailing_zeros(&digest[..]));
+        assert_eq!(expected_string, actual_string)
+    }
+
+    #[test]
+    fn test_unknown_field_name_text() {
+        let fields_itr = vec![(Symbol::unknown_text(), Element::from(1))];
+        let struct_ = owned::Struct::from_iter(fields_itr);
+        let element = Element::from(struct_);
+
+        let digest = IdentityDigest::hash_element(&element).unwrap();
+
+        let expected_string = format!(
+            "{:02x?}",
+            &[0x0b, 0xd0, 0x0c, 0x0b, 0x71, 0x0c, 0x0e, 0x0c, 0x0b, 0x20, 0x01, 0x0c, 0x0e, 0x0e]
+        );
+        let actual_string = format!("{:02x?}", without_trailing_zeros(&digest[..]));
+        assert_eq!(expected_string, actual_string)
+    }
+
+    #[test]
+    fn test_unknown_annotation_text() {
+        let mut element = element_reader().read_one("{}".as_bytes()).unwrap();
+        element = element.with_annotations(vec![Symbol::unknown_text()]);
+        let digest = IdentityDigest::hash_element(&element).unwrap();
+
+        let expected_string = format!(
+            "{:02x?}",
+            &[0x0b, 0xe0, 0x0b, 0x71, 0x0e, 0x0b, 0xd0, 0x0e, 0x0e]
+        );
+        let actual_string = format!("{:02x?}", without_trailing_zeros(&digest[..]));
+        assert_eq!(expected_string, actual_string)
+    }
 }

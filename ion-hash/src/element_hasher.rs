@@ -1,13 +1,13 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 //! Provides [`ElementHasher`], a single-use IonHash implementation for an
-//! [`Element`].
+//! [`IonElement`].
 
 use std::io;
 
 use digest::{FixedOutput, Output, Reset, Update};
 use ion_rs::result::IonResult;
-use ion_rs::value::Element;
+use ion_rs::value::{IonElement, IonSymbolToken};
 
 use crate::representation::RepresentationEncoder;
 use crate::type_qualifier::TypeQualifier;
@@ -30,7 +30,7 @@ where
 
     pub(crate) fn hash_element<E>(mut self, elem: &E) -> IonResult<Output<D>>
     where
-        E: Element + ?Sized,
+        E: IonElement + ?Sized,
     {
         self.update_serialized_bytes(elem)?;
         Ok(self.digest.finalize_fixed())
@@ -41,12 +41,31 @@ where
     /// reasons (avoid allocations for DSTs).
     pub(crate) fn update_serialized_bytes<E>(&mut self, elem: &E) -> IonResult<()>
     where
-        E: Element + ?Sized,
+        E: IonElement + ?Sized,
     {
+        let has_annotations = elem.annotations().next().is_some();
+        if has_annotations {
+            // s(annotated value) → B || TQ || s(annotation) || s(annotation) || ... || s(annotation) || s(value) || E
+            self.mark_begin();
+            self.digest.update([0xE0]);
+            for ann in elem.annotations() {
+                self.mark_begin();
+                self.digest.update(match ann.text() {
+                    None => [0x71],
+                    Some(_) => [0x70],
+                });
+                self.write_repr_symbol(Some(ann))?;
+                self.mark_end();
+            }
+        }
+
         self.mark_begin();
         self.update_type_qualifier_and_representation(elem)?;
-        // TODO: Annotations
         self.mark_end();
+
+        if has_annotations {
+            self.mark_end();
+        }
 
         Ok(())
     }
@@ -63,7 +82,7 @@ where
 
     pub(crate) fn update_type_qualifier_and_representation<E>(&mut self, elem: &E) -> IonResult<()>
     where
-        E: Element + ?Sized,
+        E: IonElement + ?Sized,
     {
         let tq = TypeQualifier::from_element(elem);
         self.digest.update(tq.as_bytes());
