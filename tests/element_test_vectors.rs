@@ -175,7 +175,7 @@ trait ElementApi {
     /// )
     /// ```
     ///
-    /// This will parse each string as a [`Vec`] of [`Element`] and apply the `group_assert` function
+    /// This will parse each string as a [`Vec`] of [`IonElement`] and apply the `group_assert` function
     /// for every pair of the parsed data including the identity case (a parsed document is
     /// compared against itself).
     fn read_group_embedded<R, S, F>(reader: &R, raw_group: &S, group_assert: &F) -> IonResult<()>

@@ -297,13 +297,14 @@ impl Container {
 /// A raw binary reader that pulls input bytes from a fixed buffer.
 ///
 /// If any read operation fails due to the buffer containing incomplete data, that method will
-/// return [IonError::Incomplete].
+/// return [`IonError::Incomplete`](crate::IonError::Incomplete).
 ///
-/// If the buffer (generic type `A`) is a [Vec<u8>], then data can be appended to it between read
+/// If the buffer (generic type `A`) is a [`Vec<u8>`], then data can be appended to it between read
 /// operations. This can be useful when reading from a data source that is growing over time, such
 /// as when tailing a growing file, reading over the network, or waiting for user input.
 /// Applications can read from the buffer until they encounter an `Incomplete`. Then, when more
-/// data is available, they can use [read_from] or [append_bytes] to add that data to the buffer.
+/// data is available, they can use [read_from](Self::read_from) or
+/// [append_bytes](Self::append_bytes) to add that data to the buffer.
 /// Finally, they can retry the read operation that had previously failed.
 ///
 /// Note that if the buffer runs out of data between top level values, this will be interpreted
@@ -503,7 +504,7 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
     /// If the reader is currently positioned on a string, returns the slice of bytes that represents
     /// that string's *UNVALIDATED* utf-8 bytes. This method is available for performance optimization
     /// in scenarios where utf-8 validation may be unnecessary and/or a bottleneck. It is strongly
-    /// recommended that you use [read_str] unless absolutely necessary.
+    /// recommended that you use [read_str](Self::read_str) unless absolutely necessary.
     pub fn read_str_bytes(&mut self) -> IonResult<&[u8]> {
         let (_encoded_value, bytes) = self.value_and_bytes(IonType::String)?;
         Ok(bytes)

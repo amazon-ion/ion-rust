@@ -138,7 +138,7 @@ impl DecodedInt {
     /// Encodes a negative zero as an `Int` and writes it to the privided `sink`.
     /// Returns the number of bytes written.
     ///
-    /// This method is similar to [write_i64]. However, because an i64 cannot represent a negative
+    /// This method is similar to [Self::write_i64]. However, because an i64 cannot represent a negative
     /// zero, a separate method is required.
     pub fn write_negative_zero<W: Write>(sink: &mut W) -> IonResult<usize> {
         sink.write_all(&[INT_NEGATIVE_ZERO])?;

@@ -129,7 +129,7 @@ pub trait IonReader {
     /// current item is not a symbol or an IO error is encountered while reading, returns [crate::IonError].
     fn read_symbol(&mut self) -> IonResult<Self::Symbol>;
 
-    /// Attempts to read the current item as an Ion blob and return it as a [Vec<u8>]. If the
+    /// Attempts to read the current item as an Ion blob and return it as a `Vec<u8>`. If the
     /// current item is not a blob or an IO error is encountered while reading, returns [crate::IonError].
     fn read_blob(&mut self) -> IonResult<Vec<u8>>;
 
@@ -143,7 +143,7 @@ pub trait IonReader {
         Self: Sized,
         F: FnOnce(&[u8]) -> U;
 
-    /// Attempts to read the current item as an Ion clob and return it as a [Vec<u8>]. If the
+    /// Attempts to read the current item as an Ion clob and return it as a `Vec<u8>`. If the
     /// current item is not a clob or an IO error is encountered while reading, returns [crate::IonError].
     fn read_clob(&mut self) -> IonResult<Vec<u8>>;
 

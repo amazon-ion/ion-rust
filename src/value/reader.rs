@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Provides APIs to read Ion data into [`Element`](super::Element) from different sources such
+//! Provides APIs to read Ion data into [`IonElement`](super::IonElement) from different sources such
 //! as slices or files.
 
 use crate::result::{decoding_error, IonResult};
@@ -11,10 +11,10 @@ use crate::value::owned::Element;
 //      we could make it generic with generic associated types or just have a lifetime
 //      scoped implementation
 
-/// Reads Ion data into [`Element`](super::Element) instances.
+/// Reads Ion data into [`IonElement`](super::IonElement) instances.
 ///
 /// ## Notes
-/// Users of this trait should not assume any particular implementation of [`Element`](super::Element).
+/// Users of this trait should not assume any particular implementation of [`IonElement`](super::IonElement).
 /// In the future, [generic associated types (GAT)][gat] and [existential types in traits][et]
 /// should make it easier to model this more abstractly.
 ///
@@ -22,9 +22,9 @@ use crate::value::owned::Element;
 /// [et]:https://rust-lang.github.io/rfcs/2071-impl-trait-existential-types.html
 pub trait ElementReader {
     /// Parses Ion over a given slice of data and yields each top-level value as
-    /// an [`Element`](super::Element) instance.
+    /// an [`IonElement`](super::IonElement) instance.
     ///
-    /// The [`Iterator`] will generally return `Some(Ok([Element]))` but on a failure of
+    /// The [`Iterator`] will generally return `Some(Ok([`IonElement`]))` but on a failure of
     /// parsing it will return a `Some(Err([IonError]))` and then a `None` to signal no more
     /// elements.
     ///
@@ -42,9 +42,9 @@ pub trait ElementReader {
         self.iterate_over(data)?.collect()
     }
 
-    /// Parses Ion over a given slice into a single [`Element`](super::Element) instance.
+    /// Parses Ion over a given slice into a single [`IonElement`](super::IonElement) instance.
     /// Returns [`IonError`](crate::result::IonError) if any error occurs during the parse
-    /// or there is more than one top-level [`Element`](super::Element) in the data.
+    /// or there is more than one top-level [`IonElement`](super::IonElement) in the data.
     #[inline]
     fn read_one(&self, data: &[u8]) -> IonResult<Element> {
         let mut iter = self.iterate_over(data)?;
