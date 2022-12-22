@@ -774,7 +774,7 @@ const EMPTY_SLICE_U8: &[u8] = &[];
 const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
 
 /// Additional functionality that's only available if the data source is in-memory, such as a
-/// Vec<u8> or &[u8]).
+/// `Vec<u8>` or `&[u8]`).
 impl<T> RawBinaryReader<io::Cursor<T>>
 where
     T: AsRef<[u8]>,

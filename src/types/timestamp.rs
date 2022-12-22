@@ -153,9 +153,9 @@ pub struct Timestamp {
 //       instantiated and tested for equality, but will not very useful as a general purpose
 //       datetime until these methods are added.
 impl Timestamp {
-    /// Converts a [NaiveDateTime] or [DateTime<FixedOffset>] to a Timestamp with the specified
-    /// precision. If the precision is [Precision::Second], nanosecond precision (the maximum
-    /// supported by a [Timelike]) is assumed.
+    /// Converts a [`NaiveDateTime`] or [`DateTime<FixedOffset>`] to a Timestamp with the specified
+    /// precision. If the precision is [`Precision::Second`], nanosecond precision (the maximum
+    /// supported by a [`Timelike`]) is assumed.
     pub fn from_datetime<D>(datetime: D, precision: Precision) -> Timestamp
     where
         D: Datelike + Timelike + Into<Timestamp>,

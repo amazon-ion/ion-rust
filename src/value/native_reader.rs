@@ -106,7 +106,7 @@ impl<R: RawReader> NativeElementIterator<R> {
     }
 }
 
-/// Provides an implementation of [ElementReader] that is backed by a native Rust [Reader].
+/// Provides an implementation of [ElementReader] that is backed by a native Rust [Reader](crate::reader::Reader).
 pub struct NativeElementReader;
 
 impl ElementReader for NativeElementReader {

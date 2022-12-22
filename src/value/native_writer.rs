@@ -2,7 +2,7 @@ use crate::value::writer::ElementWriter;
 use crate::value::{IonElement, IonSequence, IonStruct, IonSymbolToken};
 use crate::{IonResult, IonType, IonWriter, RawSymbolTokenRef};
 
-/// Writes [Element] instances to the underlying [Writer] implementation.
+/// Writes [`IonElement`] instances to the underlying [`IonWriter`] implementation.
 pub struct NativeElementWriter<W: IonWriter> {
     writer: W,
 }
@@ -21,7 +21,7 @@ impl<W: IonWriter> ElementWriter for NativeElementWriter<W> {
 }
 
 impl<W: IonWriter> NativeElementWriter<W> {
-    /// Constructs a new `NativeElementWriter` that wraps the provided [Writer] implementation.
+    /// Constructs a new `NativeElementWriter` that wraps the provided [`IonWriter`] implementation.
     pub fn new(writer: W) -> Self {
         NativeElementWriter { writer }
     }

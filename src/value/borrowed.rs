@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Provides borrowed implementations of [`SymbolToken`], [`Element`] and its dependents.
+//! Provides borrowed implementations of [`IonSymbolToken`], [`IonElement`] and its dependents.
 //!
 //! Specifically, all implementations are tied to some particular lifetime, generally linked
 //! to a parser implementation of some sort or some context from which the borrow can occur.
@@ -137,7 +137,7 @@ impl<'val> Builder for ElementRef<'val> {
     }
 }
 
-/// A borrowed implementation of [`Sequence`].
+/// A borrowed implementation of [`IonSequence`].
 #[derive(Debug, Clone)]
 pub struct SequenceRef<'val> {
     // TODO: Since we've moved the elements Vec to the heap, we could consider replacing it with a
@@ -195,7 +195,7 @@ impl<'val> PartialEq for SequenceRef<'val> {
 
 impl<'val> Eq for SequenceRef<'val> {}
 
-/// A borrowed implementation of [`Struct`]
+/// A borrowed implementation of [`IonStruct`]
 #[derive(Debug, Clone)]
 pub struct StructRef<'val> {
     fields: Rc<FieldRefs<'val>>,
@@ -424,7 +424,7 @@ impl<'val> IonEq for Vec<ElementRef<'val>> {
     }
 }
 
-/// Variants for all borrowed version _values_ within an [`Element`].
+/// Variants for all borrowed version _values_ within an [`IonElement`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValueRef<'val> {
     Null(IonType),
@@ -443,7 +443,7 @@ pub enum ValueRef<'val> {
     // TODO fill this in with the rest...
 }
 
-/// A borrowed implementation of [`Element`]
+/// A borrowed implementation of [`IonElement`]
 #[derive(Debug, Clone)]
 pub struct ElementRef<'val> {
     annotations: Vec<SymbolRef<'val>>,

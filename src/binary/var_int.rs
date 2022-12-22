@@ -152,11 +152,11 @@ impl VarInt {
         Ok(encoded_bytes.len())
     }
 
-    /// Encodes a negative zero as an `VarInt` and writes it to the privided `sink`.
+    /// Encodes a negative zero as an `VarInt` and writes it to the provided `sink`.
     /// Returns the number of bytes written.
     ///
-    /// This method is similar to [write_i64]. However, because an i64 cannot represent a negative
-    /// zero, a separate method is required.
+    /// This method is similar to [write_i64](crate::binary::var_int::VarInt::write_i64).
+    /// However, because an i64 cannot represent a negative zero, a separate method is required.
     pub fn write_negative_zero<W: Write>(sink: &mut W) -> IonResult<usize> {
         sink.write_all(&[VARINT_NEGATIVE_ZERO])?;
         Ok(1)
@@ -171,7 +171,8 @@ impl VarInt {
     }
 
     /// Returns the value of the signed integer. If the [VarInt] is negative zero, this method
-    /// will return `0`. Use the [is_negative_zero] method to check for negative zero explicitly.
+    /// will return `0`. Use the [is_negative_zero](Self::is_negative_zero) method to check for
+    /// negative zero explicitly.
     #[inline(always)]
     pub fn value(&self) -> VarIntStorage {
         self.value
