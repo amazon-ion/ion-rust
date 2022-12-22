@@ -12,7 +12,7 @@ use ion_rs::types::integer::Integer;
 use ion_rs::{
     binary::IonTypeCode,
     types::{decimal::Decimal, timestamp::Timestamp},
-    value::{Element, Sequence, Struct, SymbolToken},
+    value::{IonElement, IonSequence, IonStruct, IonSymbolToken},
     IonType,
 };
 use num_bigint::Sign;
@@ -36,7 +36,7 @@ const fn combine(ion_type_code: IonTypeCode, q: u8) -> TypeQualifier {
 }
 
 impl TypeQualifier {
-    /// Computes a [`TypeQualifier`] from an [`Element`] according to the rules
+    /// Computes a [`TypeQualifier`] from an [`IonElement`] according to the rules
     /// laid out in the spec. In many cases, the `T` is determined by the Ion
     /// binary type code.
     ///
@@ -44,7 +44,7 @@ impl TypeQualifier {
     /// method.
     pub(crate) fn from_element<E>(elem: &E) -> TypeQualifier
     where
-        E: Element + ?Sized,
+        E: IonElement + ?Sized,
     {
         match elem.ion_type() {
             IonType::Null => type_qualifier_null(),
@@ -137,28 +137,34 @@ pub(crate) fn type_qualifier_blob(value: Option<&[u8]>) -> TypeQualifier {
 
 pub(crate) fn type_qualifier_list<S>(value: Option<&S>) -> TypeQualifier
 where
-    S: Sequence + ?Sized,
+    S: IonSequence + ?Sized,
 {
     combine(IonTypeCode::List, qualify_nullness(value))
 }
 
 pub(crate) fn type_qualifier_sexp<S>(value: Option<&S>) -> TypeQualifier
 where
-    S: Sequence + ?Sized,
+    S: IonSequence + ?Sized,
 {
     combine(IonTypeCode::SExpression, qualify_nullness(value))
 }
 
 pub(crate) fn type_qualifier_symbol<S>(sym: Option<&S>) -> TypeQualifier
 where
-    S: SymbolToken + ?Sized,
+    S: IonSymbolToken + ?Sized,
 {
+    // Non-null symbol with unknown text has a TQ of 0x71
+    if let Some(symbol) = sym {
+        if symbol.text().is_none() {
+            return TypeQualifier(0x71);
+        }
+    }
     combine(IonTypeCode::Symbol, qualify_nullness(sym))
 }
 
 pub(crate) fn type_qualifier_struct<S>(value: Option<&S>) -> TypeQualifier
 where
-    S: Struct + ?Sized,
+    S: IonStruct + ?Sized,
 {
     combine(IonTypeCode::Struct, qualify_nullness(value))
 }
