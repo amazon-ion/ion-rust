@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Provides owned implementations of [`SymbolToken`], [`Element`] and its dependents.
+//! Provides owned implementations of [`IonSymbolToken`], [`IonElement`] and its dependents.
 //!
 //! This API is simpler to manage with respect to borrowing lifetimes, but requires full
 //! ownership of data to do so.
@@ -139,7 +139,7 @@ impl Builder for Element {
     }
 }
 
-/// An owned implementation of [`Sequence`]
+/// An owned implementation of [`IonSequence`]
 #[derive(Debug, Clone)]
 pub struct Sequence {
     // TODO: Since we've moved the elements Vec to the heap, we could consider replacing it with a
@@ -422,7 +422,7 @@ impl IonEq for Vec<Element> {
     }
 }
 
-/// Variants for all owned version _values_ within an [`Element`].
+/// Variants for all owned version _values_ within an [`IonElement`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null(IonType),

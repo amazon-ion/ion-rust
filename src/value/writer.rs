@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Provides utility to serialize Ion data from [`Element`](super::Element) into common targets
+//! Provides utility to serialize Ion data from [`IonElement`](super::IonElement) into common targets
 //! such as byte buffers or files.
 
 use super::IonElement;
@@ -9,17 +9,17 @@ use crate::result::IonResult;
 pub use Format::*;
 pub use TextKind::*;
 
-/// Serializes [`Element`] instances into some kind of output sink.
+/// Serializes [`IonElement`] instances into some kind of output sink.
 pub trait ElementWriter {
     /// The output of the writer when finishing, it could be a managed buffer,
     /// some concept of a stream, metadata about a file, or something appropriate
     /// for the destination.
     type Output;
 
-    /// Serializes a single [`Element`] as a top-level value.
+    /// Serializes a single [`IonElement`] as a top-level value.
     fn write<E: IonElement>(&mut self, element: &E) -> IonResult<()>;
 
-    /// Serializes a collection of [`Element`] as a series of top-level values.
+    /// Serializes a collection of [`IonElement`] as a series of top-level values.
     ///
     /// This will return [`Err`] if writing any element causes a failure.
     fn write_all<'a, E: IonElement + 'a, I: IntoIterator<Item = &'a E>>(

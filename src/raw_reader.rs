@@ -18,11 +18,11 @@ where
     fn stream_complete(&mut self) {}
 }
 
-/// Allows a Box<dyn RawReader> to be used as a RawReader.
+/// Allows a `Box<dyn RawReader>` to be used as a RawReader.
 /// Note: this implementation contains some methods that are not object safe and so cannot be
 ///       invoked. For the moment, calling these methods via dynamic dispatch will result in a
 ///       panic. Longer-term, they will be replaced by object safe methods.
-///       See: https://github.com/amzn/ion-rust/issues/335
+///       See: <https://github.com/amzn/ion-rust/issues/335>
 impl<R: RawReader + ?Sized> IonReader for Box<R> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;

@@ -442,7 +442,7 @@ impl<R: RawReader> IonReader for UserReader<R> {
 }
 
 /// Functionality that is only available if the data source we're reading from is in-memory, like
-/// a Vec<u8> or &[u8].
+/// a `Vec<u8>` or `&[u8]`.
 impl<T: AsRef<[u8]>> UserReader<RawBinaryReader<io::Cursor<T>>> {
     delegate! {
         to self.raw_reader {

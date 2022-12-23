@@ -10,9 +10,9 @@
 //! * The [`borrowed`] module provides an implementation of values that are tied to some
 //!   associated lifetime and borrow a reference to their underlying data in some way
 //!   (e.g. storing a `&str` in the value versus a fully owned `String`).
-//! * The [`reader`] module provides API and implementation to read Ion data into [`Element`]
+//! * The [`reader`] module provides API and implementation to read Ion data into [`IonElement`]
 //!   instances.
-//! * The [`writer`] module provides API and implementation to write Ion data from [`Element`]
+//! * The [`writer`] module provides API and implementation to write Ion data from [`IonElement`]
 //!   instances.
 //!
 //! ## Examples
@@ -39,7 +39,7 @@
 //! ```
 //!
 //! [`ElementReader::read_all`](reader::ElementReader::read_all) is a convenient way to put all of the
-//! parsed [`Element`] into a [`Vec`], with a single [`IonError`](crate::result::IonError) wrapper:
+//! parsed [`IonElement`] into a [`Vec`], with a single [`IonError`](crate::result::IonError) wrapper:
 //!
 //! ```
 //! # use ion_rs::IonType;
@@ -61,8 +61,8 @@
 //! ```
 //!
 //! [`ElementReader::read_one`](reader::ElementReader::read_one) is another convenient way to parse a single
-//! top-level element into a [`Element`].  This method will return an error if the data has
-//! a parsing error or if there is more than one [`Element`] in the stream:
+//! top-level element into a [`IonElement`].  This method will return an error if the data has
+//! a parsing error or if there is more than one [`IonElement`] in the stream:
 //!
 //! ```
 //! # use ion_rs::IonType;
@@ -95,7 +95,7 @@
 //! ```
 //!
 //! To serialize data, users can use the [`ElementWriter`](writer::ElementWriter) trait to serialize data
-//! from [`Element`] to binary or text Ion:
+//! from [`IonElement`] to binary or text Ion:
 //!
 //! ```ignore
 //! use ion_rs::result::IonResult;
@@ -126,7 +126,7 @@
 //! most easily by writing generic functions that can work with a reference of any type.
 //!
 //! For example, consider a fairly contrived, but generic `extract_text` function that unwraps
-//! and converts [`SymbolToken::text()`] into an owned `String`:
+//! and converts [`IonSymbolToken::text()`] into an owned `String`:
 //!
 //! ```
 //! use ion_rs::Symbol;
@@ -148,7 +148,7 @@
 //! assert_eq!(owned_text, borrowed_text);
 //! ```
 //!
-//! This extends to the [`Element`] trait as well which is the "top-level" API type for
+//! This extends to the [`IonElement`] trait as well which is the "top-level" API type for
 //! any Ion datum.  Consider a contrived function that extracts and returns the annotations
 //! of an underlying element as a `Vec<String>`.  Note that it filters out any annotation
 //! that may not have text (so data could be dropped):
@@ -392,7 +392,7 @@ where
     /// if the value is any `null`, or the text of the `symbol` is not defined.
     fn as_str(&self) -> Option<&str>;
 
-    /// Returns a reference to the [`SymbolToken`] of this element.
+    /// Returns a reference to the [`IonSymbolToken`] of this element.
     ///
     /// This will return `None` in the case that the type is not `symbol` or the value is
     /// any `null`.
@@ -410,13 +410,13 @@ where
     /// any `null`.
     fn as_bytes(&self) -> Option<&[u8]>;
 
-    /// Returns a reference to the [`Sequence`] of this element.
+    /// Returns a reference to the [`IonSequence`] of this element.
     ///
     /// This will return `None` in the case that the type is not `sexp`/`list` or
     /// if the value is any `null`.
     fn as_sequence(&self) -> Option<&Self::Sequence>;
 
-    /// Returns a reference to the [`Struct`] of this element.
+    /// Returns a reference to the [`IonStruct`] of this element.
     ///
     /// This will return `None` in the case that the type is not `struct` or the value is
     /// any `null`.

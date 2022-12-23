@@ -262,8 +262,8 @@ mod tests {
 }
 
 /// Types that implement this trait can be converted into an implementation of [io::BufRead],
-/// allowing users to build a [Reader] from a variety of types that might not define I/O operations
-/// on their own.
+/// allowing users to build a [Reader](crate::reader::Reader) from a variety of types that might not
+/// define I/O operations on their own.
 pub trait ToIonDataSource {
     type DataSource: IonDataSource;
     fn to_ion_data_source(self) -> Self::DataSource;
