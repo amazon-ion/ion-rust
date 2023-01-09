@@ -63,7 +63,7 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
 
         loop {
             let result = self.reader.next();
-            if let Err(IonError::IncompleteText { .. }) = result {
+            if let Err(IonError::Incomplete { .. }) = result {
                 let bytes_read = self.read_source(read_size)?;
                 // if we have no bytes, and our stream has been marked as fully loaded, then we
                 // need to bubble up the error. Otherwise, if our stream has not been marked as
@@ -202,7 +202,7 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
         let mut read_size = self.expected_read_size;
         loop {
             let result = self.reader.step_out();
-            if let Err(IonError::IncompleteText { .. }) = result {
+            if let Err(IonError::Incomplete { .. }) = result {
                 if 0 == self.read_source(read_size)? {
                     return result;
                 }

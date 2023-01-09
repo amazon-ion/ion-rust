@@ -1,8 +1,73 @@
 use std::convert::From;
-use std::fmt::{Debug, Error};
+use std::fmt::{Debug, Display, Error};
 use std::{fmt, io};
 
 use thiserror::Error;
+
+/// Represents the position, as line and column, within a text format ion document.
+#[derive(Clone, Debug)]
+pub enum TextPosition {
+    /// No text position available; implies binary format is being read.
+    None,
+    /// The position represented as line and column.
+    LineColumn(usize, usize),
+}
+
+#[derive(Clone, Debug)]
+pub struct Position {
+    pub byte_offset: usize,
+    pub line_column: TextPosition,
+}
+
+impl Position {
+    fn with_offset(offset: usize) -> Self {
+        Position {
+            byte_offset: offset,
+            line_column: TextPosition::None,
+        }
+    }
+
+    fn with_line_info(offset: usize, line: usize, column: usize) -> Self {
+        Position {
+            byte_offset: offset,
+            line_column: TextPosition::LineColumn(line, column),
+        }
+    }
+}
+
+impl PartialEq for Position {
+    fn eq(&self, other: &Self) -> bool {
+        if other.byte_offset != self.byte_offset {
+            false
+        } else {
+            use TextPosition::*;
+            match (&other.line_column, &self.line_column) {
+                (None, None) => true,
+                (None, LineColumn(_, _)) | (LineColumn(_, _), None) => false,
+                (LineColumn(ol, oc), LineColumn(sl, sc)) => ol == sl && oc == sc,
+            }
+        }
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        !self.eq(other)
+    }
+}
+
+impl Eq for Position {}
+
+impl Display for Position {
+    // Formats the position based on whether we have a LineColumn or not.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
+        use TextPosition::*;
+        match &self.line_column {
+            None => write!(f, "{}", self.byte_offset),
+            LineColumn(line, column) => {
+                write!(f, "{} ({}:{})", self.byte_offset, line, column)
+            }
+        }
+    }
+}
 
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;
@@ -20,14 +85,11 @@ pub enum IonError {
     /// Indicates that the input buffer did not contain enough data to perform the requested read
     /// operation. If the input source contains more data, the reader can append it to the buffer
     /// and try again.
-    #[error("ran out of input while reading {label} at offset {offset}")]
-    Incomplete { label: &'static str, offset: usize },
-
-    /// Indicates that the text input did not contain enough data to perform the requested read
-    /// operation. If the input source contains more data, the reader can append it to the buffer
-    /// and try again.
-    #[error("ran out of input while reading at line: {line} column: {column}")]
-    IncompleteText { line: usize, column: usize },
+    #[error("ran out of input while reading {label} at offset {position}")]
+    Incomplete {
+        label: &'static str,
+        position: Position,
+    },
 
     /// Indicates that the writer encountered a problem while serializing a given piece of data.
     #[error("{description}")]
@@ -65,13 +127,9 @@ impl Clone for IonError {
                 // io::Error implements From<ErrorKind>, and ErrorKind is cloneable.
                 source: io::Error::from(source.kind()),
             },
-            Incomplete { label, offset } => Incomplete {
+            Incomplete { label, position } => Incomplete {
                 label,
-                offset: *offset,
-            },
-            IncompleteText { line, column } => IncompleteText {
-                line: *line,
-                column: *column,
+                position: position.clone(),
             },
             EncodingError { description } => EncodingError {
                 description: description.clone(),
@@ -98,13 +156,13 @@ impl PartialEq for IonError {
             (
                 Incomplete {
                     label: l1,
-                    offset: o1,
+                    position: p1,
                 },
                 Incomplete {
                     label: l2,
-                    offset: o2,
+                    position: p2,
                 },
-            ) => l1 == l2 && o1 == o2,
+            ) => l1 == l2 && p1 == p2,
             (EncodingError { description: s1 }, EncodingError { description: s2 }) => s1 == s2,
             (DecodingError { description: s1 }, DecodingError { description: s2 }) => s1 == s2,
             (IllegalOperation { operation: s1 }, IllegalOperation { operation: s2 }) => s1 == s2,
@@ -118,15 +176,31 @@ pub fn incomplete_data_error<T>(label: &'static str, offset: usize) -> IonResult
 }
 
 pub fn incomplete_data_error_raw(label: &'static str, offset: usize) -> IonError {
-    IonError::Incomplete { label, offset }
+    IonError::Incomplete {
+        label,
+        position: Position::with_offset(offset),
+    }
 }
 
-pub fn incomplete_text_error<T>(line: usize, column: usize) -> IonResult<T> {
-    Err(incomplete_text_error_raw(line, column))
+pub fn incomplete_text_error<T>(
+    label: &'static str,
+    byte_offset: usize,
+    line: usize,
+    column: usize,
+) -> IonResult<T> {
+    Err(incomplete_text_error_raw(label, byte_offset, line, column))
 }
 
-pub fn incomplete_text_error_raw(line: usize, column: usize) -> IonError {
-    IonError::IncompleteText { line, column }
+pub fn incomplete_text_error_raw(
+    label: &'static str,
+    byte_offset: usize,
+    line: usize,
+    column: usize,
+) -> IonError {
+    IonError::Incomplete {
+        label,
+        position: Position::with_line_info(byte_offset, line, column),
+    }
 }
 
 /// A convenience method for creating an IonResult containing an IonError::DecodingError with the
