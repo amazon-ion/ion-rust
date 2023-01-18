@@ -5,64 +5,51 @@ use std::{fmt, io};
 use thiserror::Error;
 
 /// Represents the position, as line and column, within a text format ion document.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TextPosition {
     /// No text position available; implies binary format is being read.
     None,
     /// The position represented as line and column.
-    LineColumn(usize, usize),
+    LineAndColumn(usize, usize),
 }
 
-#[derive(Clone, Debug)]
+/// Position represents the location within an ion document where an error has been
+/// identified. For all formats `byte_offset` will contain the number of bytes into the document
+/// that have been processed prior to encountering the error. When working with the text format,
+/// `line_column` will be updated to contain the line and column as well.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Position {
     pub byte_offset: usize,
     pub line_column: TextPosition,
 }
 
 impl Position {
-    fn with_offset(offset: usize) -> Self {
+    pub fn with_offset(offset: usize) -> Self {
         Position {
             byte_offset: offset,
             line_column: TextPosition::None,
         }
     }
 
-    fn with_line_info(offset: usize, line: usize, column: usize) -> Self {
+    pub fn with_text_position(&self, line: usize, column: usize) -> Self {
         Position {
-            byte_offset: offset,
-            line_column: TextPosition::LineColumn(line, column),
-        }
-    }
-}
-
-impl PartialEq for Position {
-    fn eq(&self, other: &Self) -> bool {
-        if other.byte_offset != self.byte_offset {
-            false
-        } else {
-            use TextPosition::*;
-            match (&other.line_column, &self.line_column) {
-                (None, None) => true,
-                (None, LineColumn(_, _)) | (LineColumn(_, _), None) => false,
-                (LineColumn(ol, oc), LineColumn(sl, sc)) => ol == sl && oc == sc,
-            }
+            line_column: TextPosition::LineAndColumn(line, column),
+            ..*self
         }
     }
 
-    fn ne(&self, other: &Self) -> bool {
-        !self.eq(other)
+    fn has_text_position(&self) -> bool {
+        self.line_column != TextPosition::None
     }
 }
-
-impl Eq for Position {}
 
 impl Display for Position {
-    // Formats the position based on whether we have a LineColumn or not.
+    // Formats the position based on whether we have a LineAndColumn or not.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
         use TextPosition::*;
         match &self.line_column {
             None => write!(f, "{}", self.byte_offset),
-            LineColumn(line, column) => {
+            LineAndColumn(line, column) => {
                 write!(f, "{} ({}:{})", self.byte_offset, line, column)
             }
         }
@@ -182,25 +169,12 @@ pub fn incomplete_data_error_raw(label: &'static str, offset: usize) -> IonError
     }
 }
 
-pub fn incomplete_text_error<T>(
-    label: &'static str,
-    byte_offset: usize,
-    line: usize,
-    column: usize,
-) -> IonResult<T> {
-    Err(incomplete_text_error_raw(label, byte_offset, line, column))
+pub fn incomplete_text_error<T>(label: &'static str, position: Position) -> IonResult<T> {
+    Err(incomplete_text_error_raw(label, position))
 }
 
-pub fn incomplete_text_error_raw(
-    label: &'static str,
-    byte_offset: usize,
-    line: usize,
-    column: usize,
-) -> IonError {
-    IonError::Incomplete {
-        label,
-        position: Position::with_line_info(byte_offset, line, column),
-    }
+pub fn incomplete_text_error_raw(label: &'static str, position: Position) -> IonError {
+    IonError::Incomplete { label, position }
 }
 
 /// A convenience method for creating an IonResult containing an IonError::DecodingError with the

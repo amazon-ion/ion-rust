@@ -1,3 +1,4 @@
+use crate::result::Position;
 use crate::{IonError, IonResult};
 
 use std::io::Read;
@@ -109,6 +110,11 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
     /// Returns the total number of bytes that have been consumed.
     pub fn bytes_consumed(&self) -> usize {
         self.bytes_consumed
+    }
+
+    pub fn get_position(&self) -> Position {
+        Position::with_offset(self.bytes_consumed)
+            .with_text_position(self.line_number, self.line_offset)
     }
 
     /// Save a checkpoint that can be rolled back to.

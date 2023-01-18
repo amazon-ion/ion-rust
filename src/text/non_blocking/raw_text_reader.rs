@@ -326,7 +326,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                 Ok(())
             }
             RootParseResult::Incomplete(line, column) => {
-                incomplete_text_error("text", self.buffer.bytes_consumed(), line, column)
+                incomplete_text_error("text", self.buffer.get_position())
             }
             RootParseResult::Eof => {
                 // We are only concerned with EOF behaviors when we are at the end of the stream,
@@ -345,12 +345,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                     self.process_stream_item(item)
                 } else {
                     // If we are not at the end of the stream, we need to get more data.
-                    incomplete_text_error(
-                        "text",
-                        self.buffer.bytes_consumed(),
-                        self.buffer.lines_loaded(),
-                        self.buffer.line_offset(),
-                    )
+                    incomplete_text_error("text", self.buffer.get_position())
                 }
             }
             RootParseResult::NoMatch => {
@@ -412,12 +407,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             Ok(Some(value)) => Ok(value),
             Ok(None) => {
                 if !self.is_eos {
-                    incomplete_text_error(
-                        "text",
-                        self.buffer.bytes_consumed(),
-                        self.buffer.lines_loaded(),
-                        self.buffer.line_offset(),
-                    )
+                    incomplete_text_error("text", self.buffer.get_position())
                 } else {
                     decoding_error(format!(
                         "unexpected end of input while reading {} on line {}: '{}'",
@@ -445,7 +435,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
         match self.parse_next_nom(parser) {
             RootParseResult::Ok(item) => Ok(Some(item)),
             RootParseResult::Incomplete(line, column) => {
-                incomplete_text_error("text", self.buffer.bytes_consumed(), line, column)
+                incomplete_text_error("text", self.buffer.get_position())
             }
             RootParseResult::Eof => Ok(None),
             RootParseResult::NoMatch => {
@@ -461,12 +451,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                     );
                     decoding_error(error_message)
                 } else {
-                    incomplete_text_error(
-                        "text",
-                        self.buffer.bytes_consumed(),
-                        self.buffer.lines_loaded(),
-                        self.buffer.line_offset(),
-                    )
+                    incomplete_text_error("text", self.buffer.get_position())
                 }
             }
             RootParseResult::Failure(error_message) => decoding_error(error_message),
@@ -1025,7 +1010,7 @@ mod reader_tests {
             Err(IonError::Incomplete {
                 position:
                     Position {
-                        line_column: TextPosition::LineColumn(line, column),
+                        line_column: TextPosition::LineAndColumn(line, column),
                         ..
                     },
                 ..
@@ -1059,7 +1044,7 @@ mod reader_tests {
             Err(IonError::Incomplete {
                 position:
                     Position {
-                        line_column: TextPosition::LineColumn(line, column),
+                        line_column: TextPosition::LineAndColumn(line, column),
                         ..
                     },
                 ..
