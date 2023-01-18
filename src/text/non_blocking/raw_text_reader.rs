@@ -6,7 +6,7 @@ use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{
     decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError,
-    IonResult,
+    IonResult, Position,
 };
 use crate::stream_reader::IonReader;
 use crate::text::non_blocking::text_buffer::TextBuffer;
@@ -325,9 +325,11 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                 self.current_value = Some(value);
                 Ok(())
             }
-            RootParseResult::Incomplete(line, column) => {
-                incomplete_text_error("text", self.buffer.get_position())
-            }
+            RootParseResult::Incomplete(line, column) => incomplete_text_error(
+                "text",
+                Position::with_offset(self.buffer.bytes_consumed())
+                    .with_text_position(line, column),
+            ),
             RootParseResult::Eof => {
                 // We are only concerned with EOF behaviors when we are at the end of the stream,
                 // AND at the end of the buffer.
@@ -434,9 +436,11 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
     {
         match self.parse_next_nom(parser) {
             RootParseResult::Ok(item) => Ok(Some(item)),
-            RootParseResult::Incomplete(line, column) => {
-                incomplete_text_error("text", self.buffer.get_position())
-            }
+            RootParseResult::Incomplete(line, column) => incomplete_text_error(
+                "text",
+                Position::with_offset(self.buffer.bytes_consumed())
+                    .with_text_position(line, column),
+            ),
             RootParseResult::Eof => Ok(None),
             RootParseResult::NoMatch => {
                 // If we are not at the end of the stream we could be missing a match due to partial
