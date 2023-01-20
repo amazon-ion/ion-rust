@@ -6,7 +6,7 @@ use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{
     decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError,
-    IonResult,
+    IonResult, Position,
 };
 use crate::stream_reader::IonReader;
 use crate::text::non_blocking::text_buffer::TextBuffer;
@@ -325,7 +325,11 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                 self.current_value = Some(value);
                 Ok(())
             }
-            RootParseResult::Incomplete(line, column) => incomplete_text_error(line, column),
+            RootParseResult::Incomplete(line, column) => incomplete_text_error(
+                "text",
+                Position::with_offset(self.buffer.bytes_consumed())
+                    .with_text_position(line, column),
+            ),
             RootParseResult::Eof => {
                 // We are only concerned with EOF behaviors when we are at the end of the stream,
                 // AND at the end of the buffer.
@@ -343,7 +347,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                     self.process_stream_item(item)
                 } else {
                     // If we are not at the end of the stream, we need to get more data.
-                    incomplete_text_error(self.buffer.lines_loaded(), self.buffer.line_offset())
+                    incomplete_text_error("text", self.buffer.get_position())
                 }
             }
             RootParseResult::NoMatch => {
@@ -405,7 +409,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             Ok(Some(value)) => Ok(value),
             Ok(None) => {
                 if !self.is_eos {
-                    incomplete_text_error(self.buffer.lines_loaded(), self.buffer.line_offset())
+                    incomplete_text_error("text", self.buffer.get_position())
                 } else {
                     decoding_error(format!(
                         "unexpected end of input while reading {} on line {}: '{}'",
@@ -415,7 +419,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                     ))
                 }
             }
-            Err(IonError::IncompleteText { line, column }) => incomplete_text_error(line, column),
+            Err(err @ IonError::Incomplete { .. }) => Err(err),
             Err(e) => decoding_error(format!(
                 "Parsing error occurred while parsing {} near line {}:\n'{}'\n{}",
                 entity_name,
@@ -432,7 +436,11 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
     {
         match self.parse_next_nom(parser) {
             RootParseResult::Ok(item) => Ok(Some(item)),
-            RootParseResult::Incomplete(line, column) => incomplete_text_error(line, column),
+            RootParseResult::Incomplete(line, column) => incomplete_text_error(
+                "text",
+                Position::with_offset(self.buffer.bytes_consumed())
+                    .with_text_position(line, column),
+            ),
             RootParseResult::Eof => Ok(None),
             RootParseResult::NoMatch => {
                 // If we are not at the end of the stream we could be missing a match due to partial
@@ -447,7 +455,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                     );
                     decoding_error(error_message)
                 } else {
-                    incomplete_text_error(self.buffer.lines_loaded(), self.buffer.line_offset())
+                    incomplete_text_error("text", self.buffer.get_position())
                 }
             }
             RootParseResult::Failure(error_message) => decoding_error(error_message),
@@ -930,7 +938,7 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
             let result = self.step_out_impl();
             self.step_out_nest -= 1;
 
-            if let Err(IonError::IncompleteText { .. }) = result {
+            if let Err(IonError::Incomplete { .. }) = result {
                 self.need_continue = true;
             }
             let _ = result?;
@@ -964,7 +972,7 @@ mod reader_tests {
     use super::*;
     use crate::raw_reader::RawStreamItem;
     use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
-    use crate::result::IonResult;
+    use crate::result::{IonResult, Position};
     use crate::stream_reader::IonReader;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoAnnotations, TextValue};
@@ -1003,7 +1011,14 @@ mod reader_tests {
         assert_eq!(reader.read_i64()?, 2);
         match reader.next() {
             // the failure occurs after reading the \n after 3, so it is identified on line 3.
-            Err(IonError::IncompleteText { line, column }) => {
+            Err(IonError::Incomplete {
+                position:
+                    Position {
+                        line_column: Some((line, column)),
+                        ..
+                    },
+                ..
+            }) => {
                 assert_eq!(line, 2);
                 assert_eq!(column, 0);
             }
@@ -1030,7 +1045,14 @@ mod reader_tests {
         let mut reader = RawTextReader::new(source[0..18].to_owned());
 
         match reader.next() {
-            Err(IonError::IncompleteText { line, column }) => {
+            Err(IonError::Incomplete {
+                position:
+                    Position {
+                        line_column: Some((line, column)),
+                        ..
+                    },
+                ..
+            }) => {
                 assert_eq!(line, 0); // Line is still 0 since we haven't actually seen a '\n' yet.
                 assert_eq!(column, 14); // failure at start of multi-byte sequence.
             }
@@ -1464,7 +1486,7 @@ mod reader_tests {
         assert_eq!(reader.depth(), 1);
 
         match reader.next() {
-            Err(IonError::IncompleteText { .. }) => {
+            Err(IonError::Incomplete { .. }) => {
                 assert!(reader.field_name().is_err());
                 reader.read_from(&mut source[10..].as_bytes(), 3)?;
                 reader.stream_complete();
@@ -1505,7 +1527,7 @@ mod reader_tests {
         assert_eq!(reader.depth(), 2);
 
         match reader.step_out() {
-            Err(IonError::IncompleteText { .. }) => {
+            Err(IonError::Incomplete { .. }) => {
                 assert_eq!(reader.depth(), 3); // we should fail at depth 3, within the foo field.
                 reader.read_from(&mut source[47..].as_bytes(), 512)?;
 
@@ -1554,7 +1576,7 @@ mod reader_tests {
 
         // Step out of `field`.. after this we should be at `other_Field`.
         match reader.step_out() {
-            Err(IonError::IncompleteText { .. }) => {
+            Err(IonError::Incomplete { .. }) => {
                 assert_eq!(reader.depth(), 3); // we should fail at depth 3, within the foo field.
                 reader.read_from(&mut source[47..].as_bytes(), 512)?;
                 reader.stream_complete();
@@ -1613,14 +1635,11 @@ mod reader_tests {
         // We have provided up to the "quux" definition in our buffer, and have read up to and
         // including the "bar" definition. Now we step_out, which should cause an incomplete error.
         match reader.step_out() {
-            Err(IonError::IncompleteText { .. }) => {
+            Err(IonError::Incomplete { .. }) => {
                 // After receiving the incomplete error, the reader should not let us doing
                 // anything other than completing the step_out. If we call next here, we should
                 // still get an IncompleteText error.
-                assert!(matches!(
-                    reader.next(),
-                    Err(IonError::IncompleteText { .. })
-                ));
+                assert!(matches!(reader.next(), Err(IonError::Incomplete { .. })));
 
                 // After the incomplete error, we'll provide the rest of the buffer which should
                 // let us complete our step_out.
@@ -1675,14 +1694,11 @@ mod reader_tests {
         // We have provided up to the "quux" definition in our buffer, and have read up to and
         // including the "bar" definition. Now we step_out, which should cause an incomplete error.
         match reader.step_out() {
-            Err(IonError::IncompleteText { .. }) => {
+            Err(IonError::Incomplete { .. }) => {
                 // After receiving the incomplete error, the reader should not let us do anything
                 // that doesn't result in completing the failed step_out. If we call next now, we
                 // should get another IncompleteText error.
-                assert!(matches!(
-                    reader.next(),
-                    Err(IonError::IncompleteText { .. })
-                ));
+                assert!(matches!(reader.next(), Err(IonError::Incomplete { .. })));
 
                 // After the incomplete error, we'll provide the rest of the buffer which should
                 // let us complete our step_out.
@@ -1725,7 +1741,7 @@ mod reader_tests {
         assert_eq!(result, RawStreamItem::Value(IonType::Struct));
 
         match reader.next() {
-            Err(IonError::IncompleteText { .. }) => {
+            Err(IonError::Incomplete { .. }) => {
                 reader.read_from(&mut source[62..].as_bytes(), 512)?;
                 reader.stream_complete();
                 result = reader.next()?;
@@ -1766,7 +1782,7 @@ mod reader_tests {
         assert_eq!(reader.field_name()?.text(), Some("foo"));
 
         match reader.step_out() {
-            Err(IonError::IncompleteText { .. }) => {
+            Err(IonError::Incomplete { .. }) => {
                 // We received the incomplete, and now we want to make sure that no previously
                 // parsed data is available, and that the reader won't try to start parsing more.
                 match reader.read_i64() {

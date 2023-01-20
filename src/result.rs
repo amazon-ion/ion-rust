@@ -1,8 +1,74 @@
 use std::convert::From;
-use std::fmt::{Debug, Error};
+use std::fmt::{Debug, Display, Error};
 use std::{fmt, io};
 
 use thiserror::Error;
+
+/// Position represents the location within an Ion stream where an error has been
+/// identified. For all formats `byte_offset` will contain the number of bytes into the stream
+/// that have been processed prior to encountering the error. When working with the text format,
+/// `line_column` will be updated to contain the line and column as well.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Position {
+    pub(crate) byte_offset: usize,
+    pub(crate) line_column: Option<(usize, usize)>,
+}
+
+impl Position {
+    /// Creates a new Position with the provided offset in bytes.
+    /// Line and Column offsets can be added using [`Self::with_text_position()`].
+    pub fn with_offset(offset: usize) -> Self {
+        Position {
+            byte_offset: offset,
+            line_column: None,
+        }
+    }
+
+    /// Add line and column information to the current Position.
+    pub fn with_text_position(&self, line: usize, column: usize) -> Self {
+        Position {
+            line_column: Some((line, column)),
+            ..*self
+        }
+    }
+
+    /// Returns the offset from the start of the Ion stream in bytes.
+    pub fn byte_offset(&self) -> usize {
+        self.byte_offset
+    }
+
+    /// If available returns the text position as line and column offsets.
+    pub fn text_position(&self) -> Option<(usize, usize)> {
+        self.line_column
+    }
+
+    /// If available returns the line component of the text position.
+    pub fn line(&self) -> Option<usize> {
+        self.line_column.map(|(line, _column)| line)
+    }
+
+    /// If available returns the column component of the text position.
+    pub fn column(&self) -> Option<usize> {
+        self.line_column.map(|(_line, column)| column)
+    }
+
+    /// Returns true if the current Position contains line and column offsets.
+    pub fn has_text_position(&self) -> bool {
+        self.line_column.is_some()
+    }
+}
+
+impl Display for Position {
+    // Formats the position based on whether we have a LineAndColumn or not.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
+        match &self.line_column {
+            None => write!(f, "{}", self.byte_offset),
+            Some((line, column)) => {
+                write!(f, "{} ({}:{})", self.byte_offset, line, column)
+            }
+        }
+    }
+}
 
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;
@@ -20,14 +86,11 @@ pub enum IonError {
     /// Indicates that the input buffer did not contain enough data to perform the requested read
     /// operation. If the input source contains more data, the reader can append it to the buffer
     /// and try again.
-    #[error("ran out of input while reading {label} at offset {offset}")]
-    Incomplete { label: &'static str, offset: usize },
-
-    /// Indicates that the text input did not contain enough data to perform the requested read
-    /// operation. If the input source contains more data, the reader can append it to the buffer
-    /// and try again.
-    #[error("ran out of input while reading at line: {line} column: {column}")]
-    IncompleteText { line: usize, column: usize },
+    #[error("ran out of input while reading {label} at offset {position}")]
+    Incomplete {
+        label: &'static str,
+        position: Position,
+    },
 
     /// Indicates that the writer encountered a problem while serializing a given piece of data.
     #[error("{description}")]
@@ -65,13 +128,9 @@ impl Clone for IonError {
                 // io::Error implements From<ErrorKind>, and ErrorKind is cloneable.
                 source: io::Error::from(source.kind()),
             },
-            Incomplete { label, offset } => Incomplete {
+            Incomplete { label, position } => Incomplete {
                 label,
-                offset: *offset,
-            },
-            IncompleteText { line, column } => IncompleteText {
-                line: *line,
-                column: *column,
+                position: position.clone(),
             },
             EncodingError { description } => EncodingError {
                 description: description.clone(),
@@ -98,13 +157,13 @@ impl PartialEq for IonError {
             (
                 Incomplete {
                     label: l1,
-                    offset: o1,
+                    position: p1,
                 },
                 Incomplete {
                     label: l2,
-                    offset: o2,
+                    position: p2,
                 },
-            ) => l1 == l2 && o1 == o2,
+            ) => l1 == l2 && p1 == p2,
             (EncodingError { description: s1 }, EncodingError { description: s2 }) => s1 == s2,
             (DecodingError { description: s1 }, DecodingError { description: s2 }) => s1 == s2,
             (IllegalOperation { operation: s1 }, IllegalOperation { operation: s2 }) => s1 == s2,
@@ -118,15 +177,18 @@ pub fn incomplete_data_error<T>(label: &'static str, offset: usize) -> IonResult
 }
 
 pub fn incomplete_data_error_raw(label: &'static str, offset: usize) -> IonError {
-    IonError::Incomplete { label, offset }
+    IonError::Incomplete {
+        label,
+        position: Position::with_offset(offset),
+    }
 }
 
-pub fn incomplete_text_error<T>(line: usize, column: usize) -> IonResult<T> {
-    Err(incomplete_text_error_raw(line, column))
+pub fn incomplete_text_error<T>(label: &'static str, position: Position) -> IonResult<T> {
+    Err(incomplete_text_error_raw(label, position))
 }
 
-pub fn incomplete_text_error_raw(line: usize, column: usize) -> IonError {
-    IonError::IncompleteText { line, column }
+pub fn incomplete_text_error_raw(label: &'static str, position: Position) -> IonError {
+    IonError::Incomplete { label, position }
 }
 
 /// A convenience method for creating an IonResult containing an IonError::DecodingError with the

@@ -1,3 +1,4 @@
+use crate::result::Position;
 use crate::{IonError, IonResult};
 
 use std::io::Read;
@@ -25,6 +26,7 @@ struct Checkpoint {
     pub line: ValidUtf8Span,
     pub line_number: usize,
     pub offset: usize,
+    pub bytes_consumed: usize,
 }
 
 /// Calculates the offset into a slice, where a given subslice is located.
@@ -72,6 +74,8 @@ pub(crate) struct TextBuffer<A: AsRef<[u8]>> {
     data_exhausted: bool,
     /// The span of our `data` that has been validated as UTF-8.
     data_utf8: ValidUtf8Span,
+    /// The total number of bytes that have been consumed.
+    bytes_consumed: usize,
 
     /// The current validated line data (can contain multiple lines).
     line: ValidUtf8Span,
@@ -94,12 +98,23 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
             data_end: data_len,
             data_exhausted: false,
             data_utf8: ValidUtf8Span(0, 0),
+            bytes_consumed: 0,
             line: ValidUtf8Span(0, 0),
             line_offset: 0,
             line_number: 0,
             line_end_column: 0,
             checkpoint: None,
         }
+    }
+
+    /// Returns the total number of bytes that have been consumed.
+    pub fn bytes_consumed(&self) -> usize {
+        self.bytes_consumed
+    }
+
+    pub fn get_position(&self) -> Position {
+        Position::with_offset(self.bytes_consumed)
+            .with_text_position(self.line_number, self.line_offset)
     }
 
     /// Save a checkpoint that can be rolled back to.
@@ -111,6 +126,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
             line: self.line,
             line_number: self.line_number,
             offset: self.line_offset,
+            bytes_consumed: self.bytes_consumed,
         })
     }
 
@@ -119,6 +135,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
             self.line_offset = checkpoint.offset;
             self.line = checkpoint.line;
             self.line_number = checkpoint.line_number;
+            self.bytes_consumed = checkpoint.bytes_consumed;
         }
     }
 
@@ -179,6 +196,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
             "Cannot consume() a number of bytes that will leave invalid UTF-8 in the current line."
         );
         self.line_offset += number_of_bytes;
+        self.bytes_consumed += number_of_bytes;
     }
 
     /// Loads a single line from the underlying data source into the buffer.

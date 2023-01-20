@@ -927,21 +927,21 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
         // We'll skip as many bytes as we can from the current buffer, which may or may not be enough.
         let bytes_to_skip = parent.exclusive_end - self.buffer.total_consumed();
         let bytes_available = self.buffer.remaining();
+
         // Calculate the number of bytes we'll consume based on what's available in the buffer.
-        let bytes_to_consume = if bytes_to_skip < bytes_available {
+        if bytes_to_skip <= bytes_available {
             // All of the bytes we need to skip are in the buffer.
             self.state = ReaderState::Ready;
-            bytes_to_skip
+            self.buffer.consume(bytes_to_skip);
+            Ok(())
         } else {
             // Only some of the bytes we need to skip are in the buffer.
             let bytes_left_to_skip = bytes_to_skip - bytes_available;
             self.state = ReaderState::Skipping(bytes_left_to_skip);
-            // Skip what we can; the next call to next() will return `Incomplete` unless more
-            // data is added in the interim.
-            bytes_available
-        };
-        self.buffer.consume(bytes_to_consume);
-        Ok(())
+            // Skip what we can; and return `Incomplete` so more data can be added.
+            self.buffer.consume(bytes_left_to_skip);
+            incomplete_data_error("ahead to next item", self.buffer.total_consumed())
+        }
     }
 
     fn parent_type(&self) -> Option<IonType> {
