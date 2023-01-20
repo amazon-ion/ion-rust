@@ -4,8 +4,8 @@ use std::{fmt, io};
 
 use thiserror::Error;
 
-/// Position represents the location within an ion document where an error has been
-/// identified. For all formats `byte_offset` will contain the number of bytes into the document
+/// Position represents the location within an Ion stream where an error has been
+/// identified. For all formats `byte_offset` will contain the number of bytes into the stream
 /// that have been processed prior to encountering the error. When working with the text format,
 /// `line_column` will be updated to contain the line and column as well.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,7 +32,7 @@ impl Position {
         }
     }
 
-    /// Returns the offset from the start of the ion document in bytes.
+    /// Returns the offset from the start of the Ion stream in bytes.
     pub fn byte_offset(&self) -> usize {
         self.byte_offset
     }
@@ -44,12 +44,12 @@ impl Position {
 
     /// If available returns the line component of the text position.
     pub fn line(&self) -> Option<usize> {
-        self.line_column.and_then(|(line, _column)| Some(line))
+        self.line_column.map(|(line, _column)| line)
     }
 
     /// If available returns the column component of the text position.
     pub fn column(&self) -> Option<usize> {
-        self.line_column.and_then(|(_line, column)| Some(column))
+        self.line_column.map(|(_line, column)| column)
     }
 
     /// Returns true if the current Position contains line and column offsets.
