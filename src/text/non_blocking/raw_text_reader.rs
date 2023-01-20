@@ -972,7 +972,7 @@ mod reader_tests {
     use super::*;
     use crate::raw_reader::RawStreamItem;
     use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
-    use crate::result::{IonResult, Position, TextPosition};
+    use crate::result::{IonResult, Position};
     use crate::stream_reader::IonReader;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoAnnotations, TextValue};
@@ -1014,7 +1014,7 @@ mod reader_tests {
             Err(IonError::Incomplete {
                 position:
                     Position {
-                        line_column: TextPosition::LineAndColumn(line, column),
+                        line_column: Some((line, column)),
                         ..
                     },
                 ..
@@ -1048,7 +1048,7 @@ mod reader_tests {
             Err(IonError::Incomplete {
                 position:
                     Position {
-                        line_column: TextPosition::LineAndColumn(line, column),
+                        line_column: Some((line, column)),
                         ..
                     },
                 ..

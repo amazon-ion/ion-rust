@@ -4,52 +4,66 @@ use std::{fmt, io};
 
 use thiserror::Error;
 
-/// Represents the position, as line and column, within a text format ion document.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TextPosition {
-    /// No text position available; implies binary format is being read.
-    None,
-    /// The position represented as line and column.
-    LineAndColumn(usize, usize),
-}
-
 /// Position represents the location within an ion document where an error has been
 /// identified. For all formats `byte_offset` will contain the number of bytes into the document
 /// that have been processed prior to encountering the error. When working with the text format,
 /// `line_column` will be updated to contain the line and column as well.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Position {
-    pub byte_offset: usize,
-    pub line_column: TextPosition,
+    pub(crate) byte_offset: usize,
+    pub(crate) line_column: Option<(usize, usize)>,
 }
 
 impl Position {
+    /// Creates a new Position with the provided offset in bytes.
+    /// Line and Column offsets can be added using [`Self::with_text_position()`].
     pub fn with_offset(offset: usize) -> Self {
         Position {
             byte_offset: offset,
-            line_column: TextPosition::None,
+            line_column: None,
         }
     }
 
+    /// Add line and column information to the current Position.
     pub fn with_text_position(&self, line: usize, column: usize) -> Self {
         Position {
-            line_column: TextPosition::LineAndColumn(line, column),
+            line_column: Some((line, column)),
             ..*self
         }
     }
 
-    fn has_text_position(&self) -> bool {
-        self.line_column != TextPosition::None
+    /// Returns the offset from the start of the ion document in bytes.
+    pub fn byte_offset(&self) -> usize {
+        self.byte_offset
+    }
+
+    /// If available returns the text position as line and column offsets.
+    pub fn text_position(&self) -> Option<(usize, usize)> {
+        self.line_column
+    }
+
+    /// If available returns the line component of the text position.
+    pub fn line(&self) -> Option<usize> {
+        self.line_column.and_then(|(line, _column)| Some(line))
+    }
+
+    /// If available returns the column component of the text position.
+    pub fn column(&self) -> Option<usize> {
+        self.line_column.and_then(|(_line, column)| Some(column))
+    }
+
+    /// Returns true if the current Position contains line and column offsets.
+    pub fn has_text_position(&self) -> bool {
+        self.line_column.is_some()
     }
 }
 
 impl Display for Position {
     // Formats the position based on whether we have a LineAndColumn or not.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
-        use TextPosition::*;
         match &self.line_column {
             None => write!(f, "{}", self.byte_offset),
-            LineAndColumn(line, column) => {
+            Some((line, column)) => {
                 write!(f, "{} ({}:{})", self.byte_offset, line, column)
             }
         }
