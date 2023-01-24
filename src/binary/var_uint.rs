@@ -6,7 +6,7 @@ use std::mem;
 // ion_rust does not currently support reading variable length integers of truly arbitrary size.
 // These type aliases will simplify the process of changing the data types used to represent each
 // VarUInt's magnitude and byte length in the future.
-// See: https://github.com/amzn/ion-rust/issues/7
+// See: https://github.com/amazon-ion/ion-rust/issues/7
 
 const BITS_PER_ENCODED_BYTE: usize = 7;
 const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<usize>() * 8;
@@ -16,7 +16,7 @@ const LOWER_7_BITMASK: u8 = 0b0111_1111;
 const HIGHEST_BIT_VALUE: u8 = 0b1000_0000;
 
 /// Represents a variable-length unsigned integer. See the
-/// [VarUInt and VarInt Fields](amzn.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields)
+/// [VarUInt and VarInt Fields](https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields)
 /// section of the binary Ion spec for more details.
 #[derive(Debug)]
 pub struct VarUInt {

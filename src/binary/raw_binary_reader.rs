@@ -227,7 +227,7 @@ where
 
 /* CursorState is broken out from the BinaryIonCursor struct to allow it to be cloned
  * or replaced as part of a seek operation.
- * See: https://github.com/amzn/ion-rust/issues/21
+ * See: https://github.com/amazon-ion/ion-rust/issues/21
  */
 #[derive(Clone, Debug)]
 pub struct CursorState {

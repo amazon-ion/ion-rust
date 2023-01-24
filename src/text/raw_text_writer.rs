@@ -42,7 +42,7 @@ impl RawTextWriterBuilder {
     /// "hello"
     /// ```
     // This doesn't solve the problem of final newlines. Should find a way to solve that some day.
-    //TODO: https://github.com/amzn/ion-rust/issues/437
+    //TODO: https://github.com/amazon-ion/ion-rust/issues/437
     pub fn lines() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
             whitespace_config: WhitespaceConfig {
@@ -123,7 +123,7 @@ impl RawTextWriterBuilder {
             containers: vec![EncodingLevel::default()],
             // Should we validate here that all the strings in `whitespace_config` actually are
             // semantically whitespace?
-            //TODO: https://github.com/amzn/ion-rust/issues/438
+            //TODO: https://github.com/amazon-ion/ion-rust/issues/438
             whitespace_config: Box::new(self.whitespace_config),
         };
         // This method cannot currently fail. It returns an IonResult<_> to be consistent with the

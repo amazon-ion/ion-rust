@@ -6,7 +6,7 @@ use crate::{
 /// Contains all of the information that can be extracted from the one-octet type descriptor
 /// found at the beginning of each value, annotations wrapper, IVM, or NOP in a binary Ion stream.
 /// For more information, consult the
-/// [Typed Value Formats](http://amzn.github.io/ion-docs/docs/binary.html#typed-value-formats)
+/// [Typed Value Formats](https://amazon-ion.github.io/ion-docs/docs/binary.html#typed-value-formats)
 /// section of the binary Ion spec.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) struct TypeDescriptor {

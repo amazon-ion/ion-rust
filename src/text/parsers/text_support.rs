@@ -82,7 +82,7 @@ pub(crate) fn escaped_char_no_unicode(input: &str) -> IonParseResult<StringFragm
 }
 
 /// Matches an escaped literal and returns the appropriate substitute character.
-/// See: https://amzn.github.io/ion-docs/docs/spec.html#escapes
+/// See: https://amazon-ion.github.io/ion-docs/docs/spec.html#escapes
 pub(crate) fn escaped_char_literal(input: &str) -> IonParseResult<char> {
     alt((
         value('\n', char('n')),

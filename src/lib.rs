@@ -57,7 +57,7 @@ pub use result::IonResult;
 
 /// Re-exports of third party dependencies that are part of our public API.
 ///
-/// See also: <https://github.com/amzn/ion-rust/issues/302>
+/// See also: <https://github.com/amazon-ion/ion-rust/issues/302>
 pub mod external {
     pub use bigdecimal;
 }

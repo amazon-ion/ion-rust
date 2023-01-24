@@ -1,5 +1,5 @@
 //! This module provides an implementation of the data types described by the
-//! [Ion Data Model](http://amzn.github.io/ion-docs/docs/spec.html#the-ion-data-model)
+//! [Ion Data Model](https://amazon-ion.github.io/ion-docs/docs/spec.html#the-ion-data-model)
 //! section of the Ion 1.0 spec.
 
 pub type SymbolId = usize;
@@ -12,7 +12,7 @@ pub mod timestamp;
 use std::fmt;
 
 /// Represents the Ion data type of a given value. To learn more about each data type,
-/// read [the Ion Data Model](http://amzn.github.io/ion-docs/docs/spec.html#the-ion-data-model)
+/// read [the Ion Data Model](https://amazon-ion.github.io/ion-docs/docs/spec.html#the-ion-data-model)
 /// section of the spec.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Copy, Clone)]
 pub enum IonType {

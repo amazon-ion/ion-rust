@@ -6,7 +6,7 @@ use std::mem;
 // ion_rust does not currently support reading variable length integers of truly arbitrary size.
 // These type aliases will simplify the process of changing the data types used to represent each
 // VarInt's magnitude and byte length in the future.
-// See: https://github.com/amzn/ion-rust/issues/7
+// See: https://github.com/amazon-ion/ion-rust/issues/7
 type VarIntStorage = i64;
 type VarIntSizeStorage = usize;
 
@@ -35,7 +35,7 @@ pub struct VarInt {
 const MAGNITUDE_BITS_IN_FINAL_BYTE: usize = 6;
 
 /// Represents a variable-length signed integer. See the
-/// [VarUInt and VarInt Fields](amzn.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields)
+/// [VarUInt and VarInt Fields](https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields)
 /// section of the binary Ion spec for more details.
 impl VarInt {
     pub(crate) fn new(value: i64, is_negative: bool, size_in_bytes: usize) -> Self {

@@ -2,8 +2,8 @@
 name = "ion-rs"
 authors = ["Amazon Ion Team <ion-team@amazon.com>"]
 description = "Implementation of Amazon Ion"
-homepage = "https://github.com/amzn/ion-rust"
-repository = "https://github.com/amzn/ion-rust"
+homepage = "https://github.com/amazon-ion/ion-rust"
+repository = "https://github.com/amazon-ion/ion-rust"
 license = "Apache-2.0"
 readme = "README.md"
 keywords = ["ion", "parser", "json", "format", "serde"]

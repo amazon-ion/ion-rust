@@ -12,7 +12,7 @@ const UINT_STACK_BUFFER_SIZE: usize = 16;
 const MAX_UINT_SIZE_IN_BYTES: usize = 2048;
 
 /// Represents a fixed-length unsigned integer. See the
-/// [UInt and Int Fields](http://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields)
+/// [UInt and Int Fields](https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields)
 /// section of the binary Ion spec for more details.
 #[derive(Debug)]
 pub struct DecodedUInt {
@@ -142,7 +142,7 @@ pub enum UIntBeBytes {
 /// octets are not part of the representation. See the [spec] for more
 /// information.
 ///
-/// [spec]: https://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields
+/// [spec]: https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EncodedUInt {
     be_bytes: UIntBeBytes,

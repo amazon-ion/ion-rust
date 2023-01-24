@@ -131,7 +131,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// returns an `Ok(_)` containing a `(major, minor)` version tuple and consumes the
     /// source bytes.
     ///
-    /// See: https://amzn.github.io/ion-docs/docs/binary.html#value-streams
+    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#value-streams
     pub fn read_ivm(&mut self) -> IonResult<(u8, u8)> {
         let bytes = self
             .peek_n_bytes(IVM.len())
@@ -150,7 +150,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// Reads a `VarUInt` encoding primitive from the beginning of the buffer. If it is successful,
     /// returns an `Ok(_)` containing its [VarUInt] representation and consumes the source bytes.
     ///
-    /// See: https://amzn.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields
+    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields
     pub fn read_var_uint(&mut self) -> IonResult<VarUInt> {
         const BITS_PER_ENCODED_BYTE: usize = 7;
         const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<usize>() * 8;
@@ -188,7 +188,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// Reads a `VarInt` encoding primitive from the beginning of the buffer. If it is successful,
     /// returns an `Ok(_)` containing its [VarInt] representation and consumes the source bytes.
     ///
-    /// See: https://amzn.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields
+    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields
     pub fn read_var_int(&mut self) -> IonResult<VarInt> {
         const BITS_PER_ENCODED_BYTE: usize = 7;
         const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<i64>() * 8;
@@ -260,7 +260,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// successful, returns an `Ok(_)` containing its [DecodedUInt] representation and consumes the
     /// source bytes.
     ///
-    /// See: https://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields
+    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields
     pub fn read_uint(&mut self, length: usize) -> IonResult<DecodedUInt> {
         if length <= mem::size_of::<u64>() {
             return self.read_small_uint(length);
@@ -317,7 +317,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// successful, returns an `Ok(_)` containing its [DecodedInt] representation and consumes the
     /// source bytes.
     ///
-    /// See: https://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields
+    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields
     pub fn read_int(&mut self, length: usize) -> IonResult<DecodedInt> {
         if length == 0 {
             return Ok(DecodedInt::new(Integer::I64(0), false, 0));
@@ -373,7 +373,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// Reads a `NOP` encoding primitive from the buffer. If it is successful, returns an `Ok(_)`
     /// containing the number of bytes that were consumed.
     ///
-    /// See: https://amzn.github.io/ion-docs/docs/binary.html#nop-pad
+    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#nop-pad
     #[inline(never)]
     // NOP padding is not widely used in Ion 1.0, in part because many writer implementations do not
     // expose the ability to write them. As such, this method has been marked `inline(never)` to

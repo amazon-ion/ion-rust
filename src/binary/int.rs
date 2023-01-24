@@ -18,7 +18,7 @@ const INT_STACK_BUFFER_SIZE: usize = 16;
 const MAX_INT_SIZE_IN_BYTES: usize = 2048;
 
 /// Represents a fixed-length signed integer. See the
-/// [UInt and Int Fields](http://amzn.github.io/ion-docs/docs/binary.html#uint-and-int-fields)
+/// [UInt and Int Fields](https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields)
 /// section of the binary Ion spec for more details.
 #[derive(Debug)]
 pub struct DecodedInt {

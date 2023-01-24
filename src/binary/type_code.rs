@@ -12,7 +12,7 @@ use crate::types::IonType;
 /// * Whether the next type code is reserved.
 ///
 /// See the
-/// [Typed Value Formats](http://amzn.github.io/ion-docs/docs/binary.html#typed-value-formats)
+/// [Typed Value Formats](https://amazon-ion.github.io/ion-docs/docs/binary.html#typed-value-formats)
 /// section of the spec for more information.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum IonTypeCode {

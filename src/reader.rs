@@ -334,7 +334,7 @@ impl<R: RawReader> IonReader for UserReader<R> {
                     // ignored. If the first annotation is something other than `$ion_symbol_table`,
                     // the struct is considered user data even if one of the trailing annotations
                     // is `$ion_symbol_table`. For more information, see this section of the spec:
-                    // https://amzn.github.io/ion-docs/docs/symbols.html#local-symbol-tables
+                    // https://amazon-ion.github.io/ion-docs/docs/symbols.html#local-symbol-tables
                     if self.raw_reader.depth() == 0 {
                         let is_symtab = match self.raw_reader.annotations().next() {
                             Some(Err(error)) => return Err(error),

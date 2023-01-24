@@ -30,7 +30,7 @@ const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
 
 /// Provides support to write [`Decimal`] into [Ion binary].
 ///
-/// [Ion binary]: https://amzn.github.io/ion-docs/docs/binary.html#5-decimal
+/// [Ion binary]: https://amazon-ion.github.io/ion-docs/docs/binary.html#5-decimal
 pub trait DecimalBinaryEncoder {
     /// Encodes the content of a [`Decimal`] as per the Ion binary encoding.
     /// Returns the length of the encoded bytes.

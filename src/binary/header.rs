@@ -9,7 +9,7 @@ use crate::{
 /// Contains all of the information that can be extracted from the one-octet type descriptor
 /// found at the beginning of each value in a binary Ion stream.
 /// For more information, consult the
-/// [Typed Value Formats](http://amzn.github.io/ion-docs/docs/binary.html#typed-value-formats)
+/// [Typed Value Formats](https://amazon-ion.github.io/ion-docs/docs/binary.html#typed-value-formats)
 /// section of the binary Ion spec.
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Header {
@@ -49,7 +49,7 @@ impl Header {
 /// All values stored in the table are either an `Err(IonError::DecodingError)` or an
 /// `Ok(Some(IonValueHeader))`.
 // TODO: Define the jump table as a static constant at compile time to avoid recalculating it.
-// https://github.com/amzn/ion-rust/issues/4
+// https://github.com/amazon-ion/ion-rust/issues/4
 pub(crate) fn create_header_byte_jump_table() -> Vec<IonResult<Option<Header>>> {
     let mut header_jump_table = Vec::with_capacity(256);
     for byte_value in 0..=255 {

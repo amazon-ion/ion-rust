@@ -85,7 +85,7 @@ pub(crate) fn list_delimiter(input: &str) -> IonParseResult<()> {
         alt((tag(",").upgrade(), peek(list_end))),
     )
     // TODO: This parser discards the matched &str as a workaround to a limitation in RawTextReader.
-    //       See: https://github.com/amzn/ion-rust/issues/337
+    //       See: https://github.com/amazon-ion/ion-rust/issues/337
     .map(|_| ())
     .parse(input)
 }
@@ -220,7 +220,7 @@ pub(crate) fn struct_field_name_or_end(input: &str) -> IonParseResult<Option<Raw
 pub(crate) fn struct_delimiter(input: &str) -> IonParseResult<()> {
     preceded(whitespace_or_comments, alt((tag(","), peek(struct_end))))
         // TODO: This parser discards the matched &str as a workaround to a limitation in RawTextReader.
-        //       See: https://github.com/amzn/ion-rust/issues/337
+        //       See: https://github.com/amazon-ion/ion-rust/issues/337
         .map(|_| ())
         .parse(input)
 }

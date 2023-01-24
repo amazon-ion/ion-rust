@@ -1,6 +1,6 @@
 [submodule "ion-tests"]
 	path = ion-tests
-	url = https://github.com/amzn/ion-tests.git
+	url = https://github.com/amazon-ion/ion-tests.git
 [submodule "ion-hash-test"]
 	path = ion-hash/ion-hash-test
-	url = https://github.com/amzn/ion-hash-test.git
+	url = https://github.com/amazon-ion/ion-hash-test.git
