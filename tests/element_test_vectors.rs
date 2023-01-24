@@ -50,10 +50,6 @@ trait RoundTrip {
 /// integration tests to dictate which readers/writers should be used in each test.
 struct NativeElementWriterApi;
 
-// TODO: This implementation is not yet being used; the native reader still paired with the ion-c
-//       writer in the interest of minimizing the number of places that test failures need to be
-//       researched. Once the native reader is passing enough ion-tests, we'll enable the
-//       native writer so we can fix any failures it produces.
 impl RoundTrip for NativeElementWriterApi {
     fn roundtrip<R: ElementReader>(
         elements: &Vec<Element>,
@@ -64,12 +60,11 @@ impl RoundTrip for NativeElementWriterApi {
         // No need for an aggressive preallocation.
         let mut buffer = Vec::with_capacity(2048);
         match format {
-            // TODO: Handle `TextKind`: Pretty
             Format::Text(kind) => {
-                let writer = if kind == TextKind::Pretty {
-                    TextWriterBuilder::pretty().build(&mut buffer)
-                } else {
-                    TextWriterBuilder::new().build(&mut buffer)
+                let writer = match kind {
+                    TextKind::Compact => TextWriterBuilder::new().build(&mut buffer),
+                    TextKind::Lines => TextWriterBuilder::lines().build(&mut buffer),
+                    TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
                 }?;
                 let mut writer = NativeElementWriter::new(writer);
                 writer.write_all(elements)?;
@@ -301,81 +296,37 @@ trait ElementApi {
     }
 }
 
+/// Generates test cases for round-tripping Ion data between different formats.
+/// The arguments to the macro are a DSL that looks somewhat like Rust code. Usage:
+/// ```
+/// good_round_trip! {
+///     // Start by defining the implementation that is being tested.
+///     use NativeElementImpl;
+///     // Define some test functions—but use the actual formats rather than defining function parameters.
+///     fn my_test_1(Format::Binary, Format::Text(TextKind::Compact));
+///     fn my_test_2(Format::Binary, Format::Text(TextKind::Lines));
+/// }
+/// ```
+///
+/// ## The Generated Test Cases
 /// Reads the data in `file_name` and writes it to an in-memory buffer (`b1`) using the writer provided
 /// by `first_writer_provider`. Then reads the data from the `b1` and writes it to another buffer (`b2`)
 /// using the writer provided by `second_writer_provider`. Finally, compares the data read from `b2`
 /// to the data in `file_name` and asserts that they are equivalent, demonstrating that no data has
 /// been lost.
-fn good_roundtrip<E: ElementApi>(
-    _element_api: E,
-    skip_list: &[&str],
-    file_name: &str,
-    format1: Format,
-    format2: Format,
-) {
-    E::assert_file(skip_list, file_name, || {
-        E::assert_three_way_round_trip(file_name, format1, format2)
-    });
-}
-
-fn good_roundtrip_text_binary<E: ElementApi>(element_api: E, file_name: &str) {
-    good_roundtrip(
-        element_api,
-        E::global_skip_list(),
-        file_name,
-        Format::Text(TextKind::Compact),
-        Format::Binary,
-    )
-}
-
-fn good_roundtrip_binary_text<E: ElementApi>(element_api: E, file_name: &str) {
-    good_roundtrip(
-        element_api,
-        E::global_skip_list(),
-        file_name,
-        Format::Binary,
-        Format::Text(TextKind::Compact),
-    )
-}
-
-fn good_roundtrip_text_pretty<E: ElementApi>(element_api: E, file_name: &str) {
-    good_roundtrip(
-        element_api,
-        E::global_skip_list(),
-        file_name,
-        Format::Text(TextKind::Compact),
-        Format::Text(TextKind::Pretty),
-    )
-}
-
-fn good_roundtrip_pretty_text<E: ElementApi>(element_api: E, file_name: &str) {
-    good_roundtrip(
-        element_api,
-        E::global_skip_list(),
-        file_name,
-        Format::Text(TextKind::Pretty),
-        Format::Text(TextKind::Compact),
-    )
-}
-
-fn good_roundtrip_pretty_binary<E: ElementApi>(element_api: E, file_name: &str) {
-    good_roundtrip(
-        element_api,
-        E::global_skip_list(),
-        file_name,
-        Format::Text(TextKind::Pretty),
-        Format::Binary,
-    )
-}
-
-fn good_roundtrip_binary_pretty<E: ElementApi>(element_api: E, file_name: &str) {
-    good_roundtrip(
-        element_api,
-        E::global_skip_list(),
-        file_name,
-        Format::Binary,
-        Format::Text(TextKind::Pretty),
-    )
+macro_rules! good_round_trip {
+    (use $ElementApiImpl:ident; $(fn $test_name:ident($format1:expr, $format2:expr);)+) => {
+        mod good_round_trip {
+            use super::*; $(
+            #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
+            #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+            fn $test_name(file_name: &str) {
+                $ElementApiImpl::assert_file($ElementApiImpl::global_skip_list(), file_name, || {
+                    $ElementApiImpl::assert_three_way_round_trip(file_name, $format1, $format2)
+                });
+            })+
+        }
+    };
 }
 
 fn bad<E: ElementApi>(_element_api: E, file_name: &str) {
@@ -572,40 +523,20 @@ mod native_element_tests {
         }
     }
 
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_text_binary(file_name: &str) {
-        good_roundtrip_text_binary(NativeElementApi, file_name)
-    }
-
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_binary_text(file_name: &str) {
-        good_roundtrip_binary_text(NativeElementApi, file_name)
-    }
-
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_text_pretty(file_name: &str) {
-        good_roundtrip_text_pretty(NativeElementApi, file_name)
-    }
-
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_pretty_text(file_name: &str) {
-        good_roundtrip_pretty_text(NativeElementApi, file_name)
-    }
-
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_pretty_binary(file_name: &str) {
-        good_roundtrip_pretty_binary(NativeElementApi, file_name)
-    }
-
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_binary_pretty(file_name: &str) {
-        good_roundtrip_binary_pretty(NativeElementApi, file_name)
+    good_round_trip! {
+        use NativeElementApi;
+        fn binary_compact(Format::Binary, Format::Text(TextKind::Compact));
+        fn binary_lines(Format::Binary, Format::Text(TextKind::Lines));
+        fn binary_pretty(Format::Binary, Format::Text(TextKind::Pretty));
+        fn compact_binary(Format::Text(TextKind::Compact), Format::Binary);
+        fn compact_lines(Format::Text(TextKind::Compact), Format::Text(TextKind::Lines));
+        fn compact_pretty(Format::Text(TextKind::Compact), Format::Text(TextKind::Pretty));
+        fn lines_binary(Format::Text(TextKind::Lines), Format::Binary);
+        fn lines_compact(Format::Text(TextKind::Lines), Format::Text(TextKind::Compact));
+        fn lines_pretty(Format::Text(TextKind::Lines), Format::Text(TextKind::Pretty));
+        fn pretty_binary(Format::Text(TextKind::Pretty), Format::Binary);
+        fn pretty_compact(Format::Text(TextKind::Pretty), Format::Text(TextKind::Compact));
+        fn pretty_lines(Format::Text(TextKind::Pretty), Format::Text(TextKind::Lines));
     }
 
     #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
@@ -717,40 +648,20 @@ mod non_blocking_native_element_tests {
         }
     }
 
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_text_binary(file_name: &str) {
-        good_roundtrip_text_binary(NonBlockingNativeElementApi, file_name)
-    }
-
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_binary_text(file_name: &str) {
-        good_roundtrip_binary_text(NonBlockingNativeElementApi, file_name)
-    }
-
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_text_pretty(file_name: &str) {
-        good_roundtrip_text_pretty(NonBlockingNativeElementApi, file_name)
-    }
-
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_pretty_text(file_name: &str) {
-        good_roundtrip_pretty_text(NonBlockingNativeElementApi, file_name)
-    }
-
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_pretty_binary(file_name: &str) {
-        good_roundtrip_pretty_binary(NonBlockingNativeElementApi, file_name)
-    }
-
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn native_good_roundtrip_binary_pretty(file_name: &str) {
-        good_roundtrip_binary_pretty(NonBlockingNativeElementApi, file_name)
+    good_round_trip! {
+        use NonBlockingNativeElementApi;
+        fn binary_compact(Format::Binary, Format::Text(TextKind::Compact));
+        fn binary_lines(Format::Binary, Format::Text(TextKind::Lines));
+        fn binary_pretty(Format::Binary, Format::Text(TextKind::Pretty));
+        fn compact_binary(Format::Text(TextKind::Compact), Format::Binary);
+        fn compact_lines(Format::Text(TextKind::Compact), Format::Text(TextKind::Lines));
+        fn compact_pretty(Format::Text(TextKind::Compact), Format::Text(TextKind::Pretty));
+        fn lines_binary(Format::Text(TextKind::Lines), Format::Binary);
+        fn lines_compact(Format::Text(TextKind::Lines), Format::Text(TextKind::Compact));
+        fn lines_pretty(Format::Text(TextKind::Lines), Format::Text(TextKind::Pretty));
+        fn pretty_binary(Format::Text(TextKind::Pretty), Format::Binary);
+        fn pretty_compact(Format::Text(TextKind::Pretty), Format::Text(TextKind::Compact));
+        fn pretty_lines(Format::Text(TextKind::Pretty), Format::Text(TextKind::Lines));
     }
 
     #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]

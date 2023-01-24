@@ -97,25 +97,22 @@
 //! To serialize data, users can use the [`ElementWriter`](writer::ElementWriter) trait to serialize data
 //! from [`IonElement`] to binary or text Ion:
 //!
-//! ```ignore
+//! ```
 //! use ion_rs::result::IonResult;
-//! use ion_rs::value::Element;
 //! use ion_rs::value::reader::{element_reader, ElementReader};
-//! use ion_rs::value::writer::{ElementWriter, Format};
-//!
-//! // a fixed buffer length to write to
-//! const BUF_SIZE: usize = 8 * 1024 * 1024;
+//! use ion_rs::value::writer::ElementWriter;
+//! use ion_rs::{BinaryWriterBuilder};
+//! use ion_rs::value::native_writer::NativeElementWriter;
 //!
 //! fn main() -> IonResult<()> {
 //!     let elems = element_reader().read_all(b"null true 1")?;
 //!
-//!     let mut buf = vec![0u8; BUF_SIZE];
-//!     // This method requires the `ion-c-sys` feature to be enabled
-//!     let mut writer = Format::Binary.element_writer_for_slice(&mut buf)?;
+//!     let mut buf: Vec<u8> = vec![];
+//!     let mut writer = NativeElementWriter::new(BinaryWriterBuilder::new().build(&mut buf)?);
 //!     writer.write_all(elems.iter())?;
 //!
-//!     let output = writer.finish()?;
-//!     assert_eq!(&[0xE0, 0x01, 0x00, 0xEA, 0x0F, 0x11, 0x21, 0x01], output);    
+//!     writer.finish()?;
+//!     assert_eq!(&[0xE0, 0x01, 0x00, 0xEA, 0x0F, 0x11, 0x21, 0x01], buf.as_slice());
 //!     
 //!     Ok(())
 //! }
