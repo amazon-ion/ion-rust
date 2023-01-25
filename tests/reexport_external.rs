@@ -7,7 +7,7 @@ use ion_rs::types::decimal::Decimal;
 /// through a reexport. This means that consumers of ion_rs can use this
 /// integration without having to specify the exact depdendency version.
 ///
-/// See also: https://github.com/amzn/ion-rust/issues/302.
+/// See also: https://github.com/amazon-ion/ion-rust/issues/302.
 #[test]
 fn bigdecimal_is_reexported() {
     let ion_rs_type = Decimal::new(0, 0);

@@ -208,7 +208,7 @@ mod tests {
         let mut buffer = Vec::new();
         let mut text_writer = TextWriterBuilder::new().build(&mut buffer)?;
         // The following symbol IDs are in the system symbol table.
-        // https://amzn.github.io/ion-docs/docs/symbols.html#system-symbols
+        // https://amazon-ion.github.io/ion-docs/docs/symbols.html#system-symbols
         text_writer.step_in(IonType::Struct)?;
         text_writer.set_field_name(4);
         text_writer.set_annotations(&[1]);

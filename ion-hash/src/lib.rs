@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Implements the [Ion Hash specification](https://amzn.github.io/ion-hash/docs/spec.html)
+//! Implements the [Ion Hash specification](https://amazon-ion.github.io/ion-hash/docs/spec.html)
 //!
 //! ## Examples
 //! ```rust

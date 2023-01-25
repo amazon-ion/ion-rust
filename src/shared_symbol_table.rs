@@ -3,7 +3,7 @@ use crate::IonResult;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Stores [SharedSymbolTable] with the table name, version and imports
-/// For more information on [SharedSymbolTable]: https://amzn.github.io/ion-docs/docs/symbols.html#shared-symbol-tables
+/// For more information on [SharedSymbolTable]: https://amazon-ion.github.io/ion-docs/docs/symbols.html#shared-symbol-tables
 pub struct SharedSymbolTable {
     name: String,
     version: usize,

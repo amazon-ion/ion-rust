@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 
 /// A Catalog is a collection of Shared Symbol Tables.
 /// For more information about the concept of a catalog,
-/// see [the `symbols` section of the specification](https://amzn.github.io/ion-docs/docs/symbols.html#the-catalog).
+/// see [the `symbols` section of the specification](https://amazon-ion.github.io/ion-docs/docs/symbols.html#the-catalog).
 pub trait Catalog {
     /// Returns the Shared Symbol Table with given table name
     /// If a table with the given name doesn't exists or if the table name is an empty string

@@ -8,14 +8,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     # We want to run on external PRs, but not on internal ones as push automatically builds
     # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amzn/ion-rust'
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
         # In 2022-01-11, GitHub Actions changed the `windows-latest` virtual environment alias so
         # that it stopped pointing to `windows-2019` and began pointing to `windows-2022` instead.
         # The pipeline needs to be updated to support the new edition of Windows Server. In the
         # meantime, the build only tests Windows Server 2019.
-        # See https://github.com/amzn/ion-rust/issues/353
+        # See https://github.com/amazon-ion/ion-rust/issues/353
         os: [ubuntu-latest, windows-2019, macos-latest]
     permissions:
       checks: write

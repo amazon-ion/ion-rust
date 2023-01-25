@@ -1,5 +1,5 @@
 //! This module contains logic to parse the the text representation of each Ion type.
-//! See: <https://amzn.github.io/ion-docs/docs/spec.html>
+//! See: <https://amazon-ion.github.io/ion-docs/docs/spec.html>
 
 use std::str::FromStr;
 

@@ -549,7 +549,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
     // Parses the contents of the text buffer again with the knowledge that we're at the end of the
     // input stream. This allows us to resolve a number of ambiguous cases.
     // For a detailed description of the problem that this addresses, please see:
-    // https://github.com/amzn/ion-rust/issues/318
+    // https://github.com/amazon-ion/ion-rust/issues/318
     // This method should only be called when the reader is at the top level. An EOF at any other
     // depth is an error.
     fn parse_value_at_eof(&mut self) -> RootParseResult<RawTextStreamItem> {
@@ -670,7 +670,7 @@ const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
 //       A better implementation would identify the input slice containing the next value without
 //       materializing it and then attempt to materialize it when the user calls `read_TYPE`. This
 //       would take less memory and would only materialize values that the user requests.
-//       See: https://github.com/amzn/ion-rust/issues/322
+//       See: https://github.com/amazon-ion/ion-rust/issues/322
 impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;
