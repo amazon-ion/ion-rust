@@ -17,6 +17,8 @@ jobs:
         # meantime, the build only tests Windows Server 2019.
         # See https://github.com/amazon-ion/ion-rust/issues/353
         os: [ubuntu-latest, windows-2019, macos-latest]
+    permissions:
+      checks: write
 
     steps:
       - name: Remove MSys64 MingW64 Binaries
