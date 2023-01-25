@@ -108,7 +108,7 @@ pub trait IonReader {
     /// function passing the string as a parameter. This allows users to avoid materializing the
     /// string if they only intend to inspect it for length, pattern matches, etc.
     // TODO: Replace with a `read_str(&self) -> IonResult<&str>`
-    //       See: https://github.com/amzn/ion-rust/issues/335
+    //       See: https://github.com/amazon-ion/ion-rust/issues/335
     fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
     where
         Self: Sized,
@@ -119,7 +119,7 @@ pub trait IonReader {
     /// to optimize this by calling the function without first validating that the bytes are utf8.
     /// As such, callers MUST NOT depend on the string contents being valid utf8.
     // TODO: Replace with a `read_string_bytes(&self) -> IonResult<&[u8]>`
-    //       See: https://github.com/amzn/ion-rust/issues/335
+    //       See: https://github.com/amazon-ion/ion-rust/issues/335
     fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
     where
         Self: Sized,
@@ -137,7 +137,7 @@ pub trait IonReader {
     /// function passing the blob's bytes as a parameter. This allows users to avoid materializing the
     /// clob if they only intend to inspect it for length, pattern matches, etc.
     // TODO: Replace with a `read_blob_bytes(&self) -> IonResult<&[u8]>`
-    //       See: https://github.com/amzn/ion-rust/issues/335
+    //       See: https://github.com/amazon-ion/ion-rust/issues/335
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
     where
         Self: Sized,
@@ -151,7 +151,7 @@ pub trait IonReader {
     /// function passing the clob's bytes as a parameter. This allows users to avoid materializing the
     /// clob if they only intend to inspect it for length, pattern matches, etc.
     // TODO: Replace with a `read_clob_bytes(&self) -> IonResult<&[u8]]>`
-    //       See: https://github.com/amzn/ion-rust/issues/335
+    //       See: https://github.com/amazon-ion/ion-rust/issues/335
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
     where
         Self: Sized,

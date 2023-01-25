@@ -4,11 +4,11 @@ use std::slice;
 
 ///! Implements "type qualifiers" (TQ) as per the [spec][spec].
 ///!
-///! [spec]: https://amzn.github.io/ion-hash/docs/spec.html.
+///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
 use ion_rs::types::integer::Integer;
 ///! Implements "type qualifiers" (TQ) as per the [spec][spec].
 ///!
-///! [spec]: https://amzn.github.io/ion-hash/docs/spec.html.
+///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
 use ion_rs::{
     binary::IonTypeCode,
     types::{decimal::Decimal, timestamp::Timestamp},

@@ -6,7 +6,7 @@ use crate::result::{decoding_error, IonError, IonResult};
 
 /// Optimized read operations for parsing Ion.
 ///
-/// The [binary Ion spec](amzn.github.io/ion-docs/docs/binary.html) calls for a number of reading
+/// The [binary Ion spec](https://amazon-ion.github.io/ion-docs/docs/binary.html) calls for a number of reading
 /// patterns, including:
 ///
 /// * Type descriptor octets (value headers) require that a single byte be read from input.
@@ -29,7 +29,7 @@ pub trait IonDataSource: BufRead {
             let buffer = self.fill_buf()?;
             if buffer.is_empty() {
                 // TODO: IonResult should have a distinct `IncompleteData` error case
-                //       https://github.com/amzn/ion-rust/issues/299
+                //       https://github.com/amazon-ion/ion-rust/issues/299
                 return decoding_error("Unexpected end of stream.");
             }
             let bytes_in_buffer = buffer.len();
@@ -71,7 +71,7 @@ pub trait IonDataSource: BufRead {
 
             if number_of_buffered_bytes == 0 {
                 // TODO: IonResult should have a distinct `IncompleteData` error case
-                //       https://github.com/amzn/ion-rust/issues/299
+                //       https://github.com/amazon-ion/ion-rust/issues/299
                 return decoding_error("Unexpected end of stream.");
             }
 
@@ -115,7 +115,7 @@ pub trait IonDataSource: BufRead {
         // If the buffer is still empty, we've run out of data.
         if buffer.is_empty() && length > 0 {
             // TODO: IonResult should have a distinct `IncompleteData` error case
-            //       https://github.com/amzn/ion-rust/issues/299
+            //       https://github.com/amazon-ion/ion-rust/issues/299
             return decoding_error("Unexpected end of stream.");
         }
 
@@ -145,7 +145,7 @@ pub trait IonDataSource: BufRead {
             Ok(()) => slice_processor(buffer),
             Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof =>
             // TODO: IonResult should have a distinct `IncompleteData` error case
-            //       https://github.com/amzn/ion-rust/issues/299
+            //       https://github.com/amazon-ion/ion-rust/issues/299
             {
                 decoding_error("Unexpected end of stream.")
             }
@@ -218,7 +218,7 @@ mod tests {
         let result = data_source.skip_bytes(42);
 
         // TODO: IonResult should have a distinct `IncompleteData` error case
-        //       https://github.com/amzn/ion-rust/issues/299
+        //       https://github.com/amazon-ion/ion-rust/issues/299
         assert!(matches!(result, Err(IonError::DecodingError { .. })));
     }
 
@@ -236,7 +236,7 @@ mod tests {
         let result = data_source.read_next_byte_while(processor);
 
         // TODO: IonResult should have a distinct `IncompleteData` error case
-        //       https://github.com/amzn/ion-rust/issues/299
+        //       https://github.com/amazon-ion/ion-rust/issues/299
         assert!(matches!(result, Err(IonError::DecodingError { .. })));
     }
 
@@ -256,7 +256,7 @@ mod tests {
         );
 
         // TODO: IonResult should have a distinct `IncompleteData` error case
-        //       https://github.com/amzn/ion-rust/issues/299
+        //       https://github.com/amazon-ion/ion-rust/issues/299
         assert!(matches!(result, Err(IonError::DecodingError { .. })));
     }
 }
