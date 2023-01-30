@@ -190,8 +190,8 @@ impl Display for RawStreamItem {
         use RawStreamItem::*;
         match self {
             VersionMarker(major, minor) => write!(f, "ion version marker (v{}.{})", major, minor),
-            Value(ion_type) => write!(f, "null.{}", ion_type),
-            Null(ion_type) => write!(f, "{}", ion_type),
+            Value(ion_type) => write!(f, "{}", ion_type),
+            Null(ion_type) => write!(f, "null.{}", ion_type),
             Nothing => write!(f, "nothing/end-of-sequence"),
         }
     }
