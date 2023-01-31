@@ -287,7 +287,6 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
                     // There is an incomplete multi-byte sequence at the end of the data.
                     // We'll assume the remaining bytes for that sequence will be appended later
                     // and mark everything up to the start of that sequence as valid.
-                    // last_valid_offset + valid_end
                     last_valid_offset + valid_end
                 } else {
                     // The input contained an invalid UTF-8 sequence.
