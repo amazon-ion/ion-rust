@@ -287,6 +287,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
                     // There is an incomplete multi-byte sequence at the end of the data.
                     // We'll assume the remaining bytes for that sequence will be appended later
                     // and mark everything up to the start of that sequence as valid.
+                    // last_valid_offset + valid_end
                     last_valid_offset + valid_end
                 } else {
                     // The input contained an invalid UTF-8 sequence.
@@ -494,6 +495,31 @@ mod tests {
             }
             wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
         }
+    }
+
+    #[test]
+    fn incremental_utf8_validation() {
+        // In this test we add partial data that is valid UTF-8, and advance the line. This will
+        // cause the validation span to be updated. Next we add the remaining data which contains
+        // an invalid UTF-8 sequence. This will update the valid span to include the valid portion
+        // of the newly added data. After updating the line again, we should have valid UTF-8 data,
+        // and the invalid sequence should be left in the buffer. This test is in response to GH
+        // issue 461, which found that the remaining_text after this operation did not contain the
+        // validated span, and resulted in an invalid UTF-8 sequence created unchecked.
+        let source = " from";
+        let data = &[0x20, 0x27, 0xe8, 0xa9, 0xb1, 0xe8, 0xa9, 0xb1, 0x20, 0xe8];
+        let mut input = TextBuffer::new(source.as_bytes().to_owned());
+        assert!(input.load_next_line().is_ok());
+        assert!(input.append_bytes(data).is_ok());
+        assert!(input.load_next_line().is_ok());
+
+        let text = input.remaining_text();
+        let bytes = text.as_bytes();
+        match std::str::from_utf8(bytes) {
+            Ok(_) => {}
+            Err(_) => panic!("Invalid UTF-8 sequence"),
+        }
+        assert_eq!(text.len(), 14);
     }
 
     #[test]
