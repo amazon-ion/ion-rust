@@ -370,7 +370,7 @@ mod reader_tests {
         next_type(reader, IonType::Null, true);
 
         next_type(reader, IonType::Boolean, false);
-        assert_eq!(reader.read_bool()?, true);
+        assert!(reader.read_bool()?);
 
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?, 5);
@@ -489,7 +489,7 @@ mod reader_tests {
         annotations_eq(reader, ["mercury"]);
 
         next_type(reader, IonType::Boolean, false);
-        assert_eq!(reader.read_bool()?, true);
+        assert!(reader.read_bool()?);
         annotations_eq(reader, ["venus", "earth"]);
 
         next_type(reader, IonType::Integer, false);
@@ -709,7 +709,7 @@ mod reader_tests {
 
         let result = reader.next();
         assert!(result.is_ok());
-        assert_eq!(false, reader.has_annotations());
+        assert!(!reader.has_annotations());
         assert_eq!(0.0, reader.read_f32()?);
         assert_eq!(IonType::Struct, reader.parent_type().unwrap());
 

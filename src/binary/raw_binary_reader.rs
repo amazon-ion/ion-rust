@@ -1259,7 +1259,7 @@ mod tests {
     fn test_read_bool_false() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x10]);
         assert_eq!(cursor.next()?, Value(IonType::Boolean));
-        assert_eq!(cursor.read_bool()?, false);
+        assert!(!(cursor.read_bool()?));
         Ok(())
     }
 
@@ -1267,7 +1267,7 @@ mod tests {
     fn test_read_bool_true() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x11]);
         assert_eq!(cursor.next()?, Value(IonType::Boolean));
-        assert_eq!(cursor.read_bool()?, true);
+        assert!(cursor.read_bool()?);
         Ok(())
     }
 
@@ -1767,7 +1767,7 @@ mod tests {
             cursor.raw_value_bytes(),
             Some(&ion_data[37..37] /* empty */)
         );
-        assert_eq!(cursor.read_bool()?, false);
+        assert!(!(cursor.read_bool()?));
 
         Ok(())
     }

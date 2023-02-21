@@ -613,19 +613,19 @@ mod tests {
         assert_eq!(buffer.remaining_text(), "foo\n");
         buffer.consume(4);
         // The buffer itself is empty, but input has not reached EOF yet.
-        assert_eq!(buffer.is_exhausted(), false);
+        assert!(!buffer.is_exhausted());
         // Load another line
         assert_eq!(buffer.load_next_line().unwrap(), 4);
         // Now input is at EOF, but the buffer contains text.
-        assert_eq!(buffer.is_exhausted(), false);
+        assert!(!buffer.is_exhausted());
         // Consume the bytes in the buffer
         buffer.consume(4);
         // Now the buffer is empty. Looking ahead, we can tell that the input is empty,
         // but we have to try to load another line to actually encounter EOF.
-        assert_eq!(buffer.is_exhausted(), false);
+        assert!(!buffer.is_exhausted());
         assert_eq!(buffer.load_next_line().unwrap(), 0);
         // Now the buffer is empty and the input has hit EOF.
-        assert_eq!(buffer.is_exhausted(), true);
+        assert!(buffer.is_exhausted());
     }
 
     #[test]

@@ -1190,7 +1190,7 @@ mod timestamp_tests {
         let builder = Timestamp::with_ymd_hms_millis(2021, 2, 5, 16, 43, 51, 192);
         let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
         let timestamp2 = builder.build_at_offset(5 * 60)?;
-        assert_eq!(timestamp1 == timestamp2, true);
+        assert!(timestamp1 == timestamp2);
         Ok(())
     }
 

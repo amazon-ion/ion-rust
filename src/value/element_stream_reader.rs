@@ -1,7 +1,7 @@
 use crate::result::{decoding_error, illegal_operation, illegal_operation_raw};
 use crate::text::parent_container::ParentContainer;
 
-use crate::value::iterators::SymbolsIterator;
+
 use crate::value::owned::Element;
 use crate::value::{IonElement, IonSequence, IonStruct};
 use crate::{
@@ -174,16 +174,17 @@ impl IonReader for ElementStreamReader {
     }
 
     fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = IonResult<Self::Symbol>> + 'a> {
-        let iterator = self
-            .current_value
-            .as_ref()
-            .map(|value| value.annotations())
-            .unwrap_or_else(|| SymbolsIterator::empty())
-            .cloned()
-            // The annotations are already in memory and are already resolved to text, so
-            // this step cannot fail. Map each token to Ok(token).
-            .map(Ok);
-        Box::new(iterator)
+        todo!()
+        // let iterator = self
+        //     .current_value
+        //     .as_ref()
+        //     .map(|value| value.annotations())
+        //     .unwrap_or_else(|| SymbolsIterator::empty())
+        //     .cloned()
+        //     // The annotations are already in memory and are already resolved to text, so
+        //     // this step cannot fail. Map each token to Ok(token).
+        //     .map(Ok);
+        // Box::new(iterator)
     }
 
     fn field_name(&self) -> IonResult<Self::Symbol> {

@@ -1091,7 +1091,7 @@ mod generic_value_tests {
             elem: E::Builder::new_null(IonType::Null),
             ion_type: IonType::Null,
             ops: vec![IsNull],
-            op_assert: Box::new(|e: &E| assert_eq!(true, e.is_null())),
+            op_assert: Box::new(|e: &E| assert!(e.is_null())),
         }
     }
 
@@ -1254,11 +1254,11 @@ mod generic_value_tests {
                 let expected: Vec<E> = vec![true.into(), false.into()];
                 // assert the length of list
                 assert_eq!(2, actual.len());
-                for i in 0..actual.len() {
+                for (i, actual_item) in actual.iter().enumerate() {
                     // assert the list elements one-by-one
-                    assert_eq!(Some(&expected[i]), actual.get(i));
+                    assert_eq!(&expected[i], actual_item);
                 }
-                assert_eq!(false, actual.is_empty());
+                assert!(!actual.is_empty());
             }),
         }
     }
@@ -1273,9 +1273,9 @@ mod generic_value_tests {
                 let expected: Vec<E> = vec![true.into(), false.into()];
                 // assert the length of s-expression
                 assert_eq!(2, actual.len());
-                for i in 0..actual.len() {
+                for (i, actual_item) in actual.iter().enumerate() {
                     // assert the s-expression elements one-by-one
-                    assert_eq!(Some(&expected[i]), actual.get(i));
+                    assert_eq!(&expected[i], actual_item);
                 }
             }),
         }
@@ -1356,7 +1356,7 @@ mod generic_value_tests {
     fn element_accessors<E: IonElement>(#[case] input_case: Case<E>) {
         // table of negative assertions for each operation
         let neg_table: Vec<(ElemOp, &ElemAssertFunc<E>)> = vec![
-            (IsNull, &|e| assert_eq!(false, e.is_null())),
+            (IsNull, &|e| assert!(!e.is_null())),
             (AsBool, &|e| assert_eq!(None, e.as_bool())),
             (AsAnyInt, &|e| {
                 assert_eq!(None, e.as_integer());
@@ -1391,6 +1391,8 @@ mod generic_value_tests {
         }
 
         // assert that a value element as-is is equal to itself
-        assert_eq!(input_case.elem, input_case.elem);
+        // Creating an alias here bypasses clippy's objection to comparing any literal to itself.
+        let itself = &input_case.elem;
+        assert_eq!(&input_case.elem, itself);
     }
 }

@@ -1212,7 +1212,7 @@ mod reader_tests {
         next_type(reader, IonType::Null, true);
 
         next_type(reader, IonType::Boolean, false);
-        assert_eq!(reader.read_bool()?, true);
+        assert!(reader.read_bool()?);
 
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?, 5);
@@ -1332,7 +1332,7 @@ mod reader_tests {
         annotations_eq(reader, ["mercury"]);
 
         next_type(reader, IonType::Boolean, false);
-        assert_eq!(reader.read_bool()?, true);
+        assert!(reader.read_bool()?);
         annotations_eq(reader, ["venus", "earth"]);
 
         next_type(reader, IonType::Integer, false);
