@@ -657,8 +657,7 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
                 Ok(ion_type)
             } else {
                 illegal_operation(format!(
-                    "cannot read null; reader is currently positioned on a non-null {}",
-                    ion_type
+                    "cannot read null; reader is currently positioned on a non-null {ion_type}"
                 ))
             };
         }
@@ -1237,13 +1236,12 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
     fn read_ivm(&mut self) -> IonResult<RawStreamItem> {
         if let Some(container) = self.parent {
             return decoding_error(format!(
-                "found an Ion version marker inside a {:?}",
-                container
+                "found an Ion version marker inside a {container:?}"
             ));
         };
         let (major, minor) = self.tx_buffer.read_ivm()?;
         if !matches!((major, minor), (1, 0)) {
-            return decoding_error(format!("unsupported Ion version {:X}.{:X}", major, minor));
+            return decoding_error(format!("unsupported Ion version {major:X}.{minor:X}"));
         }
         *self.state = ReaderState::OnIvm;
         Ok(RawStreamItem::VersionMarker(major, minor))
@@ -1293,7 +1291,7 @@ mod tests {
         if let Err(IonError::Incomplete { .. }) = result {
             // do nothing
         } else {
-            panic!("expected incomplete, found: {:?}", result)
+            panic!("expected incomplete, found: {result:?}")
         }
     }
 
@@ -1301,7 +1299,7 @@ mod tests {
         if let Ok(RawStreamItem::Nothing) = result {
             // do nothing
         } else {
-            panic!("expected RawStreamItem::Nothing, found: {:?}", result)
+            panic!("expected RawStreamItem::Nothing, found: {result:?}")
         }
     }
 
@@ -1309,7 +1307,7 @@ mod tests {
         if let Ok(RawStreamItem::Value(result_ion_type)) = result {
             assert_eq!(result_ion_type, ion_type);
         } else {
-            panic!("expected a value, but got: {:?}", result);
+            panic!("expected a value, but got: {result:?}");
         }
     }
 
@@ -1604,13 +1602,13 @@ mod tests {
         let mut reader = RawBinaryBufferReader::new(data);
 
         expect_value(reader.next(), IonType::Integer);
-        expect_annotations(&reader, &[4]);
+        expect_annotations(&reader, [4]);
 
         expect_value(reader.next(), IonType::Integer);
-        expect_annotations(&reader, &[5]);
+        expect_annotations(&reader, [5]);
 
         expect_value(reader.next(), IonType::Integer);
-        expect_annotations(&reader, &[6, 7, 8]);
+        expect_annotations(&reader, [6, 7, 8]);
         // Nothing else in the buffer
         expect_eof(reader.next());
         Ok(())

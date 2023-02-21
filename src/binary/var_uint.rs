@@ -58,8 +58,7 @@ impl VarUInt {
         // rather than performing extra bookkeeping logic on a per-byte basis.
         if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
             return decoding_error(format!(
-                "Found a {}-byte VarUInt. Max supported size is {} bytes.",
-                encoded_size_in_bytes, MAX_ENCODED_SIZE_IN_BYTES
+                "Found a {encoded_size_in_bytes}-byte VarUInt. Max supported size is {MAX_ENCODED_SIZE_IN_BYTES} bytes."
             ));
         }
 

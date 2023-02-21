@@ -83,7 +83,7 @@ fn decimal_from_text_components<'a>(
     };
 
     // TODO: Reusable buffer for formatting/sanitization
-    let mut magnitude_text = format!("{}{}", digits_before_dot, digits_after_dot);
+    let mut magnitude_text = format!("{digits_before_dot}{digits_after_dot}");
     magnitude_text.retain(|c| c != '_');
     // Ion's parsing rules should only let through strings of digits and underscores. Since
     // we've just removed the underscores above, the `from_str` methods below should always

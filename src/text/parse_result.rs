@@ -215,7 +215,7 @@ where
     fn or_fatal_parse_error<'a>(self, input: &'a str, label: &str) -> IonParseResult<'a, T> {
         match self {
             Ok(value) => Ok(("", value)),
-            Err(error) => fatal_parse_error(input, format!("{}: {:?}", label, error)),
+            Err(error) => fatal_parse_error(input, format!("{label}: {error:?}")),
         }
     }
 }

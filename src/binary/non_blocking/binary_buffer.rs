@@ -143,7 +143,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
                 self.consume(IVM.len());
                 Ok(version)
             }
-            invalid_ivm => decoding_error(format!("invalid IVM: {:?}", invalid_ivm)),
+            invalid_ivm => decoding_error(format!("invalid IVM: {invalid_ivm:?}")),
         }
     }
 
@@ -243,8 +243,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
 
         if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
             return decoding_error(format!(
-                "Found a {}-byte VarInt. Max supported size is {} bytes.",
-                encoded_size_in_bytes, MAX_ENCODED_SIZE_IN_BYTES
+                "Found a {encoded_size_in_bytes}-byte VarInt. Max supported size is {MAX_ENCODED_SIZE_IN_BYTES} bytes."
             ));
         }
 
@@ -308,8 +307,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     // compile to a non-trivial number of instructions.
     fn value_too_large<T>(label: &str, length: usize, max_length: usize) -> IonResult<T> {
         decoding_error(format!(
-            "found {} that was too large; size = {}, max size = {}",
-            label, length, max_length
+            "found {label} that was too large; size = {length}, max size = {max_length}"
         ))
     }
 
@@ -323,8 +321,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
             return Ok(DecodedInt::new(Integer::I64(0), false, 0));
         } else if length > MAX_INT_SIZE_IN_BYTES {
             return decoding_error(format!(
-                "Found a {}-byte Int. Max supported size is {} bytes.",
-                length, MAX_INT_SIZE_IN_BYTES
+                "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
             ));
         }
 
@@ -594,7 +591,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0111_1001, 0b0000_1111]);
         match buffer.read_var_uint() {
             Err(IonError::Incomplete { .. }) => Ok(()),
-            other => panic!("expected IonError::Incomplete, but found: {:?}", other),
+            other => panic!("expected IonError::Incomplete, but found: {other:?}"),
         }
     }
 

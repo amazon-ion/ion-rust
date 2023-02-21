@@ -37,11 +37,11 @@ impl Catalog for MapCatalog {
 
         let versions: &BTreeMap<usize, SharedSymbolTable> =
             self.tables_by_name.get(name).ok_or_else(|| {
-                illegal_operation_raw(format!("symbol table with name: {} does not exist", name))
+                illegal_operation_raw(format!("symbol table with name: {name} does not exist"))
             })?;
 
         let (_highest_version, table) = versions.iter().rev().next().ok_or_else(|| {
-            illegal_operation_raw(format!("symbol table with name: {} does not exist", name))
+            illegal_operation_raw(format!("symbol table with name: {name} does not exist"))
         })?;
         Ok(table.to_owned())
     }
@@ -53,11 +53,11 @@ impl Catalog for MapCatalog {
 
         let versions: &BTreeMap<usize, SharedSymbolTable> =
             self.tables_by_name.get(name).ok_or_else(|| {
-                illegal_operation_raw(format!("symbol table with name: {} does not exist", name))
+                illegal_operation_raw(format!("symbol table with name: {name} does not exist"))
             })?;
 
         let table = versions.get(&version).ok_or_else(|| {
-            illegal_operation_raw(format!("symbol table with name: {} does not exist", name))
+            illegal_operation_raw(format!("symbol table with name: {name} does not exist"))
         })?;
         Ok(table.to_owned())
     }

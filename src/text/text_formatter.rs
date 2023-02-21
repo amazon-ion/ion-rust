@@ -227,16 +227,16 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         token: A,
     ) -> IonResult<()> {
         match token.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(sid) => write!(self.output, "${}", sid)?,
+            RawSymbolTokenRef::SymbolId(sid) => write!(self.output, "${sid}")?,
             RawSymbolTokenRef::Text(text)
                 if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) =>
             {
                 // Write the symbol text in single quotes
-                write!(self.output, "'{}'", text)?;
+                write!(self.output, "'{text}'")?;
             }
             RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text) => {
                 // Write the symbol text without quotes
-                write!(self.output, "{}", text)?
+                write!(self.output, "{text}")?
             }
             RawSymbolTokenRef::Text(text) => {
                 // Write the symbol text using quotes and escaping any characters that require it.
@@ -309,7 +309,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
             SExpression => "null.sexp",
             Struct => "null.struct",
         };
-        write!(self.output, "{}", null_text)?;
+        write!(self.output, "{null_text}")?;
         Ok(())
     }
 
@@ -318,12 +318,12 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
             true => "true",
             false => "false",
         };
-        write!(self.output, "{}", bool_text)?;
+        write!(self.output, "{bool_text}")?;
         Ok(())
     }
 
     pub fn format_integer(&mut self, value: &Integer) -> IonResult<()> {
-        write!(self.output, "{}", value)?;
+        write!(self.output, "{value}")?;
         Ok(())
     }
 
@@ -350,12 +350,12 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
             return Ok(());
         }
 
-        write!(self.output, "{:e}", value)?;
+        write!(self.output, "{value:e}")?;
         Ok(())
     }
 
     pub fn format_decimal(&mut self, value: &Decimal) -> IonResult<()> {
-        write!(self.output, "{}", value)?;
+        write!(self.output, "{value}")?;
         Ok(())
     }
 
@@ -395,7 +395,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
                 clob_value.push(c);
             }
         }
-        write!(self.output, "{{{{\"{}\"}}}}", clob_value)?;
+        write!(self.output, "{{{{\"{clob_value}\"}}}}")?;
         Ok(())
     }
 
@@ -409,7 +409,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         let mut peekable_itr = value.iter().peekable();
         while let Some((field_name, field_value)) = peekable_itr.next() {
             self.format_symbol(field_name.text().unwrap())?;
-            write!(self.output, ": {}", field_value)?;
+            write!(self.output, ": {field_value}")?;
             if peekable_itr.peek().is_some() {
                 write!(self.output, ", ")?;
             }
@@ -423,7 +423,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek().is_some() {
             let sexp_value = peekable_itr.next().unwrap();
-            write!(self.output, "{}", sexp_value)?;
+            write!(self.output, "{sexp_value}")?;
             if peekable_itr.peek().is_some() {
                 write!(self.output, " ")?;
             }
@@ -437,7 +437,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek().is_some() {
             let list_value = peekable_itr.next().unwrap();
-            write!(self.output, "{}", list_value)?;
+            write!(self.output, "{list_value}")?;
             if peekable_itr.peek().is_some() {
                 write!(self.output, ", ")?;
             }

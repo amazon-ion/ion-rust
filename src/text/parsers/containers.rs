@@ -258,7 +258,7 @@ mod container_parsing_tests {
 
     #[rstest]
     #[case("5,", TextValue::Integer(Integer::I64(5)).without_annotations())]
-    #[case("foo::bar::5,", TextValue::Integer(Integer::I64(5)).with_annotations(&["foo", "bar"]))]
+    #[case("foo::bar::5,", TextValue::Integer(Integer::I64(5)).with_annotations(["foo", "bar"]))]
     #[case("foo::bar,", TextValue::Symbol(text_token("bar")).with_annotations("foo"))]
     #[case("bar]", TextValue::Symbol(text_token("bar")).without_annotations())]
     #[case("7.]", TextValue::Decimal(Decimal::new(7, 0)).without_annotations())]
@@ -292,7 +292,7 @@ mod container_parsing_tests {
     #[case("foo::++ ", TextValue::Symbol(text_token("++")).with_annotations("foo"))]
     #[case("5 ", TextValue::Integer(Integer::I64(5)).without_annotations())]
     #[case("5)", TextValue::Integer(Integer::I64(5)).without_annotations())]
-    #[case("foo::bar::5 ", TextValue::Integer(Integer::I64(5)).with_annotations(&["foo", "bar"]))]
+    #[case("foo::bar::5 ", TextValue::Integer(Integer::I64(5)).with_annotations(["foo", "bar"]))]
     //               v--- This zero allows the parser to tell that the previous value is complete.
     #[case("foo::bar 0", TextValue::Symbol(text_token("bar")).with_annotations("foo"))]
     #[case("bar)", TextValue::Symbol(text_token("bar")).without_annotations())]
@@ -324,7 +324,7 @@ mod container_parsing_tests {
     #[rstest]
     #[case("5,", TextValue::Integer(Integer::I64(5)).without_annotations())]
     #[case("5  ,", TextValue::Integer(Integer::I64(5)).without_annotations())]
-    #[case("foo::bar::5,", TextValue::Integer(Integer::I64(5)).with_annotations(&["foo", "bar"]))]
+    #[case("foo::bar::5,", TextValue::Integer(Integer::I64(5)).with_annotations(["foo", "bar"]))]
     #[case("foo::bar,", TextValue::Symbol(text_token("bar")).with_annotations("foo"))]
     #[case("bar}", TextValue::Symbol(text_token("bar")).without_annotations())]
     #[case("7.}", TextValue::Decimal(Decimal::new(7, 0)).without_annotations())]

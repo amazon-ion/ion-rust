@@ -254,8 +254,7 @@ impl<R: RawReader> SystemReader<R> {
                         self.lst.state = BetweenLstFields;
                     }
                     Err(error) => panic!(
-                        "the RawReader returned an unexpected error from `field_name()`: {:?}",
-                        error
+                        "the RawReader returned an unexpected error from `field_name()`: {error:?}"
                     ),
                 }
             }
@@ -417,8 +416,7 @@ impl<R: RawReader> SystemReader<R> {
             match self.next()? {
                 VersionMarker(major, minor) => {
                     return decoding_error(format!(
-                        "Encountered an IVM for v{}.{} inside an LST.",
-                        major, minor
+                        "Encountered an IVM for v{major}.{minor} inside an LST."
                     ))
                 }
                 Value(_) | Null(_) => {
@@ -609,8 +607,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
             Ok(RawSymbolToken::SymbolId(sid)) => {
                 self.symbol_table.symbol_for(sid).cloned().ok_or_else(|| {
                     decoding_error_raw(format!(
-                        "encountered field ID with undefined text: ${}",
-                        sid
+                        "encountered field ID with undefined text: ${sid}"
                     ))
                 })
             }
@@ -628,8 +625,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
                 Ok(RawSymbolToken::SymbolId(sid)) => {
                     self.symbol_table.symbol_for(sid).cloned().ok_or_else(|| {
                         decoding_error_raw(format!(
-                            "Found annotation with undefined symbol ${}",
-                            sid
+                            "Found annotation with undefined symbol ${sid}"
                         ))
                     })
                 }
@@ -650,9 +646,9 @@ impl<R: RawReader> IonReader for SystemReader<R> {
             // Make a cheap clone of the Rc<str> in the symbol table
             Ok(symbol.clone())
         } else if !self.symbol_table.sid_is_valid(sid) {
-            decoding_error(format!("Symbol ID ${} is out of range.", sid))
+            decoding_error(format!("Symbol ID ${sid} is out of range."))
         } else {
-            decoding_error(format!("Symbol ID ${} has unknown text.", sid))
+            decoding_error(format!("Symbol ID ${sid} has unknown text."))
         }
     }
 

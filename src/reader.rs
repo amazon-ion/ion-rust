@@ -74,8 +74,7 @@ impl ReaderBuilder {
             [0xe0, major, minor, 0xea] => {
                 // Binary Ion v{major}.{minor}
                 decoding_error(format!(
-                    "cannot read Ion v{}.{}; only v1.0 is supported",
-                    major, minor
+                    "cannot read Ion v{major}.{minor}; only v1.0 is supported"
                 ))
             }
             _ => {
@@ -162,8 +161,8 @@ impl Display for StreamItem {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use StreamItem::*;
         match self {
-            Value(ion_type) => write!(f, "{}", ion_type),
-            Null(ion_type) => write!(f, "null.{}", ion_type),
+            Value(ion_type) => write!(f, "{ion_type}"),
+            Null(ion_type) => write!(f, "null.{ion_type}"),
             Nothing => Ok(()),
         }
     }
@@ -196,8 +195,7 @@ impl<R: RawReader> UserReader<R> {
                 RawStreamItem::Nothing => break,
                 RawStreamItem::VersionMarker(major, minor) => {
                     return decoding_error(format!(
-                        "encountered Ion version marker for v{}.{} in symbol table",
-                        major, minor
+                        "encountered Ion version marker for v{major}.{minor} in symbol table"
                     ))
                 }
             };
@@ -324,8 +322,7 @@ impl<R: RawReader> IonReader for UserReader<R> {
                 }
                 VersionMarker(major, minor) => {
                     return decoding_error(format!(
-                        "Encountered a version marker for v{}.{}, but only v1.0 is supported.",
-                        major, minor
+                        "Encountered a version marker for v{major}.{minor}, but only v1.0 is supported."
                     ));
                 }
                 Value(IonType::Struct) => {
@@ -369,7 +366,7 @@ impl<R: RawReader> IonReader for UserReader<R> {
         match self.raw_reader.field_name()? {
             RawSymbolToken::SymbolId(sid) => {
                 self.symbol_table.symbol_for(sid).cloned().ok_or_else(|| {
-                    decoding_error_raw(format!("encountered field ID with unknown text: ${}", sid))
+                    decoding_error_raw(format!("encountered field ID with unknown text: ${sid}"))
                 })
             }
             RawSymbolToken::Text(text) => Ok(Symbol::owned(text)),
@@ -384,8 +381,7 @@ impl<R: RawReader> IonReader for UserReader<R> {
                 RawSymbolToken::SymbolId(sid) => {
                     self.symbol_table.symbol_for(sid).cloned().ok_or_else(|| {
                         decoding_error_raw(format!(
-                            "found annotation ID with unknown text: ${}",
-                            sid
+                            "found annotation ID with unknown text: ${sid}"
                         ))
                     })
                 }
@@ -401,8 +397,7 @@ impl<R: RawReader> IonReader for UserReader<R> {
                     Ok(symbol.clone())
                 } else {
                     decoding_error(format!(
-                        "Found symbol ID ${}, which is not defined.",
-                        symbol_id
+                        "Found symbol ID ${symbol_id}, which is not defined."
                     ))
                 }
             }

@@ -149,7 +149,7 @@ impl Display for Coefficient {
         };
         match &self.magnitude {
             UInteger::U64(m) => write!(f, "{}", *m),
-            UInteger::BigUInt(m) => write!(f, "{}", m),
+            UInteger::BigUInt(m) => write!(f, "{m}"),
         }
     }
 }

@@ -118,8 +118,7 @@ trait ElementApi {
         for (index, (element1, element2)) in e1.iter().zip(e2.iter()).enumerate() {
             if !element1.ion_eq(element2) {
                 return format!(
-                    "The values at position #{} were not IonEq.\ne1: {:?}\ne2: {:?}",
-                    index, element1, element2
+                    "The values at position #{index} were not IonEq.\ne1: {element1:?}\ne2: {element2:?}"
                 );
             }
         }
@@ -151,9 +150,9 @@ trait ElementApi {
         // print the paths here either way so it is easy to copy/paste to investigate failures
         // use the --show-output argument to see it
         if contains_path(skip_list, file_name) {
-            println!("IGNORING: {}", file_name);
+            println!("IGNORING: {file_name}");
         } else {
-            println!("TESTING: {}", file_name);
+            println!("TESTING: {file_name}");
             asserter().unwrap();
         }
     }
@@ -242,8 +241,7 @@ trait ElementApi {
                 }
                 _ => {
                     return decoding_error(format!(
-                        "Expected a sequence for group: {:?}",
-                        group_list
+                        "Expected a sequence for group: {group_list:?}"
                     ))
                 }
             };
@@ -268,18 +266,17 @@ trait ElementApi {
                                 assert!(elems[0].ion_eq(&elem))
                             }
                         }
-                        Err(e) => panic!("Expected element {:?}, got {:?}", elems, e),
+                        Err(e) => panic!("Expected element {elems:?}, got {e:?}"),
                     }
                 } else {
                     match single_result {
                         Ok(elem) => panic!(
-                            "Did not expect element for duplicates: {:?}, {:?}",
-                            elems, elem
+                            "Did not expect element for duplicates: {elems:?}, {elem:?}"
                         ),
                         Err(e) => match e {
                             IonError::DecodingError { description: _ } => (),
                             other => {
-                                panic!("Got an error we did not expect for duplicates: {:?}", other)
+                                panic!("Got an error we did not expect for duplicates: {other:?}")
                             }
                         },
                     }
@@ -287,8 +284,7 @@ trait ElementApi {
             }
             Err(_) => assert!(
                 single_result.is_err(),
-                "Expected error from read_one: {:?}",
-                single_result
+                "Expected error from read_one: {single_result:?}"
             ),
         };
 
@@ -332,7 +328,7 @@ macro_rules! good_round_trip {
 fn bad<E: ElementApi>(_element_api: E, file_name: &str) {
     E::assert_file(E::global_skip_list(), file_name, || {
         match E::read_file(&E::make_reader(), file_name) {
-            Ok(items) => panic!("Expected error, got: {:?}", items),
+            Ok(items) => panic!("Expected error, got: {items:?}"),
             Err(_) => Ok(()),
         }
     });
@@ -347,12 +343,7 @@ fn equivs<E: ElementApi>(_element_api: E, file_name: &str) {
             |group_index, this_index, this, that_index, that| {
                 assert!(
                     this.ion_eq(that),
-                    "in group {}, index {} ({}) was not ion_eq to index {} ({})",
-                    group_index,
-                    this_index,
-                    this,
-                    that_index,
-                    that
+                    "in group {group_index}, index {this_index} ({this}) was not ion_eq to index {that_index} ({that})"
                 )
             },
             |this_group, that_group| assert!(this_group.ion_eq(that_group)),
@@ -370,22 +361,12 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
                 if std::ptr::eq(this, that) {
                     assert!(
                         this.ion_eq(that),
-                        "in group {}, index {} ({}) was not ion_eq to index {} ({})",
-                        group_index,
-                        this_index,
-                        this,
-                        that_index,
-                        that
+                        "in group {group_index}, index {this_index} ({this}) was not ion_eq to index {that_index} ({that})"
                     )
                 } else {
                     assert!(
                         !this.ion_eq(that),
-                        "in group {}, index {} ({}) was unexpectedly ion_eq to index {} ({})",
-                        group_index,
-                        this_index,
-                        this,
-                        that_index,
-                        that
+                        "in group {group_index}, index {this_index} ({this}) was unexpectedly ion_eq to index {that_index} ({that})"
                     )
                 }
             },
@@ -393,16 +374,12 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
                 if std::ptr::eq(this_group, that_group) {
                     assert!(
                         this_group.ion_eq(that_group),
-                        "unexpected these to be equal but they were unequal: {:?} != {:?}",
-                        this_group,
-                        that_group
+                        "unexpected these to be equal but they were unequal: {this_group:?} != {that_group:?}"
                     );
                 } else {
                     assert!(
                         !this_group.ion_eq(that_group),
-                        "unexpected these to be unequal but they were equal: {:?} == {:?}",
-                        this_group,
-                        that_group
+                        "unexpected these to be unequal but they were equal: {this_group:?} == {that_group:?}"
                     );
                 }
             },

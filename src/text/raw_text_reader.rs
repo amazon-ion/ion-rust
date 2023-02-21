@@ -486,11 +486,11 @@ mod reader_tests {
 
         let reader = &mut RawTextReader::new(ion_data)?;
         next_type(reader, IonType::Null, true);
-        annotations_eq(reader, &["mercury"]);
+        annotations_eq(reader, ["mercury"]);
 
         next_type(reader, IonType::Boolean, false);
         assert_eq!(reader.read_bool()?, true);
-        annotations_eq(reader, &["venus", "earth"]);
+        annotations_eq(reader, ["venus", "earth"]);
 
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?, 5);
@@ -498,26 +498,26 @@ mod reader_tests {
 
         next_type(reader, IonType::Float, false);
         assert_eq!(reader.read_f64()?, 5.0f64);
-        annotations_eq(reader, &["jupiter"]);
+        annotations_eq(reader, ["jupiter"]);
 
         next_type(reader, IonType::Decimal, false);
         assert_eq!(reader.read_decimal()?, Decimal::new(55i32, -1i64));
-        annotations_eq(reader, &["saturn"]);
+        annotations_eq(reader, ["saturn"]);
 
         next_type(reader, IonType::Timestamp, false);
         assert_eq!(
             reader.read_timestamp()?,
             Timestamp::with_ymd(2021, 9, 25).build().unwrap()
         );
-        annotations_eq(reader, &[100, 200, 300]);
+        annotations_eq(reader, [100, 200, 300]);
 
         next_type(reader, IonType::Symbol, false);
         assert_eq!(reader.read_symbol()?, text_token("foo"));
-        annotations_eq(reader, &["uranus"]);
+        annotations_eq(reader, ["uranus"]);
 
         next_type(reader, IonType::String, false);
         assert_eq!(reader.read_string()?, "hello".to_string());
-        annotations_eq(reader, &["neptune"]);
+        annotations_eq(reader, ["neptune"]);
 
         // ===== CONTAINERS =====
 
@@ -539,7 +539,7 @@ mod reader_tests {
         assert_eq!(reader.number_of_annotations(), 0);
         assert_eq!(reader.read_i64()?, 1);
         next_type(reader, IonType::Integer, false);
-        annotations_eq(reader, &[77]);
+        annotations_eq(reader, [77]);
         assert_eq!(reader.read_i64()?, 2);
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.number_of_annotations(), 0);
@@ -549,7 +549,7 @@ mod reader_tests {
 
         // Reading an s-expression: haumea::makemake::eris::ceres::(++ -- &&&&&)
         next_type(reader, IonType::SExpression, false);
-        annotations_eq(reader, &["haumea", "makemake", "eris", "ceres"]);
+        annotations_eq(reader, ["haumea", "makemake", "eris", "ceres"]);
         reader.step_in()?;
         next_type(reader, IonType::Symbol, false);
         assert_eq!(reader.read_symbol()?, text_token("++"));
@@ -605,7 +605,7 @@ mod reader_tests {
         "#;
         let mut reader = RawTextReader::new(&pretty_ion[..])?;
         let result = reader.next();
-        println!("{:?}", result);
+        println!("{result:?}");
         assert!(result.is_err());
         Ok(())
     }
@@ -618,7 +618,7 @@ mod reader_tests {
         "#;
         let mut reader = RawTextReader::new(&pretty_ion[..])?;
         let result = reader.next();
-        println!("{:?}", result);
+        println!("{result:?}");
         assert!(result.is_err());
         Ok(())
     }
@@ -632,7 +632,7 @@ mod reader_tests {
         // Adding a large base64 blob.. the reader defaults to having a 4k buffer,
         // so we need the blob to be larger than 4K in order to trigger a read in response to an
         // incomplete.
-        (0..4200).for_each(|_| source.push_str("A"));
+        (0..4200).for_each(|_| source.push('A'));
         source.push_str(" }}");
 
         let mut reader = RawTextReader::new(&source[..])?;
@@ -652,7 +652,7 @@ mod reader_tests {
         // so we need the blob to be larger than 4K in order to trigger a read in response to an
         // incomplete. We then want to form an improper blob in order to generate an error after a
         // buffer read boundary.
-        (0..4200).for_each(|_| source.push_str("A"));
+        (0..4200).for_each(|_| source.push('A'));
 
         let mut reader = RawTextReader::new(&source[..])?;
         let result = reader.next();
@@ -663,10 +663,10 @@ mod reader_tests {
     #[test]
     fn buffered_struct_read() -> IonResult<()> {
         let mut source = String::from("{{");
-        (0..4083).for_each(|_| source.push_str("A"));
+        (0..4083).for_each(|_| source.push('A'));
         source.push_str("}}{foo:null.float");
-        (0..4096).for_each(|_| source.push_str(" "));
-        source.push_str("}");
+        (0..4096).for_each(|_| source.push(' '));
+        source.push('}');
 
         let mut reader = RawTextReader::new(&source[..])?;
         reader.next()?;
@@ -693,9 +693,9 @@ mod reader_tests {
     #[test]
     fn buffered_struct_error() -> IonResult<()> {
         let mut source = String::from("{{");
-        (0..4084).for_each(|_| source.push_str("A"));
+        (0..4084).for_each(|_| source.push('A'));
         source.push_str("}}{foo: 0e0,");
-        (0..4096).for_each(|_| source.push_str(" "));
+        (0..4096).for_each(|_| source.push(' '));
 
         let mut reader = RawTextReader::new(&source[..])?;
 

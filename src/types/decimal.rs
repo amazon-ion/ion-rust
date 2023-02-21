@@ -355,7 +355,7 @@ mod decimal_tests {
     #[case(Decimal::negative_zero_with_exponent(4), "-0d4")]
     fn test_display(#[case] decimal: Decimal, #[case] expected: &str) {
         let mut buffer = String::new();
-        write!(buffer, "{}", decimal).unwrap();
+        write!(buffer, "{decimal}").unwrap();
         assert_eq!(buffer.as_str(), expected);
     }
 

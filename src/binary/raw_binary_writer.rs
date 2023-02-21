@@ -501,8 +501,7 @@ impl<W: Write> RawBinaryWriter<W> {
         let symbol_id = match annotation.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(symbol_id) => symbol_id,
             RawSymbolTokenRef::Text(text) => panic!(
-                "The RawBinaryWriter can only accept symbol ID annotations, not text ('{}').",
-                text
+                "The RawBinaryWriter can only accept symbol ID annotations, not text ('{text}')."
             ),
         };
         self.annotations_all_levels.push(symbol_id);
@@ -776,8 +775,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         match name.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(sid) => self.set_field_id(sid),
             RawSymbolTokenRef::Text(text) => panic!(
-                "The RawBinaryWriter can only accept Symbol ID field names, not text ('{}').",
-                text
+                "The RawBinaryWriter can only accept Symbol ID field names, not text ('{text}')."
             ),
         }
     }
@@ -1126,13 +1124,12 @@ mod writer_tests {
     ) {
         let next = reader.next().unwrap_or_else(|_| {
             panic!(
-                "Expected to read {:?}, but the stream was empty.",
-                expected_value
+                "Expected to read {expected_value:?}, but the stream was empty."
             )
         });
         assert_eq!(next, StreamItem::Value(ion_type));
         let value = read_fn(reader)
-            .unwrap_or_else(|_| panic!("Failed to read in expected value: {:?}", expected_value));
+            .unwrap_or_else(|_| panic!("Failed to read in expected value: {expected_value:?}"));
         assert_eq!(value, expected_value);
     }
 
@@ -1214,7 +1211,7 @@ mod writer_tests {
 
     fn write_lst<W: Write>(writer: &mut RawBinaryWriter<W>, symbols: &[&str]) -> IonResult<()> {
         // $ion_symbol_table::{symbols: ["your", "strings", "here"]}
-        writer.set_annotations(&[3]); // $ion_symbol_table
+        writer.set_annotations([3]); // $ion_symbol_table
         writer.step_in(IonType::Struct)?;
         writer.set_field_id(7); // symbols
         writer.step_in(IonType::List)?;
@@ -1286,13 +1283,13 @@ mod writer_tests {
             |writer| {
                 write_lst(writer, &["foo", "bar", "baz", "quux", "quuz", "waldo"])?;
 
-                writer.set_annotations(&[10]);
+                writer.set_annotations([10]);
                 writer.write_bool(true)?;
 
-                writer.set_annotations(&[11, 12]);
+                writer.set_annotations([11, 12]);
                 writer.write_i64(42)?;
 
-                writer.set_annotations(&[13, 14, 15]);
+                writer.set_annotations([13, 14, 15]);
                 writer.write_string("Hello")
             },
             |reader| {
@@ -1319,19 +1316,19 @@ mod writer_tests {
                 )?;
 
                 // foo::(true)
-                writer.set_annotations(&[10]);
+                writer.set_annotations([10]);
                 writer.step_in(IonType::SExpression)?;
                 writer.write_bool(true)?;
                 writer.step_out()?;
 
                 // bar::baz::[11]
-                writer.set_annotations(&[11, 12]);
+                writer.set_annotations([11, 12]);
                 writer.step_in(IonType::List)?;
                 writer.write_i64(11)?;
                 writer.step_out()?;
 
                 // quux::quuz::waldo::{gary: "foo"}
-                writer.set_annotations(&[13, 14, 15]);
+                writer.set_annotations([13, 14, 15]);
                 writer.step_in(IonType::Struct)?;
                 writer.set_field_id(16);
                 writer.write_string("foo")?;
@@ -1367,12 +1364,12 @@ mod writer_tests {
             |writer| {
                 write_lst(writer, &["foo", "bar", "baz", "quux"])?;
                 // foo::{bar: baz::[quux::"quuz"]]}
-                writer.set_annotations(&[10]);
+                writer.set_annotations([10]);
                 writer.step_in(IonType::Struct)?;
                 writer.set_field_id(11);
-                writer.set_annotations(&[12]);
+                writer.set_annotations([12]);
                 writer.step_in(IonType::List)?;
-                writer.set_annotations(&[13]);
+                writer.set_annotations([13]);
                 writer.write_string("quuz")?;
                 writer.step_out()?; // End of list
                 writer.step_out() // End of struct

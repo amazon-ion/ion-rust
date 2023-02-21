@@ -243,7 +243,7 @@ impl<W: Write> RawTextWriter<W> {
             Struct | List => ",",
             SExpression => "",
         };
-        write!(self.output, "{}", delimiter)?;
+        write!(self.output, "{delimiter}")?;
         Ok(())
     }
 
@@ -274,7 +274,7 @@ impl<W: Write> RawTextWriter<W> {
             } else {
                 &self.whitespace_config.space_between_nested_values
             };
-            write!(&mut self.output, "{}", value_spacer)?;
+            write!(&mut self.output, "{value_spacer}")?;
         }
 
         if !self.whitespace_config.indentation.is_empty() {
@@ -328,16 +328,16 @@ impl<W: Write> RawTextWriter<W> {
         token: A,
     ) -> IonResult<()> {
         match token.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(sid) => write!(output, "${}", sid)?,
+            RawSymbolTokenRef::SymbolId(sid) => write!(output, "${sid}")?,
             RawSymbolTokenRef::Text(text)
                 if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) =>
             {
                 // Write the symbol text in single quotes
-                write!(output, "'{}'", text)?;
+                write!(output, "'{text}'")?;
             }
             RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text) => {
                 // Write the symbol text without quotes
-                write!(output, "{}", text)?
+                write!(output, "{text}")?
             }
             RawSymbolTokenRef::Text(text) => {
                 // Write the symbol text using quotes and escaping any characters that require it.
@@ -414,7 +414,7 @@ impl<W: Write> RawTextWriter<W> {
         //       It will be common for this text to come from the symbol table; we should
         //       make it possible to pass an Rc<str> or similar when applicable.
         let text = match annotation.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(sid) => format!("${}", sid),
+            RawSymbolTokenRef::SymbolId(sid) => format!("${sid}"),
             RawSymbolTokenRef::Text(text) => text.to_string(),
         };
         self.annotations.push(text);
@@ -466,7 +466,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
     }
 
     fn write_ion_version_marker(&mut self, major: u8, minor: u8) -> IonResult<()> {
-        write!(self.output, "$ion_{}_{}", major, minor)?;
+        write!(self.output, "$ion_{major}_{minor}")?;
         Ok(())
     }
 
@@ -505,7 +505,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
                 SExpression => "null.sexp",
                 Struct => "null.struct",
             };
-            write!(output, "{}", null_text)?;
+            write!(output, "{null_text}")?;
             Ok(())
         })
     }
@@ -517,7 +517,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
                 true => "true",
                 false => "false",
             };
-            write!(output, "{}", bool_text)?;
+            write!(output, "{bool_text}")?;
             Ok(())
         })
     }
@@ -525,7 +525,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
     /// Writes the provided i64 value as an Ion integer.
     fn write_i64(&mut self, value: i64) -> IonResult<()> {
         self.write_scalar(|output| {
-            write!(output, "{}", value)?;
+            write!(output, "{value}")?;
             Ok(())
         })
     }
@@ -533,7 +533,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
     /// Writes an Ion `integer` with the specified value to the output stream.
     fn write_integer(&mut self, value: &Integer) -> IonResult<()> {
         self.write_scalar(|output| {
-            write!(output, "{}", value)?;
+            write!(output, "{value}")?;
             Ok(())
         })
     }
@@ -569,7 +569,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
                 return Ok(());
             }
 
-            write!(output, "{:e}", value)?;
+            write!(output, "{value:e}")?;
             Ok(())
         })
     }
@@ -577,7 +577,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
     /// Writes the provided Decimal as an Ion decimal.
     fn write_decimal(&mut self, value: &Decimal) -> IonResult<()> {
         self.write_scalar(|output| {
-            write!(output, "{}", value)?;
+            write!(output, "{value}")?;
             Ok(())
         })
     }
@@ -585,7 +585,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
     /// Writes the provided Timestamp as an Ion timestamp.
     fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
         self.write_scalar(|output| {
-            write!(output, "{}", value)?;
+            write!(output, "{value}")?;
             Ok(())
         })
     }
@@ -630,7 +630,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
             }
         }
         self.write_scalar(|output| {
-            write!(output, "{{{{\"{}\"}}}}", clob_value)?;
+            write!(output, "{{{{\"{clob_value}\"}}}}")?;
             Ok(())
         })
     }
@@ -668,7 +668,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
                 write!(self.output, "(")?;
                 ContainerType::SExpression
             }
-            _ => return illegal_operation(format!("Cannot step into a(n) {:?}", ion_type)),
+            _ => return illegal_operation(format!("Cannot step into a(n) {ion_type:?}")),
         };
         self.containers.push(EncodingLevel {
             container_type,
@@ -683,7 +683,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
     /// ignored.
     fn set_field_name<A: AsRawSymbolTokenRef>(&mut self, name: A) {
         let name = match name.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(sid) => format!("${}", sid),
+            RawSymbolTokenRef::SymbolId(sid) => format!("${sid}"),
             RawSymbolTokenRef::Text(text) => text.to_string(),
         };
         self.field_name = Some(name);
@@ -728,7 +728,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
                 }
             }
         }
-        write!(self.output, "{}", end_delimiter)?;
+        write!(self.output, "{end_delimiter}")?;
         self.increment_child_count();
         Ok(())
     }
@@ -845,7 +845,7 @@ mod tests {
     fn write_annotated_i64() {
         write_scalar_test(
             |w| {
-                w.set_annotations(&["foo", "bar", "baz quux"]);
+                w.set_annotations(["foo", "bar", "baz quux"]);
                 w.write_i64(7)
             },
             "foo::bar::'baz quux'::7",
@@ -1093,7 +1093,7 @@ mod tests {
                 w.set_field_name("b");
                 w.write_i64(21)?;
                 w.set_field_name("c");
-                w.set_annotations(&["quux"]);
+                w.set_annotations(["quux"]);
                 w.write_symbol("bar")?;
                 w.step_out()
             },

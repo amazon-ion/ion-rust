@@ -20,7 +20,7 @@ pub(crate) fn parse_null(input: &str) -> IonParseResult<TextValue> {
             Some(ion_type) => Ok((remaining, TextValue::Null(ion_type))),
             None => fatal_parse_error(
                 input,
-                format!("invalid Ion type used in `null.{}`", ion_type_text),
+                format!("invalid Ion type used in `null.{ion_type_text}`"),
             ),
         }
     } else {

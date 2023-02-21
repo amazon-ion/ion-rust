@@ -17,8 +17,10 @@ use std::ops::Div;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Default)]
 pub enum Precision {
     /// Year-level precision (e.g. `2020T`)
+    #[default]
     Year,
     /// Month-level precision (e.g. `2020-08T`)
     Month,
@@ -32,11 +34,7 @@ pub enum Precision {
 
 // [Default] cannot be derived for enum types. Providing a manual implementation of this type
 // allows us to derive Default for [Timestamp].
-impl Default for Precision {
-    fn default() -> Self {
-        Precision::Year
-    }
-}
+
 
 /// Stores the precision of a Timestamp's fractional seconds, if present. This type is not
 /// self-contained; if the Timestamp has a precision that is less than or equal to nanoseconds
@@ -377,7 +375,7 @@ impl Timestamp {
                 for _ in 0..num_leading_zeros {
                     write!(output, "0")?;
                 }
-                write!(output, "{}", scaled)?;
+                write!(output, "{scaled}")?;
                 Ok(())
             }
             Mantissa::Arbitrary(decimal) => {
@@ -388,7 +386,7 @@ impl Timestamp {
                     // so having a positive exponent would result in an illegal fractional
                     // seconds value.
                     return encoding_error(
-                        "found fractional seconds decimal that was >= 1.".to_string(),
+                        "found fractional seconds decimal that was >= 1.",
                     );
                 }
 
@@ -488,7 +486,7 @@ impl Timestamp {
                 (sign, hours, minutes)
             }
         };
-        write!(output, "{}{:0>2}:{:0>2}", sign, hours, minutes)?;
+        write!(output, "{sign}{hours:0>2}:{minutes:0>2}")?;
         Ok(())
     }
 
@@ -733,7 +731,7 @@ impl TimestampBuilder {
         // If precision >= Month, the month must be set.
         let month = self.month.expect("missing month");
         datetime = datetime.with_month(month as u32).ok_or_else(|| {
-            illegal_operation_raw(format!("specified month ('{}') is invalid", month))
+            illegal_operation_raw(format!("specified month ('{month}') is invalid"))
         })?;
         if self.precision == Precision::Month {
             return Ok(datetime);
@@ -742,7 +740,7 @@ impl TimestampBuilder {
         // If precision >= Day, the day must be set.
         let day = self.day.expect("missing day");
         datetime = datetime.with_day(day as u32).ok_or_else(|| {
-            illegal_operation_raw(format!("specified day ('{}') is invalid", day))
+            illegal_operation_raw(format!("specified day ('{day}') is invalid"))
         })?;
         if self.precision == Precision::Day {
             return Ok(datetime);
@@ -751,11 +749,11 @@ impl TimestampBuilder {
         // If precision >= HourAndMinute, the hour and minute must be set.
         let hour = self.hour.expect("missing hour");
         datetime = datetime.with_hour(hour as u32).ok_or_else(|| {
-            illegal_operation_raw(format!("specified hour ('{}') is invalid", hour))
+            illegal_operation_raw(format!("specified hour ('{hour}') is invalid"))
         })?;
         let minute = self.minute.expect("missing minute");
         datetime = datetime.with_minute(minute as u32).ok_or_else(|| {
-            illegal_operation_raw(format!("specified minute ('{}') is invalid", minute))
+            illegal_operation_raw(format!("specified minute ('{minute}') is invalid"))
         })?;
         if self.precision == Precision::HourAndMinute {
             return Ok(datetime);
@@ -764,7 +762,7 @@ impl TimestampBuilder {
         // If precision >= Second, the second must be set...
         let second = self.second.expect("missing second");
         datetime = datetime.with_second(second as u32).ok_or_else(|| {
-            illegal_operation_raw(format!("provided second ('{}') is invalid.", second))
+            illegal_operation_raw(format!("provided second ('{second}') is invalid."))
         })?;
 
         // ...along with the fractional seconds.
@@ -775,7 +773,7 @@ impl TimestampBuilder {
         datetime = datetime
             .with_nanosecond(self.nanoseconds.unwrap_or(0))
             .ok_or_else(|| {
-                illegal_operation_raw(format!("provided nanosecond ('{}') is invalid", second))
+                illegal_operation_raw(format!("provided nanosecond ('{second}') is invalid"))
             })?;
 
         Ok(datetime)
@@ -794,8 +792,7 @@ impl TimestampBuilder {
         let offset_seconds = offset_minutes * SECONDS_PER_MINUTE;
         let offset = FixedOffset::east_opt(offset_seconds).ok_or_else(|| {
             illegal_operation_raw(format!(
-                "specified offset ({} minutes) is invalid",
-                offset_minutes
+                "specified offset ({offset_minutes} minutes) is invalid"
             ))
         })?;
 
@@ -811,9 +808,7 @@ impl TimestampBuilder {
             LocalResult::None => {
                 illegal_operation(
                     format!(
-                        "specified offset/datetime pair is invalid (offset={}, datetime={})",
-                        offset_minutes,
-                        datetime
+                        "specified offset/datetime pair is invalid (offset={offset_minutes}, datetime={datetime})"
                     )
                 )
             },
@@ -821,9 +816,7 @@ impl TimestampBuilder {
             LocalResult::Ambiguous(_min, _max) => {
                 illegal_operation(
                     format!(
-                        "specified offset/datetime pair produces an ambiguous timestamp (offset={}, datetime={})",
-                        offset_minutes,
-                        datetime
+                        "specified offset/datetime pair produces an ambiguous timestamp (offset={offset_minutes}, datetime={datetime})"
                     )
                 )
             }
@@ -1526,17 +1519,17 @@ mod timestamp_tests {
             .with_second(51)
             .with_milliseconds(194)
             .build_at_offset(-4 * 60)
-            .unwrap_or_else(|e| panic!("Couldn't build timestamp: {:?}", e));
+            .unwrap_or_else(|e| panic!("Couldn't build timestamp: {e:?}"));
 
         let timestamp2 = Timestamp::with_ymd(2021, 2, 5)
             .with_hms(17, 39, 51)
             .with_milliseconds(194)
             .build_at_offset(-4 * 60)
-            .unwrap_or_else(|e| panic!("Couldn't build timestamp: {:?}", e));
+            .unwrap_or_else(|e| panic!("Couldn't build timestamp: {e:?}"));
 
         let timestamp3 = Timestamp::with_ymd_hms_millis(2021, 2, 5, 17, 39, 51, 194)
             .build_at_offset(-4 * 60)
-            .unwrap_or_else(|e| panic!("Couldn't build timestamp: {:?}", e));
+            .unwrap_or_else(|e| panic!("Couldn't build timestamp: {e:?}"));
 
         assert_eq!(timestamp1.precision, Precision::Second);
         assert_eq!(timestamp1.fractional_seconds, Some(Mantissa::Digits(3)));
@@ -1683,13 +1676,13 @@ mod timestamp_tests {
     fn ion_eq_fraction_seconds_mixed_mantissa_2() {
         let t1 = Timestamp {
             date_time: NaiveDateTime::from_str("2001-08-01T18:18:49.006").unwrap(),
-            offset: Some(FixedOffset::east(60 * 60 * 1 + 60 * 1)),
+            offset: Some(FixedOffset::east(60 * 60 + 60)),
             precision: Precision::Second,
             fractional_seconds: Some(Mantissa::Digits(5)),
         };
         let t2 = Timestamp {
             date_time: NaiveDateTime::from_str("2001-08-01T18:18:49").unwrap(),
-            offset: Some(FixedOffset::east(60 * 60 * 1 + 60 * 1)),
+            offset: Some(FixedOffset::east(60 * 60 + 60)),
             precision: Precision::Second,
             fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(600u64, -5))),
         };
@@ -1711,7 +1704,7 @@ mod timestamp_tests {
     #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).with_fractional_seconds(Decimal::new(27, -12)).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000000000027+00:00")]
     fn test_display(#[case] ts: Timestamp, #[case] expect: String) {
         let mut buf = Vec::new();
-        write!(&mut buf, "{}", ts).unwrap();
+        write!(&mut buf, "{ts}").unwrap();
         assert_eq!(expect, String::from_utf8(buf).unwrap());
     }
 }

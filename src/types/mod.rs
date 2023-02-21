@@ -65,18 +65,16 @@ impl IonType {
 // Represents a level into which the writer has stepped.
 // A writer that has not yet called step_in() is at the top level.
 #[derive(Debug, PartialEq)]
+#[derive(Default)]
 pub(crate) enum ContainerType {
+    #[default]
     TopLevel,
     SExpression,
     List,
     Struct,
 }
 
-impl Default for ContainerType {
-    fn default() -> Self {
-        ContainerType::TopLevel
-    }
-}
+
 
 /// Returns the number of base-10 digits needed to represent `value`.
 fn num_decimal_digits_in_u64(value: u64) -> u64 {

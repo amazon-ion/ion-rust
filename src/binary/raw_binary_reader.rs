@@ -327,7 +327,7 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
 
                 if nop_range.end > container_range.end {
                     // This NOP is malformed, let's assemble data for error reporting
-                    return decoding_error(&format!(
+                    return decoding_error(format!(
                         "{bytes}-byte NOP padding on byte range {nop_range:?} is {over} \
                         byte{s} past container content range {container_range:?}",
                         bytes = number_of_bytes,
@@ -362,7 +362,7 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
                 None => return Ok(self.set_current_item(RawStreamItem::Nothing)),
             };
             if header.is_nop() {
-                return decoding_error(&format!(
+                return decoding_error(format!(
                     "The annotation wrapper starting at byte {} contains NOP padding, which is illegal.",
                     self.cursor.bytes_read
                 ));
@@ -455,9 +455,8 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
         match representation {
             0 => Ok(false),
             1 => Ok(true),
-            _ => decoding_error(&format!(
-                "Found a boolean value with an illegal representation: {}",
-                representation
+            _ => decoding_error(format!(
+                "Found a boolean value with an illegal representation: {representation}"
             )),
         }
     }
@@ -505,9 +504,8 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
                 4 => f64::from(BigEndian::read_f32(buffer)),
                 8 => BigEndian::read_f64(buffer),
                 _ => {
-                    return decoding_error(&format!(
-                        "Encountered an illegal value for a Float length: {}",
-                        number_of_bytes
+                    return decoding_error(format!(
+                        "Encountered an illegal value for a Float length: {number_of_bytes}"
                     ))
                 }
             };
@@ -547,9 +545,8 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
     {
         self.map_string_bytes(|buffer| match std::str::from_utf8(buffer) {
             Ok(utf8_text) => Ok(f(utf8_text)),
-            Err(utf8_error) => decoding_error(&format!(
-                "The requested string was not valid UTF-8: {:?}",
-                utf8_error
+            Err(utf8_error) => decoding_error(format!(
+                "The requested string was not valid UTF-8: {utf8_error:?}"
             )),
         })?
     }
@@ -914,14 +911,13 @@ where
         let (major, minor) = self.read_slice(3, |bytes| match *bytes {
             [major, minor, 0xEA] => Ok((major, minor)),
             [major, minor, other] => decoding_error(format!(
-                "Illegal IVM: 0xE0 0x{:X} 0x{:X} 0x{:X}",
-                major, minor, other
+                "Illegal IVM: 0xE0 0x{major:X} 0x{minor:X} 0x{other:X}"
             )),
             _ => unreachable!("read_slice did not return the requested number of bytes"),
         })?;
 
         if !matches!((major, minor), (1, 0)) {
-            decoding_error(format!("Unsupported Ion version {:X}.{:X}", major, minor))
+            decoding_error(format!("Unsupported Ion version {major:X}.{minor:X}"))
         } else {
             self.cursor.ion_version = (major, minor);
             Ok(RawStreamItem::VersionMarker(major, minor))

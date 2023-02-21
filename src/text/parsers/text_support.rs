@@ -41,7 +41,7 @@ where
     // Return a fatal error.
     match parser.parse(remaining) {
         Ok((remaining, string_fragment)) => Ok((remaining, string_fragment)),
-        Err(e) => fatal_parse_error(remaining, format!("could not parse {}: {}", label, e)),
+        Err(e) => fatal_parse_error(remaining, format!("could not parse {label}: {e}")),
     }
 }
 
@@ -242,7 +242,7 @@ pub(crate) fn decode_hex_digits_to_char<'a>(
         Err(parse_int_error) => {
             return fatal_parse_error(
                 hex_digits,
-                format!("could not parse escaped code unit: {}", parse_int_error),
+                format!("could not parse escaped code unit: {parse_int_error}"),
             )
         }
     };
@@ -252,8 +252,7 @@ pub(crate) fn decode_hex_digits_to_char<'a>(
             return fatal_parse_error(
                 hex_digits,
                 format!(
-                    "escape value (decimal:'{}') is not a valid character",
-                    number_value
+                    "escape value (decimal:'{number_value}') is not a valid character"
                 ),
             );
         }

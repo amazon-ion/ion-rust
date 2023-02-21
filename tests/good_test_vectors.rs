@@ -78,7 +78,7 @@ fn read_good_files() -> IonResult<()> {
     for entry in &binary_good_files {
         print!("Reading {}... ", entry.display());
         if let Err(error) = read_file(entry.as_ref()) {
-            print!("ERROR: {:?}", error);
+            print!("ERROR: {error:?}");
             failure_count += 1;
         } else {
             print!("OK");
@@ -86,9 +86,8 @@ fn read_good_files() -> IonResult<()> {
         println!();
     }
     if failure_count > 0 {
-        return decoding_error(&format!(
-            "{} good test files could not be read successfully.",
-            failure_count
+        return decoding_error(format!(
+            "{failure_count} good test files could not be read successfully."
         ));
     }
     Ok(())
@@ -108,7 +107,7 @@ fn all_files_in(path: &str) -> BTreeSet<PathBuf> {
     let binary_file_iterator = WalkDir::new(path)
         .into_iter()
         .map(|entry| {
-            entry.unwrap_or_else(|error| panic!("Failure during dir traversal: {:?}", error))
+            entry.unwrap_or_else(|error| panic!("Failure during dir traversal: {error:?}"))
         })
         .filter(|entry| entry.path().is_file())
         .map(|entry| entry.path().to_owned());
@@ -117,7 +116,7 @@ fn all_files_in(path: &str) -> BTreeSet<PathBuf> {
 
 // Reads all of the Ion values found in the provided file, reporting any errors.
 fn read_file(path: &Path) -> IonResult<()> {
-    let file = File::open(path).unwrap_or_else(|error| panic!("Failed to open file: {:?}", error));
+    let file = File::open(path).unwrap_or_else(|error| panic!("Failed to open file: {error:?}"));
     let file_reader = BufReader::new(file);
     let mut reader = ReaderBuilder::new().build(file_reader)?;
     read_all_values(&mut reader)?;
