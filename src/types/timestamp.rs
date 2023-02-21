@@ -134,6 +134,20 @@ fn first_n_digits_of(num_digits: u32, value: u32) -> u32 {
     value / 10u32.pow(total_digits - num_digits)
 }
 
+/// Constructs a [FixedOffset] at the specified offset seconds from UTC. If the specified offset
+/// is out of bounds, this method will panic.
+fn offset_east(seconds_east: i32) -> FixedOffset {
+    FixedOffset::east_opt(seconds_east)
+        // This error case is expected to be handled before this method is called.
+        .expect("seconds_east was outside the supported range")
+}
+
+/// Constructs a DateTime<FixedOffset> at the specified offset using the fields of [NaiveDateTime]
+/// representing the desired UTC datetime.
+fn datetime_at_offset(utc_datetime: &NaiveDateTime, seconds_east: i32) -> DateTime<FixedOffset> {
+    offset_east(seconds_east).from_utc_datetime(utc_datetime)
+}
+
 /// Represents a point in time to a specified degree of precision. Unlike `chrono`'s [NaiveDateTime]
 /// and [DateTime], a `Timestamp` has variable precision ranging from a year to fractional seconds
 /// of an arbitrary unit.
@@ -420,12 +434,12 @@ impl Timestamp {
             // assertions about *where* it was recorded, but its fields are still in UTC.
             // Create a UTC datetime that we can use for formatting.
             let datetime: NaiveDateTime = self.clone().try_into()?;
-            let datetime: DateTime<FixedOffset> = FixedOffset::east(0).from_utc_datetime(&datetime);
+            let datetime: DateTime<FixedOffset> = datetime_at_offset(&datetime, 0);
             (None, datetime)
         };
 
         write!(output, "{:0>4}", datetime.year())?;
-        //                     ^-- 0-padded, right aligned, 4-digit year
+        //                  ^-- 0-padded, right aligned, 4-digit year
         if self.precision == Precision::Year {
             write!(output, "T")?;
             return Ok(());
@@ -582,11 +596,11 @@ impl Ord for Timestamp {
         let self_datetime = self
             .offset
             .map(|offset| offset.from_utc_datetime(&self_datetime))
-            .unwrap_or_else(|| FixedOffset::east(0).from_utc_datetime(&self_datetime));
+            .unwrap_or_else(|| datetime_at_offset(&self_datetime, 0));
         let other_datetime = other
             .offset
             .map(|offset| offset.from_utc_datetime(&other_datetime))
-            .unwrap_or_else(|| FixedOffset::east(0).from_utc_datetime(&other_datetime));
+            .unwrap_or_else(|| datetime_at_offset(&other_datetime, 0));
 
         let date_time_comparison = self_datetime.cmp(&other_datetime);
 
@@ -632,11 +646,11 @@ impl PartialEq for Timestamp {
         let self_datetime = self
             .offset
             .map(|offset| offset.from_utc_datetime(&self_datetime))
-            .unwrap_or_else(|| FixedOffset::east(0).from_utc_datetime(&self_datetime));
+            .unwrap_or_else(|| datetime_at_offset(&self_datetime, 0));
         let other_datetime = other
             .offset
             .map(|offset| offset.from_utc_datetime(&other_datetime))
-            .unwrap_or_else(|| FixedOffset::east(0).from_utc_datetime(&other_datetime));
+            .unwrap_or_else(|| datetime_at_offset(&other_datetime, 0));
 
         // Compare the resulting `DateTime<FixedOffset>`s
         self_datetime == other_datetime
@@ -825,7 +839,10 @@ impl TimestampBuilder {
     /// (like those bypassed by daylight saving time), this method will return an `Err(IonError)`.
     fn build(mut self) -> IonResult<Timestamp> {
         // Start with a clean slate NaiveDateTime that we can configure. (These are cheap to copy.)
-        let mut datetime: NaiveDateTime = NaiveDate::from_ymd(0, 1, 1).and_hms_nano(0, 0, 0, 0);
+        let mut datetime: NaiveDateTime = NaiveDate::from_ymd_opt(0, 1, 1)
+            .unwrap()
+            .and_hms_nano_opt(0, 0, 0, 0)
+            .unwrap();
         // Set all of the time fields on the datetime using the data from our TimestampBuilder
         datetime = self.configure_datetime(datetime)?;
         // If the timestamp we're building has a known offset...
@@ -1163,6 +1180,7 @@ impl From<DateTime<FixedOffset>> for Timestamp {
 
 #[cfg(test)]
 mod timestamp_tests {
+    use super::*;
     use crate::ion_eq::IonEq;
     use crate::result::IonResult;
     use crate::types::decimal::Decimal;
@@ -1432,7 +1450,10 @@ mod timestamp_tests {
     fn test_timestamp_try_into_naive_datetime() -> IonResult<()> {
         let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset()?;
         let naive_datetime: NaiveDateTime = timestamp.try_into()?;
-        let expected = NaiveDate::from_ymd(2021, 4, 6).and_hms(10, 15, 0);
+        let expected = NaiveDate::from_ymd_opt(2021, 4, 6)
+            .unwrap()
+            .and_hms_opt(10, 15, 0)
+            .unwrap();
         assert_eq!(expected, naive_datetime);
         Ok(())
     }
@@ -1443,8 +1464,10 @@ mod timestamp_tests {
             .with_milliseconds(449)
             .build_at_unknown_offset()?;
         let datetime: NaiveDateTime = timestamp.try_into()?;
-        let naive_datetime = NaiveDate::from_ymd(2021, 4, 6)
-            .and_hms(10, 15, 0)
+        let naive_datetime = NaiveDate::from_ymd_opt(2021, 4, 6)
+            .unwrap()
+            .and_hms_opt(10, 15, 0)
+            .unwrap()
             .with_nanosecond(449000000)
             .unwrap();
         assert_eq!(datetime, naive_datetime);
@@ -1466,8 +1489,11 @@ mod timestamp_tests {
         //                    ^-- Timestamp's offset API takes minutes
         let datetime: DateTime<FixedOffset> = timestamp.try_into()?;
         // chrono's FixedOffset takes seconds ----------v
-        let expected_offset = FixedOffset::east(-5 * 60 * 60);
-        let naive_datetime = NaiveDate::from_ymd(2021, 4, 6).and_hms(10, 15, 0);
+        let expected_offset = offset_east(-5 * 60 * 60);
+        let naive_datetime = NaiveDate::from_ymd_opt(2021, 4, 6)
+            .unwrap()
+            .and_hms_opt(10, 15, 0)
+            .unwrap();
         let expected_datetime = expected_offset
             .from_local_datetime(&naive_datetime)
             .unwrap();
@@ -1483,9 +1509,11 @@ mod timestamp_tests {
         //                    ^-- Timestamp's offset API takes minutes
         let datetime: DateTime<FixedOffset> = timestamp.try_into()?;
         // chrono's FixedOffset takes seconds ----------v
-        let expected_offset = FixedOffset::east(-5 * 60 * 60);
-        let naive_datetime = NaiveDate::from_ymd(2021, 4, 6)
-            .and_hms(10, 15, 0)
+        let expected_offset = offset_east(-5 * 60 * 60);
+        let naive_datetime = NaiveDate::from_ymd_opt(2021, 4, 6)
+            .unwrap()
+            .and_hms_opt(10, 15, 0)
+            .unwrap()
             .with_nanosecond(449000000)
             .unwrap();
         let expected_datetime = expected_offset
@@ -1654,13 +1682,13 @@ mod timestamp_tests {
     fn ion_eq_fraction_seconds_mixed_mantissa() {
         let t1 = Timestamp {
             date_time: NaiveDateTime::from_str("1857-05-29T19:25:59.100").unwrap(),
-            offset: Some(FixedOffset::east(60 * 60 * 23 + 60 * 59)),
+            offset: Some(offset_east(60 * 60 * 23 + 60 * 59)),
             precision: Precision::Second,
             fractional_seconds: Some(Mantissa::Digits(1)),
         };
         let t2 = Timestamp {
             date_time: NaiveDateTime::from_str("1857-05-29T19:25:59").unwrap(),
-            offset: Some(FixedOffset::east(60 * 60 * 23 + 60 * 59)),
+            offset: Some(offset_east(60 * 60 * 23 + 60 * 59)),
             precision: Precision::Second,
             fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(1u64, -1))),
         };
@@ -1672,13 +1700,13 @@ mod timestamp_tests {
     fn ion_eq_fraction_seconds_mixed_mantissa_2() {
         let t1 = Timestamp {
             date_time: NaiveDateTime::from_str("2001-08-01T18:18:49.006").unwrap(),
-            offset: Some(FixedOffset::east(60 * 60 + 60)),
+            offset: Some(offset_east(60 * 60 + 60)),
             precision: Precision::Second,
             fractional_seconds: Some(Mantissa::Digits(5)),
         };
         let t2 = Timestamp {
             date_time: NaiveDateTime::from_str("2001-08-01T18:18:49").unwrap(),
-            offset: Some(FixedOffset::east(60 * 60 + 60)),
+            offset: Some(offset_east(60 * 60 + 60)),
             precision: Precision::Second,
             fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(600u64, -5))),
         };
