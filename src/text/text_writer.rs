@@ -156,9 +156,7 @@ impl<W: Write> IonWriter for TextWriter<W> {
                 if let Some(text) = self.symbol_table.text_for(symbol_id) {
                     text
                 } else {
-                    panic!(
-                        "Cannot use symbol ID ${symbol_id} as a field name; it is undefined."
-                    );
+                    panic!("Cannot use symbol ID ${symbol_id} as a field name; it is undefined.");
                 }
             }
             RawSymbolTokenRef::Text(text) => text,

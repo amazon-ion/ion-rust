@@ -125,9 +125,7 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
                     if self.symbol_table.sid_is_valid(symbol_id) {
                         symbol_id
                     } else {
-                        panic!(
-                            "Cannot set symbol ID ${symbol_id} as annotation. It is undefined."
-                        );
+                        panic!("Cannot set symbol ID ${symbol_id} as annotation. It is undefined.");
                     }
                 }
                 RawSymbolTokenRef::Text(text) => self.get_or_create_symbol_id(text),
@@ -158,9 +156,7 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
                 if self.symbol_table.sid_is_valid(symbol_id) {
                     symbol_id
                 } else {
-                    panic!(
-                        "Cannot set symbol ID ${symbol_id} as field name. It is undefined."
-                    );
+                    panic!("Cannot set symbol ID ${symbol_id} as field name. It is undefined.");
                 }
             }
             RawSymbolTokenRef::Text(text) => self.get_or_create_symbol_id(text),

@@ -251,9 +251,7 @@ pub(crate) fn decode_hex_digits_to_char<'a>(
         None => {
             return fatal_parse_error(
                 hex_digits,
-                format!(
-                    "escape value (decimal:'{number_value}') is not a valid character"
-                ),
+                format!("escape value (decimal:'{number_value}') is not a valid character"),
             );
         }
     };

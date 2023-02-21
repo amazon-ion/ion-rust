@@ -1123,9 +1123,7 @@ mod writer_tests {
         expected_value: T,
     ) {
         let next = reader.next().unwrap_or_else(|_| {
-            panic!(
-                "Expected to read {expected_value:?}, but the stream was empty."
-            )
+            panic!("Expected to read {expected_value:?}, but the stream was empty.")
         });
         assert_eq!(next, StreamItem::Value(ion_type));
         let value = read_fn(reader)

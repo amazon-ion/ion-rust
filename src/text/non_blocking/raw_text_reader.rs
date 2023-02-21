@@ -293,7 +293,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
     fn continue_state(&mut self) -> IonResult<()> {
         if self.need_continue {
             self.need_continue = false;
-            
+
             match self.state {
                 // Previously Attempted to step_out, and failed.
                 ReaderState::SteppingOut { .. } => self.step_out(),
@@ -515,8 +515,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                             return RootParseResult::Incomplete(line, column);
                         }
                         Err(e) => {
-                            let error_message =
-                                format!("I/O error, could not read more data: {e}");
+                            let error_message = format!("I/O error, could not read more data: {e}");
                             return RootParseResult::Failure(error_message);
                         }
                     }
@@ -1056,9 +1055,7 @@ mod reader_tests {
                 assert_eq!(column, 14); // failure at start of multi-byte sequence.
             }
             Err(e) => panic!("unexpected error after partial utf-8 data: {e}"),
-            Ok(item) => panic!(
-                "unexpected successful parsing of partial utf-8 data: {item:?}"
-            ),
+            Ok(item) => panic!("unexpected successful parsing of partial utf-8 data: {item:?}"),
         }
         reader.append_bytes(&source[18..])?;
         next_type(&mut reader, IonType::String, false);

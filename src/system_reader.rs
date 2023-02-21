@@ -606,9 +606,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
         match self.raw_reader.field_name() {
             Ok(RawSymbolToken::SymbolId(sid)) => {
                 self.symbol_table.symbol_for(sid).cloned().ok_or_else(|| {
-                    decoding_error_raw(format!(
-                        "encountered field ID with undefined text: ${sid}"
-                    ))
+                    decoding_error_raw(format!("encountered field ID with undefined text: ${sid}"))
                 })
             }
             Ok(RawSymbolToken::Text(text)) => Ok(Symbol::owned(text)),
@@ -624,9 +622,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
                 // If the annotation was a symbol ID, try to resolve it
                 Ok(RawSymbolToken::SymbolId(sid)) => {
                     self.symbol_table.symbol_for(sid).cloned().ok_or_else(|| {
-                        decoding_error_raw(format!(
-                            "Found annotation with undefined symbol ${sid}"
-                        ))
+                        decoding_error_raw(format!("Found annotation with undefined symbol ${sid}"))
                     })
                 }
                 // If the annotation was a text literal, turn it into a `Symbol`

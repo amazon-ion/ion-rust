@@ -380,9 +380,7 @@ impl<R: RawReader> IonReader for UserReader<R> {
             .map(move |raw_token| match raw_token? {
                 RawSymbolToken::SymbolId(sid) => {
                     self.symbol_table.symbol_for(sid).cloned().ok_or_else(|| {
-                        decoding_error_raw(format!(
-                            "found annotation ID with unknown text: ${sid}"
-                        ))
+                        decoding_error_raw(format!("found annotation ID with unknown text: ${sid}"))
                     })
                 }
                 RawSymbolToken::Text(text) => Ok(Symbol::owned(text)),
