@@ -29,24 +29,23 @@ members = [
 
 [dependencies]
 base64 = "0.12"
-bigdecimal = "0.2"
+bigdecimal = "0.3.0"
 bytes = "0.4"
 chrono = "0.4"
-delegate = "0.5"
+delegate = "0.9.0"
 thiserror = "1.0"
 nom = "7.1.1"
-num-bigint = "0.3"
+num-bigint = "0.4.3"
 num-integer = "0.1.44"
 num-traits = "0.2"
 arrayvec = "0.7"
 smallvec = "1.9.0"
 
 [dev-dependencies]
-rstest = "0.9"
+rstest = "0.16.0"
 # Used by ion-tests integration
 walkdir = "2.3"
 test-generator = "0.3"
-pretty-hex = "0.2"
 memmap = "0.7.0"
 
 [profile.release]
