@@ -24,7 +24,7 @@ rust-version = "1.65"
 
 [dependencies]
 ion-rs = { path="..", version = "0.15" }
-num-bigint = "0.3"
+num-bigint = "0.4.3"
 digest = "0.9"
 sha2 = "0.9"
 thiserror = "1.0"
