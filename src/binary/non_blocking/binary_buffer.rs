@@ -722,9 +722,7 @@ mod tests {
     #[test]
     fn test_read_uint_too_large() {
         let mut buffer = Vec::with_capacity(MAX_UINT_SIZE_IN_BYTES + 1);
-        for _ in 0..(MAX_UINT_SIZE_IN_BYTES + 1) {
-            buffer.push(1);
-        }
+        buffer.resize(MAX_UINT_SIZE_IN_BYTES + 1, 1);
         let mut buffer = BinaryBuffer::new(buffer);
         let _uint = buffer
             .read_uint(buffer.remaining())

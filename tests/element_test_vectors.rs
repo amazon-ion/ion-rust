@@ -40,7 +40,7 @@ trait RoundTrip {
     /// Encodes `elements` to a buffer in the specified Ion `format` and then reads them back into
     /// a `Vec<OwnedElement>` using the provided reader.
     fn roundtrip<R: ElementReader>(
-        elements: &Vec<Element>,
+        elements: &[Element],
         format: Format,
         reader: R,
     ) -> IonResult<Vec<Element>>;
@@ -52,7 +52,7 @@ struct NativeElementWriterApi;
 
 impl RoundTrip for NativeElementWriterApi {
     fn roundtrip<R: ElementReader>(
-        elements: &Vec<Element>,
+        elements: &[Element],
         format: Format,
         reader: R,
     ) -> IonResult<Vec<Element>> {
@@ -240,9 +240,7 @@ trait ElementApi {
                     }
                 }
                 _ => {
-                    return decoding_error(format!(
-                        "Expected a sequence for group: {group_list:?}"
-                    ))
+                    return decoding_error(format!("Expected a sequence for group: {group_list:?}"))
                 }
             };
         }
@@ -270,9 +268,9 @@ trait ElementApi {
                     }
                 } else {
                     match single_result {
-                        Ok(elem) => panic!(
-                            "Did not expect element for duplicates: {elems:?}, {elem:?}"
-                        ),
+                        Ok(elem) => {
+                            panic!("Did not expect element for duplicates: {elems:?}, {elem:?}")
+                        }
                         Err(e) => match e {
                             IonError::DecodingError { description: _ } => (),
                             other => {

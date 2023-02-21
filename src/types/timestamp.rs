@@ -16,8 +16,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Div;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default)]
 pub enum Precision {
     /// Year-level precision (e.g. `2020T`)
     #[default]
@@ -34,7 +33,6 @@ pub enum Precision {
 
 // [Default] cannot be derived for enum types. Providing a manual implementation of this type
 // allows us to derive Default for [Timestamp].
-
 
 /// Stores the precision of a Timestamp's fractional seconds, if present. This type is not
 /// self-contained; if the Timestamp has a precision that is less than or equal to nanoseconds
@@ -385,9 +383,7 @@ impl Timestamp {
                     // We know that the coefficient is non-zero (the mantissa was not empty),
                     // so having a positive exponent would result in an illegal fractional
                     // seconds value.
-                    return encoding_error(
-                        "found fractional seconds decimal that was >= 1.",
-                    );
+                    return encoding_error("found fractional seconds decimal that was >= 1.");
                 }
 
                 let num_digits = decimal.coefficient.number_of_decimal_digits();
@@ -739,9 +735,9 @@ impl TimestampBuilder {
 
         // If precision >= Day, the day must be set.
         let day = self.day.expect("missing day");
-        datetime = datetime.with_day(day as u32).ok_or_else(|| {
-            illegal_operation_raw(format!("specified day ('{day}') is invalid"))
-        })?;
+        datetime = datetime
+            .with_day(day as u32)
+            .ok_or_else(|| illegal_operation_raw(format!("specified day ('{day}') is invalid")))?;
         if self.precision == Precision::Day {
             return Ok(datetime);
         }
@@ -1693,15 +1689,15 @@ mod timestamp_tests {
     #[rstest]
     #[case(Timestamp::with_year(3030).build().unwrap(), "3030T")]
     #[case(Timestamp::with_year(3030).with_month(11).build().unwrap(), "3030-11T")]
-    #[case(Timestamp::with_ymd(3030, 03, 31).build().unwrap(), "3030-03-31T")]
-    #[case(Timestamp::with_ymd(3030, 03, 31).with_hour_and_minute(17, 31).build_at_unknown_offset().unwrap(), "3030-03-31T17:31-00:00")]
-    #[case(Timestamp::with_ymd(3030, 03, 31).with_hour_and_minute(17, 31).build_at_offset(-420).unwrap(), "3030-03-31T17:31-07:00")]
-    #[case(Timestamp::with_ymd(3030, 03, 31).with_hour_and_minute(17, 31).build_utc_fields_at_offset(-420).unwrap(), "3030-03-31T10:31-07:00")]
-    #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).build_at_offset(0).unwrap(), "3030-03-31T17:31:57+00:00")]
-    #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).with_milliseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.027+00:00")]
-    #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).with_microseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000027+00:00")]
-    #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).with_nanoseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000000027+00:00")]
-    #[case(Timestamp::with_ymd_hms(3030, 03, 31, 17, 31, 57).with_fractional_seconds(Decimal::new(27, -12)).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000000000027+00:00")]
+    #[case(Timestamp::with_ymd(3030, 3, 31).build().unwrap(), "3030-03-31T")]
+    #[case(Timestamp::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).build_at_unknown_offset().unwrap(), "3030-03-31T17:31-00:00")]
+    #[case(Timestamp::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).build_at_offset(-420).unwrap(), "3030-03-31T17:31-07:00")]
+    #[case(Timestamp::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).build_utc_fields_at_offset(-420).unwrap(), "3030-03-31T10:31-07:00")]
+    #[case(Timestamp::with_ymd_hms(3030, 3, 31, 17, 31, 57).build_at_offset(0).unwrap(), "3030-03-31T17:31:57+00:00")]
+    #[case(Timestamp::with_ymd_hms(3030, 3, 31, 17, 31, 57).with_milliseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.027+00:00")]
+    #[case(Timestamp::with_ymd_hms(3030, 3, 31, 17, 31, 57).with_microseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000027+00:00")]
+    #[case(Timestamp::with_ymd_hms(3030, 3, 31, 17, 31, 57).with_nanoseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000000027+00:00")]
+    #[case(Timestamp::with_ymd_hms(3030, 3, 31, 17, 31, 57).with_fractional_seconds(Decimal::new(27, -12)).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000000000027+00:00")]
     fn test_display(#[case] ts: Timestamp, #[case] expect: String) {
         let mut buf = Vec::new();
         write!(&mut buf, "{ts}").unwrap();
