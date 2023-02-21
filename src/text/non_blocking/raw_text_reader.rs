@@ -293,12 +293,12 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
     fn continue_state(&mut self) -> IonResult<()> {
         if self.need_continue {
             self.need_continue = false;
-            let result = match self.state {
+
+            match self.state {
                 // Previously Attempted to step_out, and failed.
                 ReaderState::SteppingOut { .. } => self.step_out(),
                 ReaderState::Ready => Ok(()),
-            };
-            result
+            }
         } else {
             Ok(())
         }
@@ -316,8 +316,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
             }
             RootParseResult::Ok(RawTextStreamItem::IonVersionMarker(major, minor)) => {
                 decoding_error(format!(
-                    "Unsupported Ion version: v{}.{}. Only 1.0 is supported.",
-                    major, minor
+                    "Unsupported Ion version: v{major}.{minor}. Only 1.0 is supported."
                 ))
             }
             RootParseResult::Ok(RawTextStreamItem::AnnotatedTextValue(value)) => {
@@ -516,8 +515,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
                             return RootParseResult::Incomplete(line, column);
                         }
                         Err(e) => {
-                            let error_message =
-                                format!("I/O error, could not read more data: {}", e);
+                            let error_message = format!("I/O error, could not read more data: {e}");
                             return RootParseResult::Failure(error_message);
                         }
                     }
@@ -790,7 +788,7 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
         match self.current_value.as_ref().map(|current| current.value()) {
             Some(TextValue::Integer(Integer::I64(value))) => Ok(*value),
             Some(TextValue::Integer(Integer::BigInt(value))) => {
-                decoding_error(format!("Integer {} is too large to fit in an i64.", value))
+                decoding_error(format!("Integer {value} is too large to fit in an i64."))
             }
             _ => Err(self.expected("int value")),
         }
@@ -941,7 +939,7 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
             if let Err(IonError::Incomplete { .. }) = result {
                 self.need_continue = true;
             }
-            let _ = result?;
+            result?;
 
             // If we are a nested call, we're done for now.
             if self.step_out_nest != 0 {
@@ -1022,8 +1020,8 @@ mod reader_tests {
                 assert_eq!(line, 2);
                 assert_eq!(column, 0);
             }
-            Err(e) => panic!("unexpected error when parsing partial data: {}", e),
-            Ok(item) => panic!("unexpected successful parsing of partial data: {:?}", item),
+            Err(e) => panic!("unexpected error when parsing partial data: {e}"),
+            Ok(item) => panic!("unexpected successful parsing of partial data: {item:?}"),
         }
         reader
             .append_bytes("]".as_bytes())
@@ -1056,11 +1054,8 @@ mod reader_tests {
                 assert_eq!(line, 0); // Line is still 0 since we haven't actually seen a '\n' yet.
                 assert_eq!(column, 14); // failure at start of multi-byte sequence.
             }
-            Err(e) => panic!("unexpected error after partial utf-8 data: {}", e),
-            Ok(item) => panic!(
-                "unexpected successful parsing of partial utf-8 data: {:?}",
-                item
-            ),
+            Err(e) => panic!("unexpected error after partial utf-8 data: {e}"),
+            Ok(item) => panic!("unexpected successful parsing of partial utf-8 data: {item:?}"),
         }
         reader.append_bytes(&source[18..])?;
         next_type(&mut reader, IonType::String, false);
@@ -1214,7 +1209,7 @@ mod reader_tests {
         next_type(reader, IonType::Null, true);
 
         next_type(reader, IonType::Boolean, false);
-        assert_eq!(reader.read_bool()?, true);
+        assert!(reader.read_bool()?);
 
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?, 5);
@@ -1331,11 +1326,11 @@ mod reader_tests {
         let reader = &mut RawTextReader::new(ion_data);
         reader.stream_complete();
         next_type(reader, IonType::Null, true);
-        annotations_eq(reader, &["mercury"]);
+        annotations_eq(reader, ["mercury"]);
 
         next_type(reader, IonType::Boolean, false);
-        assert_eq!(reader.read_bool()?, true);
-        annotations_eq(reader, &["venus", "earth"]);
+        assert!(reader.read_bool()?);
+        annotations_eq(reader, ["venus", "earth"]);
 
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?, 5);
@@ -1343,26 +1338,26 @@ mod reader_tests {
 
         next_type(reader, IonType::Float, false);
         assert_eq!(reader.read_f64()?, 5.0f64);
-        annotations_eq(reader, &["jupiter"]);
+        annotations_eq(reader, ["jupiter"]);
 
         next_type(reader, IonType::Decimal, false);
         assert_eq!(reader.read_decimal()?, Decimal::new(55i32, -1i64));
-        annotations_eq(reader, &["saturn"]);
+        annotations_eq(reader, ["saturn"]);
 
         next_type(reader, IonType::Timestamp, false);
         assert_eq!(
             reader.read_timestamp()?,
             Timestamp::with_ymd(2021, 9, 25).build().unwrap()
         );
-        annotations_eq(reader, &[100, 200, 300]);
+        annotations_eq(reader, [100, 200, 300]);
 
         next_type(reader, IonType::Symbol, false);
         assert_eq!(reader.read_symbol()?, text_token("foo"));
-        annotations_eq(reader, &["uranus"]);
+        annotations_eq(reader, ["uranus"]);
 
         next_type(reader, IonType::String, false);
         assert_eq!(reader.read_string()?, "hello".to_string());
-        annotations_eq(reader, &["neptune"]);
+        annotations_eq(reader, ["neptune"]);
 
         // ===== CONTAINERS =====
 
@@ -1384,7 +1379,7 @@ mod reader_tests {
         assert_eq!(reader.number_of_annotations(), 0);
         assert_eq!(reader.read_i64()?, 1);
         next_type(reader, IonType::Integer, false);
-        annotations_eq(reader, &[77]);
+        annotations_eq(reader, [77]);
         assert_eq!(reader.read_i64()?, 2);
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.number_of_annotations(), 0);
@@ -1394,7 +1389,7 @@ mod reader_tests {
 
         // Reading an s-expression: haumea::makemake::eris::ceres::(++ -- &&&&&)
         next_type(reader, IonType::SExpression, false);
-        annotations_eq(reader, &["haumea", "makemake", "eris", "ceres"]);
+        annotations_eq(reader, ["haumea", "makemake", "eris", "ceres"]);
         reader.step_in()?;
         next_type(reader, IonType::Symbol, false);
         assert_eq!(reader.read_symbol()?, text_token("++"));
@@ -1450,7 +1445,7 @@ mod reader_tests {
         "#;
         let mut reader = RawTextReader::new(&pretty_ion[..]);
         let result = reader.next();
-        println!("{:?}", result);
+        println!("{result:?}");
         assert!(result.is_err());
         Ok(())
     }
@@ -1463,7 +1458,7 @@ mod reader_tests {
         "#;
         let mut reader = RawTextReader::new(&pretty_ion[..]);
         let result = reader.next();
-        println!("{:?}", result);
+        println!("{result:?}");
         assert!(result.is_err());
         Ok(())
     }
@@ -1492,7 +1487,7 @@ mod reader_tests {
                 reader.stream_complete();
                 reader.next()?;
             }
-            other => panic!("unexpected return from next: {:?}", other),
+            other => panic!("unexpected return from next: {other:?}"),
         }
 
         assert_eq!(reader.ion_type().unwrap(), IonType::Integer);
@@ -1535,7 +1530,7 @@ mod reader_tests {
                 reader.step_out()?;
                 assert_eq!(reader.depth(), 1);
             }
-            other => panic!("Expected to get an incomplete error: {:?}", other),
+            other => panic!("Expected to get an incomplete error: {other:?}"),
         }
         // Step out to the root of the document.
         reader.step_out()?;
@@ -1585,7 +1580,7 @@ mod reader_tests {
                 reader.step_out()?;
                 assert_eq!(reader.depth(), 1);
             }
-            other => panic!("Expected to get an incomplete error: {:?}", other),
+            other => panic!("Expected to get an incomplete error: {other:?}"),
         }
         // We've stepped out of the inner structs, and we should be at the last field in the outter
         // most container.
@@ -1650,7 +1645,7 @@ mod reader_tests {
                 reader.step_out()?;
                 assert_eq!(reader.depth(), 0);
             }
-            other => panic!("Expected to get an incomplete error: {:?}", other),
+            other => panic!("Expected to get an incomplete error: {other:?}"),
         }
         // We have stepped out, and should now be at the end of the stream.
         let result = reader.next()?;
@@ -1710,7 +1705,7 @@ mod reader_tests {
                 reader.next()?;
                 assert_eq!(reader.depth(), 0);
             }
-            other => panic!("Expected to get an incomplete error: {:?}", other),
+            other => panic!("Expected to get an incomplete error: {other:?}"),
         }
         // At this point, we should have successfully stepped out, and advanced with the `next`,
         // reaching the end of the document.
@@ -1746,7 +1741,7 @@ mod reader_tests {
                 reader.stream_complete();
                 result = reader.next()?;
             }
-            other => panic!("unexpected result from next: {:?}", other),
+            other => panic!("unexpected result from next: {other:?}"),
         }
 
         // At this point, we should have successfully stepped out, and advanced with the `next`,
@@ -1787,14 +1782,14 @@ mod reader_tests {
                 // parsed data is available, and that the reader won't try to start parsing more.
                 match reader.read_i64() {
                     Err(IonError::IllegalOperation { .. }) => (),
-                    other => panic!("unexpected result from read_i64: {:?}", other),
+                    other => panic!("unexpected result from read_i64: {other:?}"),
                 }
 
                 reader.read_from(&mut source[62..].as_bytes(), 512)?;
                 reader.stream_complete();
                 result = reader.next()?;
             }
-            other => panic!("unexpected result from next: {:?}", other),
+            other => panic!("unexpected result from next: {other:?}"),
         }
         assert_eq!(result, RawStreamItem::Nothing);
 

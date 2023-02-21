@@ -13,8 +13,7 @@ impl ParentContainer {
     pub fn new(ion_type: IonType) -> Self {
         assert!(
             ion_type.is_container(),
-            "Cannot create a `ParentContainer` from a scalar: {}",
-            ion_type
+            "Cannot create a `ParentContainer` from a scalar: {ion_type}"
         );
         ParentContainer {
             ion_type,

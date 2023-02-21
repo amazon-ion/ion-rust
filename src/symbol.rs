@@ -122,7 +122,7 @@ impl Display for Symbol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.text() {
             None => write!(f, "$0"),
-            Some(text) => write!(f, "'{}'", text),
+            Some(text) => write!(f, "'{text}'"),
         }
     }
 }

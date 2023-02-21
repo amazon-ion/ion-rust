@@ -132,7 +132,7 @@ fn parse_sanitized_text_with_radix(text: &str, radix: u32) -> IonParseResult<Int
         Err(e) => {
             // Something else was wrong with the text, but our parser still matched on it for
             // some reason.
-            fatal_parse_error(text, format!("found integer with invalid text: {:?}", e))
+            fatal_parse_error(text, format!("found integer with invalid text: {e:?}"))
         }
     }
 }

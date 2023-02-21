@@ -1,5 +1,6 @@
 use crate::result::{decoding_error, illegal_operation, illegal_operation_raw};
 use crate::text::parent_container::ParentContainer;
+
 use crate::value::iterators::SymbolsIterator;
 use crate::value::owned::Element;
 use crate::value::{IonElement, IonSequence, IonStruct};
@@ -217,7 +218,7 @@ impl IonReader for ElementStreamReader {
                 match element.as_integer().unwrap() {
                     Integer::I64(value) => Ok(*value),
                     Integer::BigInt(value) => {
-                        decoding_error(format!("Integer {} is too large to fit in an i64.", value))
+                        decoding_error(format!("Integer {value} is too large to fit in an i64."))
                     }
                 }
             }

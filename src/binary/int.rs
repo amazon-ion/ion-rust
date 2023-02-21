@@ -48,8 +48,7 @@ impl DecodedInt {
             });
         } else if length > MAX_INT_SIZE_IN_BYTES {
             return decoding_error(format!(
-                "Found a {}-byte Int. Max supported size is {} bytes.",
-                length, MAX_INT_SIZE_IN_BYTES
+                "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
             ));
         }
 

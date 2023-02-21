@@ -79,7 +79,7 @@ mod float_parsing_tests {
         if let TextValue::Float(f) = value {
             assert!(f.is_nan());
         } else {
-            panic!("Expected NaN, but got: {:?}", value);
+            panic!("Expected NaN, but got: {value:?}");
         }
 
         // -0 keeps its negative sign
@@ -88,7 +88,7 @@ mod float_parsing_tests {
             assert!(f == 0.0f64);
             assert!(f.is_sign_negative())
         } else {
-            panic!("Expected -0e0, but got: {:?}", value);
+            panic!("Expected -0e0, but got: {value:?}");
         }
     }
 

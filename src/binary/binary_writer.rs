@@ -125,10 +125,7 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
                     if self.symbol_table.sid_is_valid(symbol_id) {
                         symbol_id
                     } else {
-                        panic!(
-                            "Cannot set symbol ID ${} as annotation. It is undefined.",
-                            symbol_id
-                        );
+                        panic!("Cannot set symbol ID ${symbol_id} as annotation. It is undefined.");
                     }
                 }
                 RawSymbolTokenRef::Text(text) => self.get_or_create_symbol_id(text),
@@ -144,8 +141,7 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
                     symbol_id
                 } else {
                     return illegal_operation(format!(
-                        "Cannot write symbol ID ${} as a symbol value. It is undefined.",
-                        symbol_id
+                        "Cannot write symbol ID ${symbol_id} as a symbol value. It is undefined."
                     ));
                 }
             }
@@ -160,10 +156,7 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
                 if self.symbol_table.sid_is_valid(symbol_id) {
                     symbol_id
                 } else {
-                    panic!(
-                        "Cannot set symbol ID ${} as field name. It is undefined.",
-                        symbol_id
-                    );
+                    panic!("Cannot set symbol ID ${symbol_id} as field name. It is undefined.");
                 }
             }
             RawSymbolTokenRef::Text(text) => self.get_or_create_symbol_id(text),
@@ -235,7 +228,7 @@ mod tests {
     fn intern_annotations() -> IonResult<()> {
         let mut buffer = Vec::new();
         let mut binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
-        binary_writer.set_annotations(&["foo", "bar"]);
+        binary_writer.set_annotations(["foo", "bar"]);
         binary_writer.write_i64(5)?;
         binary_writer.flush()?;
 

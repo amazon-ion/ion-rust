@@ -50,8 +50,7 @@ impl DecodedUInt {
     pub fn read<R: IonDataSource>(data_source: &mut R, length: usize) -> IonResult<DecodedUInt> {
         if length > MAX_UINT_SIZE_IN_BYTES {
             return decoding_error(format!(
-                "Found a {}-byte UInt. Max supported size is {} bytes.",
-                length, MAX_UINT_SIZE_IN_BYTES
+                "Found a {length}-byte UInt. Max supported size is {MAX_UINT_SIZE_IN_BYTES} bytes."
             ));
         }
 
@@ -255,9 +254,7 @@ mod tests {
     #[test]
     fn test_read_uint_too_large() {
         let mut buffer = Vec::with_capacity(MAX_UINT_SIZE_IN_BYTES + 1);
-        for _ in 0..(MAX_UINT_SIZE_IN_BYTES + 1) {
-            buffer.push(1);
-        }
+        buffer.resize(MAX_UINT_SIZE_IN_BYTES + 1, 1);
         let data = buffer.as_slice();
         let _uint = DecodedUInt::read(&mut Cursor::new(data), data.len())
             .expect_err("This exceeded the configured max UInt size.");
@@ -268,7 +265,7 @@ mod tests {
         let value = UInteger::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap());
         let mut buffer: Vec<u8> = vec![];
         let encoded = super::encode_uinteger(&value);
-        buffer.write_all(&encoded.as_bytes()).unwrap();
+        buffer.write_all(encoded.as_bytes()).unwrap();
         let expected_bytes = vec![0xFFu8; 10];
         assert_eq!(expected_bytes.as_slice(), buffer.as_slice());
     }

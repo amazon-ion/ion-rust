@@ -71,5 +71,5 @@ jobs:
         with:
           # Adding comments to the PR requires the GITHUB_TOKEN secret.
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features
+          args: --all-features --tests
 

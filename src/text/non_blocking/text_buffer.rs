@@ -393,14 +393,14 @@ mod tests {
         // Should be reading: "first line"
         match input.load_next_line() {
             Ok(11) => (),
-            wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
+            wrong => panic!("Unexpected result from load_next_line: {wrong:?}"),
         }
         assert_eq!(input.remaining_text(), "first line\n");
         input.consume(11);
 
         match input.load_next_line() {
             Ok(12) => (),
-            wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
+            wrong => panic!("Unexpected result from load_next_line: {wrong:?}"),
         }
         assert_eq!(input.remaining_text(), "second line\n");
 
@@ -452,7 +452,7 @@ mod tests {
         let more = "second line\n";
         match input.read_from(more.as_bytes(), more.len()) {
             Ok(x) if x == more.len() => (),
-            wrong => panic!("Unexpected response from read_from: {:?}", wrong),
+            wrong => panic!("Unexpected response from read_from: {wrong:?}"),
         }
         assert_eq!(input.data_end, 12);
 
@@ -479,7 +479,7 @@ mod tests {
         // the atom symbol is returned.
         match input.load_next_line() {
             Ok(16) => (),
-            wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
+            wrong => panic!("Unexpected result from load_next_line: {wrong:?}"),
         }
 
         input
@@ -492,7 +492,7 @@ mod tests {
                 assert_eq!(&input.remaining_text().as_bytes()[..13], source.as_bytes());
                 assert_eq!(&input.remaining_text().as_bytes()[13..], atom_modified);
             }
-            wrong => panic!("Unexpected result from load_next_line: {:?}", wrong),
+            wrong => panic!("Unexpected result from load_next_line: {wrong:?}"),
         }
     }
 
@@ -613,19 +613,19 @@ mod tests {
         assert_eq!(buffer.remaining_text(), "foo\n");
         buffer.consume(4);
         // The buffer itself is empty, but input has not reached EOF yet.
-        assert_eq!(buffer.is_exhausted(), false);
+        assert!(!buffer.is_exhausted());
         // Load another line
         assert_eq!(buffer.load_next_line().unwrap(), 4);
         // Now input is at EOF, but the buffer contains text.
-        assert_eq!(buffer.is_exhausted(), false);
+        assert!(!buffer.is_exhausted());
         // Consume the bytes in the buffer
         buffer.consume(4);
         // Now the buffer is empty. Looking ahead, we can tell that the input is empty,
         // but we have to try to load another line to actually encounter EOF.
-        assert_eq!(buffer.is_exhausted(), false);
+        assert!(!buffer.is_exhausted());
         assert_eq!(buffer.load_next_line().unwrap(), 0);
         // Now the buffer is empty and the input has hit EOF.
-        assert_eq!(buffer.is_exhausted(), true);
+        assert!(buffer.is_exhausted());
     }
 
     #[test]

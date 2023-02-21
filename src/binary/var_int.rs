@@ -77,8 +77,7 @@ impl VarInt {
 
         if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
             return decoding_error(format!(
-                "Found a {}-byte VarInt. Max supported size is {} bytes.",
-                encoded_size_in_bytes, MAX_ENCODED_SIZE_IN_BYTES
+                "Found a {encoded_size_in_bytes}-byte VarInt. Max supported size is {MAX_ENCODED_SIZE_IN_BYTES} bytes."
             ));
         }
 

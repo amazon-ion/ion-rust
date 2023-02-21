@@ -36,7 +36,7 @@ pub(crate) fn parse_blob(input: &str) -> IonParseResult<TextValue> {
     // a blob. If we can't decode that text as base64, the stream is malformed.
     match decode_result {
         Ok(data) => Ok((remaining_input, TextValue::Blob(data))),
-        Err(e) => fatal_parse_error(base64_text, format!("could not decode base64 data: {}", e)),
+        Err(e) => fatal_parse_error(base64_text, format!("could not decode base64 data: {e}")),
     }
 }
 

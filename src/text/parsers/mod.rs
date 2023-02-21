@@ -66,7 +66,7 @@ pub(crate) fn trim_leading_zeros(input: &str) -> &str {
 pub(crate) fn trim_zeros_and_parse_u32<'a>(input: &'a str, label: &str) -> IonParseResult<'a, u32> {
     match u32::from_str(trim_leading_zeros(input)) {
         Ok(value) => Ok(("", value)), // The entire input was consumed, leaving the empty string
-        Err(e) => fatal_parse_error(input, format!("parsing {} as a u32 failed: {}", label, e)),
+        Err(e) => fatal_parse_error(input, format!("parsing {label} as a u32 failed: {e}")),
     }
 }
 
@@ -77,7 +77,7 @@ pub(crate) fn trim_zeros_and_parse_u32<'a>(input: &'a str, label: &str) -> IonPa
 pub(crate) fn trim_zeros_and_parse_i32<'a>(input: &'a str, label: &str) -> IonParseResult<'a, i32> {
     match i32::from_str(trim_leading_zeros(input)) {
         Ok(value) => Ok(("", value)), // The entire input was consumed, leaving the empty string
-        Err(e) => fatal_parse_error(input, format!("parsing {} as an i32 failed: {}", label, e)),
+        Err(e) => fatal_parse_error(input, format!("parsing {label} as an i32 failed: {e}")),
     }
 }
 

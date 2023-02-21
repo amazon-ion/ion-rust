@@ -256,14 +256,12 @@ impl TryFrom<&UInteger> for i64 {
         match value {
             UInteger::U64(uint) => i64::try_from(*uint).or_else(|_| {
                 decoding_error(format!(
-                    "Unsigned integer {:?} was too large to be represented as an i64.",
-                    uint
+                    "Unsigned integer {uint:?} was too large to be represented as an i64."
                 ))
             }),
             UInteger::BigUInt(big_uint) => i64::try_from(big_uint).or_else(|_| {
                 decoding_error(format!(
-                    "Unsigned integer {:?} was too large to be represented as an i64.",
-                    big_uint
+                    "Unsigned integer {big_uint:?} was too large to be represented as an i64."
                 ))
             }),
         }
@@ -277,14 +275,12 @@ impl TryFrom<&UInteger> for usize {
         match value {
             UInteger::U64(uint) => usize::try_from(*uint).or_else(|_| {
                 decoding_error(format!(
-                    "Unsigned integer {:?} was too large to be represented as an usize.",
-                    uint
+                    "Unsigned integer {uint:?} was too large to be represented as an usize."
                 ))
             }),
             UInteger::BigUInt(big_uint) => usize::try_from(big_uint).or_else(|_| {
                 decoding_error(format!(
-                    "Unsigned integer {:?} was too large to be represented as an usize.",
-                    big_uint
+                    "Unsigned integer {big_uint:?} was too large to be represented as an usize."
                 ))
             }),
         }
@@ -422,8 +418,8 @@ impl Zero for Integer {
 impl Display for UInteger {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &self {
-            UInteger::U64(i) => write!(f, "{}", i),
-            UInteger::BigUInt(i) => write!(f, "{}", i),
+            UInteger::U64(i) => write!(f, "{i}"),
+            UInteger::BigUInt(i) => write!(f, "{i}"),
         }
     }
 }
@@ -492,8 +488,8 @@ where
 impl Display for Integer {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         match &self {
-            Integer::I64(i) => write!(f, "{}", i),
-            Integer::BigInt(i) => write!(f, "{}", i),
+            Integer::I64(i) => write!(f, "{i}"),
+            Integer::BigInt(i) => write!(f, "{i}"),
         }
     }
 }
@@ -617,7 +613,7 @@ mod integer_tests {
     #[case(Integer::BigInt(BigInt::from(-1100)), "-1100")]
     fn int_display_test(#[case] value: Integer, #[case] expect: String) {
         let mut buf = Vec::new();
-        write!(&mut buf, "{}", value).unwrap();
+        write!(&mut buf, "{value}").unwrap();
         assert_eq!(expect, String::from_utf8(buf).unwrap());
     }
 
@@ -628,7 +624,7 @@ mod integer_tests {
     #[case(UInteger::BigUInt(BigUint::from(1100u64)), "1100")]
     fn uint_display_test(#[case] value: UInteger, #[case] expect: String) {
         let mut buf = Vec::new();
-        write!(&mut buf, "{}", value).unwrap();
+        write!(&mut buf, "{value}").unwrap();
         assert_eq!(expect, String::from_utf8(buf).unwrap());
     }
 }

@@ -122,8 +122,7 @@ impl<W: Write> IonWriter for TextWriter<W> {
                         //       instead. However, we could consider allowing this via a config
                         //       option.
                         panic!(
-                            "Cannot use symbol ID ${} as an annotation; it is undefined.",
-                            symbol_id
+                            "Cannot use symbol ID ${symbol_id} as an annotation; it is undefined."
                         );
                     }
                 }
@@ -141,8 +140,7 @@ impl<W: Write> IonWriter for TextWriter<W> {
                     text
                 } else {
                     return illegal_operation(format!(
-                        "Cannot write symbol ID ${} as a symbol value; it is undefined.",
-                        symbol_id
+                        "Cannot write symbol ID ${symbol_id} as a symbol value; it is undefined."
                     ));
                 }
             }
@@ -158,10 +156,7 @@ impl<W: Write> IonWriter for TextWriter<W> {
                 if let Some(text) = self.symbol_table.text_for(symbol_id) {
                     text
                 } else {
-                    panic!(
-                        "Cannot use symbol ID ${} as a field name; it is undefined.",
-                        symbol_id
-                    );
+                    panic!("Cannot use symbol ID ${symbol_id} as a field name; it is undefined.");
                 }
             }
             RawSymbolTokenRef::Text(text) => text,
@@ -211,7 +206,7 @@ mod tests {
         // https://amazon-ion.github.io/ion-docs/docs/symbols.html#system-symbols
         text_writer.step_in(IonType::Struct)?;
         text_writer.set_field_name(4);
-        text_writer.set_annotations(&[1]);
+        text_writer.set_annotations([1]);
         text_writer.write_symbol(5)?;
         text_writer.step_out()?;
         text_writer.flush()?;

@@ -677,8 +677,8 @@ mod borrowed_value_tests {
     case::struct_(
         ElementRef::new_struct(
             vec![
-                ("greetings", ElementRef::from(ValueRef::String("hello".into()))),
-                ("name", ElementRef::from(ValueRef::String("Ion".into())))
+                ("greetings", ElementRef::from(ValueRef::String("hello"))),
+                ("name", ElementRef::from(ValueRef::String("Ion")))
             ].into_iter()
         ),
         2

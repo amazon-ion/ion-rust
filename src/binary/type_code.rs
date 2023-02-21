@@ -56,8 +56,7 @@ impl TryFrom<IonTypeCode> for IonType {
             Struct => IonType::Struct,
             _ => {
                 return decoding_error(format!(
-                    "Attempted to make an IonType from an invalid type code: {:?}",
-                    ion_type_code
+                    "Attempted to make an IonType from an invalid type code: {ion_type_code:?}"
                 ));
             }
         };
@@ -90,7 +89,7 @@ impl TryFrom<u8> for IonTypeCode {
             14 => AnnotationOrIvm,
             15 => Reserved,
             _ => {
-                return decoding_error(format!("{:?} is not a valid header type code.", type_code));
+                return decoding_error(format!("{type_code:?} is not a valid header type code."));
             }
         };
         Ok(ion_type_code)
