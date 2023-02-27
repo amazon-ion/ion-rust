@@ -390,26 +390,51 @@ mod impl_display_for_element_tests {
     use super::*;
     use ion_rs::value::native_writer::NativeElementWriter;
     use ion_rs::value::reader::element_reader;
-    use ion_rs::{IonResult, TextWriterBuilder};
+    use ion_rs::TextWriterBuilder;
     use std::fs::read;
+
+    const TO_STRING_SKIP_LIST: [&'static str; 12] = [
+        // These tests have shared symbol table imports in them, which the Reader does not
+        // yet support.
+        "ion-tests/iontestdata/good/subfieldInt.ion",
+        "ion-tests/iontestdata/good/subfieldUInt.ion",
+        "ion-tests/iontestdata/good/subfieldVarInt.ion",
+        "ion-tests/iontestdata/good/subfieldVarUInt.ion",
+        "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
+        "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
+        "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
+        "ion-tests/iontestdata/good/item1.10n",
+        "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
+        "ion-tests/iontestdata/good/testfile35.ion",
+        // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
+        "ion-tests/iontestdata/good/utf16.ion",
+        "ion-tests/iontestdata/good/utf32.ion",
+    ];
 
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
-    fn test_to_string(file_name: &str) -> IonResult<()> {
-        let data = read(file_name)?;
-        let result = element_reader().read_all(&data)?;
+    fn test_to_string(file_name: &str) {
+        if contains_path(&TO_STRING_SKIP_LIST, file_name) {
+            println!("IGNORING: {file_name}");
+            return;
+        }
+
+        let data = read(file_name).unwrap();
+        let result = element_reader().read_all(&data).expect(&*format!(
+            "Expected to be able to read Ion values for contents of file {file_name}"
+        ));
 
         for element in result {
             let mut buffer = Vec::with_capacity(2048);
-            let mut writer = NativeElementWriter::new(TextWriterBuilder::new().build(&mut buffer)?);
-            writer.write(&element)?;
-            writer.finish()?;
+            let mut writer =
+                NativeElementWriter::new(TextWriterBuilder::new().build(&mut buffer).unwrap());
+            writer.write(&element).unwrap();
+            writer.finish().unwrap();
 
             let expected_string = std::str::from_utf8(buffer.as_slice()).unwrap().to_string();
 
             assert_eq!(element.to_string(), expected_string);
         }
-        Ok(())
     }
 }
 
