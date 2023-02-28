@@ -393,7 +393,7 @@ mod impl_display_for_element_tests {
     use ion_rs::TextWriterBuilder;
     use std::fs::read;
 
-    const TO_STRING_SKIP_LIST: [&'static str; 12] = [
+    const TO_STRING_SKIP_LIST: &[&'static str] = &[
         // These tests have shared symbol table imports in them, which the Reader does not
         // yet support.
         "ion-tests/iontestdata/good/subfieldInt.ion",
