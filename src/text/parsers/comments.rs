@@ -3,7 +3,8 @@ use crate::text::parsers::whitespace;
 
 use nom::branch::alt;
 use nom::bytes::streaming::{is_not, tag, take_until};
-use nom::combinator::recognize;
+use nom::character::streaming::one_of;
+use nom::combinator::{peek, recognize, value};
 use nom::multi::many0_count;
 use nom::sequence::{delimited, preceded};
 
@@ -28,8 +29,14 @@ fn rest_of_line_comment(input: &str) -> IonParseResult<&str> {
     preceded(
         // Matches a leading "//"...
         tag("//"),
-        // ...followed by any characters that are not a '\r' or '\n'.
-        is_not("\r\n"), // Note that this will not consume the newline.
+        // ...followed by either...
+        alt((
+            // ...one or more non-EOL characters...
+            is_not("\r\n"),
+            // ...or any EOL character.
+            value("", peek(recognize(one_of("\r\n")))),
+            // In either case, the line ending will not be consumed.
+        )),
     )(input)
     .upgrade()
 }
@@ -55,6 +62,8 @@ pub(crate) mod comment_parser_tests {
     #[rstest]
     #[case("//hello!\n", "hello!")]
     #[case("//😎 😎 😎\n", "😎 😎 😎")]
+    #[case("//\n ", "")] // Empty comments are allowed
+    #[case("//\t   \n ", "\t   ")] // Whitespace is allowed
     #[should_panic]
     #[case("// no newline ", "<should panic>")]
     fn test_parse_rest_of_line_comment(#[case] text: &str, #[case] expected: &str) {
