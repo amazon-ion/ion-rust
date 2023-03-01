@@ -1,6 +1,5 @@
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::value::owned::{Sequence, Struct};
-use crate::value::{IonSequence, IonStruct};
 use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Symbol, Timestamp};
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
@@ -406,7 +405,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
 
     pub(crate) fn format_struct(&mut self, value: &Struct) -> IonResult<()> {
         write!(self.output, "{{")?;
-        let mut peekable_itr = value.iter().peekable();
+        let mut peekable_itr = value.fields().peekable();
         while let Some((field_name, field_value)) = peekable_itr.next() {
             self.format_symbol(field_name.text().unwrap())?;
             write!(self.output, ": {field_value}")?;

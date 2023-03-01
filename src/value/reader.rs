@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Provides APIs to read Ion data into [`IonElement`](super::IonElement) from different sources such
+//! Provides APIs to read Ion data into [Element] from different sources such
 //! as slices or files.
 
 use crate::result::{decoding_error, IonResult};
@@ -11,20 +11,12 @@ use crate::value::owned::Element;
 //      we could make it generic with generic associated types or just have a lifetime
 //      scoped implementation
 
-/// Reads Ion data into [`IonElement`](super::IonElement) instances.
-///
-/// ## Notes
-/// Users of this trait should not assume any particular implementation of [`IonElement`](super::IonElement).
-/// In the future, [generic associated types (GAT)][gat] and [existential types in traits][et]
-/// should make it easier to model this more abstractly.
-///
-/// [gat]: https://rust-lang.github.io/rfcs/1598-generic_associated_types.html
-/// [et]:https://rust-lang.github.io/rfcs/2071-impl-trait-existential-types.html
+/// Reads Ion data into [`Element`] instances.
 pub trait ElementReader {
     /// Parses Ion over a given slice of data and yields each top-level value as
-    /// an [`IonElement`](super::IonElement) instance.
+    /// an [`Element`] instance.
     ///
-    /// The [`Iterator`] will generally return `Some(Ok([`IonElement`]))` but on a failure of
+    /// The [`Iterator`] will generally return `Some(Ok([`Element`]))` but on a failure of
     /// parsing it will return a `Some(Err([IonError]))` and then a `None` to signal no more
     /// elements.
     ///
@@ -42,9 +34,9 @@ pub trait ElementReader {
         self.iterate_over(data)?.collect()
     }
 
-    /// Parses Ion over a given slice into a single [`IonElement`](super::IonElement) instance.
+    /// Parses Ion over a given slice into a single [`Element`] instance.
     /// Returns [`IonError`](crate::result::IonError) if any error occurs during the parse
-    /// or there is more than one top-level [`IonElement`](super::IonElement) in the data.
+    /// or there is more than one top-level [`Element`] in the data.
     #[inline]
     fn read_one(&self, data: &[u8]) -> IonResult<Element> {
         let mut iter = self.iterate_over(data)?;
@@ -79,9 +71,9 @@ mod reader_tests {
     use super::*;
     use crate::types::integer::Integer;
     use crate::types::timestamp::Timestamp as TS;
+    use crate::value::owned::Element;
     use crate::value::owned::Value::*;
     use crate::value::owned::*;
-    use crate::value::IonElement;
     use crate::{IonType, Symbol};
     use bigdecimal::BigDecimal;
     use num_bigint::BigInt;
@@ -288,7 +280,7 @@ mod reader_tests {
     #[test]
     fn read_nan() -> IonResult<()> {
         let actual = element_reader().read_one(b"nan")?;
-        assert!(actual.as_f64().unwrap().is_nan());
+        assert!(actual.as_float().unwrap().is_nan());
         Ok(())
     }
 }

@@ -27,11 +27,11 @@ pub(crate) trait RepresentationEncoder {
         match elem.ion_type() {
             IonType::Null | IonType::Boolean => {} // these types have no representation
             IonType::Integer => self.write_repr_integer(elem.as_integer())?,
-            IonType::Float => self.write_repr_float(elem.as_f64())?,
+            IonType::Float => self.write_repr_float(elem.as_float())?,
             IonType::Decimal => self.write_repr_decimal(elem.as_decimal())?,
             IonType::Timestamp => self.write_repr_timestamp(elem.as_timestamp())?,
-            IonType::Symbol => self.write_repr_symbol(elem.as_sym())?,
-            IonType::String => self.write_repr_string(elem.as_str())?,
+            IonType::Symbol => self.write_repr_symbol(elem.as_symbol())?,
+            IonType::String => self.write_repr_string(elem.as_string())?,
             IonType::Clob | IonType::Blob => self.write_repr_blob(elem.as_bytes())?,
             IonType::List | IonType::SExpression => self.write_repr_seq(elem.as_sequence())?,
             IonType::Struct => self.write_repr_struct(elem.as_struct())?,

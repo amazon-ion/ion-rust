@@ -3,7 +3,6 @@ use crate::text::parent_container::ParentContainer;
 
 use crate::value::iterators::SymbolsIterator;
 use crate::value::owned::Element;
-use crate::value::{IonElement, IonSequence, IonStruct};
 use crate::{
     Decimal, Integer, IonError, IonReader, IonResult, IonType, StreamItem, Symbol, Timestamp,
 };
@@ -205,7 +204,7 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_bool(&mut self) -> IonResult<bool> {
-        self.current_value_as("bool value", |v| v.as_bool())
+        self.current_value_as("bool value", |v| v.as_boolean())
     }
 
     fn read_integer(&mut self) -> IonResult<Integer> {
@@ -227,11 +226,11 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_f32(&mut self) -> IonResult<f32> {
-        self.current_value_as("float value", |v| v.as_f64().map(|f| f as f32))
+        self.current_value_as("float value", |v| v.as_float().map(|f| f as f32))
     }
 
     fn read_f64(&mut self) -> IonResult<f64> {
-        self.current_value_as("float value", |v| v.as_f64())
+        self.current_value_as("float value", |v| v.as_float())
     }
 
     fn read_decimal(&mut self) -> IonResult<Decimal> {
@@ -248,7 +247,7 @@ impl IonReader for ElementStreamReader {
         F: FnOnce(&str) -> U,
     {
         match self.current_value.as_ref() {
-            Some(element) if element.as_str().is_some() => Ok(f(element.as_str().unwrap())),
+            Some(element) if element.as_text().is_some() => Ok(f(element.as_text().unwrap())),
             _ => Err(self.expected("string value")),
         }
     }
@@ -262,7 +261,7 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_symbol(&mut self) -> IonResult<Self::Symbol> {
-        self.current_value_as("symbol value", |v| v.as_sym().map(|i| i.to_owned()))
+        self.current_value_as("symbol value", |v| v.as_symbol().map(|i| i.to_owned()))
     }
 
     fn read_blob(&mut self) -> IonResult<Vec<u8>> {
@@ -377,7 +376,6 @@ impl IonReader for ElementStreamReader {
 
 #[cfg(test)]
 mod reader_tests {
-    use crate::value::Builder;
     use rstest::*;
 
     use super::*;
@@ -385,7 +383,7 @@ mod reader_tests {
     use crate::stream_reader::IonReader;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::value::owned::text_token;
+    use crate::value::owned::{text_token, Value};
     use crate::value::reader::{element_reader, ElementReader as NonStreamElementReader};
     use crate::IonType;
 
@@ -528,8 +526,8 @@ mod reader_tests {
     }
 
     #[rstest]
-    #[case(" null ", Element::new_null(IonType::Null))]
-    #[case(" null.string ", Element::new_null(IonType::String))]
+    #[case(" null ", Element::from(IonType::Null))]
+    #[case(" null.string ", Element::from(IonType::String))]
     #[case(" true ", true)]
     #[case(" false ", false)]
     #[case(" 738 ", 738)]
@@ -538,8 +536,8 @@ mod reader_tests {
     #[case(" 2007-07-12T ", Timestamp::with_ymd(2007, 7, 12).build().unwrap())]
     #[case(" foo ", text_token("foo"))]
     #[case(" \"hi!\" ", "hi!".to_owned())]
-    #[case(" {{ZW5jb2RlZA==}} ", Element::new_blob("encoded".as_bytes()))]
-    #[case(" {{\"hello\"}} ", Element::new_clob("hello".as_bytes()))]
+    #[case(" {{ZW5jb2RlZA==}} ", Value::Blob("encoded".as_bytes().to_vec()))]
+    #[case(" {{\"hello\"}} ", Value::Clob("hello".as_bytes().to_vec()))]
     fn test_read_single_top_level_values<E: Into<Element>>(
         #[case] text: &str,
         #[case] expected_value: E,
@@ -558,9 +556,9 @@ mod reader_tests {
     }
 
     #[rstest]
-    #[case(" foo::bar::null ", Element::new_null(IonType::Null).with_annotations(vec![text_token("foo"), text_token("bar")]))]
-    #[case(" foo::true ", Element::new_bool(true).with_annotations(vec![text_token("foo")]))]
-    #[case(" 'foo'::5 ", Element::new_i64(5).with_annotations(vec![text_token("foo")]))]
+    #[case(" foo::bar::null ", Element::from(IonType::Null).with_annotations(["foo", "bar"]))]
+    #[case(" foo::true ", Element::from(true).with_annotations(["foo"]))]
+    #[case(" 'foo'::5 ", Element::from(5).with_annotations(["foo"]))]
     fn test_top_level_values_with_annotations<E: Into<Element>>(
         #[case] text: &str,
         #[case] expected_value: E,

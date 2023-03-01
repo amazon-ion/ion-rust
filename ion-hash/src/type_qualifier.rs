@@ -48,13 +48,13 @@ impl TypeQualifier {
     {
         match elem.ion_type() {
             IonType::Null => type_qualifier_null(),
-            IonType::Boolean => type_qualifier_boolean(elem.as_bool()),
+            IonType::Boolean => type_qualifier_boolean(elem.as_boolean()),
             IonType::Integer => type_qualifier_integer(elem.as_integer()),
-            IonType::Float => type_qualifier_float(elem.as_f64()),
+            IonType::Float => type_qualifier_float(elem.as_float()),
             IonType::Decimal => type_qualifier_decimal(elem.as_decimal()),
             IonType::Timestamp => type_qualifier_timestamp(elem.as_timestamp()),
-            IonType::Symbol => type_qualifier_symbol(elem.as_sym()),
-            IonType::String => type_qualifier_string(elem.as_str()),
+            IonType::Symbol => type_qualifier_symbol(elem.as_symbol()),
+            IonType::String => type_qualifier_string(elem.as_string()),
             IonType::Clob => type_qualifier_clob(elem.as_bytes()),
             IonType::Blob => type_qualifier_blob(elem.as_bytes()),
             IonType::List => type_qualifier_list(elem.as_sequence()),
