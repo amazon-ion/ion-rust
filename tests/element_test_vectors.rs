@@ -395,7 +395,7 @@ mod impl_display_for_element_tests {
     use ion_rs::TextWriterBuilder;
     use std::fs::read;
 
-    const TO_STRING_SKIP_LIST: &[&'static str] = &[
+    const TO_STRING_SKIP_LIST: &[&str] = &[
         // These tests have shared symbol table imports in them, which the Reader does not
         // yet support.
         "ion-tests/iontestdata/good/subfieldInt.ion",
@@ -416,15 +416,13 @@ mod impl_display_for_element_tests {
     #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
     #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
     fn test_to_string(file_name: &str) {
-        if contains_path(&TO_STRING_SKIP_LIST, file_name) {
+        if contains_path(TO_STRING_SKIP_LIST, file_name) {
             println!("IGNORING: {file_name}");
             return;
         }
 
         let data = read(file_name).unwrap();
-        let result = element_reader().read_all(&data).expect(&*format!(
-            "Expected to be able to read Ion values for contents of file {file_name}"
-        ));
+        let result = element_reader().read_all(&data).unwrap_or_else(|_| panic!("Expected to be able to read Ion values for contents of file {file_name}"));
 
         for element in result {
             let mut buffer = Vec::with_capacity(2048);
