@@ -1,5 +1,5 @@
+use crate::value::owned::Element;
 use crate::value::writer::ElementWriter;
-use crate::value::{IonElement, IonSequence, IonStruct, IonSymbolToken};
 use crate::{IonResult, IonType, IonWriter, RawSymbolTokenRef};
 
 /// Writes [`IonElement`] instances to the underlying [`IonWriter`] implementation.
@@ -10,7 +10,7 @@ pub struct NativeElementWriter<W: IonWriter> {
 impl<W: IonWriter> ElementWriter for NativeElementWriter<W> {
     type Output = W;
 
-    fn write<E: IonElement>(&mut self, element: &E) -> IonResult<()> {
+    fn write(&mut self, element: &Element) -> IonResult<()> {
         self.write_element(None, element)
     }
 
@@ -28,11 +28,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
 
     /// Recursively writes the given `element` and its child elements (if any) to the underlying
     /// writer.
-    fn write_element<E: IonElement>(
-        &mut self,
-        field_name: Option<&str>,
-        element: &E,
-    ) -> IonResult<()> {
+    fn write_element(&mut self, field_name: Option<&str>, element: &Element) -> IonResult<()> {
         if let Some(field_name) = field_name {
             self.writer.set_field_name(field_name);
         }
@@ -54,17 +50,17 @@ impl<W: IonWriter> NativeElementWriter<W> {
 
         match element.ion_type() {
             IonType::Null => unreachable!("element has IonType::Null but is_null() was false"),
-            IonType::Boolean => self.writer.write_bool(element.as_bool().unwrap()),
+            IonType::Boolean => self.writer.write_bool(element.as_boolean().unwrap()),
             IonType::Integer => self.writer.write_integer(element.as_integer().unwrap()),
-            IonType::Float => self.writer.write_f64(element.as_f64().unwrap()),
+            IonType::Float => self.writer.write_f64(element.as_float().unwrap()),
             IonType::Decimal => self.writer.write_decimal(element.as_decimal().unwrap()),
             IonType::Timestamp => self.writer.write_timestamp(element.as_timestamp().unwrap()),
             IonType::Symbol => self
                 .writer
-                .write_symbol(element.as_sym().unwrap().text().unwrap()),
-            IonType::String => self.writer.write_string(element.as_str().unwrap()),
-            IonType::Clob => self.writer.write_clob(element.as_bytes().unwrap()),
-            IonType::Blob => self.writer.write_blob(element.as_bytes().unwrap()),
+                .write_symbol(element.as_symbol().unwrap().text().unwrap()),
+            IonType::String => self.writer.write_string(element.as_text().unwrap()),
+            IonType::Clob => self.writer.write_clob(element.as_lob().unwrap()),
+            IonType::Blob => self.writer.write_blob(element.as_lob().unwrap()),
             IonType::List | IonType::SExpression => {
                 self.writer.step_in(element.ion_type())?;
                 for value in element.as_sequence().unwrap().iter() {

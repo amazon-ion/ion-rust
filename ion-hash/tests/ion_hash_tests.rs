@@ -5,7 +5,7 @@ use digest::{FixedOutput, Reset, Update};
 use ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::integer::IntAccess;
-use ion_rs::value::owned::Element;
+use ion_rs::value::owned::{Element, Struct};
 use ion_rs::value::reader::{element_reader, ElementReader};
 use ion_rs::value::writer::ElementWriter;
 use ion_rs::value::*;
@@ -126,7 +126,7 @@ fn test_file(file_name: &str) -> IonHashTestResult<()> {
     test_all(elems)
 }
 
-fn test_all<E: IonElement>(elems: Vec<E>) -> IonHashTestResult<()> {
+fn test_all(elems: Vec<Element>) -> IonHashTestResult<()> {
     let mut failures: Vec<IonHashTestError> = vec![];
     for case in &elems {
         let annotated_test_name = test_case_name_from_annotation(case);
@@ -180,10 +180,10 @@ fn test_all<E: IonElement>(elems: Vec<E>) -> IonHashTestResult<()> {
 // There are two generics here due to the difference between text and binary
 // cases. Binary cases need another call to `element_reader` and the calling
 // function might be generic over `IonElement`.
-fn test_case<E1: IonElement, E2: IonElement>(
+fn test_case(
     test_case_name: Option<String>,
-    input: &E1,
-    expect: &E2,
+    input: &Element,
+    expect: &Element,
 ) -> IonHashTestResult<()> {
     let test_case_name = match test_case_name {
         Some(name) => name,
@@ -229,7 +229,7 @@ fn test_case<E1: IonElement, E2: IonElement>(
     }
 }
 
-fn expected_hash<S: IonStruct + ?Sized>(struct_: &S) -> IonResult<Vec<u8>> {
+fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
     let identity = if let Some(identity) = struct_.get("identity") {
         identity.as_sequence().expect("`identity` should be a sexp")
     } else {
@@ -257,7 +257,7 @@ fn expected_hash<S: IonStruct + ?Sized>(struct_: &S) -> IonResult<Vec<u8>> {
 
 /// Test cases may be annotated with a test name. Or, not! If they aren't, the
 /// name of the test is the Ion text representation of the input value.
-fn test_case_name_from_value<E: IonElement>(test_input_ion: &E) -> IonResult<String> {
+fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
     let mut buf = Vec::new();
     let text_writer = ion_rs::TextWriterBuilder::new().build(&mut buf)?;
     let mut element_writer = ion_rs::value::native_writer::NativeElementWriter::new(text_writer);
@@ -269,7 +269,7 @@ fn test_case_name_from_value<E: IonElement>(test_input_ion: &E) -> IonResult<Str
     Ok(String::from_utf8_lossy(&*buf).to_string())
 }
 
-fn test_case_name_from_annotation<E: IonElement>(test_case_ion: &E) -> Option<String> {
+fn test_case_name_from_annotation(test_case_ion: &Element) -> Option<String> {
     test_case_ion
         .annotations()
         .next()
@@ -278,7 +278,7 @@ fn test_case_name_from_annotation<E: IonElement>(test_case_ion: &E) -> Option<St
 
 /// The test file is full of byte arrays represented as SExps of hex-formatted
 /// bytes. This method extracts the bytes into a Vec.
-fn seq_to_bytes<E: IonElement>(elem: &E) -> Vec<u8> {
+fn seq_to_bytes(elem: &Element) -> Vec<u8> {
     elem.as_sequence()
         .expect("expected a sequence")
         .iter()

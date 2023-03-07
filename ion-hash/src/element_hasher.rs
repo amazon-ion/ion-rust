@@ -7,7 +7,7 @@ use std::io;
 
 use digest::{FixedOutput, Output, Reset, Update};
 use ion_rs::result::IonResult;
-use ion_rs::value::{IonElement, IonSymbolToken};
+use ion_rs::value::owned::Element;
 
 use crate::representation::RepresentationEncoder;
 use crate::type_qualifier::TypeQualifier;
@@ -28,10 +28,7 @@ where
         ElementHasher { digest }
     }
 
-    pub(crate) fn hash_element<E>(mut self, elem: &E) -> IonResult<Output<D>>
-    where
-        E: IonElement + ?Sized,
-    {
+    pub(crate) fn hash_element(mut self, elem: &Element) -> IonResult<Output<D>> {
         self.update_serialized_bytes(elem)?;
         Ok(self.digest.finalize_fixed())
     }
@@ -39,10 +36,7 @@ where
     /// Implements the "serialized bytes" transform as described in the spec. The
     /// bytes are written to `hasher` (as opposed to returned) for performance
     /// reasons (avoid allocations for DSTs).
-    pub(crate) fn update_serialized_bytes<E>(&mut self, elem: &E) -> IonResult<()>
-    where
-        E: IonElement + ?Sized,
-    {
+    pub(crate) fn update_serialized_bytes(&mut self, elem: &Element) -> IonResult<()> {
         let has_annotations = elem.annotations().next().is_some();
         if has_annotations {
             // s(annotated value) → B || TQ || s(annotation) || s(annotation) || ... || s(annotation) || s(value) || E
@@ -80,10 +74,10 @@ where
         self.digest.update([Markers::E]);
     }
 
-    pub(crate) fn update_type_qualifier_and_representation<E>(&mut self, elem: &E) -> IonResult<()>
-    where
-        E: IonElement + ?Sized,
-    {
+    pub(crate) fn update_type_qualifier_and_representation(
+        &mut self,
+        elem: &Element,
+    ) -> IonResult<()> {
         let tq = TypeQualifier::from_element(elem);
         self.digest.update(tq.as_bytes());
         self.update_with_representation(elem)

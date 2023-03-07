@@ -18,20 +18,20 @@
 
 use digest::{FixedOutput, Output, Reset, Update};
 use ion_rs::result::IonResult;
-use ion_rs::value::IonElement;
 
 // TODO: Make sha2 an optional dependency.
 use sha2::Sha256;
 
 use element_hasher::ElementHasher;
+use ion_rs::value::owned::Element;
 
 mod element_hasher;
 mod representation;
 mod type_qualifier;
 
-/// Utility to hash an [`IonElement`] using SHA-256 as the hash function.
+/// Utility to hash an [`Element`] using SHA-256 as the hash function.
 // TODO: Make this conditional on some feature flag
-pub fn sha256<E: IonElement + ?Sized>(elem: &E) -> IonResult<Output<Sha256>> {
+pub fn sha256(elem: &Element) -> IonResult<Output<Sha256>> {
     Sha256::hash_element(elem)
 }
 
@@ -48,14 +48,11 @@ impl Markers {
 
 /// This trait mostly exists to extend the [`Digest`] trait to support Ion Hash.
 /// See [`hash_element`].
-pub trait IonHasher<E>
-where
-    E: IonElement + ?Sized,
-{
+pub trait IonHasher {
     type Output;
 
-    /// Returns the Ion Hash of the given [`IonElement`].
-    fn hash_element(elem: &E) -> IonResult<Self::Output>;
+    /// Returns the Ion Hash of the given [`Element`].
+    fn hash_element(elem: &Element) -> IonResult<Self::Output>;
 }
 
 /// Implements [`IonHasher`] for any type that implements `Digest`.
@@ -65,16 +62,15 @@ where
 /// subtraits here is that implementors have much less work to do if they
 /// implement the subtraits only, as the blanket impls in the `digest` crate take
 /// care of assembly.
-impl<E, D> IonHasher<E> for D
+impl<D> IonHasher for D
 where
-    E: IonElement + ?Sized,
     D: Update + FixedOutput + Reset + Clone + Default,
 {
     type Output = digest::Output<D>;
 
     /// Provides Ion hash over arbitrary [`IonElement`] instances with a given
     /// [`Digest`] algorithm.
-    fn hash_element(elem: &E) -> IonResult<Self::Output> {
+    fn hash_element(elem: &Element) -> IonResult<Self::Output> {
         ElementHasher::new(D::default()).hash_element(elem)
     }
 }

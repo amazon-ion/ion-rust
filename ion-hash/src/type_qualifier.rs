@@ -6,14 +6,14 @@ use std::slice;
 ///!
 ///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
 use ion_rs::types::integer::Integer;
+use ion_rs::value::owned::{Element, Sequence, Struct};
 ///! Implements "type qualifiers" (TQ) as per the [spec][spec].
 ///!
 ///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
 use ion_rs::{
     binary::IonTypeCode,
     types::{decimal::Decimal, timestamp::Timestamp},
-    value::{IonElement, IonSequence, IonStruct, IonSymbolToken},
-    IonType,
+    IonType, Symbol,
 };
 use num_bigint::Sign;
 
@@ -42,21 +42,18 @@ impl TypeQualifier {
     ///
     /// This method simply calls the appropriate `type_qualifier_$ion_type`
     /// method.
-    pub(crate) fn from_element<E>(elem: &E) -> TypeQualifier
-    where
-        E: IonElement + ?Sized,
-    {
+    pub(crate) fn from_element(elem: &Element) -> TypeQualifier {
         match elem.ion_type() {
             IonType::Null => type_qualifier_null(),
-            IonType::Boolean => type_qualifier_boolean(elem.as_bool()),
+            IonType::Boolean => type_qualifier_boolean(elem.as_boolean()),
             IonType::Integer => type_qualifier_integer(elem.as_integer()),
-            IonType::Float => type_qualifier_float(elem.as_f64()),
+            IonType::Float => type_qualifier_float(elem.as_float()),
             IonType::Decimal => type_qualifier_decimal(elem.as_decimal()),
             IonType::Timestamp => type_qualifier_timestamp(elem.as_timestamp()),
-            IonType::Symbol => type_qualifier_symbol(elem.as_sym()),
-            IonType::String => type_qualifier_string(elem.as_str()),
-            IonType::Clob => type_qualifier_clob(elem.as_bytes()),
-            IonType::Blob => type_qualifier_blob(elem.as_bytes()),
+            IonType::Symbol => type_qualifier_symbol(elem.as_symbol()),
+            IonType::String => type_qualifier_string(elem.as_string()),
+            IonType::Clob => type_qualifier_clob(elem.as_lob()),
+            IonType::Blob => type_qualifier_blob(elem.as_lob()),
             IonType::List => type_qualifier_list(elem.as_sequence()),
             IonType::SExpression => type_qualifier_sexp(elem.as_sequence()),
             IonType::Struct => type_qualifier_struct(elem.as_struct()),
@@ -135,24 +132,15 @@ pub(crate) fn type_qualifier_blob(value: Option<&[u8]>) -> TypeQualifier {
     combine(IonTypeCode::Blob, qualify_nullness(value))
 }
 
-pub(crate) fn type_qualifier_list<S>(value: Option<&S>) -> TypeQualifier
-where
-    S: IonSequence + ?Sized,
-{
+pub(crate) fn type_qualifier_list(value: Option<&Sequence>) -> TypeQualifier {
     combine(IonTypeCode::List, qualify_nullness(value))
 }
 
-pub(crate) fn type_qualifier_sexp<S>(value: Option<&S>) -> TypeQualifier
-where
-    S: IonSequence + ?Sized,
-{
+pub(crate) fn type_qualifier_sexp(value: Option<&Sequence>) -> TypeQualifier {
     combine(IonTypeCode::SExpression, qualify_nullness(value))
 }
 
-pub(crate) fn type_qualifier_symbol<S>(sym: Option<&S>) -> TypeQualifier
-where
-    S: IonSymbolToken + ?Sized,
-{
+pub(crate) fn type_qualifier_symbol(sym: Option<&Symbol>) -> TypeQualifier {
     // Non-null symbol with unknown text has a TQ of 0x71
     if let Some(symbol) = sym {
         if symbol.text().is_none() {
@@ -162,9 +150,6 @@ where
     combine(IonTypeCode::Symbol, qualify_nullness(sym))
 }
 
-pub(crate) fn type_qualifier_struct<S>(value: Option<&S>) -> TypeQualifier
-where
-    S: IonStruct + ?Sized,
-{
+pub(crate) fn type_qualifier_struct(value: Option<&Struct>) -> TypeQualifier {
     combine(IonTypeCode::Struct, qualify_nullness(value))
 }

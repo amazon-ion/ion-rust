@@ -12,27 +12,20 @@ use digest::{FixedOutput, Output, Reset, Update};
 use ion_rs::binary::{self, decimal::DecimalBinaryEncoder, timestamp::TimestampBinaryEncoder};
 use ion_rs::types::decimal::Decimal;
 use ion_rs::types::integer::Integer;
-use ion_rs::{
-    result::IonResult,
-    types::timestamp::Timestamp,
-    value::{IonElement, IonSequence, IonStruct, IonSymbolToken},
-    IonType,
-};
+use ion_rs::value::owned::{Element, Sequence, Struct};
+use ion_rs::{result::IonResult, types::timestamp::Timestamp, IonType, Symbol};
 
 pub(crate) trait RepresentationEncoder {
-    fn update_with_representation<E>(&mut self, elem: &E) -> IonResult<()>
-    where
-        E: IonElement + ?Sized,
-    {
+    fn update_with_representation(&mut self, elem: &Element) -> IonResult<()> {
         match elem.ion_type() {
             IonType::Null | IonType::Boolean => {} // these types have no representation
             IonType::Integer => self.write_repr_integer(elem.as_integer())?,
-            IonType::Float => self.write_repr_float(elem.as_f64())?,
+            IonType::Float => self.write_repr_float(elem.as_float())?,
             IonType::Decimal => self.write_repr_decimal(elem.as_decimal())?,
             IonType::Timestamp => self.write_repr_timestamp(elem.as_timestamp())?,
-            IonType::Symbol => self.write_repr_symbol(elem.as_sym())?,
-            IonType::String => self.write_repr_string(elem.as_str())?,
-            IonType::Clob | IonType::Blob => self.write_repr_blob(elem.as_bytes())?,
+            IonType::Symbol => self.write_repr_symbol(elem.as_symbol())?,
+            IonType::String => self.write_repr_string(elem.as_string())?,
+            IonType::Clob | IonType::Blob => self.write_repr_blob(elem.as_lob())?,
             IonType::List | IonType::SExpression => self.write_repr_seq(elem.as_sequence())?,
             IonType::Struct => self.write_repr_struct(elem.as_struct())?,
         }
@@ -44,19 +37,11 @@ pub(crate) trait RepresentationEncoder {
     fn write_repr_float(&mut self, value: Option<f64>) -> IonResult<()>;
     fn write_repr_decimal(&mut self, value: Option<&Decimal>) -> IonResult<()>;
     fn write_repr_timestamp(&mut self, value: Option<&Timestamp>) -> IonResult<()>;
-    fn write_repr_symbol<S>(&mut self, value: Option<&S>) -> IonResult<()>
-    where
-        S: IonSymbolToken + ?Sized;
+    fn write_repr_symbol(&mut self, value: Option<&Symbol>) -> IonResult<()>;
     fn write_repr_string(&mut self, value: Option<&str>) -> IonResult<()>;
     fn write_repr_blob(&mut self, value: Option<&[u8]>) -> IonResult<()>;
-    fn write_repr_seq<S>(&mut self, value: Option<&S>) -> IonResult<()>
-    where
-        S: IonSequence + ?Sized;
-    fn write_repr_struct<E, S, F>(&mut self, value: Option<&S>) -> IonResult<()>
-    where
-        E: IonElement + ?Sized,
-        S: IonStruct<FieldName = F, Element = E> + ?Sized,
-        F: IonSymbolToken + ?Sized;
+    fn write_repr_seq(&mut self, value: Option<&Sequence>) -> IonResult<()>;
+    fn write_repr_struct(&mut self, value: Option<&Struct>) -> IonResult<()>;
 }
 
 impl<D> RepresentationEncoder for ElementHasher<D>
@@ -68,7 +53,7 @@ where
             Some(Integer::I64(v)) => match v {
                 0 => {}
                 _ => {
-                    let magnitude = v.abs() as u64;
+                    let magnitude = v.unsigned_abs();
                     let encoded = binary::uint::encode_u64(magnitude);
                     self.update_escaping(encoded.as_bytes());
                 }
@@ -110,7 +95,7 @@ where
                     return Ok(());
                 }
 
-                self.update_escaping(&v.to_be_bytes());
+                self.update_escaping(v.to_be_bytes());
             }
         }
 
@@ -139,10 +124,7 @@ where
         Ok(())
     }
 
-    fn write_repr_symbol<S>(&mut self, value: Option<&S>) -> IonResult<()>
-    where
-        S: IonSymbolToken + ?Sized,
-    {
+    fn write_repr_symbol(&mut self, value: Option<&Symbol>) -> IonResult<()> {
         // There are no representation bytes for null symbols or unknown-text symbols.
         if let Some(symbol) = value {
             if let Some(text) = symbol.text() {
@@ -154,7 +136,7 @@ where
 
     fn write_repr_string(&mut self, value: Option<&str>) -> IonResult<()> {
         match value {
-            Some(s) if s.len() > 0 => self.update_escaping(s.as_bytes()),
+            Some(s) if !s.is_empty() => self.update_escaping(s.as_bytes()),
             _ => {}
         };
 
@@ -163,17 +145,14 @@ where
 
     fn write_repr_blob(&mut self, value: Option<&[u8]>) -> IonResult<()> {
         match value {
-            Some(bytes) if bytes.len() > 0 => self.update_escaping(bytes),
+            Some(bytes) if !bytes.is_empty() => self.update_escaping(bytes),
             _ => {}
         }
 
         Ok(())
     }
 
-    fn write_repr_seq<S>(&mut self, value: Option<&S>) -> IonResult<()>
-    where
-        S: IonSequence + ?Sized,
-    {
+    fn write_repr_seq(&mut self, value: Option<&Sequence>) -> IonResult<()> {
         if let Some(seq) = value {
             for elem in seq.iter() {
                 self.update_serialized_bytes(elem)?;
@@ -192,16 +171,11 @@ where
     ///
     /// The resulting `Vec` is not sorted (i.e. is in the same order as the field
     /// iterator).
-    fn write_repr_struct<E, S, F>(&mut self, value: Option<&S>) -> IonResult<()>
-    where
-        E: IonElement + ?Sized,
-        S: IonStruct<FieldName = F, Element = E> + ?Sized,
-        F: IonSymbolToken + ?Sized,
-    {
+    fn write_repr_struct(&mut self, value: Option<&Struct>) -> IonResult<()> {
         if let Some(struct_) = value {
             let mut hashes: Vec<_> = struct_
                 .iter()
-                .map(|(key, value)| struct_field_hash::<D, _, _>(key, value))
+                .map(|(key, value)| struct_field_hash::<D>(key, value))
                 .collect::<IonResult<_>>()?;
 
             hashes.sort();
@@ -215,11 +189,9 @@ where
     }
 }
 
-fn struct_field_hash<D, F, E>(key: &F, value: &E) -> IonResult<Output<D>>
+fn struct_field_hash<D>(key: &Symbol, value: &Element) -> IonResult<Output<D>>
 where
     D: Update + FixedOutput + Reset + Clone + Default,
-    F: IonSymbolToken + ?Sized,
-    E: IonElement + ?Sized,
 {
     let mut hasher = ElementHasher::new(D::default());
 

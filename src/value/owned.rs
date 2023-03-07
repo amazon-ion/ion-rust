@@ -5,14 +5,12 @@
 //! This API is simpler to manage with respect to borrowing lifetimes, but requires full
 //! ownership of data to do so.
 
-use super::{IonElement, IonSequence, IonStruct, IonSymbolToken};
 use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
-use crate::value::Builder;
 use crate::{IonType, Symbol};
 use num_bigint::BigInt;
 use std::collections::HashMap;
@@ -25,23 +23,19 @@ use crate::value::iterators::{
     ElementsIterator, FieldIterator, FieldValuesIterator, IndexVec, SymbolsIterator,
 };
 
-impl IonSymbolToken for Symbol {
-    fn text(&self) -> Option<&str> {
-        self.text()
-    }
-
-    fn symbol_id(&self) -> Option<SymbolId> {
+impl Symbol {
+    pub fn symbol_id(&self) -> Option<SymbolId> {
         match self.text() {
             Some(_) => None,
             None => Some(0),
         }
     }
 
-    fn with_text(self, text: &'static str) -> Self {
+    pub fn with_text(self, text: &'static str) -> Self {
         Symbol::owned(text)
     }
 
-    fn with_symbol_id(self, _local_sid: SymbolId) -> Self {
+    pub fn with_symbol_id(self, _local_sid: SymbolId) -> Self {
         // Because `Symbol` represents a fully resolved symbol...
         if self.text().is_some() {
             // ...if we already have text, we can discard the symbol ID.
@@ -51,11 +45,11 @@ impl IonSymbolToken for Symbol {
         Symbol::unknown_text()
     }
 
-    fn text_token(text: &'static str) -> Self {
+    pub fn text_token(text: &'static str) -> Self {
         Symbol::owned(text)
     }
 
-    fn symbol_id_token(_local_sid: SymbolId) -> Self {
+    pub fn symbol_id_token(_local_sid: SymbolId) -> Self {
         // Because `Symbol` represents a fully resolved symbol, constructing one from a symbol ID
         // alone means that it has no defined text and is therefore equivalent to SID 0.
         Symbol::unknown_text()
@@ -70,71 +64,62 @@ pub fn text_token(text: &str) -> Symbol {
 }
 
 /// An owned implementation of [`Builder`].
-impl Builder for Element {
-    type Element = Element;
-    type SymbolToken = Symbol;
-    type Sequence = Sequence;
-    type Struct = Struct;
-
-    fn new_null(e_type: IonType) -> Self::Element {
+impl Element {
+    fn new_null(e_type: IonType) -> Element {
         Value::Null(e_type).into()
     }
 
-    fn new_bool(bool: bool) -> Self::Element {
+    fn new_bool(bool: bool) -> Element {
         Value::Boolean(bool).into()
     }
 
-    fn new_string(str: &'static str) -> Self::Element {
-        Value::String(str.into()).into()
+    fn new_string<A: AsRef<str>>(str: A) -> Element {
+        Value::String(str.as_ref().to_owned()).into()
     }
 
-    fn new_symbol(sym: Self::SymbolToken) -> Self::Element {
-        Value::Symbol(sym).into()
+    fn new_symbol(symbol: Symbol) -> Element {
+        Value::Symbol(symbol).into()
     }
 
-    fn new_i64(int: i64) -> Self::Element {
-        Value::Integer(Integer::I64(int)).into()
+    fn new_i64(integer: i64) -> Element {
+        Value::Integer(Integer::I64(integer)).into()
     }
 
-    fn new_big_int(big_int: BigInt) -> Self::Element {
+    fn new_big_int(big_int: BigInt) -> Element {
         Value::Integer(Integer::BigInt(big_int)).into()
     }
 
-    fn new_decimal(decimal: Decimal) -> Self::Element {
+    fn new_decimal(decimal: Decimal) -> Element {
         Value::Decimal(decimal).into()
     }
 
-    fn new_timestamp(timestamp: Timestamp) -> Self::Element {
+    fn new_timestamp(timestamp: Timestamp) -> Element {
         Value::Timestamp(timestamp).into()
     }
 
-    fn new_f64(float: f64) -> Self::Element {
+    fn new_f64(float: f64) -> Element {
         Value::Float(float).into()
     }
 
-    fn new_clob(bytes: &[u8]) -> Self::Element {
+    fn new_clob(bytes: &[u8]) -> Element {
         Value::Clob(bytes.into()).into()
     }
 
-    fn new_blob(bytes: &[u8]) -> Self::Element {
+    fn new_blob(bytes: &[u8]) -> Element {
         Value::Blob(bytes.into()).into()
     }
 
-    fn new_list<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element {
+    fn new_list<I: IntoIterator<Item = Element>>(seq: I) -> Element {
         Value::List(seq.into_iter().collect()).into()
     }
 
-    fn new_sexp<I: IntoIterator<Item = Self::Element>>(seq: I) -> Self::Element {
+    fn new_sexp<I: IntoIterator<Item = Element>>(seq: I) -> Element {
         Value::SExpression(seq.into_iter().collect()).into()
     }
 
-    fn new_struct<
-        K: Into<Self::SymbolToken>,
-        V: Into<Self::Element>,
-        I: IntoIterator<Item = (K, V)>,
-    >(
+    fn new_struct<K: Into<Symbol>, V: Into<Element>, I: IntoIterator<Item = (K, V)>>(
         structure: I,
-    ) -> Self::Element {
+    ) -> Element {
         Value::Struct(structure.into_iter().collect()).into()
     }
 }
@@ -168,23 +153,20 @@ impl FromIterator<Element> for Sequence {
     }
 }
 
-impl IonSequence for Sequence {
-    type Element = Element;
-    type ElementsIterator<'a> = ElementsIterator<'a>;
-
-    fn iter(&self) -> Self::ElementsIterator<'_> {
+impl Sequence {
+    pub fn iter(&self) -> ElementsIterator<'_> {
         ElementsIterator::new(&self.children)
     }
 
-    fn get(&self, index: usize) -> Option<&Self::Element> {
+    pub fn get(&self, index: usize) -> Option<&Element> {
         self.children.get(index)
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.children.len()
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
@@ -347,21 +329,16 @@ where
     }
 }
 
-impl IonStruct for Struct {
-    type FieldName = Symbol;
-    type Element = Element;
-    type FieldsIterator<'a> = FieldIterator<'a>;
-    type ValuesIterator<'a> = FieldValuesIterator<'a>;
-
-    fn iter(&self) -> FieldIterator<'_> {
+impl Struct {
+    pub fn iter(&self) -> FieldIterator<'_> {
         FieldIterator::new(&self.fields.by_index)
     }
 
-    fn get<A: AsSymbolRef>(&self, field_name: A) -> Option<&Self::Element> {
+    pub fn get<A: AsSymbolRef>(&self, field_name: A) -> Option<&Element> {
         self.fields.get_last(field_name)
     }
 
-    fn get_all<A: AsSymbolRef>(&self, field_name: A) -> FieldValuesIterator<'_> {
+    pub fn get_all<A: AsSymbolRef>(&self, field_name: A) -> FieldValuesIterator<'_> {
         self.fields.get_all(field_name)
     }
 }
@@ -514,6 +491,15 @@ impl From<BigInt> for Element {
     }
 }
 
+impl From<Integer> for Element {
+    fn from(integer_val: Integer) -> Self {
+        match integer_val {
+            Integer::I64(i64_int) => i64_int.into(),
+            Integer::BigInt(big_int) => big_int.into(),
+        }
+    }
+}
+
 impl From<f64> for Element {
     fn from(f64_val: f64) -> Self {
         Value::Float(f64_val).into()
@@ -535,6 +521,12 @@ impl From<Timestamp> for Element {
 impl From<bool> for Element {
     fn from(bool_val: bool) -> Self {
         Value::Boolean(bool_val).into()
+    }
+}
+
+impl From<&str> for Element {
+    fn from(string_val: &str) -> Self {
+        Value::String(string_val.to_owned()).into()
     }
 }
 
@@ -583,14 +575,8 @@ impl<'a, T: 'a> Iterator for ElementDataIterator<'a, T> {
     }
 }
 
-impl IonElement for Element {
-    type SymbolToken = Symbol;
-    type Sequence = Sequence;
-    type Struct = Struct;
-    type Builder = Element;
-    type AnnotationsIterator<'a> = SymbolsIterator<'a>;
-
-    fn ion_type(&self) -> IonType {
+impl Element {
+    pub fn ion_type(&self) -> IonType {
         use Value::*;
 
         match &self.value {
@@ -610,53 +596,57 @@ impl IonElement for Element {
         }
     }
 
-    fn annotations(&self) -> Self::AnnotationsIterator<'_> {
+    pub fn annotations(&self) -> SymbolsIterator<'_> {
         SymbolsIterator::new(&self.annotations)
     }
 
-    fn with_annotations<I: IntoIterator<Item = Self::SymbolToken>>(self, annotations: I) -> Self {
-        Element::new(annotations.into_iter().collect(), self.value)
+    pub fn with_annotations<S: Into<Symbol>, I: IntoIterator<Item = S>>(
+        self,
+        annotations: I,
+    ) -> Self {
+        let annotations: Vec<Symbol> = annotations.into_iter().map(|i| i.into()).collect();
+        Element::new(annotations, self.value)
     }
 
-    fn has_annotation(&self, annotation: &str) -> bool {
+    pub fn has_annotation(&self, annotation: &str) -> bool {
         self.annotations
             .iter()
             .any(|a| a.text() == Some(annotation))
     }
 
-    fn is_null(&self) -> bool {
+    pub fn is_null(&self) -> bool {
         matches!(&self.value, Value::Null(_))
     }
 
-    fn as_integer(&self) -> Option<&Integer> {
+    pub fn as_integer(&self) -> Option<&Integer> {
         match &self.value {
             Value::Integer(i) => Some(i),
             _ => None,
         }
     }
 
-    fn as_f64(&self) -> Option<f64> {
+    pub fn as_float(&self) -> Option<f64> {
         match &self.value {
             Value::Float(f) => Some(*f),
             _ => None,
         }
     }
 
-    fn as_decimal(&self) -> Option<&Decimal> {
+    pub fn as_decimal(&self) -> Option<&Decimal> {
         match &self.value {
             Value::Decimal(d) => Some(d),
             _ => None,
         }
     }
 
-    fn as_timestamp(&self) -> Option<&Timestamp> {
+    pub fn as_timestamp(&self) -> Option<&Timestamp> {
         match &self.value {
             Value::Timestamp(t) => Some(t),
             _ => None,
         }
     }
 
-    fn as_str(&self) -> Option<&str> {
+    pub fn as_text(&self) -> Option<&str> {
         match &self.value {
             Value::String(text) => Some(text),
             Value::Symbol(sym) => sym.text(),
@@ -664,35 +654,56 @@ impl IonElement for Element {
         }
     }
 
-    fn as_sym(&self) -> Option<&Self::SymbolToken> {
+    pub fn as_string(&self) -> Option<&str> {
+        match &self.value {
+            Value::String(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    pub fn as_symbol(&self) -> Option<&Symbol> {
         match &self.value {
             Value::Symbol(sym) => Some(sym),
             _ => None,
         }
     }
 
-    fn as_bool(&self) -> Option<bool> {
+    pub fn as_boolean(&self) -> Option<bool> {
         match &self.value {
             Value::Boolean(b) => Some(*b),
             _ => None,
         }
     }
 
-    fn as_bytes(&self) -> Option<&[u8]> {
+    pub fn as_lob(&self) -> Option<&[u8]> {
         match &self.value {
             Value::Blob(bytes) | Value::Clob(bytes) => Some(bytes),
             _ => None,
         }
     }
 
-    fn as_sequence(&self) -> Option<&Self::Sequence> {
+    pub fn as_blob(&self) -> Option<&[u8]> {
+        match &self.value {
+            Value::Blob(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    pub fn as_clob(&self) -> Option<&[u8]> {
+        match &self.value {
+            Value::Clob(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    pub fn as_sequence(&self) -> Option<&Sequence> {
         match &self.value {
             Value::SExpression(seq) | Value::List(seq) => Some(seq),
             _ => None,
         }
     }
 
-    fn as_struct(&self) -> Option<&Self::Struct> {
+    pub fn as_struct(&self) -> Option<&Struct> {
         match &self.value {
             Value::Struct(structure) => Some(structure),
             _ => None,
