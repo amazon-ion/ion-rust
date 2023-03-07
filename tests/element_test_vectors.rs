@@ -422,7 +422,9 @@ mod impl_display_for_element_tests {
         }
 
         let data = read(file_name).unwrap();
-        let result = element_reader().read_all(&data).unwrap_or_else(|_| panic!("Expected to be able to read Ion values for contents of file {file_name}"));
+        let result = element_reader().read_all(&data).unwrap_or_else(|_| {
+            panic!("Expected to be able to read Ion values for contents of file {file_name}")
+        });
 
         for element in result {
             let mut buffer = Vec::with_capacity(2048);
