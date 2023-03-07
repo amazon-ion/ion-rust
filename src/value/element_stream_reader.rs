@@ -274,7 +274,7 @@ impl IonReader for ElementStreamReader {
         F: FnOnce(&[u8]) -> U,
     {
         match self.current_value.as_ref() {
-            Some(element) if element.as_bytes().is_some() => Ok(f(element.as_bytes().unwrap())),
+            Some(element) if element.as_lob().is_some() => Ok(f(element.as_lob().unwrap())),
             _ => Err(self.expected("blob value")),
         }
     }
@@ -289,7 +289,7 @@ impl IonReader for ElementStreamReader {
         F: FnOnce(&[u8]) -> U,
     {
         match self.current_value.as_ref() {
-            Some(element) if element.as_bytes().is_some() => Ok(f(element.as_bytes().unwrap())),
+            Some(element) if element.as_lob().is_some() => Ok(f(element.as_lob().unwrap())),
             _ => Err(self.expected("clob value")),
         }
     }

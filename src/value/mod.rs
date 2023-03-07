@@ -381,7 +381,7 @@ mod tests {
             elem: Value::Blob(b"hello".as_bytes().to_vec()).into(),
             ion_type: IonType::Blob,
             ops: vec![AsBytes],
-            op_assert: Box::new(|e: &Element| assert_eq!(Some("hello".as_bytes()), e.as_bytes())),
+            op_assert: Box::new(|e: &Element| assert_eq!(Some("hello".as_bytes()), e.as_lob())),
         }
     }
 
@@ -390,7 +390,7 @@ mod tests {
             elem: Value::Clob(b"goodbye".as_bytes().to_vec()).into(),
             ion_type: IonType::Clob,
             ops: vec![AsBytes],
-            op_assert: Box::new(|e: &Element| assert_eq!(Some("goodbye".as_bytes()), e.as_bytes())),
+            op_assert: Box::new(|e: &Element| assert_eq!(Some("goodbye".as_bytes()), e.as_lob())),
         }
     }
 
@@ -487,7 +487,7 @@ mod tests {
             ),
             (AsStr, Box::new(|e| assert_eq!(None, e.as_text()))),
             (AsSym, Box::new(|e| assert_eq!(None, e.as_symbol()))),
-            (AsBytes, Box::new(|e| assert_eq!(None, e.as_bytes()))),
+            (AsBytes, Box::new(|e| assert_eq!(None, e.as_lob()))),
             (AsSequence, Box::new(|e| assert_eq!(None, e.as_sequence()))),
             (AsStruct, Box::new(|e| assert_eq!(None, e.as_struct()))),
         ];

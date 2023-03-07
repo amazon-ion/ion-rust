@@ -675,9 +675,23 @@ impl Element {
         }
     }
 
-    pub fn as_bytes(&self) -> Option<&[u8]> {
+    pub fn as_lob(&self) -> Option<&[u8]> {
         match &self.value {
             Value::Blob(bytes) | Value::Clob(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    pub fn as_blob(&self) -> Option<&[u8]> {
+        match &self.value {
+            Value::Blob(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    pub fn as_clob(&self) -> Option<&[u8]> {
+        match &self.value {
+            Value::Clob(bytes) => Some(bytes),
             _ => None,
         }
     }
