@@ -4,7 +4,8 @@ use crate::raw_reader::RawReader;
 use crate::reader::ReaderBuilder;
 use crate::result::IonResult;
 use crate::text::non_blocking::raw_text_reader::RawTextReader;
-use crate::value::owned::{Element, Sequence, Struct, Value};
+use crate::value::owned;
+use crate::value::owned::{Element, Struct, Value};
 use crate::value::reader::ElementReader;
 use crate::{IonReader, IonType, StreamItem, UserReader};
 
@@ -66,8 +67,10 @@ impl<R: RawReader> NativeElementIterator<R> {
                     Clob => Value::Clob(self.reader.read_clob()?),
                     Blob => Value::Blob(self.reader.read_blob()?),
                     // It's a collection; recursively materialize all of this value's children
-                    List => Value::List(self.materialize_sequence()?),
-                    SExpression => Value::SExpression(self.materialize_sequence()?),
+                    List => Value::List(owned::List::new(self.materialize_sequence()?)),
+                    SExpression => {
+                        Value::SExpression(owned::SExp::new(self.materialize_sequence()?))
+                    }
                     Struct => Value::Struct(self.materialize_struct()?),
                 }
             }
@@ -78,14 +81,14 @@ impl<R: RawReader> NativeElementIterator<R> {
     /// Steps into the current sequence and materializes each of its children to construct
     /// an [OwnedSequence]. When all of the the children have been materialized, steps out.
     /// The reader MUST be positioned over a list or s-expression when this is called.
-    fn materialize_sequence(&mut self) -> IonResult<Sequence> {
+    fn materialize_sequence(&mut self) -> IonResult<Vec<Element>> {
         let mut child_elements = Vec::new();
         self.reader.step_in()?;
         while let Some(element) = self.materialize_next()? {
             child_elements.push(element);
         }
         self.reader.step_out()?;
-        Ok(Sequence::new(child_elements))
+        Ok(child_elements)
     }
 
     /// Steps into the current struct and materializes each of its fields to construct

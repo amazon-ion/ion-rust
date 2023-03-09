@@ -383,7 +383,7 @@ mod reader_tests {
     use crate::stream_reader::IonReader;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::value::owned::{text_token, Value};
+    use crate::value::owned::Value;
     use crate::value::reader::{element_reader, ElementReader as NonStreamElementReader};
     use crate::IonType;
 
@@ -481,9 +481,9 @@ mod reader_tests {
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
         next_type(reader, IonType::Integer, false);
-        assert_eq!(reader.field_name()?, text_token("foo"));
+        assert_eq!(reader.field_name()?, Symbol::owned("foo"));
         next_type(reader, IonType::Struct, false);
-        assert_eq!(reader.field_name()?, text_token("bar"));
+        assert_eq!(reader.field_name()?, Symbol::owned("bar"));
         reader.step_in()?;
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?, 5);
@@ -518,7 +518,7 @@ mod reader_tests {
             Timestamp::with_ymd(2007, 7, 12).build().unwrap()
         );
         next_type(reader, IonType::Symbol, false);
-        assert_eq!(reader.read_symbol()?, text_token("foo"));
+        assert_eq!(reader.read_symbol()?, Symbol::owned("foo"));
         next_type(reader, IonType::String, false);
         assert_eq!(reader.read_string()?, "hi!".to_string());
         reader.step_out()?;
@@ -534,7 +534,7 @@ mod reader_tests {
     #[case(" 2.5e0 ", 2.5)]
     #[case(" 2.5 ", Decimal::new(25, -1))]
     #[case(" 2007-07-12T ", Timestamp::with_ymd(2007, 7, 12).build().unwrap())]
-    #[case(" foo ", text_token("foo"))]
+    #[case(" foo ", Symbol::owned("foo"))]
     #[case(" \"hi!\" ", "hi!".to_owned())]
     #[case(" {{ZW5jb2RlZA==}} ", Value::Blob("encoded".as_bytes().to_vec()))]
     #[case(" {{\"hello\"}} ", Value::Clob("hello".as_bytes().to_vec()))]

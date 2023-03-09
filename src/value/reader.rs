@@ -69,11 +69,12 @@ pub fn native_element_reader() -> NativeElementReader {
 #[cfg(test)]
 mod reader_tests {
     use super::*;
+    use crate::ion_eq::IonEq;
     use crate::types::integer::Integer;
     use crate::types::timestamp::Timestamp as TS;
+    use crate::value::builders::{ion_list, ion_sexp, ion_struct};
     use crate::value::owned::Element;
     use crate::value::owned::Value::*;
-    use crate::value::owned::*;
     use crate::{IonType, Symbol};
     use bigdecimal::BigDecimal;
     use num_bigint::BigInt;
@@ -150,12 +151,11 @@ mod reader_tests {
         .map(|v| Integer::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Integer(ai).into()).collect(),
     )]
     #[case::floats(
-        // TODO NaN is Ion Data Model equivalent to itself but not PartialEq
         br#"
-           1e0 +inf -inf
+           1e0 +inf -inf nan
         "#,
         vec![
-            1f64, f64::INFINITY, f64::NEG_INFINITY,
+            1f64, f64::INFINITY, f64::NEG_INFINITY, f64::NAN
         ].into_iter().map(|v| Float(v).into()).collect(),
     )]
     #[case::decimals(
@@ -233,20 +233,16 @@ mod reader_tests {
             ["a", "b"]
         "#,
         vec![
-            vec!["a", "b"].into_iter().map(|s| String(s.into()).into()).collect(),
-        ].into_iter()
-            .map(|elems: Vec<Element>| List(elems.into_iter().collect()).into())
-            .collect(),
+            ion_list!["a", "b"]
+        ]
     )]
     #[case::sexps(
         br#"
             (e f g)
         "#,
         vec![
-            vec!["e", "f", "g"].into_iter().map(|s| Symbol(s.into()).into()).collect(),
-        ].into_iter()
-            .map(|elems: Vec<Element>| SExpression(elems.into_iter().collect()).into())
-            .collect(),
+            ion_sexp!(Symbol::owned("e") Symbol::owned("f") Symbol::owned("g"))
+        ]
     )]
     #[case::structs(
         br#"
@@ -257,30 +253,16 @@ mod reader_tests {
             }
         "#,
         vec![
-            vec![
-                (Symbol::owned("string_field"), String("oink!".into())),
-                (Symbol::owned("string_field"), String("moo!".into())),
-                (Symbol::owned("bool_field"), Boolean(true)),
-            ]
-        ].into_iter()
-            .map(|fields: Vec<(Symbol, Value)>| {
-                Struct(
-                    fields.into_iter().map(|(tok, val)| {
-                        (tok, Element::new(vec![Symbol::owned("a")], val))
-                    }).collect()).into()
-            })
-            .collect(),
+            ion_struct! {
+                "string_field": (["a"], "oink!"),
+                "string_field": (["a"], "moo!"),
+                "bool_field": (["a"], true)
+            }
+        ]
     )]
     fn read_and_compare(#[case] input: &[u8], #[case] expected: Vec<Element>) -> IonResult<()> {
         let actual = element_reader().read_all(input)?;
-        assert_eq!(expected, actual);
-        Ok(())
-    }
-
-    #[test]
-    fn read_nan() -> IonResult<()> {
-        let actual = element_reader().read_one(b"nan")?;
-        assert!(actual.as_float().unwrap().is_nan());
+        assert!(expected.ion_eq(&actual));
         Ok(())
     }
 }

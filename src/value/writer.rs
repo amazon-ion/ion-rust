@@ -9,17 +9,17 @@ use crate::value::owned::Element;
 pub use Format::*;
 pub use TextKind::*;
 
-/// Serializes [`IonElement`] instances into some kind of output sink.
+/// Serializes [`Element`] instances into some kind of output sink.
 pub trait ElementWriter {
     /// The output of the writer when finishing, it could be a managed buffer,
     /// some concept of a stream, metadata about a file, or something appropriate
     /// for the destination.
     type Output;
 
-    /// Serializes a single [`IonElement`] as a top-level value.
+    /// Serializes a single [`Element`] as a top-level value.
     fn write(&mut self, element: &Element) -> IonResult<()>;
 
-    /// Serializes a collection of [`IonElement`] as a series of top-level values.
+    /// Serializes a collection of [`Element`] as a series of top-level values.
     ///
     /// This will return [`Err`] if writing any element causes a failure.
     fn write_all<'a, I: IntoIterator<Item = &'a Element>>(

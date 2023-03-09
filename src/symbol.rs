@@ -118,6 +118,12 @@ impl From<&str> for Symbol {
     }
 }
 
+impl From<String> for Symbol {
+    fn from(text: String) -> Self {
+        Symbol::owned(text)
+    }
+}
+
 impl Display for Symbol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.text() {

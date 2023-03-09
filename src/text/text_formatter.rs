@@ -1,5 +1,5 @@
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::value::owned::{Sequence, Struct};
+use crate::value::owned::{IonSequence, List, SExp, Struct};
 use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Symbol, Timestamp};
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
@@ -417,7 +417,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub(crate) fn format_sexp(&mut self, value: &Sequence) -> IonResult<()> {
+    pub(crate) fn format_sexp(&mut self, value: &SExp) -> IonResult<()> {
         write!(self.output, "(")?;
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek().is_some() {
@@ -431,7 +431,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub(crate) fn format_list(&mut self, value: &Sequence) -> IonResult<()> {
+    pub(crate) fn format_list(&mut self, value: &List) -> IonResult<()> {
         write!(self.output, "[")?;
         let mut peekable_itr = value.iter().peekable();
         while peekable_itr.peek().is_some() {
@@ -449,11 +449,10 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
 #[cfg(test)]
 mod formatter_test {
     use crate::text::text_formatter::IonValueFormatter;
-    use crate::value::owned::{Element, Sequence};
-    use crate::value::owned::{Struct, Value};
+    use crate::value::owned::Struct;
+    use crate::value::owned::{List, SExp};
     use crate::{Integer, IonResult, IonType, Timestamp};
     use num_bigint::BigInt;
-    use std::iter::FromIterator;
 
     fn formatter<F>(mut f: F, expected: &str)
     where
@@ -550,9 +549,11 @@ mod formatter_test {
     fn test_format_struct() -> IonResult<()> {
         formatter(
             |ivf| {
-                ivf.format_struct(&Struct::from_iter(
-                    vec![("greetings", Element::from(Value::String("hello".into())))].into_iter(),
-                ))
+                ivf.format_struct(
+                    &Struct::builder()
+                        .with_field("greetings", "hello")
+                        .build_struct(),
+                )
             },
             "{greetings: \"hello\"}",
         );
@@ -563,9 +564,13 @@ mod formatter_test {
     fn test_format_sexp() -> IonResult<()> {
         formatter(
             |ivf| {
-                ivf.format_sexp(&Sequence::from_iter(
-                    vec!["hello".to_owned().into(), 5.into(), true.into()].into_iter(),
-                ))
+                ivf.format_sexp(
+                    &SExp::builder()
+                        .push("hello")
+                        .push(5)
+                        .push(true)
+                        .build_sexp(),
+                )
             },
             "(\"hello\" 5 true)",
         );
@@ -576,9 +581,13 @@ mod formatter_test {
     fn test_format_list() -> IonResult<()> {
         formatter(
             |ivf| {
-                ivf.format_list(&Sequence::from_iter(
-                    vec!["hello".to_owned().into(), 5.into(), true.into()].into_iter(),
-                ))
+                ivf.format_list(
+                    &List::builder()
+                        .push("hello")
+                        .push(5)
+                        .push(true)
+                        .build_list(),
+                )
             },
             "[\"hello\", 5, true]",
         );

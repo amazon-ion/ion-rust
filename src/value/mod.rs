@@ -12,6 +12,7 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
+pub mod builders;
 mod element_stream_reader;
 mod iterators;
 pub mod native_reader;
@@ -24,7 +25,7 @@ pub mod writer;
 mod tests {
     use crate::types::timestamp::Timestamp;
     use crate::value::owned::*;
-    use crate::{Decimal, Integer, IonType, Symbol};
+    use crate::{ion_list, ion_sexp, ion_struct, Decimal, Integer, IonType, Symbol};
     use chrono::*;
     use rstest::*;
     use std::iter::{once, Once};
@@ -42,8 +43,8 @@ mod tests {
     fn annotations_text_case() -> CaseAnnotations {
         let int_value: Element = 10i64.into();
         CaseAnnotations {
-            elem: int_value.with_annotations(vec!["foo", "bar", "baz"]),
-            annotations: vec!["foo", "bar", "baz"]
+            elem: int_value.with_annotations(["foo", "bar", "baz"]),
+            annotations: ["foo", "bar", "baz"]
                 .into_iter()
                 .map(|i| i.into())
                 .collect(),
@@ -113,53 +114,76 @@ mod tests {
         CaseStruct {
             eq_elements: vec![
                 // structs with different order of fields
-                Struct::from_iter([("greetings", "hello"), ("name", "Ion")]).into(),
-                Struct::from_iter([("name", "Ion"), ("greetings", "hello")]).into(),
+                ion_struct! {
+                    "greetings": "hello",
+                    "name": "Ion"
+                },
+                ion_struct! {
+                    "name": "Ion",
+                    "greetings": "hello"
+                },
             ],
             ne_elements: vec![
                 // structs with different length and duplicates
-                Struct::from_iter([
-                    ("greetings", "hello"),
-                    ("name", "Ion"),
-                    ("greetings", "hello"),
-                ])
-                .into(),
+                ion_struct! {
+                    "greetings": "hello",
+                    "name": "Ion",
+                    "greetings": "hello"
+                },
                 // structs with different fields length and duplicates
-                Struct::from_iter([
-                    ("greetings", "hello"),
-                    ("name", "Ion"),
-                    ("greetings", "bye"),
-                ])
-                .into(),
+                ion_struct! {
+                    "greetings": "hello",
+                    "name": "Ion",
+                    "greetings": "bye"
+                },
                 // structs with different fields length
-                Struct::from_iter([("greetings", "hello"), ("name", "Ion"), ("message", "bye")])
-                    .into(),
+                ion_struct! {
+                    "greetings": "hello",
+                    "name": "Ion",
+                    "message": "bye"
+                },
             ],
         }
     }
 
     fn struct_with_duplicates_in_multiple_fields_case() -> CaseStruct {
-        let element: Element = 1i64.into();
-        let annotated_field_value: Element = element.with_annotations(["a"]);
         CaseStruct {
+            // Structs are bags of (field, value) pairs, order is irrelevant
             eq_elements: vec![
-                // Structs are bags of (field, value) pairs, order is irrelevant
-                Struct::from_iter([("a", 2i64), ("a", 2i64), ("a", 1i64)]).into(),
-                Struct::from_iter([("a", 2i64), ("a", 1i64), ("a", 2i64)]).into(),
-                Struct::from_iter([("a", 1i64), ("a", 2i64), ("a", 2i64)]).into(),
+                ion_struct! {
+                    "a" : 2i64,
+                    "a" : 2i64,
+                    "a" : 1i64
+                },
+                ion_struct! {
+                    "a" : 2i64,
+                    "a" : 1i64,
+                    "a" : 2i64
+                },
+                ion_struct! {
+                    "a" : 1i64,
+                    "a" : 2i64,
+                    "a" : 2i64
+                },
             ],
             ne_elements: vec![
                 // structs with different length
-                Struct::from_iter([("a", 1i64), ("a", 2i64)]).into(),
+                ion_struct! {
+                    "a" : 1i64,
+                    "a" : 2i64
+                },
                 // structs with annotated values
-                Struct::from_iter([
-                    ("a", 2i64.into()),
-                    ("a", annotated_field_value), // a::1
-                    ("a", 2i64.into()),
-                ])
-                .into(),
+                ion_struct! {
+                    "a" : 2i64,
+                    "a" : (["a"], 1i64), // annotated
+                    "a" : 2i64
+                },
                 // structs with different value for duplicates
-                Struct::from_iter([("a", 2i64), ("a", 3i64), ("a", 2i64)]).into(),
+                ion_struct! {
+                    "a" : 2i64,
+                    "a" : 3i64,
+                    "a" : 2i64
+                },
             ],
         }
     }
@@ -168,32 +192,33 @@ mod tests {
         CaseStruct {
             eq_elements: vec![
                 // structs with unordered fields
-                Struct::from_iter([("greetings", "world"), ("greetings", "hello")]).into(),
+                ion_struct! {
+                    "greetings" : "world",
+                    "greetings" : "hello"
+                },
+                ion_struct! {
+                    "greetings" : "world",
+                    "greetings" : "hello"
+                },
             ],
             ne_elements: vec![
                 // structs with different length and duplicates
-                Struct::from_iter([
-                    ("greetings", "world"),
-                    ("greetings", "hello"),
-                    ("greetings", "hey"),
-                ])
-                .into(),
+                ion_struct! {
+                    "greetings" : "world",
+                    "greetings" : "hello",
+                    "greetings" : "hey"
+                },
                 // structs with annotated values
-                Struct::from_iter([
-                    ("greetings", "world".into()),
-                    (
-                        "greetings",
-                        Element::from("hello").with_annotations(["foo"]),
-                    ),
-                ])
-                .into(),
+                ion_struct! {
+                    "greetings" : "world",
+                    "greetings" : (["foo"], "hello")
+                },
                 // structs with different length
-                Struct::from_iter([
-                    ("greetings", "world"),
-                    ("greetings", "hello"),
-                    ("name", "hello"),
-                ])
-                .into(),
+                ion_struct! {
+                    "greetings" : "world",
+                    "greetings" : "hello",
+                    "name" : "hello"
+                },
             ],
         }
     }
@@ -234,6 +259,8 @@ mod tests {
         AsSym,
         AsBytes,
         AsSequence,
+        AsSExp,
+        AsList,
         AsStruct,
     }
 
@@ -247,7 +274,6 @@ mod tests {
     }
 
     use crate::types::integer::IntAccess;
-    use nom::AsBytes;
     use num_bigint::BigInt;
     use std::collections::HashSet;
     use std::str::FromStr;
@@ -378,7 +404,7 @@ mod tests {
 
     fn blob_case() -> Case {
         Case {
-            elem: Value::Blob(b"hello".as_bytes().to_vec()).into(),
+            elem: Element::blob(b"hello"),
             ion_type: IonType::Blob,
             ops: vec![AsBytes],
             op_assert: Box::new(|e: &Element| assert_eq!(Some("hello".as_bytes()), e.as_lob())),
@@ -387,7 +413,7 @@ mod tests {
 
     fn clob_case() -> Case {
         Case {
-            elem: Value::Clob(b"goodbye".as_bytes().to_vec()).into(),
+            elem: Element::clob(b"goodbye"),
             ion_type: IonType::Clob,
             ops: vec![AsBytes],
             op_assert: Box::new(|e: &Element| assert_eq!(Some("goodbye".as_bytes()), e.as_lob())),
@@ -396,11 +422,11 @@ mod tests {
 
     fn list_case() -> Case {
         Case {
-            elem: Value::List(Sequence::new(vec![true.into(), false.into()])).into(),
+            elem: ion_list![true, false],
             ion_type: IonType::List,
-            ops: vec![AsSequence],
+            ops: vec![AsList, AsSequence],
             op_assert: Box::new(|e: &Element| {
-                let actual = e.as_sequence().unwrap();
+                let actual = e.as_list().unwrap();
                 let expected: Vec<Element> = vec![true.into(), false.into()];
                 // assert the length of list
                 assert_eq!(2, actual.len());
@@ -415,11 +441,11 @@ mod tests {
 
     fn sexp_case() -> Case {
         Case {
-            elem: Value::SExpression(Sequence::new(vec![true.into(), false.into()])).into(),
+            elem: ion_sexp!(true false),
             ion_type: IonType::SExpression,
-            ops: vec![AsSequence],
+            ops: vec![AsSExp, AsSequence],
             op_assert: Box::new(|e: &Element| {
-                let actual = e.as_sequence().unwrap();
+                let actual = e.as_sexp().unwrap();
                 let expected: Vec<Element> = vec![true.into(), false.into()];
                 // assert the length of s-expression
                 assert_eq!(2, actual.len());
@@ -433,7 +459,7 @@ mod tests {
 
     fn struct_case() -> Case {
         Case {
-            elem: Struct::from_iter([("greetings", "hello"), ("name", "ion")]).into(),
+            elem: ion_struct! {"greetings": "hello", "name": "ion"},
             ion_type: IonType::Struct,
             ops: vec![AsStruct],
             op_assert: Box::new(|e: &Element| {
@@ -488,7 +514,9 @@ mod tests {
             (AsStr, Box::new(|e| assert_eq!(None, e.as_text()))),
             (AsSym, Box::new(|e| assert_eq!(None, e.as_symbol()))),
             (AsBytes, Box::new(|e| assert_eq!(None, e.as_lob()))),
-            (AsSequence, Box::new(|e| assert_eq!(None, e.as_sequence()))),
+            (AsSequence, Box::new(|e| assert!(e.as_sequence().is_none()))),
+            (AsList, Box::new(|e| assert_eq!(None, e.as_list()))),
+            (AsSExp, Box::new(|e| assert_eq!(None, e.as_sexp()))),
             (AsStruct, Box::new(|e| assert_eq!(None, e.as_struct()))),
         ];
 
