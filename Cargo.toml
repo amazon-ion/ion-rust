@@ -27,6 +27,10 @@ members = [
   "ion-hash"
 ]
 
+[features]
+default = []
+ion-hash = ["digest"]
+
 [dependencies]
 base64 = "0.12"
 bigdecimal = "0.3.0"
@@ -40,6 +44,8 @@ num-integer = "0.1.44"
 num-traits = "0.2"
 arrayvec = "0.7"
 smallvec = "1.9.0"
+digest = { version = "0.9", optional = true }
+sha2 = { version = "0.9", optional = true }
 
 [dev-dependencies]
 rstest = "0.16.0"

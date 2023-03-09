@@ -10,6 +10,9 @@ pub mod text;
 pub mod types;
 pub mod value;
 
+#[cfg(feature = "ion-hash")]
+pub mod ion_hash;
+
 mod catalog;
 pub mod constants;
 pub mod ion_eq;

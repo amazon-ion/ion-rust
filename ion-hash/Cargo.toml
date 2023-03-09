@@ -16,15 +16,10 @@ exclude = [
     "**/ion-tests/iontestdata/**",
     "*.pdf"
 ]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 # We need at least 1.65 for GATs
 # https://blog.rust-lang.org/2022/11/03/Rust-1.65.0.html
 rust-version = "1.65"
 
 [dependencies]
-ion-rs = { path="..", version = "0.15" }
-num-bigint = "0.4.3"
-digest = "0.9"
-sha2 = "0.9"
-thiserror = "1.0"

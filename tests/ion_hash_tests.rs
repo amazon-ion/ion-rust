@@ -1,8 +1,9 @@
 // Copyright Amazon.com, Inc. or its affiliates.
+#![cfg(feature = "ion-hash")]
 
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
-use ion_hash::IonHasher;
+use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::integer::IntAccess;
 use ion_rs::value::owned::{Element, Struct};
@@ -73,7 +74,7 @@ impl Reset for IdentityDigest {
 }
 
 fn without_trailing_zeros(data: &[u8]) -> &[u8] {
-    if data.len() == 0 {
+    if data.is_empty() {
         return data;
     }
 
@@ -86,7 +87,7 @@ fn without_trailing_zeros(data: &[u8]) -> &[u8] {
     &data[0..=index]
 }
 
-const IGNORE_LIST: &[&'static str] = &[
+const IGNORE_LIST: &[&str] = &[
     // Uses md5 (not identity)
     r#"{Metrics:{'Event.Catchup':[{Value:0,Unit:ms}],'FanoutCache.Time':[{Value:1,Unit:ms}]}}"#,
     // ion-rust doesn't have full support for unknown symbols yet, so we can't properly read these test cases.
@@ -158,7 +159,7 @@ fn test_all(elems: Vec<Element>) -> IonHashTestResult<()> {
                 let loaded = element_reader().read_all(&bytes)?;
                 let elem = loaded
                     .into_iter()
-                    .nth(0)
+                    .next()
                     .expect("10n test case should have a single element (there were none)");
                 test_case(annotated_test_name, &elem, expect)
             }
@@ -218,7 +219,7 @@ fn test_case(
 
     if expected_string != actual_string {
         Err(IonHashTestError::TestFailed {
-            test_case_name: test_case_name.to_string(),
+            test_case_name,
             message: Some(format!(
                 "expected: {}\nwas: {}",
                 expected_string, actual_string
@@ -247,11 +248,11 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
         let bytes = seq_to_bytes(expectation);
 
         match method {
-            "digest" | "final_digest" => return Ok(bytes),
+            "digest" | "final_digest" => Ok(bytes),
             _ => illegal_operation(format!("unknown expectation `{}`", method))?,
         }
     } else {
-        illegal_operation(format!("expected at least expectation!"))?
+        illegal_operation("expected at least expectation!")?
     }
 }
 

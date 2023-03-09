@@ -2,19 +2,9 @@
 
 use std::slice;
 
-///! Implements "type qualifiers" (TQ) as per the [spec][spec].
-///!
-///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
-use ion_rs::types::integer::Integer;
-use ion_rs::value::owned::{Element, Sequence, Struct};
-///! Implements "type qualifiers" (TQ) as per the [spec][spec].
-///!
-///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
-use ion_rs::{
-    binary::IonTypeCode,
-    types::{decimal::Decimal, timestamp::Timestamp},
-    IonType, Symbol,
-};
+use crate::binary::IonTypeCode;
+use crate::value::owned::{Element, Sequence, Struct};
+use crate::{Decimal, Integer, IonType, Symbol, Timestamp};
 use num_bigint::Sign;
 
 // For many types, the qualifier is either 'null' or 'not null'. That's what
