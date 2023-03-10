@@ -296,8 +296,42 @@ impl TryFrom<f64> for Decimal {
 
 impl Display for Decimal {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // TODO: This is correct, but not the most human-friendly format.
-        write!(f, "{}d{}", self.coefficient, self.exponent)
+        let digits = &*self.coefficient.magnitude.to_string();
+        let len = digits.len();
+        // The index of the decimal, relative to the magnitude representation
+        //       0123
+        // Given ABCDd-2, the decimal gets inserted at position 2.
+        let i_d = len as i64 + self.exponent;
+
+        if self.coefficient.sign == Sign::Negative {
+            write!(f, "-").unwrap();
+        };
+
+        if self.exponent == 0 && len > 6 {
+            // e.g. A.BCDEFGd6
+            write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (i_d - 1))
+        } else if self.exponent == 0 {
+            // e.g. ABC.
+            write!(f, "{}.", &digits)
+        } else if self.exponent >= 0 {
+            // e.g. ABCd1
+            // let zeroes = "0".repeat(self.exponent as usize);
+            write!(f, "{}d{}", &digits, self.exponent)
+        } else {
+            // exponent < 0, there is a fractional component
+            if i_d > 0 {
+                // e.g. A.BC or AB.C
+                let ui_d = i_d as usize;
+                write!(f, "{}.{}", &digits[0..ui_d], &digits[ui_d..len])
+            } else if i_d > -6 {
+                // e.g. 0.ABC or 0.000ABC
+                let zeroes = "0".repeat(i_d.abs() as usize);
+                write!(f, "0.{}{}", &*zeroes, &digits)
+            } else {
+                // e.g. A.BCd-12
+                write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (i_d - 1))
+            }
+        }
     }
 }
 
@@ -347,12 +381,15 @@ mod decimal_tests {
     use rstest::*;
 
     #[rstest]
-    #[case(Decimal::new(1, 0), "1d0")]
-    #[case(Decimal::new(123, -2), "123d-2")]
-    #[case(Decimal::new(123, 2), "123d2")]
-    #[case(Decimal::negative_zero_with_exponent(0), "-0d0")]
-    #[case(Decimal::negative_zero_with_exponent(-4), "-0d-4")]
-    #[case(Decimal::negative_zero_with_exponent(4), "-0d4")]
+    #[case(Decimal::new(123, 1), "123d1")]
+    #[case(Decimal::new(123, 0), "123.")]
+    #[case(Decimal::new(-123,  0),"-123.")]
+    #[case(Decimal::new( 123, -1),  "12.3")]
+    #[case(Decimal::new( 123, -3),   "0.123")]
+    #[case(Decimal::new(-123, -5),  "-0.00123")]
+    #[case(Decimal::new( 123, -5),   "0.00123")]
+    #[case(Decimal::new( 123, -10),  "1.23d-8")]
+    #[case(Decimal::new(-123, -10), "-1.23d-8")]
     fn test_display(#[case] decimal: Decimal, #[case] expected: &str) {
         let mut buffer = String::new();
         write!(buffer, "{decimal}").unwrap();
