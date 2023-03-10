@@ -315,7 +315,6 @@ impl Display for Decimal {
             write!(f, "{}.", &digits)
         } else if self.exponent >= 0 {
             // e.g. ABCd1
-            // let zeroes = "0".repeat(self.exponent as usize);
             write!(f, "{}d{}", &digits, self.exponent)
         } else {
             // exponent < 0, there is a fractional component
