@@ -298,7 +298,7 @@ impl Display for Decimal {
     #[rustfmt::skip] // https://github.com/rust-lang/rustfmt/issues/3255
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // Inspired by the formatting conventions of Java's BigDecimal.toString()
-        const WIDE_NUMBER: i64 = 6; // if you think about it, six is a lot 🙃
+        const WIDE_NUMBER: usize = 6; // if you think about it, six is a lot 🙃
 
         let digits = &*self.coefficient.magnitude.to_string();
         let len = digits.len();
@@ -311,7 +311,7 @@ impl Display for Decimal {
             write!(f, "-").unwrap();
         };
 
-        if self.exponent == 0 && len > WIDE_NUMBER as usize { // e.g. A.BCDEFGd6
+        if self.exponent == 0 && len > WIDE_NUMBER { // e.g. A.BCDEFGd6
             write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (dot_index - 1))
         } else if self.exponent == 0 { // e.g. ABC.
             write!(f, "{}.", &digits)
@@ -321,7 +321,7 @@ impl Display for Decimal {
             if dot_index > 0 { // e.g. A.BC or AB.C
                 let dot_index = dot_index as usize;
                 write!(f, "{}.{}", &digits[0..dot_index], &digits[dot_index..len])
-            } else if dot_index > -WIDE_NUMBER { // e.g. 0.ABC or 0.000ABC
+            } else if dot_index > -(WIDE_NUMBER as i64) { // e.g. 0.ABC or 0.000ABC
                 let width = dot_index.unsigned_abs() as usize + len;
                 write!(f, "0.{digits:0>width$}", width = width, digits = digits)
             } else { // e.g. A.BCd-12
