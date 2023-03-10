@@ -295,40 +295,37 @@ impl TryFrom<f64> for Decimal {
 }
 
 impl Display for Decimal {
+    #[rustfmt::skip] // https://github.com/rust-lang/rustfmt/issues/3255
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // Inspired by the formatting conventions of Java's BigDecimal.toString()
+        const WIDE_NUMBER: i64 = 6; // if you think about it, six is a lot 🙃
+
         let digits = &*self.coefficient.magnitude.to_string();
         let len = digits.len();
         // The index of the decimal point, relative to the magnitude representation
-        //       0123
-        // Given ABCDd-2, the decimal gets inserted at position 2.
-        let i_d = len as i64 + self.exponent;
+        //       0123                                                       01234
+        // Given ABCDd-2, the decimal gets inserted at position 2, yielding AB.CD
+        let dot_index = len as i64 + self.exponent;
 
         if self.coefficient.sign == Sign::Negative {
             write!(f, "-").unwrap();
         };
 
-        if self.exponent == 0 && len > 6 {
-            // e.g. A.BCDEFGd6
-            write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (i_d - 1))
-        } else if self.exponent == 0 {
-            // e.g. ABC.
+        if self.exponent == 0 && len > WIDE_NUMBER as usize { // e.g. A.BCDEFGd6
+            write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (dot_index - 1))
+        } else if self.exponent == 0 { // e.g. ABC.
             write!(f, "{}.", &digits)
-        } else if self.exponent >= 0 {
-            // e.g. ABCd1
+        } else if self.exponent >= 0 { // e.g. ABCd1
             write!(f, "{}d{}", &digits, self.exponent)
-        } else {
-            // exponent < 0, there is a fractional component
-            if i_d > 0 {
-                // e.g. A.BC or AB.C
-                let ui_d = i_d as usize;
-                write!(f, "{}.{}", &digits[0..ui_d], &digits[ui_d..len])
-            } else if i_d > -6 {
-                // e.g. 0.ABC or 0.000ABC
-                let zeroes = "0".repeat(i_d.abs() as usize);
-                write!(f, "0.{}{}", &*zeroes, &digits)
-            } else {
-                // e.g. A.BCd-12
-                write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (i_d - 1))
+        } else { // exponent < 0, there is a fractional component
+            if dot_index > 0 { // e.g. A.BC or AB.C
+                let dot_index = dot_index as usize;
+                write!(f, "{}.{}", &digits[0..dot_index], &digits[dot_index..len])
+            } else if dot_index > -WIDE_NUMBER { // e.g. 0.ABC or 0.000ABC
+                let width = dot_index.unsigned_abs() as usize + len;
+                write!(f, "0.{digits:0>width$}", width = width, digits = digits)
+            } else { // e.g. A.BCd-12
+                write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (dot_index - 1))
             }
         }
     }
