@@ -298,7 +298,7 @@ impl Display for Decimal {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let digits = &*self.coefficient.magnitude.to_string();
         let len = digits.len();
-        // The index of the decimal, relative to the magnitude representation
+        // The index of the decimal point, relative to the magnitude representation
         //       0123
         // Given ABCDd-2, the decimal gets inserted at position 2.
         let i_d = len as i64 + self.exponent;
