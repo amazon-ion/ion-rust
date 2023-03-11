@@ -295,9 +295,39 @@ impl TryFrom<f64> for Decimal {
 }
 
 impl Display for Decimal {
+    #[rustfmt::skip] // https://github.com/rust-lang/rustfmt/issues/3255
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // TODO: This is correct, but not the most human-friendly format.
-        write!(f, "{}d{}", self.coefficient, self.exponent)
+        // Inspired by the formatting conventions of Java's BigDecimal.toString()
+        const WIDE_NUMBER: usize = 6; // if you think about it, six is a lot 🙃
+
+        let digits = &*self.coefficient.magnitude.to_string();
+        let len = digits.len();
+        // The index of the decimal point, relative to the magnitude representation
+        //       0123                                                       01234
+        // Given ABCDd-2, the decimal gets inserted at position 2, yielding AB.CD
+        let dot_index = len as i64 + self.exponent;
+
+        if self.coefficient.sign == Sign::Negative {
+            write!(f, "-").unwrap();
+        };
+
+        if self.exponent == 0 && len > WIDE_NUMBER { // e.g. A.BCDEFGd6
+            write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (dot_index - 1))
+        } else if self.exponent == 0 { // e.g. ABC.
+            write!(f, "{}.", &digits)
+        } else if self.exponent >= 0 { // e.g. ABCd1
+            write!(f, "{}d{}", &digits, self.exponent)
+        } else { // exponent < 0, there is a fractional component
+            if dot_index > 0 { // e.g. A.BC or AB.C
+                let dot_index = dot_index as usize;
+                write!(f, "{}.{}", &digits[0..dot_index], &digits[dot_index..len])
+            } else if dot_index > -(WIDE_NUMBER as i64) { // e.g. 0.ABC or 0.000ABC
+                let width = dot_index.unsigned_abs() as usize + len;
+                write!(f, "0.{digits:0>width$}", width = width, digits = digits)
+            } else { // e.g. A.BCd-12
+                write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (dot_index - 1))
+            }
+        }
     }
 }
 
@@ -347,12 +377,15 @@ mod decimal_tests {
     use rstest::*;
 
     #[rstest]
-    #[case(Decimal::new(1, 0), "1d0")]
-    #[case(Decimal::new(123, -2), "123d-2")]
-    #[case(Decimal::new(123, 2), "123d2")]
-    #[case(Decimal::negative_zero_with_exponent(0), "-0d0")]
-    #[case(Decimal::negative_zero_with_exponent(-4), "-0d-4")]
-    #[case(Decimal::negative_zero_with_exponent(4), "-0d4")]
+    #[case(Decimal::new(123, 1), "123d1")]
+    #[case(Decimal::new(123, 0), "123.")]
+    #[case(Decimal::new(-123,  0),"-123.")]
+    #[case(Decimal::new( 123, -1),  "12.3")]
+    #[case(Decimal::new( 123, -3),   "0.123")]
+    #[case(Decimal::new(-123, -5),  "-0.00123")]
+    #[case(Decimal::new( 123, -5),   "0.00123")]
+    #[case(Decimal::new( 123, -10),  "1.23d-8")]
+    #[case(Decimal::new(-123, -10), "-1.23d-8")]
     fn test_display(#[case] decimal: Decimal, #[case] expected: &str) {
         let mut buffer = String::new();
         write!(buffer, "{decimal}").unwrap();
