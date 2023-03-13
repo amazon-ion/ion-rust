@@ -168,7 +168,7 @@ impl StructBuilder {
         let _ = self
             .fields
             .iter()
-            .position(|&(ref name, _)| name == &field_to_remove)
+            .position(|(name, _)| name == &field_to_remove)
             .map(|index| self.fields.remove(index));
         self
     }
@@ -190,19 +190,19 @@ impl StructBuilder {
 
 impl From<ListBuilder> for Element {
     fn from(list_builder: ListBuilder) -> Self {
-        list_builder.build().into()
+        list_builder.build()
     }
 }
 
 impl From<SExpBuilder> for Element {
     fn from(s_expr_builder: SExpBuilder) -> Self {
-        s_expr_builder.build().into()
+        s_expr_builder.build()
     }
 }
 
 impl From<StructBuilder> for Element {
     fn from(struct_builder: StructBuilder) -> Self {
-        struct_builder.build().into()
+        struct_builder.build()
     }
 }
 
