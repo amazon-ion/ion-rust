@@ -2,5 +2,5 @@
 	path = ion-tests
 	url = https://github.com/amazon-ion/ion-tests.git
 [submodule "ion-hash-test"]
-	path = ion-hash/ion-hash-test
+	path = ion-hash-test
 	url = https://github.com/amazon-ion/ion-hash-test.git

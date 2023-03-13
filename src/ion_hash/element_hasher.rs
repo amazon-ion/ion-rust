@@ -5,13 +5,13 @@
 
 use std::io;
 
+use crate::value::owned::Element;
+use crate::IonResult;
 use digest::{FixedOutput, Output, Reset, Update};
-use ion_rs::result::IonResult;
-use ion_rs::value::owned::Element;
 
-use crate::representation::RepresentationEncoder;
-use crate::type_qualifier::TypeQualifier;
-use crate::Markers;
+use crate::ion_hash::representation::RepresentationEncoder;
+use crate::ion_hash::type_qualifier::TypeQualifier;
+use crate::ion_hash::Markers;
 
 pub(crate) struct ElementHasher<D>
 where
