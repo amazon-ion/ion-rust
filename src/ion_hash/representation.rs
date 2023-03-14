@@ -11,7 +11,7 @@ use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
-use crate::value::owned::{Element, IonSequence, List, SExp, Sequence, Struct};
+use crate::value::owned::{Element, IonSequence, List, SExp, Struct};
 use crate::{result::IonResult, types::timestamp::Timestamp, IonType, Symbol};
 use digest::{FixedOutput, Output, Reset, Update};
 
