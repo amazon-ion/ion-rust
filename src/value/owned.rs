@@ -753,14 +753,21 @@ impl Element {
     }
 
     /// Reads a single Ion [`Element`] from the provided data source. If the data source has invalid
-    /// data or does not contain at least one Ion value, returns `Err`.
+    /// data or does not contain at exactly one Ion value, returns `Err`.
     pub fn parse<A: AsRef<[u8]>>(data: A) -> IonResult<Element> {
         let bytes: &[u8] = data.as_ref();
-        NativeElementReader
-            .iterate_over(bytes)
-            .unwrap()
+        // Create an iterator over the Elements in the data
+        let mut iter = NativeElementReader.iterate_over(bytes).unwrap();
+        // Materialize the first Element
+        let element = iter
             .next()
-            .unwrap_or_else(|| decoding_error("input did not contain any Ion values"))
+            .unwrap_or_else(|| decoding_error("input did not contain any Ion values"))?;
+        // Make sure there aren't any other Elements
+        if iter.next().is_some() {
+            return decoding_error("stream contained more than one value");
+        }
+        // Return the first (and verified only) Element
+        Ok(element)
     }
 }
 
