@@ -1,11 +1,12 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 use crate::ion_eq::IonEq;
+use crate::result::decoding_error;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
-use crate::{IonType, Symbol};
+use crate::{IonResult, IonType, Symbol};
 use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -16,6 +17,8 @@ use crate::value::builders::{ListBuilder, SExpBuilder, StructBuilder};
 use crate::value::iterators::{
     ElementsIterator, FieldIterator, FieldValuesIterator, IndexVec, SymbolsIterator,
 };
+use crate::value::native_reader::NativeElementReader;
+use crate::value::reader::ElementReader;
 
 impl Element {
     pub fn null(null_type: IonType) -> Element {
@@ -748,12 +751,23 @@ impl Element {
             _ => None,
         }
     }
+
+    /// Reads a single Ion [`Element`] from the provided data source. If the data source has invalid
+    /// data or does not contain at least one Ion value, returns `Err`.
+    pub fn parse<A: AsRef<[u8]>>(data: A) -> IonResult<Element> {
+        let bytes: &[u8] = data.as_ref();
+        NativeElementReader
+            .iterate_over(bytes)
+            .unwrap()
+            .next()
+            .unwrap_or_else(|| decoding_error("input did not contain any Ion values"))
+    }
 }
 
 #[cfg(test)]
 mod value_tests {
     use super::*;
-    use crate::{ion, ion_list, ion_sexp, ion_struct};
+    use crate::{ion_list, ion_sexp, ion_struct};
     use rstest::*;
 
     #[rstest(
@@ -768,7 +782,7 @@ mod value_tests {
         ),
         case::struct_(
             ion_struct!{"greetings": "hello"},
-            ion!(r#"{greetings: "hello"}"#)
+            Element::parse(r#"{greetings: "hello"}"#).unwrap()
         ),
     )]
     fn owned_element_accessors<E1, E2>(e1: E1, e2: E2)
