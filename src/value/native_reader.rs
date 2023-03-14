@@ -68,9 +68,7 @@ impl<R: RawReader> NativeElementIterator<R> {
                     Blob => Value::Blob(self.reader.read_blob()?),
                     // It's a collection; recursively materialize all of this value's children
                     List => Value::List(owned::List::new(self.materialize_sequence()?)),
-                    SExpression => {
-                        Value::SExpression(owned::SExp::new(self.materialize_sequence()?))
-                    }
+                    SExpression => Value::SExp(owned::SExp::new(self.materialize_sequence()?)),
                     Struct => Value::Struct(self.materialize_struct()?),
                 }
             }

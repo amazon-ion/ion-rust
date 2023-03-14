@@ -370,7 +370,7 @@ impl IonEq for Value {
             (Decimal(d1), Decimal(d2)) => return d1.ion_eq(d2),
             (Timestamp(t1), Timestamp(t2)) => return t1.ion_eq(t2),
             (List(l1), List(l2)) => return l1.ion_eq(l2),
-            (SExpression(s1), SExpression(s2)) => return s1.ion_eq(s2),
+            (SExp(s1), SExp(s2)) => return s1.ion_eq(s2),
             _ => {}
         };
         // For any other case, fall back to vanilla equality
@@ -411,7 +411,7 @@ pub enum Value {
     Boolean(bool),
     Blob(Vec<u8>),
     Clob(Vec<u8>),
-    SExpression(SExp),
+    SExp(SExp),
     List(List),
     Struct(Struct),
 }
@@ -449,7 +449,7 @@ impl Display for Element {
             Value::Clob(clob) => ivf.format_clob(clob),
             Value::Blob(blob) => ivf.format_blob(blob),
             Value::Struct(struct_) => ivf.format_struct(struct_),
-            Value::SExpression(sexp) => ivf.format_sexp(sexp),
+            Value::SExp(sexp) => ivf.format_sexp(sexp),
             Value::List(list) => ivf.format_list(list),
         }
         .map_err(|_| std::fmt::Error)?;
@@ -559,7 +559,7 @@ impl From<List> for Value {
 
 impl From<SExp> for Value {
     fn from(s_expr: SExp) -> Self {
-        Value::SExpression(s_expr)
+        Value::SExp(s_expr)
     }
 }
 
@@ -614,7 +614,7 @@ impl Element {
             Boolean(_) => IonType::Boolean,
             Blob(_) => IonType::Blob,
             Clob(_) => IonType::Clob,
-            SExpression(_) => IonType::SExpression,
+            SExp(_) => IonType::SExpression,
             List(_) => IonType::List,
             Struct(_) => IonType::Struct,
         }
@@ -722,7 +722,7 @@ impl Element {
 
     pub fn as_sequence(&self) -> Option<&dyn IonSequence> {
         match &self.value {
-            Value::SExpression(sexp) => Some(sexp),
+            Value::SExp(sexp) => Some(sexp),
             Value::List(list) => Some(list),
             _ => None,
         }
@@ -730,7 +730,7 @@ impl Element {
 
     pub fn as_sexp(&self) -> Option<&SExp> {
         match &self.value {
-            Value::SExpression(sexp) => Some(sexp),
+            Value::SExp(sexp) => Some(sexp),
             _ => None,
         }
     }
