@@ -233,7 +233,7 @@ mod reader_tests {
             ["a", "b"]
         "#,
         vec![
-            ion_list!["a", "b"]
+            ion_list!["a", "b"].into()
         ]
     )]
     #[case::sexps(

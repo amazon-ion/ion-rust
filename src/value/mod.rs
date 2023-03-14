@@ -428,7 +428,7 @@ mod tests {
 
     fn list_case() -> Case {
         Case {
-            elem: ion_list![true, false],
+            elem: ion_list![true, false].into(),
             ion_type: IonType::List,
             ops: vec![AsList, AsSequence],
             op_assert: Box::new(|e: &Element| {

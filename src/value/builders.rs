@@ -10,7 +10,8 @@ use crate::Symbol;
 ///     .push(1)
 ///     .push(true)
 ///     .push("foo")
-///     .build();
+///     .build()
+///     .into();
 /// let expected = ion!(r#"[1, true, "foo"]"#);
 /// assert_eq!(actual, expected);
 /// ```
@@ -49,13 +50,8 @@ impl ListBuilder {
     }
 
     /// Builds a [`List`] with the previously specified elements.
-    pub fn build_list(self) -> List {
+    pub fn build(self) -> List {
         List::new(self.values)
-    }
-
-    /// Builds a list [`Element`] with the previously specified child elements.
-    pub fn build(self) -> Element {
-        self.build_list().into()
     }
 }
 
@@ -244,7 +240,7 @@ impl StructBuilder {
 
 impl From<ListBuilder> for Element {
     fn from(list_builder: ListBuilder) -> Self {
-        list_builder.build()
+        list_builder.build().into()
     }
 }
 
@@ -264,8 +260,14 @@ impl From<StructBuilder> for Element {
 ///
 /// ```
 /// use ion_rs::{ion, ion_list};
+/// use ion_rs::value::owned::Element;
 /// // Construct a list Element from Rust values
-/// let actual = ion_list!["foo", 7, false, ion_list![1.5f64, -8.25f64]];
+/// let actual: Element = ion_list![
+///     "foo",
+///     7,
+///     false,
+///     ion_list![1.5f64, -8.25f64]
+/// ].into();
 /// // Construct an Element from serialized Ion data
 /// let expected = ion!(r#"["foo", 7, false, [1.5e0, -8.25e0]]"#);
 /// // Compare the two Elements
@@ -283,13 +285,13 @@ impl From<StructBuilder> for Element {
 /// let string_element: Element = "foo".into();
 /// let bool_element: Element = true.into();
 ///
-/// let actual = ion_list![
+/// let actual: Element = ion_list![
 ///     string_element,
 ///     bool_element,
 ///     10i64.with_annotations(["bar"]), // .with_annotations() constructs an Element
 ///     Element::clob("hello"),
 ///     Element::symbol("world")
-/// ];
+/// ].into();
 /// // Construct an Element from serialized Ion data
 /// let expected = ion!(r#"["foo", true, bar::10, {{"hello"}}, world]"#);
 /// // Compare the two Elements
@@ -427,14 +429,15 @@ mod tests {
             .push(true)
             .push("foo")
             .push(Symbol::owned("bar"))
-            .build();
+            .build()
+            .into();
         let expected = ion!(r#"[1, true, "foo", bar]"#);
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn make_list_with_macro() {
-        let actual: Element = ion_list![1, true, "foo", Symbol::owned("bar")];
+        let actual: Element = ion_list![1, true, "foo", Symbol::owned("bar")].into();
         let expected = ion!(r#"[1, true, "foo", bar]"#);
         assert_eq!(actual, expected);
     }
@@ -448,7 +451,8 @@ mod tests {
             .remove(1)
             .remove(1)
             .push(Symbol::owned("bar"))
-            .build();
+            .build()
+            .into();
         let expected = ion!("[1, bar]");
         assert_eq!(actual, expected);
     }
@@ -456,13 +460,12 @@ mod tests {
     #[test]
     fn list_clone_builder() {
         let original_list = ion_list![1, true, "foo", Symbol::owned("bar")];
-        let new_list = original_list
-            .as_list()
-            .unwrap()
+        let new_list: Element = original_list
             .clone_builder()
             .remove(1)
             .push(88)
-            .build();
+            .build()
+            .into();
         let expected_list = ion!(r#"[1, "foo", bar, 88]"#);
         assert_eq!(new_list, expected_list);
     }
