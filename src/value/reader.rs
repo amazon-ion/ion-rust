@@ -241,7 +241,7 @@ mod reader_tests {
             (e f g)
         "#,
         vec![
-            ion_sexp!(Symbol::owned("e") Symbol::owned("f") Symbol::owned("g"))
+            ion_sexp!(Symbol::owned("e") Symbol::owned("f") Symbol::owned("g")).into()
         ]
     )]
     #[case::structs(

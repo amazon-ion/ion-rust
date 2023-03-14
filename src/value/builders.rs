@@ -64,7 +64,8 @@ impl ListBuilder {
 ///     .push(1)
 ///     .push(true)
 ///     .push("foo")
-///     .build();
+///     .build()
+///     .into();
 /// let expected = ion!(r#"(1 true "foo")"#);
 /// assert_eq!(actual, expected);
 /// ```
@@ -103,13 +104,8 @@ impl SExpBuilder {
     }
 
     /// Builds a [`SExp`] with the previously specified elements.
-    pub fn build_sexp(self) -> SExp {
+    pub fn build(self) -> SExp {
         SExp::new(self.values)
-    }
-
-    /// Builds an s-expression [`Element`] with the previously specified child elements.
-    pub fn build(self) -> Element {
-        self.build_sexp().into()
     }
 }
 
@@ -246,7 +242,7 @@ impl From<ListBuilder> for Element {
 
 impl From<SExpBuilder> for Element {
     fn from(s_expr_builder: SExpBuilder) -> Self {
-        s_expr_builder.build()
+        s_expr_builder.build().into()
     }
 }
 
@@ -311,8 +307,9 @@ macro_rules! ion_list {
 ///
 /// ```
 /// use ion_rs::{ion, ion_sexp};
+/// use ion_rs::value::owned::Element;
 /// // Construct an s-expression Element from Rust values
-/// let actual = ion_sexp!("foo" 7 false ion_sexp!(1.5f64 8.25f64));
+/// let actual: Element = ion_sexp!("foo" 7 false ion_sexp!(1.5f64 8.25f64)).into();
 /// // Construct an Element from serialized Ion data
 /// let expected = ion!(r#"("foo" 7 false (1.5e0 8.25e0))"#);
 /// // Compare the two Elements
@@ -330,13 +327,13 @@ macro_rules! ion_list {
 /// let string_element: Element = "foo".into();
 /// let bool_element: Element = true.into();
 ///
-/// let actual = ion_sexp!(
+/// let actual: Element = ion_sexp!(
 ///     string_element
 ///     bool_element
 ///     10i64.with_annotations(["bar"]) // .with_annotations() constructs an Element
 ///     Element::clob("hello")
 ///     Element::symbol("world")
-/// );
+/// ).into();
 /// // Construct an Element from serialized Ion data
 /// let expected = ion!(r#"("foo" true bar::10 {{"hello"}} world)"#);
 /// // Compare the two Elements
@@ -477,7 +474,8 @@ mod tests {
             .push(true)
             .push("foo")
             .push(Symbol::owned("bar"))
-            .build();
+            .build()
+            .into();
         let expected = ion!(r#"(1 true "foo" bar)"#);
         assert_eq!(actual, expected);
     }
@@ -485,13 +483,12 @@ mod tests {
     #[test]
     fn sexp_clone_builder() {
         let original_sexp = ion_sexp!(1 true "foo" Symbol::owned("bar"));
-        let new_sexp = original_sexp
-            .as_sexp()
-            .unwrap()
+        let new_sexp: Element = original_sexp
             .clone_builder()
             .remove(1)
             .push(88)
-            .build();
+            .build()
+            .into();
         let expected_sexp = ion!(r#"(1 "foo" bar 88)"#);
         assert_eq!(new_sexp, expected_sexp);
     }
@@ -505,14 +502,15 @@ mod tests {
             .remove(1)
             .remove(1)
             .push(Symbol::owned("bar"))
-            .build();
+            .build()
+            .into();
         let expected = ion!("(1 bar)");
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn make_sexp_with_macro() {
-        let actual: Element = ion_sexp!(1 true "foo" Symbol::owned("bar"));
+        let actual: Element = ion_sexp!(1 true "foo" Symbol::owned("bar")).into();
         let expected = ion!(r#"(1 true "foo" bar)"#);
         assert_eq!(actual, expected);
     }

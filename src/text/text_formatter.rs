@@ -449,8 +449,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
 #[cfg(test)]
 mod formatter_test {
     use crate::text::text_formatter::IonValueFormatter;
-    use crate::value::owned::SExp;
-    use crate::{ion_list, ion_struct, Integer, IonResult, IonType, Timestamp};
+    use crate::{ion_list, ion_sexp, ion_struct, Integer, IonResult, IonType, Timestamp};
     use num_bigint::BigInt;
 
     fn formatter<F>(mut f: F, expected: &str)
@@ -556,15 +555,7 @@ mod formatter_test {
     #[test]
     fn test_format_sexp() -> IonResult<()> {
         formatter(
-            |ivf| {
-                ivf.format_sexp(
-                    &SExp::builder()
-                        .push("hello")
-                        .push(5)
-                        .push(true)
-                        .build_sexp(),
-                )
-            },
+            |ivf| ivf.format_sexp(&ion_sexp!("hello" 5 true)),
             "(\"hello\" 5 true)",
         );
         Ok(())
