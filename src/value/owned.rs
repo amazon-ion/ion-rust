@@ -466,6 +466,14 @@ impl PartialEq for Element {
 
 impl Eq for Element {}
 
+// This implementation allows APIs that require an Into<Element> to accept references to an existing
+// Element.
+impl<'a> From<&'a Element> for Element {
+    fn from(element: &'a Element) -> Self {
+        element.clone()
+    }
+}
+
 // Anything that can be turned into a `Value` can then be turned into an `Element`
 // by associating it with an empty annotations sequence.
 impl<T> From<T> for Element
@@ -561,7 +569,25 @@ impl From<Struct> for Value {
     }
 }
 
+/// Allows types that can be converted into an Ion [Value] to also specify annotations, producing
+/// an [Element].
+///
+/// ```
+/// use ion_rs::ion_list;
+/// use ion_rs::value::owned::{Element, IntoAnnotatedElement, Value};
+///
+/// // Explicit conversion of a Rust bool (`true`) into a `Value`...
+/// let boolean_value: Value = true.into();
+/// // and then into an `Element`...
+/// let mut boolean_element: Element = boolean_value.into();
+/// // and then adding annotations to the `Element`.
+/// boolean_element = boolean_element.with_annotations(["foo", "bar"]);
+///
+/// // Much more concise equivalent leveraging the `IntoAnnotatedElement` trait.
+/// let boolean_element = true.with_annotations(["foo", "bar"]);
+/// ```
 pub trait IntoAnnotatedElement: Into<Value> {
+    /// Converts the value into an [Element] with the specified annotations.
     fn with_annotations<S: Into<Symbol>, I: IntoIterator<Item = S>>(
         self,
         annotations: I,

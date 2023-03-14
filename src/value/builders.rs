@@ -130,6 +130,24 @@ impl SExpBuilder {
 /// let expected = ion!(r#"{a: 1, b: true, c: "foo"}"#);
 /// assert_eq!(actual, expected);
 /// ```
+///
+/// ```
+/// use ion_rs::ion;
+/// use ion_rs::value::owned::{Element, Struct};
+/// let base_struct: Struct = Element::struct_builder()
+///     .with_field("foo", 1)
+///     .with_field("bar", 2)
+///     .with_field("baz", 3)
+///     .build_struct();
+///
+/// let modified_struct: Element = base_struct.clone_builder()
+///     .remove_field("bar")
+///     .with_field("quux", 4)
+///     .build();
+///
+/// let expected = ion!(r#"{foo: 1, baz: 3, quux: 4}"#);
+/// assert_eq!(expected, modified_struct);
+/// ```
 pub struct StructBuilder {
     fields: Vec<(Symbol, Element)>,
 }
@@ -156,6 +174,46 @@ impl StructBuilder {
         field_value: E,
     ) -> Self {
         self.fields.push((field_name.into(), field_value.into()));
+        self
+    }
+
+    /// Adds all of the provided `(name, value)` pairs to the [`Struct`] being constructed.
+    ///
+    /// ```
+    /// use ion_rs::{ion, ion_struct};
+    /// use ion_rs::value::owned::{Element, Struct};
+    ///
+    /// let struct1 = Struct::builder()
+    ///     .with_field("foo", 1)
+    ///     .with_field("bar", 2)
+    ///     .with_field("baz", 3)
+    ///     .build_struct();
+    ///
+    /// let struct2 = Struct::builder()
+    ///     .with_field("a", 4)
+    ///     .with_field("b", 5)
+    ///     .with_field("c", 6)
+    ///     .build_struct();
+    ///
+    /// let merged = struct1
+    ///     .clone_builder()
+    ///     .with_fields(struct2.fields())
+    ///     .build();
+    ///
+    /// let expected = ion!("{foo: 1, bar: 2, baz: 3, a: 4, b: 5, c: 6}");
+    /// ```
+    ///
+    pub fn with_fields<S, E, I>(mut self, fields: I) -> Self
+    where
+        S: Into<Symbol>,
+        E: Into<Element>,
+        I: IntoIterator<Item = (S, E)>,
+    {
+        for (name, value) in fields.into_iter() {
+            let name: Symbol = name.into();
+            let value: Element = value.into();
+            self.fields.push((name, value));
+        }
         self
     }
 
@@ -217,6 +275,30 @@ impl From<StructBuilder> for Element {
 /// // Compare the two Elements
 /// assert_eq!(expected, actual);
 /// ```
+///
+/// Child values can be anything that implements `Into<Element>`, which
+/// includes existing [Element] values.
+///
+/// ```
+/// // Construct a list Element from existing Elements
+/// use ion_rs::{ion, ion_list};
+/// use ion_rs::value::owned::{Element, IntoAnnotatedElement};
+///
+/// let string_element: Element = "foo".into();
+/// let bool_element: Element = true.into();
+///
+/// let actual = ion_list![
+///     string_element,
+///     bool_element,
+///     10i64.with_annotations(["bar"]), // .with_annotations() constructs an Element
+///     Element::clob("hello"),
+///     Element::symbol("world")
+/// ];
+/// // Construct an Element from serialized Ion data
+/// let expected = ion!(r#"["foo", true, bar::10, {{"hello"}}, world]"#);
+/// // Compare the two Elements
+/// assert_eq!(expected, actual);
+/// ```
 #[macro_export]
 macro_rules! ion_list {
     ($($element:expr),*) => {{
@@ -236,7 +318,30 @@ macro_rules! ion_list {
 /// // Construct an Element from serialized Ion data
 /// let expected = ion!(r#"("foo" 7 false (1.5e0 8.25e0))"#);
 /// // Compare the two Elements
-/// println!("{} == {}", expected, actual);
+/// assert_eq!(expected, actual);
+/// ```
+///
+/// Child values can be anything that implements `Into<Element>`, which
+/// includes existing [Element] values.
+///
+/// ```
+/// // Construct a s-expression Element from existing Elements
+/// use ion_rs::{ion, ion_sexp};
+/// use ion_rs::value::owned::{Element, IntoAnnotatedElement};
+///
+/// let string_element: Element = "foo".into();
+/// let bool_element: Element = true.into();
+///
+/// let actual = ion_sexp!(
+///     string_element
+///     bool_element
+///     10i64.with_annotations(["bar"]) // .with_annotations() constructs an Element
+///     Element::clob("hello")
+///     Element::symbol("world")
+/// );
+/// // Construct an Element from serialized Ion data
+/// let expected = ion!(r#"("foo" true bar::10 {{"hello"}} world)"#);
+/// // Compare the two Elements
 /// assert_eq!(expected, actual);
 /// ```
 #[macro_export]
@@ -253,8 +358,10 @@ macro_rules! ion_sexp {
 /// `Into<Element>`.
 ///
 /// ```
-/// use ion_rs::{ion, ion_struct};
+/// use ion_rs::{ion, ion_struct, IonType};
 /// let field_name_2 = "x";
+/// let prefix = "abc";
+/// let suffix = "def";
 /// // Construct an s-expression Element from Rust values
 /// let actual = ion_struct!{
 ///     "w": "foo",
@@ -262,12 +369,14 @@ macro_rules! ion_sexp {
 /// //   v--- Unquoted field names are interpreted as variables
 ///     field_name_2: 7,
 ///     "y": false,
-///     "z": ion_struct!{ "a": 1.5f64, "b": -8.25f64}
+///     "z": ion_struct!{ "a": 1.5f64, "b": -8.25f64},
+/// //        Arbitrary expressions are acceptable, though some may require
+/// //   v--- an extra scope (braces: `{}`) to be understood properly.
+///      {format!("{}_{}", prefix, suffix)}: IonType::Null
 /// };
 /// // Construct an Element from serialized Ion data
-/// let expected = ion!(r#"{w: "foo", x: 7, y: false, z: {a: 1.5e0, b: -8.25e0}}"#);
+/// let expected = ion!(r#"{w: "foo", x: 7, y: false, z: {a: 1.5e0, b: -8.25e0}, abc_def: null}"#);
 /// // Compare the two Elements
-/// println!("{} == {}", expected, actual);
 /// assert_eq!(expected, actual);
 /// ```
 #[macro_export]
@@ -279,7 +388,7 @@ macro_rules! ion_struct {
 }
 
 /// Reads a single Ion [`Element`] from the provided data source. If the data source has invalid
-/// data or does not contain at least one Ion value, this macro will panic.
+/// data or does not contain at least one Ion value, this macro will panic at runtime.
 ///
 /// The data source can be any value which implements `AsRef<[u8]>`.
 /// ```
