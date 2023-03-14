@@ -110,9 +110,15 @@ mod tests {
         ne_elements: Vec<Element>,
     }
 
+    /// A convenience method for constructing a Vec<Element> from a collection of
+    /// homogeneously typed values that implement Into<Element>.
+    fn ion_vec<E: Into<Element>, I: IntoIterator<Item = E>>(values: I) -> Vec<Element> {
+        values.into_iter().map(|v| v.into()).collect()
+    }
+
     fn struct_with_multiple_fields_case() -> CaseStruct {
         CaseStruct {
-            eq_elements: vec![
+            eq_elements: ion_vec([
                 // structs with different order of fields
                 ion_struct! {
                     "greetings": "hello",
@@ -122,8 +128,8 @@ mod tests {
                     "name": "Ion",
                     "greetings": "hello"
                 },
-            ],
-            ne_elements: vec![
+            ]),
+            ne_elements: ion_vec([
                 // structs with different length and duplicates
                 ion_struct! {
                     "greetings": "hello",
@@ -142,14 +148,14 @@ mod tests {
                     "name": "Ion",
                     "message": "bye"
                 },
-            ],
+            ]),
         }
     }
 
     fn struct_with_duplicates_in_multiple_fields_case() -> CaseStruct {
         CaseStruct {
             // Structs are bags of (field, value) pairs, order is irrelevant
-            eq_elements: vec![
+            eq_elements: ion_vec([
                 ion_struct! {
                     "a" : 2i64,
                     "a" : 2i64,
@@ -165,8 +171,8 @@ mod tests {
                     "a" : 2i64,
                     "a" : 2i64
                 },
-            ],
-            ne_elements: vec![
+            ]),
+            ne_elements: ion_vec([
                 // structs with different length
                 ion_struct! {
                     "a" : 1i64,
@@ -184,13 +190,13 @@ mod tests {
                     "a" : 3i64,
                     "a" : 2i64
                 },
-            ],
+            ]),
         }
     }
 
     fn struct_with_duplicate_fieldnames_case() -> CaseStruct {
         CaseStruct {
-            eq_elements: vec![
+            eq_elements: ion_vec([
                 // structs with unordered fields
                 ion_struct! {
                     "greetings" : "world",
@@ -200,8 +206,8 @@ mod tests {
                     "greetings" : "world",
                     "greetings" : "hello"
                 },
-            ],
-            ne_elements: vec![
+            ]),
+            ne_elements: ion_vec([
                 // structs with different length and duplicates
                 ion_struct! {
                     "greetings" : "world",
@@ -219,7 +225,7 @@ mod tests {
                     "greetings" : "hello",
                     "name" : "hello"
                 },
-            ],
+            ]),
         }
     }
 
@@ -427,7 +433,7 @@ mod tests {
             ops: vec![AsList, AsSequence],
             op_assert: Box::new(|e: &Element| {
                 let actual = e.as_list().unwrap();
-                let expected: Vec<Element> = vec![true.into(), false.into()];
+                let expected: Vec<Element> = ion_vec([true, false]);
                 // assert the length of list
                 assert_eq!(2, actual.len());
                 for (i, actual_item) in actual.iter().enumerate() {
@@ -446,7 +452,7 @@ mod tests {
             ops: vec![AsSExp, AsSequence],
             op_assert: Box::new(|e: &Element| {
                 let actual = e.as_sexp().unwrap();
-                let expected: Vec<Element> = vec![true.into(), false.into()];
+                let expected: Vec<Element> = ion_vec([true, false]);
                 // assert the length of s-expression
                 assert_eq!(2, actual.len());
                 for (i, actual_item) in actual.iter().enumerate() {
@@ -459,7 +465,7 @@ mod tests {
 
     fn struct_case() -> Case {
         Case {
-            elem: ion_struct! {"greetings": "hello", "name": "ion"},
+            elem: ion_struct! {"greetings": "hello", "name": "ion"}.into(),
             ion_type: IonType::Struct,
             ops: vec![AsStruct],
             op_assert: Box::new(|e: &Element| {

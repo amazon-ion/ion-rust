@@ -257,7 +257,7 @@ mod reader_tests {
                 "string_field": "oink!".with_annotations(["a"]),
                 "string_field": "moo!".with_annotations(["a"]),
                 "bool_field": true.with_annotations(["a"])
-            }
+            }.into()
         ]
     )]
     fn read_and_compare(#[case] input: &[u8], #[case] expected: Vec<Element>) -> IonResult<()> {

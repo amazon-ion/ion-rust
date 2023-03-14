@@ -120,30 +120,31 @@ impl SExpBuilder {
 /// Constructs [Struct] values incrementally.
 ///
 /// ```
-/// use ion_rs::ion;
+/// use ion_rs::{ion, ion_struct};
 /// use ion_rs::value::owned::Element;
-/// let actual: Element = Element::struct_builder()
-///     .with_field("a", 1)
-///     .with_field("b", true)
-///     .with_field("c", "foo")
-///     .build();
+/// let actual: Element = ion_struct! {
+///     "a": 1,
+///     "b": true,
+///     "c": "foo"
+/// }.into();
 /// let expected = ion!(r#"{a: 1, b: true, c: "foo"}"#);
 /// assert_eq!(actual, expected);
 /// ```
 ///
 /// ```
-/// use ion_rs::ion;
+/// use ion_rs::{ion, ion_struct};
 /// use ion_rs::value::owned::{Element, Struct};
-/// let base_struct: Struct = Element::struct_builder()
-///     .with_field("foo", 1)
-///     .with_field("bar", 2)
-///     .with_field("baz", 3)
-///     .build_struct();
+/// let base_struct: Struct = ion_struct! {
+///     "foo": 1,
+///     "bar": 2,
+///     "baz": 3
+/// };
 ///
 /// let modified_struct: Element = base_struct.clone_builder()
 ///     .remove_field("bar")
 ///     .with_field("quux", 4)
-///     .build();
+///     .build()
+///     .into(); // Convert from `Struct` to `Element`
 ///
 /// let expected = ion!(r#"{foo: 1, baz: 3, quux: 4}"#);
 /// assert_eq!(expected, modified_struct);
@@ -183,17 +184,17 @@ impl StructBuilder {
     /// use ion_rs::{ion, ion_struct};
     /// use ion_rs::value::owned::{Element, Struct};
     ///
-    /// let struct1 = Struct::builder()
-    ///     .with_field("foo", 1)
-    ///     .with_field("bar", 2)
-    ///     .with_field("baz", 3)
-    ///     .build_struct();
+    /// let struct1 = ion_struct! {
+    ///     "foo": 1,
+    ///     "bar": 2,
+    ///     "baz": 3
+    /// };
     ///
-    /// let struct2 = Struct::builder()
-    ///     .with_field("a", 4)
-    ///     .with_field("b", 5)
-    ///     .with_field("c", 6)
-    ///     .build_struct();
+    /// let struct2 = ion_struct! {
+    ///     "a": 4,
+    ///     "b": 5,
+    ///     "c": 6
+    /// };
     ///
     /// let merged = struct1
     ///     .clone_builder()
@@ -232,13 +233,8 @@ impl StructBuilder {
     }
 
     /// Builds a [`Struct`] with the previously specified fields.
-    pub fn build_struct(self) -> Struct {
+    pub fn build(self) -> Struct {
         Struct::from_iter(self.fields.into_iter())
-    }
-
-    /// Builds a struct [`Element`] with the previously specified fields.
-    pub fn build(self) -> Element {
-        self.build_struct().into()
     }
 }
 
@@ -260,7 +256,7 @@ impl From<SExpBuilder> for Element {
 
 impl From<StructBuilder> for Element {
     fn from(struct_builder: StructBuilder) -> Self {
-        struct_builder.build()
+        struct_builder.build().into()
     }
 }
 
@@ -373,7 +369,7 @@ macro_rules! ion_sexp {
 /// //        Arbitrary expressions are acceptable, though some may require
 /// //   v--- an extra scope (braces: `{}`) to be understood properly.
 ///      {format!("{}_{}", prefix, suffix)}: IonType::Null
-/// };
+/// }.into();
 /// // Construct an Element from serialized Ion data
 /// let expected = ion!(r#"{w: "foo", x: 7, y: false, z: {a: 1.5e0, b: -8.25e0}, abc_def: null}"#);
 /// // Compare the two Elements
@@ -425,7 +421,7 @@ mod tests {
     use crate::{ion, ion_list, ion_sexp, ion_struct};
 
     #[test]
-    fn build_list() {
+    fn make_list_with_builder() {
         let actual: Element = ListBuilder::new()
             .push(1)
             .push(true)
@@ -437,14 +433,14 @@ mod tests {
     }
 
     #[test]
-    fn build_list_with_macro() {
+    fn make_list_with_macro() {
         let actual: Element = ion_list![1, true, "foo", Symbol::owned("bar")];
         let expected = ion!(r#"[1, true, "foo", bar]"#);
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn build_list_remove() {
+    fn make_list_with_builder_using_remove() {
         let actual: Element = ListBuilder::new()
             .push(1)
             .push(true)
@@ -472,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn build_sexp() {
+    fn make_sexp_with_builder() {
         let actual: Element = SExpBuilder::new()
             .push(1)
             .push(true)
@@ -498,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn build_sexp_remove() {
+    fn make_sexp_with_builder_using_remove() {
         let actual: Element = SExpBuilder::new()
             .push(1)
             .push(true)
@@ -512,38 +508,40 @@ mod tests {
     }
 
     #[test]
-    fn build_sexp_with_macro() {
+    fn make_sexp_with_macro() {
         let actual: Element = ion_sexp!(1 true "foo" Symbol::owned("bar"));
         let expected = ion!(r#"(1 true "foo" bar)"#);
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn build_struct() {
+    fn make_struct_with_builder() {
         let actual: Element = StructBuilder::new()
             .with_field("a", 1)
             .with_field("b", true)
             .with_field("c", "foo")
             .with_field("d", Symbol::owned("bar"))
-            .build();
+            .build()
+            .into();
         let expected = ion!(r#"{a: 1, b: true, c: "foo", d: bar}"#);
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn build_struct_with_macro() {
+    fn make_struct_with_macro() {
         let actual: Element = ion_struct! {
             "a": 1,
             "b": true,
             "c": "foo",
             "d": Symbol::owned("bar")
-        };
+        }
+        .into();
         let expected = ion!(r#"{a: 1, b: true, c: "foo", d: bar}"#);
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn build_struct_without() {
+    fn make_struct_with_builder_using_remove_field() {
         let actual: Element = StructBuilder::new()
             .with_field("a", 1)
             .with_field("b", true)
@@ -554,9 +552,9 @@ mod tests {
             .remove_field("b")
             // Removes the first 'd' field, leaves the second
             .remove_field("d")
-            .build();
+            .build()
+            .into();
         let expected = ion!(r#"{a: 1, c: "foo", d: baz}"#);
-        assert_eq!(actual, expected);
         assert_eq!(actual, expected);
     }
 }
