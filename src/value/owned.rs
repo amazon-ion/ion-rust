@@ -561,18 +561,17 @@ impl From<Struct> for Value {
     }
 }
 
-impl<A, S, V> From<(A, V)> for Element
-where
-    A: IntoIterator<Item = S>,
-    S: Into<Symbol>,
-    V: Into<Value>,
-{
-    fn from(pair: (A, V)) -> Self {
-        let annotations: Vec<Symbol> = pair.0.into_iter().map(|s| s.into()).collect();
-        let value: Value = pair.1.into();
-        Element::new(annotations, value)
+pub trait IntoAnnotatedElement: Into<Value> {
+    fn with_annotations<S: Into<Symbol>, I: IntoIterator<Item = S>>(
+        self,
+        annotations: I,
+    ) -> Element {
+        let annotations = annotations.into_iter().map(|i| i.into()).collect();
+        Element::new(annotations, self.into())
     }
 }
+
+impl<V> IntoAnnotatedElement for V where V: Into<Value> {}
 
 impl Element {
     pub fn ion_type(&self) -> IonType {
@@ -791,7 +790,6 @@ mod value_tests {
         container, is_empty,
         case::struct_(
             ion_struct!{"greetings": "hello", "name": "Ion"},
-
             false
         ),
         case::list(

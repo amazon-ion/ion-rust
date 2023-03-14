@@ -73,8 +73,8 @@ mod reader_tests {
     use crate::types::integer::Integer;
     use crate::types::timestamp::Timestamp as TS;
     use crate::value::builders::{ion_list, ion_sexp, ion_struct};
-    use crate::value::owned::Element;
     use crate::value::owned::Value::*;
+    use crate::value::owned::{Element, IntoAnnotatedElement};
     use crate::{IonType, Symbol};
     use bigdecimal::BigDecimal;
     use num_bigint::BigInt;
@@ -254,9 +254,9 @@ mod reader_tests {
         "#,
         vec![
             ion_struct! {
-                "string_field": (["a"], "oink!"),
-                "string_field": (["a"], "moo!"),
-                "bool_field": (["a"], true)
+                "string_field": "oink!".with_annotations(["a"]),
+                "string_field": "moo!".with_annotations(["a"]),
+                "bool_field": true.with_annotations(["a"])
             }
         ]
     )]

@@ -29,6 +29,7 @@ mod tests {
     use chrono::*;
     use rstest::*;
     use std::iter::{once, Once};
+    use IntoAnnotatedElement;
 
     /// Makes a timestamp from an RFC-3339 string and panics if it can't
     fn make_timestamp<T: AsRef<str>>(text: T) -> Timestamp {
@@ -41,9 +42,8 @@ mod tests {
     }
 
     fn annotations_text_case() -> CaseAnnotations {
-        let int_value: Element = 10i64.into();
         CaseAnnotations {
-            elem: int_value.with_annotations(["foo", "bar", "baz"]),
+            elem: 10i64.with_annotations(["foo", "bar", "baz"]),
             annotations: ["foo", "bar", "baz"]
                 .into_iter()
                 .map(|i| i.into())
@@ -175,7 +175,7 @@ mod tests {
                 // structs with annotated values
                 ion_struct! {
                     "a" : 2i64,
-                    "a" : (["a"], 1i64), // annotated
+                    "a" : 1i64.with_annotations(["a"]),
                     "a" : 2i64
                 },
                 // structs with different value for duplicates
@@ -211,7 +211,7 @@ mod tests {
                 // structs with annotated values
                 ion_struct! {
                     "greetings" : "world",
-                    "greetings" : (["foo"], "hello")
+                    "greetings" : "hello".with_annotations(["foo"])
                 },
                 // structs with different length
                 ion_struct! {
