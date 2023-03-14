@@ -3,7 +3,7 @@
 use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
 use ion_rs::value::native_writer::NativeElementWriter;
-use ion_rs::value::owned::{Element, Sequence};
+use ion_rs::value::owned::{Element, IonSequence};
 use ion_rs::value::reader::ElementReader;
 use ion_rs::value::writer::{ElementWriter, Format, TextKind};
 use ion_rs::{BinaryWriterBuilder, TextWriterBuilder};
@@ -173,7 +173,7 @@ trait ElementApi {
     /// compared against itself).
     fn read_group_embedded<R, F>(
         reader: &R,
-        raw_group: &Sequence,
+        raw_group: &dyn IonSequence,
         group_assert: &F,
     ) -> IonResult<()>
     where

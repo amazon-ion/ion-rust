@@ -1,186 +1,186 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Provides owned implementations of [`IonSymbolToken`], [`IonElement`] and its dependents.
-//!
-//! This API is simpler to manage with respect to borrowing lifetimes, but requires full
-//! ownership of data to do so.
-
 use crate::ion_eq::IonEq;
+use crate::result::decoding_error;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
-use crate::types::SymbolId;
-use crate::{IonType, Symbol};
+use crate::{IonResult, IonType, Symbol};
 use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
-use std::rc::Rc;
 
 use crate::symbol_ref::AsSymbolRef;
+use crate::value::builders::{ListBuilder, SExpBuilder, StructBuilder};
 use crate::value::iterators::{
     ElementsIterator, FieldIterator, FieldValuesIterator, IndexVec, SymbolsIterator,
 };
+use crate::value::native_reader::NativeElementReader;
+use crate::value::reader::ElementReader;
 
-impl Symbol {
-    pub fn symbol_id(&self) -> Option<SymbolId> {
-        match self.text() {
-            Some(_) => None,
-            None => Some(0),
-        }
-    }
-
-    pub fn with_text(self, text: &'static str) -> Self {
-        Symbol::owned(text)
-    }
-
-    pub fn with_symbol_id(self, _local_sid: SymbolId) -> Self {
-        // Because `Symbol` represents a fully resolved symbol...
-        if self.text().is_some() {
-            // ...if we already have text, we can discard the symbol ID.
-            return self;
-        }
-        // Otherwise, the text is unknown.
-        Symbol::unknown_text()
-    }
-
-    pub fn text_token(text: &'static str) -> Self {
-        Symbol::owned(text)
-    }
-
-    pub fn symbol_id_token(_local_sid: SymbolId) -> Self {
-        // Because `Symbol` represents a fully resolved symbol, constructing one from a symbol ID
-        // alone means that it has no defined text and is therefore equivalent to SID 0.
-        Symbol::unknown_text()
-    }
-}
-
-/// Constructs a [`Symbol`] with just text.
-/// A common case for text and synthesizing tokens.
-#[inline]
-pub fn text_token(text: &str) -> Symbol {
-    Symbol::owned(text)
-}
-
-/// An owned implementation of [`Builder`].
 impl Element {
-    fn new_null(e_type: IonType) -> Element {
-        Value::Null(e_type).into()
+    pub fn null(null_type: IonType) -> Element {
+        null_type.into()
     }
 
-    fn new_bool(bool: bool) -> Element {
-        Value::Boolean(bool).into()
+    pub fn boolean(value: bool) -> Element {
+        value.into()
     }
 
-    fn new_string<A: AsRef<str>>(str: A) -> Element {
-        Value::String(str.as_ref().to_owned()).into()
+    pub fn string<I: Into<String>>(str: I) -> Element {
+        let text: String = str.into();
+        text.into()
     }
 
-    fn new_symbol(symbol: Symbol) -> Element {
-        Value::Symbol(symbol).into()
+    pub fn symbol<I: Into<Symbol>>(symbol: I) -> Element {
+        let symbol: Symbol = symbol.into();
+        symbol.into()
     }
 
-    fn new_i64(integer: i64) -> Element {
-        Value::Integer(Integer::I64(integer)).into()
+    pub fn integer<I: Into<Integer>>(integer: I) -> Element {
+        let integer: Integer = integer.into();
+        integer.into()
     }
 
-    fn new_big_int(big_int: BigInt) -> Element {
-        Value::Integer(Integer::BigInt(big_int)).into()
+    pub fn decimal(decimal: Decimal) -> Element {
+        decimal.into()
     }
 
-    fn new_decimal(decimal: Decimal) -> Element {
-        Value::Decimal(decimal).into()
+    pub fn timestamp(timestamp: Timestamp) -> Element {
+        timestamp.into()
     }
 
-    fn new_timestamp(timestamp: Timestamp) -> Element {
-        Value::Timestamp(timestamp).into()
+    pub fn float(float: f64) -> Element {
+        float.into()
     }
 
-    fn new_f64(float: f64) -> Element {
-        Value::Float(float).into()
-    }
-
-    fn new_clob(bytes: &[u8]) -> Element {
+    pub fn clob<A: AsRef<[u8]>>(bytes: A) -> Element {
+        let bytes: &[u8] = bytes.as_ref();
         Value::Clob(bytes.into()).into()
     }
 
-    fn new_blob(bytes: &[u8]) -> Element {
+    pub fn blob<A: AsRef<[u8]>>(bytes: A) -> Element {
+        let bytes: &[u8] = bytes.as_ref();
         Value::Blob(bytes.into()).into()
     }
 
-    fn new_list<I: IntoIterator<Item = Element>>(seq: I) -> Element {
-        Value::List(seq.into_iter().collect()).into()
+    pub fn list_builder() -> ListBuilder {
+        ListBuilder::new()
     }
 
-    fn new_sexp<I: IntoIterator<Item = Element>>(seq: I) -> Element {
-        Value::SExpression(seq.into_iter().collect()).into()
+    pub fn sexp_builder() -> SExpBuilder {
+        SExpBuilder::new()
     }
 
-    fn new_struct<K: Into<Symbol>, V: Into<Element>, I: IntoIterator<Item = (K, V)>>(
-        structure: I,
-    ) -> Element {
-        Value::Struct(structure.into_iter().collect()).into()
+    pub fn struct_builder() -> StructBuilder {
+        Struct::builder()
     }
 }
 
-/// An owned implementation of [`IonSequence`]
-#[derive(Debug, Clone)]
-pub struct Sequence {
-    // TODO: Since we've moved the elements Vec to the heap, we could consider replacing it with a
-    //       SmallVec that can store some number of elements (4? 8?) inline. We'd need to benchmark.
-    children: Rc<Vec<Element>>,
-}
-
-impl Sequence {
-    pub fn new(children: Vec<Element>) -> Self {
-        Self {
-            children: Rc::new(children),
-        }
-    }
-}
-
-impl FromIterator<Element> for Sequence {
-    /// Returns an owned sequence from the given iterator of elements.
-    fn from_iter<I: IntoIterator<Item = Element>>(iter: I) -> Self {
-        let mut children: Vec<Element> = Vec::new();
-        for elem in iter {
-            children.push(elem);
-        }
-        Self {
-            children: Rc::new(children),
-        }
-    }
-}
-
-impl Sequence {
-    pub fn iter(&self) -> ElementsIterator<'_> {
-        ElementsIterator::new(&self.children)
-    }
-
-    pub fn get(&self, index: usize) -> Option<&Element> {
-        self.children.get(index)
-    }
-
-    pub fn len(&self) -> usize {
-        self.children.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
+/// Behavior that is common to both [SExp] and [Struct].
+pub trait IonSequence {
+    fn iter(&self) -> ElementsIterator<'_>;
+    fn get(&self, index: usize) -> Option<&Element>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
-impl PartialEq for Sequence {
-    fn eq(&self, other: &Self) -> bool {
-        self.children == other.children
+/// An in-memory representation of an Ion list
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct List {
+    children: Vec<Element>,
+}
+
+impl List {
+    pub(crate) fn new(children: Vec<Element>) -> Self {
+        Self { children }
+    }
+
+    pub fn builder() -> ListBuilder {
+        ListBuilder::new()
+    }
+
+    pub fn clone_builder(&self) -> ListBuilder {
+        ListBuilder::with_initial_elements(&self.children)
     }
 }
 
-impl Eq for Sequence {}
+impl IonSequence for List {
+    fn iter(&self) -> ElementsIterator<'_> {
+        ElementsIterator::new(&self.children)
+    }
 
-// This collection is broken out into its own type to allow instances of it to be shared with Rc.
-#[derive(Debug)]
+    fn get(&self, index: usize) -> Option<&Element> {
+        self.children.get(index)
+    }
+
+    fn len(&self) -> usize {
+        self.children.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl<S: IonSequence> IonEq for S {
+    fn ion_eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        for (item1, item2) in self.iter().zip(other.iter()) {
+            if !item1.ion_eq(item2) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// An in-memory representation of an Ion s-expression
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SExp {
+    children: Vec<Element>,
+}
+
+impl SExp {
+    pub(crate) fn new(children: Vec<Element>) -> Self {
+        Self { children }
+    }
+
+    pub fn builder() -> SExpBuilder {
+        SExpBuilder::new()
+    }
+
+    pub fn clone_builder(&self) -> SExpBuilder {
+        SExpBuilder::with_initial_elements(&self.children)
+    }
+}
+
+impl IonSequence for SExp {
+    fn iter(&self) -> ElementsIterator<'_> {
+        ElementsIterator::new(&self.children)
+    }
+
+    fn get(&self, index: usize) -> Option<&Element> {
+        self.children.get(index)
+    }
+
+    fn len(&self) -> usize {
+        self.children.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+// This collection is broken out into its own type to allow instances of it to be shared with Arc/Rc.
+#[derive(Debug, Clone)]
 struct Fields {
     // Key/value pairs in the order they were inserted
     by_index: Vec<(Symbol, Element)>,
@@ -246,13 +246,21 @@ impl Fields {
     }
 }
 
-/// An owned implementation of [`IonStruct`]
+/// An in-memory representation of an Ion Struct
 #[derive(Debug, Clone)]
 pub struct Struct {
-    fields: Rc<Fields>,
+    fields: Fields,
 }
 
 impl Struct {
+    pub fn builder() -> StructBuilder {
+        StructBuilder::new()
+    }
+
+    pub fn clone_builder(&self) -> StructBuilder {
+        StructBuilder::with_initial_fields(&self.fields.by_index)
+    }
+
     /// Returns an iterator over the field name/value pairs in this Struct.
     pub fn fields(&self) -> impl Iterator<Item = (&Symbol, &Element)> {
         self.fields
@@ -324,7 +332,7 @@ where
             by_index.push((field_name, field_value));
         }
 
-        let fields = Rc::new(Fields { by_index, by_name });
+        let fields = Fields { by_index, by_name };
         Self { fields }
     }
 }
@@ -357,12 +365,6 @@ impl PartialEq for Struct {
 
 impl Eq for Struct {}
 
-impl IonEq for Sequence {
-    fn ion_eq(&self, other: &Self) -> bool {
-        self.children.ion_eq(&other.children)
-    }
-}
-
 impl IonEq for Value {
     fn ion_eq(&self, other: &Self) -> bool {
         use Value::*;
@@ -370,8 +372,8 @@ impl IonEq for Value {
             (Float(f1), Float(f2)) => return f1.ion_eq(f2),
             (Decimal(d1), Decimal(d2)) => return d1.ion_eq(d2),
             (Timestamp(t1), Timestamp(t2)) => return t1.ion_eq(t2),
-            (List(seq1), List(seq2)) => return seq1.ion_eq(seq2),
-            (SExpression(seq1), SExpression(seq2)) => return seq1.ion_eq(seq2),
+            (List(l1), List(l2)) => return l1.ion_eq(l2),
+            (SExp(s1), SExp(s2)) => return s1.ion_eq(s2),
             _ => {}
         };
         // For any other case, fall back to vanilla equality
@@ -399,7 +401,7 @@ impl IonEq for Vec<Element> {
     }
 }
 
-/// Variants for all owned version _values_ within an [`IonElement`].
+/// Variants for all _values_ within an [`Element`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null(IonType),
@@ -412,12 +414,12 @@ pub enum Value {
     Boolean(bool),
     Blob(Vec<u8>),
     Clob(Vec<u8>),
-    SExpression(Sequence),
-    List(Sequence),
+    SExp(SExp),
+    List(List),
     Struct(Struct),
 }
 
-/// An owned implementation of [`IonElement`]
+/// An `(annotations, value)` pair representing an Ion value.
 #[derive(Debug, Clone)]
 pub struct Element {
     annotations: Vec<Symbol>,
@@ -450,7 +452,7 @@ impl Display for Element {
             Value::Clob(clob) => ivf.format_clob(clob),
             Value::Blob(blob) => ivf.format_blob(blob),
             Value::Struct(struct_) => ivf.format_struct(struct_),
-            Value::SExpression(sexp) => ivf.format_sexp(sexp),
+            Value::SExp(sexp) => ivf.format_sexp(sexp),
             Value::List(list) => ivf.format_list(list),
         }
         .map_err(|_| std::fmt::Error)?;
@@ -467,113 +469,138 @@ impl PartialEq for Element {
 
 impl Eq for Element {}
 
-impl From<Value> for Element {
-    fn from(val: Value) -> Self {
-        Self::new(vec![], val)
+// This implementation allows APIs that require an Into<Element> to accept references to an existing
+// Element.
+impl<'a> From<&'a Element> for Element {
+    fn from(element: &'a Element) -> Self {
+        element.clone()
     }
 }
 
-impl From<IonType> for Element {
+// Anything that can be turned into a `Value` can then be turned into an `Element`
+// by associating it with an empty annotations sequence.
+impl<T> From<T> for Element
+where
+    T: Into<Value>,
+{
+    fn from(value: T) -> Self {
+        Element::new(Vec::new(), value.into())
+    }
+}
+
+impl From<IonType> for Value {
     fn from(ion_type: IonType) -> Self {
-        Value::Null(ion_type).into()
+        Value::Null(ion_type)
     }
 }
 
-impl From<i64> for Element {
+impl From<i64> for Value {
     fn from(i64_val: i64) -> Self {
-        Value::Integer(Integer::I64(i64_val)).into()
+        Value::Integer(Integer::I64(i64_val))
     }
 }
 
-impl From<BigInt> for Element {
+impl From<BigInt> for Value {
     fn from(big_int_val: BigInt) -> Self {
-        Value::Integer(Integer::BigInt(big_int_val)).into()
+        Value::Integer(Integer::BigInt(big_int_val))
     }
 }
 
-impl From<Integer> for Element {
+impl From<Integer> for Value {
     fn from(integer_val: Integer) -> Self {
-        match integer_val {
-            Integer::I64(i64_int) => i64_int.into(),
-            Integer::BigInt(big_int) => big_int.into(),
-        }
+        Value::Integer(integer_val)
     }
 }
 
-impl From<f64> for Element {
+impl From<f64> for Value {
     fn from(f64_val: f64) -> Self {
-        Value::Float(f64_val).into()
+        Value::Float(f64_val)
     }
 }
 
-impl From<Decimal> for Element {
+impl From<Decimal> for Value {
     fn from(decimal_val: Decimal) -> Self {
-        Value::Decimal(decimal_val).into()
+        Value::Decimal(decimal_val)
     }
 }
 
-impl From<Timestamp> for Element {
+impl From<Timestamp> for Value {
     fn from(timestamp_val: Timestamp) -> Self {
-        Value::Timestamp(timestamp_val).into()
+        Value::Timestamp(timestamp_val)
     }
 }
 
-impl From<bool> for Element {
+impl From<bool> for Value {
     fn from(bool_val: bool) -> Self {
-        Value::Boolean(bool_val).into()
+        Value::Boolean(bool_val)
     }
 }
 
-impl From<&str> for Element {
+impl From<&str> for Value {
     fn from(string_val: &str) -> Self {
-        Value::String(string_val.to_owned()).into()
+        Value::String(string_val.to_owned())
     }
 }
 
-impl From<String> for Element {
+impl From<String> for Value {
     fn from(string_val: String) -> Self {
-        Value::String(string_val).into()
+        Value::String(string_val)
     }
 }
 
-impl From<Symbol> for Element {
+impl From<Symbol> for Value {
     fn from(sym_val: Symbol) -> Self {
-        Value::Symbol(sym_val).into()
+        Value::Symbol(sym_val)
     }
 }
 
-impl From<Struct> for Element {
+impl From<List> for Value {
+    fn from(list: List) -> Self {
+        Value::List(list)
+    }
+}
+
+impl From<SExp> for Value {
+    fn from(s_expr: SExp) -> Self {
+        Value::SExp(s_expr)
+    }
+}
+
+impl From<Struct> for Value {
     fn from(struct_val: Struct) -> Self {
-        Value::Struct(struct_val).into()
+        Value::Struct(struct_val)
     }
 }
 
-// TODO: explain motivation (static Rc no good)
-// TODO: better name?
-// Wraps a standard library slice iterator in an `Option`.
-struct ElementDataIterator<'a, T: 'a> {
-    values: Option<std::slice::Iter<'a, T>>,
+/// Allows types that can be converted into an Ion [Value] to also specify annotations, producing
+/// an [Element].
+///
+/// ```
+/// use ion_rs::ion_list;
+/// use ion_rs::value::owned::{Element, IntoAnnotatedElement, Value};
+///
+/// // Explicit conversion of a Rust bool (`true`) into a `Value`...
+/// let boolean_value: Value = true.into();
+/// // and then into an `Element`...
+/// let mut boolean_element: Element = boolean_value.into();
+/// // and then adding annotations to the `Element`.
+/// boolean_element = boolean_element.with_annotations(["foo", "bar"]);
+///
+/// // Much more concise equivalent leveraging the `IntoAnnotatedElement` trait.
+/// let boolean_element = true.with_annotations(["foo", "bar"]);
+/// ```
+pub trait IntoAnnotatedElement: Into<Value> {
+    /// Converts the value into an [Element] with the specified annotations.
+    fn with_annotations<S: Into<Symbol>, I: IntoIterator<Item = S>>(
+        self,
+        annotations: I,
+    ) -> Element {
+        let annotations = annotations.into_iter().map(|i| i.into()).collect();
+        Element::new(annotations, self.into())
+    }
 }
 
-impl<'a, T: 'a> ElementDataIterator<'a, T> {
-    fn new<'f, V: 'f>(data: &'f [V]) -> ElementDataIterator<'f, V> {
-        ElementDataIterator {
-            values: Some(data.iter()),
-        }
-    }
-
-    fn empty() -> Self {
-        ElementDataIterator { values: None }
-    }
-}
-
-impl<'a, T: 'a> Iterator for ElementDataIterator<'a, T> {
-    type Item = &'a T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.values.as_mut().and_then(|iter| iter.next())
-    }
-}
+impl<V> IntoAnnotatedElement for V where V: Into<Value> {}
 
 impl Element {
     pub fn ion_type(&self) -> IonType {
@@ -590,7 +617,7 @@ impl Element {
             Boolean(_) => IonType::Boolean,
             Blob(_) => IonType::Blob,
             Clob(_) => IonType::Clob,
-            SExpression(_) => IonType::SExpression,
+            SExp(_) => IonType::SExpression,
             List(_) => IonType::List,
             Struct(_) => IonType::Struct,
         }
@@ -696,9 +723,24 @@ impl Element {
         }
     }
 
-    pub fn as_sequence(&self) -> Option<&Sequence> {
+    pub fn as_sequence(&self) -> Option<&dyn IonSequence> {
         match &self.value {
-            Value::SExpression(seq) | Value::List(seq) => Some(seq),
+            Value::SExp(sexp) => Some(sexp),
+            Value::List(list) => Some(list),
+            _ => None,
+        }
+    }
+
+    pub fn as_sexp(&self) -> Option<&SExp> {
+        match &self.value {
+            Value::SExp(sexp) => Some(sexp),
+            _ => None,
+        }
+    }
+
+    pub fn as_list(&self) -> Option<&List> {
+        match &self.value {
+            Value::List(list) => Some(list),
             _ => None,
         }
     }
@@ -709,60 +751,73 @@ impl Element {
             _ => None,
         }
     }
+
+    /// Reads a single Ion [`Element`] from the provided data source. If the data source has invalid
+    /// data or does not contain at exactly one Ion value, returns `Err`.
+    pub fn parse<A: AsRef<[u8]>>(data: A) -> IonResult<Element> {
+        let bytes: &[u8] = data.as_ref();
+        // Create an iterator over the Elements in the data
+        let mut iter = NativeElementReader.iterate_over(bytes).unwrap();
+        // Materialize the first Element
+        let element = iter
+            .next()
+            .unwrap_or_else(|| decoding_error("input did not contain any Ion values"))?;
+        // Make sure there aren't any other Elements
+        if iter.next().is_some() {
+            return decoding_error("stream contained more than one value");
+        }
+        // Return the first (and verified only) Element
+        Ok(element)
+    }
 }
 
 #[cfg(test)]
 mod value_tests {
     use super::*;
+    use crate::{ion_list, ion_sexp, ion_struct};
     use rstest::*;
 
     #[rstest(
-        elem1,elem2,
-        case::str(
-            Element::new_string("hello"),
-            "hello".to_string().into()
+        e1, e2,
+        case::strings(
+            Element::from("hello"), // An explicitly constructed String Element
+            "hello"                 // A Rust &str, which implements Into<Element>
         ),
-        case::sym_with_text(
-            Element::new_symbol(Symbol::owned("hello")),
-            Symbol::owned("hello").into()
+        case::symbols(
+            Element::from(Symbol::owned("hello")), // An explicitly constructed Symbol Element
+            Symbol::owned("hello")                 // A Symbol, which implements Into<Element>
         ),
         case::struct_(
-            Element::new_struct(vec![("greetings", Element::from(Value::String("hello".into())))].into_iter()),
-            Struct::from_iter(vec![("greetings", Element::from(Value::String("hello".into())))].into_iter()).into()
+            ion_struct!{"greetings": "hello"},
+            Element::parse(r#"{greetings: "hello"}"#).unwrap()
         ),
     )]
-    fn owned_element_accessors(elem1: Element, elem2: Element) {
-        // assert if both the element construction creates the same element
-        assert_eq!(elem1, elem2);
+    fn owned_element_accessors<E1, E2>(e1: E1, e2: E2)
+    where
+        E1: Into<Element>,
+        E2: Into<Element>,
+    {
+        // assert that both element construction methods create the same element
+        assert_eq!(e1.into(), e2.into());
     }
 
     #[rstest(
         container, length,
         case::struct_(
-            Element::new_struct(
-                vec![
-                    ("greetings", Element::from(Value::String("hello".into()))),
-                    ("name", Element::from(Value::String("Ion".into())))
-                ].into_iter()
-            ),
+            ion_struct!{"greetings": "hello", "name": "Ion"},
             2
         ),
         case::list(
-            Element::new_list(
-                vec![
-                    Element::from("greetings".to_owned()),
-                    Element::from(5),
-                    Element::from(true)
-                ].into_iter()
-            ),
+            ion_list!["greetings", 5, true],
             3
         ),
         case::sexp(
-            Element::new_sexp(vec![Element::from(5), Element::from(true)].into_iter()),
+            ion_sexp!(5 true),
             2
         ),
     )]
-    fn owned_container_len_test(container: Element, length: usize) {
+    fn owned_container_len_test<I: Into<Element>>(container: I, length: usize) {
+        let container = container.into();
         match container.ion_type() {
             IonType::List | IonType::SExpression => {
                 // check length for given sequence value
@@ -781,38 +836,28 @@ mod value_tests {
     #[rstest(
         container, is_empty,
         case::struct_(
-                Element::new_struct(
-                vec![
-                    ("greetings", Element::from(Value::String("hello".into()))),
-                    ("name", Element::from(Value::String("Ion".into())))
-                ].into_iter()
-            ),
+            ion_struct!{"greetings": "hello", "name": "Ion"},
             false
         ),
         case::list(
-            Element::new_list(
-                vec![
-                    Element::from("greetings".to_owned()),
-                    Element::from(5),
-                    Element::from(true)
-                ].into_iter()
-            ),
+            ion_list!["greetings", 5, true],
             false
         ),
         case::list_empty(
-            Element::new_list(vec![].into_iter()),
+            ion_list![],
             true
         ),
         case::sexp(
-            Element::new_sexp(vec![Element::from(5), Element::from(true)].into_iter()),
+            ion_sexp!(5 true),
             false
         ),
         case::sexp_empty(
-            Element::new_sexp(vec![].into_iter()),
+            ion_sexp!(),
             true
         ),
     )]
-    fn owned_container_is_empty_test(container: Element, is_empty: bool) {
+    fn owned_container_is_empty_test<I: Into<Element>>(container: I, is_empty: bool) {
+        let container = container.into();
         match container.ion_type() {
             IonType::List | IonType::SExpression => {
                 // check length for given sequence value

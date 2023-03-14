@@ -94,7 +94,7 @@ impl TextValue {
     }
 }
 
-/// Converts a given type into a `Vec<OwnedSymbolToken>`.
+/// Converts a given type into a `Vec<RawSymbolToken>`.
 pub trait IntoAnnotations {
     fn into_annotations(self) -> Vec<RawSymbolToken>;
 }
