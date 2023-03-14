@@ -6,14 +6,14 @@
 //! instead. This implementation fills in that gap, and is focused on coverage
 //! and not speed.
 
-use crate::element_hasher::ElementHasher;
-use crate::type_qualifier::type_qualifier_symbol;
+use crate::binary::{self, decimal::DecimalBinaryEncoder, timestamp::TimestampBinaryEncoder};
+use crate::ion_hash::element_hasher::ElementHasher;
+use crate::ion_hash::type_qualifier::type_qualifier_symbol;
+use crate::types::decimal::Decimal;
+use crate::types::integer::Integer;
+use crate::value::owned::{Element, IonSequence, List, SExp, Sequence, Struct};
+use crate::{result::IonResult, types::timestamp::Timestamp, IonType, Symbol};
 use digest::{FixedOutput, Output, Reset, Update};
-use ion_rs::binary::{self, decimal::DecimalBinaryEncoder, timestamp::TimestampBinaryEncoder};
-use ion_rs::types::decimal::Decimal;
-use ion_rs::types::integer::Integer;
-use ion_rs::value::owned::{Element, IonSequence, List, SExp, Struct};
-use ion_rs::{result::IonResult, types::timestamp::Timestamp, IonType, Symbol};
 
 pub(crate) trait RepresentationEncoder {
     fn update_with_representation(&mut self, elem: &Element) -> IonResult<()> {

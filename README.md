@@ -8,12 +8,14 @@
 
 A Rust implementation of the [Amazon Ion][spec] data format.
 
+Includes the feature `ion-hash` which is an implementation of [Ion Hash][ion-hash-spec].
+
 ***This package is considered experimental, under active/early development, and the API is subject to change.***
 
 ## Development
 
-This project uses a submodule to pull in [Ion Tests][ion-tests].  The easiest way to pull
-everything in is to clone the repository recursively:
+This project uses a submodule to pull in [Ion Tests][ion-tests] and [Ion Hash Tests][ion-hash-tests].
+The easiest way to pull everything in is to clone the repository recursively:
 
 ```bash
 $ git clone --recursive https://github.com/amazon-ion/ion-rust
@@ -40,3 +42,5 @@ $ cargo test --workspace
 [spec]: https://amazon-ion.github.io/ion-docs/docs/spec.html
 [ion-tests]: https://github.com/amazon-ion/ion-tests
 [bindgen-req]: https://rust-lang.github.io/rust-bindgen/requirements.html
+[ion-hash-spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html
+[ion-hash-tests]: https://github.com/amazon-ion/ion-hash-tests
