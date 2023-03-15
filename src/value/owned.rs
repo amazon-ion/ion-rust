@@ -826,7 +826,10 @@ mod value_tests {
     #[case::list_empty(ion_list![], true)]
     #[case::sexp(ion_sexp!(5 true), false)]
     #[case::sexp_empty(ion_sexp!(), true)]
-    fn owned_container_is_empty_test<I: Into<Element>>(#[case] container: I, #[case] is_empty: bool) {
+    fn owned_container_is_empty_test<I: Into<Element>>(
+        #[case] container: I,
+        #[case] is_empty: bool,
+    ) {
         let container = container.into();
         match container.ion_type() {
             IonType::List | IonType::SExpression => {
