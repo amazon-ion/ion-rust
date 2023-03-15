@@ -799,7 +799,7 @@ mod value_tests {
         ),
         case::struct_(
             ion_struct!{"greetings": "hello"},
-            Element::parse(r#"{greetings: "hello"}"#).unwrap()
+            Element::read_one(r#"{greetings: "hello"}"#).unwrap()
         ),
     )]
     fn owned_element_accessors<E1, E2>(e1: E1, e2: E2)

@@ -7,7 +7,6 @@ use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::integer::IntAccess;
 use ion_rs::value::owned::{Element, Struct};
-use ion_rs::value::reader::ElementReader;
 use ion_rs::value::writer::ElementWriter;
 use ion_rs::value::*;
 use ion_rs::IonWriter;
@@ -351,7 +350,7 @@ mod unknown_symbol_text_tests {
 
     #[test]
     fn test_unknown_annotation_text() {
-        let mut element = element_reader().read_one("{}".as_bytes()).unwrap();
+        let mut element = Element::read_one("{}".as_bytes()).unwrap();
         element = element.with_annotations(vec![Symbol::unknown_text()]);
         let digest = IdentityDigest::hash_element(&element).unwrap();
 
