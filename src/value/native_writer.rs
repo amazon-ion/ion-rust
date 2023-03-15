@@ -26,7 +26,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
         NativeElementWriter { writer }
     }
 
-    /// Recursively writes the given `value` and its child elements (if any) to the underlying
+    /// Recursively writes the given `element` and its child elements (if any) to the underlying
     /// writer.
     fn write_element(&mut self, field_name: Option<&str>, element: &Element) -> IonResult<()> {
         if let Some(field_name) = field_name {
@@ -48,7 +48,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
         }
 
         match element.ion_type() {
-            IonType::Null => unreachable!("value has IonType::Null but is_null() was false"),
+            IonType::Null => unreachable!("element has IonType::Null but is_null() was false"),
             IonType::Boolean => self.writer.write_bool(element.as_boolean().unwrap()),
             IonType::Integer => self.writer.write_integer(element.as_integer().unwrap()),
             IonType::Float => self.writer.write_f64(element.as_float().unwrap()),

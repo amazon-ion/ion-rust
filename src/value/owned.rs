@@ -817,7 +817,7 @@ mod value_tests {
         E1: Into<Element>,
         E2: Into<Element>,
     {
-        // assert that both value construction methods create the same element
+        // assert that both element construction methods create the same element
         assert_eq!(e1.into(), e2.into());
     }
 
