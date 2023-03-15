@@ -4,9 +4,9 @@
 //! data stream.
 
 // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
-pub mod binary_writer;
-
 pub mod constants;
+
+pub mod binary_writer;
 pub mod decimal;
 mod header;
 pub mod int;
