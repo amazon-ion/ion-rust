@@ -172,6 +172,9 @@ impl IonReader for ElementStreamReader {
         false
     }
 
+    // Clippy reports a redundant closure, but fixing it causes the code to break.
+    // See: https://github.com/amazon-ion/ion-rust/issues/472
+    #[allow(clippy::redundant_closure)]
     fn annotations<'a>(&'a self) -> Box<dyn Iterator<Item = IonResult<Self::Symbol>> + 'a> {
         let iterator = self
             .current_value
