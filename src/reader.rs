@@ -122,8 +122,6 @@ pub struct UserReader<R: RawReader> {
 }
 
 impl<R: RawReader> UserReader<R> {
-    // This is `pub` for use in the integration tests (which cannot access `pub(crate)`),
-    // but we want users to rely on `ReaderBuilder` when possible.
     pub(crate) fn new(raw_reader: R) -> UserReader<R> {
         UserReader {
             raw_reader,
