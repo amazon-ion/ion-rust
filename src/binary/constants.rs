@@ -1,3 +1,6 @@
+// This module and its contents are visible as a workaround for:
+// https://github.com/amazon-ion/ion-rust/issues/484
+
 /// Constants for Ion v1.0
 pub mod v1_0 {
     /// Ion Version Marker byte sequence
