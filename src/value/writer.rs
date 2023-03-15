@@ -21,7 +21,7 @@ pub trait ElementWriter {
 
     /// Serializes a collection of [`Element`] as a series of top-level values.
     ///
-    /// This will return [`Err`] if writing any element causes a failure.
+    /// This will return [`Err`] if writing any value causes a failure.
     fn write_all<'a, I: IntoIterator<Item = &'a Element>>(
         &'a mut self,
         elements: I,

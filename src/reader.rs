@@ -122,11 +122,25 @@ pub struct UserReader<R: RawReader> {
 }
 
 impl<R: RawReader> UserReader<R> {
+    // This is `pub` for use in the integration tests (which cannot access `pub(crate)`),
+    // but we want users to rely on `ReaderBuilder` when possible.
     pub(crate) fn new(raw_reader: R) -> UserReader<R> {
         UserReader {
             raw_reader,
             symbol_table: SymbolTable::new(),
         }
+    }
+}
+
+// This module exists to allow our integration tests to directly construct a `UserReader`
+// with not-yet-supported settings. We want users to use `ReaderBuilder` instead; eventually,
+// `ReaderBuilder` will also work for the integration tests and we can remove this.
+#[doc(hidden)]
+pub mod integration_testing {
+    use crate::{RawReader, Reader, UserReader};
+
+    pub fn new_reader<'a, R: 'a + RawReader>(raw_reader: R) -> Reader<'a> {
+        UserReader::new(Box::new(raw_reader))
     }
 }
 

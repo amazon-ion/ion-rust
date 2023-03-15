@@ -10,7 +10,7 @@
 //!
 //! # fn main() -> IonResult<()> {
 //!   let loader = reader::element_reader();
-//!   let elem = loader.iterate_over(b"\"hello world\"")?.next().unwrap()?;
+//!   let elem = loader.elements(b"\"hello world\"")?.next().unwrap()?;
 //!   let digest = ion_hash::sha256(&elem);
 //!   println!("{:?}", digest);
 //! # Ok(())

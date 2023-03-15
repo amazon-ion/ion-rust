@@ -15,7 +15,6 @@
 pub mod builders;
 mod element_stream_reader;
 mod iterators;
-pub mod native_reader;
 pub mod native_writer;
 pub mod owned;
 pub mod reader;
@@ -543,7 +542,7 @@ mod tests {
             assert(&input_case.elem);
         }
 
-        // assert that a value element as-is is equal to itself
+        // assert that an element as-is is equal to itself
         // Creating an alias here bypasses clippy's objection to comparing any literal to itself.
         let itself = &input_case.elem;
         assert_eq!(&input_case.elem, itself);

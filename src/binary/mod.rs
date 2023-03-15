@@ -4,7 +4,7 @@
 //! data stream.
 
 pub mod binary_writer;
-pub(crate) mod constants;
+pub mod constants;
 pub mod decimal;
 mod header;
 pub mod int;

@@ -26,7 +26,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
         NativeElementWriter { writer }
     }
 
-    /// Recursively writes the given `element` and its child elements (if any) to the underlying
+    /// Recursively writes the given `value` and its child elements (if any) to the underlying
     /// writer.
     fn write_element(&mut self, field_name: Option<&str>, element: &Element) -> IonResult<()> {
         if let Some(field_name) = field_name {
@@ -48,7 +48,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
         }
 
         match element.ion_type() {
-            IonType::Null => unreachable!("element has IonType::Null but is_null() was false"),
+            IonType::Null => unreachable!("value has IonType::Null but is_null() was false"),
             IonType::Boolean => self.writer.write_bool(element.as_boolean().unwrap()),
             IonType::Integer => self.writer.write_integer(element.as_integer().unwrap()),
             IonType::Float => self.writer.write_f64(element.as_float().unwrap()),
@@ -83,7 +83,7 @@ mod tests {
     use crate::ion_eq::IonEq;
     use crate::text::text_writer::TextWriterBuilder;
     use crate::value::native_writer::NativeElementWriter;
-    use crate::value::reader::{native_element_reader, ElementReader};
+    use crate::value::owned::Element;
     use crate::value::writer::ElementWriter;
     use crate::IonResult;
     use nom::AsBytes;
@@ -97,10 +97,10 @@ mod tests {
         let ion = r#"
             null true 0 1e0 2.0 2022T foo "bar" (foo bar baz) [foo, bar, baz] {foo: true, bar: false}
         "#;
-        let expected_elements = native_element_reader().read_all(ion.as_bytes())?;
+        let expected_elements = Element::read_all(ion.as_bytes())?;
         element_writer.write_all(&expected_elements)?;
         let _ = element_writer.finish()?;
-        let actual_elements = native_element_reader().read_all(buffer.as_bytes())?;
+        let actual_elements: Vec<Element> = Element::read_all(buffer.as_bytes())?;
         assert!(expected_elements.ion_eq(&actual_elements));
         Ok(())
     }

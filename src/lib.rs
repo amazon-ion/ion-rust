@@ -18,7 +18,7 @@ pub mod constants;
 pub mod ion_eq;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
-mod reader;
+pub mod reader;
 mod shared_symbol_table;
 mod stream_reader;
 mod symbol;

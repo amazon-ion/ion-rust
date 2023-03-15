@@ -11,7 +11,7 @@ use crate::Symbol;
 ///     .push("foo")
 ///     .build()
 ///     .into();
-/// let expected = Element::parse(r#"[1, true, "foo"]"#).unwrap();
+/// let expected = Element::read_one(r#"[1, true, "foo"]"#).unwrap();
 /// assert_eq!(actual, expected);
 /// ```
 pub struct ListBuilder {
@@ -64,7 +64,7 @@ impl ListBuilder {
 ///     .push("foo")
 ///     .build()
 ///     .into();
-/// let expected = Element::parse(r#"(1 true "foo")"#).unwrap();
+/// let expected = Element::read_one(r#"(1 true "foo")"#).unwrap();
 /// assert_eq!(actual, expected);
 /// ```
 pub struct SExpBuilder {
@@ -117,7 +117,7 @@ impl SExpBuilder {
 ///     "b": true,
 ///     "c": "foo"
 /// }.into();
-/// let expected = Element::parse(r#"{a: 1, b: true, c: "foo"}"#).unwrap();
+/// let expected = Element::read_one(r#"{a: 1, b: true, c: "foo"}"#).unwrap();
 /// assert_eq!(actual, expected);
 /// ```
 ///
@@ -136,7 +136,7 @@ impl SExpBuilder {
 ///     .build()
 ///     .into(); // Convert from `Struct` to `Element`
 ///
-/// let expected = Element::parse(r#"{foo: 1, baz: 3, quux: 4}"#).unwrap();
+/// let expected = Element::read_one(r#"{foo: 1, baz: 3, quux: 4}"#).unwrap();
 /// assert_eq!(expected, modified_struct);
 /// ```
 pub struct StructBuilder {
@@ -191,7 +191,7 @@ impl StructBuilder {
     ///     .with_fields(struct2.fields())
     ///     .build();
     ///
-    /// let expected = Element::parse("{foo: 1, bar: 2, baz: 3, a: 4, b: 5, c: 6}").unwrap();
+    /// let expected = Element::read_one("{foo: 1, bar: 2, baz: 3, a: 4, b: 5, c: 6}").unwrap();
     /// ```
     ///
     pub fn with_fields<S, E, I>(mut self, fields: I) -> Self
@@ -263,7 +263,7 @@ impl From<StructBuilder> for Element {
 ///     ion_list![1.5f64, -8.25f64]
 /// ].into();
 /// // Construct an Element from serialized Ion data
-/// let expected = Element::parse(r#"["foo", 7, false, [1.5e0, -8.25e0]]"#).unwrap();
+/// let expected = Element::read_one(r#"["foo", 7, false, [1.5e0, -8.25e0]]"#).unwrap();
 /// // Compare the two Elements
 /// assert_eq!(expected, actual);
 /// ```
@@ -287,7 +287,7 @@ impl From<StructBuilder> for Element {
 ///     Element::symbol("world")
 /// ].into();
 /// // Construct an Element from serialized Ion data
-/// let expected = Element::parse(r#"["foo", true, bar::10, {{"hello"}}, world]"#).unwrap();
+/// let expected = Element::read_one(r#"["foo", true, bar::10, {{"hello"}}, world]"#).unwrap();
 /// // Compare the two Elements
 /// assert_eq!(expected, actual);
 /// ```
@@ -309,7 +309,7 @@ macro_rules! ion_list {
 /// // Construct an s-expression Element from Rust values
 /// let actual: Element = ion_sexp!("foo" 7 false ion_sexp!(1.5f64 8.25f64)).into();
 /// // Construct an Element from serialized Ion data
-/// let expected = Element::parse(r#"("foo" 7 false (1.5e0 8.25e0))"#).unwrap();
+/// let expected = Element::read_one(r#"("foo" 7 false (1.5e0 8.25e0))"#).unwrap();
 /// // Compare the two Elements
 /// assert_eq!(expected, actual);
 /// ```
@@ -333,7 +333,7 @@ macro_rules! ion_list {
 ///     Element::symbol("world")
 /// ).into();
 /// // Construct an Element from serialized Ion data
-/// let expected = Element::parse(r#"("foo" true bar::10 {{"hello"}} world)"#).unwrap();
+/// let expected = Element::read_one(r#"("foo" true bar::10 {{"hello"}} world)"#).unwrap();
 /// // Compare the two Elements
 /// assert_eq!(expected, actual);
 /// ```
@@ -369,7 +369,7 @@ macro_rules! ion_sexp {
 ///      {format!("{}_{}", prefix, suffix)}: IonType::Null
 /// }.into();
 /// // Construct an Element from serialized Ion data
-/// let expected = Element::parse(r#"{w: "foo", x: 7, y: false, z: {a: 1.5e0, b: -8.25e0}, abc_def: null}"#).unwrap();
+/// let expected = Element::read_one(r#"{w: "foo", x: 7, y: false, z: {a: 1.5e0, b: -8.25e0}, abc_def: null}"#).unwrap();
 /// // Compare the two Elements
 /// assert_eq!(expected, actual);
 /// ```
@@ -401,14 +401,14 @@ mod tests {
             .push(Symbol::owned("bar"))
             .build()
             .into();
-        let expected = Element::parse(r#"[1, true, "foo", bar]"#).unwrap();
+        let expected = Element::read_one(r#"[1, true, "foo", bar]"#).unwrap();
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn make_list_with_macro() {
         let actual: Element = ion_list![1, true, "foo", Symbol::owned("bar")].into();
-        let expected = Element::parse(r#"[1, true, "foo", bar]"#).unwrap();
+        let expected = Element::read_one(r#"[1, true, "foo", bar]"#).unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -423,7 +423,7 @@ mod tests {
             .push(Symbol::owned("bar"))
             .build()
             .into();
-        let expected = Element::parse("[1, bar]").unwrap();
+        let expected = Element::read_one("[1, bar]").unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -436,7 +436,7 @@ mod tests {
             .push(88)
             .build()
             .into();
-        let expected_list = Element::parse(r#"[1, "foo", bar, 88]"#).unwrap();
+        let expected_list = Element::read_one(r#"[1, "foo", bar, 88]"#).unwrap();
         assert_eq!(new_list, expected_list);
     }
 
@@ -449,7 +449,7 @@ mod tests {
             .push(Symbol::owned("bar"))
             .build()
             .into();
-        let expected = Element::parse(r#"(1 true "foo" bar)"#).unwrap();
+        let expected = Element::read_one(r#"(1 true "foo" bar)"#).unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -462,7 +462,7 @@ mod tests {
             .push(88)
             .build()
             .into();
-        let expected_sexp = Element::parse(r#"(1 "foo" bar 88)"#).unwrap();
+        let expected_sexp = Element::read_one(r#"(1 "foo" bar 88)"#).unwrap();
         assert_eq!(new_sexp, expected_sexp);
     }
 
@@ -477,14 +477,14 @@ mod tests {
             .push(Symbol::owned("bar"))
             .build()
             .into();
-        let expected = Element::parse("(1 bar)").unwrap();
+        let expected = Element::read_one("(1 bar)").unwrap();
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn make_sexp_with_macro() {
         let actual: Element = ion_sexp!(1 true "foo" Symbol::owned("bar")).into();
-        let expected = Element::parse(r#"(1 true "foo" bar)"#).unwrap();
+        let expected = Element::read_one(r#"(1 true "foo" bar)"#).unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -497,7 +497,7 @@ mod tests {
             .with_field("d", Symbol::owned("bar"))
             .build()
             .into();
-        let expected = Element::parse(r#"{a: 1, b: true, c: "foo", d: bar}"#).unwrap();
+        let expected = Element::read_one(r#"{a: 1, b: true, c: "foo", d: bar}"#).unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -510,7 +510,7 @@ mod tests {
             "d": Symbol::owned("bar")
         }
         .into();
-        let expected = Element::parse(r#"{a: 1, b: true, c: "foo", d: bar}"#).unwrap();
+        let expected = Element::read_one(r#"{a: 1, b: true, c: "foo", d: bar}"#).unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -528,7 +528,7 @@ mod tests {
             .remove_field("d")
             .build()
             .into();
-        let expected = Element::parse(r#"{a: 1, c: "foo", d: baz}"#).unwrap();
+        let expected = Element::read_one(r#"{a: 1, c: "foo", d: baz}"#).unwrap();
         assert_eq!(actual, expected);
     }
 }
