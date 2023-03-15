@@ -787,22 +787,32 @@ mod value_tests {
     use crate::{ion_list, ion_sexp, ion_struct};
     use rstest::*;
 
-    #[rstest(
-        e1, e2,
-        case::strings(
-            Element::from("hello"), // An explicitly constructed String Element
-            "hello"                 // A Rust &str, which implements Into<Element>
-        ),
-        case::symbols(
-            Element::from(Symbol::owned("hello")), // An explicitly constructed Symbol Element
-            Symbol::owned("hello")                 // A Symbol, which implements Into<Element>
-        ),
-        case::struct_(
-            ion_struct!{"greetings": "hello"},
-            Element::read_one(r#"{greetings: "hello"}"#).unwrap()
-        ),
+    #[rstest]
+    #[case::strings(
+        Element::from("hello"), // An explicitly constructed String Element
+        "hello"                 // A Rust &str, which implements Into<Element>
     )]
-    fn owned_element_accessors<E1, E2>(e1: E1, e2: E2)
+    #[case::symbols(
+        Element::from(Symbol::owned("hello")), // An explicitly constructed Symbol Element
+        Symbol::owned("hello")                 // A Symbol, which implements Into<Element>
+    )]
+    #[case::struct_(
+        ion_struct!{"greetings": "hello"},
+        Element::read_one(r#"{greetings: "hello"}"#).unwrap()
+    )]
+    #[case::strings(
+        Element::from("hello"), // An explicitly constructed String Element
+        "hello"                 // A Rust &str, which implements Into<Element>
+    )]
+    #[case::symbols(
+        Element::from(Symbol::owned("hello")), // An explicitly constructed Symbol Element
+        Symbol::owned("hello")                 // A Symbol, which implements Into<Element>
+    )]
+    #[case::struct_(
+        ion_struct!{"greetings": "hello"},
+        Element::read_one(r#"{greetings: "hello"}"#).unwrap()
+    )]
+    fn owned_element_accessors<E1, E2>(#[case] e1: E1, #[case] e2: E2)
     where
         E1: Into<Element>,
         E2: Into<Element>,
@@ -811,22 +821,11 @@ mod value_tests {
         assert_eq!(e1.into(), e2.into());
     }
 
-    #[rstest(
-        container, length,
-        case::struct_(
-            ion_struct!{"greetings": "hello", "name": "Ion"},
-            2
-        ),
-        case::list(
-            ion_list!["greetings", 5, true],
-            3
-        ),
-        case::sexp(
-            ion_sexp!(5 true),
-            2
-        ),
-    )]
-    fn owned_container_len_test<I: Into<Element>>(container: I, length: usize) {
+    #[rstest]
+    #[case::struct_(ion_struct!{"greetings": "hello", "name": "Ion"}, 2)]
+    #[case::list(ion_list!["greetings", 5, true], 3)]
+    #[case::sexp(ion_sexp!(5 true), 2)]
+    fn owned_container_len_test<I: Into<Element>>(#[case] container: I, #[case] length: usize) {
         let container = container.into();
         match container.ion_type() {
             IonType::List | IonType::SExpression => {
@@ -843,30 +842,16 @@ mod value_tests {
         }
     }
 
-    #[rstest(
-        container, is_empty,
-        case::struct_(
-            ion_struct!{"greetings": "hello", "name": "Ion"},
-            false
-        ),
-        case::list(
-            ion_list!["greetings", 5, true],
-            false
-        ),
-        case::list_empty(
-            ion_list![],
-            true
-        ),
-        case::sexp(
-            ion_sexp!(5 true),
-            false
-        ),
-        case::sexp_empty(
-            ion_sexp!(),
-            true
-        ),
-    )]
-    fn owned_container_is_empty_test<I: Into<Element>>(container: I, is_empty: bool) {
+    #[rstest]
+    #[case::struct_(ion_struct!{"greetings": "hello", "name": "Ion"}, false)]
+    #[case::list(ion_list!["greetings", 5, true], false)]
+    #[case::list_empty(ion_list![], true)]
+    #[case::sexp(ion_sexp!(5 true), false)]
+    #[case::sexp_empty(ion_sexp!(), true)]
+    fn owned_container_is_empty_test<I: Into<Element>>(
+        #[case] container: I,
+        #[case] is_empty: bool,
+    ) {
         let container = container.into();
         match container.ion_type() {
             IonType::List | IonType::SExpression => {

@@ -249,12 +249,12 @@ trait ElementApi {
                                 assert!(elems[0].ion_eq(&elem))
                             }
                         }
-                        Err(e) => panic!("Expected value {elems:?}, got {e:?}"),
+                        Err(e) => panic!("Expected element {elems:?}, got {e:?}"),
                     }
                 } else {
                     match single_result {
                         Ok(elem) => {
-                            panic!("Did not expect value for duplicates: {elems:?}, {elem}")
+                            panic!("Did not expect element for duplicates: {elems:?}, {elem:?}")
                         }
                         Err(e) => match e {
                             IonError::DecodingError { description: _ } => (),
@@ -372,7 +372,7 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
 mod impl_display_for_element_tests {
     use super::*;
     use ion_rs::value::native_writer::NativeElementWriter;
-    use ion_rs::{ReaderBuilder, TextWriterBuilder};
+    use ion_rs::TextWriterBuilder;
     use std::fs::read;
 
     const TO_STRING_SKIP_LIST: &[&str] = &[
@@ -402,8 +402,7 @@ mod impl_display_for_element_tests {
         }
 
         let data = read(file_name).unwrap();
-        let mut reader = ReaderBuilder::default().build(data.as_slice()).unwrap();
-        let result: IonResult<Vec<Element>> = reader.read_all_elements();
+        let result: IonResult<Vec<Element>> = Element::read_all(data.as_slice());
         let elements = result.unwrap_or_else(|e| {
             panic!("Expected to be able to read Ion values for contents of file {file_name}: {e:?}")
         });

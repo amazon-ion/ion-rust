@@ -159,7 +159,7 @@ fn test_all(elems: Vec<Element>) -> IonHashTestResult<()> {
                 let elem = loaded
                     .into_iter()
                     .next()
-                    .expect("10n test case should have a single value (there were none)");
+                    .expect("10n test case should have a single element (there were none)");
                 test_case(annotated_test_name, &elem, expect)
             }
             _ => {
