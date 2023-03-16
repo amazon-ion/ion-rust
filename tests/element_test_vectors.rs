@@ -623,6 +623,8 @@ mod non_blocking_native_element_tests {
         }
 
         fn make_reader(data: &[u8]) -> IonResult<Reader<'_>> {
+            // These imports are visible as a temporary workaround.
+            // See: https://github.com/amazon-ion/ion-rust/issues/484
             use ion_rs::binary::constants::v1_0::IVM;
             use ion_rs::reader::integration_testing::new_reader;
             // If the data is binary, create a non-blocking binary reader.
