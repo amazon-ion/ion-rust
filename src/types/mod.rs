@@ -17,7 +17,7 @@ use std::fmt;
 #[derive(Debug, PartialEq, Eq, PartialOrd, Copy, Clone)]
 pub enum IonType {
     Null,
-    Boolean,
+    Bool,
     Integer,
     Float,
     Decimal,
@@ -38,7 +38,7 @@ impl fmt::Display for IonType {
             "{}",
             match self {
                 IonType::Null => "null",
-                IonType::Boolean => "boolean",
+                IonType::Bool => "bool",
                 IonType::Integer => "integer",
                 IonType::Float => "float",
                 IonType::Decimal => "decimal",

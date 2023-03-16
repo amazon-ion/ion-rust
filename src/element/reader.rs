@@ -141,7 +141,7 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
                 use crate::IonType::*;
                 match ion_type {
                     Null => unreachable!("non-null value had IonType::Null"),
-                    Boolean => Value::Boolean(self.reader.read_bool()?),
+                    Bool => Value::Bool(self.reader.read_bool()?),
                     Integer => Value::Integer(self.reader.read_integer()?),
                     Float => Value::Float(self.reader.read_f64()?),
                     Decimal => Value::Decimal(self.reader.read_decimal()?),
@@ -225,7 +225,7 @@ mod reader_tests {
         "#,
         vec![
             Null(IonType::Null),
-            Null(IonType::Boolean),
+            Null(IonType::Bool),
             Null(IonType::Integer),
             Null(IonType::Float),
             Null(IonType::Decimal),
@@ -235,7 +235,7 @@ mod reader_tests {
             Null(IonType::Clob),
             Null(IonType::Blob),
             Null(IonType::List),
-            Null(IonType::SExpression),
+            Null(IonType::SExp),
             Null(IonType::Struct),
         ].into_iter().map(|v| v.into()).collect(),
     )]

@@ -38,7 +38,7 @@ impl TypeQualifier {
     pub(crate) fn from_element(elem: &Element) -> TypeQualifier {
         match elem.ion_type() {
             IonType::Null => type_qualifier_null(),
-            IonType::Boolean => type_qualifier_boolean(elem.as_boolean()),
+            IonType::Bool => type_qualifier_boolean(elem.as_boolean()),
             IonType::Integer => type_qualifier_integer(elem.as_integer()),
             IonType::Float => type_qualifier_float(elem.as_float()),
             IonType::Decimal => type_qualifier_decimal(elem.as_decimal()),

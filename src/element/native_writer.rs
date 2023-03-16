@@ -49,7 +49,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
 
         match element.ion_type() {
             IonType::Null => unreachable!("element has IonType::Null but is_null() was false"),
-            IonType::Boolean => self.writer.write_bool(element.as_boolean().unwrap()),
+            IonType::Bool => self.writer.write_bool(element.as_boolean().unwrap()),
             IonType::Integer => self.writer.write_integer(element.as_integer().unwrap()),
             IonType::Float => self.writer.write_f64(element.as_float().unwrap()),
             IonType::Decimal => self.writer.write_decimal(element.as_decimal().unwrap()),

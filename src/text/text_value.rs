@@ -67,7 +67,7 @@ impl TextValue {
     pub fn ion_type(&self) -> IonType {
         match self {
             TextValue::Null(ion_type) => *ion_type,
-            TextValue::Boolean(_) => IonType::Boolean,
+            TextValue::Boolean(_) => IonType::Bool,
             TextValue::Integer(_) => IonType::Integer,
             TextValue::Float(_) => IonType::Float,
             TextValue::Decimal(_) => IonType::Decimal,

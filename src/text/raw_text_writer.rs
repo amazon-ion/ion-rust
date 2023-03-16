@@ -492,7 +492,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         self.write_scalar(|output| {
             let null_text = match ion_type {
                 Null => "null",
-                Boolean => "null.bool",
+                Bool => "null.bool",
                 Integer => "null.int",
                 Float => "null.float",
                 Decimal => "null.decimal",

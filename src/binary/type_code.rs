@@ -42,7 +42,7 @@ impl TryFrom<IonTypeCode> for IonType {
         use IonTypeCode::*;
         let ion_type = match ion_type_code {
             NullOrNop => IonType::Null,
-            Boolean => IonType::Boolean,
+            Boolean => IonType::Bool,
             PositiveInteger | NegativeInteger => IonType::Integer,
             Float => IonType::Float,
             Decimal => IonType::Decimal,

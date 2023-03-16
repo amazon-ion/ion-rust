@@ -409,7 +409,7 @@ pub enum Value {
     Timestamp(Timestamp),
     String(String),
     Symbol(Symbol),
-    Boolean(bool),
+    Bool(bool),
     Blob(Vec<u8>),
     Clob(Vec<u8>),
     SExp(SExp),
@@ -440,7 +440,7 @@ impl Display for Element {
 
         match &self.value {
             Value::Null(ion_type) => ivf.format_null(*ion_type),
-            Value::Boolean(bool) => ivf.format_bool(*bool),
+            Value::Bool(bool) => ivf.format_bool(*bool),
             Value::Integer(integer) => ivf.format_integer(integer),
             Value::Float(float) => ivf.format_float(*float),
             Value::Decimal(decimal) => ivf.format_decimal(decimal),
@@ -530,7 +530,7 @@ impl From<Timestamp> for Value {
 
 impl From<bool> for Value {
     fn from(bool_val: bool) -> Self {
-        Value::Boolean(bool_val)
+        Value::Bool(bool_val)
     }
 }
 
@@ -612,7 +612,7 @@ impl Element {
             Timestamp(_) => IonType::Timestamp,
             String(_) => IonType::String,
             Symbol(_) => IonType::Symbol,
-            Boolean(_) => IonType::Boolean,
+            Bool(_) => IonType::Bool,
             Blob(_) => IonType::Blob,
             Clob(_) => IonType::Clob,
             SExp(_) => IonType::SExp,
@@ -695,7 +695,7 @@ impl Element {
 
     pub fn as_boolean(&self) -> Option<bool> {
         match &self.value {
-            Value::Boolean(b) => Some(*b),
+            Value::Bool(b) => Some(*b),
             _ => None,
         }
     }

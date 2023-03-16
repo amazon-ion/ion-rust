@@ -1117,8 +1117,8 @@ mod reader_tests {
         next_type(reader, IonType::Integer, false);
         next_type(reader, IonType::SExp, false);
         reader.step_in()?;
-        next_type(reader, IonType::Boolean, false);
-        next_type(reader, IonType::Boolean, false);
+        next_type(reader, IonType::Bool, false);
+        next_type(reader, IonType::Bool, false);
         // The reader is now at the second 'true' in the s-expression nested in 'bar'/'b'
         reader.step_out()?;
         reader.step_out()?;
@@ -1208,7 +1208,7 @@ mod reader_tests {
         reader.stream_complete();
         next_type(reader, IonType::Null, true);
 
-        next_type(reader, IonType::Boolean, false);
+        next_type(reader, IonType::Bool, false);
         assert!(reader.read_bool()?);
 
         next_type(reader, IonType::Integer, false);
@@ -1328,7 +1328,7 @@ mod reader_tests {
         next_type(reader, IonType::Null, true);
         annotations_eq(reader, ["mercury"]);
 
-        next_type(reader, IonType::Boolean, false);
+        next_type(reader, IonType::Bool, false);
         assert!(reader.read_bool()?);
         annotations_eq(reader, ["venus", "earth"]);
 

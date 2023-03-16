@@ -295,7 +295,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         use IonType::*;
         let null_text = match ion_type {
             Null => "null",
-            Boolean => "null.bool",
+            Bool => "null.bool",
             Integer => "null.int",
             Float => "null.float",
             Decimal => "null.decimal",

@@ -18,7 +18,7 @@ use digest::{FixedOutput, Output, Reset, Update};
 pub(crate) trait RepresentationEncoder {
     fn update_with_representation(&mut self, elem: &Element) -> IonResult<()> {
         match elem.ion_type() {
-            IonType::Null | IonType::Boolean => {} // these types have no representation
+            IonType::Null | IonType::Bool => {} // these types have no representation
             IonType::Integer => self.write_repr_integer(elem.as_integer())?,
             IonType::Float => self.write_repr_float(elem.as_float())?,
             IonType::Decimal => self.write_repr_decimal(elem.as_decimal())?,

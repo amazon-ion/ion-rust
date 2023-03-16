@@ -667,7 +667,7 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
     }
 
     fn read_bool(&mut self) -> IonResult<bool> {
-        let (encoded_value, _) = self.value_and_bytes(IonType::Boolean)?;
+        let (encoded_value, _) = self.value_and_bytes(IonType::Bool)?;
 
         let representation = encoded_value.header.length_code;
         match representation {
@@ -1763,7 +1763,7 @@ mod tests {
         reader.step_in()?;
         expect_value(reader.next(), IonType::Struct);
         reader.step_in()?;
-        expect_value(reader.next(), IonType::Boolean);
+        expect_value(reader.next(), IonType::Bool);
         assert_eq!(reader.field_name()?, RawSymbolToken::SymbolId(4));
         let item = reader.next()?;
         assert_eq!(item, RawStreamItem::Nothing);

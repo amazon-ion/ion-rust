@@ -33,7 +33,7 @@ fn ion_type_from_text(text: &str) -> Option<IonType> {
     use IonType::*;
     let ion_type = match text {
         "null" => Null,
-        "bool" => Boolean,
+        "bool" => Bool,
         "int" => Integer,
         "float" => Float,
         "decimal" => Decimal,
@@ -70,7 +70,7 @@ mod null_parsing_tests {
         use IonType::*;
         parse_equals("null ", Null);
         parse_equals("null.null ", Null);
-        parse_equals("null.bool ", Boolean);
+        parse_equals("null.bool ", Bool);
         parse_equals("null.int ", Integer);
         parse_equals("null.float ", Float);
         parse_equals("null.decimal ", Decimal);

@@ -547,7 +547,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         self.write_scalar(|enc_buffer| {
             let byte: u8 = match ion_type {
                 IonType::Null => 0x0F,
-                IonType::Boolean => 0x1F,
+                IonType::Bool => 0x1F,
                 IonType::Integer => 0x2F,
                 IonType::Float => 0x4F,
                 IonType::Decimal => 0x5F,
@@ -970,7 +970,7 @@ mod writer_tests {
     fn binary_writer_nulls() -> IonResult<()> {
         let ion_types = &[
             IonType::Null,
-            IonType::Boolean,
+            IonType::Bool,
             IonType::Integer,
             IonType::Float,
             IonType::Decimal,
@@ -1004,7 +1004,7 @@ mod writer_tests {
     fn binary_writer_bools() -> IonResult<()> {
         binary_writer_scalar_test(
             &[true, false],
-            IonType::Boolean,
+            IonType::Bool,
             |writer, v| writer.write_bool(*v),
             |reader| reader.read_bool(),
         )
@@ -1132,7 +1132,7 @@ mod writer_tests {
     }
 
     fn expect_bool(reader: &mut TestReader, value: bool) {
-        expect_scalar(reader, IonType::Boolean, |r| r.read_bool(), value);
+        expect_scalar(reader, IonType::Bool, |r| r.read_bool(), value);
     }
 
     fn expect_integer(reader: &mut TestReader, value: i64) {

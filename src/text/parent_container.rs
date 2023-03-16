@@ -47,7 +47,7 @@ mod parent_container_tests {
 
     #[rstest]
     #[case::list(IonType::List)]
-    #[case::list(IonType::SExpression)]
+    #[case::list(IonType::SExp)]
     #[case::list(IonType::Struct)]
     #[should_panic]
     #[case::list(IonType::Integer)]

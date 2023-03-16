@@ -64,7 +64,7 @@ impl TypeDescriptor {
         let ion_type = match ion_type_code {
             NullOrNop if length_code == length_codes::NULL => Some(IonType::Null),
             NullOrNop => None,
-            Boolean => Some(IonType::Boolean),
+            Boolean => Some(IonType::Bool),
             PositiveInteger => Some(IonType::Integer),
             NegativeInteger => Some(IonType::Integer),
             Float => Some(IonType::Float),

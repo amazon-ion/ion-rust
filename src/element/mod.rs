@@ -305,7 +305,7 @@ mod tests {
     fn bool_case() -> Case {
         Case {
             elem: true.into(),
-            ion_type: IonType::Boolean,
+            ion_type: IonType::Bool,
             ops: vec![AsBool],
             op_assert: Box::new(|e: &Element| {
                 let expected = Element::from(true);

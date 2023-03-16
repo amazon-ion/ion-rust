@@ -447,7 +447,7 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
     }
 
     fn read_bool(&mut self) -> IonResult<bool> {
-        read_safety_checks!(self, IonType::Boolean);
+        read_safety_checks!(self, IonType::Bool);
 
         // No reading from the stream occurs -- the header contains all of the information we need.
         let representation = self.cursor.value.header.length_code;
@@ -1258,7 +1258,7 @@ mod tests {
     #[test]
     fn test_read_bool_false() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x10]);
-        assert_eq!(cursor.next()?, Value(IonType::Boolean));
+        assert_eq!(cursor.next()?, Value(IonType::Bool));
         assert!(!(cursor.read_bool()?));
         Ok(())
     }
@@ -1266,7 +1266,7 @@ mod tests {
     #[test]
     fn test_read_bool_true() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x11]);
-        assert_eq!(cursor.next()?, Value(IonType::Boolean));
+        assert_eq!(cursor.next()?, Value(IonType::Bool));
         assert!(cursor.read_bool()?);
         Ok(())
     }
@@ -1678,7 +1678,7 @@ mod tests {
         cursor.step_out()?; // Step out of struct
 
         // Second top-level value
-        assert_eq!(RawStreamItem::Value(IonType::Boolean), cursor.next()?);
+        assert_eq!(RawStreamItem::Value(IonType::Bool), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
@@ -1758,7 +1758,7 @@ mod tests {
         cursor.step_out()?;
 
         // false
-        assert_eq!(RawStreamItem::Value(IonType::Boolean), cursor.next()?);
+        assert_eq!(RawStreamItem::Value(IonType::Bool), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[37..=37]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), None);
@@ -1784,7 +1784,7 @@ mod tests {
             0x00, // NOP code, 1 byte NOP. Also NOP at EOF :)
         ]);
 
-        assert_eq!(cursor.next()?, Value(IonType::Boolean));
+        assert_eq!(cursor.next()?, Value(IonType::Bool));
         assert_eq!(cursor.next()?, Nothing);
 
         Ok(())
@@ -1800,7 +1800,7 @@ mod tests {
             0x11, // boolean true
         ]);
 
-        assert_eq!(cursor.next()?, Value(IonType::Boolean));
+        assert_eq!(cursor.next()?, Value(IonType::Bool));
         assert_eq!(cursor.next()?, Nothing);
 
         Ok(())

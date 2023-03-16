@@ -399,7 +399,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         let length_code = match header.ion_type {
             // Null (0x0F) and Boolean (0x10, 0x11) are the only types that don't have/use a `length`
             // field; the header contains the complete value.
-            Null | Boolean => 0,
+            Null | Bool => 0,
             // If a struct has length = 1, its fields are ordered and the actual length follows.
             // For the time being, this reader does not have any special handling for this case.
             // Use `0xE` (14) as the length code instead so the call to `read_length` below

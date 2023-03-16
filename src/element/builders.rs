@@ -294,7 +294,7 @@ impl From<StructBuilder> for Element {
 #[macro_export]
 macro_rules! ion_list {
     ($($element:expr),*) => {{
-        use $crate::value::owned::List;
+        use $crate::element::owned::List;
         List::builder()$(.push($element))*.build()
     }};
 }
@@ -340,7 +340,7 @@ macro_rules! ion_list {
 #[macro_export]
 macro_rules! ion_sexp {
     ($($element:expr)*) => {{
-        use $crate::value::owned::SExp;
+        use $crate::element::owned::SExp;
         SExp::builder()$(.push($element))*.build()
     }};
 }
@@ -376,7 +376,7 @@ macro_rules! ion_sexp {
 #[macro_export]
 macro_rules! ion_struct {
     ($($field_name:tt : $element:expr),*) => {{
-        use $crate::value::owned::Struct;
+        use $crate::element::owned::Struct;
         Struct::builder()$(.with_field($field_name, $element))*.build()
     }};
 }

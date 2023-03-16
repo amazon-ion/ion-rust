@@ -158,7 +158,7 @@ fn read_all_values(reader: &mut Reader) -> IonResult<()> {
             Timestamp => {
                 let _timestamp = reader.read_timestamp()?;
             }
-            Boolean => {
+            Bool => {
                 let _boolean = reader.read_bool()?;
             }
             Blob => {

@@ -110,8 +110,8 @@ mod parse_top_level_values_tests {
         expect_type("null ", IonType::Null);
         expect_type("null.timestamp ", IonType::Timestamp);
         expect_type("null.list ", IonType::List);
-        expect_type("true ", IonType::Boolean);
-        expect_type("false ", IonType::Boolean);
+        expect_type("true ", IonType::Bool);
+        expect_type("false ", IonType::Bool);
         expect_type("5 ", IonType::Integer);
         expect_type("-5 ", IonType::Integer);
         expect_type("5.0 ", IonType::Decimal);
