@@ -86,7 +86,7 @@ trait ElementApi {
     ) -> IonResult<Vec<Element>> {
         let bytes = serialize(format, source_elements)?;
         let mut reader = Self::make_reader(&bytes)?;
-        let new_elements: Vec<Element> = reader.read_all_elements()?;
+        let new_elements = reader.read_all_elements()?;
         assert!(
             source_elements.ion_eq(&new_elements),
             "Roundtrip via {:?} failed: {}",
