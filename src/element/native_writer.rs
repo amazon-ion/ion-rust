@@ -10,7 +10,7 @@ pub struct NativeElementWriter<W: IonWriter> {
 impl<W: IonWriter> ElementWriter for NativeElementWriter<W> {
     type Output = W;
 
-    fn write(&mut self, element: &Element) -> IonResult<()> {
+    fn write_element(&mut self, element: &Element) -> IonResult<()> {
         self.write_element(None, element)
     }
 
@@ -63,7 +63,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
             IonType::List | IonType::SExp => {
                 self.writer.step_in(element.ion_type())?;
                 for value in element.as_sequence().unwrap().iter() {
-                    self.write(value)?;
+                    self.write_element(value)?;
                 }
                 self.writer.step_out()
             }
@@ -98,7 +98,7 @@ mod tests {
             null true 0 1e0 2.0 2022T foo "bar" (foo bar baz) [foo, bar, baz] {foo: true, bar: false}
         "#;
         let expected_elements = Element::read_all(ion.as_bytes())?;
-        element_writer.write_all(&expected_elements)?;
+        element_writer.write_elements(&expected_elements)?;
         let _ = element_writer.finish()?;
         let actual_elements: Vec<Element> = Element::read_all(buffer.as_bytes())?;
         assert!(expected_elements.ion_eq(&actual_elements));

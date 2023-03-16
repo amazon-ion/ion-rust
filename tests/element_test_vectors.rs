@@ -57,13 +57,13 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
                 TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
             }?;
             let mut writer = NativeElementWriter::new(writer);
-            writer.write_all(elements)?;
+            writer.write_elements(elements)?;
             let _ = writer.finish()?;
         }
         Format::Binary => {
             let binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
             let mut writer = NativeElementWriter::new(binary_writer);
-            writer.write_all(elements)?;
+            writer.write_elements(elements)?;
             let _ = writer.finish()?;
         }
     };
@@ -411,7 +411,7 @@ mod impl_display_for_element_tests {
             let mut buffer = Vec::with_capacity(2048);
             let mut writer =
                 NativeElementWriter::new(TextWriterBuilder::new().build(&mut buffer).unwrap());
-            writer.write(&element).unwrap();
+            writer.write_element(&element).unwrap();
             writer.finish().unwrap();
 
             let expected_string = std::str::from_utf8(buffer.as_slice()).unwrap().to_string();

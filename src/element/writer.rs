@@ -11,32 +11,21 @@ pub use TextKind::*;
 
 /// Serializes [`Element`] instances into some kind of output sink.
 pub trait ElementWriter {
-    /// The output of the writer when finishing, it could be a managed buffer,
-    /// some concept of a stream, metadata about a file, or something appropriate
-    /// for the destination.
-    type Output;
-
     /// Serializes a single [`Element`] as a top-level value.
-    fn write(&mut self, element: &Element) -> IonResult<()>;
+    fn write_element(&mut self, element: &Element) -> IonResult<()>;
 
     /// Serializes a collection of [`Element`] as a series of top-level values.
     ///
     /// This will return [`Err`] if writing any element causes a failure.
-    fn write_all<'a, I: IntoIterator<Item = &'a Element>>(
+    fn write_elements<'a, I: IntoIterator<Item = &'a Element>>(
         &'a mut self,
         elements: I,
     ) -> IonResult<()> {
         for element in elements.into_iter() {
-            self.write(element)?;
+            self.write_element(element)?;
         }
         Ok(())
     }
-
-    /// Consumes this [`ElementWriter`] flushing/finishing/closing it and returns
-    /// the underlying output sink.
-    ///
-    /// If a previous write operation returned [`Err`], this method should also return [`Err`].
-    fn finish(self) -> IonResult<Self::Output>;
 }
 
 /// Whether or not the text is pretty printed or serialized in a more compact representation.

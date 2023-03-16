@@ -261,7 +261,7 @@ fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
     let mut buf = Vec::new();
     let text_writer = ion_rs::TextWriterBuilder::new().build(&mut buf)?;
     let mut element_writer = ion_rs::element::native_writer::NativeElementWriter::new(text_writer);
-    element_writer.write(test_input_ion)?;
+    element_writer.write_element(test_input_ion)?;
     let mut text_writer = element_writer.finish()?;
     text_writer.flush()?;
     drop(text_writer);
