@@ -122,7 +122,7 @@ fn ion_hash_tests() -> IonHashTestResult<()> {
 
 fn test_file(file_name: &str) -> IonHashTestResult<()> {
     let data = read(file_name).map_err(|source| ion_rs::IonError::IoError { source })?;
-    let elems = Element::read_all(&data)?;
+    let elems = Element::read_all(data)?;
     test_all(elems)
 }
 
@@ -266,7 +266,7 @@ fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
     text_writer.flush()?;
     drop(text_writer);
 
-    Ok(String::from_utf8_lossy(&*buf).to_string())
+    Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
 fn test_case_name_from_annotation(test_case_ion: &Element) -> Option<String> {
