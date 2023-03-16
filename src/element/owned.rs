@@ -107,6 +107,14 @@ impl List {
     }
 }
 
+impl Display for List {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut ivf = IonValueFormatter { output: f };
+        ivf.format_list(self).map_err(|_| std::fmt::Error)?;
+        Ok(())
+    }
+}
+
 impl IonSequence for List {
     fn iter(&self) -> ElementsIterator<'_> {
         ElementsIterator::new(&self.children)
@@ -156,6 +164,14 @@ impl SExp {
 
     pub fn clone_builder(&self) -> SExpBuilder {
         SExpBuilder::with_initial_elements(&self.children)
+    }
+}
+
+impl Display for SExp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut ivf = IonValueFormatter { output: f };
+        ivf.format_sexp(self).map_err(|_| std::fmt::Error)?;
+        Ok(())
     }
 }
 
@@ -248,6 +264,14 @@ impl Fields {
 #[derive(Debug, Clone)]
 pub struct Struct {
     fields: Fields,
+}
+
+impl Display for Struct {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut ivf = IonValueFormatter { output: f };
+        ivf.format_struct(self).map_err(|_| std::fmt::Error)?;
+        Ok(())
+    }
 }
 
 impl Struct {
@@ -417,28 +441,10 @@ pub enum Value {
     Struct(Struct),
 }
 
-/// An `(annotations, value)` pair representing an Ion value.
-#[derive(Debug, Clone)]
-pub struct Element {
-    annotations: Vec<Symbol>,
-    value: Value,
-}
-
-impl Element {
-    pub fn new(annotations: Vec<Symbol>, value: Value) -> Self {
-        Self { annotations, value }
-    }
-}
-
-impl Display for Element {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut ivf = IonValueFormatter { output: f };
-
-        // display for annotations of this owned_element
-        ivf.format_annotations(&self.annotations)
-            .map_err(|_| std::fmt::Error)?;
-
-        match &self.value {
+        match &self {
             Value::Null(ion_type) => ivf.format_null(*ion_type),
             Value::Bool(bool) => ivf.format_bool(*bool),
             Value::Integer(integer) => ivf.format_integer(integer),
@@ -456,6 +462,31 @@ impl Display for Element {
         .map_err(|_| std::fmt::Error)?;
 
         Ok(())
+    }
+}
+
+/// An `(annotations, value)` pair representing an Ion value.
+#[derive(Debug, Clone)]
+pub struct Element {
+    annotations: Vec<Symbol>,
+    value: Value,
+}
+
+impl Element {
+    pub fn new(annotations: Vec<Symbol>, value: Value) -> Self {
+        Self { annotations, value }
+    }
+}
+
+impl Display for Element {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let mut ivf = IonValueFormatter { output: f };
+
+        // display for annotations of this element
+        ivf.format_annotations(&self.annotations)
+            .map_err(|_| std::fmt::Error)?;
+
+        self.value.fmt(f)
     }
 }
 
@@ -866,5 +897,41 @@ mod value_tests {
                 unreachable!("This test is only for container type elements")
             }
         }
+    }
+
+    #[test]
+    fn list_display_roundtrip() {
+        let list = ion_list![1, 2, 3, true, false];
+
+        // Use the Display impl to serialize the list to text
+        let text_list = format!("{list}");
+        // Parse the result and make sure it represents the same data
+        let expected_element: Element = list.into();
+        let actual_element = Element::read_one(text_list).unwrap();
+        assert!(expected_element.ion_eq(&actual_element));
+    }
+
+    #[test]
+    fn sexp_display_roundtrip() {
+        let sexp = ion_sexp! (1 2 3 true false);
+
+        // Use the Display impl to serialize the sexp to text
+        let text_sexp = format!("{sexp}");
+        // Parse the result and make sure it represents the same data
+        let expected_element: Element = sexp.into();
+        let actual_element = Element::read_one(text_sexp).unwrap();
+        assert!(expected_element.ion_eq(&actual_element));
+    }
+
+    #[test]
+    fn struct_display_roundtrip() {
+        let struct_ = ion_struct! {"foo": 1, "bar": 2, "baz": ion_list! [true, false]};
+
+        // Use the Display impl to serialize the struct to text
+        let text_struct = format!("{struct_}");
+        // Parse the result and make sure it represents the same data
+        let expected_element: Element = struct_.into();
+        let actual_element = Element::read_one(text_struct).unwrap();
+        assert!(expected_element.ion_eq(&actual_element));
     }
 }
