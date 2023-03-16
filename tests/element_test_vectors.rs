@@ -1,12 +1,11 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use ion_rs::element::native_writer::NativeElementWriter;
 use ion_rs::element::owned::{Element, IonSequence};
 use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::{ElementWriter, Format, TextKind};
 use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
-use ion_rs::{BinaryWriterBuilder, Reader, TextWriterBuilder};
+use ion_rs::{BinaryWriterBuilder, IonWriter, Reader, TextWriterBuilder};
 
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
@@ -51,20 +50,18 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
     let mut buffer = Vec::with_capacity(2048);
     match format {
         Format::Text(kind) => {
-            let writer = match kind {
+            let mut writer = match kind {
                 TextKind::Compact => TextWriterBuilder::new().build(&mut buffer),
                 TextKind::Lines => TextWriterBuilder::lines().build(&mut buffer),
                 TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
             }?;
-            let mut writer = NativeElementWriter::new(writer);
             writer.write_elements(elements)?;
-            let _ = writer.finish()?;
+            writer.flush()?;
         }
         Format::Binary => {
-            let binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
-            let mut writer = NativeElementWriter::new(binary_writer);
-            writer.write_elements(elements)?;
-            let _ = writer.finish()?;
+            let mut binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
+            binary_writer.write_elements(elements)?;
+            binary_writer.flush()?;
         }
     };
     Ok(buffer)
@@ -86,7 +83,7 @@ trait ElementApi {
     ) -> IonResult<Vec<Element>> {
         let bytes = serialize(format, source_elements)?;
         let mut reader = Self::make_reader(&bytes)?;
-        let new_elements: Vec<Element> = reader.read_all_elements()?;
+        let new_elements = reader.read_all_elements()?;
         assert!(
             source_elements.ion_eq(&new_elements),
             "Roundtrip via {:?} failed: {}",
@@ -104,7 +101,7 @@ trait ElementApi {
         for (index, (element1, element2)) in e1.iter().zip(e2.iter()).enumerate() {
             if !element1.ion_eq(element2) {
                 return format!(
-                    "The values at position #{index} were not IonEq.\ne1: {element1:?}\ne2: {element2:?}"
+                    "The values at position #{index} were not IonEq.\ne1: {element1}\ne2: {element2}"
                 );
             }
         }
@@ -163,7 +160,7 @@ trait ElementApi {
         F: Fn(&Vec<Element>, &Vec<Element>),
     {
         let group_res: IonResult<Vec<_>> = raw_group
-            .iter()
+            .elements()
             .map(|elem| {
                 Self::make_reader(elem.as_text().unwrap().as_bytes())?
                     .elements()
@@ -216,8 +213,8 @@ trait ElementApi {
                     Self::read_group_embedded(group, &group_assert)?;
                 }
                 (Some(group), false) => {
-                    for (this_index, this) in group.iter().enumerate() {
-                        for (that_index, that) in group.iter().enumerate() {
+                    for (this_index, this) in group.elements().enumerate() {
+                        for (that_index, that) in group.elements().enumerate() {
                             value_assert(group_index, this_index, this, that_index, that);
                         }
                     }
@@ -371,7 +368,6 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
 #[cfg(test)]
 mod impl_display_for_element_tests {
     use super::*;
-    use ion_rs::element::native_writer::NativeElementWriter;
     use ion_rs::TextWriterBuilder;
     use std::fs::read;
 
@@ -409,10 +405,10 @@ mod impl_display_for_element_tests {
 
         for element in elements {
             let mut buffer = Vec::with_capacity(2048);
-            let mut writer =
-                NativeElementWriter::new(TextWriterBuilder::new().build(&mut buffer).unwrap());
+            let mut writer = TextWriterBuilder::new().build(&mut buffer).unwrap();
             writer.write_element(&element).unwrap();
-            writer.finish().unwrap();
+            writer.flush().unwrap();
+            drop(writer);
 
             let expected_string = std::str::from_utf8(buffer.as_slice()).unwrap().to_string();
 
@@ -623,6 +619,8 @@ mod non_blocking_native_element_tests {
         }
 
         fn make_reader(data: &[u8]) -> IonResult<Reader<'_>> {
+            // These imports are visible as a temporary workaround.
+            // See: https://github.com/amazon-ion/ion-rust/issues/484
             use ion_rs::binary::constants::v1_0::IVM;
             use ion_rs::reader::integration_testing::new_reader;
             // If the data is binary, create a non-blocking binary reader.

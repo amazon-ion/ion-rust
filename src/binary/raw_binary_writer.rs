@@ -638,7 +638,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
     /// Writes an Ion float with the specified value.
     fn write_f32(&mut self, value: f32) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            if value == 0f32 {
+            if value == 0f32 && !value.is_sign_negative() {
                 enc_buffer.push(0x40);
                 return Ok(());
             }

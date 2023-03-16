@@ -15,7 +15,7 @@
 pub mod builders;
 mod element_stream_reader;
 mod iterators;
-pub mod native_writer;
+// pub mod native_writer;
 pub mod owned;
 pub mod reader;
 pub mod writer;
@@ -435,7 +435,7 @@ mod tests {
                 let expected: Vec<Element> = ion_vec([true, false]);
                 // assert the length of list
                 assert_eq!(2, actual.len());
-                for (i, actual_item) in actual.iter().enumerate() {
+                for (i, actual_item) in actual.elements().enumerate() {
                     // assert the list elements one-by-one
                     assert_eq!(&expected[i], actual_item);
                 }
@@ -454,7 +454,7 @@ mod tests {
                 let expected: Vec<Element> = ion_vec([true, false]);
                 // assert the length of s-expression
                 assert_eq!(2, actual.len());
-                for (i, actual_item) in actual.iter().enumerate() {
+                for (i, actual_item) in actual.elements().enumerate() {
                     // assert the s-expression elements one-by-one
                     assert_eq!(&expected[i], actual_item);
                 }

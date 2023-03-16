@@ -62,7 +62,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
             IonType::Blob => self.writer.write_blob(element.as_lob().unwrap()),
             IonType::List | IonType::SExp => {
                 self.writer.step_in(element.ion_type())?;
-                for value in element.as_sequence().unwrap().iter() {
+                for value in element.as_sequence().unwrap().elements() {
                     self.write_element(value)?;
                 }
                 self.writer.step_out()
@@ -75,33 +75,5 @@ impl<W: IonWriter> NativeElementWriter<W> {
                 self.writer.step_out()
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::element::native_writer::NativeElementWriter;
-    use crate::element::owned::Element;
-    use crate::element::writer::ElementWriter;
-    use crate::ion_eq::IonEq;
-    use crate::text::text_writer::TextWriterBuilder;
-    use crate::IonResult;
-    use nom::AsBytes;
-
-    #[test]
-    fn element_roundtrip() -> IonResult<()> {
-        let mut buffer = Vec::new();
-        let writer = TextWriterBuilder::new().build(&mut buffer)?;
-        let mut element_writer = NativeElementWriter::new(writer);
-
-        let ion = r#"
-            null true 0 1e0 2.0 2022T foo "bar" (foo bar baz) [foo, bar, baz] {foo: true, bar: false}
-        "#;
-        let expected_elements = Element::read_all(ion.as_bytes())?;
-        element_writer.write_elements(&expected_elements)?;
-        let _ = element_writer.finish()?;
-        let actual_elements: Vec<Element> = Element::read_all(buffer.as_bytes())?;
-        assert!(expected_elements.ion_eq(&actual_elements));
-        Ok(())
     }
 }

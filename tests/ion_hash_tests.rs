@@ -9,6 +9,7 @@ use ion_rs::element::*;
 use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::integer::IntAccess;
+
 use ion_rs::IonWriter;
 use std::convert::From;
 use std::fmt::Debug;
@@ -236,7 +237,7 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
         illegal_operation("only identity tests are implemented")?
     };
 
-    if let Some(expectation) = identity.iter().last() {
+    if let Some(expectation) = identity.elements().last() {
         let method = expectation
             .annotations()
             .next()
@@ -259,12 +260,9 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
 /// name of the test is the Ion text representation of the input value.
 fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
     let mut buf = Vec::new();
-    let text_writer = ion_rs::TextWriterBuilder::new().build(&mut buf)?;
-    let mut element_writer = ion_rs::element::native_writer::NativeElementWriter::new(text_writer);
-    element_writer.write_element(test_input_ion)?;
-    let mut text_writer = element_writer.finish()?;
+    let mut text_writer = ion_rs::TextWriterBuilder::new().build(&mut buf)?;
+    text_writer.write_element(test_input_ion)?;
     text_writer.flush()?;
-    drop(text_writer);
 
     Ok(String::from_utf8_lossy(&buf).to_string())
 }
@@ -281,7 +279,7 @@ fn test_case_name_from_annotation(test_case_ion: &Element) -> Option<String> {
 fn seq_to_bytes(elem: &Element) -> Vec<u8> {
     elem.as_sequence()
         .expect("expected a sequence")
-        .iter()
+        .elements()
         .map(|it| {
             it.as_int()
                 .and_then(|i| i.as_i64())
