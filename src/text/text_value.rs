@@ -77,7 +77,7 @@ impl TextValue {
             TextValue::Blob(_) => IonType::Blob,
             TextValue::Clob(_) => IonType::Clob,
             TextValue::ListStart => IonType::List,
-            TextValue::SExpressionStart => IonType::SExpression,
+            TextValue::SExpressionStart => IonType::SExp,
             TextValue::StructStart => IonType::Struct,
         }
     }

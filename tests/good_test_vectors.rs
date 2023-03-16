@@ -134,7 +134,7 @@ fn read_all_values(reader: &mut Reader) -> IonResult<()> {
             continue;
         }
         match ion_type {
-            Struct | List | SExpression => {
+            Struct | List | SExp => {
                 reader.step_in()?;
                 read_all_values(reader)?;
                 reader.step_out()?;

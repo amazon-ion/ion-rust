@@ -75,7 +75,7 @@ impl TypeDescriptor {
             Clob => Some(IonType::Clob),
             Blob => Some(IonType::Blob),
             List => Some(IonType::List),
-            SExpression => Some(IonType::SExpression),
+            SExpression => Some(IonType::SExp),
             Struct => Some(IonType::Struct),
             AnnotationOrIvm => None,
             Reserved => None,

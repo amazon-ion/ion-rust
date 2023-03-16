@@ -60,7 +60,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
             IonType::String => self.writer.write_string(element.as_text().unwrap()),
             IonType::Clob => self.writer.write_clob(element.as_lob().unwrap()),
             IonType::Blob => self.writer.write_blob(element.as_lob().unwrap()),
-            IonType::List | IonType::SExpression => {
+            IonType::List | IonType::SExp => {
                 self.writer.step_in(element.ion_type())?;
                 for value in element.as_sequence().unwrap().iter() {
                     self.write(value)?;

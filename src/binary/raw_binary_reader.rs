@@ -697,7 +697,7 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
         use std::mem;
         self.cursor.is_in_struct = match self.cursor.value.ion_type {
             Struct => true,
-            List | SExpression => false,
+            List | SExp => false,
             _ => panic!("You cannot step into a(n) {:?}", self.cursor.value.ion_type),
         };
         self.cursor.parents.push(EncodedValue::default());
@@ -1500,7 +1500,7 @@ mod tests {
     #[test]
     fn test_read_s_expression_empty() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xC0]);
-        assert_eq!(cursor.next()?, Value(IonType::SExpression));
+        assert_eq!(cursor.next()?, Value(IonType::SExp));
         cursor.step_in()?;
         assert_eq!(cursor.next()?, Nothing);
         cursor.step_out()?;
@@ -1510,7 +1510,7 @@ mod tests {
     #[test]
     fn test_read_s_expression_123() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xC6, 0x21, 0x01, 0x21, 0x02, 0x21, 0x03]);
-        assert_eq!(cursor.next()?, Value(IonType::SExpression));
+        assert_eq!(cursor.next()?, Value(IonType::SExp));
         let mut sexp = vec![];
         cursor.step_in()?;
         while let Value(IonType::Integer) = cursor.next()? {

@@ -48,7 +48,7 @@ impl TypeQualifier {
             IonType::Clob => type_qualifier_clob(elem.as_lob()),
             IonType::Blob => type_qualifier_blob(elem.as_lob()),
             IonType::List => type_qualifier_list(elem.as_list()),
-            IonType::SExpression => type_qualifier_sexp(elem.as_sexp()),
+            IonType::SExp => type_qualifier_sexp(elem.as_sexp()),
             IonType::Struct => type_qualifier_struct(elem.as_struct()),
         }
     }

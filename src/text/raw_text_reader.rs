@@ -266,7 +266,7 @@ mod reader_tests {
         assert_eq!(reader.read_i64()?, 1);
         reader.step_out()?;
         // This should have skipped over the `2, 3` at the end of the list.
-        next_type(reader, IonType::SExpression, false);
+        next_type(reader, IonType::SExp, false);
         // Don't step into the s-expression. Instead, skip over it.
         next_type(reader, IonType::Integer, false);
         assert_eq!(reader.read_i64()?, 6);
@@ -304,7 +304,7 @@ mod reader_tests {
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
         next_type(reader, IonType::Integer, false);
-        next_type(reader, IonType::SExpression, false);
+        next_type(reader, IonType::SExp, false);
         reader.step_in()?;
         next_type(reader, IonType::Boolean, false);
         next_type(reader, IonType::Boolean, false);
@@ -422,7 +422,7 @@ mod reader_tests {
         reader.step_out()?;
 
         // Reading an s-expression: ('''foo''')
-        next_type(reader, IonType::SExpression, false);
+        next_type(reader, IonType::SExp, false);
         reader.step_in()?;
         next_type(reader, IonType::String, false);
         assert_eq!(reader.read_string()?, String::from("foo"));
@@ -548,7 +548,7 @@ mod reader_tests {
         reader.step_out()?;
 
         // Reading an s-expression: haumea::makemake::eris::ceres::(++ -- &&&&&)
-        next_type(reader, IonType::SExpression, false);
+        next_type(reader, IonType::SExp, false);
         annotations_eq(reader, ["haumea", "makemake", "eris", "ceres"]);
         reader.step_in()?;
         next_type(reader, IonType::Symbol, false);
@@ -579,7 +579,7 @@ mod reader_tests {
             )
         "#;
         let mut reader = RawTextReader::new(&pretty_ion[..])?;
-        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::SExpression));
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::SExp));
         reader.step_in()?;
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Struct));
 

@@ -44,7 +44,7 @@ fn ion_type_from_text(text: &str) -> Option<IonType> {
         "clob" => Clob,
         "struct" => Struct,
         "list" => List,
-        "sexp" => SExpression,
+        "sexp" => SExp,
         _ => return None,
     };
     Some(ion_type)
@@ -80,7 +80,7 @@ mod null_parsing_tests {
         parse_equals("null.blob ", Blob);
         parse_equals("null.clob ", Clob);
         parse_equals("null.list ", List);
-        parse_equals("null.sexp ", SExpression);
+        parse_equals("null.sexp ", SExp);
         parse_equals("null.struct ", Struct);
 
         // Misspelled null

@@ -305,7 +305,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
             Blob => "null.blob",
             Clob => "null.clob",
             List => "null.list",
-            SExpression => "null.sexp",
+            SExp => "null.sexp",
             Struct => "null.struct",
         };
         write!(self.output, "{null_text}")?;

@@ -71,7 +71,7 @@ pub trait IonWriter {
     /// Starts a new Ion container with the specified type.
     /// The only valid IonType values are:
     /// * [IonType::List]
-    /// * [IonType::SExpression]
+    /// * [IonType::SExp]
     /// * [IonType::Struct]
     /// Passing any other IonType will result in an `Err`.
     fn step_in(&mut self, container_type: IonType) -> IonResult<()>;

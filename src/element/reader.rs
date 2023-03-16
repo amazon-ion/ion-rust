@@ -152,7 +152,7 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
                     Blob => Value::Blob(self.reader.read_blob()?),
                     // It's a collection; recursively materialize all of this value's children
                     List => Value::List(owned::List::new(self.materialize_sequence()?)),
-                    SExpression => Value::SExp(owned::SExp::new(self.materialize_sequence()?)),
+                    SExp => Value::SExp(owned::SExp::new(self.materialize_sequence()?)),
                     Struct => Value::Struct(self.materialize_struct()?),
                 }
             }

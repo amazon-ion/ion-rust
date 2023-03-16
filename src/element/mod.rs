@@ -447,7 +447,7 @@ mod tests {
     fn sexp_case() -> Case {
         Case {
             elem: ion_sexp!(true false).into(),
-            ion_type: IonType::SExpression,
+            ion_type: IonType::SExp,
             ops: vec![AsSExp, AsSequence],
             op_assert: Box::new(|e: &Element| {
                 let actual = e.as_sexp().unwrap();

@@ -60,7 +60,7 @@ fn read_all_values<R: RawReader>(reader: &mut R) -> IonResult<usize> {
             Value(ion_type) => {
                 count += 1;
                 match ion_type {
-                    Struct | List | SExpression => reader.step_in()?,
+                    Struct | List | SExp => reader.step_in()?,
                     String => {
                         reader.map_string(|_s| ())?;
                     }

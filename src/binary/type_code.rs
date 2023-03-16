@@ -52,7 +52,7 @@ impl TryFrom<IonTypeCode> for IonType {
             Clob => IonType::Clob,
             Blob => IonType::Blob,
             List => IonType::List,
-            SExpression => IonType::SExpression,
+            SExpression => IonType::SExp,
             Struct => IonType::Struct,
             _ => {
                 return decoding_error(format!(

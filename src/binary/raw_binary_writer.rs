@@ -557,7 +557,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
                 IonType::Clob => 0x9F,
                 IonType::Blob => 0xAF,
                 IonType::List => 0xBF,
-                IonType::SExpression => 0xCF,
+                IonType::SExp => 0xCF,
                 IonType::Struct => 0xDF,
             };
             enc_buffer.push(byte);
@@ -729,7 +729,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         use IonType::*;
         let container_type = match ion_type {
             List => ContainerType::List,
-            SExpression => ContainerType::SExpression,
+            SExp => ContainerType::SExpression,
             Struct => ContainerType::Struct,
             _ => return illegal_operation("Cannot step into a scalar Ion type."),
         };
@@ -787,7 +787,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
             ContainerType::TopLevel => None,
             ContainerType::Struct => Some(IonType::Struct),
             ContainerType::List => Some(IonType::List),
-            ContainerType::SExpression => Some(IonType::SExpression),
+            ContainerType::SExpression => Some(IonType::SExp),
         }
     }
 
@@ -980,7 +980,7 @@ mod writer_tests {
             IonType::Clob,
             IonType::Blob,
             IonType::List,
-            IonType::SExpression,
+            IonType::SExp,
             IonType::Struct,
         ];
 
@@ -1184,7 +1184,7 @@ mod writer_tests {
     }
 
     fn expect_s_expression(reader: &mut TestReader) {
-        expect_container(reader, IonType::SExpression);
+        expect_container(reader, IonType::SExp);
     }
 
     fn expect_struct(reader: &mut TestReader) {
@@ -1315,7 +1315,7 @@ mod writer_tests {
 
                 // foo::(true)
                 writer.set_annotations([10]);
-                writer.step_in(IonType::SExpression)?;
+                writer.step_in(IonType::SExp)?;
                 writer.write_bool(true)?;
                 writer.step_out()?;
 

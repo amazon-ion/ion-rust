@@ -27,7 +27,7 @@ pub(crate) trait RepresentationEncoder {
             IonType::String => self.write_repr_string(elem.as_string())?,
             IonType::Clob | IonType::Blob => self.write_repr_blob(elem.as_lob())?,
             IonType::List => self.write_repr_list(elem.as_list())?,
-            IonType::SExpression => self.write_repr_sexp(elem.as_sexp())?,
+            IonType::SExp => self.write_repr_sexp(elem.as_sexp())?,
             IonType::Struct => self.write_repr_struct(elem.as_struct())?,
         }
 

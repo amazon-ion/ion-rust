@@ -272,7 +272,7 @@ impl ContainerType {
     pub fn ion_type(&self) -> IonType {
         match self {
             ContainerType::List => IonType::List,
-            ContainerType::SExpression => IonType::SExpression,
+            ContainerType::SExpression => IonType::SExp,
             ContainerType::Struct => IonType::Struct,
         }
     }
@@ -885,7 +885,7 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
 
         let container_type = match value.header.ion_type {
             IonType::List => ContainerType::List,
-            IonType::SExpression => ContainerType::SExpression,
+            IonType::SExp => ContainerType::SExpression,
             IonType::Struct => ContainerType::Struct,
             _other => {
                 return illegal_operation(
@@ -1759,7 +1759,7 @@ mod tests {
         let item = reader.next()?;
         assert_eq!(item, RawStreamItem::VersionMarker(1, 0));
         let item = reader.next()?;
-        assert_eq!(item, RawStreamItem::Value(IonType::SExpression));
+        assert_eq!(item, RawStreamItem::Value(IonType::SExp));
         reader.step_in()?;
         expect_value(reader.next(), IonType::Struct);
         reader.step_in()?;

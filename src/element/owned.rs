@@ -615,7 +615,7 @@ impl Element {
             Boolean(_) => IonType::Boolean,
             Blob(_) => IonType::Blob,
             Clob(_) => IonType::Clob,
-            SExp(_) => IonType::SExpression,
+            SExp(_) => IonType::SExp,
             List(_) => IonType::List,
             Struct(_) => IonType::Struct,
         }
@@ -828,7 +828,7 @@ mod value_tests {
     fn owned_container_len_test<I: Into<Element>>(#[case] container: I, #[case] length: usize) {
         let container = container.into();
         match container.ion_type() {
-            IonType::List | IonType::SExpression => {
+            IonType::List | IonType::SExp => {
                 // check length for given sequence value
                 assert_eq!(container.as_sequence().unwrap().len(), length);
             }
@@ -854,7 +854,7 @@ mod value_tests {
     ) {
         let container = container.into();
         match container.ion_type() {
-            IonType::List | IonType::SExpression => {
+            IonType::List | IonType::SExp => {
                 // check length for given sequence value
                 assert_eq!(container.as_sequence().unwrap().is_empty(), is_empty);
             }

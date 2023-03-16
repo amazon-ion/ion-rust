@@ -108,7 +108,7 @@ impl ElementStreamReader {
 
     fn container_values(value: Element) -> Box<dyn Iterator<Item = (Option<Symbol>, Element)>> {
         match value.ion_type() {
-            IonType::List | IonType::SExpression => Box::new(
+            IonType::List | IonType::SExp => Box::new(
                 value
                     .as_sequence()
                     .unwrap()
@@ -452,7 +452,7 @@ mod reader_tests {
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
         next_type(reader, IonType::Integer, false);
-        next_type(reader, IonType::SExpression, false);
+        next_type(reader, IonType::SExp, false);
         reader.step_in()?;
         next_type(reader, IonType::Boolean, false);
         next_type(reader, IonType::Boolean, false);
@@ -591,7 +591,7 @@ mod reader_tests {
         "#,
         );
         let mut reader = ElementStreamReader::new(pretty_ion);
-        assert_eq!(reader.next()?, StreamItem::Value(IonType::SExpression));
+        assert_eq!(reader.next()?, StreamItem::Value(IonType::SExp));
         reader.step_in()?;
         assert_eq!(reader.next()?, StreamItem::Value(IonType::Struct));
 

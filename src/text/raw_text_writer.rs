@@ -502,7 +502,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
                 Blob => "null.blob",
                 Clob => "null.clob",
                 List => "null.list",
-                SExpression => "null.sexp",
+                SExp => "null.sexp",
                 Struct => "null.struct",
             };
             write!(output, "{null_text}")?;
@@ -664,7 +664,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
                 write!(self.output, "[")?;
                 ContainerType::List
             }
-            SExpression => {
+            SExp => {
                 write!(self.output, "(")?;
                 ContainerType::SExpression
             }
@@ -693,7 +693,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         match self.parent_level().container_type {
             ContainerType::TopLevel => None,
             ContainerType::List => Some(IonType::List),
-            ContainerType::SExpression => Some(IonType::SExpression),
+            ContainerType::SExpression => Some(IonType::SExp),
             ContainerType::Struct => Some(IonType::Struct),
         }
     }
@@ -1071,7 +1071,7 @@ mod tests {
     fn write_s_expression() {
         writer_test(
             |w| {
-                w.step_in(IonType::SExpression)?;
+                w.step_in(IonType::SExp)?;
                 w.write_string("foo")?;
                 w.write_i64(21)?;
                 w.write_symbol("bar")?;
