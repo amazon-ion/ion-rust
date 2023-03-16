@@ -6,7 +6,7 @@ use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::SymbolId;
 use crate::writer::IonWriter;
-use crate::{Integer, IonType, SymbolTable};
+use crate::{Int, IonType, SymbolTable};
 use delegate::delegate;
 use std::io::Write;
 
@@ -180,7 +180,7 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
             fn write_null(&mut self, ion_type: IonType) -> IonResult<()>;
             fn write_bool(&mut self, value: bool) -> IonResult<()>;
             fn write_i64(&mut self, value: i64) -> IonResult<()>;
-            fn write_integer(&mut self, value: &Integer) -> IonResult<()>;
+            fn write_int(&mut self, value: &Int) -> IonResult<()>;
             fn write_f32(&mut self, value: f32) -> IonResult<()>;
             fn write_f64(&mut self, value: f64) -> IonResult<()>;
             fn write_decimal(&mut self, value: &Decimal) -> IonResult<()>;
@@ -233,7 +233,7 @@ mod tests {
         binary_writer.flush()?;
 
         let mut reader = ReaderBuilder::new().build(buffer)?;
-        assert_eq!(Value(IonType::Integer), reader.next()?);
+        assert_eq!(Value(IonType::Int), reader.next()?);
         let mut annotations = reader.annotations();
         assert_eq!("foo", annotations.next().unwrap()?);
         assert_eq!("bar", annotations.next().unwrap()?);

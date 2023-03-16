@@ -4,7 +4,7 @@ use crate::data_source::IonDataSource;
 use crate::result::{decoding_error, IonResult};
 use crate::types::coefficient;
 use crate::types::coefficient::Coefficient;
-use crate::Integer;
+use crate::Int;
 use num_bigint::{BigInt, Sign};
 use num_traits::Zero;
 use std::io::Write;
@@ -23,14 +23,14 @@ const MAX_INT_SIZE_IN_BYTES: usize = 2048;
 #[derive(Debug)]
 pub struct DecodedInt {
     size_in_bytes: usize,
-    value: Integer,
+    value: Int,
     // [Integer] is not capable of natively representing negative zero. We track the sign
     // of the value separately so we can distinguish between 0 and -0.
     is_negative: bool,
 }
 
 impl DecodedInt {
-    pub(crate) fn new(value: Integer, is_negative: bool, size_in_bytes: usize) -> Self {
+    pub(crate) fn new(value: Int, is_negative: bool, size_in_bytes: usize) -> Self {
         DecodedInt {
             size_in_bytes,
             value,
@@ -43,7 +43,7 @@ impl DecodedInt {
         if length == 0 {
             return Ok(DecodedInt {
                 size_in_bytes: 0,
-                value: Integer::I64(0),
+                value: Int::I64(0),
                 is_negative: false,
             });
         } else if length > MAX_INT_SIZE_IN_BYTES {
@@ -90,7 +90,7 @@ impl DecodedInt {
                 magnitude <<= 8;
                 magnitude |= byte;
             }
-            Integer::I64(sign * magnitude)
+            Int::I64(sign * magnitude)
         } else {
             // This Int is too big for an i64, we'll need to use a BigInt
             let sign: num_bigint::Sign = if buffer[0] & 0b1000_0000 == 0 {
@@ -104,7 +104,7 @@ impl DecodedInt {
             // in the buffer to zero.
             buffer[0] &= 0b0111_1111;
             let value = BigInt::from_bytes_be(sign, buffer);
-            Integer::BigInt(value)
+            Int::BigInt(value)
         };
 
         Ok(DecodedInt {
@@ -154,7 +154,7 @@ impl DecodedInt {
 
     /// Returns the value of the signed integer.
     #[inline(always)]
-    pub fn value(&self) -> &Integer {
+    pub fn value(&self) -> &Int {
         &self.value
     }
 
@@ -170,13 +170,13 @@ impl DecodedInt {
     pub fn zero() -> Self {
         DecodedInt {
             size_in_bytes: 0,
-            value: Integer::I64(0),
+            value: Int::I64(0),
             is_negative: false,
         }
     }
 }
 
-impl From<DecodedInt> for Integer {
+impl From<DecodedInt> for Int {
     /// Note that if the DecodedInt represents -0, converting it to an Integer will result in a 0.
     /// If negative zero is significant to your use case, check it using [DecodedInt::is_negative_zero]
     /// before converting it to an Integer.
@@ -206,7 +206,7 @@ impl From<DecodedInt> for Coefficient {
 mod tests {
     use super::*;
     use crate::result::IonResult;
-    use crate::Integer;
+    use crate::Int;
     use std::io;
     use std::io::Cursor;
 
@@ -217,7 +217,7 @@ mod tests {
         let data = &[0b0011_1100, 0b1000_0111, 0b1000_0001];
         let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(int.size_in_bytes(), 3);
-        assert_eq!(int.value(), &Integer::I64(3_966_849));
+        assert_eq!(int.value(), &Int::I64(3_966_849));
     }
 
     #[test]
@@ -225,7 +225,7 @@ mod tests {
         let data = &[0b1011_1100, 0b1000_0111, 0b1000_0001];
         let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(int.size_in_bytes(), 3);
-        assert_eq!(int.value(), &Integer::I64(-3_966_849));
+        assert_eq!(int.value(), &Int::I64(-3_966_849));
     }
 
     #[test]
@@ -233,7 +233,7 @@ mod tests {
         let data = &[0b1000_0000]; // Negative zero
         let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(int.size_in_bytes(), 1);
-        assert_eq!(int.value(), &Integer::I64(0));
+        assert_eq!(int.value(), &Int::I64(0));
         assert!(int.is_negative_zero());
     }
 
@@ -242,7 +242,7 @@ mod tests {
         let data = &[0b0000_0000]; // Positive zero
         let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(int.size_in_bytes(), 1);
-        assert_eq!(int.value(), &Integer::I64(0));
+        assert_eq!(int.value(), &Int::I64(0));
         assert!(!int.is_negative_zero());
     }
 
@@ -251,7 +251,7 @@ mod tests {
         let data = &[0b0111_1111, 0b1111_1111];
         let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(int.size_in_bytes(), 2);
-        assert_eq!(int.value(), &Integer::I64(32_767));
+        assert_eq!(int.value(), &Int::I64(32_767));
     }
 
     #[test]
@@ -259,7 +259,7 @@ mod tests {
         let data = &[0b1111_1111, 0b1111_1111];
         let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(int.size_in_bytes(), 2);
-        assert_eq!(int.value(), &Integer::I64(-32_767));
+        assert_eq!(int.value(), &Int::I64(-32_767));
     }
 
     #[test]
@@ -267,7 +267,7 @@ mod tests {
         let data = &[];
         let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(int.size_in_bytes(), 0);
-        assert_eq!(int.value(), &Integer::I64(0));
+        assert_eq!(int.value(), &Int::I64(0));
     }
 
     #[test]
@@ -330,7 +330,7 @@ mod tests {
         let mut buffer: Vec<u8> = vec![];
         let length = DecodedInt::write_i64(&mut buffer, i64::MAX)?;
         let i = DecodedInt::read(&mut io::Cursor::new(buffer.as_slice()), length)?;
-        assert_eq!(i.value, Integer::I64(i64::MAX));
+        assert_eq!(i.value, Int::I64(i64::MAX));
         Ok(())
     }
 }

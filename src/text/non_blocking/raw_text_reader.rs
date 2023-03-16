@@ -19,7 +19,7 @@ use crate::text::parsers::containers::{
 use crate::text::parsers::top_level::{stream_item, RawTextStreamItem};
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
 use crate::types::decimal::Decimal;
-use crate::types::integer::Integer;
+use crate::types::integer::Int;
 use crate::types::timestamp::Timestamp;
 use crate::IonType;
 
@@ -580,7 +580,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
         let value = match stream_item(&remaining_text) {
             Ok(("\n", RawTextStreamItem::AnnotatedTextValue(value)))
                 if value.annotations().is_empty()
-                    && *value.value() == TextValue::Integer(Integer::I64(0)) =>
+                    && *value.value() == TextValue::Int(Int::I64(0)) =>
             {
                 // We found the unannotated zero that we appended to the end of the buffer.
                 // The "\n" in this pattern is the unparsed text left in the buffer,
@@ -772,22 +772,22 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
 
     fn read_bool(&mut self) -> IonResult<bool> {
         match self.current_value.as_ref().map(|current| current.value()) {
-            Some(TextValue::Boolean(value)) => Ok(*value),
+            Some(TextValue::Bool(value)) => Ok(*value),
             _ => Err(self.expected("bool value")),
         }
     }
 
-    fn read_integer(&mut self) -> IonResult<Integer> {
+    fn read_int(&mut self) -> IonResult<Int> {
         match self.current_value.as_ref().map(|current| current.value()) {
-            Some(TextValue::Integer(value)) => Ok(value.clone()),
+            Some(TextValue::Int(value)) => Ok(value.clone()),
             _ => Err(self.expected("int value")),
         }
     }
 
     fn read_i64(&mut self) -> IonResult<i64> {
         match self.current_value.as_ref().map(|current| current.value()) {
-            Some(TextValue::Integer(Integer::I64(value))) => Ok(*value),
-            Some(TextValue::Integer(Integer::BigInt(value))) => {
+            Some(TextValue::Int(Int::I64(value))) => Ok(*value),
+            Some(TextValue::Int(Int::BigInt(value))) => {
                 decoding_error(format!("Integer {value} is too large to fit in an i64."))
             }
             _ => Err(self.expected("int value")),
@@ -1003,9 +1003,9 @@ mod reader_tests {
         let mut reader = RawTextReader::new(ion_data.as_bytes().to_owned());
         next_type(&mut reader, IonType::List, false);
         reader.step_in()?;
-        next_type(&mut reader, IonType::Integer, false);
+        next_type(&mut reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 1);
-        next_type(&mut reader, IonType::Integer, false);
+        next_type(&mut reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 2);
         match reader.next() {
             // the failure occurs after reading the \n after 3, so it is identified on line 3.
@@ -1026,7 +1026,7 @@ mod reader_tests {
         reader
             .append_bytes("]".as_bytes())
             .expect("Unable to append bytes");
-        next_type(&mut reader, IonType::Integer, false);
+        next_type(&mut reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 3);
         Ok(())
     }
@@ -1068,18 +1068,18 @@ mod reader_tests {
             0 [1, 2, 3] (4 5) 6
         "#;
         let reader = &mut RawTextReader::new(ion_data);
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 0);
 
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 1);
         reader.step_out()?;
         // This should have skipped over the `2, 3` at the end of the list.
         next_type(reader, IonType::SExp, false);
         // Don't step into the s-expression. Instead, skip over it.
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 6);
         Ok(())
     }
@@ -1105,16 +1105,16 @@ mod reader_tests {
         reader.step_in()?;
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         // The reader is now at the '2' nested inside of 'foo'
         reader.step_out()?;
         reader.step_out()?;
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         next_type(reader, IonType::SExp, false);
         reader.step_in()?;
         next_type(reader, IonType::Bool, false);
@@ -1123,7 +1123,7 @@ mod reader_tests {
         reader.step_out()?;
         reader.step_out()?;
         reader.step_out()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 11);
         Ok(())
     }
@@ -1144,17 +1144,17 @@ mod reader_tests {
         let reader = &mut RawTextReader::new(ion_data);
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.field_name()?, text_token("foo"));
         next_type(reader, IonType::Struct, false);
         assert_eq!(reader.field_name()?, text_token("bar"));
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 5);
         reader.step_out()?;
         assert_eq!(reader.next()?, RawStreamItem::Nothing);
         reader.step_out()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 42);
         Ok(())
     }
@@ -1162,9 +1162,9 @@ mod reader_tests {
     #[rstest]
     #[case(" null ", TextValue::Null(IonType::Null))]
     #[case(" null.string ", TextValue::Null(IonType::String))]
-    #[case(" true ", TextValue::Boolean(true))]
-    #[case(" false ", TextValue::Boolean(false))]
-    #[case(" 738 ", TextValue::Integer(Integer::I64(738)))]
+    #[case(" true ", TextValue::Bool(true))]
+    #[case(" false ", TextValue::Bool(false))]
+    #[case(" 738 ", TextValue::Int(Int::I64(738)))]
     #[case(" 2.5e0 ", TextValue::Float(2.5))]
     #[case(" 2.5 ", TextValue::Decimal(Decimal::new(25, -1)))]
     #[case(" 2007-07-12T ", TextValue::Timestamp(Timestamp::with_ymd(2007, 7, 12).build().unwrap()))]
@@ -1211,7 +1211,7 @@ mod reader_tests {
         next_type(reader, IonType::Bool, false);
         assert!(reader.read_bool()?);
 
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 5);
 
         next_type(reader, IonType::Float, false);
@@ -1301,7 +1301,7 @@ mod reader_tests {
             Timestamp::with_ymd(2014, 6, 26).build()?
         );
         // TODO: Check for 'km' annotation after change to OwnedSymbolToken
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 36);
         Ok(())
     }
@@ -1332,7 +1332,7 @@ mod reader_tests {
         assert!(reader.read_bool()?);
         annotations_eq(reader, ["venus", "earth"]);
 
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 5);
         annotations_eq(reader, &[local_sid_token(17), text_token("mars")]);
 
@@ -1375,13 +1375,13 @@ mod reader_tests {
         // Reading a list: pluto::[1, $77::2, 3]
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.number_of_annotations(), 0);
         assert_eq!(reader.read_i64()?, 1);
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         annotations_eq(reader, [77]);
         assert_eq!(reader.read_i64()?, 2);
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.number_of_annotations(), 0);
         assert_eq!(reader.read_i64()?, 3);
         assert_eq!(reader.next()?, Nothing);
@@ -1424,10 +1424,10 @@ mod reader_tests {
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Struct));
 
         reader.step_in()?;
-        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?, RawSymbolToken::Text("a".to_string()));
         assert_eq!(reader.read_i64()?, 1);
-        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?, RawSymbolToken::Text("b".to_string()));
         assert_eq!(reader.read_i64()?, 2);
         reader.step_out()?;
@@ -1490,7 +1490,7 @@ mod reader_tests {
             other => panic!("unexpected return from next: {other:?}"),
         }
 
-        assert_eq!(reader.ion_type().unwrap(), IonType::Integer);
+        assert_eq!(reader.ion_type().unwrap(), IonType::Int);
         assert_eq!(reader.field_name()?.text(), Some("field"));
 
         Ok(())
@@ -1585,7 +1585,7 @@ mod reader_tests {
         // We've stepped out of the inner structs, and we should be at the last field in the outter
         // most container.
         let result = reader.next()?;
-        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(result, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?.text(), Some("other_field"));
         assert_eq!(reader.read_i64()?, 21);
 
@@ -1617,13 +1617,13 @@ mod reader_tests {
 
         // Read 'foo'..
         let result = reader.next()?;
-        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(result, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?.text(), Some("foo"));
         assert_eq!(reader.read_i64()?, 1);
 
         // Read "bar"
         let result = reader.next()?;
-        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(result, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?.text(), Some("bar"));
         assert_eq!(reader.read_i64()?, 2);
 
@@ -1676,13 +1676,13 @@ mod reader_tests {
 
         // Read 'foo'..
         let result = reader.next()?;
-        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(result, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?.text(), Some("foo"));
         assert_eq!(reader.read_i64()?, 1);
 
         // Read "bar"
         let result = reader.next()?;
-        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(result, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?.text(), Some("bar"));
         assert_eq!(reader.read_i64()?, 2);
 
@@ -1773,7 +1773,7 @@ mod reader_tests {
         reader.step_in()?; // Step in, so we can read a value first..
 
         let mut result = reader.next()?;
-        assert_eq!(result, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(result, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?.text(), Some("foo"));
 
         match reader.step_out() {

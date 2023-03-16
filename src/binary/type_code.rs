@@ -43,7 +43,7 @@ impl TryFrom<IonTypeCode> for IonType {
         let ion_type = match ion_type_code {
             NullOrNop => IonType::Null,
             Boolean => IonType::Bool,
-            PositiveInteger | NegativeInteger => IonType::Integer,
+            PositiveInteger | NegativeInteger => IonType::Int,
             Float => IonType::Float,
             Decimal => IonType::Decimal,
             Timestamp => IonType::Timestamp,

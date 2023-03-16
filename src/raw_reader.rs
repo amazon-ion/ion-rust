@@ -1,7 +1,7 @@
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::stream_reader::IonReader;
 use crate::types::IonType;
-use crate::{Decimal, Integer, IonResult, Timestamp};
+use crate::{Decimal, Int, IonResult, Timestamp};
 use std::fmt::{Display, Formatter};
 
 /// `RawReader` is a shorthand for a [Reader](crate::Reader) implementation that returns [RawStreamItem]s and
@@ -68,8 +68,8 @@ impl<R: RawReader + ?Sized> IonReader for Box<R> {
         (**self).read_i64()
     }
 
-    fn read_integer(&mut self) -> IonResult<Integer> {
-        (**self).read_integer()
+    fn read_int(&mut self) -> IonResult<Int> {
+        (**self).read_int()
     }
 
     fn read_f32(&mut self) -> IonResult<f32> {

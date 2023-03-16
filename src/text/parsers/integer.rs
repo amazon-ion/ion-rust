@@ -4,7 +4,7 @@ use crate::text::parse_result::{
 use crate::text::parsers::numeric_support::base_10_integer_digits;
 use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
-use crate::types::integer::Integer;
+use crate::types::integer::Int;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, tag, take_while1};
 use nom::character::streaming::char;
@@ -21,7 +21,7 @@ use std::num::IntErrorKind;
 // decimal, the base-10 notation, or the fractional delimiter of a floating-point number.
 
 /// Matches the text representation of an integer in any supported notation (base-2, base-10, or
-/// base-16) and returns the resulting [i64] as a [TextValue::Integer].
+/// base-16) and returns the resulting [i64] as a [TextValue::Int].
 pub(crate) fn parse_integer(input: &str) -> IonParseResult<TextValue> {
     terminated(
         alt((base_16_integer, base_2_integer, base_10_integer)),
@@ -30,7 +30,7 @@ pub(crate) fn parse_integer(input: &str) -> IonParseResult<TextValue> {
 }
 
 /// Matches a base-16 notation integer (e.g. `0xCAFE`, `0Xcafe`, or `-0xCa_Fe`) and returns the
-/// resulting [i64] as a [TextValue::Integer].
+/// resulting [i64] as a [TextValue::Int].
 fn base_16_integer(input: &str) -> IonParseResult<TextValue> {
     let (remaining, (maybe_sign, text_digits)) = separated_pair(
         opt(char('-')),
@@ -39,7 +39,7 @@ fn base_16_integer(input: &str) -> IonParseResult<TextValue> {
     )(input)?;
     let integer = parse_integer_with_radix(text_digits, 16)
         .map(|(_, i)| if maybe_sign.is_some() { -i } else { i })
-        .map(TextValue::Integer)
+        .map(TextValue::Int)
         .or_fatal_parse_error(input, "could not parse hex integer")?
         .1;
     Ok((remaining, integer))
@@ -62,7 +62,7 @@ fn take_base_16_digits1(input: &str) -> IonParseResult<&str> {
 }
 
 /// Matches a base-2 notation integer (e.g. `0b0`, `0B1`, or `-0b10_10`) and returns the resulting
-/// [i64] as a [TextValue::Integer].
+/// [i64] as a [TextValue::Int].
 fn base_2_integer(input: &str) -> IonParseResult<TextValue> {
     let (remaining, (maybe_sign, text_digits)) = separated_pair(
         opt(char('-')),
@@ -71,7 +71,7 @@ fn base_2_integer(input: &str) -> IonParseResult<TextValue> {
     )(input)?;
     let integer = parse_integer_with_radix(text_digits, 2)
         .map(|(_, i)| if maybe_sign.is_some() { -i } else { i })
-        .map(TextValue::Integer)
+        .map(TextValue::Int)
         .or_fatal_parse_error(input, "could not parse binary integer")?
         .1;
     Ok((remaining, integer))
@@ -89,11 +89,11 @@ fn base_2_integer_digits(input: &str) -> IonParseResult<&str> {
 }
 
 /// Matches a base-10 notation integer (e.g. `0`, `255`, or `-1_024`) and returns the resulting
-/// [i64] as a [TextValue::Integer].
+/// [i64] as a [TextValue::Int].
 fn base_10_integer(input: &str) -> IonParseResult<TextValue> {
     let (remaining, int_text) = recognize(preceded(opt(char('-')), base_10_integer_digits))(input)?;
     let integer = parse_integer_with_radix(int_text, 10)
-        .map(|(_, i)| TextValue::Integer(i))
+        .map(|(_, i)| TextValue::Int(i))
         .or_fatal_parse_error(input, "could not parse decimal integer")?
         .1;
     Ok((remaining, integer))
@@ -101,7 +101,7 @@ fn base_10_integer(input: &str) -> IonParseResult<TextValue> {
 
 /// Strips any underscores out of the provided text and then parses it according to the specified
 /// radix.
-fn parse_integer_with_radix(text: &str, radix: u32) -> IonParseResult<Integer> {
+fn parse_integer_with_radix(text: &str, radix: u32) -> IonParseResult<Int> {
     if text.contains('_') {
         let sanitized = text.replace('_', "");
         // Construct a new IonParseResult with a lifetime tied to `text`, not `sanitized`
@@ -116,17 +116,17 @@ fn parse_integer_with_radix(text: &str, radix: u32) -> IonParseResult<Integer> {
 }
 
 /// Parses the provided text according to the specified radix.
-fn parse_sanitized_text_with_radix(text: &str, radix: u32) -> IonParseResult<Integer> {
+fn parse_sanitized_text_with_radix(text: &str, radix: u32) -> IonParseResult<Int> {
     // Try to parse it as an i64...
     match i64::from_str_radix(text, radix) {
-        Ok(integer) => Ok(("", Integer::I64(integer))),
+        Ok(integer) => Ok(("", Int::I64(integer))),
         Err(e)
             if e.kind() == &IntErrorKind::NegOverflow || e.kind() == &IntErrorKind::PosOverflow =>
         {
             // The text is ok, but the magnitude of the integer it represents is too large to
             // represent using an i64. Try again with BigInt.
             BigInt::from_str_radix(text, radix)
-                .map(Integer::BigInt)
+                .map(Int::BigInt)
                 .or_fatal_parse_error(text, "found big integer with invalid text")
         }
         Err(e) => {
@@ -145,11 +145,7 @@ mod integer_parsing_tests {
     use crate::text::text_value::TextValue;
 
     fn parse_equals_i64(text: &str, expected: i64) {
-        parse_test_ok(
-            parse_integer,
-            text,
-            TextValue::Integer(Integer::I64(expected)),
-        )
+        parse_test_ok(parse_integer, text, TextValue::Int(Int::I64(expected)))
     }
 
     fn parse_fails(text: &str) {

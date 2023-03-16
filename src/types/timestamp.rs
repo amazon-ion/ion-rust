@@ -4,7 +4,7 @@ use crate::result::{
 };
 use crate::types::coefficient::Sign::Negative;
 use crate::types::decimal::Decimal;
-use crate::types::integer::UInteger;
+use crate::types::integer::UInt;
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
 };
@@ -248,8 +248,8 @@ impl Timestamp {
                 const NANOSECONDS_EXPONENT: i64 = -9;
                 let exponent_delta = decimal.exponent - NANOSECONDS_EXPONENT;
                 let magnitude = match decimal.coefficient.magnitude() {
-                    UInteger::U64(magnitude) => *magnitude,
-                    UInteger::BigUInt(magnitude) => {
+                    UInt::U64(magnitude) => *magnitude,
+                    UInt::BigUInt(magnitude) => {
                         // If the magnitude is small enough to fit in a u64, do the conversion.
                         if let Ok(small_magnitude) = u64::try_from(magnitude) {
                             small_magnitude

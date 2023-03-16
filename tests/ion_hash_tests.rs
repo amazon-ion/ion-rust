@@ -283,7 +283,7 @@ fn seq_to_bytes(elem: &Element) -> Vec<u8> {
         .expect("expected a sequence")
         .iter()
         .map(|it| {
-            it.as_integer()
+            it.as_int()
                 .and_then(|i| i.as_i64())
                 .expect("expected a sequence of bytes") as u8
         })

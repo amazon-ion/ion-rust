@@ -38,7 +38,7 @@ pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
 
 pub use types::decimal::Decimal;
-pub use types::integer::Integer;
+pub use types::integer::Int;
 pub use types::timestamp::Timestamp;
 pub use types::IonType;
 

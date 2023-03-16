@@ -10,7 +10,7 @@ use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::ContainerType;
 use crate::writer::IonWriter;
-use crate::{Integer, IonType};
+use crate::{Int, IonType};
 
 pub struct RawTextWriterBuilder {
     whitespace_config: WhitespaceConfig,
@@ -493,7 +493,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
             let null_text = match ion_type {
                 Null => "null",
                 Bool => "null.bool",
-                Integer => "null.int",
+                Int => "null.int",
                 Float => "null.float",
                 Decimal => "null.decimal",
                 Timestamp => "null.timestamp",
@@ -531,7 +531,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
     }
 
     /// Writes an Ion `integer` with the specified value to the output stream.
-    fn write_integer(&mut self, value: &Integer) -> IonResult<()> {
+    fn write_int(&mut self, value: &Int) -> IonResult<()> {
         self.write_scalar(|output| {
             write!(output, "{value}")?;
             Ok(())

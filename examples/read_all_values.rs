@@ -67,7 +67,7 @@ fn read_all_values<R: RawReader>(reader: &mut R) -> IonResult<usize> {
                     Symbol => {
                         let _symbol_id = reader.read_symbol()?;
                     }
-                    Integer => {
+                    Int => {
                         let _int = reader.read_i64()?;
                     }
                     Float => {

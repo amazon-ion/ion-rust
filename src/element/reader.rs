@@ -142,7 +142,7 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
                 match ion_type {
                     Null => unreachable!("non-null value had IonType::Null"),
                     Bool => Value::Bool(self.reader.read_bool()?),
-                    Integer => Value::Integer(self.reader.read_integer()?),
+                    Int => Value::Int(self.reader.read_int()?),
                     Float => Value::Float(self.reader.read_f64()?),
                     Decimal => Value::Decimal(self.reader.read_decimal()?),
                     Timestamp => Value::Timestamp(self.reader.read_timestamp()?),
@@ -198,7 +198,7 @@ mod reader_tests {
     use crate::element::owned::Value::*;
     use crate::element::owned::{Element, IntoAnnotatedElement};
     use crate::ion_eq::IonEq;
-    use crate::types::integer::Integer;
+    use crate::types::integer::Int;
     use crate::types::timestamp::Timestamp as TS;
     use crate::{IonType, Symbol};
     use bigdecimal::BigDecimal;
@@ -226,7 +226,7 @@ mod reader_tests {
         vec![
             Null(IonType::Null),
             Null(IonType::Bool),
-            Null(IonType::Integer),
+            Null(IonType::Int),
             Null(IonType::Float),
             Null(IonType::Decimal),
             Null(IonType::Timestamp),
@@ -253,27 +253,27 @@ mod reader_tests {
             -65536, 65535,
             -4294967296, 4294967295,
             -9007199254740992, 9007199254740991,
-        ].into_iter().map(Integer::I64).chain(
+        ].into_iter().map(Int::I64).chain(
             vec![
                 "-18446744073709551616", "18446744073709551615",
                 "-79228162514264337593543950336", "79228162514264337593543950335",
             ].into_iter()
-            .map(|v| Integer::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap()))
-        ).map(|ai| Integer(ai).into()).collect(),
+            .map(|v| Int::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap()))
+        ).map(|ai| Int(ai).into()).collect(),
     )]
     #[case::int64_threshold_as_big_int(
         &[0xE0, 0x01, 0x00, 0xEA, 0x28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         vec![
             "18446744073709551615",
         ].into_iter()
-        .map(|v| Integer::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Integer(ai).into()).collect(),
+        .map(|v| Int::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Int(ai).into()).collect(),
     )]
     #[case::int64_threshold_as_int64(
         &[0xE0, 0x01, 0x00, 0xEA, 0x38, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
         vec![
             "-9223372036854775808",
         ].into_iter()
-        .map(|v| Integer::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Integer(ai).into()).collect(),
+        .map(|v| Int::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Int(ai).into()).collect(),
     )]
     #[case::floats(
         br#"

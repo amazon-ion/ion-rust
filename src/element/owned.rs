@@ -3,7 +3,7 @@
 use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::types::decimal::Decimal;
-use crate::types::integer::Integer;
+use crate::types::integer::Int;
 use crate::types::timestamp::Timestamp;
 use crate::{IonResult, IonType, ReaderBuilder, Symbol};
 use num_bigint::BigInt;
@@ -37,8 +37,8 @@ impl Element {
         symbol.into()
     }
 
-    pub fn integer<I: Into<Integer>>(integer: I) -> Element {
-        let integer: Integer = integer.into();
+    pub fn integer<I: Into<Int>>(integer: I) -> Element {
+        let integer: Int = integer.into();
         integer.into()
     }
 
@@ -427,7 +427,7 @@ impl IonEq for Vec<Element> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null(IonType),
-    Integer(Integer),
+    Int(Int),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
@@ -447,7 +447,7 @@ impl Display for Value {
         match &self {
             Value::Null(ion_type) => ivf.format_null(*ion_type),
             Value::Bool(bool) => ivf.format_bool(*bool),
-            Value::Integer(integer) => ivf.format_integer(integer),
+            Value::Int(integer) => ivf.format_integer(integer),
             Value::Float(float) => ivf.format_float(*float),
             Value::Decimal(decimal) => ivf.format_decimal(decimal),
             Value::Timestamp(timestamp) => ivf.format_timestamp(timestamp),
@@ -525,19 +525,19 @@ impl From<IonType> for Value {
 
 impl From<i64> for Value {
     fn from(i64_val: i64) -> Self {
-        Value::Integer(Integer::I64(i64_val))
+        Value::Int(Int::I64(i64_val))
     }
 }
 
 impl From<BigInt> for Value {
     fn from(big_int_val: BigInt) -> Self {
-        Value::Integer(Integer::BigInt(big_int_val))
+        Value::Int(Int::BigInt(big_int_val))
     }
 }
 
-impl From<Integer> for Value {
-    fn from(integer_val: Integer) -> Self {
-        Value::Integer(integer_val)
+impl From<Int> for Value {
+    fn from(integer_val: Int) -> Self {
+        Value::Int(integer_val)
     }
 }
 
@@ -637,7 +637,7 @@ impl Element {
 
         match &self.value {
             Null(t) => *t,
-            Integer(_) => IonType::Integer,
+            Int(_) => IonType::Int,
             Float(_) => IonType::Float,
             Decimal(_) => IonType::Decimal,
             Timestamp(_) => IonType::Timestamp,
@@ -674,9 +674,9 @@ impl Element {
         matches!(&self.value, Value::Null(_))
     }
 
-    pub fn as_integer(&self) -> Option<&Integer> {
+    pub fn as_int(&self) -> Option<&Int> {
         match &self.value {
-            Value::Integer(i) => Some(i),
+            Value::Int(i) => Some(i),
             _ => None,
         }
     }
@@ -724,7 +724,7 @@ impl Element {
         }
     }
 
-    pub fn as_boolean(&self) -> Option<bool> {
+    pub fn as_bool(&self) -> Option<bool> {
         match &self.value {
             Value::Bool(b) => Some(*b),
             _ => None,

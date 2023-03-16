@@ -146,7 +146,7 @@ fn read_all_values(reader: &mut Reader) -> IonResult<()> {
                 // The binary reader's tokens are always SIDs
                 let _symbol_id = reader.read_symbol()?;
             }
-            Integer => {
+            Int => {
                 let _int = reader.read_i64()?;
             }
             Float => {

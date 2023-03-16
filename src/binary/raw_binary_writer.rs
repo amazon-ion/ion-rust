@@ -15,7 +15,7 @@ use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::{ContainerType, SymbolId};
 use crate::writer::IonWriter;
-use crate::{Integer, IonType};
+use crate::{Int, IonType};
 
 use super::decimal::DecimalBinaryEncoder;
 use super::timestamp::TimestampBinaryEncoder;
@@ -548,7 +548,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
             let byte: u8 = match ion_type {
                 IonType::Null => 0x0F,
                 IonType::Bool => 0x1F,
-                IonType::Integer => 0x2F,
+                IonType::Int => 0x2F,
                 IonType::Float => 0x4F,
                 IonType::Decimal => 0x5F,
                 IonType::Timestamp => 0x6F,
@@ -598,11 +598,11 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
     }
 
     /// Writes an Ion integer with the specified value.
-    fn write_integer(&mut self, value: &Integer) -> IonResult<()> {
+    fn write_int(&mut self, value: &Int) -> IonResult<()> {
         // If the `value` is an `i64`, use `write_i64` and return.
         let value = match value {
-            Integer::I64(i) => return self.write_i64(*i),
-            Integer::BigInt(i) => i,
+            Int::I64(i) => return self.write_i64(*i),
+            Int::BigInt(i) => i,
         };
 
         // From here on, `value` is a `BigInt`.
@@ -971,7 +971,7 @@ mod writer_tests {
         let ion_types = &[
             IonType::Null,
             IonType::Bool,
-            IonType::Integer,
+            IonType::Int,
             IonType::Float,
             IonType::Decimal,
             IonType::Timestamp,
@@ -1014,7 +1014,7 @@ mod writer_tests {
     fn binary_writer_ints() -> IonResult<()> {
         binary_writer_scalar_test(
             &[-24_601, -17, -1, 0, 1, 17, 24_601],
-            IonType::Integer,
+            IonType::Int,
             |writer, v| writer.write_i64(*v),
             |reader| reader.read_i64(),
         )
@@ -1136,15 +1136,15 @@ mod writer_tests {
     }
 
     fn expect_integer(reader: &mut TestReader, value: i64) {
-        expect_scalar(reader, IonType::Integer, |r| r.read_i64(), value);
+        expect_scalar(reader, IonType::Int, |r| r.read_i64(), value);
     }
 
     fn expect_big_integer(reader: &mut TestReader, value: &BigInt) {
         expect_scalar(
             reader,
-            IonType::Integer,
-            |r| r.read_integer(),
-            Integer::BigInt(value.clone()),
+            IonType::Int,
+            |r| r.read_int(),
+            Int::BigInt(value.clone()),
         );
     }
 
@@ -1232,11 +1232,11 @@ mod writer_tests {
         let very_big_negative = -very_big_positive.clone();
         binary_writer_test(
             |writer| {
-                writer.write_integer(&Integer::BigInt(BigInt::zero()))?;
-                writer.write_integer(&Integer::BigInt(big_positive.clone()))?;
-                writer.write_integer(&Integer::BigInt(very_big_positive.clone()))?;
-                writer.write_integer(&Integer::BigInt(big_negative.clone()))?;
-                writer.write_integer(&Integer::BigInt(very_big_negative.clone()))?;
+                writer.write_int(&Int::BigInt(BigInt::zero()))?;
+                writer.write_int(&Int::BigInt(big_positive.clone()))?;
+                writer.write_int(&Int::BigInt(very_big_positive.clone()))?;
+                writer.write_int(&Int::BigInt(big_negative.clone()))?;
+                writer.write_int(&Int::BigInt(very_big_negative.clone()))?;
                 Ok(())
             },
             |reader| {

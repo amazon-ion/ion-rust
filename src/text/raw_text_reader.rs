@@ -4,7 +4,7 @@ use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonResult;
 use crate::stream_reader::IonReader;
 use crate::types::timestamp::Timestamp;
-use crate::{Decimal, Integer, IonError, IonType};
+use crate::{Decimal, Int, IonError, IonType};
 
 use crate::text::non_blocking::raw_text_reader::RawTextReader as NonBlockingReader;
 
@@ -122,8 +122,8 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
         self.reader.read_bool()
     }
 
-    fn read_integer(&mut self) -> IonResult<Integer> {
-        self.reader.read_integer()
+    fn read_int(&mut self) -> IonResult<Int> {
+        self.reader.read_int()
     }
 
     fn read_i64(&mut self) -> IonResult<i64> {
@@ -257,18 +257,18 @@ mod reader_tests {
             0 [1, 2, 3] (4 5) 6
         "#;
         let reader = &mut RawTextReader::new(ion_data)?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 0);
 
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 1);
         reader.step_out()?;
         // This should have skipped over the `2, 3` at the end of the list.
         next_type(reader, IonType::SExp, false);
         // Don't step into the s-expression. Instead, skip over it.
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 6);
         Ok(())
     }
@@ -294,16 +294,16 @@ mod reader_tests {
         reader.step_in()?;
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         // The reader is now at the '2' nested inside of 'foo'
         reader.step_out()?;
         reader.step_out()?;
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         next_type(reader, IonType::SExp, false);
         reader.step_in()?;
         next_type(reader, IonType::Bool, false);
@@ -312,7 +312,7 @@ mod reader_tests {
         reader.step_out()?;
         reader.step_out()?;
         reader.step_out()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 11);
         Ok(())
     }
@@ -333,17 +333,17 @@ mod reader_tests {
         let reader = &mut RawTextReader::new(ion_data)?;
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.field_name()?, text_token("foo"));
         next_type(reader, IonType::Struct, false);
         assert_eq!(reader.field_name()?, text_token("bar"));
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 5);
         reader.step_out()?;
         assert_eq!(reader.next()?, RawStreamItem::Nothing);
         reader.step_out()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 42);
         Ok(())
     }
@@ -372,7 +372,7 @@ mod reader_tests {
         next_type(reader, IonType::Bool, false);
         assert!(reader.read_bool()?);
 
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 5);
 
         next_type(reader, IonType::Float, false);
@@ -462,7 +462,7 @@ mod reader_tests {
             Timestamp::with_ymd(2014, 6, 26).build()?
         );
         // TODO: Check for 'km' annotation after change to OwnedSymbolToken
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 36);
         Ok(())
     }
@@ -492,7 +492,7 @@ mod reader_tests {
         assert!(reader.read_bool()?);
         annotations_eq(reader, ["venus", "earth"]);
 
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 5);
         annotations_eq(reader, &[local_sid_token(17), text_token("mars")]);
 
@@ -535,13 +535,13 @@ mod reader_tests {
         // Reading a list: pluto::[1, $77::2, 3]
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.number_of_annotations(), 0);
         assert_eq!(reader.read_i64()?, 1);
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         annotations_eq(reader, [77]);
         assert_eq!(reader.read_i64()?, 2);
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.number_of_annotations(), 0);
         assert_eq!(reader.read_i64()?, 3);
         assert_eq!(reader.next()?, Nothing);
@@ -584,10 +584,10 @@ mod reader_tests {
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Struct));
 
         reader.step_in()?;
-        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?, RawSymbolToken::Text("a".to_string()));
         assert_eq!(reader.read_i64()?, 1);
-        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Integer));
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?, RawSymbolToken::Text("b".to_string()));
         assert_eq!(reader.read_i64()?, 2);
         reader.step_out()?;

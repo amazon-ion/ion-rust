@@ -90,7 +90,7 @@ mod parse_top_level_values_tests {
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok, parse_unwrap};
     use crate::text::parsers::value::value;
     use crate::text::text_value::TextValue;
-    use crate::types::integer::Integer;
+    use crate::types::integer::Int;
     use crate::IonType;
 
     use super::*;
@@ -112,8 +112,8 @@ mod parse_top_level_values_tests {
         expect_type("null.list ", IonType::List);
         expect_type("true ", IonType::Bool);
         expect_type("false ", IonType::Bool);
-        expect_type("5 ", IonType::Integer);
-        expect_type("-5 ", IonType::Integer);
+        expect_type("5 ", IonType::Int);
+        expect_type("-5 ", IonType::Int);
         expect_type("5.0 ", IonType::Decimal);
         expect_type("-5.0 ", IonType::Decimal);
         expect_type("5.0d0 ", IonType::Decimal);
@@ -145,9 +145,9 @@ mod parse_top_level_values_tests {
     // Here, 'END' is simply an unrelated symbol value that the parser knows to ignore.
     #[case("foo::bar::baz END", &["foo", "bar"], TextValue::Symbol(text_token("baz")))]
     #[case("foo::bar::baz END", &["foo", "bar"], TextValue::Symbol(text_token("baz")))]
-    #[case("foo::'bar'::7 END", &["foo", "bar"], TextValue::Integer(Integer::I64(7)))]
+    #[case("foo::'bar'::7 END", &["foo", "bar"], TextValue::Int(Int::I64(7)))]
     #[case("'foo'::'bar'::{ END", &["foo", "bar"], TextValue::StructStart)]
-    #[case("'foo bar'::false END", &["foo bar"], TextValue::Boolean(false))]
+    #[case("'foo bar'::false END", &["foo bar"], TextValue::Bool(false))]
     fn test_parse_annotated_value(
         #[case] text: &str,
         #[case] expected_annotations: &[&str],

@@ -50,7 +50,7 @@ mod parent_container_tests {
     #[case::list(IonType::SExp)]
     #[case::list(IonType::Struct)]
     #[should_panic]
-    #[case::list(IonType::Integer)]
+    #[case::list(IonType::Int)]
     #[should_panic]
     #[case::list(IonType::Null)]
     #[should_panic]

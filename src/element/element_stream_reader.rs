@@ -3,9 +3,7 @@ use crate::text::parent_container::ParentContainer;
 
 use crate::element::iterators::SymbolsIterator;
 use crate::element::owned::Element;
-use crate::{
-    Decimal, Integer, IonError, IonReader, IonResult, IonType, StreamItem, Symbol, Timestamp,
-};
+use crate::{Decimal, Int, IonError, IonReader, IonResult, IonType, StreamItem, Symbol, Timestamp};
 use std::fmt::Display;
 use std::mem;
 
@@ -207,23 +205,21 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_bool(&mut self) -> IonResult<bool> {
-        self.current_value_as("bool value", |v| v.as_boolean())
+        self.current_value_as("bool value", |v| v.as_bool())
     }
 
-    fn read_integer(&mut self) -> IonResult<Integer> {
-        self.current_value_as("int value", |v| v.as_integer().map(|i| i.to_owned()))
+    fn read_int(&mut self) -> IonResult<Int> {
+        self.current_value_as("int value", |v| v.as_int().map(|i| i.to_owned()))
     }
 
     fn read_i64(&mut self) -> IonResult<i64> {
         match self.current_value.as_ref() {
-            Some(element) if element.as_integer().is_some() => {
-                match element.as_integer().unwrap() {
-                    Integer::I64(value) => Ok(*value),
-                    Integer::BigInt(value) => {
-                        decoding_error(format!("Integer {value} is too large to fit in an i64."))
-                    }
+            Some(element) if element.as_int().is_some() => match element.as_int().unwrap() {
+                Int::I64(value) => Ok(*value),
+                Int::BigInt(value) => {
+                    decoding_error(format!("Integer {value} is too large to fit in an i64."))
                 }
-            }
+            },
             _ => Err(self.expected("int value")),
         }
     }
@@ -411,7 +407,7 @@ mod reader_tests {
 
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 1);
         reader.step_out()?;
         // This should skip 2, 3 and reach end of the element
@@ -442,16 +438,16 @@ mod reader_tests {
         reader.step_in()?;
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         next_type(reader, IonType::List, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         // The reader is now at the '2' nested inside of 'foo'
         reader.step_out()?;
         reader.step_out()?;
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         next_type(reader, IonType::SExp, false);
         reader.step_in()?;
         next_type(reader, IonType::Bool, false);
@@ -480,12 +476,12 @@ mod reader_tests {
         let reader = &mut ElementStreamReader::new(ion_data);
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.field_name()?, Symbol::owned("foo"));
         next_type(reader, IonType::Struct, false);
         assert_eq!(reader.field_name()?, Symbol::owned("bar"));
         reader.step_in()?;
-        next_type(reader, IonType::Integer, false);
+        next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 5);
         reader.step_out()?;
         assert_eq!(reader.next()?, StreamItem::Nothing);
@@ -596,10 +592,10 @@ mod reader_tests {
         assert_eq!(reader.next()?, StreamItem::Value(IonType::Struct));
 
         reader.step_in()?;
-        assert_eq!(reader.next()?, StreamItem::Value(IonType::Integer));
+        assert_eq!(reader.next()?, StreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?, Symbol::owned("a".to_string()));
         assert_eq!(reader.read_i64()?, 1);
-        assert_eq!(reader.next()?, StreamItem::Value(IonType::Integer));
+        assert_eq!(reader.next()?, StreamItem::Value(IonType::Int));
         assert_eq!(reader.field_name()?, Symbol::owned("b".to_string()));
         assert_eq!(reader.read_i64()?, 2);
         reader.step_out()?;

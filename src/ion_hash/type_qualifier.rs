@@ -7,7 +7,7 @@ use std::slice;
 ///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
 use crate::binary::IonTypeCode;
 use crate::element::owned::{Element, List, SExp, Struct};
-use crate::{Decimal, Integer, IonType, Symbol, Timestamp};
+use crate::{Decimal, Int, IonType, Symbol, Timestamp};
 use num_bigint::Sign;
 
 // For many types, the qualifier is either 'null' or 'not null'. That's what
@@ -38,8 +38,8 @@ impl TypeQualifier {
     pub(crate) fn from_element(elem: &Element) -> TypeQualifier {
         match elem.ion_type() {
             IonType::Null => type_qualifier_null(),
-            IonType::Bool => type_qualifier_boolean(elem.as_boolean()),
-            IonType::Integer => type_qualifier_integer(elem.as_integer()),
+            IonType::Bool => type_qualifier_boolean(elem.as_bool()),
+            IonType::Int => type_qualifier_integer(elem.as_int()),
             IonType::Float => type_qualifier_float(elem.as_float()),
             IonType::Decimal => type_qualifier_decimal(elem.as_decimal()),
             IonType::Timestamp => type_qualifier_timestamp(elem.as_timestamp()),
@@ -59,12 +59,12 @@ impl TypeQualifier {
     }
 }
 
-fn is_integer_positive(value: Option<&Integer>) -> bool {
+fn is_integer_positive(value: Option<&Int>) -> bool {
     match value {
         None => true,
         Some(any) => match any {
-            Integer::I64(i) => *i >= 0,
-            Integer::BigInt(b) => !std::matches!(b.sign(), Sign::Minus),
+            Int::I64(i) => *i >= 0,
+            Int::BigInt(b) => !std::matches!(b.sign(), Sign::Minus),
         },
     }
 }
@@ -93,7 +93,7 @@ pub(crate) fn type_qualifier_boolean(value: Option<bool>) -> TypeQualifier {
     combine(IonTypeCode::Boolean, q)
 }
 
-pub(crate) fn type_qualifier_integer(any: Option<&Integer>) -> TypeQualifier {
+pub(crate) fn type_qualifier_integer(any: Option<&Int>) -> TypeQualifier {
     let t = match is_integer_positive(any) {
         true => IonTypeCode::PositiveInteger,
         false => IonTypeCode::NegativeInteger,
