@@ -9,6 +9,7 @@ use ion_rs::element::*;
 use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::integer::IntAccess;
+
 use ion_rs::IonWriter;
 use std::convert::From;
 use std::fmt::Debug;
@@ -122,7 +123,7 @@ fn ion_hash_tests() -> IonHashTestResult<()> {
 
 fn test_file(file_name: &str) -> IonHashTestResult<()> {
     let data = read(file_name).map_err(|source| ion_rs::IonError::IoError { source })?;
-    let elems = Element::read_all(data)?;
+    let elems = Element::read_all(&data)?;
     test_all(elems)
 }
 

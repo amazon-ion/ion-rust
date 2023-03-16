@@ -383,6 +383,7 @@ mod reader_tests {
     use crate::stream_reader::IonReader;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
+
     use crate::IonType;
 
     fn load_element(text: &str) -> Element {
