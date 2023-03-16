@@ -39,7 +39,7 @@ impl fmt::Display for IonType {
             match self {
                 IonType::Null => "null",
                 IonType::Bool => "bool",
-                IonType::Integer => "integer",
+                IonType::Integer => "int",
                 IonType::Float => "float",
                 IonType::Decimal => "decimal",
                 IonType::Timestamp => "timestamp",
