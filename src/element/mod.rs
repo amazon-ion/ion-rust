@@ -22,8 +22,8 @@ pub mod writer;
 
 #[cfg(test)]
 mod tests {
+    use crate::element::owned::*;
     use crate::types::timestamp::Timestamp;
-    use crate::value::owned::*;
     use crate::{ion_list, ion_sexp, ion_struct, Decimal, Integer, IonType, Symbol};
     use chrono::*;
     use rstest::*;

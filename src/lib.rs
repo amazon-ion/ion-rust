@@ -5,10 +5,10 @@ pub mod result;
 
 pub mod binary;
 pub mod data_source;
+pub mod element;
 pub mod raw_reader;
 pub mod text;
 pub mod types;
-pub mod value;
 
 #[cfg(feature = "ion-hash")]
 pub mod ion_hash;

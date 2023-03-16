@@ -1,9 +1,9 @@
+use crate::element::writer::TextKind;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::text::raw_text_writer::RawTextWriter;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::value::writer::TextKind;
 use crate::writer::IonWriter;
 use crate::{Integer, IonType, RawTextWriterBuilder, SymbolTable};
 use delegate::delegate;

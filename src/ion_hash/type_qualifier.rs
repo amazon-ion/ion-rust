@@ -6,7 +6,7 @@ use std::slice;
 ///!
 ///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
 use crate::binary::IonTypeCode;
-use crate::value::owned::{Element, List, SExp, Struct};
+use crate::element::owned::{Element, List, SExp, Struct};
 use crate::{Decimal, Integer, IonType, Symbol, Timestamp};
 use num_bigint::Sign;
 

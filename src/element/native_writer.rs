@@ -1,5 +1,5 @@
-use crate::value::owned::Element;
-use crate::value::writer::ElementWriter;
+use crate::element::owned::Element;
+use crate::element::writer::ElementWriter;
 use crate::{IonResult, IonType, IonWriter, RawSymbolTokenRef};
 
 /// Writes [`Element`] instances to the underlying [`IonWriter`] implementation.
@@ -80,11 +80,11 @@ impl<W: IonWriter> NativeElementWriter<W> {
 
 #[cfg(test)]
 mod tests {
+    use crate::element::native_writer::NativeElementWriter;
+    use crate::element::owned::Element;
+    use crate::element::writer::ElementWriter;
     use crate::ion_eq::IonEq;
     use crate::text::text_writer::TextWriterBuilder;
-    use crate::value::native_writer::NativeElementWriter;
-    use crate::value::owned::Element;
-    use crate::value::writer::ElementWriter;
     use crate::IonResult;
     use nom::AsBytes;
 

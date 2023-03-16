@@ -3,12 +3,12 @@
 
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
+use ion_rs::element::owned::{Element, Struct};
+use ion_rs::element::writer::ElementWriter;
+use ion_rs::element::*;
 use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::integer::IntAccess;
-use ion_rs::value::owned::{Element, Struct};
-use ion_rs::value::writer::ElementWriter;
-use ion_rs::value::*;
 use ion_rs::IonWriter;
 use std::convert::From;
 use std::fmt::Debug;
@@ -260,7 +260,7 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
 fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
     let mut buf = Vec::new();
     let text_writer = ion_rs::TextWriterBuilder::new().build(&mut buf)?;
-    let mut element_writer = ion_rs::value::native_writer::NativeElementWriter::new(text_writer);
+    let mut element_writer = ion_rs::element::native_writer::NativeElementWriter::new(text_writer);
     element_writer.write(test_input_ion)?;
     let mut text_writer = element_writer.finish()?;
     text_writer.flush()?;

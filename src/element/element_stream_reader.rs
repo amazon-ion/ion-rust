@@ -1,8 +1,8 @@
 use crate::result::{decoding_error, illegal_operation, illegal_operation_raw};
 use crate::text::parent_container::ParentContainer;
 
-use crate::value::iterators::SymbolsIterator;
-use crate::value::owned::Element;
+use crate::element::iterators::SymbolsIterator;
+use crate::element::owned::Element;
 use crate::{
     Decimal, Integer, IonError, IonReader, IonResult, IonType, StreamItem, Symbol, Timestamp,
 };
@@ -382,11 +382,11 @@ mod reader_tests {
     use rstest::*;
 
     use super::*;
+    use crate::element::owned::Value;
     use crate::result::IonResult;
     use crate::stream_reader::IonReader;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
-    use crate::value::owned::Value;
     use crate::IonType;
 
     fn load_element(text: &str) -> Element {

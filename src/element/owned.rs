@@ -11,12 +11,12 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
 
-use crate::symbol_ref::AsSymbolRef;
-use crate::value::builders::{ListBuilder, SExpBuilder, StructBuilder};
-use crate::value::iterators::{
+use crate::element::builders::{ListBuilder, SExpBuilder, StructBuilder};
+use crate::element::iterators::{
     ElementsIterator, FieldIterator, FieldValuesIterator, IndexVec, SymbolsIterator,
 };
-use crate::value::reader::ElementReader;
+use crate::element::reader::ElementReader;
+use crate::symbol_ref::AsSymbolRef;
 
 impl Element {
     pub fn null(null_type: IonType) -> Element {
@@ -575,7 +575,7 @@ impl From<Struct> for Value {
 ///
 /// ```
 /// use ion_rs::ion_list;
-/// use ion_rs::value::owned::{Element, IntoAnnotatedElement, Value};
+/// use ion_rs::element::owned::{Element, IntoAnnotatedElement, Value};
 ///
 /// // Explicit conversion of a Rust bool (`true`) into a `Value`...
 /// let boolean_value: Value = true.into();

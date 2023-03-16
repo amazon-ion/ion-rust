@@ -1,10 +1,10 @@
-use crate::value::owned::{Element, List, SExp, Struct};
+use crate::element::owned::{Element, List, SExp, Struct};
 use crate::Symbol;
 
 /// Constructs [List] values incrementally.
 ///
 /// ```
-/// use ion_rs::value::owned::Element;
+/// use ion_rs::element::owned::Element;
 /// let actual: Element = Element::list_builder()
 ///     .push(1)
 ///     .push(true)
@@ -57,7 +57,7 @@ impl ListBuilder {
 /// Constructs [SExp] values incrementally.
 ///
 /// ```
-/// use ion_rs::value::owned::Element;
+/// use ion_rs::element::owned::Element;
 /// let actual: Element = Element::sexp_builder()
 ///     .push(1)
 ///     .push(true)
@@ -111,7 +111,7 @@ impl SExpBuilder {
 ///
 /// ```
 /// use ion_rs::ion_struct;
-/// use ion_rs::value::owned::Element;
+/// use ion_rs::element::owned::Element;
 /// let actual: Element = ion_struct! {
 ///     "a": 1,
 ///     "b": true,
@@ -123,7 +123,7 @@ impl SExpBuilder {
 ///
 /// ```
 /// use ion_rs::ion_struct;
-/// use ion_rs::value::owned::{Element, Struct};
+/// use ion_rs::element::owned::{Element, Struct};
 /// let base_struct: Struct = ion_struct! {
 ///     "foo": 1,
 ///     "bar": 2,
@@ -172,7 +172,7 @@ impl StructBuilder {
     ///
     /// ```
     /// use ion_rs::ion_struct;
-    /// use ion_rs::value::owned::{Element, Struct};
+    /// use ion_rs::element::owned::{Element, Struct};
     ///
     /// let struct1 = ion_struct! {
     ///     "foo": 1,
@@ -254,7 +254,7 @@ impl From<StructBuilder> for Element {
 ///
 /// ```
 /// use ion_rs::ion_list;
-/// use ion_rs::value::owned::Element;
+/// use ion_rs::element::owned::Element;
 /// // Construct a list Element from Rust values
 /// let actual: Element = ion_list![
 ///     "foo",
@@ -274,7 +274,7 @@ impl From<StructBuilder> for Element {
 /// ```
 /// // Construct a list Element from existing Elements
 /// use ion_rs::ion_list;
-/// use ion_rs::value::owned::{Element, IntoAnnotatedElement};
+/// use ion_rs::element::owned::{Element, IntoAnnotatedElement};
 ///
 /// let string_element: Element = "foo".into();
 /// let bool_element: Element = true.into();
@@ -305,7 +305,7 @@ macro_rules! ion_list {
 ///
 /// ```
 /// use ion_rs::ion_sexp;
-/// use ion_rs::value::owned::Element;
+/// use ion_rs::element::owned::Element;
 /// // Construct an s-expression Element from Rust values
 /// let actual: Element = ion_sexp!("foo" 7 false ion_sexp!(1.5f64 8.25f64)).into();
 /// // Construct an Element from serialized Ion data
@@ -320,7 +320,7 @@ macro_rules! ion_list {
 /// ```
 /// // Construct a s-expression Element from existing Elements
 /// use ion_rs::ion_sexp;
-/// use ion_rs::value::owned::{Element, IntoAnnotatedElement};
+/// use ion_rs::element::owned::{Element, IntoAnnotatedElement};
 ///
 /// let string_element: Element = "foo".into();
 /// let bool_element: Element = true.into();
@@ -352,7 +352,7 @@ macro_rules! ion_sexp {
 ///
 /// ```
 /// use ion_rs::{ion_struct, IonType};
-/// use ion_rs::value::owned::Element;
+/// use ion_rs::element::owned::Element;
 /// let field_name_2 = "x";
 /// let prefix = "abc";
 /// let suffix = "def";
@@ -387,8 +387,8 @@ pub use ion_struct;
 
 #[cfg(test)]
 mod tests {
-    use crate::value::builders::{ListBuilder, SExpBuilder, StructBuilder};
-    use crate::value::owned::Element;
+    use crate::element::builders::{ListBuilder, SExpBuilder, StructBuilder};
+    use crate::element::owned::Element;
     use crate::Symbol;
     use crate::{ion_list, ion_sexp, ion_struct};
 

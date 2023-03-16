@@ -1,5 +1,5 @@
+use crate::element::owned::{IonSequence, List, SExp, Struct};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::value::owned::{IonSequence, List, SExp, Struct};
 use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Symbol, Timestamp};
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
