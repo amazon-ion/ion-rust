@@ -83,7 +83,7 @@ mod tests {
     use crate::ion_eq::IonEq;
     use crate::text::text_writer::TextWriterBuilder;
     use crate::value::native_writer::NativeElementWriter;
-    use crate::value::reader::{native_element_reader, ElementReader};
+    use crate::value::owned::Element;
     use crate::value::writer::ElementWriter;
     use crate::IonResult;
     use nom::AsBytes;
@@ -97,10 +97,10 @@ mod tests {
         let ion = r#"
             null true 0 1e0 2.0 2022T foo "bar" (foo bar baz) [foo, bar, baz] {foo: true, bar: false}
         "#;
-        let expected_elements = native_element_reader().read_all(ion.as_bytes())?;
+        let expected_elements = Element::read_all(ion.as_bytes())?;
         element_writer.write_all(&expected_elements)?;
         let _ = element_writer.finish()?;
-        let actual_elements = native_element_reader().read_all(buffer.as_bytes())?;
+        let actual_elements = Element::read_all(buffer.as_bytes())?;
         assert!(expected_elements.ion_eq(&actual_elements));
         Ok(())
     }

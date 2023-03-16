@@ -7,7 +7,6 @@ use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::integer::IntAccess;
 use ion_rs::value::owned::{Element, Struct};
-use ion_rs::value::reader::{element_reader, ElementReader};
 use ion_rs::value::writer::ElementWriter;
 use ion_rs::value::*;
 use ion_rs::IonWriter;
@@ -123,7 +122,7 @@ fn ion_hash_tests() -> IonHashTestResult<()> {
 
 fn test_file(file_name: &str) -> IonHashTestResult<()> {
     let data = read(file_name).map_err(|source| ion_rs::IonError::IoError { source })?;
-    let elems = element_reader().read_all(&data)?;
+    let elems = Element::read_all(&data)?;
     test_all(elems)
 }
 
@@ -156,7 +155,7 @@ fn test_all(elems: Vec<Element>) -> IonHashTestResult<()> {
                 let mut bytes = vec![0xE0, 0x01, 0x00, 0xEA];
                 bytes.extend(value);
 
-                let loaded = element_reader().read_all(&bytes)?;
+                let loaded = Element::read_all(&bytes)?;
                 let elem = loaded
                     .into_iter()
                     .next()
@@ -351,7 +350,7 @@ mod unknown_symbol_text_tests {
 
     #[test]
     fn test_unknown_annotation_text() {
-        let mut element = element_reader().read_one("{}".as_bytes()).unwrap();
+        let mut element = Element::read_one("{}".as_bytes()).unwrap();
         element = element.with_annotations(vec![Symbol::unknown_text()]);
         let digest = IdentityDigest::hash_element(&element).unwrap();
 

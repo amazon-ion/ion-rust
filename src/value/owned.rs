@@ -1,12 +1,11 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 use crate::ion_eq::IonEq;
-use crate::result::decoding_error;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Integer;
 use crate::types::timestamp::Timestamp;
-use crate::{IonResult, IonType, Symbol};
+use crate::{IonResult, IonType, ReaderBuilder, Symbol};
 use num_bigint::BigInt;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -17,7 +16,6 @@ use crate::value::builders::{ListBuilder, SExpBuilder, StructBuilder};
 use crate::value::iterators::{
     ElementsIterator, FieldIterator, FieldValuesIterator, IndexVec, SymbolsIterator,
 };
-use crate::value::native_reader::NativeElementReader;
 use crate::value::reader::ElementReader;
 
 impl Element {
@@ -752,22 +750,34 @@ impl Element {
         }
     }
 
-    /// Reads a single Ion [`Element`] from the provided data source. If the data source has invalid
-    /// data or does not contain at exactly one Ion value, returns `Err`.
-    pub fn parse<A: AsRef<[u8]>>(data: A) -> IonResult<Element> {
+    /// Reads a single Ion [`Element`] from the provided data source.
+    ///
+    /// If the data source is empty, returns `Ok(None)`.
+    /// If the data source has at least one value, returns `Ok(Some(Element))`.
+    /// If the data source has invalid data, returns `Err`.
+    pub fn read_first<A: AsRef<[u8]>>(data: A) -> IonResult<Option<Element>> {
         let bytes: &[u8] = data.as_ref();
         // Create an iterator over the Elements in the data
-        let mut iter = NativeElementReader.iterate_over(bytes).unwrap();
-        // Materialize the first Element
-        let element = iter
-            .next()
-            .unwrap_or_else(|| decoding_error("input did not contain any Ion values"))?;
-        // Make sure there aren't any other Elements
-        if iter.next().is_some() {
-            return decoding_error("stream contained more than one value");
-        }
-        // Return the first (and verified only) Element
-        Ok(element)
+        let mut reader = ReaderBuilder::default().build(bytes)?;
+        reader.read_next_element()
+    }
+
+    /// Reads a single Ion [`Element`] from the provided data source. If the input has invalid
+    /// data or does not contain at exactly one Ion value, returns `Err(IonError)`.
+    pub fn read_one<A: AsRef<[u8]>>(data: A) -> IonResult<Element> {
+        let bytes: &[u8] = data.as_ref();
+        // Create an iterator over the Elements in the data
+        let mut reader = ReaderBuilder::default().build(bytes)?;
+        reader.read_one_element()
+    }
+
+    /// Reads all available [`Element`]s from the provided data source.
+    ///
+    /// If the input has valid data, returns `Ok(Vec<Element>)`.
+    /// If the input has invalid data, returns `Err(IonError)`.
+    pub fn read_all<A: AsRef<[u8]>>(data: A) -> IonResult<Vec<Element>> {
+        let bytes: &[u8] = data.as_ref();
+        ReaderBuilder::default().build(bytes)?.elements().collect()
     }
 }
 
@@ -788,7 +798,19 @@ mod value_tests {
     )]
     #[case::struct_(
         ion_struct!{"greetings": "hello"},
-        Element::parse(r#"{greetings: "hello"}"#).unwrap()
+        Element::read_one(r#"{greetings: "hello"}"#).unwrap()
+    )]
+    #[case::strings(
+        Element::from("hello"), // An explicitly constructed String Element
+        "hello"                 // A Rust &str, which implements Into<Element>
+    )]
+    #[case::symbols(
+        Element::from(Symbol::owned("hello")), // An explicitly constructed Symbol Element
+        Symbol::owned("hello")                 // A Symbol, which implements Into<Element>
+    )]
+    #[case::struct_(
+        ion_struct!{"greetings": "hello"},
+        Element::read_one(r#"{greetings: "hello"}"#).unwrap()
     )]
     fn owned_element_accessors<E1, E2>(#[case] e1: E1, #[case] e2: E2)
     where

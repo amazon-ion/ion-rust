@@ -14,11 +14,13 @@ pub mod value;
 pub mod ion_hash;
 
 mod catalog;
+// Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
 pub mod constants;
 pub mod ion_eq;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
-mod reader;
+// Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
+pub mod reader;
 mod shared_symbol_table;
 mod stream_reader;
 mod symbol;

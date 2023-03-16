@@ -130,6 +130,19 @@ impl<R: RawReader> UserReader<R> {
     }
 }
 
+// This module exists to allow our integration tests to directly construct a `UserReader`
+// with not-yet-supported settings. We want users to use `ReaderBuilder` instead; eventually,
+// `ReaderBuilder` will also work for the integration tests and we can remove this.
+// See: https://github.com/amazon-ion/ion-rust/issues/484
+#[doc(hidden)]
+pub mod integration_testing {
+    use crate::{RawReader, Reader, UserReader};
+
+    pub fn new_reader<'a, R: 'a + RawReader>(raw_reader: R) -> Reader<'a> {
+        UserReader::new(Box::new(raw_reader))
+    }
+}
+
 /// Stream components that an application-level [Reader] implementation may encounter.
 #[derive(Eq, PartialEq, Debug)]
 pub enum StreamItem {

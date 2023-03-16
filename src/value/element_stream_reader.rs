@@ -387,13 +387,10 @@ mod reader_tests {
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::value::owned::Value;
-    use crate::value::reader::{element_reader, ElementReader as NonStreamElementReader};
     use crate::IonType;
 
     fn load_element(text: &str) -> Element {
-        element_reader()
-            .read_one(text.as_bytes())
-            .expect("parsing failed unexpectedly")
+        Element::read_one(text.as_bytes()).expect("parsing failed unexpectedly")
     }
 
     fn next_type(reader: &mut ElementStreamReader, ion_type: IonType, is_null: bool) {
