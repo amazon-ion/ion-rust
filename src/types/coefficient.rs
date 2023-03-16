@@ -2,7 +2,7 @@ use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
 
 use crate::result::{illegal_operation, IonError};
-use crate::types::integer::UInteger;
+use crate::types::integer::UInt;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::ops::{MulAssign, Neg};
@@ -22,11 +22,11 @@ pub enum Sign {
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Coefficient {
     pub(crate) sign: Sign,
-    pub(crate) magnitude: UInteger,
+    pub(crate) magnitude: UInt,
 }
 
 impl Coefficient {
-    pub(crate) fn new<I: Into<UInteger>>(sign: Sign, magnitude: I) -> Self {
+    pub(crate) fn new<I: Into<UInt>>(sign: Sign, magnitude: I) -> Self {
         let magnitude = magnitude.into();
         Coefficient { sign, magnitude }
     }
@@ -35,7 +35,7 @@ impl Coefficient {
         self.sign
     }
 
-    pub(crate) fn magnitude(&self) -> &UInteger {
+    pub(crate) fn magnitude(&self) -> &UInt {
         &self.magnitude
     }
 
@@ -48,15 +48,15 @@ impl Coefficient {
     pub(crate) fn negative_zero() -> Self {
         Coefficient {
             sign: Sign::Negative,
-            magnitude: UInteger::U64(0),
+            magnitude: UInt::U64(0),
         }
     }
 
     /// Returns true if the Coefficient represents positive zero.
     pub(crate) fn is_negative_zero(&self) -> bool {
         match (self.sign, &self.magnitude) {
-            (Sign::Negative, UInteger::U64(0)) => true,
-            (Sign::Negative, UInteger::BigUInt(b)) if b.is_zero() => true,
+            (Sign::Negative, UInt::U64(0)) => true,
+            (Sign::Negative, UInt::BigUInt(b)) if b.is_zero() => true,
             _ => false,
         }
     }
@@ -64,8 +64,8 @@ impl Coefficient {
     /// Returns true if the Coefficient represents positive zero.
     pub(crate) fn is_positive_zero(&self) -> bool {
         match (self.sign, &self.magnitude) {
-            (Sign::Positive, UInteger::U64(0)) => true,
-            (Sign::Positive, UInteger::BigUInt(b)) if b.is_zero() => true,
+            (Sign::Positive, UInt::U64(0)) => true,
+            (Sign::Positive, UInt::BigUInt(b)) if b.is_zero() => true,
             _ => false,
         }
     }
@@ -73,8 +73,8 @@ impl Coefficient {
     /// Returns true if the Coefficient represents a zero of any sign.
     pub(crate) fn is_zero(&self) -> bool {
         match (self.sign, &self.magnitude) {
-            (_, UInteger::U64(0)) => true,
-            (_, UInteger::BigUInt(b)) if b.is_zero() => true,
+            (_, UInt::U64(0)) => true,
+            (_, UInt::BigUInt(b)) if b.is_zero() => true,
             _ => false,
         }
     }
@@ -83,14 +83,14 @@ impl Coefficient {
     /// inline representations.
     pub(crate) fn as_i64(&self) -> Option<i64> {
         match self.magnitude {
-            UInteger::U64(unsigned) => match i64::try_from(unsigned) {
+            UInt::U64(unsigned) => match i64::try_from(unsigned) {
                 Ok(signed) => match self.sign {
                     Sign::Negative => Some(signed.neg()), // cannot overflow (never `MIN`)
                     Sign::Positive => Some(signed),
                 },
                 Err(_) => None,
             },
-            UInteger::BigUInt(_) => None,
+            UInt::BigUInt(_) => None,
         }
     }
 }
@@ -131,8 +131,8 @@ impl TryFrom<Coefficient> for BigInt {
             illegal_operation("Cannot convert negative zero Decimal to BigDecimal")?;
         }
         let mut big_int: BigInt = match value.magnitude {
-            UInteger::U64(m) => m.into(),
-            UInteger::BigUInt(m) => m.into(),
+            UInt::U64(m) => m.into(),
+            UInt::BigUInt(m) => m.into(),
         };
         if value.sign == Sign::Negative {
             big_int.mul_assign(-1);
@@ -148,8 +148,8 @@ impl Display for Coefficient {
             Sign::Negative => write!(f, "-")?,
         };
         match &self.magnitude {
-            UInteger::U64(m) => write!(f, "{}", *m),
-            UInteger::BigUInt(m) => write!(f, "{m}"),
+            UInt::U64(m) => write!(f, "{}", *m),
+            UInt::BigUInt(m) => write!(f, "{m}"),
         }
     }
 }

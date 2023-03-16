@@ -12,7 +12,7 @@ use crate::result::{
 use crate::types::integer::IntAccess;
 use crate::types::SymbolId;
 use crate::{
-    Decimal, Integer, IonReader, IonResult, IonType, RawStreamItem, RawSymbolToken, Timestamp,
+    Decimal, Int, IonReader, IonResult, IonType, RawStreamItem, RawSymbolToken, Timestamp,
 };
 use bytes::{BigEndian, Buf, ByteOrder};
 use num_bigint::BigUint;
@@ -272,7 +272,7 @@ impl ContainerType {
     pub fn ion_type(&self) -> IonType {
         match self {
             ContainerType::List => IonType::List,
-            ContainerType::SExpression => IonType::SExpression,
+            ContainerType::SExpression => IonType::SExp,
             ContainerType::Struct => IonType::Struct,
         }
     }
@@ -667,7 +667,7 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
     }
 
     fn read_bool(&mut self) -> IonResult<bool> {
-        let (encoded_value, _) = self.value_and_bytes(IonType::Boolean)?;
+        let (encoded_value, _) = self.value_and_bytes(IonType::Bool)?;
 
         let representation = encoded_value.header.length_code;
         match representation {
@@ -680,15 +680,15 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
     }
 
     fn read_i64(&mut self) -> IonResult<i64> {
-        self.read_integer().and_then(|i| {
+        self.read_int().and_then(|i| {
             i.as_i64()
                 .ok_or_else(|| decoding_error_raw("integer was too large to fit in an i64"))
         })
     }
 
-    fn read_integer(&mut self) -> IonResult<Integer> {
-        let (encoded_value, bytes) = self.value_and_bytes(IonType::Integer)?;
-        let value: Integer = if bytes.len() <= mem::size_of::<u64>() {
+    fn read_int(&mut self) -> IonResult<Int> {
+        let (encoded_value, bytes) = self.value_and_bytes(IonType::Int)?;
+        let value: Int = if bytes.len() <= mem::size_of::<u64>() {
             DecodedUInt::small_uint_from_slice(bytes).into()
         } else {
             DecodedUInt::big_uint_from_slice(bytes).into()
@@ -885,7 +885,7 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
 
         let container_type = match value.header.ion_type {
             IonType::List => ContainerType::List,
-            IonType::SExpression => ContainerType::SExpression,
+            IonType::SExp => ContainerType::SExpression,
             IonType::Struct => ContainerType::Struct,
             _other => {
                 return illegal_operation(
@@ -1354,7 +1354,7 @@ mod tests {
     fn read_int_header() -> IonResult<()> {
         let data = vec![0x21, 0x03];
         let mut reader = RawBinaryBufferReader::new(data);
-        expect_value(reader.next(), IonType::Integer);
+        expect_value(reader.next(), IonType::Int);
         expect_eof(reader.next());
         Ok(())
     }
@@ -1364,7 +1364,7 @@ mod tests {
         let data = vec![0x21];
         let mut reader = RawBinaryBufferReader::new(data);
         // We can read the *header* of the int just fine
-        expect_value(reader.next(), IonType::Integer);
+        expect_value(reader.next(), IonType::Int);
         // Trying to advance beyond it is a problem.
         expect_incomplete(reader.next());
         // This byte completes the int, but we still don't have another value to move to.
@@ -1384,12 +1384,12 @@ mod tests {
             0x21, 0x03, // 3
         ];
         let mut reader = RawBinaryBufferReader::new(data);
-        expect_value(reader.next(), IonType::Integer);
-        assert_eq!(reader.read_integer()?, Integer::I64(1));
-        expect_value(reader.next(), IonType::Integer);
-        assert_eq!(reader.read_integer()?, Integer::I64(2));
-        expect_value(reader.next(), IonType::Integer);
-        assert_eq!(reader.read_integer()?, Integer::I64(3));
+        expect_value(reader.next(), IonType::Int);
+        assert_eq!(reader.read_int()?, Int::I64(1));
+        expect_value(reader.next(), IonType::Int);
+        assert_eq!(reader.read_int()?, Int::I64(2));
+        expect_value(reader.next(), IonType::Int);
+        assert_eq!(reader.read_int()?, Int::I64(3));
         // Nothing else in the buffer
         expect_eof(reader.next());
         Ok(())
@@ -1601,13 +1601,13 @@ mod tests {
         ];
         let mut reader = RawBinaryBufferReader::new(data);
 
-        expect_value(reader.next(), IonType::Integer);
+        expect_value(reader.next(), IonType::Int);
         expect_annotations(&reader, [4]);
 
-        expect_value(reader.next(), IonType::Integer);
+        expect_value(reader.next(), IonType::Int);
         expect_annotations(&reader, [5]);
 
-        expect_value(reader.next(), IonType::Integer);
+        expect_value(reader.next(), IonType::Int);
         expect_annotations(&reader, [6, 7, 8]);
         // Nothing else in the buffer
         expect_eof(reader.next());
@@ -1634,7 +1634,7 @@ mod tests {
         let mut reader = RawBinaryBufferReader::new(data);
         expect_value(reader.next(), IonType::List);
         reader.step_in()?;
-        expect_value(reader.next(), IonType::Integer);
+        expect_value(reader.next(), IonType::Int);
         reader.step_out()?; // Skips second int in list
         expect_value(reader.next(), IonType::String);
         // Nothing else in the buffer
@@ -1644,8 +1644,8 @@ mod tests {
         let mut reader = RawBinaryBufferReader::new(data);
         expect_value(reader.next(), IonType::List);
         reader.step_in()?;
-        expect_value(reader.next(), IonType::Integer);
-        expect_value(reader.next(), IonType::Integer);
+        expect_value(reader.next(), IonType::Int);
+        expect_value(reader.next(), IonType::Int);
         reader.step_out()?;
         // There's an empty string after the list
         expect_value(reader.next(), IonType::String);
@@ -1759,11 +1759,11 @@ mod tests {
         let item = reader.next()?;
         assert_eq!(item, RawStreamItem::VersionMarker(1, 0));
         let item = reader.next()?;
-        assert_eq!(item, RawStreamItem::Value(IonType::SExpression));
+        assert_eq!(item, RawStreamItem::Value(IonType::SExp));
         reader.step_in()?;
         expect_value(reader.next(), IonType::Struct);
         reader.step_in()?;
-        expect_value(reader.next(), IonType::Boolean);
+        expect_value(reader.next(), IonType::Bool);
         assert_eq!(reader.field_name()?, RawSymbolToken::SymbolId(4));
         let item = reader.next()?;
         assert_eq!(item, RawStreamItem::Nothing);
@@ -1793,8 +1793,8 @@ mod tests {
         reader.append_bytes(&[0xff]);
         assert_eq!(reader.next()?, RawStreamItem::Nothing);
         reader.append_bytes(&[0x20]);
-        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Integer));
-        assert_eq!(reader.read_integer()?, Integer::I64(0));
+        assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Int));
+        assert_eq!(reader.read_int()?, Int::I64(0));
         Ok(())
     }
 }

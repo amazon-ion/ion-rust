@@ -42,8 +42,8 @@ impl TryFrom<IonTypeCode> for IonType {
         use IonTypeCode::*;
         let ion_type = match ion_type_code {
             NullOrNop => IonType::Null,
-            Boolean => IonType::Boolean,
-            PositiveInteger | NegativeInteger => IonType::Integer,
+            Boolean => IonType::Bool,
+            PositiveInteger | NegativeInteger => IonType::Int,
             Float => IonType::Float,
             Decimal => IonType::Decimal,
             Timestamp => IonType::Timestamp,
@@ -52,7 +52,7 @@ impl TryFrom<IonTypeCode> for IonType {
             Clob => IonType::Clob,
             Blob => IonType::Blob,
             List => IonType::List,
-            SExpression => IonType::SExpression,
+            SExpression => IonType::SExp,
             Struct => IonType::Struct,
             _ => {
                 return decoding_error(format!(

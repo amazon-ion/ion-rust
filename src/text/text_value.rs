@@ -1,6 +1,6 @@
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::types::decimal::Decimal;
-use crate::types::integer::Integer;
+use crate::types::integer::Int;
 use crate::types::timestamp::Timestamp;
 use crate::IonType;
 
@@ -46,8 +46,8 @@ impl PartialEq<TextValue> for AnnotatedTextValue {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TextValue {
     Null(IonType),
-    Boolean(bool),
-    Integer(Integer),
+    Bool(bool),
+    Int(Int),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
@@ -58,7 +58,7 @@ pub(crate) enum TextValue {
     Blob(Vec<u8>),
     Clob(Vec<u8>),
     ListStart,
-    SExpressionStart,
+    SExpStart,
     StructStart,
 }
 
@@ -67,8 +67,8 @@ impl TextValue {
     pub fn ion_type(&self) -> IonType {
         match self {
             TextValue::Null(ion_type) => *ion_type,
-            TextValue::Boolean(_) => IonType::Boolean,
-            TextValue::Integer(_) => IonType::Integer,
+            TextValue::Bool(_) => IonType::Bool,
+            TextValue::Int(_) => IonType::Int,
             TextValue::Float(_) => IonType::Float,
             TextValue::Decimal(_) => IonType::Decimal,
             TextValue::Timestamp(_) => IonType::Timestamp,
@@ -77,7 +77,7 @@ impl TextValue {
             TextValue::Blob(_) => IonType::Blob,
             TextValue::Clob(_) => IonType::Clob,
             TextValue::ListStart => IonType::List,
-            TextValue::SExpressionStart => IonType::SExpression,
+            TextValue::SExpStart => IonType::SExp,
             TextValue::StructStart => IonType::Struct,
         }
     }

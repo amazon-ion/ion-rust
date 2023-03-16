@@ -5,10 +5,10 @@ pub mod result;
 
 pub mod binary;
 pub mod data_source;
+pub mod element;
 pub mod raw_reader;
 pub mod text;
 pub mod types;
-pub mod value;
 
 #[cfg(feature = "ion-hash")]
 pub mod ion_hash;
@@ -38,7 +38,7 @@ pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
 
 pub use types::decimal::Decimal;
-pub use types::integer::Integer;
+pub use types::integer::Int;
 pub use types::timestamp::Timestamp;
 pub use types::IonType;
 

@@ -4,7 +4,7 @@ use std::mem;
 
 use crate::data_source::IonDataSource;
 use crate::result::{decoding_error, IonResult};
-use crate::types::integer::{Integer, UInteger};
+use crate::types::integer::{Int, UInt};
 
 // This limit is used for stack-allocating buffer space to encode/decode UInts.
 const UINT_STACK_BUFFER_SIZE: usize = 16;
@@ -17,11 +17,11 @@ const MAX_UINT_SIZE_IN_BYTES: usize = 2048;
 #[derive(Debug)]
 pub struct DecodedUInt {
     size_in_bytes: usize,
-    value: UInteger,
+    value: UInt,
 }
 
 impl DecodedUInt {
-    pub(crate) fn new(value: UInteger, size_in_bytes: usize) -> Self {
+    pub(crate) fn new(value: UInt, size_in_bytes: usize) -> Self {
         DecodedUInt {
             size_in_bytes,
             value,
@@ -83,11 +83,11 @@ impl DecodedUInt {
                 magnitude <<= 8;
                 magnitude |= byte;
             }
-            UInteger::U64(magnitude)
+            UInt::U64(magnitude)
         } else {
             // The UInt is too large to fit in a u64; read it as a BigUInt instead
             let magnitude = BigUint::from_bytes_be(buffer);
-            UInteger::BigUInt(magnitude)
+            UInt::BigUInt(magnitude)
         };
 
         Ok(DecodedUInt {
@@ -107,7 +107,7 @@ impl DecodedUInt {
 
     /// Returns the magnitude of the unsigned integer.
     #[inline(always)]
-    pub fn value(&self) -> &UInteger {
+    pub fn value(&self) -> &UInt {
         &self.value
     }
 
@@ -119,13 +119,13 @@ impl DecodedUInt {
     }
 }
 
-impl From<DecodedUInt> for Integer {
+impl From<DecodedUInt> for Int {
     fn from(uint: DecodedUInt) -> Self {
         let DecodedUInt {
             value,
             .. // Ignore 'size_in_bytes'
         } = uint;
-        Integer::from(value)
+        Int::from(value)
     }
 }
 
@@ -191,10 +191,10 @@ pub fn encode_u64(magnitude: u64) -> EncodedUInt {
 }
 
 /// Returns the magnitude as big-endian bytes.
-pub fn encode_uinteger(magnitude: &UInteger) -> EncodedUInt {
+pub fn encode_uint(magnitude: &UInt) -> EncodedUInt {
     let magnitude: &BigUint = match magnitude {
-        UInteger::U64(m) => return encode_u64(*m),
-        UInteger::BigUInt(m) => m,
+        UInt::U64(m) => return encode_u64(*m),
+        UInt::BigUInt(m) => m,
     };
 
     let be_bytes = UIntBeBytes::Heap(magnitude.to_bytes_be());
@@ -220,7 +220,7 @@ mod tests {
         let data = &[0b1000_0000];
         let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(uint.size_in_bytes(), 1);
-        assert_eq!(uint.value(), &UInteger::U64(128));
+        assert_eq!(uint.value(), &UInt::U64(128));
     }
 
     #[test]
@@ -228,7 +228,7 @@ mod tests {
         let data = &[0b0111_1111, 0b1111_1111];
         let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(uint.size_in_bytes(), 2);
-        assert_eq!(uint.value(), &UInteger::U64(32_767));
+        assert_eq!(uint.value(), &UInt::U64(32_767));
     }
 
     #[test]
@@ -236,7 +236,7 @@ mod tests {
         let data = &[0b0011_1100, 0b1000_0111, 0b1000_0001];
         let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(uint.size_in_bytes(), 3);
-        assert_eq!(uint.value(), &UInteger::U64(3_966_849));
+        assert_eq!(uint.value(), &UInt::U64(3_966_849));
     }
 
     #[test]
@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(uint.size_in_bytes(), 10);
         assert_eq!(
             uint.value(),
-            &UInteger::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap())
+            &UInt::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap())
         );
     }
 
@@ -262,9 +262,9 @@ mod tests {
 
     #[test]
     fn test_write_ten_byte_uint() {
-        let value = UInteger::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap());
+        let value = UInt::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap());
         let mut buffer: Vec<u8> = vec![];
-        let encoded = super::encode_uinteger(&value);
+        let encoded = super::encode_uint(&value);
         buffer.write_all(encoded.as_bytes()).unwrap();
         let expected_bytes = vec![0xFFu8; 10];
         assert_eq!(expected_bytes.as_slice(), buffer.as_slice());

@@ -3,9 +3,9 @@
 //! Provides APIs to read Ion data into [Element] from different sources such
 //! as slices or files.
 
+use crate::element::owned;
+use crate::element::owned::{Element, Struct, Value};
 use crate::result::{decoding_error, IonResult};
-use crate::value::owned;
-use crate::value::owned::{Element, Struct, Value};
 use crate::{IonReader, StreamItem, Symbol};
 
 /// Reads Ion data into [`Element`] instances.
@@ -141,8 +141,8 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
                 use crate::IonType::*;
                 match ion_type {
                     Null => unreachable!("non-null value had IonType::Null"),
-                    Boolean => Value::Boolean(self.reader.read_bool()?),
-                    Integer => Value::Integer(self.reader.read_integer()?),
+                    Bool => Value::Bool(self.reader.read_bool()?),
+                    Int => Value::Int(self.reader.read_int()?),
                     Float => Value::Float(self.reader.read_f64()?),
                     Decimal => Value::Decimal(self.reader.read_decimal()?),
                     Timestamp => Value::Timestamp(self.reader.read_timestamp()?),
@@ -152,7 +152,7 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
                     Blob => Value::Blob(self.reader.read_blob()?),
                     // It's a collection; recursively materialize all of this value's children
                     List => Value::List(owned::List::new(self.materialize_sequence()?)),
-                    SExpression => Value::SExp(owned::SExp::new(self.materialize_sequence()?)),
+                    SExp => Value::SExp(owned::SExp::new(self.materialize_sequence()?)),
                     Struct => Value::Struct(self.materialize_struct()?),
                 }
             }
@@ -194,12 +194,12 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
 #[cfg(test)]
 mod reader_tests {
     use super::*;
+    use crate::element::builders::{ion_list, ion_sexp, ion_struct};
+    use crate::element::owned::Value::*;
+    use crate::element::owned::{Element, IntoAnnotatedElement};
     use crate::ion_eq::IonEq;
-    use crate::types::integer::Integer;
+    use crate::types::integer::Int;
     use crate::types::timestamp::Timestamp as TS;
-    use crate::value::builders::{ion_list, ion_sexp, ion_struct};
-    use crate::value::owned::Value::*;
-    use crate::value::owned::{Element, IntoAnnotatedElement};
     use crate::{IonType, Symbol};
     use bigdecimal::BigDecimal;
     use num_bigint::BigInt;
@@ -225,8 +225,8 @@ mod reader_tests {
         "#,
         vec![
             Null(IonType::Null),
-            Null(IonType::Boolean),
-            Null(IonType::Integer),
+            Null(IonType::Bool),
+            Null(IonType::Int),
             Null(IonType::Float),
             Null(IonType::Decimal),
             Null(IonType::Timestamp),
@@ -235,7 +235,7 @@ mod reader_tests {
             Null(IonType::Clob),
             Null(IonType::Blob),
             Null(IonType::List),
-            Null(IonType::SExpression),
+            Null(IonType::SExp),
             Null(IonType::Struct),
         ].into_iter().map(|v| v.into()).collect(),
     )]
@@ -253,27 +253,27 @@ mod reader_tests {
             -65536, 65535,
             -4294967296, 4294967295,
             -9007199254740992, 9007199254740991,
-        ].into_iter().map(Integer::I64).chain(
+        ].into_iter().map(Int::I64).chain(
             vec![
                 "-18446744073709551616", "18446744073709551615",
                 "-79228162514264337593543950336", "79228162514264337593543950335",
             ].into_iter()
-            .map(|v| Integer::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap()))
-        ).map(|ai| Integer(ai).into()).collect(),
+            .map(|v| Int::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap()))
+        ).map(|ai| Int(ai).into()).collect(),
     )]
     #[case::int64_threshold_as_big_int(
         &[0xE0, 0x01, 0x00, 0xEA, 0x28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         vec![
             "18446744073709551615",
         ].into_iter()
-        .map(|v| Integer::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Integer(ai).into()).collect(),
+        .map(|v| Int::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Int(ai).into()).collect(),
     )]
     #[case::int64_threshold_as_int64(
         &[0xE0, 0x01, 0x00, 0xEA, 0x38, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
         vec![
             "-9223372036854775808",
         ].into_iter()
-        .map(|v| Integer::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Integer(ai).into()).collect(),
+        .map(|v| Int::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Int(ai).into()).collect(),
     )]
     #[case::floats(
         br#"

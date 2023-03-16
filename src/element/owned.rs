@@ -3,7 +3,7 @@
 use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::types::decimal::Decimal;
-use crate::types::integer::Integer;
+use crate::types::integer::Int;
 use crate::types::timestamp::Timestamp;
 use crate::{IonResult, IonType, ReaderBuilder, Symbol};
 use num_bigint::BigInt;
@@ -11,12 +11,12 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
 
-use crate::symbol_ref::AsSymbolRef;
-use crate::value::builders::{ListBuilder, SExpBuilder, StructBuilder};
-use crate::value::iterators::{
+use crate::element::builders::{ListBuilder, SExpBuilder, StructBuilder};
+use crate::element::iterators::{
     ElementsIterator, FieldIterator, FieldValuesIterator, IndexVec, SymbolsIterator,
 };
-use crate::value::reader::ElementReader;
+use crate::element::reader::ElementReader;
+use crate::symbol_ref::AsSymbolRef;
 
 impl Element {
     pub fn null(null_type: IonType) -> Element {
@@ -37,8 +37,8 @@ impl Element {
         symbol.into()
     }
 
-    pub fn integer<I: Into<Integer>>(integer: I) -> Element {
-        let integer: Integer = integer.into();
+    pub fn integer<I: Into<Int>>(integer: I) -> Element {
+        let integer: Int = integer.into();
         integer.into()
     }
 
@@ -107,6 +107,14 @@ impl List {
     }
 }
 
+impl Display for List {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut ivf = IonValueFormatter { output: f };
+        ivf.format_list(self).map_err(|_| std::fmt::Error)?;
+        Ok(())
+    }
+}
+
 impl IonSequence for List {
     fn iter(&self) -> ElementsIterator<'_> {
         ElementsIterator::new(&self.children)
@@ -156,6 +164,14 @@ impl SExp {
 
     pub fn clone_builder(&self) -> SExpBuilder {
         SExpBuilder::with_initial_elements(&self.children)
+    }
+}
+
+impl Display for SExp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut ivf = IonValueFormatter { output: f };
+        ivf.format_sexp(self).map_err(|_| std::fmt::Error)?;
+        Ok(())
     }
 }
 
@@ -248,6 +264,14 @@ impl Fields {
 #[derive(Debug, Clone)]
 pub struct Struct {
     fields: Fields,
+}
+
+impl Display for Struct {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut ivf = IonValueFormatter { output: f };
+        ivf.format_struct(self).map_err(|_| std::fmt::Error)?;
+        Ok(())
+    }
 }
 
 impl Struct {
@@ -403,18 +427,42 @@ impl IonEq for Vec<Element> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null(IonType),
-    Integer(Integer),
+    Int(Int),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
     String(String),
     Symbol(Symbol),
-    Boolean(bool),
+    Bool(bool),
     Blob(Vec<u8>),
     Clob(Vec<u8>),
     SExp(SExp),
     List(List),
     Struct(Struct),
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut ivf = IonValueFormatter { output: f };
+        match &self {
+            Value::Null(ion_type) => ivf.format_null(*ion_type),
+            Value::Bool(bool) => ivf.format_bool(*bool),
+            Value::Int(integer) => ivf.format_integer(integer),
+            Value::Float(float) => ivf.format_float(*float),
+            Value::Decimal(decimal) => ivf.format_decimal(decimal),
+            Value::Timestamp(timestamp) => ivf.format_timestamp(timestamp),
+            Value::Symbol(symbol) => ivf.format_symbol(symbol),
+            Value::String(string) => ivf.format_string(string),
+            Value::Clob(clob) => ivf.format_clob(clob),
+            Value::Blob(blob) => ivf.format_blob(blob),
+            Value::Struct(struct_) => ivf.format_struct(struct_),
+            Value::SExp(sexp) => ivf.format_sexp(sexp),
+            Value::List(list) => ivf.format_list(list),
+        }
+        .map_err(|_| std::fmt::Error)?;
+
+        Ok(())
+    }
 }
 
 /// An `(annotations, value)` pair representing an Ion value.
@@ -434,28 +482,11 @@ impl Display for Element {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         let mut ivf = IonValueFormatter { output: f };
 
-        // display for annotations of this owned_element
+        // display for annotations of this element
         ivf.format_annotations(&self.annotations)
             .map_err(|_| std::fmt::Error)?;
 
-        match &self.value {
-            Value::Null(ion_type) => ivf.format_null(*ion_type),
-            Value::Boolean(bool) => ivf.format_bool(*bool),
-            Value::Integer(integer) => ivf.format_integer(integer),
-            Value::Float(float) => ivf.format_float(*float),
-            Value::Decimal(decimal) => ivf.format_decimal(decimal),
-            Value::Timestamp(timestamp) => ivf.format_timestamp(timestamp),
-            Value::Symbol(symbol) => ivf.format_symbol(symbol),
-            Value::String(string) => ivf.format_string(string),
-            Value::Clob(clob) => ivf.format_clob(clob),
-            Value::Blob(blob) => ivf.format_blob(blob),
-            Value::Struct(struct_) => ivf.format_struct(struct_),
-            Value::SExp(sexp) => ivf.format_sexp(sexp),
-            Value::List(list) => ivf.format_list(list),
-        }
-        .map_err(|_| std::fmt::Error)?;
-
-        Ok(())
+        self.value.fmt(f)
     }
 }
 
@@ -494,19 +525,19 @@ impl From<IonType> for Value {
 
 impl From<i64> for Value {
     fn from(i64_val: i64) -> Self {
-        Value::Integer(Integer::I64(i64_val))
+        Value::Int(Int::I64(i64_val))
     }
 }
 
 impl From<BigInt> for Value {
     fn from(big_int_val: BigInt) -> Self {
-        Value::Integer(Integer::BigInt(big_int_val))
+        Value::Int(Int::BigInt(big_int_val))
     }
 }
 
-impl From<Integer> for Value {
-    fn from(integer_val: Integer) -> Self {
-        Value::Integer(integer_val)
+impl From<Int> for Value {
+    fn from(integer_val: Int) -> Self {
+        Value::Int(integer_val)
     }
 }
 
@@ -530,7 +561,7 @@ impl From<Timestamp> for Value {
 
 impl From<bool> for Value {
     fn from(bool_val: bool) -> Self {
-        Value::Boolean(bool_val)
+        Value::Bool(bool_val)
     }
 }
 
@@ -575,7 +606,7 @@ impl From<Struct> for Value {
 ///
 /// ```
 /// use ion_rs::ion_list;
-/// use ion_rs::value::owned::{Element, IntoAnnotatedElement, Value};
+/// use ion_rs::element::owned::{Element, IntoAnnotatedElement, Value};
 ///
 /// // Explicit conversion of a Rust bool (`true`) into a `Value`...
 /// let boolean_value: Value = true.into();
@@ -606,16 +637,16 @@ impl Element {
 
         match &self.value {
             Null(t) => *t,
-            Integer(_) => IonType::Integer,
+            Int(_) => IonType::Int,
             Float(_) => IonType::Float,
             Decimal(_) => IonType::Decimal,
             Timestamp(_) => IonType::Timestamp,
             String(_) => IonType::String,
             Symbol(_) => IonType::Symbol,
-            Boolean(_) => IonType::Boolean,
+            Bool(_) => IonType::Bool,
             Blob(_) => IonType::Blob,
             Clob(_) => IonType::Clob,
-            SExp(_) => IonType::SExpression,
+            SExp(_) => IonType::SExp,
             List(_) => IonType::List,
             Struct(_) => IonType::Struct,
         }
@@ -643,9 +674,9 @@ impl Element {
         matches!(&self.value, Value::Null(_))
     }
 
-    pub fn as_integer(&self) -> Option<&Integer> {
+    pub fn as_int(&self) -> Option<&Int> {
         match &self.value {
-            Value::Integer(i) => Some(i),
+            Value::Int(i) => Some(i),
             _ => None,
         }
     }
@@ -693,9 +724,9 @@ impl Element {
         }
     }
 
-    pub fn as_boolean(&self) -> Option<bool> {
+    pub fn as_bool(&self) -> Option<bool> {
         match &self.value {
-            Value::Boolean(b) => Some(*b),
+            Value::Bool(b) => Some(*b),
             _ => None,
         }
     }
@@ -828,7 +859,7 @@ mod value_tests {
     fn owned_container_len_test<I: Into<Element>>(#[case] container: I, #[case] length: usize) {
         let container = container.into();
         match container.ion_type() {
-            IonType::List | IonType::SExpression => {
+            IonType::List | IonType::SExp => {
                 // check length for given sequence value
                 assert_eq!(container.as_sequence().unwrap().len(), length);
             }
@@ -854,7 +885,7 @@ mod value_tests {
     ) {
         let container = container.into();
         match container.ion_type() {
-            IonType::List | IonType::SExpression => {
+            IonType::List | IonType::SExp => {
                 // check length for given sequence value
                 assert_eq!(container.as_sequence().unwrap().is_empty(), is_empty);
             }
@@ -866,5 +897,41 @@ mod value_tests {
                 unreachable!("This test is only for container type elements")
             }
         }
+    }
+
+    #[test]
+    fn list_display_roundtrip() {
+        let list = ion_list![1, 2, 3, true, false];
+
+        // Use the Display impl to serialize the list to text
+        let text_list = format!("{list}");
+        // Parse the result and make sure it represents the same data
+        let expected_element: Element = list.into();
+        let actual_element = Element::read_one(text_list).unwrap();
+        assert!(expected_element.ion_eq(&actual_element));
+    }
+
+    #[test]
+    fn sexp_display_roundtrip() {
+        let sexp = ion_sexp! (1 2 3 true false);
+
+        // Use the Display impl to serialize the sexp to text
+        let text_sexp = format!("{sexp}");
+        // Parse the result and make sure it represents the same data
+        let expected_element: Element = sexp.into();
+        let actual_element = Element::read_one(text_sexp).unwrap();
+        assert!(expected_element.ion_eq(&actual_element));
+    }
+
+    #[test]
+    fn struct_display_roundtrip() {
+        let struct_ = ion_struct! {"foo": 1, "bar": 2, "baz": ion_list! [true, false]};
+
+        // Use the Display impl to serialize the struct to text
+        let text_struct = format!("{struct_}");
+        // Parse the result and make sure it represents the same data
+        let expected_element: Element = struct_.into();
+        let actual_element = Element::read_one(text_struct).unwrap();
+        assert!(expected_element.ion_eq(&actual_element));
     }
 }

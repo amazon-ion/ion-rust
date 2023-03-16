@@ -10,7 +10,7 @@ use crate::result::{decoding_error, decoding_error_raw, illegal_operation, IonEr
 use crate::symbol::Symbol;
 use crate::system_reader::LstPosition::*;
 use crate::types::decimal::Decimal;
-use crate::types::integer::Integer;
+use crate::types::integer::Int;
 use crate::types::timestamp::Timestamp;
 use crate::{IonReader, IonType, RawBinaryReader, SymbolTable};
 
@@ -705,7 +705,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
             fn ion_type(&self) -> Option<IonType>;
             fn read_null(&mut self) -> IonResult<IonType>;
             fn read_bool(&mut self) -> IonResult<bool>;
-            fn read_integer(&mut self) -> IonResult<Integer>;
+            fn read_int(&mut self) -> IonResult<Int>;
             fn read_i64(&mut self) -> IonResult<i64>;
             fn read_f32(&mut self) -> IonResult<f32>;
             fn read_f64(&mut self) -> IonResult<f64>;

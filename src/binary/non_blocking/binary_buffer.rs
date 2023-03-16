@@ -7,8 +7,8 @@ use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::result::{decoding_error, incomplete_data_error, incomplete_data_error_raw};
-use crate::types::integer::UInteger;
-use crate::{Integer, IonResult, IonType};
+use crate::types::integer::UInt;
+use crate::{Int, IonResult, IonType};
 use num_bigint::{BigInt, BigUint, Sign};
 use std::io::Read;
 use std::mem;
@@ -278,7 +278,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
             .ok_or_else(|| incomplete_data_error_raw("a UInt", self.total_consumed()))?;
         let magnitude = DecodedUInt::small_uint_from_slice(uint_bytes);
         self.consume(length);
-        Ok(DecodedUInt::new(UInteger::U64(magnitude), length))
+        Ok(DecodedUInt::new(UInt::U64(magnitude), length))
     }
 
     /// Reads the first `length` bytes from the buffer as a `UInt`. If `length` is small enough
@@ -299,7 +299,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
 
         let magnitude = BigUint::from_bytes_be(uint_bytes);
         self.consume(length);
-        Ok(DecodedUInt::new(UInteger::BigUInt(magnitude), length))
+        Ok(DecodedUInt::new(UInt::BigUInt(magnitude), length))
     }
 
     #[inline(never)]
@@ -318,7 +318,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields
     pub fn read_int(&mut self, length: usize) -> IonResult<DecodedInt> {
         if length == 0 {
-            return Ok(DecodedInt::new(Integer::I64(0), false, 0));
+            return Ok(DecodedInt::new(Int::I64(0), false, 0));
         } else if length > MAX_INT_SIZE_IN_BYTES {
             return decoding_error(format!(
                 "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
@@ -346,7 +346,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
                 magnitude <<= 8;
                 magnitude |= byte;
             }
-            Integer::I64(sign * magnitude)
+            Int::I64(sign * magnitude)
         } else {
             // This Int is too big for an i64, we'll need to use a BigInt
             let value = if int_bytes[0] & 0b1000_0000 == 0 {
@@ -361,7 +361,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
                 BigInt::from_bytes_be(Sign::Minus, owned_int_bytes.as_slice())
             };
 
-            Integer::BigInt(value)
+            Int::BigInt(value)
         };
         self.consume(length);
         Ok(DecodedInt::new(value, is_negative, length))
@@ -399,7 +399,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         let length_code = match header.ion_type {
             // Null (0x0F) and Boolean (0x10, 0x11) are the only types that don't have/use a `length`
             // field; the header contains the complete value.
-            Null | Boolean => 0,
+            Null | Bool => 0,
             // If a struct has length = 1, its fields are ordered and the actual length follows.
             // For the time being, this reader does not have any special handling for this case.
             // Use `0xE` (14) as the length code instead so the call to `read_length` below
@@ -684,7 +684,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b1000_0000]);
         let var_int = buffer.read_uint(buffer.remaining())?;
         assert_eq!(var_int.size_in_bytes(), 1);
-        assert_eq!(var_int.value(), &UInteger::U64(128));
+        assert_eq!(var_int.value(), &UInt::U64(128));
         Ok(())
     }
 
@@ -693,7 +693,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
         let var_int = buffer.read_uint(buffer.remaining())?;
         assert_eq!(var_int.size_in_bytes(), 2);
-        assert_eq!(var_int.value(), &UInteger::U64(32_767));
+        assert_eq!(var_int.value(), &UInt::U64(32_767));
         Ok(())
     }
 
@@ -702,7 +702,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0011_1100, 0b1000_0111, 0b1000_0001]);
         let var_int = buffer.read_uint(buffer.remaining())?;
         assert_eq!(var_int.size_in_bytes(), 3);
-        assert_eq!(var_int.value(), &UInteger::U64(3_966_849));
+        assert_eq!(var_int.value(), &UInt::U64(3_966_849));
         Ok(())
     }
 
@@ -714,7 +714,7 @@ mod tests {
         assert_eq!(uint.size_in_bytes(), 10);
         assert_eq!(
             uint.value(),
-            &UInteger::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap())
+            &UInt::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap())
         );
         Ok(())
     }
@@ -734,7 +734,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b1000_0000]); // Negative zero
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 1);
-        assert_eq!(int.value(), &Integer::I64(0));
+        assert_eq!(int.value(), &Int::I64(0));
         assert!(int.is_negative_zero());
         Ok(())
     }
@@ -744,7 +744,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0000_0000]); // Negative zero
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 1);
-        assert_eq!(int.value(), &Integer::I64(0));
+        assert_eq!(int.value(), &Int::I64(0));
         assert!(!int.is_negative_zero());
         Ok(())
     }
@@ -754,7 +754,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[]); // Negative zero
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 0);
-        assert_eq!(int.value(), &Integer::I64(0));
+        assert_eq!(int.value(), &Int::I64(0));
         assert!(!int.is_negative_zero());
         Ok(())
     }
@@ -764,7 +764,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b1111_1111, 0b1111_1111]);
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 2);
-        assert_eq!(int.value(), &Integer::I64(-32_767));
+        assert_eq!(int.value(), &Int::I64(-32_767));
         Ok(())
     }
 
@@ -773,7 +773,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 2);
-        assert_eq!(int.value(), &Integer::I64(32_767));
+        assert_eq!(int.value(), &Int::I64(32_767));
         Ok(())
     }
 
@@ -782,7 +782,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b1011_1100, 0b1000_0111, 0b1000_0001]);
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 3);
-        assert_eq!(int.value(), &Integer::I64(-3_966_849));
+        assert_eq!(int.value(), &Int::I64(-3_966_849));
         Ok(())
     }
 
@@ -791,7 +791,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0011_1100, 0b1000_0111, 0b1000_0001]);
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 3);
-        assert_eq!(int.value(), &Integer::I64(3_966_849));
+        assert_eq!(int.value(), &Int::I64(3_966_849));
         Ok(())
     }
 

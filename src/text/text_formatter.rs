@@ -1,6 +1,6 @@
+use crate::element::owned::{IonSequence, List, SExp, Struct};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::value::owned::{IonSequence, List, SExp, Struct};
-use crate::{Decimal, Integer, IonResult, IonType, RawSymbolTokenRef, Symbol, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Symbol, Timestamp};
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
 
@@ -295,8 +295,8 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         use IonType::*;
         let null_text = match ion_type {
             Null => "null",
-            Boolean => "null.bool",
-            Integer => "null.int",
+            Bool => "null.bool",
+            Int => "null.int",
             Float => "null.float",
             Decimal => "null.decimal",
             Timestamp => "null.timestamp",
@@ -305,7 +305,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
             Blob => "null.blob",
             Clob => "null.clob",
             List => "null.list",
-            SExpression => "null.sexp",
+            SExp => "null.sexp",
             Struct => "null.struct",
         };
         write!(self.output, "{null_text}")?;
@@ -321,7 +321,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub fn format_integer(&mut self, value: &Integer) -> IonResult<()> {
+    pub fn format_integer(&mut self, value: &Int) -> IonResult<()> {
         write!(self.output, "{value}")?;
         Ok(())
     }
@@ -449,7 +449,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
 #[cfg(test)]
 mod formatter_test {
     use crate::text::text_formatter::IonValueFormatter;
-    use crate::{ion_list, ion_sexp, ion_struct, Integer, IonResult, IonType, Timestamp};
+    use crate::{ion_list, ion_sexp, ion_struct, Int, IonResult, IonType, Timestamp};
     use num_bigint::BigInt;
 
     fn formatter<F>(mut f: F, expected: &str)
@@ -481,19 +481,16 @@ mod formatter_test {
 
     #[test]
     fn test_format_i64() -> IonResult<()> {
-        formatter(|ivf| ivf.format_integer(&Integer::I64(4)), "4");
-        formatter(|ivf| ivf.format_integer(&Integer::I64(-4)), "-4");
+        formatter(|ivf| ivf.format_integer(&Int::I64(4)), "4");
+        formatter(|ivf| ivf.format_integer(&Int::I64(-4)), "-4");
         Ok(())
     }
 
     #[test]
     fn test_format_big_int() -> IonResult<()> {
+        formatter(|ivf| ivf.format_integer(&Int::BigInt(BigInt::from(4))), "4");
         formatter(
-            |ivf| ivf.format_integer(&Integer::BigInt(BigInt::from(4))),
-            "4",
-        );
-        formatter(
-            |ivf| ivf.format_integer(&Integer::BigInt(BigInt::from(-4))),
+            |ivf| ivf.format_integer(&Int::BigInt(BigInt::from(-4))),
             "-4",
         );
         Ok(())

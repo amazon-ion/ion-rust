@@ -7,19 +7,19 @@
 //! and not speed.
 
 use crate::binary::{self, decimal::DecimalBinaryEncoder, timestamp::TimestampBinaryEncoder};
+use crate::element::owned::{Element, IonSequence, List, SExp, Struct};
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
 use crate::types::decimal::Decimal;
-use crate::types::integer::Integer;
-use crate::value::owned::{Element, IonSequence, List, SExp, Struct};
+use crate::types::integer::Int;
 use crate::{result::IonResult, types::timestamp::Timestamp, IonType, Symbol};
 use digest::{FixedOutput, Output, Reset, Update};
 
 pub(crate) trait RepresentationEncoder {
     fn update_with_representation(&mut self, elem: &Element) -> IonResult<()> {
         match elem.ion_type() {
-            IonType::Null | IonType::Boolean => {} // these types have no representation
-            IonType::Integer => self.write_repr_integer(elem.as_integer())?,
+            IonType::Null | IonType::Bool => {} // these types have no representation
+            IonType::Int => self.write_repr_integer(elem.as_int())?,
             IonType::Float => self.write_repr_float(elem.as_float())?,
             IonType::Decimal => self.write_repr_decimal(elem.as_decimal())?,
             IonType::Timestamp => self.write_repr_timestamp(elem.as_timestamp())?,
@@ -27,14 +27,14 @@ pub(crate) trait RepresentationEncoder {
             IonType::String => self.write_repr_string(elem.as_string())?,
             IonType::Clob | IonType::Blob => self.write_repr_blob(elem.as_lob())?,
             IonType::List => self.write_repr_list(elem.as_list())?,
-            IonType::SExpression => self.write_repr_sexp(elem.as_sexp())?,
+            IonType::SExp => self.write_repr_sexp(elem.as_sexp())?,
             IonType::Struct => self.write_repr_struct(elem.as_struct())?,
         }
 
         Ok(())
     }
 
-    fn write_repr_integer(&mut self, value: Option<&Integer>) -> IonResult<()>;
+    fn write_repr_integer(&mut self, value: Option<&Int>) -> IonResult<()>;
     fn write_repr_float(&mut self, value: Option<f64>) -> IonResult<()>;
     fn write_repr_decimal(&mut self, value: Option<&Decimal>) -> IonResult<()>;
     fn write_repr_timestamp(&mut self, value: Option<&Timestamp>) -> IonResult<()>;
@@ -50,9 +50,9 @@ impl<D> RepresentationEncoder for ElementHasher<D>
 where
     D: Update + FixedOutput + Reset + Clone + Default,
 {
-    fn write_repr_integer(&mut self, value: Option<&Integer>) -> IonResult<()> {
+    fn write_repr_integer(&mut self, value: Option<&Int>) -> IonResult<()> {
         match value {
-            Some(Integer::I64(v)) => match v {
+            Some(Int::I64(v)) => match v {
                 0 => {}
                 _ => {
                     let magnitude = v.unsigned_abs();
@@ -60,7 +60,7 @@ where
                     self.update_escaping(encoded.as_bytes());
                 }
             },
-            Some(Integer::BigInt(b)) => self.update_escaping(&b.magnitude().to_bytes_be()[..]),
+            Some(Int::BigInt(b)) => self.update_escaping(&b.magnitude().to_bytes_be()[..]),
             None => {}
         }
 

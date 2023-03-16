@@ -1,11 +1,11 @@
+use crate::element::writer::TextKind;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::text::raw_text_writer::RawTextWriter;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
-use crate::value::writer::TextKind;
 use crate::writer::IonWriter;
-use crate::{Integer, IonType, RawTextWriterBuilder, SymbolTable};
+use crate::{Int, IonType, RawTextWriterBuilder, SymbolTable};
 use delegate::delegate;
 use std::io::Write;
 
@@ -171,7 +171,7 @@ impl<W: Write> IonWriter for TextWriter<W> {
             fn write_null(&mut self, ion_type: IonType) -> IonResult<()>;
             fn write_bool(&mut self, value: bool) -> IonResult<()>;
             fn write_i64(&mut self, value: i64) -> IonResult<()>;
-            fn write_integer(&mut self, value: &Integer) -> IonResult<()>;
+            fn write_int(&mut self, value: &Int) -> IonResult<()>;
             fn write_f32(&mut self, value: f32) -> IonResult<()>;
             fn write_f64(&mut self, value: f64) -> IonResult<()>;
             fn write_decimal(&mut self, value: &Decimal) -> IonResult<()>;

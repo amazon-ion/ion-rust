@@ -5,7 +5,7 @@
 
 use crate::result::IonResult;
 
-use crate::value::owned::Element;
+use crate::element::owned::Element;
 pub use Format::*;
 pub use TextKind::*;
 

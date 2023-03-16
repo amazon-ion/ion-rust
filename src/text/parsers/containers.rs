@@ -29,9 +29,9 @@ pub(crate) fn list_start(input: &str) -> IResult<&str, TextValue> {
     value(TextValue::ListStart, tag("["))(input)
 }
 
-/// Matches the beginning of an s-expression and returns a [TextValue::SExpressionStart].
+/// Matches the beginning of an s-expression and returns a [TextValue::SExpStart].
 pub(crate) fn s_expression_start(input: &str) -> IResult<&str, TextValue> {
-    value(TextValue::SExpressionStart, tag("("))(input)
+    value(TextValue::SExpStart, tag("("))(input)
 }
 
 /// Matches the end of a struct and returns a `&str` containing the delimiter.
@@ -233,14 +233,14 @@ mod container_parsing_tests {
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::text_value::TextValue;
     use crate::types::decimal::Decimal;
-    use crate::types::integer::Integer;
+    use crate::types::integer::Int;
 
     use super::*;
 
     #[rstest]
     #[case::start_of_struct("{", TextValue::StructStart)]
     #[case::start_of_list("[", TextValue::ListStart)]
-    #[case::start_of_s_expression("(", TextValue::SExpressionStart)]
+    #[case::start_of_s_expression("(", TextValue::SExpStart)]
     fn test_parse_container_start_ok(#[case] text: &str, #[case] expected: TextValue) {
         parse_test_ok(container_start, text, expected)
     }
@@ -257,8 +257,8 @@ mod container_parsing_tests {
     }
 
     #[rstest]
-    #[case("5,", TextValue::Integer(Integer::I64(5)).without_annotations())]
-    #[case("foo::bar::5,", TextValue::Integer(Integer::I64(5)).with_annotations(["foo", "bar"]))]
+    #[case("5,", TextValue::Int(Int::I64(5)).without_annotations())]
+    #[case("foo::bar::5,", TextValue::Int(Int::I64(5)).with_annotations(["foo", "bar"]))]
     #[case("foo::bar,", TextValue::Symbol(text_token("bar")).with_annotations("foo"))]
     #[case("bar]", TextValue::Symbol(text_token("bar")).without_annotations())]
     #[case("7.]", TextValue::Decimal(Decimal::new(7, 0)).without_annotations())]
@@ -275,8 +275,8 @@ mod container_parsing_tests {
     #[rstest]
     #[case("'++',", Some(TextValue::Symbol(text_token("++")).without_annotations()))]
     #[case("foo::'++',", Some(TextValue::Symbol(text_token("++")).with_annotations("foo")))]
-    #[case("5    ,", Some(TextValue::Integer(Integer::I64(5)).without_annotations()))]
-    #[case("5]", Some(TextValue::Integer(Integer::I64(5)).without_annotations()))]
+    #[case("5    ,", Some(TextValue::Int(Int::I64(5)).without_annotations()))]
+    #[case("5]", Some(TextValue::Int(Int::I64(5)).without_annotations()))]
     #[case("]", None)]
     #[case("  ]", None)]
     #[case(" /*comment*/  ]", None)]
@@ -290,9 +290,9 @@ mod container_parsing_tests {
     #[rstest]
     #[case("++ ", TextValue::Symbol(text_token("++")).without_annotations())]
     #[case("foo::++ ", TextValue::Symbol(text_token("++")).with_annotations("foo"))]
-    #[case("5 ", TextValue::Integer(Integer::I64(5)).without_annotations())]
-    #[case("5)", TextValue::Integer(Integer::I64(5)).without_annotations())]
-    #[case("foo::bar::5 ", TextValue::Integer(Integer::I64(5)).with_annotations(["foo", "bar"]))]
+    #[case("5 ", TextValue::Int(Int::I64(5)).without_annotations())]
+    #[case("5)", TextValue::Int(Int::I64(5)).without_annotations())]
+    #[case("foo::bar::5 ", TextValue::Int(Int::I64(5)).with_annotations(["foo", "bar"]))]
     //               v--- This zero allows the parser to tell that the previous value is complete.
     #[case("foo::bar 0", TextValue::Symbol(text_token("bar")).with_annotations("foo"))]
     #[case("bar)", TextValue::Symbol(text_token("bar")).without_annotations())]
@@ -310,7 +310,7 @@ mod container_parsing_tests {
     #[rstest]
     #[case("++ ", Some(TextValue::Symbol(text_token("++")).without_annotations()))]
     #[case("foo::++ ", Some(TextValue::Symbol(text_token("++")).with_annotations("foo")))]
-    #[case("5 ", Some(TextValue::Integer(Integer::I64(5)).without_annotations()))]
+    #[case("5 ", Some(TextValue::Int(Int::I64(5)).without_annotations()))]
     #[case(")", None)]
     #[case("  )", None)]
     #[case(" /*comment*/  )", None)]
@@ -322,9 +322,9 @@ mod container_parsing_tests {
     }
 
     #[rstest]
-    #[case("5,", TextValue::Integer(Integer::I64(5)).without_annotations())]
-    #[case("5  ,", TextValue::Integer(Integer::I64(5)).without_annotations())]
-    #[case("foo::bar::5,", TextValue::Integer(Integer::I64(5)).with_annotations(["foo", "bar"]))]
+    #[case("5,", TextValue::Int(Int::I64(5)).without_annotations())]
+    #[case("5  ,", TextValue::Int(Int::I64(5)).without_annotations())]
+    #[case("foo::bar::5,", TextValue::Int(Int::I64(5)).with_annotations(["foo", "bar"]))]
     #[case("foo::bar,", TextValue::Symbol(text_token("bar")).with_annotations("foo"))]
     #[case("bar}", TextValue::Symbol(text_token("bar")).without_annotations())]
     #[case("7.}", TextValue::Decimal(Decimal::new(7, 0)).without_annotations())]

@@ -1,11 +1,11 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+use ion_rs::element::native_writer::NativeElementWriter;
+use ion_rs::element::owned::{Element, IonSequence};
+use ion_rs::element::reader::ElementReader;
+use ion_rs::element::writer::{ElementWriter, Format, TextKind};
 use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
-use ion_rs::value::native_writer::NativeElementWriter;
-use ion_rs::value::owned::{Element, IonSequence};
-use ion_rs::value::reader::ElementReader;
-use ion_rs::value::writer::{ElementWriter, Format, TextKind};
 use ion_rs::{BinaryWriterBuilder, Reader, TextWriterBuilder};
 
 use std::fs::read;
@@ -371,7 +371,7 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
 #[cfg(test)]
 mod impl_display_for_element_tests {
     use super::*;
-    use ion_rs::value::native_writer::NativeElementWriter;
+    use ion_rs::element::native_writer::NativeElementWriter;
     use ion_rs::TextWriterBuilder;
     use std::fs::read;
 

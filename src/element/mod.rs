@@ -22,9 +22,9 @@ pub mod writer;
 
 #[cfg(test)]
 mod tests {
+    use crate::element::owned::*;
     use crate::types::timestamp::Timestamp;
-    use crate::value::owned::*;
-    use crate::{ion_list, ion_sexp, ion_struct, Decimal, Integer, IonType, Symbol};
+    use crate::{ion_list, ion_sexp, ion_struct, Decimal, Int, IonType, Symbol};
     use chrono::*;
     use rstest::*;
     use std::iter::{once, Once};
@@ -305,11 +305,11 @@ mod tests {
     fn bool_case() -> Case {
         Case {
             elem: true.into(),
-            ion_type: IonType::Boolean,
+            ion_type: IonType::Bool,
             ops: vec![AsBool],
             op_assert: Box::new(|e: &Element| {
                 let expected = Element::from(true);
-                assert_eq!(Some(true), e.as_boolean());
+                assert_eq!(Some(true), e.as_bool());
                 assert_eq!(&expected, e);
             }),
         }
@@ -318,11 +318,11 @@ mod tests {
     fn i64_case() -> Case {
         Case {
             elem: 100.into(),
-            ion_type: IonType::Integer,
+            ion_type: IonType::Int,
             ops: vec![AsAnyInt],
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = 100i64.into();
-                assert_eq!(Some(&Integer::I64(100)), e.as_integer());
+                assert_eq!(Some(&Int::I64(100)), e.as_int());
                 assert_eq!(Some(100), e.as_i64());
                 assert_eq!(None, e.as_big_int());
                 assert_eq!(&expected, e);
@@ -333,11 +333,11 @@ mod tests {
     fn big_int_case() -> Case {
         Case {
             elem: BigInt::from(100).into(),
-            ion_type: IonType::Integer,
+            ion_type: IonType::Int,
             ops: vec![AsAnyInt],
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = BigInt::from(100).into();
-                assert_eq!(Some(&Integer::BigInt(BigInt::from(100))), e.as_integer());
+                assert_eq!(Some(&Int::BigInt(BigInt::from(100))), e.as_int());
                 assert_eq!(BigInt::from_str("100").unwrap(), *e.as_big_int().unwrap());
                 assert_eq!(&expected, e);
             }),
@@ -447,7 +447,7 @@ mod tests {
     fn sexp_case() -> Case {
         Case {
             elem: ion_sexp!(true false).into(),
-            ion_type: IonType::SExpression,
+            ion_type: IonType::SExp,
             ops: vec![AsSExp, AsSequence],
             op_assert: Box::new(|e: &Element| {
                 let actual = e.as_sexp().unwrap();
@@ -501,11 +501,11 @@ mod tests {
         // table of negative assertions for each operation
         let neg_table: Vec<(ElemOp, ElemAssertFn)> = vec![
             (IsNull, Box::new(|e| assert!(!e.is_null()))),
-            (AsBool, Box::new(|e| assert_eq!(None, e.as_boolean()))),
+            (AsBool, Box::new(|e| assert_eq!(None, e.as_bool()))),
             (
                 AsAnyInt,
                 Box::new(|e| {
-                    assert_eq!(None, e.as_integer());
+                    assert_eq!(None, e.as_int());
                     assert_eq!(None, e.as_i64());
                     assert_eq!(None, e.as_big_int());
                 }),

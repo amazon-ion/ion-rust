@@ -1,5 +1,5 @@
-use crate::value::owned::Element;
-use crate::value::writer::ElementWriter;
+use crate::element::owned::Element;
+use crate::element::writer::ElementWriter;
 use crate::{IonResult, IonType, IonWriter, RawSymbolTokenRef};
 
 /// Writes [`Element`] instances to the underlying [`IonWriter`] implementation.
@@ -49,8 +49,8 @@ impl<W: IonWriter> NativeElementWriter<W> {
 
         match element.ion_type() {
             IonType::Null => unreachable!("element has IonType::Null but is_null() was false"),
-            IonType::Boolean => self.writer.write_bool(element.as_boolean().unwrap()),
-            IonType::Integer => self.writer.write_integer(element.as_integer().unwrap()),
+            IonType::Bool => self.writer.write_bool(element.as_bool().unwrap()),
+            IonType::Int => self.writer.write_int(element.as_int().unwrap()),
             IonType::Float => self.writer.write_f64(element.as_float().unwrap()),
             IonType::Decimal => self.writer.write_decimal(element.as_decimal().unwrap()),
             IonType::Timestamp => self.writer.write_timestamp(element.as_timestamp().unwrap()),
@@ -60,7 +60,7 @@ impl<W: IonWriter> NativeElementWriter<W> {
             IonType::String => self.writer.write_string(element.as_text().unwrap()),
             IonType::Clob => self.writer.write_clob(element.as_lob().unwrap()),
             IonType::Blob => self.writer.write_blob(element.as_lob().unwrap()),
-            IonType::List | IonType::SExpression => {
+            IonType::List | IonType::SExp => {
                 self.writer.step_in(element.ion_type())?;
                 for value in element.as_sequence().unwrap().iter() {
                     self.write(value)?;
@@ -80,11 +80,12 @@ impl<W: IonWriter> NativeElementWriter<W> {
 
 #[cfg(test)]
 mod tests {
+    use crate::element::native_writer::NativeElementWriter;
+    use crate::element::owned::Element;
+    use crate::element::writer::ElementWriter;
     use crate::ion_eq::IonEq;
     use crate::text::text_writer::TextWriterBuilder;
-    use crate::value::native_writer::NativeElementWriter;
-    use crate::value::owned::Element;
-    use crate::value::writer::ElementWriter;
+
     use crate::IonResult;
     use nom::AsBytes;
 

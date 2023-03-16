@@ -3,7 +3,7 @@ use crate::result::IonResult;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::IonType;
-use crate::Integer;
+use crate::Int;
 
 /**
  * This trait captures the format-agnostic encoding functionality needed to write native Rust types
@@ -42,7 +42,7 @@ pub trait IonWriter {
     fn write_i64(&mut self, value: i64) -> IonResult<()>;
 
     /// Writes an Ion `integer` with the specified value to the output stream.
-    fn write_integer(&mut self, value: &Integer) -> IonResult<()>;
+    fn write_int(&mut self, value: &Int) -> IonResult<()>;
 
     /// Writes an Ion `float` with the specified value to the output stream.
     fn write_f32(&mut self, value: f32) -> IonResult<()>;
@@ -71,7 +71,7 @@ pub trait IonWriter {
     /// Starts a new Ion container with the specified type.
     /// The only valid IonType values are:
     /// * [IonType::List]
-    /// * [IonType::SExpression]
+    /// * [IonType::SExp]
     /// * [IonType::Struct]
     /// Passing any other IonType will result in an `Err`.
     fn step_in(&mut self, container_type: IonType) -> IonResult<()>;
