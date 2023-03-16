@@ -100,7 +100,7 @@ mod tests {
         let expected_elements = Element::read_all(ion.as_bytes())?;
         element_writer.write_all(&expected_elements)?;
         let _ = element_writer.finish()?;
-        let actual_elements: Vec<Element> = Element::read_all(buffer.as_bytes())?;
+        let actual_elements = Element::read_all(buffer.as_bytes())?;
         assert!(expected_elements.ion_eq(&actual_elements));
         Ok(())
     }
