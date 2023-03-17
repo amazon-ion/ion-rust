@@ -291,7 +291,7 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
 
     /// Continues any previously incomplete parsing attempt.
     fn continue_state(&mut self) -> IonResult<()> {
-        if self.need_continue {
+        if self.need_continue && self.step_out_nest == 0 {
             self.need_continue = false;
 
             match self.state {
