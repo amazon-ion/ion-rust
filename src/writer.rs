@@ -10,6 +10,7 @@ use crate::Int;
  * to a stream as Ion values.
  */
 pub trait IonWriter {
+    /// The type to which the implementor writes its data. This may be a file, a buffer, etc.
     type Output;
 
     /// Returns the (major, minor) version of the Ion stream being written. If ion_version is called
