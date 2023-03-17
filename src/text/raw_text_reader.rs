@@ -203,13 +203,18 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
         loop {
             let result = self.reader.step_out();
             if let Err(IonError::Incomplete { .. }) = result {
-                if 0 == self.read_source(read_size)? {
-                    return result;
+                let bytes_read = self.read_source(read_size)?;
+                if 0 == bytes_read {
+                    if self.reader.is_stream_complete() {
+                        return result;
+                    } else {
+                        self.reader.stream_complete();
+                    }
                 }
+                read_size = std::cmp::min(read_size * 2, self.expected_read_size * 10);
             } else {
                 return result;
             }
-            read_size = std::cmp::min(read_size * 2, self.expected_read_size * 10);
         }
     }
 
