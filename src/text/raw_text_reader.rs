@@ -876,7 +876,7 @@ mod reader_tests {
 
         assert_eq!(reader.next().unwrap(), RawStreamItem::VersionMarker(1, 0));
 
-        next_type(reader, IonType::Struct, false); // Version Table
+        next_type(reader, IonType::Struct, false);
 
         next_type(reader, IonType::Struct, false);
         reader.step_in()?;
@@ -912,7 +912,7 @@ mod reader_tests {
         // The reader is now at the second 'true' in the s-expression nested in 'bar'/'b'
         reader.step_out()?; // Step out of .[1].bar.b
         reader.step_out()?; // Step out of .[1].bar
-        reader.step_out()?; // Step out of secont .[1]
+        reader.step_out()?; // Step out of .[1]
 
         next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 11);
