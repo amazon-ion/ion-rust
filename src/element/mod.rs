@@ -15,7 +15,6 @@
 pub mod builders;
 mod element_stream_reader;
 mod iterators;
-// pub mod native_writer;
 pub mod owned;
 pub mod reader;
 pub mod writer;
