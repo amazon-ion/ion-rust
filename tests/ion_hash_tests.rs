@@ -263,6 +263,7 @@ fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
     let mut text_writer = ion_rs::TextWriterBuilder::new().build(&mut buf)?;
     text_writer.write_element(test_input_ion)?;
     text_writer.flush()?;
+    drop(text_writer);
 
     Ok(String::from_utf8_lossy(&buf).to_string())
 }

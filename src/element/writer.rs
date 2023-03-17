@@ -4,9 +4,8 @@
 //! such as byte buffers or files.
 
 use crate::result::IonResult;
-use num_traits::Zero;
 
-use crate::element::owned::{Element, IonSequence, List, SExp, Value};
+use crate::element::owned::{Element, IonSequence, Value};
 use crate::{IonType, IonWriter};
 pub use Format::*;
 pub use TextKind::*;
