@@ -239,8 +239,9 @@ mod reader_tests {
     use crate::types::timestamp::Timestamp;
     use crate::IonType;
     use crate::RawStreamItem::Nothing;
+    use crate::data_source::ToIonDataSource;
 
-    fn next_type(reader: &mut RawTextReader<&str>, ion_type: IonType, is_null: bool) {
+    fn next_type<T: ToIonDataSource>(reader: &mut RawTextReader<T>, ion_type: IonType, is_null: bool) {
         assert_eq!(
             reader.next().unwrap(),
             RawStreamItem::nullable_value(ion_type, is_null)
@@ -782,6 +783,7 @@ mod reader_tests {
         }
     }
 
+
     #[test]
     // This test validates that the last value in the text buffer is not consumed unless the user
     // has flagged the stream as being completely loaded.
@@ -844,6 +846,72 @@ mod reader_tests {
         assert!(result.is_ok());
         assert_eq!(IonType::Symbol, reader.ion_type().unwrap());
 
+        Ok(())
+    }
+
+    #[test]
+    fn nested_struct() -> IonResult<()> {
+        let (source, _metrics) = TestIonSource::new(r#"
+                $ion_1_0
+                {}
+                {
+                    foo: [
+                        1,
+                        [2, 3],
+                        4
+                    ],
+                    bar: {
+                        a: 5,
+                        b: (true true true)
+                    }
+                }
+                11
+            "#
+        );
+        let reader = &mut RawTextReader::new_with_size(source, 24)?;
+
+        assert_eq!(reader.next().unwrap(), RawStreamItem::VersionMarker(1, 0));
+
+        next_type(reader, IonType::Struct, false); // Version Table
+
+        next_type(reader, IonType::Struct, false);
+        reader.step_in()?;
+        next_type(reader, IonType::List, false);
+        assert!(reader.field_name().is_ok());
+
+        reader.step_in()?;
+        next_type(reader, IonType::Int, false);
+        assert_eq!(reader.read_i64()?, 1);
+        next_type(reader, IonType::List, false);
+        reader.step_in()?;
+        next_type(reader, IonType::Int, false);
+        assert_eq!(reader.read_i64()?, 2);
+        next_type(reader, IonType::Int, false);
+        assert_eq!(reader.read_i64()?, 3);
+        reader.step_out()?; // Step out of .[1].foo[1]
+        reader.step_out()?; // Step out of .[1].foo
+
+        next_type(reader, IonType::Struct, false);
+        assert!(reader.field_name().is_ok());
+
+        reader.step_in()?;
+        next_type(reader, IonType::Int, false);
+        assert_eq!(reader.read_i64()?, 5);
+        next_type(reader, IonType::SExp, false);
+        reader.step_in()?;
+        next_type(reader, IonType::Bool, false);
+        assert_eq!(reader.read_bool()?, true);
+        next_type(reader, IonType::Bool, false);
+        assert_eq!(reader.read_bool()?, true);
+        next_type(reader, IonType::Bool, false);
+        assert_eq!(reader.read_bool()?, true);
+        // The reader is now at the second 'true' in the s-expression nested in 'bar'/'b'
+        reader.step_out()?; // Step out of .[1].bar.b
+        reader.step_out()?; // Step out of .[1].bar
+        reader.step_out()?; // Step out of secont .[1]
+
+        next_type(reader, IonType::Int, false);
+        assert_eq!(reader.read_i64()?, 11);
         Ok(())
     }
 }
