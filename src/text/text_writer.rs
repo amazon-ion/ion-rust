@@ -14,10 +14,11 @@ pub struct TextWriterBuilder {
 }
 
 impl TextWriterBuilder {
-    /// Constructs a text Ion writer with modest (but not strictly minimal) spacing.
+    /// Constructs a text Ion writer that serializes data with modest (but not strictly minimal)
+    /// spacing.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {foo: 1, bar: 2, baz: 3} [1, 2, 3] true "hello"
     /// ```
     pub fn new() -> TextWriterBuilder {
@@ -30,7 +31,7 @@ impl TextWriterBuilder {
     /// between top-level values.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {foo: 1, bar: 2, baz: 3}
     /// [1, 2, 3]
     /// true
@@ -45,7 +46,7 @@ impl TextWriterBuilder {
     /// Constructs a 'pretty' text Ion writer that adds human-friendly spacing between values.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {
     ///     foo: 1,
     ///     bar: 2,

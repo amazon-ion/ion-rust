@@ -20,7 +20,7 @@ impl RawTextWriterBuilder {
     /// Constructs a text Ion writer with modest (but not strictly minimal) spacing.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {foo: 1, bar: 2, baz: 3} [1, 2, 3] true "hello"
     /// ```
     pub fn new() -> RawTextWriterBuilder {
@@ -35,7 +35,7 @@ impl RawTextWriterBuilder {
     /// top-level values.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {foo: 1, bar: 2, baz: 3}
     /// [1, 2, 3]
     /// true
@@ -54,7 +54,7 @@ impl RawTextWriterBuilder {
     /// Constructs a 'pretty' text Ion writer that adds human-friendly spacing between values.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {
     ///     foo: 1,
     ///     bar: 2,
