@@ -229,6 +229,7 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
 
 #[cfg(test)]
 mod reader_tests {
+    use crate::data_source::ToIonDataSource;
     use crate::raw_reader::RawStreamItem;
     use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
     use crate::result::IonResult;
@@ -239,9 +240,12 @@ mod reader_tests {
     use crate::types::timestamp::Timestamp;
     use crate::IonType;
     use crate::RawStreamItem::Nothing;
-    use crate::data_source::ToIonDataSource;
 
-    fn next_type<T: ToIonDataSource>(reader: &mut RawTextReader<T>, ion_type: IonType, is_null: bool) {
+    fn next_type<T: ToIonDataSource>(
+        reader: &mut RawTextReader<T>,
+        ion_type: IonType,
+        is_null: bool,
+    ) {
         assert_eq!(
             reader.next().unwrap(),
             RawStreamItem::nullable_value(ion_type, is_null)
@@ -783,7 +787,6 @@ mod reader_tests {
         }
     }
 
-
     #[test]
     // This test validates that the last value in the text buffer is not consumed unless the user
     // has flagged the stream as being completely loaded.
@@ -851,7 +854,8 @@ mod reader_tests {
 
     #[test]
     fn nested_struct() -> IonResult<()> {
-        let (source, _metrics) = TestIonSource::new(r#"
+        let (source, _metrics) = TestIonSource::new(
+            r#"
                 $ion_1_0
                 {}
                 {
@@ -866,7 +870,7 @@ mod reader_tests {
                     }
                 }
                 11
-            "#
+            "#,
         );
         let reader = &mut RawTextReader::new_with_size(source, 24)?;
 
