@@ -110,7 +110,7 @@ impl ElementStreamReader {
                 value
                     .as_sequence()
                     .unwrap()
-                    .iter()
+                    .elements()
                     .map(|e| (None, e.to_owned()))
                     .collect::<Vec<(Option<Symbol>, Element)>>()
                     .into_iter(),

@@ -79,7 +79,7 @@ impl Element {
 
 /// Behavior that is common to both [SExp] and [Struct].
 pub trait IonSequence {
-    fn iter(&self) -> ElementsIterator<'_>;
+    fn elements(&self) -> ElementsIterator<'_>;
     fn get(&self, index: usize) -> Option<&Element>;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool {
@@ -116,7 +116,7 @@ impl Display for List {
 }
 
 impl IonSequence for List {
-    fn iter(&self) -> ElementsIterator<'_> {
+    fn elements(&self) -> ElementsIterator<'_> {
         ElementsIterator::new(&self.children)
     }
 
@@ -138,7 +138,7 @@ impl<S: IonSequence> IonEq for S {
         if self.len() != other.len() {
             return false;
         }
-        for (item1, item2) in self.iter().zip(other.iter()) {
+        for (item1, item2) in self.elements().zip(other.elements()) {
             if !item1.ion_eq(item2) {
                 return false;
             }
@@ -176,7 +176,7 @@ impl Display for SExp {
 }
 
 impl IonSequence for SExp {
-    fn iter(&self) -> ElementsIterator<'_> {
+    fn elements(&self) -> ElementsIterator<'_> {
         ElementsIterator::new(&self.children)
     }
 
@@ -475,6 +475,21 @@ pub struct Element {
 impl Element {
     pub fn new(annotations: Vec<Symbol>, value: Value) -> Self {
         Self { annotations, value }
+    }
+
+    /// Returns a reference to this [Element]'s [Value].
+    ///
+    /// ```
+    /// use ion_rs::element::owned::{Element, Value};
+    /// let element: Element = true.into();
+    /// if let Value::Bool(b) = element.value() {
+    ///     println!("It was a boolean: {b}");
+    /// } else {
+    ///     println!("It was something else.");
+    /// }
+    /// ```
+    pub fn value(&self) -> &Value {
+        &self.value
     }
 }
 

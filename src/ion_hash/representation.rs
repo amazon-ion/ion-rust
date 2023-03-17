@@ -156,7 +156,7 @@ where
 
     fn write_repr_list(&mut self, value: Option<&List>) -> IonResult<()> {
         if let Some(seq) = value {
-            for elem in seq.iter() {
+            for elem in seq.elements() {
                 self.update_serialized_bytes(elem)?;
             }
         }
@@ -166,7 +166,7 @@ where
 
     fn write_repr_sexp(&mut self, value: Option<&SExp>) -> IonResult<()> {
         if let Some(seq) = value {
-            for elem in seq.iter() {
+            for elem in seq.elements() {
                 self.update_serialized_bytes(elem)?;
             }
         }

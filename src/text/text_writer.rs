@@ -14,10 +14,11 @@ pub struct TextWriterBuilder {
 }
 
 impl TextWriterBuilder {
-    /// Constructs a text Ion writer with modest (but not strictly minimal) spacing.
+    /// Constructs a text Ion writer that serializes data with modest (but not strictly minimal)
+    /// spacing.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {foo: 1, bar: 2, baz: 3} [1, 2, 3] true "hello"
     /// ```
     pub fn new() -> TextWriterBuilder {
@@ -30,7 +31,7 @@ impl TextWriterBuilder {
     /// between top-level values.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {foo: 1, bar: 2, baz: 3}
     /// [1, 2, 3]
     /// true
@@ -45,7 +46,7 @@ impl TextWriterBuilder {
     /// Constructs a 'pretty' text Ion writer that adds human-friendly spacing between values.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {
     ///     foo: 1,
     ///     bar: 2,
@@ -99,6 +100,8 @@ pub struct TextWriter<W: Write> {
 }
 
 impl<W: Write> IonWriter for TextWriter<W> {
+    type Output = W;
+
     fn supports_text_symbol_tokens(&self) -> bool {
         // The TextWriter can always write text field names, annotations, and symbols.
         true
@@ -184,6 +187,8 @@ impl<W: Write> IonWriter for TextWriter<W> {
             fn depth(&self) -> usize;
             fn step_out(&mut self) -> IonResult<()>;
             fn flush(&mut self) -> IonResult<()>;
+            fn output(&self) -> &Self::Output;
+            fn output_mut(&mut self) -> &mut Self::Output;
         }
     }
 }
@@ -210,9 +215,8 @@ mod tests {
         text_writer.write_symbol(5)?;
         text_writer.step_out()?;
         text_writer.flush()?;
-        drop(text_writer);
 
-        let mut reader = ReaderBuilder::new().build(buffer.as_slice())?;
+        let mut reader = ReaderBuilder::new().build(text_writer.output().as_slice())?;
         assert_eq!(Value(IonType::Struct), reader.next()?);
         reader.step_in()?;
         assert_eq!(Value(IonType::Symbol), reader.next()?);
