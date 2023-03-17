@@ -904,11 +904,11 @@ mod reader_tests {
         next_type(reader, IonType::SExp, false);
         reader.step_in()?;
         next_type(reader, IonType::Bool, false);
-        assert_eq!(reader.read_bool()?, true);
+        assert!(reader.read_bool()?);
         next_type(reader, IonType::Bool, false);
-        assert_eq!(reader.read_bool()?, true);
+        assert!(reader.read_bool()?);
         next_type(reader, IonType::Bool, false);
-        assert_eq!(reader.read_bool()?, true);
+        assert!(reader.read_bool()?);
         // The reader is now at the second 'true' in the s-expression nested in 'bar'/'b'
         reader.step_out()?; // Step out of .[1].bar.b
         reader.step_out()?; // Step out of .[1].bar
