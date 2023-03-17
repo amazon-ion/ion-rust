@@ -477,6 +477,17 @@ impl Element {
         Self { annotations, value }
     }
 
+    /// Returns a reference to this [Element]'s [Value].
+    ///
+    /// ```
+    /// use ion_rs::element::owned::{Element, Value};
+    /// let element: Element = true.into();
+    /// if let Value::Bool(b) = element.value() {
+    ///     println!("It was a boolean: {b}");
+    /// } else {
+    ///     println!("It was something else.");
+    /// }
+    /// ```
     pub fn value(&self) -> &Value {
         &self.value
     }
