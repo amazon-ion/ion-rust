@@ -650,8 +650,8 @@ impl Timestamp {
     /// Returns this Timestamp's fractional seconds in nanoseconds
     ///
     /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
-    /// number of nanoseconds, losing precision. Similarly, a Timestamp with milliseconds would
-    /// also return a number of nanoseconds, erroneously gaining precision.
+    /// number of nanoseconds, losing precision. If it loses precision then truncation is preformed.
+    /// (e.g. a timestamp with fractional seconds of `0.000000000999` would be returned as `0`)
     pub fn nanoseconds(&self) -> u32 {
         self.fractional_seconds_as_nanoseconds().unwrap_or_default()
     }
@@ -659,7 +659,8 @@ impl Timestamp {
     /// Returns this Timestamp's fractional seconds in milliseconds
     ///
     /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
-    /// number of milliseconds, losing precision.
+    /// number of milliseconds, losing precision. If it loses precision then truncation is preformed.
+    /// (e.g. a timestamp with fractional seconds of `0.000999` would be returned as `0`)
     pub fn milliseconds(&self) -> u32 {
         self.fractional_seconds_as_nanoseconds()
             .map(|s| s / 1000000)
@@ -1685,12 +1686,12 @@ mod timestamp_tests {
         let timestamp_2 =
             Timestamp::with_ymd_hms(2021, 12, 31, 10, 15, 30).build_at_offset(-11 * 60)?;
 
-        assert_eq!(timestamp_2.month(), 12);
+        assert_eq!(timestamp_2.year(), 2021);
 
         let timestamp_3 =
             Timestamp::with_ymd_hms(2021, 12, 31, 15, 15, 30).build_at_offset(10 * 60)?;
 
-        assert_eq!(timestamp_3.month(), 12);
+        assert_eq!(timestamp_3.year(), 2021);
 
         Ok(())
     }
