@@ -3,13 +3,13 @@
 
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
+use ion_rs::element::owned::{Element, Struct};
+use ion_rs::element::writer::ElementWriter;
+use ion_rs::element::*;
 use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::integer::IntAccess;
-use ion_rs::value::owned::{Element, Struct};
-use ion_rs::value::reader::{element_reader, ElementReader};
-use ion_rs::value::writer::ElementWriter;
-use ion_rs::value::*;
+
 use ion_rs::IonWriter;
 use std::convert::From;
 use std::fmt::Debug;
@@ -123,7 +123,7 @@ fn ion_hash_tests() -> IonHashTestResult<()> {
 
 fn test_file(file_name: &str) -> IonHashTestResult<()> {
     let data = read(file_name).map_err(|source| ion_rs::IonError::IoError { source })?;
-    let elems = element_reader().read_all(&data)?;
+    let elems = Element::read_all(data)?;
     test_all(elems)
 }
 
@@ -156,7 +156,7 @@ fn test_all(elems: Vec<Element>) -> IonHashTestResult<()> {
                 let mut bytes = vec![0xE0, 0x01, 0x00, 0xEA];
                 bytes.extend(value);
 
-                let loaded = element_reader().read_all(&bytes)?;
+                let loaded = Element::read_all(&bytes)?;
                 let elem = loaded
                     .into_iter()
                     .next()
@@ -237,7 +237,7 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
         illegal_operation("only identity tests are implemented")?
     };
 
-    if let Some(expectation) = identity.iter().last() {
+    if let Some(expectation) = identity.elements().last() {
         let method = expectation
             .annotations()
             .next()
@@ -260,14 +260,12 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
 /// name of the test is the Ion text representation of the input value.
 fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
     let mut buf = Vec::new();
-    let text_writer = ion_rs::TextWriterBuilder::new().build(&mut buf)?;
-    let mut element_writer = ion_rs::value::native_writer::NativeElementWriter::new(text_writer);
-    element_writer.write(test_input_ion)?;
-    let mut text_writer = element_writer.finish()?;
+    let mut text_writer = ion_rs::TextWriterBuilder::new().build(&mut buf)?;
+    text_writer.write_element(test_input_ion)?;
     text_writer.flush()?;
     drop(text_writer);
 
-    Ok(String::from_utf8_lossy(&*buf).to_string())
+    Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
 fn test_case_name_from_annotation(test_case_ion: &Element) -> Option<String> {
@@ -282,9 +280,9 @@ fn test_case_name_from_annotation(test_case_ion: &Element) -> Option<String> {
 fn seq_to_bytes(elem: &Element) -> Vec<u8> {
     elem.as_sequence()
         .expect("expected a sequence")
-        .iter()
+        .elements()
         .map(|it| {
-            it.as_integer()
+            it.as_int()
                 .and_then(|i| i.as_i64())
                 .expect("expected a sequence of bytes") as u8
         })
@@ -351,7 +349,7 @@ mod unknown_symbol_text_tests {
 
     #[test]
     fn test_unknown_annotation_text() {
-        let mut element = element_reader().read_one("{}".as_bytes()).unwrap();
+        let mut element = Element::read_one("{}".as_bytes()).unwrap();
         element = element.with_annotations(vec![Symbol::unknown_text()]);
         let digest = IdentityDigest::hash_element(&element).unwrap();
 

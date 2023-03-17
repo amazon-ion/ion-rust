@@ -1,6 +1,6 @@
 use crate::result::IonResult;
 use crate::types::decimal::Decimal;
-use crate::types::integer::Integer;
+use crate::types::integer::Int;
 use crate::types::timestamp::Timestamp;
 use crate::types::IonType;
 
@@ -83,10 +83,10 @@ pub trait IonReader {
     /// error is encountered while reading, returns [crate::IonError].
     fn read_i64(&mut self) -> IonResult<i64>;
 
-    /// Attempts to read the current item as an Ion integer and return it as an [crate::Integer]. If the
+    /// Attempts to read the current item as an Ion integer and return it as an [crate::Int]. If the
     /// current item is not an integer or an IO error is encountered while reading, returns
     /// [crate::IonError].
-    fn read_integer(&mut self) -> IonResult<Integer>;
+    fn read_int(&mut self) -> IonResult<Int>;
 
     /// Attempts to read the current item as an Ion float and return it as an f32. If the current
     /// item is not a float or an IO error is encountered while reading, returns [crate::IonError].

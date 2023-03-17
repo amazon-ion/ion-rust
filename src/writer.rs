@@ -3,13 +3,16 @@ use crate::result::IonResult;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::IonType;
-use crate::Integer;
+use crate::Int;
 
 /**
  * This trait captures the format-agnostic encoding functionality needed to write native Rust types
  * to a stream as Ion values.
  */
 pub trait IonWriter {
+    /// The type to which the implementor writes its data. This may be a file, a buffer, etc.
+    type Output;
+
     /// Returns the (major, minor) version of the Ion stream being written. If ion_version is called
     /// before an Ion Version Marker has been emitted, the version (1, 0) will be returned.
     fn ion_version(&self) -> (u8, u8);
@@ -42,7 +45,7 @@ pub trait IonWriter {
     fn write_i64(&mut self, value: i64) -> IonResult<()>;
 
     /// Writes an Ion `integer` with the specified value to the output stream.
-    fn write_integer(&mut self, value: &Integer) -> IonResult<()>;
+    fn write_int(&mut self, value: &Int) -> IonResult<()>;
 
     /// Writes an Ion `float` with the specified value to the output stream.
     fn write_f32(&mut self, value: f32) -> IonResult<()>;
@@ -71,7 +74,7 @@ pub trait IonWriter {
     /// Starts a new Ion container with the specified type.
     /// The only valid IonType values are:
     /// * [IonType::List]
-    /// * [IonType::SExpression]
+    /// * [IonType::SExp]
     /// * [IonType::Struct]
     /// Passing any other IonType will result in an `Err`.
     fn step_in(&mut self, container_type: IonType) -> IonResult<()>;
@@ -96,4 +99,35 @@ pub trait IonWriter {
     /// Causes any buffered data to be written to the underlying io::Write implementation.
     /// This method can only be called when the writer is at the top level.
     fn flush(&mut self) -> IonResult<()>;
+
+    /// Returns a reference to the writer's output.
+    ///
+    /// This method can be used to inspect the Ion data that the writer has produced without having
+    /// to first drop the writer.
+    /// ```
+    /// use ion_rs::element::owned::Element;
+    /// use ion_rs::{IonResult, IonWriter, TextWriter, TextWriterBuilder};
+    /// # fn roundtrip() -> IonResult<()> {
+    /// // Set up our output buffer
+    /// let mut buffer: Vec<u8> = Vec::new();
+    /// // Construct a writer that will serialize values to the buffer
+    /// let mut writer = TextWriterBuilder::default().build(&mut buffer)?;
+    /// // Serialize some data
+    /// writer.write_string("hello")?;
+    /// writer.flush()?;
+    /// // Read the data back from the output buffer
+    /// let output_element = Element::read_one(writer.output())?;
+    /// // Confirm that it matches the input data
+    /// assert_eq!(Element::from("hello"), output_element);
+    /// # Ok(())
+    /// # }
+    /// # roundtrip().unwrap();
+    /// ```
+    fn output(&self) -> &Self::Output;
+
+    /// Returns a mutable reference to the writer's output.
+    ///
+    /// Modifying the underlying sink is an inherently risky operation and can result in unexpected
+    /// behavior or invalid data. It is not recommended for most use cases.
+    fn output_mut(&mut self) -> &mut Self::Output;
 }

@@ -33,8 +33,8 @@ fn ion_type_from_text(text: &str) -> Option<IonType> {
     use IonType::*;
     let ion_type = match text {
         "null" => Null,
-        "bool" => Boolean,
-        "int" => Integer,
+        "bool" => Bool,
+        "int" => Int,
         "float" => Float,
         "decimal" => Decimal,
         "timestamp" => Timestamp,
@@ -44,7 +44,7 @@ fn ion_type_from_text(text: &str) -> Option<IonType> {
         "clob" => Clob,
         "struct" => Struct,
         "list" => List,
-        "sexp" => SExpression,
+        "sexp" => SExp,
         _ => return None,
     };
     Some(ion_type)
@@ -70,8 +70,8 @@ mod null_parsing_tests {
         use IonType::*;
         parse_equals("null ", Null);
         parse_equals("null.null ", Null);
-        parse_equals("null.bool ", Boolean);
-        parse_equals("null.int ", Integer);
+        parse_equals("null.bool ", Bool);
+        parse_equals("null.int ", Int);
         parse_equals("null.float ", Float);
         parse_equals("null.decimal ", Decimal);
         parse_equals("null.timestamp ", Timestamp);
@@ -80,7 +80,7 @@ mod null_parsing_tests {
         parse_equals("null.blob ", Blob);
         parse_equals("null.clob ", Clob);
         parse_equals("null.list ", List);
-        parse_equals("null.sexp ", SExpression);
+        parse_equals("null.sexp ", SExp);
         parse_equals("null.struct ", Struct);
 
         // Misspelled null

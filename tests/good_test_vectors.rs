@@ -134,7 +134,7 @@ fn read_all_values(reader: &mut Reader) -> IonResult<()> {
             continue;
         }
         match ion_type {
-            Struct | List | SExpression => {
+            Struct | List | SExp => {
                 reader.step_in()?;
                 read_all_values(reader)?;
                 reader.step_out()?;
@@ -146,7 +146,7 @@ fn read_all_values(reader: &mut Reader) -> IonResult<()> {
                 // The binary reader's tokens are always SIDs
                 let _symbol_id = reader.read_symbol()?;
             }
-            Integer => {
+            Int => {
                 let _int = reader.read_i64()?;
             }
             Float => {
@@ -158,7 +158,7 @@ fn read_all_values(reader: &mut Reader) -> IonResult<()> {
             Timestamp => {
                 let _timestamp = reader.read_timestamp()?;
             }
-            Boolean => {
+            Bool => {
                 let _boolean = reader.read_bool()?;
             }
             Blob => {

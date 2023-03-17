@@ -15,7 +15,7 @@ use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::{ContainerType, SymbolId};
 use crate::writer::IonWriter;
-use crate::{Integer, IonType};
+use crate::{Int, IonType};
 
 use super::decimal::DecimalBinaryEncoder;
 use super::timestamp::TimestampBinaryEncoder;
@@ -510,6 +510,8 @@ impl<W: Write> RawBinaryWriter<W> {
 }
 
 impl<W: Write> IonWriter for RawBinaryWriter<W> {
+    type Output = W;
+
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }
@@ -547,8 +549,8 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         self.write_scalar(|enc_buffer| {
             let byte: u8 = match ion_type {
                 IonType::Null => 0x0F,
-                IonType::Boolean => 0x1F,
-                IonType::Integer => 0x2F,
+                IonType::Bool => 0x1F,
+                IonType::Int => 0x2F,
                 IonType::Float => 0x4F,
                 IonType::Decimal => 0x5F,
                 IonType::Timestamp => 0x6F,
@@ -557,7 +559,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
                 IonType::Clob => 0x9F,
                 IonType::Blob => 0xAF,
                 IonType::List => 0xBF,
-                IonType::SExpression => 0xCF,
+                IonType::SExp => 0xCF,
                 IonType::Struct => 0xDF,
             };
             enc_buffer.push(byte);
@@ -598,11 +600,11 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
     }
 
     /// Writes an Ion integer with the specified value.
-    fn write_integer(&mut self, value: &Integer) -> IonResult<()> {
+    fn write_int(&mut self, value: &Int) -> IonResult<()> {
         // If the `value` is an `i64`, use `write_i64` and return.
         let value = match value {
-            Integer::I64(i) => return self.write_i64(*i),
-            Integer::BigInt(i) => i,
+            Int::I64(i) => return self.write_i64(*i),
+            Int::BigInt(i) => i,
         };
 
         // From here on, `value` is a `BigInt`.
@@ -638,7 +640,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
     /// Writes an Ion float with the specified value.
     fn write_f32(&mut self, value: f32) -> IonResult<()> {
         self.write_scalar(|enc_buffer| {
-            if value == 0f32 {
+            if value == 0f32 && !value.is_sign_negative() {
                 enc_buffer.push(0x40);
                 return Ok(());
             }
@@ -729,7 +731,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         use IonType::*;
         let container_type = match ion_type {
             List => ContainerType::List,
-            SExpression => ContainerType::SExpression,
+            SExp => ContainerType::SExpression,
             Struct => ContainerType::Struct,
             _ => return illegal_operation("Cannot step into a scalar Ion type."),
         };
@@ -787,7 +789,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
             ContainerType::TopLevel => None,
             ContainerType::Struct => Some(IonType::Struct),
             ContainerType::List => Some(IonType::List),
-            ContainerType::SExpression => Some(IonType::SExpression),
+            ContainerType::SExpression => Some(IonType::SExp),
         }
     }
 
@@ -889,6 +891,14 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
 
         Ok(())
     }
+
+    fn output(&self) -> &Self::Output {
+        &self.out
+    }
+
+    fn output_mut(&mut self) -> &mut Self::Output {
+        &mut self.out
+    }
 }
 
 #[cfg(test)]
@@ -970,8 +980,8 @@ mod writer_tests {
     fn binary_writer_nulls() -> IonResult<()> {
         let ion_types = &[
             IonType::Null,
-            IonType::Boolean,
-            IonType::Integer,
+            IonType::Bool,
+            IonType::Int,
             IonType::Float,
             IonType::Decimal,
             IonType::Timestamp,
@@ -980,7 +990,7 @@ mod writer_tests {
             IonType::Clob,
             IonType::Blob,
             IonType::List,
-            IonType::SExpression,
+            IonType::SExp,
             IonType::Struct,
         ];
 
@@ -1004,7 +1014,7 @@ mod writer_tests {
     fn binary_writer_bools() -> IonResult<()> {
         binary_writer_scalar_test(
             &[true, false],
-            IonType::Boolean,
+            IonType::Bool,
             |writer, v| writer.write_bool(*v),
             |reader| reader.read_bool(),
         )
@@ -1014,7 +1024,7 @@ mod writer_tests {
     fn binary_writer_ints() -> IonResult<()> {
         binary_writer_scalar_test(
             &[-24_601, -17, -1, 0, 1, 17, 24_601],
-            IonType::Integer,
+            IonType::Int,
             |writer, v| writer.write_i64(*v),
             |reader| reader.read_i64(),
         )
@@ -1132,19 +1142,19 @@ mod writer_tests {
     }
 
     fn expect_bool(reader: &mut TestReader, value: bool) {
-        expect_scalar(reader, IonType::Boolean, |r| r.read_bool(), value);
+        expect_scalar(reader, IonType::Bool, |r| r.read_bool(), value);
     }
 
     fn expect_integer(reader: &mut TestReader, value: i64) {
-        expect_scalar(reader, IonType::Integer, |r| r.read_i64(), value);
+        expect_scalar(reader, IonType::Int, |r| r.read_i64(), value);
     }
 
     fn expect_big_integer(reader: &mut TestReader, value: &BigInt) {
         expect_scalar(
             reader,
-            IonType::Integer,
-            |r| r.read_integer(),
-            Integer::BigInt(value.clone()),
+            IonType::Int,
+            |r| r.read_int(),
+            Int::BigInt(value.clone()),
         );
     }
 
@@ -1184,7 +1194,7 @@ mod writer_tests {
     }
 
     fn expect_s_expression(reader: &mut TestReader) {
-        expect_container(reader, IonType::SExpression);
+        expect_container(reader, IonType::SExp);
     }
 
     fn expect_struct(reader: &mut TestReader) {
@@ -1232,11 +1242,11 @@ mod writer_tests {
         let very_big_negative = -very_big_positive.clone();
         binary_writer_test(
             |writer| {
-                writer.write_integer(&Integer::BigInt(BigInt::zero()))?;
-                writer.write_integer(&Integer::BigInt(big_positive.clone()))?;
-                writer.write_integer(&Integer::BigInt(very_big_positive.clone()))?;
-                writer.write_integer(&Integer::BigInt(big_negative.clone()))?;
-                writer.write_integer(&Integer::BigInt(very_big_negative.clone()))?;
+                writer.write_int(&Int::BigInt(BigInt::zero()))?;
+                writer.write_int(&Int::BigInt(big_positive.clone()))?;
+                writer.write_int(&Int::BigInt(very_big_positive.clone()))?;
+                writer.write_int(&Int::BigInt(big_negative.clone()))?;
+                writer.write_int(&Int::BigInt(very_big_negative.clone()))?;
                 Ok(())
             },
             |reader| {
@@ -1315,7 +1325,7 @@ mod writer_tests {
 
                 // foo::(true)
                 writer.set_annotations([10]);
-                writer.step_in(IonType::SExpression)?;
+                writer.step_in(IonType::SExp)?;
                 writer.write_bool(true)?;
                 writer.step_out()?;
 

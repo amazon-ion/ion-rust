@@ -10,7 +10,7 @@ use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::ContainerType;
 use crate::writer::IonWriter;
-use crate::{Integer, IonType};
+use crate::{Int, IonType};
 
 pub struct RawTextWriterBuilder {
     whitespace_config: WhitespaceConfig,
@@ -20,7 +20,7 @@ impl RawTextWriterBuilder {
     /// Constructs a text Ion writer with modest (but not strictly minimal) spacing.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {foo: 1, bar: 2, baz: 3} [1, 2, 3] true "hello"
     /// ```
     pub fn new() -> RawTextWriterBuilder {
@@ -35,7 +35,7 @@ impl RawTextWriterBuilder {
     /// top-level values.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {foo: 1, bar: 2, baz: 3}
     /// [1, 2, 3]
     /// true
@@ -54,7 +54,7 @@ impl RawTextWriterBuilder {
     /// Constructs a 'pretty' text Ion writer that adds human-friendly spacing between values.
     ///
     /// For example:
-    /// ```ignore
+    /// ```text
     /// {
     ///     foo: 1,
     ///     bar: 2,
@@ -199,18 +199,6 @@ pub struct RawTextWriter<W: Write> {
 }
 
 impl<W: Write> RawTextWriter<W> {
-    /// Returns a reference to the underlying io::Write implementation.
-    pub fn output(&self) -> &W {
-        self.output.get_ref()
-    }
-
-    /// Returns a mutable reference to the underlying io::Write implementation. Modifying the
-    /// underlying sink is an inherently risky operation and can result in unexpected behavior.
-    /// It is not recommended for most use cases.
-    pub fn output_mut(&mut self) -> &mut W {
-        self.output.get_mut()
-    }
-
     /// Returns true if the RawTextWriter is currently positioned within a Struct.
     pub fn is_in_struct(&self) -> bool {
         self.parent_level().container_type == ContainerType::Struct
@@ -461,6 +449,8 @@ impl<W: Write> RawTextWriter<W> {
 }
 
 impl<W: Write> IonWriter for RawTextWriter<W> {
+    type Output = W;
+
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }
@@ -492,8 +482,8 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         self.write_scalar(|output| {
             let null_text = match ion_type {
                 Null => "null",
-                Boolean => "null.bool",
-                Integer => "null.int",
+                Bool => "null.bool",
+                Int => "null.int",
                 Float => "null.float",
                 Decimal => "null.decimal",
                 Timestamp => "null.timestamp",
@@ -502,7 +492,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
                 Blob => "null.blob",
                 Clob => "null.clob",
                 List => "null.list",
-                SExpression => "null.sexp",
+                SExp => "null.sexp",
                 Struct => "null.struct",
             };
             write!(output, "{null_text}")?;
@@ -531,7 +521,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
     }
 
     /// Writes an Ion `integer` with the specified value to the output stream.
-    fn write_integer(&mut self, value: &Integer) -> IonResult<()> {
+    fn write_int(&mut self, value: &Int) -> IonResult<()> {
         self.write_scalar(|output| {
             write!(output, "{value}")?;
             Ok(())
@@ -664,7 +654,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
                 write!(self.output, "[")?;
                 ContainerType::List
             }
-            SExpression => {
+            SExp => {
                 write!(self.output, "(")?;
                 ContainerType::SExpression
             }
@@ -693,7 +683,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         match self.parent_level().container_type {
             ContainerType::TopLevel => None,
             ContainerType::List => Some(IonType::List),
-            ContainerType::SExpression => Some(IonType::SExpression),
+            ContainerType::SExpression => Some(IonType::SExp),
             ContainerType::Struct => Some(IonType::Struct),
         }
     }
@@ -737,6 +727,14 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         self.output.flush()?;
         Ok(())
     }
+
+    fn output(&self) -> &W {
+        self.output.get_ref()
+    }
+
+    fn output_mut(&mut self) -> &mut W {
+        self.output.get_mut()
+    }
 }
 
 #[cfg(test)]
@@ -763,8 +761,10 @@ mod tests {
             .expect("could not create RawTextWriter");
         commands(&mut writer).expect("Invalid TextWriter test commands.");
         writer.flush().expect("Call to flush() failed.");
-        drop(writer);
-        assert_eq!(str::from_utf8(&output).unwrap(), expected);
+        assert_eq!(
+            str::from_utf8(writer.output().as_slice()).unwrap(),
+            expected
+        );
     }
 
     /// Constructs a [RawTextWriter] using [RawTextReaderBuilder::default], passes it to the
@@ -1071,7 +1071,7 @@ mod tests {
     fn write_s_expression() {
         writer_test(
             |w| {
-                w.step_in(IonType::SExpression)?;
+                w.step_in(IonType::SExp)?;
                 w.write_string("foo")?;
                 w.write_i64(21)?;
                 w.write_symbol("bar")?;

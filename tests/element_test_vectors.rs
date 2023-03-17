@@ -1,12 +1,11 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+use ion_rs::element::owned::{Element, IonSequence};
+use ion_rs::element::reader::ElementReader;
+use ion_rs::element::writer::{ElementWriter, Format, TextKind};
 use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
-use ion_rs::value::native_writer::NativeElementWriter;
-use ion_rs::value::owned::{Element, Sequence};
-use ion_rs::value::reader::ElementReader;
-use ion_rs::value::writer::{ElementWriter, Format, TextKind};
-use ion_rs::{BinaryWriterBuilder, TextWriterBuilder};
+use ion_rs::{BinaryWriterBuilder, IonWriter, Reader, TextWriterBuilder};
 
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
@@ -37,7 +36,7 @@ type SkipList = &'static [&'static str];
 // Once all of the tests are passing, we should work to unify their APIs.
 trait RoundTrip {
     /// Encodes `elements` to a buffer in the specified Ion `format` and then reads them back into
-    /// a `Vec<OwnedElement>` using the provided reader.
+    /// a `Vec<Element>` using the provided reader.
     fn roundtrip<R: ElementReader>(
         elements: &[Element],
         format: Format,
@@ -45,61 +44,46 @@ trait RoundTrip {
     ) -> IonResult<Vec<Element>>;
 }
 
-/// These unit structs implement the [RoundTrip] trait and can be passed throughout the
-/// integration tests to dictate which readers/writers should be used in each test.
-struct NativeElementWriterApi;
-
-impl RoundTrip for NativeElementWriterApi {
-    fn roundtrip<R: ElementReader>(
-        elements: &[Element],
-        format: Format,
-        reader: R,
-    ) -> IonResult<Vec<Element>> {
-        // Unlike the C writer, the Rust writer can write into a growing Vec.
-        // No need for an aggressive preallocation.
-        let mut buffer = Vec::with_capacity(2048);
-        match format {
-            Format::Text(kind) => {
-                let writer = match kind {
-                    TextKind::Compact => TextWriterBuilder::new().build(&mut buffer),
-                    TextKind::Lines => TextWriterBuilder::lines().build(&mut buffer),
-                    TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
-                }?;
-                let mut writer = NativeElementWriter::new(writer);
-                writer.write_all(elements)?;
-                let _ = writer.finish()?;
-            }
-            Format::Binary => {
-                let binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
-                let mut writer = NativeElementWriter::new(binary_writer);
-                writer.write_all(elements)?;
-                let _ = writer.finish()?;
-            }
-        };
-
-        reader.read_all(buffer.as_slice())
-    }
+/// Serializes all of the given [Element]s to a `Vec<u8>` according to the
+/// specified [Format].
+fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
+    let mut buffer = Vec::with_capacity(2048);
+    match format {
+        Format::Text(kind) => {
+            let mut writer = match kind {
+                TextKind::Compact => TextWriterBuilder::new().build(&mut buffer),
+                TextKind::Lines => TextWriterBuilder::lines().build(&mut buffer),
+                TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
+            }?;
+            writer.write_elements(elements)?;
+            writer.flush()?;
+        }
+        Format::Binary => {
+            let mut binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
+            binary_writer.write_elements(elements)?;
+            binary_writer.flush()?;
+        }
+    };
+    Ok(buffer)
 }
 
 trait ElementApi {
-    type ReaderApi: ElementReader;
-    type RoundTripper: RoundTrip;
-
     fn global_skip_list() -> SkipList;
     fn read_one_equivs_skip_list() -> SkipList;
     fn round_trip_skip_list() -> SkipList;
     fn equivs_skip_list() -> SkipList;
     fn non_equivs_skip_list() -> SkipList;
 
-    fn make_reader() -> Self::ReaderApi;
+    fn make_reader(data: &[u8]) -> IonResult<Reader<'_>>;
 
     /// Asserts the given elements can be round-tripped and equivalent, then returns the new elements.
     fn assert_round_trip(
         source_elements: &Vec<Element>,
         format: Format,
     ) -> IonResult<Vec<Element>> {
-        let new_elements =
-            Self::RoundTripper::roundtrip(source_elements, format, Self::make_reader())?;
+        let bytes = serialize(format, source_elements)?;
+        let mut reader = Self::make_reader(&bytes)?;
+        let new_elements = reader.read_all_elements()?;
         assert!(
             source_elements.ion_eq(&new_elements),
             "Roundtrip via {:?} failed: {}",
@@ -117,7 +101,7 @@ trait ElementApi {
         for (index, (element1, element2)) in e1.iter().zip(e2.iter()).enumerate() {
             if !element1.ion_eq(element2) {
                 return format!(
-                    "The values at position #{index} were not IonEq.\ne1: {element1:?}\ne2: {element2:?}"
+                    "The values at position #{index} were not IonEq.\ne1: {element1}\ne2: {element2}"
                 );
             }
         }
@@ -129,7 +113,7 @@ trait ElementApi {
         format1: Format,
         format2: Format,
     ) -> IonResult<()> {
-        let source_elements = Self::read_file(&Self::make_reader(), file_name)?;
+        let source_elements = Self::read_file(file_name)?;
         if contains_path(Self::round_trip_skip_list(), file_name) {
             return Ok(());
         }
@@ -171,18 +155,17 @@ trait ElementApi {
     /// This will parse each string as a [`Vec`] of [`Element`] and apply the `group_assert` function
     /// for every pair of the parsed data including the identity case (a parsed document is
     /// compared against itself).
-    fn read_group_embedded<R, F>(
-        reader: &R,
-        raw_group: &Sequence,
-        group_assert: &F,
-    ) -> IonResult<()>
+    fn read_group_embedded<F>(raw_group: &dyn IonSequence, group_assert: &F) -> IonResult<()>
     where
-        R: ElementReader,
         F: Fn(&Vec<Element>, &Vec<Element>),
     {
         let group_res: IonResult<Vec<_>> = raw_group
-            .iter()
-            .map(|elem| reader.read_all(elem.as_text().unwrap().as_bytes()))
+            .elements()
+            .map(|elem| {
+                Self::make_reader(elem.as_text().unwrap().as_bytes())?
+                    .elements()
+                    .collect()
+            })
             .collect();
         let group = group_res?;
         for this in group.iter() {
@@ -212,18 +195,13 @@ trait ElementApi {
     ///
     /// This would have two groups, one with direct values that will be compared and another
     /// with embedded Ion text that will be parsed and compared.
-    fn read_group<F1, F2>(
-        reader: Self::ReaderApi,
-        file_name: &str,
-        value_assert: F1,
-        group_assert: F2,
-    ) -> IonResult<()>
+    fn read_group<F1, F2>(file_name: &str, value_assert: F1, group_assert: F2) -> IonResult<()>
     where
         // group index, value 1 index, value 1, value 2 index, value 2
         F1: Fn(usize, usize, &Element, usize, &Element),
         F2: Fn(&Vec<Element>, &Vec<Element>),
     {
-        let group_lists = Self::read_file(&reader, file_name)?;
+        let group_lists = Self::read_file(file_name)?;
         for (group_index, group_list) in group_lists.iter().enumerate() {
             // every grouping set is a list/sexp
             // look for the embedded annotation to parse/test as the underlying value
@@ -232,11 +210,11 @@ trait ElementApi {
                 .any(|annotation| annotation.text() == Some("embedded_documents"));
             match (group_list.as_sequence(), is_embedded) {
                 (Some(group), true) => {
-                    Self::read_group_embedded(&reader, group, &group_assert)?;
+                    Self::read_group_embedded(group, &group_assert)?;
                 }
                 (Some(group), false) => {
-                    for (this_index, this) in group.iter().enumerate() {
-                        for (that_index, that) in group.iter().enumerate() {
+                    for (this_index, this) in group.elements().enumerate() {
+                        for (that_index, that) in group.elements().enumerate() {
                             value_assert(group_index, this_index, this, that_index, that);
                         }
                     }
@@ -249,13 +227,15 @@ trait ElementApi {
         Ok(())
     }
 
-    fn read_file(reader: &Self::ReaderApi, file_name: &str) -> IonResult<Vec<Element>> {
-        // TODO have a better API that doesn't require buffering into memory everything...
+    fn read_file(file_name: &str) -> IonResult<Vec<Element>> {
         let data = read(file_name)?;
-        let result = reader.read_all(&data);
+        let mut reader = Self::make_reader(&data)?;
+        let result: IonResult<Vec<Element>> = reader.read_all_elements();
 
         // do some simple single value reading tests
-        let single_result = reader.read_one(&data);
+        let mut reader = Self::make_reader(&data)?;
+        let single_result: IonResult<Element> = reader.read_one_element();
+
         match &result {
             Ok(elems) => {
                 if elems.len() == 1 {
@@ -327,7 +307,7 @@ macro_rules! good_round_trip {
 
 fn bad<E: ElementApi>(_element_api: E, file_name: &str) {
     E::assert_file(E::global_skip_list(), file_name, || {
-        match E::read_file(&E::make_reader(), file_name) {
+        match E::read_file(file_name) {
             Ok(items) => panic!("Expected error, got: {items:?}"),
             Err(_) => Ok(()),
         }
@@ -338,7 +318,6 @@ fn equivs<E: ElementApi>(_element_api: E, file_name: &str) {
     let skip_list = concat(E::global_skip_list(), E::equivs_skip_list());
     E::assert_file(&skip_list[..], file_name, || {
         E::read_group(
-            E::make_reader(),
             file_name,
             |group_index, this_index, this, that_index, that| {
                 assert!(
@@ -355,7 +334,6 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
     let skip_list = concat(E::global_skip_list(), E::non_equivs_skip_list());
     E::assert_file(&skip_list[..], file_name, || {
         E::read_group(
-            E::make_reader(),
             file_name,
             |group_index, this_index, this, that_index, that| {
                 if std::ptr::eq(this, that) {
@@ -390,8 +368,6 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
 #[cfg(test)]
 mod impl_display_for_element_tests {
     use super::*;
-    use ion_rs::value::native_writer::NativeElementWriter;
-    use ion_rs::value::reader::element_reader;
     use ion_rs::TextWriterBuilder;
     use std::fs::read;
 
@@ -422,16 +398,17 @@ mod impl_display_for_element_tests {
         }
 
         let data = read(file_name).unwrap();
-        let result = element_reader().read_all(&data).unwrap_or_else(|_| {
-            panic!("Expected to be able to read Ion values for contents of file {file_name}")
+        let result: IonResult<Vec<Element>> = Element::read_all(data.as_slice());
+        let elements = result.unwrap_or_else(|e| {
+            panic!("Expected to be able to read Ion values for contents of file {file_name}: {e:?}")
         });
 
-        for element in result {
+        for element in elements {
             let mut buffer = Vec::with_capacity(2048);
-            let mut writer =
-                NativeElementWriter::new(TextWriterBuilder::new().build(&mut buffer).unwrap());
-            writer.write(&element).unwrap();
-            writer.finish().unwrap();
+            let mut writer = TextWriterBuilder::new().build(&mut buffer).unwrap();
+            writer.write_element(&element).unwrap();
+            writer.flush().unwrap();
+            drop(writer);
 
             let expected_string = std::str::from_utf8(buffer.as_slice()).unwrap().to_string();
 
@@ -443,14 +420,11 @@ mod impl_display_for_element_tests {
 #[cfg(test)]
 mod native_element_tests {
     use super::*;
-    use ion_rs::value::native_reader::NativeElementReader;
+    use ion_rs::{Reader, ReaderBuilder};
 
     struct NativeElementApi;
 
     impl ElementApi for NativeElementApi {
-        type ReaderApi = NativeElementReader;
-        type RoundTripper = NativeElementWriterApi;
-
         fn global_skip_list() -> SkipList {
             &[
                 // The binary reader does not check whether nested values are longer than their
@@ -520,8 +494,8 @@ mod native_element_tests {
             &[]
         }
 
-        fn make_reader() -> Self::ReaderApi {
-            NativeElementReader
+        fn make_reader(data: &[u8]) -> IonResult<Reader<'_>> {
+            ReaderBuilder::default().build(data)
         }
     }
 
@@ -564,14 +538,13 @@ mod native_element_tests {
 
 mod non_blocking_native_element_tests {
     use super::*;
-    use ion_rs::value::native_reader::NonBlockingNativeElementReader;
+    use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
+    use ion_rs::text::non_blocking::raw_text_reader::RawTextReader;
+    use ion_rs::{RawReader, Reader};
 
     struct NonBlockingNativeElementApi;
 
     impl ElementApi for NonBlockingNativeElementApi {
-        type ReaderApi = NonBlockingNativeElementReader;
-        type RoundTripper = NativeElementWriterApi;
-
         fn global_skip_list() -> SkipList {
             &[
                 // The binary reader does not check whether nested values are longer than their
@@ -645,8 +618,22 @@ mod non_blocking_native_element_tests {
             &[]
         }
 
-        fn make_reader() -> Self::ReaderApi {
-            NonBlockingNativeElementReader
+        fn make_reader(data: &[u8]) -> IonResult<Reader<'_>> {
+            // These imports are visible as a temporary workaround.
+            // See: https://github.com/amazon-ion/ion-rust/issues/484
+            use ion_rs::binary::constants::v1_0::IVM;
+            use ion_rs::reader::integration_testing::new_reader;
+            // If the data is binary, create a non-blocking binary reader.
+            if data.starts_with(&IVM) {
+                let mut raw_reader = RawBinaryBufferReader::new(data);
+                raw_reader.stream_complete();
+                Ok(new_reader(raw_reader))
+            } else {
+                // Otherwise, create a non-blocking text reader
+                let mut raw_reader = RawTextReader::new(data);
+                raw_reader.stream_complete();
+                Ok(new_reader(raw_reader))
+            }
         }
     }
 

@@ -51,7 +51,7 @@ pub(crate) type IonParseResult<'a, O> = IResult<&'a str, O, IonParseError<'a>>;
 /// with other parsers that return `IonParseResult`, you can call `upgrade()` on your parser's
 /// output before returning it.
 ///
-/// ```ignore
+/// ```ignore // Doc tests cannot use internal APIs
 /// use nom::bytes::streaming::tag;
 /// use nom::sequence::terminated;
 /// use nom::Parser; // trait provides the method `or`
@@ -70,9 +70,9 @@ pub(crate) type IonParseResult<'a, O> = IResult<&'a str, O, IonParseError<'a>>;
 /// // The same function as above, but spelled out a bit more explicitly
 /// fn verbose_recognize_boolean(input: &str) -> IonParseResult<&str> {
 ///     // Combine several core `nom` parsers to make a new parser with the desired logic
-///     let parser = terminated(          <-- Takes two parsers; if both succeed, returns the output of the first
-///         tag("true").or(tag("false")), <-- Parser 1 matches the text `true` or the text `false`
-///         tag(" ")                      <-- Parser 2 matches a single space
+///     let parser = terminated(          // <-- Takes two parsers; if both succeed, returns the output of the first
+///         tag("true").or(tag("false")), // <-- Parser 1 matches the text `true` or the text `false`
+///         tag(" ")                      // <-- Parser 2 matches a single space
 ///     );
 ///
 ///     // Use our new parser to parse the provided text
@@ -223,7 +223,7 @@ where
 /// An extension trait that allows any parser that returns a [nom::IResult] to be converted into
 /// a parser that returns an [IonParseResult] instead.
 ///
-/// ```ignore
+/// ```ignore // Doc tests cannot use internal APIs
 /// use nom::bytes::streaming::tag;
 /// use nom::sequence::tuple;
 /// use nom::Parser; // trait provides the method `or`

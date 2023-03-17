@@ -10,13 +10,13 @@ use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
 
 /// Matches the text representation of a boolean value and returns the resulting `true` or `false`
-/// as a [TextValue::Boolean].
+/// as a [TextValue::Bool].
 pub(crate) fn parse_boolean(input: &str) -> IonParseResult<TextValue> {
     map(
         recognize(terminated(tag("true").or(tag("false")), stop_character)),
         |bool_text: &str| match bool_text {
-            "true" => TextValue::Boolean(true),
-            "false" => TextValue::Boolean(false),
+            "true" => TextValue::Bool(true),
+            "false" => TextValue::Bool(false),
             _ => unreachable!("text had to match 'true' or 'false' before reaching this point"),
         },
     )(input)
@@ -29,7 +29,7 @@ mod boolean_parsing_tests {
     use crate::text::text_value::TextValue;
 
     fn parse_equals(text: &str, expected: bool) {
-        parse_test_ok(parse_boolean, text, TextValue::Boolean(expected))
+        parse_test_ok(parse_boolean, text, TextValue::Bool(expected))
     }
 
     fn parse_fails(text: &str) {

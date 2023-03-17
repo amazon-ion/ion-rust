@@ -2,9 +2,12 @@
 
 use std::slice;
 
+///! Implements "type qualifiers" (TQ) as per the [spec][spec].
+///!
+///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
 use crate::binary::IonTypeCode;
-use crate::value::owned::{Element, Sequence, Struct};
-use crate::{Decimal, Integer, IonType, Symbol, Timestamp};
+use crate::element::owned::{Element, List, SExp, Struct};
+use crate::{Decimal, Int, IonType, Symbol, Timestamp};
 use num_bigint::Sign;
 
 // For many types, the qualifier is either 'null' or 'not null'. That's what
@@ -35,8 +38,8 @@ impl TypeQualifier {
     pub(crate) fn from_element(elem: &Element) -> TypeQualifier {
         match elem.ion_type() {
             IonType::Null => type_qualifier_null(),
-            IonType::Boolean => type_qualifier_boolean(elem.as_boolean()),
-            IonType::Integer => type_qualifier_integer(elem.as_integer()),
+            IonType::Bool => type_qualifier_boolean(elem.as_bool()),
+            IonType::Int => type_qualifier_integer(elem.as_int()),
             IonType::Float => type_qualifier_float(elem.as_float()),
             IonType::Decimal => type_qualifier_decimal(elem.as_decimal()),
             IonType::Timestamp => type_qualifier_timestamp(elem.as_timestamp()),
@@ -44,8 +47,8 @@ impl TypeQualifier {
             IonType::String => type_qualifier_string(elem.as_string()),
             IonType::Clob => type_qualifier_clob(elem.as_lob()),
             IonType::Blob => type_qualifier_blob(elem.as_lob()),
-            IonType::List => type_qualifier_list(elem.as_sequence()),
-            IonType::SExpression => type_qualifier_sexp(elem.as_sequence()),
+            IonType::List => type_qualifier_list(elem.as_list()),
+            IonType::SExp => type_qualifier_sexp(elem.as_sexp()),
             IonType::Struct => type_qualifier_struct(elem.as_struct()),
         }
     }
@@ -56,12 +59,12 @@ impl TypeQualifier {
     }
 }
 
-fn is_integer_positive(value: Option<&Integer>) -> bool {
+fn is_integer_positive(value: Option<&Int>) -> bool {
     match value {
         None => true,
         Some(any) => match any {
-            Integer::I64(i) => *i >= 0,
-            Integer::BigInt(b) => !std::matches!(b.sign(), Sign::Minus),
+            Int::I64(i) => *i >= 0,
+            Int::BigInt(b) => !std::matches!(b.sign(), Sign::Minus),
         },
     }
 }
@@ -90,7 +93,7 @@ pub(crate) fn type_qualifier_boolean(value: Option<bool>) -> TypeQualifier {
     combine(IonTypeCode::Boolean, q)
 }
 
-pub(crate) fn type_qualifier_integer(any: Option<&Integer>) -> TypeQualifier {
+pub(crate) fn type_qualifier_integer(any: Option<&Int>) -> TypeQualifier {
     let t = match is_integer_positive(any) {
         true => IonTypeCode::PositiveInteger,
         false => IonTypeCode::NegativeInteger,
@@ -122,11 +125,11 @@ pub(crate) fn type_qualifier_blob(value: Option<&[u8]>) -> TypeQualifier {
     combine(IonTypeCode::Blob, qualify_nullness(value))
 }
 
-pub(crate) fn type_qualifier_list(value: Option<&Sequence>) -> TypeQualifier {
+pub(crate) fn type_qualifier_list(value: Option<&List>) -> TypeQualifier {
     combine(IonTypeCode::List, qualify_nullness(value))
 }
 
-pub(crate) fn type_qualifier_sexp(value: Option<&Sequence>) -> TypeQualifier {
+pub(crate) fn type_qualifier_sexp(value: Option<&SExp>) -> TypeQualifier {
     combine(IonTypeCode::SExpression, qualify_nullness(value))
 }
 

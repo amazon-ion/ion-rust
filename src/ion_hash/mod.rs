@@ -4,13 +4,12 @@
 //!
 //! ## Examples
 //! ```rust
-//! use ion_rs::value::reader::{self, ElementReader};
+//! use ion_rs::element::owned::Element;
 //! use ion_rs::result::IonResult;
 //! use ion_rs::ion_hash;
 //!
 //! # fn main() -> IonResult<()> {
-//!   let loader = reader::element_reader();
-//!   let elem = loader.iterate_over(b"\"hello world\"")?.next().unwrap()?;
+//!   let elem = Element::read_one(b"\"hello world\"")?;
 //!   let digest = ion_hash::sha256(&elem);
 //!   println!("{:?}", digest);
 //! # Ok(())
@@ -19,7 +18,7 @@
 
 use digest::{self, FixedOutput, Output, Reset, Update};
 
-use crate::value::owned::Element;
+use crate::element::owned::Element;
 use crate::IonResult;
 use element_hasher::ElementHasher;
 

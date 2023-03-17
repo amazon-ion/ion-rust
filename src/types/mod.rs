@@ -17,8 +17,8 @@ use std::fmt;
 #[derive(Debug, PartialEq, Eq, PartialOrd, Copy, Clone)]
 pub enum IonType {
     Null,
-    Boolean,
-    Integer,
+    Bool,
+    Int,
     Float,
     Decimal,
     Timestamp,
@@ -27,7 +27,7 @@ pub enum IonType {
     Clob,
     Blob,
     List,
-    SExpression,
+    SExp,
     Struct,
 }
 
@@ -38,8 +38,8 @@ impl fmt::Display for IonType {
             "{}",
             match self {
                 IonType::Null => "null",
-                IonType::Boolean => "boolean",
-                IonType::Integer => "integer",
+                IonType::Bool => "bool",
+                IonType::Int => "int",
                 IonType::Float => "float",
                 IonType::Decimal => "decimal",
                 IonType::Timestamp => "timestamp",
@@ -48,7 +48,7 @@ impl fmt::Display for IonType {
                 IonType::Clob => "clob",
                 IonType::Blob => "blob",
                 IonType::List => "list",
-                IonType::SExpression => "sexp",
+                IonType::SExp => "sexp",
                 IonType::Struct => "struct",
             }
         )
@@ -58,7 +58,7 @@ impl fmt::Display for IonType {
 impl IonType {
     pub fn is_container(&self) -> bool {
         use IonType::*;
-        matches!(self, List | SExpression | Struct)
+        matches!(self, List | SExp | Struct)
     }
 }
 

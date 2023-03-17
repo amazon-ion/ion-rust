@@ -6,7 +6,7 @@ use num_bigint::{BigInt, BigUint, ToBigUint};
 use crate::ion_eq::IonEq;
 use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
-use crate::types::integer::UInteger;
+use crate::types::integer::UInt;
 use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
@@ -67,8 +67,8 @@ impl Decimal {
     /// Returns `true` if this Decimal is a zero of any sign or exponent.
     pub fn is_zero(&self) -> bool {
         match self.coefficient.magnitude() {
-            UInteger::U64(0) => true,
-            UInteger::BigUInt(m) => m.is_zero(),
+            UInt::U64(0) => true,
+            UInt::BigUInt(m) => m.is_zero(),
             _ => false,
         }
     }
@@ -77,8 +77,8 @@ impl Decimal {
     /// zero. Otherwise, returns false. (Negative zero returns false.)
     pub fn is_less_than_zero(&self) -> bool {
         match (self.coefficient.sign(), self.coefficient.magnitude()) {
-            (Sign::Negative, UInteger::U64(m)) if *m > 0 => true,
-            (Sign::Negative, UInteger::BigUInt(m)) if m > &BigUint::zero() => true,
+            (Sign::Negative, UInt::U64(m)) if *m > 0 => true,
+            (Sign::Negative, UInt::BigUInt(m)) if m > &BigUint::zero() => true,
             _ => false,
         }
     }
@@ -88,8 +88,8 @@ impl Decimal {
         // If the coefficient has a magnitude of zero, the Decimal is a zero of some precision
         // and so is not >= 1.
         match &self.coefficient.magnitude {
-            UInteger::U64(magnitude) if magnitude.is_zero() => return false,
-            UInteger::BigUInt(magnitude) if magnitude.is_zero() => return false,
+            UInt::U64(magnitude) if magnitude.is_zero() => return false,
+            UInt::BigUInt(magnitude) if magnitude.is_zero() => return false,
             _ => {}
         }
 
@@ -166,7 +166,7 @@ impl Decimal {
         // This lets us compare 80 and 80, determining that the decimals are equal.
         let mut scaled_coefficient: BigUint = d1.coefficient.magnitude().to_biguint().unwrap();
         scaled_coefficient *= BigUint::from(10u64).pow(exponent_delta as u32);
-        UInteger::BigUInt(scaled_coefficient).cmp(d2.coefficient.magnitude())
+        UInt::BigUInt(scaled_coefficient).cmp(d2.coefficient.magnitude())
     }
 }
 
