@@ -510,6 +510,8 @@ impl<W: Write> RawBinaryWriter<W> {
 }
 
 impl<W: Write> IonWriter for RawBinaryWriter<W> {
+    type Output = W;
+
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }
@@ -888,6 +890,14 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         self.push_empty_io_range();
 
         Ok(())
+    }
+
+    fn output(&self) -> &Self::Output {
+        &self.out
+    }
+
+    fn output_mut(&mut self) -> &mut Self::Output {
+        &mut self.out
     }
 }
 

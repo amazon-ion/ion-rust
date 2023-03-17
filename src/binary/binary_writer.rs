@@ -108,6 +108,8 @@ impl<W: Write> BinaryWriter<W> {
 }
 
 impl<W: Write> IonWriter for BinaryWriter<W> {
+    type Output = W;
+
     fn supports_text_symbol_tokens(&self) -> bool {
         // The BinaryWriter can always write text field names, annotations, and symbols
         // after first adding the provided text to the symbol table.
@@ -192,6 +194,8 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
             fn parent_type(&self) -> Option<IonType>;
             fn depth(&self) -> usize;
             fn step_out(&mut self) -> IonResult<()>;
+            fn output(&self) -> &Self::Output;
+            fn output_mut(&mut self) -> &mut Self::Output;
         }
     }
 }

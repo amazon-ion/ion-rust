@@ -114,8 +114,7 @@ mod tests {
         let expected_elements = Element::read_all(ion.as_bytes())?;
         writer.write_elements(&expected_elements)?;
         writer.flush()?;
-        drop(writer);
-        let actual_elements = Element::read_all(buffer.as_bytes())?;
+        let actual_elements = Element::read_all(writer.output().as_bytes())?;
         assert!(expected_elements.ion_eq(&actual_elements));
         Ok(())
     }

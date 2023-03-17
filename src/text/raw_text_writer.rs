@@ -199,18 +199,6 @@ pub struct RawTextWriter<W: Write> {
 }
 
 impl<W: Write> RawTextWriter<W> {
-    /// Returns a reference to the underlying io::Write implementation.
-    pub fn output(&self) -> &W {
-        self.output.get_ref()
-    }
-
-    /// Returns a mutable reference to the underlying io::Write implementation. Modifying the
-    /// underlying sink is an inherently risky operation and can result in unexpected behavior.
-    /// It is not recommended for most use cases.
-    pub fn output_mut(&mut self) -> &mut W {
-        self.output.get_mut()
-    }
-
     /// Returns true if the RawTextWriter is currently positioned within a Struct.
     pub fn is_in_struct(&self) -> bool {
         self.parent_level().container_type == ContainerType::Struct
@@ -461,6 +449,8 @@ impl<W: Write> RawTextWriter<W> {
 }
 
 impl<W: Write> IonWriter for RawTextWriter<W> {
+    type Output = W;
+
     fn ion_version(&self) -> (u8, u8) {
         (1, 0)
     }
@@ -737,6 +727,14 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         self.output.flush()?;
         Ok(())
     }
+
+    fn output(&self) -> &W {
+        self.output.get_ref()
+    }
+
+    fn output_mut(&mut self) -> &mut W {
+        self.output.get_mut()
+    }
 }
 
 #[cfg(test)]
@@ -763,8 +761,10 @@ mod tests {
             .expect("could not create RawTextWriter");
         commands(&mut writer).expect("Invalid TextWriter test commands.");
         writer.flush().expect("Call to flush() failed.");
-        drop(writer);
-        assert_eq!(str::from_utf8(&output).unwrap(), expected);
+        assert_eq!(
+            str::from_utf8(writer.output().as_slice()).unwrap(),
+            expected
+        );
     }
 
     /// Constructs a [RawTextWriter] using [RawTextReaderBuilder::default], passes it to the
