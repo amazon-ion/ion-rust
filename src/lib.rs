@@ -158,7 +158,11 @@
 //! # }
 //! ```
 
+// This import is used in the doc comments and test code above. Clippy incorrectly
+// declares it an unused import.
+#[allow(unused_imports)]
 use element::owned::Element;
+
 pub mod result;
 
 pub mod binary;
