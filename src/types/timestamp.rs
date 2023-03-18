@@ -159,9 +159,6 @@ pub struct Timestamp {
     pub(crate) fractional_seconds: Option<Mantissa>,
 }
 
-// TODO: Timestamp does not yet provide useful accessors for its individual fields. It can be
-//       instantiated and tested for equality, but will not very useful as a general purpose
-//       datetime until these methods are added.
 impl Timestamp {
     /// Converts a [`NaiveDateTime`] or [`DateTime<FixedOffset>`] to a Timestamp with the specified
     /// precision. If the precision is [`Precision::Second`], nanosecond precision (the maximum
@@ -571,6 +568,103 @@ impl Timestamp {
     /// Returns the precision that has been specified in the [Timestamp].
     pub fn precision(&self) -> Precision {
         self.precision
+    }
+
+    /// Returns the year that has been specified in the [Timestamp].
+    pub fn year(&self) -> i32 {
+        // verify if the timestamp has an offset
+        if let Some(offset) = self.offset {
+            // `NaiveDateTime#hours()` returns hours normalized as per UTC
+            // for local time we need to +/- the difference
+            let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
+            return local_date_time.year();
+        }
+        self.date_time.year()
+    }
+
+    /// Returns the month that has been specified in the [Timestamp].
+    /// Returns the month number starting from 1.
+    /// The return value ranges from 1 to 12.
+    pub fn month(&self) -> u32 {
+        // verify if the timestamp has an offset
+        if let Some(offset) = self.offset {
+            // `NaiveDateTime#hours()` returns hours normalized as per UTC
+            // for local time we need to +/- the difference
+            let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
+            return local_date_time.month();
+        }
+        self.date_time.month()
+    }
+
+    /// Returns the day that has been specified in the [Timestamp].
+    /// Returns the day of month starting from 1.
+    // The return value ranges from 1 to 31. (The last day of month differs by months.)
+    pub fn day(&self) -> u32 {
+        // verify if the timestamp has an offset
+        if let Some(offset) = self.offset {
+            // `NaiveDateTime#hours()` returns hours normalized as per UTC
+            // for local time we need to +/- the difference
+            let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
+            return local_date_time.day();
+        }
+        self.date_time.day()
+    }
+
+    /// Returns the hour(s) that has been specified in the [Timestamp].
+    /// Returns the hour number from 0 to 23.
+    pub fn hour(&self) -> u32 {
+        // verify if the timestamp has an offset
+        if let Some(offset) = self.offset {
+            // `NaiveDateTime#hours()` returns hours normalized as per UTC
+            // for local time we need to +/- the difference
+            let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
+            return local_date_time.hour();
+        }
+        self.date_time.hour()
+    }
+
+    /// Returns the minute(s) that has been specified in the [Timestamp].
+    /// Returns the minute number from 0 to 59.
+    pub fn minute(&self) -> u32 {
+        // verify if the timestamp has an offset
+        if let Some(offset) = self.offset {
+            // `NaiveDateTime#hours()` returns minutes normalized as per UTC
+            // for local time we need to +/- the difference
+            let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
+            return local_date_time.minute();
+        }
+        self.date_time.minute()
+    }
+
+    /// Returns the second(s) that has been specified in the [Timestamp].
+    /// Returns the second number from 0 to 59.
+    pub fn second(&self) -> u32 {
+        self.date_time.second()
+    }
+
+    /// Return a UTC timestamp for this [Timestamp]
+    pub fn to_utc(&self) -> Timestamp {
+        self.date_time.into()
+    }
+
+    /// Returns this Timestamp's fractional seconds in nanoseconds
+    ///
+    /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
+    /// number of nanoseconds, losing precision. If it loses precision then truncation is preformed.
+    /// (e.g. a timestamp with fractional seconds of `0.000000000999` would be returned as `0`)
+    pub fn nanoseconds(&self) -> u32 {
+        self.fractional_seconds_as_nanoseconds().unwrap_or_default()
+    }
+
+    /// Returns this Timestamp's fractional seconds in milliseconds
+    ///
+    /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
+    /// number of milliseconds, losing precision. If it loses precision then truncation is preformed.
+    /// (e.g. a timestamp with fractional seconds of `0.000999` would be returned as `0`)
+    pub fn milliseconds(&self) -> u32 {
+        self.fractional_seconds_as_nanoseconds()
+            .map(|s| s / 1000000)
+            .unwrap_or_default()
     }
 }
 
@@ -1581,6 +1675,158 @@ mod timestamp_tests {
     fn test_timestamp_precision() -> IonResult<()> {
         let timestamp = Timestamp::with_year(2021).with_month(2).build()?;
         assert_eq!(timestamp.precision(), Precision::Month);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_year() -> IonResult<()> {
+        let timestamp_1 = Timestamp::with_year(2021).with_month(2).build()?;
+        assert_eq!(timestamp_1.year(), 2021);
+
+        let timestamp_2 =
+            Timestamp::with_ymd_hms(2021, 12, 31, 10, 15, 30).build_at_offset(-11 * 60)?;
+
+        assert_eq!(timestamp_2.year(), 2021);
+
+        let timestamp_3 =
+            Timestamp::with_ymd_hms(2021, 12, 31, 15, 15, 30).build_at_offset(10 * 60)?;
+
+        assert_eq!(timestamp_3.year(), 2021);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_month() -> IonResult<()> {
+        let timestamp_1 = Timestamp::with_year(2021).with_month(2).build()?;
+        assert_eq!(timestamp_1.month(), 2);
+
+        let timestamp_2 =
+            Timestamp::with_ymd_hms(2021, 1, 31, 10, 15, 30).build_at_offset(-11 * 60)?;
+
+        assert_eq!(timestamp_2.month(), 1);
+
+        let timestamp_3 =
+            Timestamp::with_ymd_hms(2021, 1, 31, 15, 15, 30).build_at_offset(10 * 60)?;
+
+        assert_eq!(timestamp_3.month(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_day() -> IonResult<()> {
+        let timestamp_1 = Timestamp::with_year(2021).with_month(2).build()?;
+        assert_eq!(timestamp_1.day(), 1);
+
+        let timestamp_2 = Timestamp::with_year(2021)
+            .with_month(2)
+            .with_day(4)
+            .build()?;
+
+        assert_eq!(timestamp_2.day(), 4);
+
+        let timestamp_3 =
+            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-11 * 60)?;
+
+        assert_eq!(timestamp_3.day(), 6);
+
+        let timestamp_4 =
+            Timestamp::with_ymd_hms(2021, 4, 6, 15, 15, 30).build_at_offset(10 * 60)?;
+
+        assert_eq!(timestamp_4.day(), 6);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-90), 10)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-5 * 60), 10)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(5 * 60), 10)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(15), 10)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(30), 10)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(0), 10)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 0, 15, 30).build_at_offset(5 * 60), 0)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 23, 15, 30).build_at_offset(-5 * 60), 23)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 0, 15, 30).build_at_offset(23 * 60), 0)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-11 * 60), 10)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 15, 15, 30).build_at_offset(10 * 60), 15)]
+    fn test_timestamp_hour(
+        #[case] timestamp: IonResult<Timestamp>,
+        #[case] expected_hours: u32,
+    ) -> IonResult<()> {
+        assert_eq!(timestamp?.hour(), expected_hours);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-90), 15)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-5 * 60), 15)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(5 * 60), 15)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(0), 15)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 0, 30).build_at_offset(5 * 60), 0)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 59, 30).build_at_offset(5 * 60), 59)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-11 * 60), 15)]
+    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 15, 15, 30).build_at_offset(10 * 60), 15)]
+    fn test_timestamp_minute(
+        #[case] timestamp: IonResult<Timestamp>,
+        #[case] expected_minutes: u32,
+    ) -> IonResult<()> {
+        assert_eq!(timestamp?.minute(), expected_minutes);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_second() -> IonResult<()> {
+        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-5 * 60)?;
+        assert_eq!(timestamp.second(), 30);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_nanoseconds() -> IonResult<()> {
+        let timestamp_1 = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30)
+            .with_nanoseconds(192)
+            .build_at_offset(-5 * 60)?;
+        assert_eq!(timestamp_1.nanoseconds(), 192);
+
+        let timestamp_2 = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30)
+            .with_milliseconds(192)
+            .build_at_offset(-5 * 60)?;
+        assert_eq!(timestamp_2.nanoseconds(), 192000000);
+
+        let timestamp_3 =
+            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-5 * 60)?;
+        assert_eq!(timestamp_3.nanoseconds(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_milliseconds() -> IonResult<()> {
+        let timestamp_1 = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30)
+            .with_milliseconds(192)
+            .build_at_offset(-5 * 60)?;
+        assert_eq!(timestamp_1.milliseconds(), 192);
+
+        let timestamp_2 =
+            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-5 * 60)?;
+        assert_eq!(timestamp_2.milliseconds(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_to_utc() -> IonResult<()> {
+        let new_years_eve_nyc =
+            Timestamp::with_ymd_hms(2022, 12, 31, 23, 59, 00).build_at_offset(-5 * 60)?;
+
+        let london = new_years_eve_nyc.to_utc();
+        assert_eq!(london.year(), 2023);
+        assert_eq!(london.month(), 1);
+        assert_eq!(london.day(), 1);
+        assert_eq!(london.hour(), 4);
+        assert_eq!(london.minute(), 59);
+        assert_eq!(london.second(), 0);
         Ok(())
     }
 

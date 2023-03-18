@@ -203,13 +203,18 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
         loop {
             let result = self.reader.step_out();
             if let Err(IonError::Incomplete { .. }) = result {
-                if 0 == self.read_source(read_size)? {
-                    return result;
+                let bytes_read = self.read_source(read_size)?;
+                if 0 == bytes_read {
+                    if self.reader.is_stream_complete() {
+                        return result;
+                    } else {
+                        self.reader.stream_complete();
+                    }
                 }
+                read_size = std::cmp::min(read_size * 2, self.expected_read_size * 10);
             } else {
                 return result;
             }
-            read_size = std::cmp::min(read_size * 2, self.expected_read_size * 10);
         }
     }
 
@@ -224,6 +229,7 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
 
 #[cfg(test)]
 mod reader_tests {
+    use crate::data_source::ToIonDataSource;
     use crate::raw_reader::RawStreamItem;
     use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
     use crate::result::IonResult;
@@ -235,7 +241,11 @@ mod reader_tests {
     use crate::IonType;
     use crate::RawStreamItem::Nothing;
 
-    fn next_type(reader: &mut RawTextReader<&str>, ion_type: IonType, is_null: bool) {
+    fn next_type<T: ToIonDataSource>(
+        reader: &mut RawTextReader<T>,
+        ion_type: IonType,
+        is_null: bool,
+    ) {
         assert_eq!(
             reader.next().unwrap(),
             RawStreamItem::nullable_value(ion_type, is_null)
@@ -839,6 +849,73 @@ mod reader_tests {
         assert!(result.is_ok());
         assert_eq!(IonType::Symbol, reader.ion_type().unwrap());
 
+        Ok(())
+    }
+
+    #[test]
+    fn nested_struct() -> IonResult<()> {
+        let (source, _metrics) = TestIonSource::new(
+            r#"
+                $ion_1_0
+                {}
+                {
+                    foo: [
+                        1,
+                        [2, 3],
+                        4
+                    ],
+                    bar: {
+                        a: 5,
+                        b: (true true true)
+                    }
+                }
+                11
+            "#,
+        );
+        let reader = &mut RawTextReader::new_with_size(source, 24)?;
+
+        assert_eq!(reader.next().unwrap(), RawStreamItem::VersionMarker(1, 0));
+
+        next_type(reader, IonType::Struct, false);
+
+        next_type(reader, IonType::Struct, false);
+        reader.step_in()?;
+        next_type(reader, IonType::List, false);
+        assert!(reader.field_name().is_ok());
+
+        reader.step_in()?;
+        next_type(reader, IonType::Int, false);
+        assert_eq!(reader.read_i64()?, 1);
+        next_type(reader, IonType::List, false);
+        reader.step_in()?;
+        next_type(reader, IonType::Int, false);
+        assert_eq!(reader.read_i64()?, 2);
+        next_type(reader, IonType::Int, false);
+        assert_eq!(reader.read_i64()?, 3);
+        reader.step_out()?; // Step out of .[1].foo[1]
+        reader.step_out()?; // Step out of .[1].foo
+
+        next_type(reader, IonType::Struct, false);
+        assert!(reader.field_name().is_ok());
+
+        reader.step_in()?;
+        next_type(reader, IonType::Int, false);
+        assert_eq!(reader.read_i64()?, 5);
+        next_type(reader, IonType::SExp, false);
+        reader.step_in()?;
+        next_type(reader, IonType::Bool, false);
+        assert!(reader.read_bool()?);
+        next_type(reader, IonType::Bool, false);
+        assert!(reader.read_bool()?);
+        next_type(reader, IonType::Bool, false);
+        assert!(reader.read_bool()?);
+        // The reader is now at the second 'true' in the s-expression nested in 'bar'/'b'
+        reader.step_out()?; // Step out of .[1].bar.b
+        reader.step_out()?; // Step out of .[1].bar
+        reader.step_out()?; // Step out of .[1]
+
+        next_type(reader, IonType::Int, false);
+        assert_eq!(reader.read_i64()?, 11);
         Ok(())
     }
 }
