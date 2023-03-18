@@ -531,20 +531,20 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
     }
 }
 
-/// If the RawBinaryBufferReader's data source is a Vec<u8>, it gains the ability to add data to
+/// If the RawBinaryBufferReader's data source is a `Vec<u8>`, it gains the ability to add data to
 /// the buffer between read operations. This is useful when reading from a streaming data source
 /// like a file or TCP socket; the reader can read the contents of its buffer, add more bytes as
 /// they arrive, and then continue reading.
 impl RawBinaryBufferReader<Vec<u8>> {
     /// Copies the provided bytes to end of the reader's input buffer.
-    fn append_bytes(&mut self, bytes: &[u8]) {
+    pub fn append_bytes(&mut self, bytes: &[u8]) {
         self.buffer.append_bytes(bytes);
     }
 
-    /// Tries to read `length` bytes from `source`. Unlike [append_bytes], this method does not do
+    /// Tries to read `length` bytes from `source`. Unlike [Self::append_bytes], this method does not do
     /// any copying. A slice of the reader's buffer is handed to `source` so it can be populated
     /// directly.
-    fn read_from<R: Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
+    pub fn read_from<R: Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
         self.buffer.read_from(source, length)
     }
 }

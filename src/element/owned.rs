@@ -598,6 +598,18 @@ impl From<Symbol> for Value {
     }
 }
 
+impl From<&[u8]> for Value {
+    fn from(value: &[u8]) -> Self {
+        Value::Blob(value.into())
+    }
+}
+
+impl From<Vec<u8>> for Value {
+    fn from(value: Vec<u8>) -> Self {
+        Value::Blob(value)
+    }
+}
+
 impl From<List> for Value {
     fn from(list: List) -> Self {
         Value::List(list)

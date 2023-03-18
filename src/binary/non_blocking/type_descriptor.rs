@@ -115,7 +115,7 @@ impl TypeDescriptor {
     }
 }
 
-/// Represents a [TypeDescriptor] that appears before an Ion value (and not a NOP, IVM,
+/// Represents a `TypeDescriptor` that appears before an Ion value (and not a NOP, IVM,
 /// or annotations wrapper).
 ///
 /// Notably, it stores an `IonType` instead of an `Option<IonType>`, allowing functions that expect
