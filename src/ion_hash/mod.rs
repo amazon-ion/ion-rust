@@ -4,7 +4,7 @@
 //!
 //! ## Examples
 //! ```rust
-//! use ion_rs::element::owned::Element;
+//! use ion_rs::element::Element;
 //! use ion_rs::result::IonResult;
 //! use ion_rs::ion_hash;
 //!
@@ -18,7 +18,7 @@
 
 use digest::{self, FixedOutput, Output, Reset, Update};
 
-use crate::element::owned::Element;
+use crate::element::Element;
 use crate::IonResult;
 use element_hasher::ElementHasher;
 

@@ -1,4 +1,4 @@
-use crate::element::owned::Element;
+use crate::element::Element;
 use crate::Symbol;
 use smallvec::SmallVec;
 // This macro defines a new iterator type for a given `Iterator => Item` type name pair.

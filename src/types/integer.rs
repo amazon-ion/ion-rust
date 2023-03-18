@@ -1,4 +1,4 @@
-use crate::element::owned::Element;
+use crate::element::Element;
 use crate::result::{decoding_error, IonError};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 use num_traits::{ToPrimitive, Zero};
@@ -13,7 +13,7 @@ pub trait IntAccess {
     /// ## Usage
     /// ```
     /// # use ion_rs::element::*;
-    /// # use ion_rs::element::owned::*;
+    /// # use ion_rs::element::*;
     /// # use ion_rs::types::integer::*;
     /// # use num_bigint::*;
     /// let big_int = Int::BigInt(BigInt::from(100));
@@ -36,7 +36,7 @@ pub trait IntAccess {
     /// ## Usage
     /// ```
     /// # use ion_rs::element::*;
-    /// # use ion_rs::element::owned::*;
+    /// # use ion_rs::element::*;
     /// # use ion_rs::types::integer::*;
     /// # use num_bigint::*;
     /// # use std::str::FromStr;

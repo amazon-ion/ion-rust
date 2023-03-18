@@ -4,9 +4,9 @@
 //! as slices or files.
 
 use crate::element::owned;
-use crate::element::owned::{Element, Struct, Value};
+use crate::element::{Element, Struct, Value};
 use crate::result::{decoding_error, IonResult};
-use crate::{IonReader, StreamItem, Symbol};
+use crate::{element, IonReader, StreamItem, Symbol};
 
 /// Reads Ion data into [`Element`] instances.
 ///
@@ -151,8 +151,8 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
                     Clob => Value::Clob(self.reader.read_clob()?),
                     Blob => Value::Blob(self.reader.read_blob()?),
                     // It's a collection; recursively materialize all of this value's children
-                    List => Value::List(owned::List::new(self.materialize_sequence()?)),
-                    SExp => Value::SExp(owned::SExp::new(self.materialize_sequence()?)),
+                    List => Value::List(element::List::new(self.materialize_sequence()?)),
+                    SExp => Value::SExp(element::SExp::new(self.materialize_sequence()?)),
                     Struct => Value::Struct(self.materialize_struct()?),
                 }
             }
@@ -195,8 +195,8 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
 mod reader_tests {
     use super::*;
     use crate::element::builders::{ion_list, ion_sexp, ion_struct};
-    use crate::element::owned::Value::*;
-    use crate::element::owned::{Element, IntoAnnotatedElement};
+    use crate::element::Value::*;
+    use crate::element::{Element, IntoAnnotatedElement};
     use crate::ion_eq::IonEq;
     use crate::types::integer::Int;
     use crate::types::timestamp::Timestamp as TS;
