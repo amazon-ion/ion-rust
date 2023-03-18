@@ -3,9 +3,8 @@
 
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
-use ion_rs::element::owned::{Element, Struct};
 use ion_rs::element::writer::ElementWriter;
-use ion_rs::element::*;
+use ion_rs::element::{Element, Struct};
 use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::integer::IntAccess;
@@ -334,7 +333,7 @@ mod unknown_symbol_text_tests {
     #[test]
     fn test_unknown_field_name_text() {
         let fields_itr = vec![(Symbol::unknown_text(), Element::from(1))];
-        let struct_ = owned::Struct::from_iter(fields_itr);
+        let struct_ = Struct::from_iter(fields_itr);
         let element = Element::from(struct_);
 
         let digest = IdentityDigest::hash_element(&element).unwrap();

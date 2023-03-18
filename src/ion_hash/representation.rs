@@ -7,7 +7,7 @@
 //! and not speed.
 
 use crate::binary::{self, decimal::DecimalBinaryEncoder, timestamp::TimestampBinaryEncoder};
-use crate::element::owned::{Element, IonSequence, List, SExp, Struct};
+use crate::element::{Element, IonSequence, List, SExp, Struct};
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
 use crate::types::decimal::Decimal;

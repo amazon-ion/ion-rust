@@ -1,4 +1,4 @@
-use crate::element::owned::{IonSequence, List, SExp, Struct};
+use crate::element::{IonSequence, List, SExp, Struct};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Symbol, Timestamp};
 

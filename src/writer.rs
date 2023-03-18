@@ -105,7 +105,7 @@ pub trait IonWriter {
     /// This method can be used to inspect the Ion data that the writer has produced without having
     /// to first drop the writer.
     /// ```
-    /// use ion_rs::element::owned::Element;
+    /// use ion_rs::element::Element;
     /// use ion_rs::{IonResult, IonWriter, TextWriter, TextWriterBuilder};
     /// # fn roundtrip() -> IonResult<()> {
     /// // Set up our output buffer
