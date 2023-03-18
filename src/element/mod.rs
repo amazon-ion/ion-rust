@@ -851,7 +851,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::types::timestamp::Timestamp;
     use crate::{ion_list, ion_sexp, ion_struct, Decimal, Int, IonType, Symbol};
     use chrono::*;

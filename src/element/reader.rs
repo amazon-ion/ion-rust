@@ -3,7 +3,7 @@
 //! Provides APIs to read Ion data into [Element] from different sources such
 //! as slices or files.
 
-use crate::element::owned;
+
 use crate::element::{Element, Struct, Value};
 use crate::result::{decoding_error, IonResult};
 use crate::{element, IonReader, StreamItem, Symbol};
