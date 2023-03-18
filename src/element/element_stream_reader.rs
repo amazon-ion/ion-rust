@@ -2,7 +2,7 @@ use crate::result::{decoding_error, illegal_operation, illegal_operation_raw};
 use crate::text::parent_container::ParentContainer;
 
 use crate::element::iterators::SymbolsIterator;
-use crate::element::owned::Element;
+use crate::element::Element;
 use crate::{Decimal, Int, IonError, IonReader, IonResult, IonType, StreamItem, Symbol, Timestamp};
 use std::fmt::Display;
 use std::mem;
@@ -378,7 +378,7 @@ mod reader_tests {
     use rstest::*;
 
     use super::*;
-    use crate::element::owned::Value;
+    use crate::element::Value;
     use crate::result::IonResult;
     use crate::stream_reader::IonReader;
     use crate::types::decimal::Decimal;

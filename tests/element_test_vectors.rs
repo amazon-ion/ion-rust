@@ -1,8 +1,8 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use ion_rs::element::owned::{Element, IonSequence};
 use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::{ElementWriter, Format, TextKind};
+use ion_rs::element::{Element, IonSequence};
 use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
 use ion_rs::{BinaryWriterBuilder, IonWriter, Reader, TextWriterBuilder};

@@ -17,7 +17,7 @@
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::owned::Element;
+//! use ion_rs::element::Element;
 //! use ion_rs::IonType;
 //! let ion_data = "[1, 2, 3]";
 //! let element = Element::read_one(ion_data)?;
@@ -37,7 +37,7 @@
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::owned::Element;
+//! use ion_rs::element::Element;
 //!
 //! let int: Element = 5.into();
 //! assert_eq!(Element::read_one("5")?, int);
@@ -63,7 +63,7 @@
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::owned::Element;
+//! use ion_rs::element::Element;
 //! use ion_rs::{ion_list, ion_sexp, ion_struct};
 //!
 //! // Variable names are allowed
@@ -92,7 +92,7 @@
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
 //! use std::fs::File;
-//! use ion_rs::element::owned::Element;
+//! use ion_rs::element::Element;
 //! use ion_rs::element::reader::ElementReader;
 //! use ion_rs::ReaderBuilder;
 //! let ion_file = File::open("/foo/bar/baz.ion").unwrap();
@@ -105,12 +105,12 @@
 //! # }
 //! ```
 //!
-//! ## Traversing an Element
+//! ## Traversing an `Element`
 //!
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::owned::{Element, IntoAnnotatedElement, IonSequence, Value};
+//! use ion_rs::element::{Element, IntoAnnotatedElement, IonSequence, Value};
 //! use ion_rs::{ion_struct, ion_list};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
@@ -132,12 +132,12 @@
 //! # }
 //! ```
 //!
-//! ## Writing to an `io::Write`
+//! ## Writing an `Element` to an `io::Write`
 //!
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::owned::{Element, IntoAnnotatedElement, IonSequence, Value};
+//! use ion_rs::element::{Element, IntoAnnotatedElement, IonSequence, Value};
 //! use ion_rs::{ion_struct, ion_list, TextWriterBuilder, IonWriter};
 //! use ion_rs::element::writer::ElementWriter;
 //! let element: Element = ion_struct! {
@@ -161,7 +161,7 @@
 // This import is used in the doc comments and test code above. Clippy incorrectly
 // declares it an unused import.
 #[allow(unused_imports)]
-use element::owned::Element;
+use element::Element;
 
 pub mod result;
 

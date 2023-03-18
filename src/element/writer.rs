@@ -1,11 +1,11 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Provides utility to serialize Ion data from [`Element`](super::owned::Element) into common targets
+//! Provides utility to serialize Ion data from [`Element`](super::Element) into common targets
 //! such as byte buffers or files.
 
 use crate::result::IonResult;
 
-use crate::element::owned::{Element, IonSequence, Value};
+use crate::element::{Element, IonSequence, Value};
 use crate::{IonType, IonWriter};
 pub use Format::*;
 pub use TextKind::*;
@@ -95,8 +95,8 @@ pub enum Format {
 
 #[cfg(test)]
 mod tests {
-    use crate::element::owned::Element;
     use crate::element::writer::ElementWriter;
+    use crate::element::Element;
     use crate::ion_eq::IonEq;
     use crate::text::text_writer::TextWriterBuilder;
 

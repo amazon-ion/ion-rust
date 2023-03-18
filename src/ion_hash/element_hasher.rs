@@ -5,7 +5,7 @@
 
 use std::io;
 
-use crate::element::owned::Element;
+use crate::element::Element;
 use crate::IonResult;
 use digest::{FixedOutput, Output, Reset, Update};
 
