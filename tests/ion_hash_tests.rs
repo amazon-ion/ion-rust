@@ -4,7 +4,6 @@
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
 use ion_rs::element::writer::ElementWriter;
-use ion_rs::element::*;
 use ion_rs::element::{Element, Struct};
 use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
