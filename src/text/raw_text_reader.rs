@@ -7,6 +7,7 @@ use crate::types::string::Str;
 use crate::types::timestamp::Timestamp;
 use crate::{Decimal, Int, IonError, IonType};
 
+use crate::agnostic_reader::BufferedRawReader;
 use crate::text::non_blocking::raw_text_reader::RawTextReader as NonBlockingReader;
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
@@ -204,8 +205,7 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
         loop {
             let result = self.reader.step_out();
             if let Err(IonError::Incomplete { .. }) = result {
-                let bytes_read = self.read_source(read_size)?;
-                if 0 == bytes_read {
+                if 0 == self.read_source(read_size)? {
                     if self.reader.is_stream_complete() {
                         return result;
                     } else {

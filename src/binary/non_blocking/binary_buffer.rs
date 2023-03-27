@@ -488,6 +488,7 @@ impl BinaryBuffer<Vec<u8>> {
         let bytes_read = source.read(read_buffer)?;
         // Update `self.end` to reflect that we have more data available to read.
         self.end += bytes_read;
+
         Ok(bytes_read)
     }
 

@@ -70,7 +70,7 @@ impl ReaderBuilder {
             [0xe0, 0x01, 0x00, 0xea] => {
                 // Binary Ion v1.0
                 let full_input = io::Cursor::new(header).chain(input);
-                Ok(Self::make_binary_reader(full_input))
+                Ok(Self::make_binary_reader(full_input)?)
             }
             [0xe0, major, minor, 0xea] => {
                 // Binary Ion v{major}.{minor}
@@ -94,12 +94,12 @@ impl ReaderBuilder {
         })
     }
 
-    fn make_binary_reader<'a, I: 'a + ToIonDataSource>(data: I) -> Reader<'a> {
-        let raw_reader = Box::new(RawBinaryReader::new(data.to_ion_data_source()));
-        Reader {
+    fn make_binary_reader<'a, I: 'a + ToIonDataSource>(data: I) -> IonResult<Reader<'a>> {
+        let raw_reader = Box::new(RawBinaryReader::new(data)?);
+        Ok(Reader {
             raw_reader,
             symbol_table: SymbolTable::new(),
-        }
+        })
     }
 }
 

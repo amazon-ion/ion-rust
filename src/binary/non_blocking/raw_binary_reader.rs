@@ -13,7 +13,8 @@ use crate::types::integer::IntAccess;
 use crate::types::string::Str;
 use crate::types::SymbolId;
 use crate::{
-    Decimal, Int, IonReader, IonResult, IonType, RawStreamItem, RawSymbolToken, Timestamp,
+    agnostic_reader::BufferedRawReader, Decimal, Int, IonReader,
+    IonResult, IonType, RawStreamItem, RawSymbolToken, Timestamp,
 };
 use bytes::{BigEndian, Buf, ByteOrder};
 use num_bigint::BigUint;
@@ -25,7 +26,7 @@ use std::ops::Range;
 /// Type, offset, and length information about the serialized value over which the
 /// NonBlockingRawBinaryReader is currently positioned.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct EncodedValue {
+pub struct EncodedValue {
     // If the compiler decides that a value is too large to be moved/copied with inline code,
     // it will relocate the value using memcpy instead. This can be quite slow by comparison.
     //
@@ -258,6 +259,12 @@ enum ReaderState {
     ///   was able to read the next item in the stream; more data will have to be made available to
     ///   the reader before parsing can resume.
     Skipping(usize),
+    /// ... on the first byte of a non-container value, but need more data to materialize (or skip) it ...
+    ///
+    ///   If the reader's state is `Waiting`, we're on the first byte of a value and have
+    ///   successfully parsed the value's length, but require more data in order to materialize the
+    ///   value.
+    WaitingForData(EncodedValue),
 }
 
 /// Represents the subset of [IonType] variants that are containers.
@@ -316,6 +323,36 @@ pub struct RawBinaryBufferReader<A: AsRef<[u8]>> {
     state: ReaderState,
     buffer: BinaryBuffer<A>,
     parents: Vec<Container>,
+    is_eos: bool,
+}
+
+impl BufferedRawReader for RawBinaryBufferReader<Vec<u8>> {
+    /// Copies the provided bytes to end of the reader's input buffer.
+    fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
+        self.buffer.append_bytes(bytes);
+        Ok(())
+    }
+
+    /// Tries to read `length` bytes from `source`. Unlike [append_bytes], this method does not do
+    /// any copying. A slice of the reader's buffer is handed to `source` so it can be populated
+    /// directly.
+    fn read_from<R: Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
+        self.buffer.read_from(source, length)
+    }
+
+    fn stream_complete(&mut self) {
+        self.is_eos = true;
+    }
+
+    fn is_stream_complete(&self) -> bool {
+        self.is_eos
+    }
+}
+
+impl From<Vec<u8>> for RawBinaryBufferReader<Vec<u8>> {
+    fn from(source: Vec<u8>) -> Self {
+        RawBinaryBufferReader::new(source)
+    }
 }
 
 impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
@@ -326,6 +363,7 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
             state: ReaderState::Ready,
             buffer: BinaryBuffer::new(source),
             parents: Vec::new(), // Does not allocate yet
+            is_eos: false,
         }
     }
 
@@ -365,6 +403,7 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
             Skipping(bytes_to_skip) => bytes_to_skip,
             OnIvm => IVM.len(),
             OnValue(encoded_value) => encoded_value.total_length(),
+            WaitingForData(_) => unreachable!(),
         };
 
         let bytes_available = self.buffer.remaining();
@@ -530,23 +569,13 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
         let (_encoded_value, bytes) = self.value_and_bytes(IonType::Clob)?;
         Ok(bytes)
     }
-}
 
-/// If the RawBinaryBufferReader's data source is a `Vec<u8>`, it gains the ability to add data to
-/// the buffer between read operations. This is useful when reading from a streaming data source
-/// like a file or TCP socket; the reader can read the contents of its buffer, add more bytes as
-/// they arrive, and then continue reading.
-impl RawBinaryBufferReader<Vec<u8>> {
-    /// Copies the provided bytes to end of the reader's input buffer.
-    pub fn append_bytes(&mut self, bytes: &[u8]) {
-        self.buffer.append_bytes(bytes);
-    }
-
-    /// Tries to read `length` bytes from `source`. Unlike [Self::append_bytes], this method does not do
-    /// any copying. A slice of the reader's buffer is handed to `source` so it can be populated
-    /// directly.
-    pub fn read_from<R: Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
-        self.buffer.read_from(source, length)
+    pub fn header_length(&self) -> usize {
+        if let Some(val) = self.encoded_value() {
+            val.header_length.into()
+        } else {
+            0
+        }
     }
 }
 
@@ -560,31 +589,46 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
 
     #[inline]
     fn next(&mut self) -> IonResult<Self::Item> {
-        // `advance_to_next_item` is the only method that can modify `self.buffer`. It causes the
-        // bytes representing the current stream item to be consumed.
-        //
-        // If the buffer contains enough data, the reader's new position will be the first byte of
-        // the next type descriptor byte (which may represent a field_id, annotation wrapper, value
-        // header, or NOP bytes) and its state will be set to `Ready`.
-        //
-        // If there is not enough data, `self.state` will be set to `Skipping(n)` to keep track of
-        // how many more bytes we would need to add to the buffer before we could reach the next
-        // type descriptor. If `self.state` is `Skipping(n)`, the only way to advance is to add
-        // more data to the buffer.
-        self.advance_to_next_item()?;
-
-        if let Some(parent) = self.parents.last() {
-            // We're inside a container. If we've reached its end, return `Nothing`.
-            if self.buffer.total_consumed() >= parent.exclusive_end {
-                return Ok(RawStreamItem::Nothing);
+        if let ReaderState::WaitingForData(value) = self.state {
+            if self.buffer.remaining() < value.total_length() {
+                return incomplete_data_error("ahead to next item", self.buffer.total_consumed());
+            } else {
+                self.state = ReaderState::OnValue(value);
+                if value.header.is_null() {
+                    return Ok(RawStreamItem::Null(value.ion_type()));
+                } else {
+                    return Ok(RawStreamItem::Value(value.ion_type()));
+                }
             }
         } else {
-            // We're at the top level. If we're out of data (`buffer.is_empty()`) and aren't waiting
-            // on more data (`Skipping(n)`), we return `Nothing` to indicate that we're at EOF.
-            if self.buffer.is_empty() && self.state == ReaderState::Ready {
-                return Ok(RawStreamItem::Nothing);
+            // `advance_to_next_item` is the only method that can modify `self.buffer`. It causes the
+            // bytes representing the current stream item to be consumed.
+            //
+            // If the buffer contains enough data, the reader's new position will be the first byte of
+            // the next type descriptor byte (which may represent a field_id, annotation wrapper, value
+            // header, or NOP bytes) and its state will be set to `Ready`.
+            //
+            // If there is not enough data, `self.state` will be set to `Skipping(n)` to keep track of
+            // how many more bytes we would need to add to the buffer before we could reach the next
+            // type descriptor. If `self.state` is `Skipping(n)`, the only way to advance is to add
+            // more data to the buffer.
+            self.advance_to_next_item()?;
+
+            if let Some(parent) = self.parents.last() {
+                // We're inside a container. If we've reached its end, return `Nothing`.
+                if self.buffer.total_consumed() >= parent.exclusive_end {
+                    return Ok(RawStreamItem::Nothing);
+                }
+            } else {
+                // We're at the top level. If we're out of data (`buffer.is_empty()`) and aren't waiting
+                // on more data (`Skipping(n)`), we return `Nothing` to indicate that we're at EOF.
+                if self.buffer.is_empty() && self.state == ReaderState::Ready {
+                    return Ok(RawStreamItem::Nothing);
+                }
             }
         }
+
+        let bytes_remaining = self.buffer.remaining();
 
         // Make a 'transaction' reader. This is a disposable view of the reader's main input buffer;
         // it's reading the same bytes, but keeps its own records of how many bytes have been
@@ -594,11 +638,31 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
         let mut tx_reader = self.transaction_reader();
 
         let item_result = tx_reader.read_next_item();
+        let nop_bytes_count = tx_reader.nop_bytes_count as usize;
+
+        // If we do not have enough bytes to materialize the next value, return an incomplete
+        // error. This is to match the behavior of the text reader where incomplets will only come
+        // from step-out and next calls.
+        if let ReaderState::OnValue(encoded_value) = tx_reader.state {
+            match encoded_value.ion_type() {
+                IonType::Struct | IonType::List | IonType::SExp => (),
+                _ => {
+                    if bytes_remaining < encoded_value.total_length() {
+                        *tx_reader.state = ReaderState::WaitingForData(*encoded_value);
+                        self.buffer.consume(nop_bytes_count as usize);
+                        return incomplete_data_error(
+                            "ahead to next item",
+                            self.buffer.total_consumed(),
+                        );
+                    }
+                }
+            }
+        }
 
         // If we encountered any leading NOP bytes during this transaction, consume them.
         // This guarantees that the first byte in the buffer is the first byte of the current item.
-        let nop_bytes_count = tx_reader.nop_bytes_count as usize;
         self.buffer.consume(nop_bytes_count);
+
         item_result
     }
 
@@ -614,7 +678,7 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
                     RawStreamItem::Value(ion_type)
                 }
             }
-            Ready | Skipping(_) => RawStreamItem::Nothing,
+            Ready | Skipping(_) | WaitingForData(_) => RawStreamItem::Nothing,
         }
     }
 
@@ -1364,16 +1428,28 @@ mod tests {
     fn read_incomplete_int() -> IonResult<()> {
         let data = vec![0x21];
         let mut reader = RawBinaryBufferReader::new(data);
-        // We can read the *header* of the int just fine
-        expect_value(reader.next(), IonType::Int);
-        // Trying to advance beyond it is a problem.
+        // We can no longer read the header successfully on next, we need all of the value's data
+        // as well.
         expect_incomplete(reader.next());
         // This byte completes the int, but we still don't have another value to move to.
         reader.append_bytes(&[0x03]);
+        expect_value(reader.next(), IonType::Int);
         expect_eof(reader.next());
+
         // Now there's an empty string after the int
         reader.append_bytes(&[0x80]);
         expect_value(reader.next(), IonType::String);
+
+        // // We can read the *header* of the int just fine
+        // expect_value(reader.next(), IonType::Integer);
+        // // Trying to advance beyond it is a problem.
+        // expect_incomplete(reader.next());
+        // // This byte completes the int, but we still don't have another value to move to.
+        // reader.append_bytes(&[0x03]);
+        // expect_eof(reader.next());
+        // // Now there's an empty string after the int
+        // reader.append_bytes(&[0x80]);
+        // expect_value(reader.next(), IonType::String);
         Ok(())
     }
 

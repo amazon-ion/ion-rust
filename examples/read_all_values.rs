@@ -29,7 +29,7 @@ fn main() -> IonResult<()> {
     let ion_data: &[u8] = &mmap[..];
 
     if mode == "blocking" {
-        let mut reader = RawBinaryReader::new(ion_data);
+        let mut reader = RawBinaryReader::new(ion_data)?;
         let number_of_values = read_all_values(&mut reader)?;
         println!("Blocking: read {} values", number_of_values);
     } else if mode == "nonblocking" {

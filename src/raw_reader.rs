@@ -7,17 +7,9 @@ use std::fmt::{Display, Formatter};
 
 /// `RawReader` is a shorthand for a [Reader](crate::Reader) implementation that returns [RawStreamItem]s and
 /// uses [RawSymbolToken] to represent its field names, annotations, and symbol values.
-pub trait RawReader: IonReader<Item = RawStreamItem, Symbol = RawSymbolToken> {
-    // Mark the stream as complete. This allows the reader to understand when partial parses on
-    // data boundaries are not possible.
-    fn stream_complete(&mut self);
-}
-impl<T> RawReader for T
-where
-    T: IonReader<Item = RawStreamItem, Symbol = RawSymbolToken>,
-{
-    fn stream_complete(&mut self) {}
-}
+pub trait RawReader: IonReader<Item = RawStreamItem, Symbol = RawSymbolToken> {}
+
+impl<T> RawReader for T where T: IonReader<Item = RawStreamItem, Symbol = RawSymbolToken> {}
 
 /// Allows a `Box<dyn RawReader>` to be used as a RawReader.
 /// Note: this implementation contains some methods that are not object safe and so cannot be
