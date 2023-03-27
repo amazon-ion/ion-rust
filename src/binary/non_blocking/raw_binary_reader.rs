@@ -13,8 +13,8 @@ use crate::types::integer::IntAccess;
 use crate::types::string::Str;
 use crate::types::SymbolId;
 use crate::{
-    agnostic_reader::BufferedRawReader, Decimal, Int, IonReader,
-    IonResult, IonType, RawStreamItem, RawSymbolToken, Timestamp,
+    agnostic_reader::BufferedRawReader, Decimal, Int, IonReader, IonResult, IonType, RawStreamItem,
+    RawSymbolToken, Timestamp,
 };
 use bytes::{BigEndian, Buf, ByteOrder};
 use num_bigint::BigUint;
