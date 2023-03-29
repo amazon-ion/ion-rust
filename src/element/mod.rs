@@ -1390,7 +1390,7 @@ mod value_tests {
         use std::thread;
         // The Element type must implement `Send` in order for values to be
         // moved between threads. If changes are made to the `Element` type
-        // or its nested field types (like the `Value` enum and its variants),
+        // or its nested field types (like the `Value` enum and its variants)
         // which accidentally cause it not to implement `Send`, then this test
         // will fail to compile.
         let list: Element = ion_list![1, 2, 3].into();
