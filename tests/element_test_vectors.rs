@@ -2,11 +2,12 @@
 
 use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::{ElementWriter, Format, TextKind};
-use ion_rs::element::{Element, IonSequence};
+use ion_rs::element::Element;
 use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
 use ion_rs::{BinaryWriterBuilder, IonWriter, Reader, TextWriterBuilder};
 
+use ion_rs::element::IonSequence;
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 use test_generator::test_resources;

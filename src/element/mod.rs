@@ -13,7 +13,7 @@
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
 use crate::element::builders::{ListBuilder, SExpBuilder, StructBuilder};
-use crate::element::iterators::{ElementsIterator, SymbolsIterator};
+use crate::element::iterators::SymbolsIterator;
 use crate::element::reader::ElementReader;
 use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
@@ -24,128 +24,19 @@ use std::fmt::{Display, Formatter};
 pub mod builders;
 mod element_stream_reader;
 mod iterators;
+mod list;
 pub mod owned;
 pub mod reader;
+mod sequence;
+mod sexp;
 mod r#struct;
 pub mod writer;
 
+// Re-export the Value variant types and traits so they can be accessed directly from this module.
+pub use list::List;
 pub use r#struct::Struct;
-
-/// Behavior that is common to both [SExp] and [Struct].
-pub trait IonSequence {
-    fn elements(&self) -> ElementsIterator<'_>;
-    fn get(&self, index: usize) -> Option<&Element>;
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-/// An in-memory representation of an Ion list
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct List {
-    children: Vec<Element>,
-}
-
-impl List {
-    pub(crate) fn new(children: Vec<Element>) -> Self {
-        Self { children }
-    }
-
-    pub fn builder() -> ListBuilder {
-        ListBuilder::new()
-    }
-
-    pub fn clone_builder(&self) -> ListBuilder {
-        ListBuilder::with_initial_elements(&self.children)
-    }
-}
-
-impl Display for List {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = IonValueFormatter { output: f };
-        ivf.format_list(self).map_err(|_| std::fmt::Error)?;
-        Ok(())
-    }
-}
-
-impl IonSequence for List {
-    fn elements(&self) -> ElementsIterator<'_> {
-        ElementsIterator::new(&self.children)
-    }
-
-    fn get(&self, index: usize) -> Option<&Element> {
-        self.children.get(index)
-    }
-
-    fn len(&self) -> usize {
-        self.children.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-impl<S: IonSequence> IonEq for S {
-    fn ion_eq(&self, other: &Self) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-        for (item1, item2) in self.elements().zip(other.elements()) {
-            if !item1.ion_eq(item2) {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-/// An in-memory representation of an Ion s-expression
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SExp {
-    children: Vec<Element>,
-}
-
-impl SExp {
-    pub(crate) fn new(children: Vec<Element>) -> Self {
-        Self { children }
-    }
-
-    pub fn builder() -> SExpBuilder {
-        SExpBuilder::new()
-    }
-
-    pub fn clone_builder(&self) -> SExpBuilder {
-        SExpBuilder::with_initial_elements(&self.children)
-    }
-}
-
-impl Display for SExp {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = IonValueFormatter { output: f };
-        ivf.format_sexp(self).map_err(|_| std::fmt::Error)?;
-        Ok(())
-    }
-}
-
-impl IonSequence for SExp {
-    fn elements(&self) -> ElementsIterator<'_> {
-        ElementsIterator::new(&self.children)
-    }
-
-    fn get(&self, index: usize) -> Option<&Element> {
-        self.children.get(index)
-    }
-
-    fn len(&self) -> usize {
-        self.children.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
+pub use sequence::IonSequence;
+pub use sexp::SExp;
 
 impl IonEq for Value {
     fn ion_eq(&self, other: &Self) -> bool {
@@ -160,20 +51,6 @@ impl IonEq for Value {
         };
         // For any other case, fall back to vanilla equality
         self == other
-    }
-}
-
-impl IonEq for Vec<Element> {
-    fn ion_eq(&self, other: &Self) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-        for (v1, v2) in self.iter().zip(other.iter()) {
-            if !v1.ion_eq(v2) {
-                return false;
-            }
-        }
-        true
     }
 }
 
@@ -1184,7 +1061,6 @@ mod tests {
 
 #[cfg(test)]
 mod value_tests {
-    use super::Element;
     use crate::element::*;
     use crate::ion_eq::IonEq;
     use crate::{ion_list, ion_sexp, ion_struct, IonType};

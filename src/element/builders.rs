@@ -1,4 +1,4 @@
-use crate::element::{Element, List, SExp, Struct};
+use crate::element::{Element, Struct};
 use crate::Symbol;
 
 /// Constructs [List] values incrementally.
@@ -381,6 +381,8 @@ macro_rules! ion_struct {
     }};
 }
 
+use crate::element::list::List;
+use crate::element::sexp::SExp;
 pub use ion_list;
 pub use ion_sexp;
 pub use ion_struct;
