@@ -1,4 +1,4 @@
-use crate::element::{Element, List, SExp, Struct};
+use crate::element::{Element, Struct};
 use crate::Symbol;
 
 /// Constructs [List] values incrementally.
@@ -123,7 +123,7 @@ impl SExpBuilder {
 ///
 /// ```
 /// use ion_rs::ion_struct;
-/// use ion_rs::element::{Element, Struct};
+/// use ion_rs::element::{Struct, Element};
 /// let base_struct: Struct = ion_struct! {
 ///     "foo": 1,
 ///     "bar": 2,
@@ -381,6 +381,8 @@ macro_rules! ion_struct {
     }};
 }
 
+use crate::element::list::List;
+use crate::element::sexp::SExp;
 pub use ion_list;
 pub use ion_sexp;
 pub use ion_struct;

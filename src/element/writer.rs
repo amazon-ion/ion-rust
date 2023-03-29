@@ -5,7 +5,8 @@
 
 use crate::result::IonResult;
 
-use crate::element::{Element, IonSequence, Value};
+use crate::element::sequence::IonSequence;
+use crate::element::{Element, Value};
 use crate::{IonType, IonWriter};
 pub use Format::*;
 pub use TextKind::*;
