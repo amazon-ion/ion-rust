@@ -1385,6 +1385,22 @@ mod value_tests {
     use crate::{ion_list, ion_sexp, ion_struct, IonType};
     use rstest::*;
 
+    #[test]
+    fn demonstrate_element_implements_send() {
+        use std::thread;
+        // The Element type must implement `Send` in order for values to be
+        // moved between threads. If changes are made to the `Element` type
+        // or its nested field types (like the `Value` enum and its variants),
+        // then this test will fail to compile.
+        let list: Element = ion_list![1, 2, 3].into();
+        thread::scope(|_| {
+            // Move `list` into this scope, demonstrating `Send`
+            let elements = vec![list];
+            // Trivial assertion to use `elements`
+            assert_eq!(elements.len(), 1);
+        });
+    }
+
     #[rstest]
     #[case::strings(
         Element::from("hello"), // An explicitly constructed String Element

@@ -4,13 +4,13 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Stores or points to the text of a given [Symbol].
 #[derive(Debug, Eq)]
 enum SymbolText {
     // This Symbol refers to a string in the symbol table
-    Shared(Rc<str>),
+    Shared(Arc<str>),
     // This Symbol owns its own text
     Owned(String),
     // This Symbol is equivalent to SID zero (`$0`)
@@ -42,7 +42,7 @@ impl Clone for SymbolText {
     fn clone(&self) -> Self {
         match self {
             SymbolText::Owned(text) => SymbolText::Owned(text.to_owned()),
-            SymbolText::Shared(text) => SymbolText::Shared(Rc::clone(text)),
+            SymbolText::Shared(text) => SymbolText::Shared(Arc::clone(text)),
             SymbolText::Unknown => SymbolText::Unknown,
         }
     }
@@ -88,7 +88,7 @@ impl Symbol {
         }
     }
 
-    pub fn shared(text: Rc<str>) -> Symbol {
+    pub fn shared(text: Arc<str>) -> Symbol {
         Symbol {
             text: SymbolText::Shared(text),
         }
@@ -178,8 +178,8 @@ mod symbol_tests {
     fn ordering_and_eq() {
         let mut symbols = vec![
             Symbol::owned("foo"),
-            Symbol::shared(Rc::from("bar")),
-            Symbol::shared(Rc::from("baz")),
+            Symbol::shared(Arc::from("bar")),
+            Symbol::shared(Arc::from("baz")),
             Symbol::owned("quux"),
         ];
         // Sort the list to demonstrate that our Ord implementation works.

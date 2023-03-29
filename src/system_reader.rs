@@ -639,7 +639,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
             RawSymbolToken::SymbolId(sid) => sid,
         };
         if let Some(symbol) = self.symbol_table.symbol_for(sid) {
-            // Make a cheap clone of the Rc<str> in the symbol table
+            // Make a cheap clone of the Arc<str> in the symbol table
             Ok(symbol.clone())
         } else if !self.symbol_table.sid_is_valid(sid) {
             decoding_error(format!("Symbol ID ${sid} is out of range."))

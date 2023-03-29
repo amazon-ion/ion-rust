@@ -25,9 +25,7 @@ impl RawTextWriterBuilder {
     /// ```
     pub fn new() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            whitespace_config: WhitespaceConfig {
-                ..COMPACT_WHITESPACE_CONFIG
-            },
+            whitespace_config: COMPACT_WHITESPACE_CONFIG.clone(),
         }
     }
 
@@ -45,9 +43,7 @@ impl RawTextWriterBuilder {
     //TODO: https://github.com/amazon-ion/ion-rust/issues/437
     pub fn lines() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            whitespace_config: WhitespaceConfig {
-                ..LINES_WHITESPACE_CONFIG
-            },
+            whitespace_config: LINES_WHITESPACE_CONFIG.clone(),
         }
     }
 
@@ -70,9 +66,7 @@ impl RawTextWriterBuilder {
     /// ```
     pub fn pretty() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            whitespace_config: WhitespaceConfig {
-                ..PRETTY_WHITESPACE_CONFIG
-            },
+            whitespace_config: PRETTY_WHITESPACE_CONFIG.clone(),
         }
     }
 
@@ -144,6 +138,7 @@ struct EncodingLevel {
     child_count: usize,
 }
 
+#[derive(Clone)]
 struct WhitespaceConfig {
     // Top-level values are independent of other values in the stream, we may separate differently
     space_between_top_level_values: &'static str,
@@ -400,7 +395,8 @@ impl<W: Write> RawTextWriter<W> {
     pub fn add_annotation<A: AsRawSymbolTokenRef>(&mut self, annotation: A) {
         // TODO: This function currently allocates a new string for each annotation.
         //       It will be common for this text to come from the symbol table; we should
-        //       make it possible to pass an Rc<str> or similar when applicable.
+        //       make it possible to pass an Arc<str> or similar when applicable.
+        //       See: https://github.com/amazon-ion/ion-rust/issues/496
         let text = match annotation.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(sid) => format!("${sid}"),
             RawSymbolTokenRef::Text(text) => text.to_string(),
