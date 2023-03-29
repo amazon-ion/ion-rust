@@ -77,17 +77,17 @@ impl Fields {
 
 /// An in-memory representation of an Ion Struct
 /// ```
-/// use ion_rs::element::{Element, IonSequence, List};
+/// use ion_rs::element::Element;
 /// use ion_rs::ion_struct;
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
-/// let list = ion_struct! {
+/// let struct_ = ion_struct! {
 ///   "foo": 1,
 ///   "bar": true,
 ///   "baz": "hello"
 /// };
-/// assert_eq!(list.len(), 3);
-/// assert_eq!(list.get("baz"), Some(&Element::string("hello")));
+/// assert_eq!(struct_.len(), 3);
+/// assert_eq!(struct_.get("baz"), Some(&Element::string("hello")));
 /// # Ok(())
 /// # }
 /// ```
