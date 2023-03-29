@@ -147,6 +147,28 @@ impl Struct {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    pub fn iter(&self) -> FieldIterator<'_> {
+        FieldIterator::new(&self.fields.by_index)
+    }
+
+    pub fn get<A: AsSymbolRef>(&self, field_name: A) -> Option<&Element> {
+        self.fields.get_last(field_name)
+    }
+
+    pub fn get_all<A: AsSymbolRef>(&self, field_name: A) -> FieldValuesIterator<'_> {
+        self.fields.get_all(field_name)
+    }
+}
+
+// Allows `for (name, value) in &my_struct {...}` syntax
+impl<'a> IntoIterator for &'a Struct {
+    type Item = (&'a Symbol, &'a Element);
+    type IntoIter = FieldIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
 impl<K, V> FromIterator<(K, V)> for Struct
@@ -174,20 +196,6 @@ where
     }
 }
 
-impl Struct {
-    pub fn iter(&self) -> FieldIterator<'_> {
-        FieldIterator::new(&self.fields.by_index)
-    }
-
-    pub fn get<A: AsSymbolRef>(&self, field_name: A) -> Option<&Element> {
-        self.fields.get_last(field_name)
-    }
-
-    pub fn get_all<A: AsSymbolRef>(&self, field_name: A) -> FieldValuesIterator<'_> {
-        self.fields.get_all(field_name)
-    }
-}
-
 impl PartialEq for Struct {
     fn eq(&self, other: &Self) -> bool {
         // check if both fields have same length
@@ -201,3 +209,22 @@ impl PartialEq for Struct {
 }
 
 impl Eq for Struct {}
+
+#[cfg(test)]
+mod tests {
+    use crate::element::Element;
+    use crate::ion_struct;
+
+    #[test]
+    fn for_field_in_struct() {
+        // Simple example to exercise List's implementation of IntoIterator
+        let s = ion_struct! { "foo": 1, "bar": 2, "baz": 3};
+        let mut baz_value = None;
+        for (name, value) in &s {
+            if *name == "baz" {
+                baz_value = Some(value);
+            }
+        }
+        assert_eq!(baz_value, Some(&Element::integer(3)));
+    }
+}
