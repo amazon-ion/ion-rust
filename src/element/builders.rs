@@ -123,7 +123,7 @@ impl SExpBuilder {
 ///
 /// ```
 /// use ion_rs::ion_struct;
-/// use ion_rs::element::{Element, Struct};
+/// use ion_rs::element::{Struct, Element};
 /// let base_struct: Struct = ion_struct! {
 ///     "foo": 1,
 ///     "bar": 2,
