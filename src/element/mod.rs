@@ -25,7 +25,6 @@ pub mod builders;
 mod element_stream_reader;
 mod iterators;
 mod list;
-pub mod owned;
 pub mod reader;
 mod sequence;
 mod sexp;
