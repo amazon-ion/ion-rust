@@ -10,7 +10,7 @@ use std::fmt::{Display, Formatter};
 /// ```
 #[derive(Eq, Ord, PartialOrd, Debug, Clone, Hash)]
 pub struct Str {
-    // For the time being, the `Text` type is an opaque wrapper around the standard Rust `String`
+    // For the time being, the `Str` type is an opaque wrapper around the standard Rust `String`
     // type. Having this opaque wrapper means that we can swap out its implementation without a
     // breaking change, allowing us to offer string interning, stack-allocated small strings, or
     // other optimizations as needed.
@@ -36,11 +36,10 @@ impl Str {
     ///
     /// ```
     /// use ion_rs::Str;
+    /// let s: Str = "".into();
+    /// assert!(s.is_empty());
     /// let s: Str = "hello!".into();
-    /// assert_eq!(s.len(), 6);
-    /// // Note that the length returned is a number of UTF-8 bytes, not codepoints or graphemes.
-    /// let s: Str = "🚀🚀🚀".into();
-    /// assert_eq!(s.len(), 12);
+    /// assert!(!s.is_empty());
     /// ```
     // This method is largely here because clippy complains if you provide a `len()` method but not
     // an accompanying `is_empty()` method.
