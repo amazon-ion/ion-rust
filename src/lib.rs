@@ -204,6 +204,7 @@ pub use symbol_table::SymbolTable;
 
 pub use types::decimal::Decimal;
 pub use types::integer::Int;
+pub use types::string::Str;
 pub use types::timestamp::Timestamp;
 pub use types::IonType;
 

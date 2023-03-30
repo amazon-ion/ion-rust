@@ -7,6 +7,7 @@ pub type SymbolId = usize;
 pub mod coefficient;
 pub mod decimal;
 pub mod integer;
+pub mod string;
 pub mod timestamp;
 
 use std::fmt;

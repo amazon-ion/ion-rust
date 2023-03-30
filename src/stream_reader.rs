@@ -1,6 +1,7 @@
 use crate::result::IonResult;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Int;
+use crate::types::string::Str;
 use crate::types::timestamp::Timestamp;
 use crate::types::IonType;
 
@@ -102,7 +103,7 @@ pub trait IonReader {
 
     /// Attempts to read the current item as an Ion string and return it as a [String]. If the current
     /// item is not a string or an IO error is encountered while reading, returns [crate::IonError].
-    fn read_string(&mut self) -> IonResult<String>;
+    fn read_string(&mut self) -> IonResult<Str>;
 
     /// Takes a function that expects a string and, once the string's bytes are loaded, calls that
     /// function passing the string as a parameter. This allows users to avoid materializing the

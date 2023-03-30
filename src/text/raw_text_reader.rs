@@ -3,6 +3,7 @@ use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonResult;
 use crate::stream_reader::IonReader;
+use crate::types::string::Str;
 use crate::types::timestamp::Timestamp;
 use crate::{Decimal, Int, IonError, IonType};
 
@@ -142,7 +143,7 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
         self.reader.read_decimal()
     }
 
-    fn read_string(&mut self) -> IonResult<String> {
+    fn read_string(&mut self) -> IonResult<Str> {
         self.reader.read_string()
     }
 
