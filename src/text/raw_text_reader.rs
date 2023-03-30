@@ -854,7 +854,11 @@ mod reader_tests {
     }
 
     #[test]
-    fn nested_struct() -> IonResult<()> {
+    fn nested_step_out_stops() -> IonResult<()> {
+        // This test ensures that when we step over a nested container, we actually stop at the
+        // target depth. This is intended as a regression test for a bug where stepping out of a
+        // struct that contained a list would continue stepping out until it could not step out
+        // anymore.
         let (source, _metrics) = TestIonSource::new(
             r#"
                 $ion_1_0
@@ -877,46 +881,72 @@ mod reader_tests {
 
         assert_eq!(reader.next().unwrap(), RawStreamItem::VersionMarker(1, 0));
 
-        next_type(reader, IonType::Struct, false);
-
-        next_type(reader, IonType::Struct, false);
+        next_type(reader, IonType::Struct, false); // Step over first empty struct.
+        next_type(reader, IonType::Struct, false); // Next to the struct we're interested in.
         reader.step_in()?;
-        next_type(reader, IonType::List, false);
-        assert!(reader.field_name().is_ok());
 
-        reader.step_in()?;
-        next_type(reader, IonType::Int, false);
-        assert_eq!(reader.read_i64()?, 1);
+        // Next and Step into our list: .[1].foo
         next_type(reader, IonType::List, false);
         reader.step_in()?;
+
         next_type(reader, IonType::Int, false);
-        assert_eq!(reader.read_i64()?, 2);
+
+        // Next and step into the list in the first index: .[1].foo[1]
+        next_type(reader, IonType::List, false);
+        reader.step_in()?;
+
+        // Next over the two values in the list..
         next_type(reader, IonType::Int, false);
-        assert_eq!(reader.read_i64()?, 3);
+        next_type(reader, IonType::Int, false);
+
+        let depth = reader.depth();
         reader.step_out()?; // Step out of .[1].foo[1]
+        assert_eq!(depth - 1, reader.depth());
+
+        let depth = reader.depth();
         reader.step_out()?; // Step out of .[1].foo
+        assert_eq!(depth - 1, reader.depth());
 
+        // Next and step into .[1].bar
         next_type(reader, IonType::Struct, false);
-        assert!(reader.field_name().is_ok());
-
         reader.step_in()?;
+
         next_type(reader, IonType::Int, false);
-        assert_eq!(reader.read_i64()?, 5);
+
+        // Next and step into the SExpr at .[1].bar.b
         next_type(reader, IonType::SExp, false);
         reader.step_in()?;
-        next_type(reader, IonType::Bool, false);
-        assert!(reader.read_bool()?);
-        next_type(reader, IonType::Bool, false);
-        assert!(reader.read_bool()?);
-        next_type(reader, IonType::Bool, false);
-        assert!(reader.read_bool()?);
-        // The reader is now at the second 'true' in the s-expression nested in 'bar'/'b'
+
+        let depth = reader.depth();
         reader.step_out()?; // Step out of .[1].bar.b
         reader.step_out()?; // Step out of .[1].bar
         reader.step_out()?; // Step out of .[1]
+        assert_eq!(depth - 3, reader.depth());
 
+        // Next and validate that we are at the last item in the data.
         next_type(reader, IonType::Int, false);
         assert_eq!(reader.read_i64()?, 11);
+        Ok(())
+    }
+
+    #[test]
+    fn step_out_marks_eos() -> IonResult<()> {
+        use crate::IonError;
+        // This test confirms that reaching the end of a stream while stepping out of a container
+        // properly marks the stream as complete. When this does not happen, an Incomplete error
+        // will bubble up to the user. If the stream is properly marked as complete, the user will
+        // instead receiving a decoding error explaining the missing delimeter.
+        const SOURCE: &str = "{foo: [1, 2, 3]";
+
+        let (source, _metrics) = TestIonSource::new(SOURCE);
+        let reader = &mut RawTextReader::new(source)?;
+
+        next_type(reader, IonType::Struct, false);
+        reader.step_in()?;
+        match reader.step_out() {
+            Err(IonError::DecodingError { .. }) => (),
+            _ => panic!("Unexpected result from step_out"),
+        }
         Ok(())
     }
 }

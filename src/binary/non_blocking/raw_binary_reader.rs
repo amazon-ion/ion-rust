@@ -1407,10 +1407,10 @@ mod tests {
         expect_incomplete(reader.next());
         expect_incomplete(reader.next());
         // We can append data as it becomes available even if it doesn't produce a complete item.
-        reader.append_bytes(&[1, 0]);
+        reader.append_bytes(&[1, 0])?;
         expect_incomplete(reader.next());
         // Finally, when we have enough data to produce an item, a call to next() works as expected.
-        reader.append_bytes(&[0xEA]);
+        reader.append_bytes(&[0xEA])?;
         assert_eq!(RawStreamItem::VersionMarker(1, 0), reader.next().unwrap());
         Ok(())
     }
@@ -1432,24 +1432,14 @@ mod tests {
         // as well.
         expect_incomplete(reader.next());
         // This byte completes the int, but we still don't have another value to move to.
-        reader.append_bytes(&[0x03]);
+        reader.append_bytes(&[0x03])?;
         expect_value(reader.next(), IonType::Int);
         expect_eof(reader.next());
 
         // Now there's an empty string after the int
-        reader.append_bytes(&[0x80]);
+        reader.append_bytes(&[0x80])?;
         expect_value(reader.next(), IonType::String);
 
-        // // We can read the *header* of the int just fine
-        // expect_value(reader.next(), IonType::Integer);
-        // // Trying to advance beyond it is a problem.
-        // expect_incomplete(reader.next());
-        // // This byte completes the int, but we still don't have another value to move to.
-        // reader.append_bytes(&[0x03]);
-        // expect_eof(reader.next());
-        // // Now there's an empty string after the int
-        // reader.append_bytes(&[0x80]);
-        // expect_value(reader.next(), IonType::String);
         Ok(())
     }
 

@@ -1,9 +1,5 @@
-use std::io;
-use std::ops::Range;
-
 use delegate::delegate;
 
-use crate::agnostic_reader::RawBinaryReader;
 use crate::constants::v1_0::{system_symbol_ids, SYSTEM_SYMBOLS};
 use crate::raw_reader::{RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;

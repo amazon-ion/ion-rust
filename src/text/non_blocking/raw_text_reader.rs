@@ -4,7 +4,7 @@ use crate::types::string::Str;
 use nom::Err::{Error, Failure, Incomplete};
 
 use crate::agnostic_reader::BufferedRawReader;
-use crate::raw_reader::{RawReader, RawStreamItem};
+use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{
     decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError,
