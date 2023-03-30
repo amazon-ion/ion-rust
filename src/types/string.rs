@@ -31,6 +31,34 @@ impl Str {
     pub fn len(&self) -> usize {
         self.text.len()
     }
+
+    /// Returns `true` if this is the empty string (`""`); otherwise, returns `false`.
+    ///
+    /// ```
+    /// use ion_rs::Str;
+    /// let s: Str = "hello!".into();
+    /// assert_eq!(s.len(), 6);
+    /// // Note that the length returned is a number of UTF-8 bytes, not codepoints or graphemes.
+    /// let s: Str = "🚀🚀🚀".into();
+    /// assert_eq!(s.len(), 12);
+    /// ```
+    // This method is largely here because clippy complains if you provide a `len()` method but not
+    // an accompanying `is_empty()` method.
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
+
+    /// Returns a `&str` representation of this string's text.
+    ///
+    /// ```
+    /// use ion_rs::Str;
+    /// let s: Str = "hello, world!".into();
+    /// assert!(s.text().contains("world"));
+    /// assert!(s.text().is_ascii());
+    /// ```
+    pub fn text(&self) -> &str {
+        self.text.as_str()
+    }
 }
 
 impl Display for Str {
@@ -58,7 +86,7 @@ impl From<String> for Str {
 
 impl AsRef<str> for Str {
     fn as_ref(&self) -> &str {
-        self.text.as_ref()
+        self.text()
     }
 }
 
@@ -67,21 +95,20 @@ where
     S: AsRef<str>,
 {
     fn eq(&self, other: &S) -> bool {
-        let this_text: &str = self.as_ref();
         let other_text: &str = other.as_ref();
-        this_text == other_text
+        self.text() == other_text
     }
 }
 
 impl PartialEq<Str> for &str {
     fn eq(&self, other: &Str) -> bool {
-        self.eq(&other.as_ref())
+        self.eq(&other.text())
     }
 }
 
 impl PartialEq<Str> for String {
     fn eq(&self, other: &Str) -> bool {
         let self_text: &str = self.as_str();
-        self_text.eq(other.as_ref())
+        self_text.eq(other.text())
     }
 }
