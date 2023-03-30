@@ -25,6 +25,7 @@ use crate::result::{decoding_error_raw, IonError};
 use crate::stream_reader::IonReader;
 use crate::types::decimal::Decimal;
 use crate::types::integer::{Int, IntAccess};
+use crate::types::string::Str;
 use crate::types::timestamp::Timestamp;
 use num_traits::Zero;
 use std::ops::Range;
@@ -534,8 +535,8 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
         Ok(Decimal::new(coefficient, exponent))
     }
 
-    fn read_string(&mut self) -> IonResult<String> {
-        self.map_string(|s| s.to_owned())
+    fn read_string(&mut self) -> IonResult<Str> {
+        self.map_string(|s| s.into())
     }
 
     fn map_string<F, U>(&mut self, f: F) -> IonResult<U>

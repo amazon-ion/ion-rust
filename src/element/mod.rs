@@ -17,7 +17,7 @@ use crate::element::iterators::SymbolsIterator;
 use crate::element::reader::ElementReader;
 use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
-use crate::{Decimal, Int, IonResult, IonType, ReaderBuilder, Symbol, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, ReaderBuilder, Str, Symbol, Timestamp};
 use num_bigint::BigInt;
 use std::fmt::{Display, Formatter};
 
@@ -61,7 +61,7 @@ pub enum Value {
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
-    String(String),
+    String(Str),
     Symbol(Symbol),
     Bool(bool),
     Blob(Vec<u8>),
@@ -145,12 +145,19 @@ impl From<bool> for Value {
 
 impl From<&str> for Value {
     fn from(string_val: &str) -> Self {
-        Value::String(string_val.to_owned())
+        Value::String(string_val.into())
     }
 }
 
 impl From<String> for Value {
-    fn from(string_val: String) -> Self {
+    fn from(value: String) -> Self {
+        let s: Str = value.into();
+        Value::String(s)
+    }
+}
+
+impl From<Str> for Value {
+    fn from(string_val: Str) -> Self {
         Value::String(string_val)
     }
 }
@@ -262,8 +269,8 @@ impl Element {
         value.into()
     }
 
-    pub fn string<I: Into<String>>(str: I) -> Element {
-        let text: String = str.into();
+    pub fn string<I: Into<Str>>(str: I) -> Element {
+        let text: Str = str.into();
         text.into()
     }
 
@@ -383,7 +390,7 @@ impl Element {
 
     pub fn as_text(&self) -> Option<&str> {
         match &self.value {
-            Value::String(text) => Some(text),
+            Value::String(text) => Some(text.as_ref()),
             Value::Symbol(sym) => sym.text(),
             _ => None,
         }
@@ -391,7 +398,7 @@ impl Element {
 
     pub fn as_string(&self) -> Option<&str> {
         match &self.value {
-            Value::String(text) => Some(text),
+            Value::String(text) => Some(text.as_ref()),
             _ => None,
         }
     }

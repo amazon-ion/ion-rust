@@ -19,6 +19,7 @@ use crate::types::timestamp::Timestamp;
 use crate::{IonType, RawBinaryReader, RawTextReader};
 use std::fmt::{Display, Formatter};
 
+use crate::types::string::Str;
 /// Configures and constructs new instances of [Reader].
 pub struct ReaderBuilder {}
 
@@ -431,7 +432,7 @@ impl<R: RawReader> IonReader for UserReader<R> {
             fn read_f32(&mut self) -> IonResult<f32>;
             fn read_f64(&mut self) -> IonResult<f64>;
             fn read_decimal(&mut self) -> IonResult<Decimal>;
-            fn read_string(&mut self) -> IonResult<String>;
+            fn read_string(&mut self) -> IonResult<Str>;
             fn map_string<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&str) -> U;
             fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
             fn read_blob(&mut self) -> IonResult<Vec<u8>>;

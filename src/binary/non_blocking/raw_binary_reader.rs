@@ -10,6 +10,7 @@ use crate::result::{
     incomplete_data_error,
 };
 use crate::types::integer::IntAccess;
+use crate::types::string::Str;
 use crate::types::SymbolId;
 use crate::{
     Decimal, Int, IonReader, IonResult, IonType, RawStreamItem, RawSymbolToken, Timestamp,
@@ -744,8 +745,8 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
         Ok(Decimal::new(coefficient, exponent))
     }
 
-    fn read_string(&mut self) -> IonResult<String> {
-        self.read_str().map(|s| s.to_string())
+    fn read_string(&mut self) -> IonResult<Str> {
+        self.read_str().map(|s| s.into())
     }
 
     fn map_string<F, U>(&mut self, f: F) -> IonResult<U>

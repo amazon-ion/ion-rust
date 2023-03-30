@@ -3,7 +3,9 @@ use crate::text::parent_container::ParentContainer;
 
 use crate::element::iterators::SymbolsIterator;
 use crate::element::Element;
-use crate::{Decimal, Int, IonError, IonReader, IonResult, IonType, StreamItem, Symbol, Timestamp};
+use crate::{
+    Decimal, Int, IonError, IonReader, IonResult, IonType, Str, StreamItem, Symbol, Timestamp,
+};
 use std::fmt::Display;
 use std::mem;
 
@@ -236,8 +238,8 @@ impl IonReader for ElementStreamReader {
         self.current_value_as("decimal value", |v| v.as_decimal().map(|i| i.to_owned()))
     }
 
-    fn read_string(&mut self) -> IonResult<String> {
-        self.map_string(|s| s.to_owned())
+    fn read_string(&mut self) -> IonResult<Str> {
+        self.map_string(|s| s.into())
     }
 
     fn map_string<F, U>(&mut self, f: F) -> IonResult<U>

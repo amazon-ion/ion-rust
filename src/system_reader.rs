@@ -11,6 +11,7 @@ use crate::symbol::Symbol;
 use crate::system_reader::LstPosition::*;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Int;
+use crate::types::string::Str;
 use crate::types::timestamp::Timestamp;
 use crate::{IonReader, IonType, RawBinaryReader, SymbolTable};
 
@@ -648,9 +649,9 @@ impl<R: RawReader> IonReader for SystemReader<R> {
         }
     }
 
-    fn read_string(&mut self) -> IonResult<String> {
+    fn read_string(&mut self) -> IonResult<Str> {
         if self.current_string_was_consumed() {
-            return Ok(self.lst.current_string.clone());
+            return Ok(self.lst.current_string.clone().into());
         }
         // Otherwise, delegate to the raw reader
         if self.raw_reader.current() == RawStreamItem::Nothing {
