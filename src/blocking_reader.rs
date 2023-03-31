@@ -8,7 +8,7 @@ use crate::result::IonResult;
 use crate::stream_reader::IonReader;
 use crate::text::non_blocking::raw_text_reader::RawTextReader as NBRawTextReader;
 use crate::types::timestamp::Timestamp;
-use crate::{Decimal, Int, IonError, IonType};
+use crate::{Decimal, Int, IonError, IonType, Str};
 
 pub type RawTextReader<T> = BlockingRawReader<NBRawTextReader<Vec<u8>>, T>;
 pub type RawBinaryReader<T> = BlockingRawReader<NBRawBinaryReader<Vec<u8>>, T>;
@@ -144,7 +144,7 @@ impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for BlockingRawReader<R
         self.reader.read_decimal()
     }
 
-    fn read_string(&mut self) -> IonResult<String> {
+    fn read_string(&mut self) -> IonResult<Str> {
         self.reader.read_string()
     }
 
