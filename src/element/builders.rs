@@ -82,15 +82,17 @@ impl SequenceBuilder {
         self
     }
 
-    /// Builds a [`List`] with the previously specified elements.
+    /// Builds a [`Sequence`] with the previously specified elements.
     pub fn build(self) -> Sequence {
         self.values.into()
     }
 
+    /// Builds a [`List`] with the previously specified elements.
     pub fn build_list(self) -> List {
         List(self.build())
     }
 
+    /// Builds a [`SExp`] with the previously specified elements.
     pub fn build_sexp(self) -> SExp {
         SExp(self.build())
     }
