@@ -120,8 +120,7 @@ impl Expandable for Vec<u8> {
 
 impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
     pub fn new(input: A) -> RawTextReader<A> {
-        let expandable = (&input).expandable();
-        println!("expandable: {}", expandable);
+        let expandable = input.expandable();
         RawTextReader {
             buffer: TextBuffer::new(input),
             current_field_name: None,

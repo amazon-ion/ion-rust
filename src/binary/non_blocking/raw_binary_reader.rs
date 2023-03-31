@@ -785,7 +785,7 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
                 _ => {
                     if bytes_remaining < encoded_value.total_length() {
                         *tx_reader.state = ReaderState::WaitingForData(*encoded_value);
-                        self.buffer.consume(nop_bytes_count as usize);
+                        self.buffer.consume(nop_bytes_count);
                         return incomplete_data_error(
                             "ahead to next item",
                             self.buffer.total_consumed(),
