@@ -1,8 +1,10 @@
+use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::ElementsIterator;
 use crate::element::{Element, Sequence};
+use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
+use delegate::delegate;
 use std::fmt::{Display, Formatter};
-use std::ops::Deref;
 
 /// An in-memory representation of an Ion list.
 /// ```
@@ -25,11 +27,34 @@ impl List {
     }
 }
 
-impl Deref for List {
-    type Target = Sequence;
+// impl Deref for List {
+//     type Target = Sequence;
+//
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl List {
+    pub fn builder() -> SequenceBuilder {
+        Sequence::builder()
+    }
+
+    delegate! {
+        to self.0 {
+            pub fn clone_builder(&self) -> SequenceBuilder;
+            pub fn elements(&self) -> ElementsIterator<'_>;
+            pub fn get(&self, index: usize) -> Option<&Element>;
+            pub fn len(&self) -> usize;
+            pub fn is_empty(&self) -> bool;
+        }
+    }
+}
+
+impl IonEq for List {
+    fn ion_eq(&self, other: &Self) -> bool {
+        // The inner `Sequence` of both Lists are IonEq
+        self.0.ion_eq(&other.0)
     }
 }
 
