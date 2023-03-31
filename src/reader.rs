@@ -484,7 +484,7 @@ mod tests {
 
     use super::*;
     use crate::binary::constants::v1_0::IVM;
-    use crate::binary::raw_binary_reader::RawBinaryReader;
+    use crate::RawBinaryReader;
 
     use crate::result::IonResult;
     use crate::types::IonType;
@@ -509,7 +509,8 @@ mod tests {
     // Prepends an Ion 1.0 IVM to the provided data and then creates a BinaryIonCursor over it
     fn raw_binary_reader_for(bytes: &[u8]) -> RawBinaryReader<TestDataSource> {
         use RawStreamItem::*;
-        let mut raw_reader = RawBinaryReader::new(data_source_for(bytes));
+        let mut raw_reader =
+            RawBinaryReader::new(data_source_for(bytes)).expect("unable to create reader");
         assert_eq!(raw_reader.ion_type(), None);
         assert_eq!(raw_reader.next(), Ok(VersionMarker(1, 0)));
         assert_eq!(raw_reader.ion_version(), (1u8, 0u8));
