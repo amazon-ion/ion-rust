@@ -12,7 +12,7 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
-use crate::element::builders::{ListBuilder, SExpBuilder, StructBuilder};
+use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::iterators::SymbolsIterator;
 use crate::element::reader::ElementReader;
 use crate::ion_eq::IonEq;
@@ -34,7 +34,7 @@ pub mod writer;
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 pub use list::List;
 pub use r#struct::Struct;
-pub use sequence::IonSequence;
+pub use sequence::Sequence;
 pub use sexp::SExp;
 
 impl IonEq for Value {
@@ -306,12 +306,8 @@ impl Element {
         Value::Blob(bytes.into()).into()
     }
 
-    pub fn list_builder() -> ListBuilder {
-        ListBuilder::new()
-    }
-
-    pub fn sexp_builder() -> SExpBuilder {
-        SExpBuilder::new()
+    pub fn sequence_builder() -> SequenceBuilder {
+        Sequence::builder()
     }
 
     pub fn struct_builder() -> StructBuilder {
@@ -438,10 +434,9 @@ impl Element {
         }
     }
 
-    pub fn as_sequence(&self) -> Option<&dyn IonSequence> {
+    pub fn as_sequence(&self) -> Option<&Sequence> {
         match &self.value {
-            Value::SExp(sexp) => Some(sexp),
-            Value::List(list) => Some(list),
+            Value::SExp(SExp(s)) | Value::List(List(s)) => Some(s),
             _ => None,
         }
     }
@@ -793,7 +788,7 @@ mod tests {
         }
     }
 
-    use crate::element::{Element, IntoAnnotatedElement, IonSequence, Struct};
+    use crate::element::{Element, IntoAnnotatedElement, Struct};
     use crate::types::integer::IntAccess;
     use num_bigint::BigInt;
     use std::collections::HashSet;

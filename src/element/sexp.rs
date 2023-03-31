@@ -1,14 +1,12 @@
-use crate::element::builders::SExpBuilder;
 use crate::element::iterators::ElementsIterator;
-use crate::element::{Element, IonSequence};
+use crate::element::{Element, Sequence};
 use crate::text::text_formatter::IonValueFormatter;
 use std::fmt::{Display, Formatter};
+use std::ops::Deref;
 
 /// An in-memory representation of an Ion s-expression
-///
-/// [`SExp`] implements [`IonSequence`], which defines most of its functionality.
 /// ```
-/// use ion_rs::element::{Element, IonSequence, List};
+/// use ion_rs::element::{Element, List};
 /// use ion_rs::ion_sexp;
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
@@ -19,21 +17,25 @@ use std::fmt::{Display, Formatter};
 /// # }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SExp {
-    pub(super) children: Vec<Element>,
-}
+pub struct SExp(pub Sequence);
 
 impl SExp {
-    pub(crate) fn new(children: Vec<Element>) -> Self {
-        Self { children }
+    pub(crate) fn new(elements: impl Into<Sequence>) -> Self {
+        SExp(elements.into())
     }
+}
 
-    pub fn builder() -> SExpBuilder {
-        SExpBuilder::new()
+impl Deref for SExp {
+    type Target = Sequence;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
+}
 
-    pub fn clone_builder(&self) -> SExpBuilder {
-        SExpBuilder::with_initial_elements(&self.children)
+impl AsRef<Sequence> for SExp {
+    fn as_ref(&self) -> &Sequence {
+        &self.0
     }
 }
 
@@ -52,6 +54,12 @@ impl Display for SExp {
         let mut ivf = IonValueFormatter { output: f };
         ivf.format_sexp(self).map_err(|_| std::fmt::Error)?;
         Ok(())
+    }
+}
+
+impl From<Sequence> for SExp {
+    fn from(sequence: Sequence) -> Self {
+        SExp(sequence)
     }
 }
 
