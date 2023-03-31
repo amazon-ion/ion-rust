@@ -1,32 +1,21 @@
+use delegate::delegate;
+use std::ops::Range;
+
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader as NBRawBinaryReader;
 use crate::data_source::ToIonDataSource;
-use crate::raw_reader::RawReader;
+use crate::raw_reader::BufferedRawReader;
 use crate::result::IonResult;
 use crate::stream_reader::IonReader;
 use crate::text::non_blocking::raw_text_reader::RawTextReader as NBRawTextReader;
 use crate::types::timestamp::Timestamp;
 use crate::{Decimal, Int, IonError, IonType};
 
-use std::io::Read;
+pub type RawTextReader<T> = BlockingRawReader<NBRawTextReader<Vec<u8>>, T>;
+pub type RawBinaryReader<T> = BlockingRawReader<NBRawBinaryReader<Vec<u8>>, T>;
 
-pub type RawTextReader<T> = AgnosticRawReader<NBRawTextReader<Vec<u8>>, T>;
-pub type RawBinaryReader<T> = AgnosticRawReader<NBRawBinaryReader<Vec<u8>>, T>;
-
-/// BufferedRawReader is a RawReader which can be created from a Vec<u8> and implements the needed
-/// functionality to provide non-blocking reader support. This includes the ability to add more
-/// data as needed, as well as marking when the stream is complete.
-pub trait BufferedRawReader: RawReader + From<Vec<u8>> {
-    fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()>;
-    fn read_from<R: Read>(&mut self, source: R, length: usize) -> IonResult<usize>;
-    // Mark the stream as complete. This allows the reader to understand when partial parses on
-    // data boundaries are not possible.
-    fn stream_complete(&mut self);
-    fn is_stream_complete(&self) -> bool;
-}
-
-/// The AgnosticRawReader wraps a non-blocking RawReader that implements the BufferedReader trait,
+/// The BlockingRawReader wraps a non-blocking RawReader that implements the BufferedReader trait,
 /// providing a blocking RawReader.
-pub struct AgnosticRawReader<R: BufferedRawReader, T: ToIonDataSource> {
+pub struct BlockingRawReader<R: BufferedRawReader, T: ToIonDataSource> {
     source: T::DataSource,
     reader: R,
     expected_read_size: usize,
@@ -34,7 +23,7 @@ pub struct AgnosticRawReader<R: BufferedRawReader, T: ToIonDataSource> {
 
 const READER_DEFAULT_BUFFER_CAPACITY: usize = 1024 * 4;
 
-impl<R: BufferedRawReader, T: ToIonDataSource> AgnosticRawReader<R, T> {
+impl<R: BufferedRawReader, T: ToIonDataSource> BlockingRawReader<R, T> {
     pub fn read_source(&mut self, length: usize) -> IonResult<usize> {
         let mut bytes_read = 0;
         loop {
@@ -63,7 +52,7 @@ impl<R: BufferedRawReader, T: ToIonDataSource> AgnosticRawReader<R, T> {
     }
 }
 
-impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for AgnosticRawReader<R, T> {
+impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for BlockingRawReader<R, T> {
     type Item = R::Item;
     type Symbol = R::Symbol;
 
@@ -235,73 +224,31 @@ impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for AgnosticRawReader<R
     }
 }
 
-impl<T: ToIonDataSource> RawBinaryReader<T> {
-    pub fn raw_bytes(&self) -> Option<&[u8]> {
-        unimplemented!()
-    }
+impl<T: ToIonDataSource> BlockingRawReader<NBRawBinaryReader<Vec<u8>>, T> {
+    delegate! {
+        to self.reader {
+            pub fn raw_bytes(&self) ->  Option<&[u8]>;
 
-    pub fn raw_field_id_bytes(&self) -> Option<&[u8]> {
-        unimplemented!()
-    }
+            pub fn field_id_length(&self) -> Option<usize>;
+            pub fn field_id_offset(&self) -> Option<usize>;
+            pub fn field_id_range(&self) -> Option<Range<usize>>;
+            pub fn raw_field_id_bytes(&self) -> Option<&[u8]>;
 
-    pub fn raw_header_bytes(&self) -> Option<&[u8]> {
-        unimplemented!()
-    }
+            pub fn annotations_length(&self) -> Option<usize>;
+            pub fn annotations_offset(&self) -> Option<usize>;
+            pub fn annotations_range(&self) -> Option<Range<usize>>;
+            pub fn raw_annotations_bytes(&self) -> Option<&[u8]>;
 
-    pub fn raw_value_bytes(&self) -> Option<&[u8]> {
-        unimplemented!()
-    }
+            pub fn header_length(&self) -> usize;
+            pub fn header_offset(&self) -> usize;
+            pub fn header_range(&self) -> Range<usize>;
+            pub fn raw_header_bytes(&self) -> Option<&[u8]>;
 
-    pub fn raw_annotations_bytes(&self) -> Option<&[u8]> {
-        unimplemented!()
-    }
-
-    pub fn field_id_length(&self) -> Option<usize> {
-        unimplemented!()
-    }
-
-    pub fn field_id_offset(&self) -> Option<usize> {
-        unimplemented!()
-    }
-
-    pub fn field_id_range(&self) -> Option<std::ops::Range<usize>> {
-        unimplemented!()
-    }
-
-    pub fn annotations_length(&self) -> Option<usize> {
-        unimplemented!()
-    }
-
-    pub fn annotations_offset(&self) -> Option<usize> {
-        unimplemented!()
-    }
-
-    pub fn annotations_range(&self) -> Option<std::ops::Range<usize>> {
-        unimplemented!()
-    }
-
-    pub fn header_length(&self) -> usize {
-        self.reader.header_length()
-    }
-
-    pub fn header_offset(&self) -> usize {
-        unimplemented!()
-    }
-
-    pub fn header_range(&self) -> std::ops::Range<usize> {
-        unimplemented!()
-    }
-
-    pub fn value_length(&self) -> usize {
-        unimplemented!()
-    }
-
-    pub fn value_offset(&self) -> usize {
-        unimplemented!()
-    }
-
-    pub fn value_range(&self) -> std::ops::Range<usize> {
-        unimplemented!()
+            pub fn value_length(&self) -> usize;
+            pub fn value_offset(&self) -> usize;
+            pub fn value_range(&self) -> Range<usize>;
+            pub fn raw_value_bytes(&self) -> Option<&[u8]>;
+        }
     }
 }
 
@@ -313,14 +260,14 @@ mod tests {
     use crate::result::IonResult;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
 
-    fn bin_reader(source: &[u8]) -> AgnosticRawReader<RawBinaryBufferReader<Vec<u8>>, Vec<u8>> {
+    fn bin_reader(source: &[u8]) -> BlockingRawReader<RawBinaryBufferReader<Vec<u8>>, Vec<u8>> {
         let reader =
-            AgnosticRawReader::<RawBinaryBufferReader<Vec<u8>>, Vec<u8>>::new(source.to_vec());
+            BlockingRawReader::<RawBinaryBufferReader<Vec<u8>>, Vec<u8>>::new(source.to_vec());
         reader.unwrap()
     }
 
-    fn text_reader(source: &[u8]) -> AgnosticRawReader<RawTextReader<Vec<u8>>, Vec<u8>> {
-        let reader = AgnosticRawReader::<RawTextReader<Vec<u8>>, Vec<u8>>::new(source.to_vec());
+    fn text_reader(source: &[u8]) -> BlockingRawReader<RawTextReader<Vec<u8>>, Vec<u8>> {
+        let reader = BlockingRawReader::<RawTextReader<Vec<u8>>, Vec<u8>>::new(source.to_vec());
         reader.unwrap()
     }
 
@@ -403,7 +350,7 @@ mod tests {
                 use super::data::$name::*;
                 use crate::raw_symbol_token::RawSymbolToken;
 
-                fn next_type(reader: &mut AgnosticRawReader<$type, Vec<u8>>, ion_type: IonType, is_null: bool) {
+                fn next_type(reader: &mut BlockingRawReader<$type, Vec<u8>>, ion_type: IonType, is_null: bool) {
                     assert_eq!(
                         reader.next().unwrap(),
                         RawStreamItem::nullable_value(ion_type, is_null)
@@ -412,8 +359,8 @@ mod tests {
 
                 // Creates a reader for the specified reader type, with a small (24 byte) read
                 // initial size.
-                fn new_reader(source: &[u8]) -> AgnosticRawReader<$type, Vec<u8>> {
-                    let reader = AgnosticRawReader::<$type, Vec<u8>>::new_with_size(source.to_vec(), 24);
+                fn new_reader(source: &[u8]) -> BlockingRawReader<$type, Vec<u8>> {
+                    let reader = BlockingRawReader::<$type, Vec<u8>>::new_with_size(source.to_vec(), 24);
                     reader.unwrap()
                 }
 
@@ -536,5 +483,86 @@ mod tests {
     raw_reader_tests! {
         binary_reader: RawBinaryBufferReader<Vec<u8>>,
         text_reader: RawTextReader<Vec<u8>>,
+    }
+
+    #[test]
+    fn test_raw_bytes() -> IonResult<()> {
+        // Note: technically invalid Ion because the symbol IDs referenced are never added to the
+        // symbol table.
+
+        // {$11: [1, 2, 3], $10: 1}
+        let ion_data: &[u8] = &[
+            // First top-level value in the stream
+            0xDB, // 11-byte struct
+            0x8B, // Field ID 11
+            0xB6, // 6-byte List
+            0x21, 0x01, // Integer 1
+            0x21, 0x02, // Integer 2
+            0x21, 0x03, // Integer 3
+            0x8A, // Field ID 10
+            0x21, 0x01, // Integer 1
+            // Second top-level value in the stream
+            0xE3, // 3-byte annotations envelope
+            0x81, // * Annotations themselves take 1 byte
+            0x8C, // * Annotation w/SID $12
+            0x10, // Boolean false
+        ];
+        let mut cursor = RawBinaryReader::new(ion_data.to_owned())?;
+        assert_eq!(RawStreamItem::Value(IonType::Struct), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[0..1])); // No value bytes for containers.
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[0..=0]));
+        assert_eq!(cursor.raw_value_bytes(), None);
+        cursor.step_in()?;
+        assert_eq!(RawStreamItem::Value(IonType::List), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[1..3]));
+        assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[1..=1]));
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[2..=2]));
+        assert_eq!(cursor.raw_value_bytes(), None);
+        cursor.step_in()?;
+        assert_eq!(RawStreamItem::Value(IonType::Int), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[3..=4]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[3..=3]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[4..=4]));
+        assert_eq!(RawStreamItem::Value(IonType::Int), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[5..=6]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[5..=5]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[6..=6]));
+        assert_eq!(RawStreamItem::Value(IonType::Int), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[7..=8]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[7..=7]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[8..=8]));
+
+        cursor.step_out()?; // Step out of list
+
+        assert_eq!(RawStreamItem::Value(IonType::Int), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[9..=11]));
+        assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[9..=9]));
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[10..=10]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[11..=11]));
+
+        cursor.step_out()?; // Step out of struct
+
+        // Second top-level value
+        assert_eq!(RawStreamItem::Value(IonType::Bool), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
+        // assert_eq!(cursor.annotations().next().unwrap()?, local_sid_token(12));
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
+        assert_eq!(
+            cursor.raw_value_bytes(),
+            Some(&ion_data[15..15] /*That is, zero bytes*/)
+        );
+        Ok(())
     }
 }

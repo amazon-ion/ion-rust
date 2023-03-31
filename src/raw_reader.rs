@@ -4,6 +4,7 @@ use crate::types::string::Str;
 use crate::types::IonType;
 use crate::{Decimal, Int, IonResult, Timestamp};
 use std::fmt::{Display, Formatter};
+use std::io::Read;
 
 /// `RawReader` is a shorthand for a [Reader](crate::Reader) implementation that returns [RawStreamItem]s and
 /// uses [RawSymbolToken] to represent its field names, annotations, and symbol values.
@@ -188,4 +189,16 @@ impl Display for RawStreamItem {
             Nothing => write!(f, "nothing/end-of-sequence"),
         }
     }
+}
+
+/// BufferedRawReader is a RawReader which can be created from a Vec<u8> and implements the needed
+/// functionality to provide non-blocking reader support. This includes the ability to add more
+/// data as needed, as well as marking when the stream is complete.
+pub trait BufferedRawReader: RawReader + From<Vec<u8>> {
+    fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()>;
+    fn read_from<R: Read>(&mut self, source: R, length: usize) -> IonResult<usize>;
+    // Mark the stream as complete. This allows the reader to understand when partial parses on
+    // data boundaries are not possible.
+    fn stream_complete(&mut self);
+    fn is_stream_complete(&self) -> bool;
 }

@@ -752,7 +752,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
 #[cfg(test)]
 mod tests {
     use super::SystemStreamItem::*;
-    use crate::agnostic_reader::*;
+    use crate::blocking_reader::*;
 
     use super::*;
 

@@ -549,7 +549,7 @@ mod non_blocking_native_element_tests {
     use super::*;
     use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
     use ion_rs::text::non_blocking::raw_text_reader::RawTextReader;
-    use ion_rs::{RawReader, Reader};
+    use ion_rs::Reader;
 
     struct NonBlockingNativeElementApi;
 

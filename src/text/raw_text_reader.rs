@@ -1,5 +1,5 @@
 use crate::data_source::ToIonDataSource;
-use crate::raw_reader::RawStreamItem;
+use crate::raw_reader::{BufferedRawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonResult;
 use crate::stream_reader::IonReader;
@@ -7,7 +7,6 @@ use crate::types::string::Str;
 use crate::types::timestamp::Timestamp;
 use crate::{Decimal, Int, IonError, IonType};
 
-use crate::agnostic_reader::BufferedRawReader;
 use crate::text::non_blocking::raw_text_reader::RawTextReader as NonBlockingReader;
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;

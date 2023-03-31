@@ -13,7 +13,7 @@ use crate::types::integer::IntAccess;
 use crate::types::string::Str;
 use crate::types::SymbolId;
 use crate::{
-    agnostic_reader::BufferedRawReader, Decimal, Int, IonReader, IonResult, IonType, RawStreamItem,
+    raw_reader::BufferedRawReader, Decimal, Int, IonReader, IonResult, IonType, RawStreamItem,
     RawSymbolToken, Timestamp,
 };
 use bytes::{BigEndian, Buf, ByteOrder};
@@ -575,6 +575,142 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
             val.header_length.into()
         } else {
             0
+        }
+    }
+
+    /// Returns a slice containing the current value's bytes. In the case of a container the raw
+    /// bytes will consist of its field ID (if present), its annotations (if present), and its
+    /// header. In the case of a non-container value, the bytes for the value itself is also
+    /// included.
+    pub fn raw_bytes(&self) -> Option<&[u8]> {
+        let start: usize;
+        let value = self.encoded_value()?;
+
+        if let Some(field_id_offset) = value.field_id_offset() {
+            start = field_id_offset;
+        } else if let Some(annotations_offset) = value.annotations_offset() {
+            start = annotations_offset;
+        } else {
+            start = value.header_offset();
+        }
+
+        let end = if value.ion_type().is_container() {
+            value.header_range().end
+        } else {
+            value.value_end_exclusive()
+        };
+
+        let bytes = &self.buffer.raw_bytes()[start..end];
+        Some(bytes)
+    }
+
+    pub fn raw_field_id_bytes(&self) -> Option<&[u8]> {
+        let value = self.encoded_value()?;
+        let range = value.field_id_range()?;
+        let bytes = &self.buffer.raw_bytes()[range.start..range.end];
+        Some(bytes)
+    }
+
+    pub fn raw_header_bytes(&self) -> Option<&[u8]> {
+        let value = self.encoded_value()?;
+        let header_range = value.header_range();
+        let bytes = &self.buffer.raw_bytes()[header_range.start..header_range.end];
+        Some(bytes)
+    }
+
+    pub fn raw_value_bytes(&self) -> Option<&[u8]> {
+        let value = self.encoded_value()?;
+        let value_range = value.value_range();
+        if value.ion_type().is_container() {
+            None
+        } else {
+            let bytes = &self.buffer.raw_bytes()[value_range.start..value_range.end];
+            Some(bytes)
+        }
+    }
+
+    pub fn raw_annotations_bytes(&self) -> Option<&[u8]> {
+        self.ion_type()?;
+        let value = self.encoded_value().unwrap();
+        let range = value.annotations_range()?;
+        let bytes = &self.buffer.raw_bytes()[range.start..range.end];
+        Some(bytes)
+    }
+
+    pub fn field_id_length(&self) -> Option<usize> {
+        self.ion_type()?;
+        let value = self.encoded_value().unwrap();
+        Some(value.field_id_length.into())
+    }
+
+    pub fn field_id_offset(&self) -> Option<usize> {
+        let value = self.encoded_value()?;
+        Some(
+            value.header_offset
+                - value.annotations_sequence_length as usize
+                - value.field_id_length as usize,
+        )
+    }
+
+    pub fn field_id_range(&self) -> Option<std::ops::Range<usize>> {
+        let value = self.encoded_value()?;
+        let start = value.field_id_offset()?;
+        let end = start + value.field_id_length as usize;
+        Some(start..end)
+    }
+
+    pub fn annotations_length(&self) -> Option<usize> {
+        let value = self.encoded_value()?;
+        value.annotations_sequence_length()
+    }
+
+    pub fn annotations_offset(&self) -> Option<usize> {
+        let value = self.encoded_value()?;
+        value.annotations_offset()
+    }
+
+    pub fn annotations_range(&self) -> Option<std::ops::Range<usize>> {
+        let value = self.encoded_value()?;
+        value.annotations_range()
+    }
+
+    pub fn header_offset(&self) -> usize {
+        if let Some(value) = self.encoded_value() {
+            value.header_offset()
+        } else {
+            0
+        }
+    }
+
+    pub fn header_range(&self) -> std::ops::Range<usize> {
+        if let Some(value) = self.encoded_value() {
+            value.header_range()
+        } else {
+            0..0
+        }
+    }
+
+    pub fn value_length(&self) -> usize {
+        if let Some(value) = self.encoded_value() {
+            value.value_length()
+        } else {
+            0
+        }
+    }
+
+    pub fn value_offset(&self) -> usize {
+        if let Some(value) = self.encoded_value() {
+            value.value_offset()
+        } else {
+            0
+        }
+    }
+
+    pub fn value_range(&self) -> std::ops::Range<usize> {
+        if let Some(value) = self.encoded_value() {
+            value.value_range()
+        } else {
+            0..0
         }
     }
 }
@@ -1854,14 +1990,102 @@ mod tests {
         let mut reader = RawBinaryBufferReader::new(data);
         expect_incomplete(reader.next());
         // Add another nop byte, but we're still one short
-        reader.append_bytes(&[0xff]);
+        reader.append_bytes(&[0xff])?;
         expect_incomplete(reader.next());
         // Add another nop byte; the NOP is complete, but there's still no value
-        reader.append_bytes(&[0xff]);
+        reader.append_bytes(&[0xff])?;
         assert_eq!(reader.next()?, RawStreamItem::Nothing);
-        reader.append_bytes(&[0x20]);
+        reader.append_bytes(&[0x20])?;
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Int));
         assert_eq!(reader.read_int()?, Int::I64(0));
+        Ok(())
+    }
+
+    #[test]
+    fn test_raw_bytes() -> IonResult<()> {
+        // Note: technically invalid Ion because the symbol IDs referenced are never added to the
+        // symbol table.
+
+        // {$11: [1, 2, 3], $10: 1}
+        let ion_data = &[
+            // First top-level value in the stream
+            0xDB, // 11-byte struct
+            0x8B, // Field ID 11
+            0xB6, // 6-byte List
+            0x21, 0x01, // Integer 1
+            0x21, 0x02, // Integer 2
+            0x21, 0x03, // Integer 3
+            0x8A, // Field ID 10
+            0x21, 0x01, // Integer 1
+            // Second top-level value in the stream
+            0xE3, // 3-byte annotations envelope
+            0x81, // * Annotations themselves take 1 byte
+            0x8C, // * Annotation w/SID $12
+            0x10, // Boolean false
+        ];
+        let mut cursor = RawBinaryBufferReader::new(ion_data);
+        assert_eq!(RawStreamItem::Value(IonType::Struct), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[0..1])); // No value bytes for containers.
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[0..=0]));
+        assert_eq!(cursor.raw_value_bytes(), None);
+        assert_eq!(cursor.header_offset(), 0);
+        cursor.step_in()?;
+        assert_eq!(RawStreamItem::Value(IonType::List), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[1..3]));
+        assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[1..=1]));
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[2..=2]));
+        assert_eq!(cursor.raw_value_bytes(), None);
+        assert_eq!(cursor.header_offset(), 2);
+        assert_eq!(cursor.field_id_offset(), Some(1));
+        cursor.step_in()?;
+        assert_eq!(RawStreamItem::Value(IonType::Int), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[3..=4]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[3..=3]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[4..=4]));
+        assert_eq!(cursor.header_offset(), 3);
+        assert_eq!(RawStreamItem::Value(IonType::Int), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[5..=6]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[5..=5]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[6..=6]));
+        assert_eq!(cursor.header_offset(), 5);
+        assert_eq!(RawStreamItem::Value(IonType::Int), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[7..=8]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[7..=7]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[8..=8]));
+        assert_eq!(cursor.header_offset(), 7);
+
+        cursor.step_out()?; // Step out of list
+
+        assert_eq!(RawStreamItem::Value(IonType::Int), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[9..=11]));
+        assert_eq!(cursor.raw_field_id_bytes(), Some(&ion_data[9..=9]));
+        assert_eq!(cursor.raw_annotations_bytes(), None);
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[10..=10]));
+        assert_eq!(cursor.raw_value_bytes(), Some(&ion_data[11..=11]));
+        assert_eq!(cursor.field_id_offset(), Some(9));
+
+        cursor.step_out()?; // Step out of struct
+
+        // Second top-level value
+        assert_eq!(RawStreamItem::Value(IonType::Bool), cursor.next()?);
+        assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
+        assert_eq!(cursor.raw_field_id_bytes(), None);
+        assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
+        // assert_eq!(cursor.annotations().next().unwrap()?, local_sid_token(12));
+        assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
+        assert_eq!(
+            cursor.raw_value_bytes(),
+            Some(&ion_data[15..15] /*That is, zero bytes*/)
+        );
         Ok(())
     }
 }
