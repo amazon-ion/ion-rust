@@ -2,12 +2,11 @@
 
 use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::{ElementWriter, Format, TextKind};
-use ion_rs::element::Element;
+use ion_rs::element::{Element, Sequence};
 use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
 use ion_rs::{BinaryWriterBuilder, IonWriter, Reader, TextWriterBuilder};
 
-use ion_rs::element::IonSequence;
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 use test_generator::test_resources;
@@ -156,7 +155,7 @@ trait ElementApi {
     /// This will parse each string as a [`Vec`] of [`Element`] and apply the `group_assert` function
     /// for every pair of the parsed data including the identity case (a parsed document is
     /// compared against itself).
-    fn read_group_embedded<F>(raw_group: &dyn IonSequence, group_assert: &F) -> IonResult<()>
+    fn read_group_embedded<F>(raw_group: &Sequence, group_assert: &F) -> IonResult<()>
     where
         F: Fn(&Vec<Element>, &Vec<Element>),
     {

@@ -110,7 +110,7 @@
 //! ```
 //! use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::{Element, IonSequence, IntoAnnotatedElement,  Value};
+//! use ion_rs::element::{Element, IntoAnnotatedElement,  Value};
 //! use ion_rs::{ion_struct, ion_list};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
@@ -137,7 +137,7 @@
 //! ```
 //! use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::{Element, IonSequence, IntoAnnotatedElement,  Value};
+//! use ion_rs::element::{Element, IntoAnnotatedElement,  Value};
 //! use ion_rs::{ion_struct, ion_list, TextWriterBuilder, IonWriter};
 //! use ion_rs::element::writer::ElementWriter;
 //! let element: Element = ion_struct! {
