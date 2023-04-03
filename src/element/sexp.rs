@@ -28,10 +28,6 @@ impl SExp {
 }
 
 impl SExp {
-    pub fn builder() -> SequenceBuilder {
-        Sequence::builder()
-    }
-
     delegate! {
         to self.0 {
             pub fn clone_builder(&self) -> SequenceBuilder;

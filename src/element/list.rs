@@ -27,19 +27,7 @@ impl List {
     }
 }
 
-// impl Deref for List {
-//     type Target = Sequence;
-//
-//     fn deref(&self) -> &Self::Target {
-//         &self.0
-//     }
-// }
-
 impl List {
-    pub fn builder() -> SequenceBuilder {
-        Sequence::builder()
-    }
-
     delegate! {
         to self.0 {
             pub fn clone_builder(&self) -> SequenceBuilder;
