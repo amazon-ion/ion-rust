@@ -1,4 +1,6 @@
 use delegate::delegate;
+use std::io;
+use std::ops::Range;
 
 use crate::constants::v1_0::{system_symbol_ids, SYSTEM_SYMBOLS};
 use crate::raw_reader::{RawReader, RawStreamItem};
@@ -10,7 +12,7 @@ use crate::types::decimal::Decimal;
 use crate::types::integer::Int;
 use crate::types::string::Str;
 use crate::types::timestamp::Timestamp;
-use crate::{IonReader, IonType, SymbolTable};
+use crate::{IonReader, IonType, RawBinaryReader, SymbolTable};
 
 /// Tracks where the [SystemReader] is in the process of reading a local symbol table.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -721,33 +723,33 @@ impl<R: RawReader> IonReader for SystemReader<R> {
 
 /// Functionality that is only available if the data source we're reading from is in-memory, like
 /// a `Vec<u8>` or `&[u8]`.
-// impl<T: AsRef<[u8]>> SystemReader<RawBinaryReader<io::Cursor<T>>> {
-//     delegate! {
-//         to self.raw_reader {
-//             pub fn raw_bytes(&self) -> Option<&[u8]>;
-//             pub fn raw_field_id_bytes(&self) -> Option<&[u8]>;
-//             pub fn raw_header_bytes(&self) -> Option<&[u8]>;
-//             pub fn raw_value_bytes(&self) -> Option<&[u8]>;
-//             pub fn raw_annotations_bytes(&self) -> Option<&[u8]>;
-//
-//             pub fn field_id_length(&self) -> Option<usize>;
-//             pub fn field_id_offset(&self) -> Option<usize>;
-//             pub fn field_id_range(&self) -> Option<Range<usize>>;
-//
-//             pub fn annotations_length(&self) -> Option<usize>;
-//             pub fn annotations_offset(&self) -> Option<usize>;
-//             pub fn annotations_range(&self) -> Option<Range<usize>>;
-//
-//             pub fn header_length(&self) -> usize;
-//             pub fn header_offset(&self) -> usize;
-//             pub fn header_range(&self) -> Range<usize>;
-//
-//             pub fn value_length(&self) -> usize;
-//             pub fn value_offset(&self) -> usize;
-//             pub fn value_range(&self) -> Range<usize>;
-//         }
-//     }
-// }
+impl<T: AsRef<[u8]>> SystemReader<RawBinaryReader<io::Cursor<T>>> {
+    delegate! {
+        to self.raw_reader {
+            pub fn raw_bytes(&self) -> Option<&[u8]>;
+            pub fn raw_field_id_bytes(&self) -> Option<&[u8]>;
+            pub fn raw_header_bytes(&self) -> Option<&[u8]>;
+            pub fn raw_value_bytes(&self) -> Option<&[u8]>;
+            pub fn raw_annotations_bytes(&self) -> Option<&[u8]>;
+
+            pub fn field_id_length(&self) -> Option<usize>;
+            pub fn field_id_offset(&self) -> Option<usize>;
+            pub fn field_id_range(&self) -> Option<Range<usize>>;
+
+            pub fn annotations_length(&self) -> Option<usize>;
+            pub fn annotations_offset(&self) -> Option<usize>;
+            pub fn annotations_range(&self) -> Option<Range<usize>>;
+
+            pub fn header_length(&self) -> usize;
+            pub fn header_offset(&self) -> usize;
+            pub fn header_range(&self) -> Range<usize>;
+
+            pub fn value_length(&self) -> usize;
+            pub fn value_offset(&self) -> usize;
+            pub fn value_range(&self) -> Range<usize>;
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
