@@ -18,6 +18,7 @@ use std::fmt::{Display, Formatter};
 /// # Ok(())
 /// # }
 /// ```
+/// To build a `List` incrementally, see [SequenceBuilder].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct List(pub Sequence);
 
