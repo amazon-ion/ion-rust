@@ -39,6 +39,12 @@ impl Sequence {
     }
 }
 
+impl AsRef<Sequence> for Sequence {
+    fn as_ref(&self) -> &Sequence {
+        self
+    }
+}
+
 // This is more efficient than Sequence::new(), which will iterate over and convert each value to
 // an Element for better ergonomics.
 impl From<Vec<Element>> for Sequence {

@@ -7,7 +7,7 @@
 //! and not speed.
 
 use crate::binary::{self, decimal::DecimalBinaryEncoder, timestamp::TimestampBinaryEncoder};
-use crate::element::{Element, List, SExp, Struct};
+use crate::element::{Element, Sequence, Struct};
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
 use crate::types::decimal::Decimal;
@@ -26,8 +26,8 @@ pub(crate) trait RepresentationEncoder {
             IonType::Symbol => self.write_repr_symbol(elem.as_symbol())?,
             IonType::String => self.write_repr_string(elem.as_string())?,
             IonType::Clob | IonType::Blob => self.write_repr_blob(elem.as_lob())?,
-            IonType::List => self.write_repr_list(elem.as_list())?,
-            IonType::SExp => self.write_repr_sexp(elem.as_sexp())?,
+            IonType::List => self.write_repr_list(elem.as_sequence())?,
+            IonType::SExp => self.write_repr_sexp(elem.as_sequence())?,
             IonType::Struct => self.write_repr_struct(elem.as_struct())?,
         }
 
@@ -41,8 +41,8 @@ pub(crate) trait RepresentationEncoder {
     fn write_repr_symbol(&mut self, value: Option<&Symbol>) -> IonResult<()>;
     fn write_repr_string(&mut self, value: Option<&str>) -> IonResult<()>;
     fn write_repr_blob(&mut self, value: Option<&[u8]>) -> IonResult<()>;
-    fn write_repr_list(&mut self, value: Option<&List>) -> IonResult<()>;
-    fn write_repr_sexp(&mut self, value: Option<&SExp>) -> IonResult<()>;
+    fn write_repr_list(&mut self, value: Option<&Sequence>) -> IonResult<()>;
+    fn write_repr_sexp(&mut self, value: Option<&Sequence>) -> IonResult<()>;
     fn write_repr_struct(&mut self, value: Option<&Struct>) -> IonResult<()>;
 }
 
@@ -154,7 +154,7 @@ where
         Ok(())
     }
 
-    fn write_repr_list(&mut self, value: Option<&List>) -> IonResult<()> {
+    fn write_repr_list(&mut self, value: Option<&Sequence>) -> IonResult<()> {
         if let Some(seq) = value {
             for elem in seq.elements() {
                 self.update_serialized_bytes(elem)?;
@@ -164,7 +164,7 @@ where
         Ok(())
     }
 
-    fn write_repr_sexp(&mut self, value: Option<&SExp>) -> IonResult<()> {
+    fn write_repr_sexp(&mut self, value: Option<&Sequence>) -> IonResult<()> {
         if let Some(seq) = value {
             for elem in seq.elements() {
                 self.update_serialized_bytes(elem)?;
