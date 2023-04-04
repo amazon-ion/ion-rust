@@ -1,4 +1,4 @@
-use crate::element::{List, SExp, Struct};
+use crate::element::{Sequence, Struct};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Symbol, Timestamp};
 
@@ -417,31 +417,33 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub(crate) fn format_sexp(&mut self, value: &SExp) -> IonResult<()> {
+    pub(crate) fn format_sexp<S: AsRef<Sequence>>(&mut self, sequence: S) -> IonResult<()> {
         write!(self.output, "(")?;
-        let mut peekable_itr = value.elements().peekable();
-        while peekable_itr.peek().is_some() {
-            let sexp_value = peekable_itr.next().unwrap();
-            write!(self.output, "{sexp_value}")?;
-            if peekable_itr.peek().is_some() {
-                write!(self.output, " ")?;
-            }
-        }
+        self.format_sequence_elements(sequence, " ")?;
         write!(self.output, ")")?;
         Ok(())
     }
 
-    pub(crate) fn format_list(&mut self, value: &List) -> IonResult<()> {
+    pub(crate) fn format_list<S: AsRef<Sequence>>(&mut self, sequence: S) -> IonResult<()> {
         write!(self.output, "[")?;
-        let mut peekable_itr = value.elements().peekable();
+        self.format_sequence_elements(sequence, ", ")?;
+        write!(self.output, "]")?;
+        Ok(())
+    }
+
+    fn format_sequence_elements<S: AsRef<Sequence>>(
+        &mut self,
+        sequence: S,
+        delimiter: &'static str,
+    ) -> IonResult<()> {
+        let mut peekable_itr = sequence.as_ref().elements().peekable();
         while peekable_itr.peek().is_some() {
             let list_value = peekable_itr.next().unwrap();
             write!(self.output, "{list_value}")?;
             if peekable_itr.peek().is_some() {
-                write!(self.output, ", ")?;
+                write!(self.output, "{}", delimiter)?;
             }
         }
-        write!(self.output, "]")?;
         Ok(())
     }
 }
@@ -552,7 +554,7 @@ mod formatter_test {
     #[test]
     fn test_format_sexp() -> IonResult<()> {
         formatter(
-            |ivf| ivf.format_sexp(&ion_sexp!("hello" 5 true)),
+            |ivf| ivf.format_sexp(ion_sexp!("hello" 5 true)),
             "(\"hello\" 5 true)",
         );
         Ok(())
@@ -561,7 +563,7 @@ mod formatter_test {
     #[test]
     fn test_format_list() -> IonResult<()> {
         formatter(
-            |ivf| ivf.format_list(&ion_list!["hello", 5, true]),
+            |ivf| ivf.format_list(ion_list!["hello", 5, true]),
             "[\"hello\", 5, true]",
         );
         Ok(())

@@ -77,6 +77,12 @@ impl From<Sequence> for SExp {
     }
 }
 
+impl From<SExp> for Sequence {
+    fn from(value: SExp) -> Self {
+        value.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ion_sexp;

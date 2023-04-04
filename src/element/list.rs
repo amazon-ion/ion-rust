@@ -77,6 +77,12 @@ impl From<Sequence> for List {
     }
 }
 
+impl From<List> for Sequence {
+    fn from(value: List) -> Self {
+        value.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ion_list;
