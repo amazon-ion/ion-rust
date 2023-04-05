@@ -22,9 +22,11 @@ use num_bigint::BigInt;
 use std::fmt::{Display, Formatter};
 
 pub mod builders;
+mod bytes;
 mod element_stream_reader;
 mod iterators;
 mod list;
+mod lob;
 pub mod reader;
 mod sequence;
 mod sexp;
@@ -32,6 +34,9 @@ mod r#struct;
 pub mod writer;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
+pub use self::bytes::Bytes;
+pub use lob::{Blob, Clob};
+
 pub use list::List;
 pub use r#struct::Struct;
 pub use sequence::Sequence;
@@ -64,8 +69,8 @@ pub enum Value {
     String(Str),
     Symbol(Symbol),
     Bool(bool),
-    Blob(Vec<u8>),
-    Clob(Vec<u8>),
+    Blob(Bytes),
+    Clob(Bytes),
     SExp(Sequence),
     List(Sequence),
     Struct(Struct),
@@ -176,7 +181,21 @@ impl From<&[u8]> for Value {
 
 impl From<Vec<u8>> for Value {
     fn from(value: Vec<u8>) -> Self {
-        Value::Blob(value)
+        Value::Blob(value.into())
+    }
+}
+
+impl From<Blob> for Value {
+    fn from(blob: Blob) -> Self {
+        let bytes: Bytes = blob.into();
+        Value::Blob(bytes)
+    }
+}
+
+impl From<Clob> for Value {
+    fn from(clob: Clob) -> Self {
+        let bytes: Bytes = clob.into();
+        Value::Clob(bytes)
     }
 }
 
@@ -415,21 +434,21 @@ impl Element {
 
     pub fn as_lob(&self) -> Option<&[u8]> {
         match &self.value {
-            Value::Blob(bytes) | Value::Clob(bytes) => Some(bytes),
+            Value::Blob(bytes) | Value::Clob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
     }
 
     pub fn as_blob(&self) -> Option<&[u8]> {
         match &self.value {
-            Value::Blob(bytes) => Some(bytes),
+            Value::Blob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
     }
 
     pub fn as_clob(&self) -> Option<&[u8]> {
         match &self.value {
-            Value::Clob(bytes) => Some(bytes),
+            Value::Clob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
     }

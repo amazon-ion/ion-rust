@@ -147,8 +147,8 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
                     Timestamp => Value::Timestamp(self.reader.read_timestamp()?),
                     Symbol => Value::Symbol(self.reader.read_symbol()?),
                     String => Value::String(self.reader.read_string()?),
-                    Clob => Value::Clob(self.reader.read_clob()?),
-                    Blob => Value::Blob(self.reader.read_blob()?),
+                    Clob => Value::Clob(self.reader.read_clob()?.into()),
+                    Blob => Value::Blob(self.reader.read_blob()?.into()),
                     // It's a collection; recursively materialize all of this value's children
                     List => Value::List(self.materialize_sequence()?),
                     SExp => Value::SExp(self.materialize_sequence()?),

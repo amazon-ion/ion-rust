@@ -5,6 +5,7 @@ use crate::binary::non_blocking::type_descriptor::{Header, TypeDescriptor};
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
 use crate::binary::IonTypeCode;
+use crate::element::{Blob, Clob};
 use crate::result::{
     decoding_error, decoding_error_raw, illegal_operation, illegal_operation_raw,
     incomplete_data_error,
@@ -769,8 +770,8 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
         self.read_symbol_id().map(RawSymbolToken::SymbolId)
     }
 
-    fn read_blob(&mut self) -> IonResult<Vec<u8>> {
-        self.read_blob_bytes().map(Vec::from)
+    fn read_blob(&mut self) -> IonResult<Blob> {
+        self.read_blob_bytes().map(Vec::from).map(Blob::from)
     }
 
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
@@ -781,8 +782,8 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
         self.read_blob_bytes().map(f)
     }
 
-    fn read_clob(&mut self) -> IonResult<Vec<u8>> {
-        self.read_clob_bytes().map(Vec::from)
+    fn read_clob(&mut self) -> IonResult<Clob> {
+        self.read_clob_bytes().map(Vec::from).map(Clob::from)
     }
 
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>

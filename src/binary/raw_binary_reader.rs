@@ -20,6 +20,7 @@ use crate::{
 };
 use std::io;
 
+use crate::element::{Blob, Clob};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error_raw, IonError};
 use crate::stream_reader::IonReader;
@@ -572,8 +573,8 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
         Ok(RawSymbolToken::SymbolId(symbol_id))
     }
 
-    fn read_blob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_blob(|b| Vec::from(b))
+    fn read_blob(&mut self) -> IonResult<Blob> {
+        self.map_blob(|b| Vec::from(b)).map(Blob::from)
     }
 
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
@@ -587,8 +588,8 @@ impl<R: IonDataSource> IonReader for RawBinaryReader<R> {
         self.read_slice(number_of_bytes, |buffer: &[u8]| Ok(f(buffer)))
     }
 
-    fn read_clob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_clob(|c| Vec::from(c))
+    fn read_clob(&mut self) -> IonResult<Clob> {
+        self.map_clob(|c| Vec::from(c)).map(Clob::from)
     }
 
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
@@ -1181,6 +1182,7 @@ mod tests {
 
     use crate::binary::constants::v1_0::IVM;
     use crate::binary::raw_binary_reader::RawBinaryReader;
+    use crate::element::{Blob, Clob};
     use crate::raw_reader::{RawStreamItem, RawStreamItem::*};
     use crate::raw_symbol_token::local_sid_token;
     use crate::result::{IonError, IonResult};
@@ -1446,7 +1448,7 @@ mod tests {
     fn test_read_clob_empty() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0x90]);
         assert_eq!(cursor.next()?, Value(IonType::Clob));
-        assert_eq!(cursor.read_clob()?, vec![]);
+        assert_eq!(cursor.read_clob()?, Clob::from(vec![]));
         Ok(())
     }
 
@@ -1462,7 +1464,7 @@ mod tests {
     fn test_read_blob_empty() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xA0]);
         assert_eq!(cursor.next()?, Value(IonType::Blob));
-        assert_eq!(cursor.read_blob()?, vec![]);
+        assert_eq!(cursor.read_blob()?, Blob::from(vec![]));
         Ok(())
     }
 
@@ -1470,7 +1472,7 @@ mod tests {
     fn test_read_blob_123() -> IonResult<()> {
         let mut cursor = ion_cursor_for(&[0xA3, 0x01, 0x02, 0x03]);
         assert_eq!(cursor.next()?, Value(IonType::Blob));
-        assert_eq!(cursor.read_blob()?, vec![1u8, 2, 3]);
+        assert_eq!(cursor.read_blob()?, Blob::from(vec![1u8, 2, 3]));
         Ok(())
     }
 

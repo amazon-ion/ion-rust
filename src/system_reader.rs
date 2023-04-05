@@ -4,6 +4,7 @@ use std::ops::Range;
 use delegate::delegate;
 
 use crate::constants::v1_0::{system_symbol_ids, SYSTEM_SYMBOLS};
+use crate::element::{Blob, Clob};
 use crate::raw_reader::{RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, decoding_error_raw, illegal_operation, IonError, IonResult};
@@ -711,9 +712,9 @@ impl<R: RawReader> IonReader for SystemReader<R> {
             fn read_f32(&mut self) -> IonResult<f32>;
             fn read_f64(&mut self) -> IonResult<f64>;
             fn read_decimal(&mut self) -> IonResult<Decimal>;
-            fn read_blob(&mut self) -> IonResult<Vec<u8>>;
+            fn read_blob(&mut self) -> IonResult<Blob>;
             fn map_blob<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
-            fn read_clob(&mut self) -> IonResult<Vec<u8>>;
+            fn read_clob(&mut self) -> IonResult<Clob>;
             fn map_clob<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
             fn read_timestamp(&mut self) -> IonResult<Timestamp>;
             fn depth(&self) -> usize;
