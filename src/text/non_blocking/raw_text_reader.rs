@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use crate::element::{Blob, Clob};
 use crate::types::string::Str;
 use nom::Err::{Error, Failure, Incomplete};
 
@@ -850,8 +851,8 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
         }
     }
 
-    fn read_blob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_blob(|b| Vec::from(b))
+    fn read_blob(&mut self) -> IonResult<Blob> {
+        self.map_blob(|b| Vec::from(b)).map(Blob::from)
     }
 
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
@@ -865,8 +866,8 @@ impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
         }
     }
 
-    fn read_clob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_clob(|c| Vec::from(c))
+    fn read_clob(&mut self) -> IonResult<Clob> {
+        self.map_clob(|c| Vec::from(c)).map(Clob::from)
     }
 
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>

@@ -1,3 +1,4 @@
+use crate::element::{Blob, Clob};
 use crate::result::IonResult;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Int;
@@ -132,7 +133,7 @@ pub trait IonReader {
 
     /// Attempts to read the current item as an Ion blob and return it as a `Vec<u8>`. If the
     /// current item is not a blob or an IO error is encountered while reading, returns [crate::IonError].
-    fn read_blob(&mut self) -> IonResult<Vec<u8>>;
+    fn read_blob(&mut self) -> IonResult<Blob>;
 
     /// Takes a function that expects a byte slice and, once the blob's bytes are loaded, calls that
     /// function passing the blob's bytes as a parameter. This allows users to avoid materializing the
@@ -146,7 +147,7 @@ pub trait IonReader {
 
     /// Attempts to read the current item as an Ion clob and return it as a `Vec<u8>`. If the
     /// current item is not a clob or an IO error is encountered while reading, returns [crate::IonError].
-    fn read_clob(&mut self) -> IonResult<Vec<u8>>;
+    fn read_clob(&mut self) -> IonResult<Clob>;
 
     /// Takes a function that expects a byte slice and, once the clob's bytes are loaded, calls that
     /// function passing the clob's bytes as a parameter. This allows users to avoid materializing the
