@@ -1,30 +1,64 @@
-use crate::element::{Element, List, SExp, Struct};
+use crate::element::{Element, Sequence, Struct};
 use crate::Symbol;
 
-/// Constructs [List] values incrementally.
+/// Constructs [Sequence], [List], and [SExp] values incrementally.
 ///
+/// Building a [Sequence]:
 /// ```
-/// use ion_rs::element::Element;
-/// let actual: Element = Element::list_builder()
+/// use ion_rs::element::{Element, Sequence};
+/// let actual: Sequence = Sequence::builder()
 ///     .push(1)
 ///     .push(true)
 ///     .push("foo")
-///     .build()
-///     .into();
-/// let expected = Element::read_one(r#"[1, true, "foo"]"#).unwrap();
+///     .build();
+/// let expected: Sequence = Sequence::new([
+///   Element::integer(1),
+///   Element::boolean(true),
+///   Element::string("foo"),
+/// ]);
 /// assert_eq!(actual, expected);
 /// ```
-pub struct ListBuilder {
+/// Building a [List]:
+/// ```
+/// use ion_rs::element::{Element, List, Sequence};
+/// let actual: List = Sequence::builder()
+///     .push(1)
+///     .push(true)
+///     .push("foo")
+///     .build_list();
+/// let expected: List = List(Sequence::new([
+///   Element::integer(1),
+///   Element::boolean(true),
+///   Element::string("foo"),
+/// ]));
+/// assert_eq!(actual, expected);
+/// ```
+/// Building a [SExp]:
+/// ```
+/// use ion_rs::element::{Element, SExp, Sequence};
+/// let actual: SExp = Sequence::builder()
+///     .push(1)
+///     .push(true)
+///     .push("foo")
+///     .build_sexp();
+/// let expected: SExp = SExp(Sequence::new([
+///   Element::integer(1),
+///   Element::boolean(true),
+///   Element::string("foo"),
+/// ]));
+/// assert_eq!(actual, expected);
+/// ```
+pub struct SequenceBuilder {
     values: Vec<Element>,
 }
 
-impl ListBuilder {
-    /// Crate visible; users should call [`List::builder()`] or [`Element::list_builder()`] instead.
+impl SequenceBuilder {
+    /// Crate visible; users should call [`Sequence::builder()`] instead.
     pub(crate) fn new() -> Self {
         Self { values: Vec::new() }
     }
 
-    /// Helper method for [`List::clone_builder()`].
+    /// Helper method for [`Sequence::clone_builder()`].
     pub(crate) fn with_initial_elements(elements: &[Element]) -> Self {
         let mut new_elements = Vec::with_capacity(elements.len());
         new_elements.extend_from_slice(elements);
@@ -33,77 +67,34 @@ impl ListBuilder {
         }
     }
 
-    /// Adds the provided element to the end of the [`List`] being constructed.
+    /// Adds the provided element to the end of the [`Sequence`] being constructed.
     pub fn push<E: Into<Element>>(mut self, element: E) -> Self {
         self.values.push(element.into());
         self
     }
 
-    /// Removes the element at the specified position from the [`List`] being constructed.
+    /// Removes the element at the specified position from the [`Sequence`] being constructed.
     /// If the index is out of bounds, this method will panic.
     pub fn remove(mut self, index: usize) -> Self {
         // This has O(n) behavior; the removals could be
         // buffered until the build() if needed.
         self.values.remove(index);
         self
+    }
+
+    /// Builds a [`Sequence`] with the previously specified elements.
+    pub fn build(self) -> Sequence {
+        self.values.into()
     }
 
     /// Builds a [`List`] with the previously specified elements.
-    pub fn build(self) -> List {
-        List::new(self.values)
-    }
-}
-
-/// Constructs [SExp] values incrementally.
-///
-/// ```
-/// use ion_rs::element::Element;
-/// let actual: Element = Element::sexp_builder()
-///     .push(1)
-///     .push(true)
-///     .push("foo")
-///     .build()
-///     .into();
-/// let expected = Element::read_one(r#"(1 true "foo")"#).unwrap();
-/// assert_eq!(actual, expected);
-/// ```
-pub struct SExpBuilder {
-    values: Vec<Element>,
-}
-
-impl SExpBuilder {
-    /// Crate visible; users should call [`SExp::builder()`] or [`Element::sexp_builder()`] instead.
-    pub(crate) fn new() -> Self {
-        Self { values: Vec::new() }
-    }
-
-    /// Helper method for [`SExp::clone_builder()`].
-    pub(crate) fn with_initial_elements(elements: &[Element]) -> Self {
-        let mut new_elements = Vec::with_capacity(elements.len());
-        new_elements.extend_from_slice(elements);
-        Self {
-            values: new_elements,
-        }
-    }
-
-    /// Adds the provided element to the end of the [`SExp`] being constructed.
-    pub fn push<E: Into<Element>>(mut self, element: E) -> Self {
-        self.values.push(element.into());
-        self
-    }
-
-    /// Removes the element at the specified position from the [`SExp`] being constructed.
-    /// If the index is out of bounds, this method will panic.
-    pub fn remove(mut self, index: usize) -> Self {
-        // This has O(n) behavior; the removals could be
-        // buffered until the build() if needed.
-        self.values.remove(index);
-        self
+    pub fn build_list(self) -> List {
+        List(self.build())
     }
 
     /// Builds a [`SExp`] with the previously specified elements.
-    pub fn build(self) -> SExp {
-        SExp::new(self.values)
+    pub fn build_sexp(self) -> SExp {
+        SExp(self.build())
     }
 }
 
@@ -123,7 +114,7 @@ impl SExpBuilder {
 ///
 /// ```
 /// use ion_rs::ion_struct;
-/// use ion_rs::element::{Element, Struct};
+/// use ion_rs::element::{Struct, Element};
 /// let base_struct: Struct = ion_struct! {
 ///     "foo": 1,
 ///     "bar": 2,
@@ -228,28 +219,6 @@ impl StructBuilder {
     }
 }
 
-// These `From` implementations allow a builder to be passed into any method that takes an
-// `Into<Element>`, allowing you to avoid having to explicitly call `build()` on them when
-// the intent is clear.
-
-impl From<ListBuilder> for Element {
-    fn from(list_builder: ListBuilder) -> Self {
-        list_builder.build().into()
-    }
-}
-
-impl From<SExpBuilder> for Element {
-    fn from(s_expr_builder: SExpBuilder) -> Self {
-        s_expr_builder.build().into()
-    }
-}
-
-impl From<StructBuilder> for Element {
-    fn from(struct_builder: StructBuilder) -> Self {
-        struct_builder.build().into()
-    }
-}
-
 /// Constructs a list [`Element`] with the specified child values.
 ///
 /// ```
@@ -294,14 +263,12 @@ impl From<StructBuilder> for Element {
 #[macro_export]
 macro_rules! ion_list {
     ($($element:expr),*) => {{
-        use $crate::element::List;
-        List::builder()$(.push($element))*.build()
+        use $crate::element::Sequence;
+        Sequence::builder()$(.push($element))*.build_list()
     }};
 }
 
 /// Constructs an s-expression [`Element`] with the specified child values.
-///
-/// Each child value can be any Rust value that implements `Into<Element>`.
 ///
 /// ```
 /// use ion_rs::ion_sexp;
@@ -340,8 +307,8 @@ macro_rules! ion_list {
 #[macro_export]
 macro_rules! ion_sexp {
     ($($element:expr)*) => {{
-        use $crate::element::SExp;
-        SExp::builder()$(.push($element))*.build()
+        use $crate::element::Sequence;
+        Sequence::builder()$(.push($element))*.build_sexp()
     }};
 }
 
@@ -381,25 +348,27 @@ macro_rules! ion_struct {
     }};
 }
 
+use crate::element::list::List;
+use crate::element::sexp::SExp;
 pub use ion_list;
 pub use ion_sexp;
 pub use ion_struct;
 
 #[cfg(test)]
 mod tests {
-    use crate::element::builders::{ListBuilder, SExpBuilder, StructBuilder};
+    use crate::element::builders::{SequenceBuilder, StructBuilder};
     use crate::element::Element;
     use crate::Symbol;
     use crate::{ion_list, ion_sexp, ion_struct};
 
     #[test]
     fn make_list_with_builder() {
-        let actual: Element = ListBuilder::new()
+        let actual: Element = SequenceBuilder::new()
             .push(1)
             .push(true)
             .push("foo")
             .push(Symbol::owned("bar"))
-            .build()
+            .build_list()
             .into();
         let expected = Element::read_one(r#"[1, true, "foo", bar]"#).unwrap();
         assert_eq!(actual, expected);
@@ -414,14 +383,14 @@ mod tests {
 
     #[test]
     fn make_list_with_builder_using_remove() {
-        let actual: Element = ListBuilder::new()
+        let actual: Element = SequenceBuilder::new()
             .push(1)
             .push(true)
             .push("foo")
             .remove(1)
             .remove(1)
             .push(Symbol::owned("bar"))
-            .build()
+            .build_list()
             .into();
         let expected = Element::read_one("[1, bar]").unwrap();
         assert_eq!(actual, expected);
@@ -434,7 +403,7 @@ mod tests {
             .clone_builder()
             .remove(1)
             .push(88)
-            .build()
+            .build_list()
             .into();
         let expected_list = Element::read_one(r#"[1, "foo", bar, 88]"#).unwrap();
         assert_eq!(new_list, expected_list);
@@ -442,12 +411,12 @@ mod tests {
 
     #[test]
     fn make_sexp_with_builder() {
-        let actual: Element = SExpBuilder::new()
+        let actual: Element = SequenceBuilder::new()
             .push(1)
             .push(true)
             .push("foo")
             .push(Symbol::owned("bar"))
-            .build()
+            .build_sexp()
             .into();
         let expected = Element::read_one(r#"(1 true "foo" bar)"#).unwrap();
         assert_eq!(actual, expected);
@@ -460,7 +429,7 @@ mod tests {
             .clone_builder()
             .remove(1)
             .push(88)
-            .build()
+            .build_sexp()
             .into();
         let expected_sexp = Element::read_one(r#"(1 "foo" bar 88)"#).unwrap();
         assert_eq!(new_sexp, expected_sexp);
@@ -468,14 +437,14 @@ mod tests {
 
     #[test]
     fn make_sexp_with_builder_using_remove() {
-        let actual: Element = SExpBuilder::new()
+        let actual: Element = SequenceBuilder::new()
             .push(1)
             .push(true)
             .push("foo")
             .remove(1)
             .remove(1)
             .push(Symbol::owned("bar"))
-            .build()
+            .build_sexp()
             .into();
         let expected = Element::read_one("(1 bar)").unwrap();
         assert_eq!(actual, expected);

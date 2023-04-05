@@ -1,8 +1,10 @@
 use crate::data_source::ToIonDataSource;
+use crate::element::{Blob, Clob};
 use crate::raw_reader::RawStreamItem;
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonResult;
 use crate::stream_reader::IonReader;
+use crate::types::string::Str;
 use crate::types::timestamp::Timestamp;
 use crate::{Decimal, Int, IonError, IonType};
 
@@ -142,7 +144,7 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
         self.reader.read_decimal()
     }
 
-    fn read_string(&mut self) -> IonResult<String> {
+    fn read_string(&mut self) -> IonResult<Str> {
         self.reader.read_string()
     }
 
@@ -166,8 +168,8 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
         self.reader.read_symbol()
     }
 
-    fn read_blob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_blob(|b| Vec::from(b))
+    fn read_blob(&mut self) -> IonResult<Blob> {
+        self.map_blob(|b| Vec::from(b)).map(Blob::from)
     }
 
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
@@ -178,8 +180,8 @@ impl<T: ToIonDataSource> IonReader for RawTextReader<T> {
         self.reader.map_blob(f)
     }
 
-    fn read_clob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_clob(|c| Vec::from(c))
+    fn read_clob(&mut self) -> IonResult<Clob> {
+        self.map_clob(|c| Vec::from(c)).map(Clob::from)
     }
 
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>

@@ -6,7 +6,7 @@ use std::slice;
 ///!
 ///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
 use crate::binary::IonTypeCode;
-use crate::element::{Element, List, SExp, Struct};
+use crate::element::{Element, Sequence, Struct};
 use crate::{Decimal, Int, IonType, Symbol, Timestamp};
 use num_bigint::Sign;
 
@@ -47,8 +47,8 @@ impl TypeQualifier {
             IonType::String => type_qualifier_string(elem.as_string()),
             IonType::Clob => type_qualifier_clob(elem.as_lob()),
             IonType::Blob => type_qualifier_blob(elem.as_lob()),
-            IonType::List => type_qualifier_list(elem.as_list()),
-            IonType::SExp => type_qualifier_sexp(elem.as_sexp()),
+            IonType::List => type_qualifier_list(elem.as_sequence()),
+            IonType::SExp => type_qualifier_sexp(elem.as_sequence()),
             IonType::Struct => type_qualifier_struct(elem.as_struct()),
         }
     }
@@ -125,11 +125,11 @@ pub(crate) fn type_qualifier_blob(value: Option<&[u8]>) -> TypeQualifier {
     combine(IonTypeCode::Blob, qualify_nullness(value))
 }
 
-pub(crate) fn type_qualifier_list(value: Option<&List>) -> TypeQualifier {
+pub(crate) fn type_qualifier_list(value: Option<&Sequence>) -> TypeQualifier {
     combine(IonTypeCode::List, qualify_nullness(value))
 }
 
-pub(crate) fn type_qualifier_sexp(value: Option<&SExp>) -> TypeQualifier {
+pub(crate) fn type_qualifier_sexp(value: Option<&Sequence>) -> TypeQualifier {
     combine(IonTypeCode::SExpression, qualify_nullness(value))
 }
 

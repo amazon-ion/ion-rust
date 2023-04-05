@@ -910,6 +910,7 @@ mod writer_tests {
     use rstest::*;
 
     use super::*;
+    use crate::element::{Blob, Clob};
     use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
     use crate::reader::{Reader, ReaderBuilder};
     use crate::symbol::Symbol;
@@ -1111,17 +1112,20 @@ mod writer_tests {
             .map(|s| s.as_bytes())
             .collect();
 
+        let clobs: Vec<Clob> = values.iter().map(|b| Clob::from(*b)).collect();
+        let blobs: Vec<Blob> = values.iter().map(|b| Blob::from(*b)).collect();
+
         binary_writer_scalar_test(
-            &values,
+            clobs.as_slice(),
             IonType::Clob,
-            |writer, v| writer.write_clob(*v),
+            |writer, v| writer.write_clob(v),
             |reader| reader.read_clob(),
         )?;
 
         binary_writer_scalar_test(
-            &values,
+            blobs.as_slice(),
             IonType::Blob,
-            |writer, v| writer.write_blob(*v),
+            |writer, v| writer.write_blob(v),
             |reader| reader.read_blob(),
         )
     }

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::constants::v1_0;
 use crate::symbol::Symbol;
@@ -54,8 +54,8 @@ impl SymbolTable {
 
         // Otherwise, intern it and return the new ID.
         let id = self.symbols_by_id.len();
-        let rc: Rc<str> = Rc::from(text);
-        let symbol = Symbol::shared(rc);
+        let arc: Arc<str> = Arc::from(text);
+        let symbol = Symbol::shared(arc);
         self.symbols_by_id.push(symbol.clone());
         self.ids_by_text.insert(symbol, id);
         id

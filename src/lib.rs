@@ -108,9 +108,9 @@
 //! ## Traversing an `Element`
 //!
 //! ```
-//! # use ion_rs::IonResult;
+//! use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::{Element, IntoAnnotatedElement, IonSequence, Value};
+//! use ion_rs::element::{Element, IntoAnnotatedElement,  Value};
 //! use ion_rs::{ion_struct, ion_list};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
@@ -135,9 +135,9 @@
 //! ## Writing an `Element` to an `io::Write`
 //!
 //! ```
-//! # use ion_rs::IonResult;
+//! use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::{Element, IntoAnnotatedElement, IonSequence, Value};
+//! use ion_rs::element::{Element, IntoAnnotatedElement,  Value};
 //! use ion_rs::{ion_struct, ion_list, TextWriterBuilder, IonWriter};
 //! use ion_rs::element::writer::ElementWriter;
 //! let element: Element = ion_struct! {
@@ -204,6 +204,7 @@ pub use symbol_table::SymbolTable;
 
 pub use types::decimal::Decimal;
 pub use types::integer::Int;
+pub use types::string::Str;
 pub use types::timestamp::Timestamp;
 pub use types::IonType;
 

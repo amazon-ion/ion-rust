@@ -7,6 +7,7 @@ use delegate::delegate;
 use crate::binary::constants::v1_0::IVM;
 use crate::constants::v1_0::system_symbol_ids;
 use crate::data_source::ToIonDataSource;
+use crate::element::{Blob, Clob};
 use crate::raw_reader::{RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, decoding_error_raw, IonResult};
@@ -19,6 +20,7 @@ use crate::types::timestamp::Timestamp;
 use crate::{IonType, RawBinaryReader, RawTextReader};
 use std::fmt::{Display, Formatter};
 
+use crate::types::string::Str;
 /// Configures and constructs new instances of [Reader].
 pub struct ReaderBuilder {}
 
@@ -431,12 +433,12 @@ impl<R: RawReader> IonReader for UserReader<R> {
             fn read_f32(&mut self) -> IonResult<f32>;
             fn read_f64(&mut self) -> IonResult<f64>;
             fn read_decimal(&mut self) -> IonResult<Decimal>;
-            fn read_string(&mut self) -> IonResult<String>;
+            fn read_string(&mut self) -> IonResult<Str>;
             fn map_string<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&str) -> U;
             fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
-            fn read_blob(&mut self) -> IonResult<Vec<u8>>;
+            fn read_blob(&mut self) -> IonResult<Blob>;
             fn map_blob<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
-            fn read_clob(&mut self) -> IonResult<Vec<u8>>;
+            fn read_clob(&mut self) -> IonResult<Clob>;
             fn map_clob<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
             fn read_timestamp(&mut self) -> IonResult<Timestamp>;
             fn step_in(&mut self) -> IonResult<()>;

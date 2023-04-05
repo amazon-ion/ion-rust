@@ -12,335 +12,35 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
-use crate::element::builders::{ListBuilder, SExpBuilder, StructBuilder};
-use crate::element::iterators::{
-    ElementsIterator, FieldIterator, FieldValuesIterator, IndexVec, SymbolsIterator,
-};
+use crate::element::builders::{SequenceBuilder, StructBuilder};
+use crate::element::iterators::SymbolsIterator;
 use crate::element::reader::ElementReader;
 use crate::ion_eq::IonEq;
-use crate::symbol_ref::AsSymbolRef;
 use crate::text::text_formatter::IonValueFormatter;
-use crate::{Decimal, Int, IonResult, IonType, ReaderBuilder, Symbol, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, ReaderBuilder, Str, Symbol, Timestamp};
 use num_bigint::BigInt;
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
 pub mod builders;
+mod bytes;
 mod element_stream_reader;
 mod iterators;
-pub mod owned;
+mod list;
+mod lob;
 pub mod reader;
+mod sequence;
+mod sexp;
+mod r#struct;
 pub mod writer;
 
-/// Behavior that is common to both [SExp] and [Struct].
-pub trait IonSequence {
-    fn elements(&self) -> ElementsIterator<'_>;
-    fn get(&self, index: usize) -> Option<&Element>;
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
+// Re-export the Value variant types and traits so they can be accessed directly from this module.
+pub use self::bytes::Bytes;
+pub use lob::{Blob, Clob};
 
-/// An in-memory representation of an Ion list
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct List {
-    children: Vec<Element>,
-}
-
-impl List {
-    pub(crate) fn new(children: Vec<Element>) -> Self {
-        Self { children }
-    }
-
-    pub fn builder() -> ListBuilder {
-        ListBuilder::new()
-    }
-
-    pub fn clone_builder(&self) -> ListBuilder {
-        ListBuilder::with_initial_elements(&self.children)
-    }
-}
-
-impl Display for List {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = IonValueFormatter { output: f };
-        ivf.format_list(self).map_err(|_| std::fmt::Error)?;
-        Ok(())
-    }
-}
-
-impl IonSequence for List {
-    fn elements(&self) -> ElementsIterator<'_> {
-        ElementsIterator::new(&self.children)
-    }
-
-    fn get(&self, index: usize) -> Option<&Element> {
-        self.children.get(index)
-    }
-
-    fn len(&self) -> usize {
-        self.children.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-impl<S: IonSequence> IonEq for S {
-    fn ion_eq(&self, other: &Self) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-        for (item1, item2) in self.elements().zip(other.elements()) {
-            if !item1.ion_eq(item2) {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-/// An in-memory representation of an Ion s-expression
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SExp {
-    children: Vec<Element>,
-}
-
-impl SExp {
-    pub(crate) fn new(children: Vec<Element>) -> Self {
-        Self { children }
-    }
-
-    pub fn builder() -> SExpBuilder {
-        SExpBuilder::new()
-    }
-
-    pub fn clone_builder(&self) -> SExpBuilder {
-        SExpBuilder::with_initial_elements(&self.children)
-    }
-}
-
-impl Display for SExp {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = IonValueFormatter { output: f };
-        ivf.format_sexp(self).map_err(|_| std::fmt::Error)?;
-        Ok(())
-    }
-}
-
-impl IonSequence for SExp {
-    fn elements(&self) -> ElementsIterator<'_> {
-        ElementsIterator::new(&self.children)
-    }
-
-    fn get(&self, index: usize) -> Option<&Element> {
-        self.children.get(index)
-    }
-
-    fn len(&self) -> usize {
-        self.children.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-// This collection is broken out into its own type to allow instances of it to be shared with Arc/Rc.
-#[derive(Debug, Clone)]
-struct Fields {
-    // Key/value pairs in the order they were inserted
-    by_index: Vec<(Symbol, Element)>,
-    // Maps symbols to a list of indexes where values may be found in `by_index` above
-    by_name: HashMap<Symbol, IndexVec>,
-}
-
-impl Fields {
-    /// Gets all of the indexes that contain a value associated with the given field name.
-    fn get_indexes<A: AsSymbolRef>(&self, field_name: A) -> Option<&IndexVec> {
-        field_name
-            .as_symbol_ref()
-            .text()
-            .map(|text| {
-                // If the symbol has defined text, look it up by &str
-                self.by_name.get(text)
-            })
-            .unwrap_or_else(|| {
-                // Otherwise, construct a (cheap, stack-allocated) Symbol with unknown text...
-                let symbol = Symbol::unknown_text();
-                // ...and use the unknown text symbol to look up matching field values
-                self.by_name.get(&symbol)
-            })
-    }
-
-    /// Iterates over the values found at the specified indexes.
-    fn get_values_at_indexes<'a>(&'a self, indexes: &'a IndexVec) -> FieldValuesIterator<'a> {
-        FieldValuesIterator {
-            current: 0,
-            indexes: Some(indexes),
-            by_index: &self.by_index,
-        }
-    }
-
-    /// Gets the last value in the Struct that is associated with the specified field name.
-    ///
-    /// Note that the Ion data model views a struct as a bag of (name, value) pairs and does not
-    /// have a notion of field ordering. In most use cases, field names are distinct and the last
-    /// appearance of a field in the struct's serialized form will have been the _only_ appearance.
-    /// If a field name appears more than once, this method makes the arbitrary decision to return
-    /// the value associated with the last appearance. If your application uses structs that repeat
-    /// field names, you are encouraged to use [get_all] instead.
-    fn get_last<A: AsSymbolRef>(&self, field_name: A) -> Option<&Element> {
-        self.get_indexes(field_name)
-            .and_then(|indexes| indexes.last())
-            .and_then(|index| self.by_index.get(*index))
-            .map(|(_name, value)| value)
-    }
-
-    /// Iterates over all of the values associated with the given field name.
-    fn get_all<A: AsSymbolRef>(&self, field_name: A) -> FieldValuesIterator {
-        let indexes = self.get_indexes(field_name);
-        FieldValuesIterator {
-            current: 0,
-            indexes,
-            by_index: &self.by_index,
-        }
-    }
-
-    /// Iterates over all of the (field name, field value) pairs in the struct.
-    fn iter(&self) -> impl Iterator<Item = &(Symbol, Element)> {
-        self.by_index.iter()
-    }
-}
-
-/// An in-memory representation of an Ion Struct
-#[derive(Debug, Clone)]
-pub struct Struct {
-    fields: Fields,
-}
-
-impl Display for Struct {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = IonValueFormatter { output: f };
-        ivf.format_struct(self).map_err(|_| std::fmt::Error)?;
-        Ok(())
-    }
-}
-
-impl Struct {
-    pub fn builder() -> StructBuilder {
-        StructBuilder::new()
-    }
-
-    pub fn clone_builder(&self) -> StructBuilder {
-        StructBuilder::with_initial_fields(&self.fields.by_index)
-    }
-
-    /// Returns an iterator over the field name/value pairs in this Struct.
-    pub fn fields(&self) -> impl Iterator<Item = (&Symbol, &Element)> {
-        self.fields
-            .iter()
-            // Here we convert from &(name, value) to (&name, &value).
-            // The former makes a stronger assertion about how the data is being stored. We don't
-            // want that to be a mandatory part of the public API.
-            .map(|(name, element)| (name, element))
-    }
-
-    fn fields_eq(&self, other: &Self) -> bool {
-        // For each field name in `self`, get the list of indexes that contain a value with that name.
-        for (field_name, field_value_indexes) in &self.fields.by_name {
-            let other_value_indexes = match other.fields.get_indexes(field_name) {
-                Some(indexes) => indexes,
-                // The other struct doesn't have a field with this name so they're not equal.
-                None => return false,
-            };
-
-            if field_value_indexes.len() != other_value_indexes.len() {
-                // The other struct has fields with the same name, but a different number of them.
-                return false;
-            }
-
-            for field_value in self.fields.get_values_at_indexes(field_value_indexes) {
-                if other
-                    .fields
-                    .get_values_at_indexes(other_value_indexes)
-                    .all(|other_value| !field_value.ion_eq(other_value))
-                {
-                    // Couldn't find an equivalent field in the other struct
-                    return false;
-                }
-            }
-        }
-
-        // If all of the above conditions hold, the two structs are equal.
-        true
-    }
-
-    /// Returns the number of fields in this Struct.
-    pub fn len(&self) -> usize {
-        self.fields.by_index.len()
-    }
-
-    /// Returns `true` if this struct has zero fields.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-impl<K, V> FromIterator<(K, V)> for Struct
-where
-    K: Into<Symbol>,
-    V: Into<Element>,
-{
-    /// Returns an owned struct from the given iterator of field names/values.
-    fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        let mut by_index: Vec<(Symbol, Element)> = Vec::new();
-        let mut by_name: HashMap<Symbol, IndexVec> = HashMap::new();
-        for (field_name, field_value) in iter {
-            let field_name = field_name.into();
-            let field_value = field_value.into();
-
-            by_name
-                .entry(field_name.clone())
-                .or_insert_with(IndexVec::new)
-                .push(by_index.len());
-            by_index.push((field_name, field_value));
-        }
-
-        let fields = Fields { by_index, by_name };
-        Self { fields }
-    }
-}
-
-impl Struct {
-    pub fn iter(&self) -> FieldIterator<'_> {
-        FieldIterator::new(&self.fields.by_index)
-    }
-
-    pub fn get<A: AsSymbolRef>(&self, field_name: A) -> Option<&Element> {
-        self.fields.get_last(field_name)
-    }
-
-    pub fn get_all<A: AsSymbolRef>(&self, field_name: A) -> FieldValuesIterator<'_> {
-        self.fields.get_all(field_name)
-    }
-}
-
-impl PartialEq for Struct {
-    fn eq(&self, other: &Self) -> bool {
-        // check if both fields have same length
-        self.len() == other.len()
-            // we need to test equality in both directions for both fields
-            // A good example for this is annotated vs not annotated values in struct
-            //  { a:4, a:4 } vs. { a:4, a:a::4 } // returns true
-            //  { a:4, a:a::4 } vs. { a:4, a:4 } // returns false
-            && self.fields_eq(other) && other.fields_eq(self)
-    }
-}
-
-impl Eq for Struct {}
+pub use list::List;
+pub use r#struct::Struct;
+pub use sequence::Sequence;
+pub use sexp::SExp;
 
 impl IonEq for Value {
     fn ion_eq(&self, other: &Self) -> bool {
@@ -358,20 +58,6 @@ impl IonEq for Value {
     }
 }
 
-impl IonEq for Vec<Element> {
-    fn ion_eq(&self, other: &Self) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-        for (v1, v2) in self.iter().zip(other.iter()) {
-            if !v1.ion_eq(v2) {
-                return false;
-            }
-        }
-        true
-    }
-}
-
 /// Variants for all _values_ within an [`Element`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -380,13 +66,13 @@ pub enum Value {
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
-    String(String),
+    String(Str),
     Symbol(Symbol),
     Bool(bool),
-    Blob(Vec<u8>),
-    Clob(Vec<u8>),
-    SExp(SExp),
-    List(List),
+    Blob(Bytes),
+    Clob(Bytes),
+    SExp(Sequence),
+    List(Sequence),
     Struct(Struct),
 }
 
@@ -405,8 +91,8 @@ impl Display for Value {
             Value::Clob(clob) => ivf.format_clob(clob),
             Value::Blob(blob) => ivf.format_blob(blob),
             Value::Struct(struct_) => ivf.format_struct(struct_),
-            Value::SExp(sexp) => ivf.format_sexp(sexp),
-            Value::List(list) => ivf.format_list(list),
+            Value::SExp(sequence) => ivf.format_sexp(sequence),
+            Value::List(sequence) => ivf.format_list(sequence),
         }
         .map_err(|_| std::fmt::Error)?;
 
@@ -464,12 +150,19 @@ impl From<bool> for Value {
 
 impl From<&str> for Value {
     fn from(string_val: &str) -> Self {
-        Value::String(string_val.to_owned())
+        Value::String(string_val.into())
     }
 }
 
 impl From<String> for Value {
-    fn from(string_val: String) -> Self {
+    fn from(value: String) -> Self {
+        let s: Str = value.into();
+        Value::String(s)
+    }
+}
+
+impl From<Str> for Value {
+    fn from(string_val: Str) -> Self {
         Value::String(string_val)
     }
 }
@@ -488,19 +181,33 @@ impl From<&[u8]> for Value {
 
 impl From<Vec<u8>> for Value {
     fn from(value: Vec<u8>) -> Self {
-        Value::Blob(value)
+        Value::Blob(value.into())
+    }
+}
+
+impl From<Blob> for Value {
+    fn from(blob: Blob) -> Self {
+        let bytes: Bytes = blob.into();
+        Value::Blob(bytes)
+    }
+}
+
+impl From<Clob> for Value {
+    fn from(clob: Clob) -> Self {
+        let bytes: Bytes = clob.into();
+        Value::Clob(bytes)
     }
 }
 
 impl From<List> for Value {
     fn from(list: List) -> Self {
-        Value::List(list)
+        Value::List(list.into())
     }
 }
 
 impl From<SExp> for Value {
     fn from(s_expr: SExp) -> Self {
-        Value::SExp(s_expr)
+        Value::SExp(s_expr.into())
     }
 }
 
@@ -581,8 +288,8 @@ impl Element {
         value.into()
     }
 
-    pub fn string<I: Into<String>>(str: I) -> Element {
-        let text: String = str.into();
+    pub fn string<I: Into<Str>>(str: I) -> Element {
+        let text: Str = str.into();
         text.into()
     }
 
@@ -618,12 +325,8 @@ impl Element {
         Value::Blob(bytes.into()).into()
     }
 
-    pub fn list_builder() -> ListBuilder {
-        ListBuilder::new()
-    }
-
-    pub fn sexp_builder() -> SExpBuilder {
-        SExpBuilder::new()
+    pub fn sequence_builder() -> SequenceBuilder {
+        Sequence::builder()
     }
 
     pub fn struct_builder() -> StructBuilder {
@@ -702,7 +405,7 @@ impl Element {
 
     pub fn as_text(&self) -> Option<&str> {
         match &self.value {
-            Value::String(text) => Some(text),
+            Value::String(text) => Some(text.as_ref()),
             Value::Symbol(sym) => sym.text(),
             _ => None,
         }
@@ -710,7 +413,7 @@ impl Element {
 
     pub fn as_string(&self) -> Option<&str> {
         match &self.value {
-            Value::String(text) => Some(text),
+            Value::String(text) => Some(text.as_ref()),
             _ => None,
         }
     }
@@ -731,43 +434,28 @@ impl Element {
 
     pub fn as_lob(&self) -> Option<&[u8]> {
         match &self.value {
-            Value::Blob(bytes) | Value::Clob(bytes) => Some(bytes),
+            Value::Blob(bytes) | Value::Clob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
     }
 
     pub fn as_blob(&self) -> Option<&[u8]> {
         match &self.value {
-            Value::Blob(bytes) => Some(bytes),
+            Value::Blob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
     }
 
     pub fn as_clob(&self) -> Option<&[u8]> {
         match &self.value {
-            Value::Clob(bytes) => Some(bytes),
+            Value::Clob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
     }
 
-    pub fn as_sequence(&self) -> Option<&dyn IonSequence> {
+    pub fn as_sequence(&self) -> Option<&Sequence> {
         match &self.value {
-            Value::SExp(sexp) => Some(sexp),
-            Value::List(list) => Some(list),
-            _ => None,
-        }
-    }
-
-    pub fn as_sexp(&self) -> Option<&SExp> {
-        match &self.value {
-            Value::SExp(sexp) => Some(sexp),
-            _ => None,
-        }
-    }
-
-    pub fn as_list(&self) -> Option<&List> {
-        match &self.value {
-            Value::List(list) => Some(list),
+            Value::SExp(s) | Value::List(s) => Some(s),
             _ => None,
         }
     }
@@ -1091,8 +779,6 @@ mod tests {
         AsSym,
         AsBytes,
         AsSequence,
-        AsSExp,
-        AsList,
         AsStruct,
     }
 
@@ -1105,7 +791,7 @@ mod tests {
         }
     }
 
-    use crate::element::{Element, IntoAnnotatedElement, IonSequence, Struct};
+    use crate::element::{Element, IntoAnnotatedElement, Struct};
     use crate::types::integer::IntAccess;
     use num_bigint::BigInt;
     use std::collections::HashSet;
@@ -1257,9 +943,9 @@ mod tests {
         Case {
             elem: ion_list![true, false].into(),
             ion_type: IonType::List,
-            ops: vec![AsList, AsSequence],
+            ops: vec![AsSequence],
             op_assert: Box::new(|e: &Element| {
-                let actual = e.as_list().unwrap();
+                let actual = e.as_sequence().unwrap();
                 let expected: Vec<Element> = ion_vec([true, false]);
                 // assert the length of list
                 assert_eq!(2, actual.len());
@@ -1276,9 +962,9 @@ mod tests {
         Case {
             elem: ion_sexp!(true false).into(),
             ion_type: IonType::SExp,
-            ops: vec![AsSExp, AsSequence],
+            ops: vec![AsSequence],
             op_assert: Box::new(|e: &Element| {
-                let actual = e.as_sexp().unwrap();
+                let actual = e.as_sequence().unwrap();
                 let expected: Vec<Element> = ion_vec([true, false]);
                 // assert the length of s-expression
                 assert_eq!(2, actual.len());
@@ -1348,8 +1034,6 @@ mod tests {
             (AsSym, Box::new(|e| assert_eq!(None, e.as_symbol()))),
             (AsBytes, Box::new(|e| assert_eq!(None, e.as_lob()))),
             (AsSequence, Box::new(|e| assert!(e.as_sequence().is_none()))),
-            (AsList, Box::new(|e| assert_eq!(None, e.as_list()))),
-            (AsSExp, Box::new(|e| assert_eq!(None, e.as_sexp()))),
             (AsStruct, Box::new(|e| assert_eq!(None, e.as_struct()))),
         ];
 
@@ -1379,11 +1063,27 @@ mod tests {
 
 #[cfg(test)]
 mod value_tests {
-    use super::Element;
     use crate::element::*;
     use crate::ion_eq::IonEq;
     use crate::{ion_list, ion_sexp, ion_struct, IonType};
     use rstest::*;
+
+    #[test]
+    fn demonstrate_element_implements_send() {
+        use std::thread;
+        // The Element type must implement `Send` in order for values to be
+        // moved between threads. If changes are made to the `Element` type
+        // or its nested field types (like the `Value` enum and its variants)
+        // which accidentally cause it not to implement `Send`, then this test
+        // will fail to compile.
+        let list: Element = ion_list![1, 2, 3].into();
+        thread::scope(|_| {
+            // Move `list` into this scope, demonstrating `Send`
+            let elements = vec![list];
+            // Trivial assertion to use `elements`
+            assert_eq!(elements.len(), 1);
+        });
+    }
 
     #[rstest]
     #[case::strings(
