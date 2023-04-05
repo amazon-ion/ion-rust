@@ -1,6 +1,24 @@
+/// An owned, immutable byte array.
+/// ```rust
+/// use ion_rs::element::Bytes;
+/// let ivm: &[u8] = &[0xEA_u8, 0x01, 0x00, 0xE0]; // Ion 1.0 version marker
+/// let bytes: Bytes = ivm.into();
+/// assert_eq!(&bytes, ivm);
+/// ```
+/// ```rust
+/// use ion_rs::element::Bytes;
+/// let bytes: Bytes = "hello".into();
+/// assert_eq!(&bytes, "hello".as_bytes());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bytes {
     data: Vec<u8>,
+}
+
+impl PartialEq<[u8]> for Bytes {
+    fn eq(&self, other: &[u8]) -> bool {
+        self.as_ref().eq(other)
+    }
 }
 
 impl From<Vec<u8>> for Bytes {

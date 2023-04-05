@@ -1,5 +1,20 @@
 use crate::element::Bytes;
 
+/// An in-memory representation of an Ion blob.
+///
+/// ```rust
+/// use ion_rs::element::Blob;
+/// let ivm: &[u8] = &[0xEA_u8, 0x01, 0x00, 0xE0]; // Ion 1.0 version marker
+/// let blob: Blob = ivm.into();
+/// assert_eq!(&blob, ivm);
+/// assert_eq!(blob.as_slice().len(), 4);
+/// ```
+/// ```rust
+/// use ion_rs::element::Blob;
+/// let blob: Blob = "hello".into();
+/// assert_eq!(&blob, "hello".as_bytes());
+/// /// assert_eq!(blob.as_slice().len(), 5);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blob(pub Bytes);
 
@@ -9,6 +24,14 @@ impl Blob {
     }
 }
 
+/// An in-memory representation of an Ion clob.
+///
+/// ```rust
+/// use ion_rs::element::Clob;
+/// let clob: Clob = "hello".into();
+/// assert_eq!(&clob, "hello".as_bytes());
+/// assert_eq!(clob.as_slice().len(), 5);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Clob(pub Bytes);
 
@@ -27,6 +50,18 @@ impl AsRef<[u8]> for Blob {
 impl AsRef<[u8]> for Clob {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
+    }
+}
+
+impl PartialEq<[u8]> for Blob {
+    fn eq(&self, other: &[u8]) -> bool {
+        self.as_ref().eq(other)
+    }
+}
+
+impl PartialEq<[u8]> for Clob {
+    fn eq(&self, other: &[u8]) -> bool {
+        self.as_ref().eq(other)
     }
 }
 
