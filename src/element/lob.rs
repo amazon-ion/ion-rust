@@ -13,7 +13,7 @@ use crate::element::Bytes;
 /// use ion_rs::element::Blob;
 /// let blob: Blob = "hello".into();
 /// assert_eq!(&blob, "hello".as_bytes());
-/// /// assert_eq!(blob.as_slice().len(), 5);
+/// assert_eq!(blob.as_slice().len(), 5);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blob(pub Bytes);
