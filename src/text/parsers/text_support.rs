@@ -41,6 +41,7 @@ where
     // Return a fatal error.
     match parser.parse(remaining) {
         Ok((remaining, string_fragment)) => Ok((remaining, string_fragment)),
+        Err(e @ nom::Err::Incomplete(_)) => Err(e),
         Err(e) => fatal_parse_error(remaining, format!("could not parse {label}: {e}")),
     }
 }

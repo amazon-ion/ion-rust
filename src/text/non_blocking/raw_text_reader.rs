@@ -1797,4 +1797,32 @@ mod reader_tests {
 
         Ok(())
     }
+
+    #[test]
+    fn generate_incomplete_on_truncated_escape() -> IonResult<()> {
+        let source = "\"123456\\u269b\"";
+        //                       ^-- First read stops here. (offset 9)
+        let mut reader = RawTextReader::new(source.as_bytes()[..10].to_owned());
+
+        match reader.next() {
+            Err(IonError::Incomplete {
+                position:
+                    Position {
+                        line_column: Some((line, column)),
+                        ..
+                    },
+                ..
+            }) => {
+                assert_eq!(line, 0); // Line is still 0 since we haven't actually seen a '\n' yet.
+                assert_eq!(column, 0); // start of the string; the value being parsed.
+            }
+            Err(e) => panic!("unexpected error after partial escaped sequence: {e}"),
+            Ok(item) => {
+                panic!("unexpected successful parsing of partial escaped sequence data: {item:?}")
+            }
+        }
+        reader.append_bytes(source[10..].as_bytes())?;
+        next_type(&mut reader, IonType::String, false);
+        Ok(())
+    }
 }
