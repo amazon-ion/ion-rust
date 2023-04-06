@@ -3,6 +3,7 @@ use std::ops::Range;
 
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
 use crate::data_source::ToIonDataSource;
+use crate::element::{Blob, Clob};
 use crate::raw_reader::BufferedRawReader;
 use crate::result::IonResult;
 use crate::stream_reader::IonReader;
@@ -168,8 +169,8 @@ impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for BlockingRawReader<R
         self.reader.read_symbol()
     }
 
-    fn read_blob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_blob(|b| Vec::from(b))
+    fn read_blob(&mut self) -> IonResult<Blob> {
+        self.map_blob(|b| Vec::from(b)).map(Blob::from)
     }
 
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
@@ -180,8 +181,8 @@ impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for BlockingRawReader<R
         self.reader.map_blob(f)
     }
 
-    fn read_clob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_clob(|c| Vec::from(c))
+    fn read_clob(&mut self) -> IonResult<Clob> {
+        self.map_clob(|c| Vec::from(c)).map(Clob::from)
     }
 
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
