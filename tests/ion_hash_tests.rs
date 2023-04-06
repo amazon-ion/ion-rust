@@ -239,6 +239,7 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
     if let Some(expectation) = identity.elements().last() {
         let method = expectation
             .annotations()
+            .iter()
             .next()
             .expect("identity sexps have one annotation")
             .text()
@@ -270,6 +271,7 @@ fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
 fn test_case_name_from_annotation(test_case_ion: &Element) -> Option<String> {
     test_case_ion
         .annotations()
+        .iter()
         .next()
         .map(|tok| tok.text().unwrap().into())
 }

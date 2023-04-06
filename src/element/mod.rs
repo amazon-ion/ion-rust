@@ -13,7 +13,6 @@
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
 use crate::element::builders::{SequenceBuilder, StructBuilder};
-use crate::element::iterators::SymbolsIterator;
 use crate::element::reader::ElementReader;
 use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
@@ -242,8 +241,7 @@ pub trait IntoAnnotatedElement: Into<Value> {
         self,
         annotations: I,
     ) -> Element {
-        let annotations: Vec<Symbol> = annotations.into_iter().map(|i| i.into()).collect();
-        Element::new(annotations, self.into())
+        Element::new(annotations.into(), self.into())
     }
 }
 
@@ -258,14 +256,14 @@ impl IonEq for Element {
 /// An `(annotations, value)` pair representing an Ion value.
 #[derive(Debug, Clone)]
 pub struct Element {
-    annotations: Vec<Symbol>,
+    annotations: Annotations,
     value: Value,
 }
 
 impl Element {
-    pub fn new(annotations: impl Into<Vec<Symbol>>, value: impl Into<Value>) -> Self {
+    pub(crate) fn new(annotations: Annotations, value: impl Into<Value>) -> Self {
         Self {
-            annotations: annotations.into(),
+            annotations,
             value: value.into(),
         }
     }
@@ -358,22 +356,15 @@ impl Element {
         }
     }
 
-    pub fn annotations(&self) -> SymbolsIterator<'_> {
-        SymbolsIterator::new(&self.annotations)
+    pub fn annotations(&self) -> &Annotations {
+        &self.annotations
     }
 
     pub fn with_annotations<S: Into<Symbol>, I: IntoIterator<Item = S>>(
         self,
         annotations: I,
     ) -> Self {
-        let annotations: Vec<Symbol> = annotations.into_iter().map(|i| i.into()).collect();
-        Element::new(annotations, self.value)
-    }
-
-    pub fn has_annotation(&self, annotation: &str) -> bool {
-        self.annotations
-            .iter()
-            .any(|a| a.text() == Some(annotation))
+        Element::new(annotations.into(), self.value)
     }
 
     pub fn is_null(&self) -> bool {
@@ -538,7 +529,7 @@ where
     T: Into<Value>,
 {
     fn from(value: T) -> Self {
-        Element::new(Vec::new(), value.into())
+        Element::new(Annotations::empty(), value.into())
     }
 }
 
@@ -557,23 +548,20 @@ mod tests {
 
     struct CaseAnnotations {
         elem: Element,
-        annotations: Vec<Symbol>,
+        annotations: Annotations,
     }
 
     fn annotations_text_case() -> CaseAnnotations {
         CaseAnnotations {
             elem: 10i64.with_annotations(["foo", "bar", "baz"]),
-            annotations: ["foo", "bar", "baz"]
-                .into_iter()
-                .map(|i| i.into())
-                .collect(),
+            annotations: ["foo", "bar", "baz"].into(),
         }
     }
 
     fn no_annotations_case() -> CaseAnnotations {
         CaseAnnotations {
             elem: 10i64.into(),
-            annotations: vec![],
+            annotations: Annotations::empty(),
         }
     }
 
@@ -581,8 +569,8 @@ mod tests {
     #[case::annotations_text(annotations_text_case())]
     #[case::no_annotations(no_annotations_case())]
     fn annotations_with_element(#[case] input: CaseAnnotations) {
-        let actual: Vec<&Symbol> = input.elem.annotations().collect();
-        let expected: Vec<&Symbol> = input.annotations.iter().collect();
+        let actual: &Annotations = input.elem.annotations();
+        let expected: &Annotations = &input.annotations;
         assert_eq!(actual, expected);
     }
 
@@ -796,7 +784,7 @@ mod tests {
         }
     }
 
-    use crate::element::{Element, IntoAnnotatedElement, Struct};
+    use crate::element::{Annotations, Element, IntoAnnotatedElement, Struct};
     use crate::types::integer::IntAccess;
     use num_bigint::BigInt;
     use std::collections::HashSet;

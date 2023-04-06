@@ -22,6 +22,19 @@ impl Annotations {
         Annotations { symbols }
     }
 
+    // Constructs an Annotations object representing an empty symbol sequence
+    pub(crate) fn empty() -> Self {
+        Annotations {
+            symbols: Vec::new(),
+        }
+    }
+
+    /// Returns a [SymbolsIterator] that yields each of the [Symbol]s in this annotations sequence
+    /// in order.
+    pub fn iter(&self) -> SymbolsIterator {
+        self.into_iter()
+    }
+
     /// Returns the number of annotations in this sequence.
     /// ```
     /// use ion_rs::element::Annotations;
@@ -56,7 +69,7 @@ impl Annotations {
     /// ```
     pub fn contains<S: AsRef<str>>(&self, query: S) -> bool {
         let query: &str = query.as_ref();
-        self.into_iter().any(|symbol| symbol.text() == Some(query))
+        self.iter().any(|symbol| symbol.text() == Some(query))
     }
 
     /// Determines whether this annotations sequence begins with the specified sequence of text
@@ -64,26 +77,11 @@ impl Annotations {
     /// ```
     /// use ion_rs::element::Annotations;
     /// let annotations: Annotations = ["foo", "bar", "baz"].into();
-    /// assert!(annotations.starts_with(["foo"]));
-    /// assert!(annotations.starts_with(["foo", "bar"]));
-    /// assert!(annotations.starts_with(["foo", "bar", "baz"]));
-    ///
-    /// assert!(!annotations.starts_with(["quux"]));
-    /// assert!(!annotations.starts_with(["foo", "bar", "baz", "quux"]));
+    /// assert!(annotations.starts_with("foo"));
+    /// assert!(!annotations.starts_with("quux"));
     /// ```
-    pub fn starts_with<S: AsRef<str>, I: IntoIterator<Item = S>>(&self, sequence: I) -> bool {
-        let mut annotations = self.into_iter();
-        for query_annotation in sequence.into_iter() {
-            let query_str: &str = query_annotation.as_ref();
-            if let Some(actual_annotation) = annotations.next() {
-                if Some(query_str) == actual_annotation.text() {
-                    continue;
-                }
-            }
-            return false;
-        }
-
-        true
+    pub fn starts_with(&self, text: impl AsRef<str>) -> bool {
+        self.iter().next().and_then(|a| a.text()) == Some(text.as_ref())
     }
 }
 

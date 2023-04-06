@@ -37,7 +37,7 @@ where
     /// bytes are written to `hasher` (as opposed to returned) for performance
     /// reasons (avoid allocations for DSTs).
     pub(crate) fn update_serialized_bytes(&mut self, elem: &Element) -> IonResult<()> {
-        let has_annotations = elem.annotations().next().is_some();
+        let has_annotations = !elem.annotations().is_empty();
         if has_annotations {
             // s(annotated value) → B || TQ || s(annotation) || s(annotation) || ... || s(annotation) || s(value) || E
             self.mark_begin();

@@ -1,6 +1,6 @@
-use crate::element::{Sequence, Struct};
+use crate::element::{Annotations, Sequence, Struct};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Symbol, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
 
@@ -283,7 +283,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub(crate) fn format_annotations(&mut self, annotations: &Vec<Symbol>) -> IonResult<()> {
+    pub(crate) fn format_annotations(&mut self, annotations: &Annotations) -> IonResult<()> {
         for annotation in annotations {
             self.format_symbol(annotation)?;
             write!(self.output, "::")?;

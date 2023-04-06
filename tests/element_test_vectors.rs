@@ -205,9 +205,7 @@ trait ElementApi {
         for (group_index, group_list) in group_lists.iter().enumerate() {
             // every grouping set is a list/sexp
             // look for the embedded annotation to parse/test as the underlying value
-            let is_embedded = group_list
-                .annotations()
-                .any(|annotation| annotation.text() == Some("embedded_documents"));
+            let is_embedded = group_list.annotations().contains("embedded_documents");
             match (group_list.as_sequence(), is_embedded) {
                 (Some(group), true) => {
                     Self::read_group_embedded(group, &group_assert)?;
