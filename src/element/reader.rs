@@ -3,9 +3,9 @@
 //! Provides APIs to read Ion data into [Element] from different sources such
 //! as slices or files.
 
-use crate::element::{Element, Struct, Value};
+use crate::element::{Element, Sequence, Struct, Value};
 use crate::result::{decoding_error, IonResult};
-use crate::{element, IonReader, StreamItem, Symbol};
+use crate::{IonReader, StreamItem, Symbol};
 
 /// Reads Ion data into [`Element`] instances.
 ///
@@ -147,11 +147,11 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
                     Timestamp => Value::Timestamp(self.reader.read_timestamp()?),
                     Symbol => Value::Symbol(self.reader.read_symbol()?),
                     String => Value::String(self.reader.read_string()?),
-                    Clob => Value::Clob(self.reader.read_clob()?),
-                    Blob => Value::Blob(self.reader.read_blob()?),
+                    Clob => Value::Clob(self.reader.read_clob()?.into()),
+                    Blob => Value::Blob(self.reader.read_blob()?.into()),
                     // It's a collection; recursively materialize all of this value's children
-                    List => Value::List(element::List::new(self.materialize_sequence()?)),
-                    SExp => Value::SExp(element::SExp::new(self.materialize_sequence()?)),
+                    List => Value::List(self.materialize_sequence()?),
+                    SExp => Value::SExp(self.materialize_sequence()?),
                     Struct => Value::Struct(self.materialize_struct()?),
                 }
             }
@@ -162,14 +162,14 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
     /// Steps into the current sequence and materializes each of its children to construct
     /// an [Vec<Element>]. When all of the the children have been materialized, steps out.
     /// The reader MUST be positioned over a list or s-expression when this is called.
-    fn materialize_sequence(&mut self) -> IonResult<Vec<Element>> {
+    fn materialize_sequence(&mut self) -> IonResult<Sequence> {
         let mut child_elements = Vec::new();
         self.reader.step_in()?;
         while let Some(element) = self.materialize_next()? {
             child_elements.push(element);
         }
         self.reader.step_out()?;
-        Ok(child_elements)
+        Ok(child_elements.into())
     }
 
     /// Steps into the current struct and materializes each of its fields to construct

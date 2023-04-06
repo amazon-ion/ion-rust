@@ -2,7 +2,7 @@ use crate::result::{decoding_error, illegal_operation, illegal_operation_raw};
 use crate::text::parent_container::ParentContainer;
 
 use crate::element::iterators::SymbolsIterator;
-use crate::element::Element;
+use crate::element::{Blob, Clob, Element};
 use crate::{
     Decimal, Int, IonError, IonReader, IonResult, IonType, Str, StreamItem, Symbol, Timestamp,
 };
@@ -265,8 +265,8 @@ impl IonReader for ElementStreamReader {
         self.current_value_as("symbol value", |v| v.as_symbol().map(|i| i.to_owned()))
     }
 
-    fn read_blob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_blob(|b| Vec::from(b))
+    fn read_blob(&mut self) -> IonResult<Blob> {
+        self.map_blob(|b| Vec::from(b)).map(Blob::from)
     }
 
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
@@ -280,8 +280,8 @@ impl IonReader for ElementStreamReader {
         }
     }
 
-    fn read_clob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_clob(|c| Vec::from(c))
+    fn read_clob(&mut self) -> IonResult<Clob> {
+        self.map_clob(|c| Vec::from(c)).map(Clob::from)
     }
 
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
@@ -380,7 +380,6 @@ mod reader_tests {
     use rstest::*;
 
     use super::*;
-    use crate::element::Value;
     use crate::result::IonResult;
     use crate::stream_reader::IonReader;
     use crate::types::decimal::Decimal;
@@ -504,9 +503,9 @@ mod reader_tests {
         next_type(reader, IonType::List, false);
         reader.step_in()?;
         next_type(reader, IonType::Blob, false);
-        assert_eq!(&reader.read_blob()?, "encoded".as_bytes());
+        assert_eq!(reader.read_blob()?, Blob::from("encoded"));
         next_type(reader, IonType::Clob, false);
-        assert_eq!(&reader.read_clob()?, "hello".as_bytes());
+        assert_eq!(reader.read_clob()?, Clob::from("hello"));
         next_type(reader, IonType::Float, false);
         assert_eq!(reader.read_f64()?, 4.5);
         next_type(reader, IonType::Decimal, false);
@@ -535,8 +534,8 @@ mod reader_tests {
     #[case(" 2007-07-12T ", Timestamp::with_ymd(2007, 7, 12).build().unwrap())]
     #[case(" foo ", Symbol::owned("foo"))]
     #[case(" \"hi!\" ", "hi!".to_owned())]
-    #[case(" {{ZW5jb2RlZA==}} ", Value::Blob("encoded".as_bytes().to_vec()))]
-    #[case(" {{\"hello\"}} ", Value::Clob("hello".as_bytes().to_vec()))]
+    #[case(" {{ZW5jb2RlZA==}} ", Blob::from("encoded"))]
+    #[case(" {{\"hello\"}} ", Clob::from("hello"))]
     fn test_read_single_top_level_values<E: Into<Element>>(
         #[case] text: &str,
         #[case] expected_value: E,

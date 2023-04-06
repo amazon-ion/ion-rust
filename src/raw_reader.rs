@@ -1,3 +1,4 @@
+use crate::element::{Blob, Clob};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::stream_reader::IonReader;
 use crate::types::string::Str;
@@ -102,7 +103,7 @@ impl<R: RawReader + ?Sized> IonReader for Box<R> {
         (**self).read_symbol()
     }
 
-    fn read_blob(&mut self) -> IonResult<Vec<u8>> {
+    fn read_blob(&mut self) -> IonResult<Blob> {
         (**self).read_blob()
     }
 
@@ -114,7 +115,7 @@ impl<R: RawReader + ?Sized> IonReader for Box<R> {
         todo!("Cannot use `map_blob` via dynamic dispatch. Use `read_blob` instead. See: https://github.com/amazon-ion/ion-rust/issues/335")
     }
 
-    fn read_clob(&mut self) -> IonResult<Vec<u8>> {
+    fn read_clob(&mut self) -> IonResult<Clob> {
         (**self).read_clob()
     }
 

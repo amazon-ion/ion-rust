@@ -1,14 +1,14 @@
-use crate::element::builders::SExpBuilder;
+use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::ElementsIterator;
-use crate::element::{Element, IonSequence};
+use crate::element::{Element, Sequence};
+use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
+use delegate::delegate;
 use std::fmt::{Display, Formatter};
 
 /// An in-memory representation of an Ion s-expression
-///
-/// [`SExp`] implements [`IonSequence`], which defines most of its functionality.
 /// ```
-/// use ion_rs::element::{Element, IonSequence, List};
+/// use ion_rs::element::{Element, List};
 /// use ion_rs::ion_sexp;
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
@@ -18,22 +18,38 @@ use std::fmt::{Display, Formatter};
 /// # Ok(())
 /// # }
 /// ```
+/// To build a `SExp` incrementally, see [SequenceBuilder].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SExp {
-    pub(super) children: Vec<Element>,
+pub struct SExp(pub Sequence);
+
+impl SExp {
+    pub(crate) fn new(elements: impl Into<Sequence>) -> Self {
+        SExp(elements.into())
+    }
 }
 
 impl SExp {
-    pub(crate) fn new(children: Vec<Element>) -> Self {
-        Self { children }
+    delegate! {
+        to self.0 {
+            pub fn clone_builder(&self) -> SequenceBuilder;
+            pub fn elements(&self) -> ElementsIterator<'_>;
+            pub fn get(&self, index: usize) -> Option<&Element>;
+            pub fn len(&self) -> usize;
+            pub fn is_empty(&self) -> bool;
+        }
     }
+}
 
-    pub fn builder() -> SExpBuilder {
-        SExpBuilder::new()
+impl IonEq for SExp {
+    fn ion_eq(&self, other: &Self) -> bool {
+        // The inner `Sequence` of both Lists are IonEq
+        self.0.ion_eq(&other.0)
     }
+}
 
-    pub fn clone_builder(&self) -> SExpBuilder {
-        SExpBuilder::with_initial_elements(&self.children)
+impl AsRef<Sequence> for SExp {
+    fn as_ref(&self) -> &Sequence {
+        &self.0
     }
 }
 
@@ -52,6 +68,18 @@ impl Display for SExp {
         let mut ivf = IonValueFormatter { output: f };
         ivf.format_sexp(self).map_err(|_| std::fmt::Error)?;
         Ok(())
+    }
+}
+
+impl From<Sequence> for SExp {
+    fn from(sequence: Sequence) -> Self {
+        SExp(sequence)
+    }
+}
+
+impl From<SExp> for Sequence {
+    fn from(value: SExp) -> Self {
+        value.0
     }
 }
 

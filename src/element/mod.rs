@@ -12,7 +12,7 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
-use crate::element::builders::{ListBuilder, SExpBuilder, StructBuilder};
+use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::iterators::SymbolsIterator;
 use crate::element::reader::ElementReader;
 use crate::ion_eq::IonEq;
@@ -22,9 +22,11 @@ use num_bigint::BigInt;
 use std::fmt::{Display, Formatter};
 
 pub mod builders;
+mod bytes;
 mod element_stream_reader;
 mod iterators;
 mod list;
+mod lob;
 pub mod reader;
 mod sequence;
 mod sexp;
@@ -32,9 +34,12 @@ mod r#struct;
 pub mod writer;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
+pub use self::bytes::Bytes;
+pub use lob::{Blob, Clob};
+
 pub use list::List;
 pub use r#struct::Struct;
-pub use sequence::IonSequence;
+pub use sequence::Sequence;
 pub use sexp::SExp;
 
 impl IonEq for Value {
@@ -64,10 +69,10 @@ pub enum Value {
     String(Str),
     Symbol(Symbol),
     Bool(bool),
-    Blob(Vec<u8>),
-    Clob(Vec<u8>),
-    SExp(SExp),
-    List(List),
+    Blob(Bytes),
+    Clob(Bytes),
+    SExp(Sequence),
+    List(Sequence),
     Struct(Struct),
 }
 
@@ -86,8 +91,8 @@ impl Display for Value {
             Value::Clob(clob) => ivf.format_clob(clob),
             Value::Blob(blob) => ivf.format_blob(blob),
             Value::Struct(struct_) => ivf.format_struct(struct_),
-            Value::SExp(sexp) => ivf.format_sexp(sexp),
-            Value::List(list) => ivf.format_list(list),
+            Value::SExp(sequence) => ivf.format_sexp(sequence),
+            Value::List(sequence) => ivf.format_list(sequence),
         }
         .map_err(|_| std::fmt::Error)?;
 
@@ -176,19 +181,33 @@ impl From<&[u8]> for Value {
 
 impl From<Vec<u8>> for Value {
     fn from(value: Vec<u8>) -> Self {
-        Value::Blob(value)
+        Value::Blob(value.into())
+    }
+}
+
+impl From<Blob> for Value {
+    fn from(blob: Blob) -> Self {
+        let bytes: Bytes = blob.into();
+        Value::Blob(bytes)
+    }
+}
+
+impl From<Clob> for Value {
+    fn from(clob: Clob) -> Self {
+        let bytes: Bytes = clob.into();
+        Value::Clob(bytes)
     }
 }
 
 impl From<List> for Value {
     fn from(list: List) -> Self {
-        Value::List(list)
+        Value::List(list.into())
     }
 }
 
 impl From<SExp> for Value {
     fn from(s_expr: SExp) -> Self {
-        Value::SExp(s_expr)
+        Value::SExp(s_expr.into())
     }
 }
 
@@ -306,12 +325,8 @@ impl Element {
         Value::Blob(bytes.into()).into()
     }
 
-    pub fn list_builder() -> ListBuilder {
-        ListBuilder::new()
-    }
-
-    pub fn sexp_builder() -> SExpBuilder {
-        SExpBuilder::new()
+    pub fn sequence_builder() -> SequenceBuilder {
+        Sequence::builder()
     }
 
     pub fn struct_builder() -> StructBuilder {
@@ -419,43 +434,28 @@ impl Element {
 
     pub fn as_lob(&self) -> Option<&[u8]> {
         match &self.value {
-            Value::Blob(bytes) | Value::Clob(bytes) => Some(bytes),
+            Value::Blob(bytes) | Value::Clob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
     }
 
     pub fn as_blob(&self) -> Option<&[u8]> {
         match &self.value {
-            Value::Blob(bytes) => Some(bytes),
+            Value::Blob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
     }
 
     pub fn as_clob(&self) -> Option<&[u8]> {
         match &self.value {
-            Value::Clob(bytes) => Some(bytes),
+            Value::Clob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
     }
 
-    pub fn as_sequence(&self) -> Option<&dyn IonSequence> {
+    pub fn as_sequence(&self) -> Option<&Sequence> {
         match &self.value {
-            Value::SExp(sexp) => Some(sexp),
-            Value::List(list) => Some(list),
-            _ => None,
-        }
-    }
-
-    pub fn as_sexp(&self) -> Option<&SExp> {
-        match &self.value {
-            Value::SExp(sexp) => Some(sexp),
-            _ => None,
-        }
-    }
-
-    pub fn as_list(&self) -> Option<&List> {
-        match &self.value {
-            Value::List(list) => Some(list),
+            Value::SExp(s) | Value::List(s) => Some(s),
             _ => None,
         }
     }
@@ -779,8 +779,6 @@ mod tests {
         AsSym,
         AsBytes,
         AsSequence,
-        AsSExp,
-        AsList,
         AsStruct,
     }
 
@@ -793,7 +791,7 @@ mod tests {
         }
     }
 
-    use crate::element::{Element, IntoAnnotatedElement, IonSequence, Struct};
+    use crate::element::{Element, IntoAnnotatedElement, Struct};
     use crate::types::integer::IntAccess;
     use num_bigint::BigInt;
     use std::collections::HashSet;
@@ -945,9 +943,9 @@ mod tests {
         Case {
             elem: ion_list![true, false].into(),
             ion_type: IonType::List,
-            ops: vec![AsList, AsSequence],
+            ops: vec![AsSequence],
             op_assert: Box::new(|e: &Element| {
-                let actual = e.as_list().unwrap();
+                let actual = e.as_sequence().unwrap();
                 let expected: Vec<Element> = ion_vec([true, false]);
                 // assert the length of list
                 assert_eq!(2, actual.len());
@@ -964,9 +962,9 @@ mod tests {
         Case {
             elem: ion_sexp!(true false).into(),
             ion_type: IonType::SExp,
-            ops: vec![AsSExp, AsSequence],
+            ops: vec![AsSequence],
             op_assert: Box::new(|e: &Element| {
-                let actual = e.as_sexp().unwrap();
+                let actual = e.as_sequence().unwrap();
                 let expected: Vec<Element> = ion_vec([true, false]);
                 // assert the length of s-expression
                 assert_eq!(2, actual.len());
@@ -1036,8 +1034,6 @@ mod tests {
             (AsSym, Box::new(|e| assert_eq!(None, e.as_symbol()))),
             (AsBytes, Box::new(|e| assert_eq!(None, e.as_lob()))),
             (AsSequence, Box::new(|e| assert!(e.as_sequence().is_none()))),
-            (AsList, Box::new(|e| assert_eq!(None, e.as_list()))),
-            (AsSExp, Box::new(|e| assert_eq!(None, e.as_sexp()))),
             (AsStruct, Box::new(|e| assert_eq!(None, e.as_struct()))),
         ];
 

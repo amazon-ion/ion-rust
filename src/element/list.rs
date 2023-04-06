@@ -1,14 +1,14 @@
-use crate::element::builders::ListBuilder;
+use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::ElementsIterator;
-use crate::element::{Element, IonSequence};
+use crate::element::{Element, Sequence};
+use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
+use delegate::delegate;
 use std::fmt::{Display, Formatter};
 
 /// An in-memory representation of an Ion list.
-///
-/// [`List`] implements [`IonSequence`], which defines most of its functionality.
 /// ```
-/// use ion_rs::element::{Element, IonSequence, List};
+/// use ion_rs::element::{Element, List};
 /// use ion_rs::ion_list;
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
@@ -18,22 +18,38 @@ use std::fmt::{Display, Formatter};
 /// # Ok(())
 /// # }
 /// ```
+/// To build a `List` incrementally, see [SequenceBuilder].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct List {
-    pub(super) children: Vec<Element>,
+pub struct List(pub Sequence);
+
+impl List {
+    pub(crate) fn new(elements: impl Into<Sequence>) -> Self {
+        List(elements.into())
+    }
 }
 
 impl List {
-    pub(crate) fn new(children: Vec<Element>) -> Self {
-        Self { children }
+    delegate! {
+        to self.0 {
+            pub fn clone_builder(&self) -> SequenceBuilder;
+            pub fn elements(&self) -> ElementsIterator<'_>;
+            pub fn get(&self, index: usize) -> Option<&Element>;
+            pub fn len(&self) -> usize;
+            pub fn is_empty(&self) -> bool;
+        }
     }
+}
 
-    pub fn builder() -> ListBuilder {
-        ListBuilder::new()
+impl IonEq for List {
+    fn ion_eq(&self, other: &Self) -> bool {
+        // The inner `Sequence` of both Lists are IonEq
+        self.0.ion_eq(&other.0)
     }
+}
 
-    pub fn clone_builder(&self) -> ListBuilder {
-        ListBuilder::with_initial_elements(&self.children)
+impl AsRef<Sequence> for List {
+    fn as_ref(&self) -> &Sequence {
+        &self.0
     }
 }
 
@@ -52,6 +68,18 @@ impl Display for List {
         let mut ivf = IonValueFormatter { output: f };
         ivf.format_list(self).map_err(|_| std::fmt::Error)?;
         Ok(())
+    }
+}
+
+impl From<Sequence> for List {
+    fn from(sequence: Sequence) -> Self {
+        List(sequence)
+    }
+}
+
+impl From<List> for Sequence {
+    fn from(value: List) -> Self {
+        value.0
     }
 }
 

@@ -345,7 +345,7 @@ impl TextBuffer<Vec<u8>> {
         self.restack();
         self.reserve_capacity(length);
 
-        let read_buffer = &mut self.data.as_mut_slice()[self.data_end..];
+        let read_buffer = &mut self.data.as_mut_slice()[self.data_end..(self.data_end + length)];
         let bytes_read = source.read(read_buffer)?;
         self.data_end += bytes_read;
 

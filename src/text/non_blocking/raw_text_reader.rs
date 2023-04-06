@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use crate::element::{Blob, Clob};
 use crate::types::string::Str;
 use nom::Err::{Error, Failure, Incomplete};
 
@@ -876,8 +877,8 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawTextReader<A> {
         }
     }
 
-    fn read_blob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_blob(|b| Vec::from(b))
+    fn read_blob(&mut self) -> IonResult<Blob> {
+        self.map_blob(|b| Vec::from(b)).map(Blob::from)
     }
 
     fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
@@ -891,8 +892,8 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawTextReader<A> {
         }
     }
 
-    fn read_clob(&mut self) -> IonResult<Vec<u8>> {
-        self.map_clob(|c| Vec::from(c))
+    fn read_clob(&mut self) -> IonResult<Clob> {
+        self.map_clob(|c| Vec::from(c)).map(Clob::from)
     }
 
     fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
@@ -1821,6 +1822,34 @@ mod reader_tests {
         }
         assert_eq!(result, RawStreamItem::Nothing);
 
+        Ok(())
+    }
+
+    #[test]
+    fn generate_incomplete_on_truncated_escape() -> IonResult<()> {
+        let source = "\"123456\\u269b\"";
+        //                       ^-- First read stops here. (offset 9)
+        let mut reader = RawTextReader::new(source.as_bytes()[..10].to_owned());
+
+        match reader.next() {
+            Err(IonError::Incomplete {
+                position:
+                    Position {
+                        line_column: Some((line, column)),
+                        ..
+                    },
+                ..
+            }) => {
+                assert_eq!(line, 0); // Line is still 0 since we haven't actually seen a '\n' yet.
+                assert_eq!(column, 0); // start of the string; the value being parsed.
+            }
+            Err(e) => panic!("unexpected error after partial escaped sequence: {e}"),
+            Ok(item) => {
+                panic!("unexpected successful parsing of partial escaped sequence data: {item:?}")
+            }
+        }
+        reader.append_bytes(source[10..].as_bytes())?;
+        next_type(&mut reader, IonType::String, false);
         Ok(())
     }
 }
