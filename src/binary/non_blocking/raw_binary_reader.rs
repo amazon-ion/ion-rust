@@ -26,7 +26,7 @@ use std::ops::Range;
 /// Type, offset, and length information about the serialized value over which the
 /// NonBlockingRawBinaryReader is currently positioned.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct EncodedValue {
+struct EncodedValue {
     // If the compiler decides that a value is too large to be moved/copied with inline code,
     // it will relocate the value using memcpy instead. This can be quite slow by comparison.
     //
@@ -261,7 +261,7 @@ enum ReaderState {
     Skipping(usize),
     /// ... on the first byte of a non-container value, but need more data to materialize (or skip) it ...
     ///
-    ///   If the reader's state is `Waiting`, we're on the first byte of a value and have
+    ///   If the reader's state is `WaitingForData`, we're on the first byte of a value and have
     ///   successfully parsed the value's length, but require more data in order to materialize the
     ///   value.
     WaitingForData(EncodedValue),
@@ -318,7 +318,7 @@ impl Container {
 /// Note that if the buffer runs out of data between top level values, this will be interpreted
 /// as the end of the stream. Applications can still add more data to the buffer and resume reading.
 #[derive(Debug)]
-pub struct RawBinaryBufferReader<A: AsRef<[u8]>> {
+pub struct RawBinaryReader<A: AsRef<[u8]>> {
     ion_version: (u8, u8),
     state: ReaderState,
     buffer: BinaryBuffer<A>,
@@ -326,7 +326,7 @@ pub struct RawBinaryBufferReader<A: AsRef<[u8]>> {
     is_eos: bool,
 }
 
-impl BufferedRawReader for RawBinaryBufferReader<Vec<u8>> {
+impl BufferedRawReader for RawBinaryReader<Vec<u8>> {
     /// Copies the provided bytes to end of the reader's input buffer.
     fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
         self.buffer.append_bytes(bytes);
@@ -349,16 +349,16 @@ impl BufferedRawReader for RawBinaryBufferReader<Vec<u8>> {
     }
 }
 
-impl From<Vec<u8>> for RawBinaryBufferReader<Vec<u8>> {
+impl From<Vec<u8>> for RawBinaryReader<Vec<u8>> {
     fn from(source: Vec<u8>) -> Self {
-        RawBinaryBufferReader::new(source)
+        RawBinaryReader::new(source)
     }
 }
 
-impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
-    /// Constructs a RawBinaryBufferReader from a value that can be viewed as a byte slice.
-    pub fn new(source: A) -> RawBinaryBufferReader<A> {
-        RawBinaryBufferReader {
+impl<A: AsRef<[u8]>> RawBinaryReader<A> {
+    /// Constructs a RawBinaryReader from a value that can be viewed as a byte slice.
+    pub fn new(source: A) -> RawBinaryReader<A> {
+        RawBinaryReader {
             ion_version: (1, 0),
             state: ReaderState::Ready,
             buffer: BinaryBuffer::new(source),
@@ -369,11 +369,11 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
 
     /// Constructs a disposable view of the buffer's current contents that can be used to find the
     /// next item in the stream. If the TxReader encounters a problem like invalid or incomplete
-    /// data, it can be discarded without affecting the RawBinaryBufferReader that created it.
+    /// data, it can be discarded without affecting the RawBinaryReader that created it.
     fn transaction_reader(&mut self) -> TxReader<A> {
         // Temporarily break apart `self` to get simultaneous mutable references to the buffer,
         // the reader state, and the parents.
-        let RawBinaryBufferReader {
+        let RawBinaryReader {
             state,
             buffer,
             parents,
@@ -403,6 +403,7 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
             Skipping(bytes_to_skip) => bytes_to_skip,
             OnIvm => IVM.len(),
             OnValue(encoded_value) => encoded_value.total_length(),
+            // This function will not be called while the reader is in the WaitingForData state.
             WaitingForData(_) => unreachable!(),
         };
 
@@ -715,7 +716,7 @@ impl<A: AsRef<[u8]>> RawBinaryBufferReader<A> {
     }
 }
 
-impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
+impl<A: AsRef<[u8]>> IonReader for RawBinaryReader<A> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;
 
@@ -780,17 +781,14 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryBufferReader<A> {
         // error. This is to match the behavior of the text reader where incomplets will only come
         // from step-out and next calls.
         if let ReaderState::OnValue(encoded_value) = tx_reader.state {
-            match encoded_value.ion_type() {
-                IonType::Struct | IonType::List | IonType::SExp => (),
-                _ => {
-                    if bytes_remaining < encoded_value.total_length() {
-                        *tx_reader.state = ReaderState::WaitingForData(*encoded_value);
-                        self.buffer.consume(nop_bytes_count);
-                        return incomplete_data_error(
-                            "ahead to next item",
-                            self.buffer.total_consumed(),
-                        );
-                    }
+            if !encoded_value.ion_type().is_container() {
+                if bytes_remaining < encoded_value.total_length() {
+                    *tx_reader.state = ReaderState::WaitingForData(*encoded_value);
+                    self.buffer.consume(nop_bytes_count);
+                    return incomplete_data_error(
+                        "ahead to next item",
+                        self.buffer.total_consumed(),
+                    );
                 }
             }
         }
@@ -1190,16 +1188,16 @@ impl<'a> Iterator for AnnotationsIterator<'a> {
     }
 }
 
-/// A disposable view of the RawBinaryBufferReader's position.
+/// A disposable view of the RawBinaryReader's position.
 ///
-/// The TxReader holds a borrowed (immutable) reference to the RawBinaryBufferReader's buffer
+/// The TxReader holds a borrowed (immutable) reference to the RawBinaryReader's buffer
 /// and a mutable reference to its state.
 ///
 /// By making a slice (view) of the buffer, it is able to read ahead in the buffer without affecting
-/// the RawBinaryBufferReader. If it is able to find the next item in the stream, it can then update
-/// the RawBinaryBufferReader's state.
+/// the RawBinaryReader. If it is able to find the next item in the stream, it can then update
+/// the RawBinaryReader's state.
 ///
-/// In this way, the RawBinaryBufferReader will never be in a bad state. It only updates when the
+/// In this way, the RawBinaryReader will never be in a bad state. It only updates when the
 /// TxReader has already found the next item.
 struct TxReader<'a, A: AsRef<[u8]>> {
     state: &'a mut ReaderState,
@@ -1481,7 +1479,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
 
 #[cfg(test)]
 mod tests {
-    use crate::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
+    use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
     use crate::text::text_value::IntoAnnotations;
     use crate::{IonError, IonResult};
     use std::fmt::Debug;
@@ -1513,7 +1511,7 @@ mod tests {
     }
 
     fn expect_annotations<A: AsRef<[u8]>, I: IntoAnnotations>(
-        reader: &RawBinaryBufferReader<A>,
+        reader: &RawBinaryReader<A>,
         annotations: I,
     ) {
         let expected = annotations.into_annotations();
@@ -1527,7 +1525,7 @@ mod tests {
     #[test]
     fn read_complete_ivm() -> IonResult<()> {
         let data = &[0xE0, 1, 0, 0xEA];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         assert_eq!(RawStreamItem::VersionMarker(1, 0), reader.next()?);
         Ok(())
     }
@@ -1535,7 +1533,7 @@ mod tests {
     #[test]
     fn read_incomplete_ivm() -> IonResult<()> {
         let data = vec![0xE0];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         // The buffer doesn't contain an entire item
         expect_incomplete(reader.next());
         // We can call .next() again safely any number of times; the result will be the same
@@ -1554,7 +1552,7 @@ mod tests {
     #[test]
     fn read_int_header() -> IonResult<()> {
         let data = vec![0x21, 0x03];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::Int);
         expect_eof(reader.next());
         Ok(())
@@ -1563,7 +1561,7 @@ mod tests {
     #[test]
     fn read_incomplete_int() -> IonResult<()> {
         let data = vec![0x21];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         // We can no longer read the header successfully on next, we need all of the value's data
         // as well.
         expect_incomplete(reader.next());
@@ -1586,7 +1584,7 @@ mod tests {
             0x21, 0x02, // 2
             0x21, 0x03, // 3
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::Int);
         assert_eq!(reader.read_int()?, Int::I64(1));
         expect_value(reader.next(), IonType::Int);
@@ -1605,7 +1603,7 @@ mod tests {
             0x48, 0x40, 0x92, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, // 1.2e3
             0x48, 0xc0, 0x20, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, // -8.125e0
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::Float);
         assert_eq!(reader.read_f64()?, 5.5f64);
         expect_value(reader.next(), IonType::Float);
@@ -1625,7 +1623,7 @@ mod tests {
             0x52, 0x80, 0xe4, // -100.
             0x52, 0x80, 0x1c, // 28.
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::Decimal);
         assert_eq!(reader.read_decimal()?, Decimal::new(0, 0));
         expect_value(reader.next(), IonType::Decimal);
@@ -1653,7 +1651,7 @@ mod tests {
             0xbb, // 2022-06-09T22:59:59.000+00:00
             0xbb, 0xc3,
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::Timestamp);
         assert_eq!(
             reader.read_timestamp()?,
@@ -1715,7 +1713,7 @@ mod tests {
             0x71, 0x02, // $2
             0x72, 0x00, 0x03, // inefficiently encoded $3
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::Symbol);
         assert_eq!(reader.read_symbol_id()?, 0);
         expect_value(reader.next(), IonType::Symbol);
@@ -1737,7 +1735,7 @@ mod tests {
             0x83, 0x62, 0x61, 0x72, // "bar"
             0x83, 0x62, 0x61, 0x7a, // "baz"
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::String);
         assert_eq!(reader.read_str()?, "");
         expect_value(reader.next(), IonType::String);
@@ -1759,7 +1757,7 @@ mod tests {
             0x93, 0x62, 0x61, 0x72, // b"bar"
             0x93, 0x62, 0x61, 0x7a, // b"baz"
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::Clob);
         assert_eq!(reader.read_clob_bytes()?, b"");
         expect_value(reader.next(), IonType::Clob);
@@ -1781,7 +1779,7 @@ mod tests {
             0xA3, 0x62, 0x61, 0x72, // b"bar"
             0xA3, 0x62, 0x61, 0x7a, // b"baz"
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::Blob);
         assert_eq!(reader.read_blob_bytes()?, b"");
         expect_value(reader.next(), IonType::Blob);
@@ -1802,7 +1800,7 @@ mod tests {
             0xE4, 0x81, 0x85, 0x21, 0x02, // $5::2
             0xE6, 0x83, 0x86, 0x87, 0x88, 0x21, 0x03, // $6::$7::$8::3
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
 
         expect_value(reader.next(), IonType::Int);
         expect_annotations(&reader, [4]);
@@ -1827,14 +1825,14 @@ mod tests {
         ];
 
         // === Skip over list ===
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::List);
         expect_value(reader.next(), IonType::String);
         // Nothing else in the buffer
         expect_eof(reader.next());
 
         // === Early step out ===
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::List);
         reader.step_in()?;
         expect_value(reader.next(), IonType::Int);
@@ -1844,7 +1842,7 @@ mod tests {
         expect_eof(reader.next());
 
         // === Visit all values ===
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::List);
         reader.step_in()?;
         expect_value(reader.next(), IonType::Int);
@@ -1860,7 +1858,7 @@ mod tests {
     #[test]
     fn step_into_empty_list() -> IonResult<()> {
         let data = &[0xB0, 0x80]; // Empty list, empty string
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::List);
         reader.step_in()?;
         // Empty list, calling next() returns Nothing
@@ -1874,7 +1872,7 @@ mod tests {
     #[test]
     fn step_into_empty_list_with_nop_padding() -> IonResult<()> {
         let data = &[0xB3, 0x00, 0x00, 0x00, 0x80]; // Empty list, empty string
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::List);
         reader.step_in()?;
         // Empty list, calling next() returns Nothing
@@ -1888,7 +1886,7 @@ mod tests {
     #[test]
     fn step_into_empty_struct() -> IonResult<()> {
         let data = &[0xD0, 0x80]; // Empty struct, empty string
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::Struct);
         reader.step_in()?;
         // Empty list, calling next() returns Nothing
@@ -1906,7 +1904,7 @@ mod tests {
             0x80, 0x00, // $0: NOP,
             0x80, // Empty string
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_value(reader.next(), IonType::Struct);
         reader.step_in()?;
         // Empty list, calling next() returns Nothing
@@ -1923,7 +1921,7 @@ mod tests {
             0xE0, 0x01, 0x00, 0xEA, // IVM
             0x8F, // null.string
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         let item = reader.next()?;
         assert_eq!(item, RawStreamItem::VersionMarker(1, 0));
         let item = reader.next()?;
@@ -1941,7 +1939,7 @@ mod tests {
             0x01, 0xff, // 2-byte NOP
             0x83, 0x66, 0x6f, 0x6f, // "foo"
         ]; // Empty string
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         let item = reader.next()?;
         assert_eq!(item, RawStreamItem::VersionMarker(1, 0));
         let item = reader.next()?;
@@ -1958,7 +1956,7 @@ mod tests {
             0xE0, 0x01, 0x00, 0xEA, // IVM
             0xc3, 0xd2, 0x84, 0x11, // ({'name': true})
         ]; // Empty string
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         let item = reader.next()?;
         assert_eq!(item, RawStreamItem::VersionMarker(1, 0));
         let item = reader.next()?;
@@ -1978,7 +1976,7 @@ mod tests {
         let data = &[
             0x00, 0x01, 0xff, 0x02, 0xff, 0xff, 0x03, 0xff, 0xff, 0xff, 0x0f,
         ];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         let item = reader.next()?;
         assert_eq!(item, RawStreamItem::Null(IonType::Null));
         Ok(())
@@ -1987,7 +1985,7 @@ mod tests {
     #[test]
     fn incomplete_nops() -> IonResult<()> {
         let data = vec![0x04, 0xff, 0xff];
-        let mut reader = RawBinaryBufferReader::new(data);
+        let mut reader = RawBinaryReader::new(data);
         expect_incomplete(reader.next());
         // Add another nop byte, but we're still one short
         reader.append_bytes(&[0xff])?;
@@ -2023,7 +2021,7 @@ mod tests {
             0x8C, // * Annotation w/SID $12
             0x10, // Boolean false
         ];
-        let mut cursor = RawBinaryBufferReader::new(ion_data);
+        let mut cursor = RawBinaryReader::new(ion_data);
         assert_eq!(RawStreamItem::Value(IonType::Struct), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[0..1])); // No value bytes for containers.
         assert_eq!(cursor.raw_field_id_bytes(), None);
@@ -2080,7 +2078,6 @@ mod tests {
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
-        // assert_eq!(cursor.annotations().next().unwrap()?, local_sid_token(12));
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
         assert_eq!(
             cursor.raw_value_bytes(),

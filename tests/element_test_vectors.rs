@@ -547,7 +547,7 @@ mod native_element_tests {
 
 mod non_blocking_native_element_tests {
     use super::*;
-    use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
+    use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryReader;
     use ion_rs::text::non_blocking::raw_text_reader::RawTextReader;
     use ion_rs::Reader;
 
@@ -634,7 +634,7 @@ mod non_blocking_native_element_tests {
             use ion_rs::reader::integration_testing::new_reader;
             // If the data is binary, create a non-blocking binary reader.
             if data.starts_with(&IVM) {
-                let raw_reader = RawBinaryBufferReader::new(data);
+                let raw_reader = RawBinaryReader::new(data);
                 Ok(new_reader(raw_reader))
             } else {
                 // Otherwise, create a non-blocking text reader

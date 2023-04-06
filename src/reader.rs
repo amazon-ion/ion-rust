@@ -16,7 +16,7 @@ use crate::symbol_table::SymbolTable;
 use crate::types::decimal::Decimal;
 use crate::types::integer::Int;
 use crate::types::timestamp::Timestamp;
-use crate::{IonType, RawBinaryReader, RawTextReader};
+use crate::{BlockingRawBinaryReader, BlockingRawTextReader, IonType};
 use std::fmt::{Display, Formatter};
 
 use crate::types::string::Str;
@@ -87,7 +87,7 @@ impl ReaderBuilder {
     }
 
     fn make_text_reader<'a, I: 'a + ToIonDataSource>(data: I) -> IonResult<Reader<'a>> {
-        let raw_reader = Box::new(RawTextReader::new(data)?);
+        let raw_reader = Box::new(BlockingRawTextReader::new(data)?);
         Ok(Reader {
             raw_reader,
             symbol_table: SymbolTable::new(),
@@ -95,7 +95,7 @@ impl ReaderBuilder {
     }
 
     fn make_binary_reader<'a, I: 'a + ToIonDataSource>(data: I) -> IonResult<Reader<'a>> {
-        let raw_reader = Box::new(RawBinaryReader::new(data)?);
+        let raw_reader = Box::new(BlockingRawBinaryReader::new(data)?);
         Ok(Reader {
             raw_reader,
             symbol_table: SymbolTable::new(),
@@ -450,7 +450,7 @@ impl<R: RawReader> IonReader for UserReader<R> {
 
 /// Functionality that is only available if the data source we're reading from is in-memory, like
 /// a `Vec<u8>` or `&[u8]`.
-impl<T: AsRef<[u8]>> UserReader<RawBinaryReader<io::Cursor<T>>> {
+impl<T: AsRef<[u8]>> UserReader<BlockingRawBinaryReader<io::Cursor<T>>> {
     delegate! {
         to self.raw_reader {
             pub fn raw_bytes(&self) -> Option<&[u8]>;
@@ -484,7 +484,7 @@ mod tests {
 
     use super::*;
     use crate::binary::constants::v1_0::IVM;
-    use crate::RawBinaryReader;
+    use crate::BlockingRawBinaryReader;
 
     use crate::result::IonResult;
     use crate::types::IonType;
@@ -507,10 +507,10 @@ mod tests {
     }
 
     // Prepends an Ion 1.0 IVM to the provided data and then creates a BinaryIonCursor over it
-    fn raw_binary_reader_for(bytes: &[u8]) -> RawBinaryReader<TestDataSource> {
+    fn raw_binary_reader_for(bytes: &[u8]) -> BlockingRawBinaryReader<TestDataSource> {
         use RawStreamItem::*;
         let mut raw_reader =
-            RawBinaryReader::new(data_source_for(bytes)).expect("unable to create reader");
+            BlockingRawBinaryReader::new(data_source_for(bytes)).expect("unable to create reader");
         assert_eq!(raw_reader.ion_type(), None);
         assert_eq!(raw_reader.next(), Ok(VersionMarker(1, 0)));
         assert_eq!(raw_reader.ion_version(), (1u8, 0u8));

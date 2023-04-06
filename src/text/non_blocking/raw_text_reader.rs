@@ -102,6 +102,9 @@ impl From<Vec<u8>> for RawTextReader<Vec<u8>> {
     }
 }
 
+/// Provides a mechanism for identifying input types that allow adding more data.
+/// This allows for some input-type oriented behaviors, like initializing the end of stream status
+/// to true if we know more data can not be added.
 pub trait Expandable {
     fn expandable(&self) -> bool;
 }
@@ -213,7 +216,7 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
                 // If the parser returns Ok(None), we've just encountered the end of the container for
                 // the first time. Set `is_exhausted` so we won't try to parse more until `step_out()` is
                 // called.
-                // We previously used a copy of the last `ParentLevel` in the stack to smplify reading.
+                // We previously used a copy of the last `ParentLevel` in the stack to simplify reading.
                 // To modify it, we'll need to get a mutable reference to the original.
                 self.parents.last_mut().unwrap().set_exhausted(true);
                 self.current_value = None;
@@ -651,7 +654,6 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
     }
 }
 
-// impl RawTextReader<Vec<u8>> {
 impl BufferedRawReader for RawTextReader<Vec<u8>> {
     fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
         match self.buffer.append_bytes(bytes) {
@@ -1203,7 +1205,6 @@ mod reader_tests {
     #[case(" {{\"hello\"}} ", TextValue::Clob(Vec::from("hello".as_bytes())))]
     fn test_read_single_top_level_values(#[case] text: &str, #[case] expected_value: TextValue) {
         let reader = &mut RawTextReader::new(text);
-        // reader.stream_complete();
         next_type(
             reader,
             expected_value.ion_type(),
@@ -1234,7 +1235,6 @@ mod reader_tests {
         "#;
 
         let reader = &mut RawTextReader::new(ion_data);
-        // reader.stream_complete();
         next_type(reader, IonType::Null, true);
 
         next_type(reader, IonType::Bool, false);
@@ -1353,7 +1353,6 @@ mod reader_tests {
         // TODO: Check for annotations after OwnedSymbolToken
 
         let reader = &mut RawTextReader::new(ion_data);
-        // reader.stream_complete();
         next_type(reader, IonType::Null, true);
         annotations_eq(reader, ["mercury"]);
 

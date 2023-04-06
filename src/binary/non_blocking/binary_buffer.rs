@@ -65,7 +65,8 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         &self.data.as_ref()[self.start..self.end]
     }
 
-    /// Returns a slice containing all of the buffer's bytes.
+    /// Returns a slice containing all of the buffer's bytes. This includes all of the consumed
+    /// bytes, and remaining unconsumed bytes.
     pub(crate) fn raw_bytes(&self) -> &[u8] {
         self.data.as_ref()
     }

@@ -214,7 +214,7 @@ pub use text::text_writer::{TextWriter, TextWriterBuilder};
 pub use writer::IonWriter;
 
 pub use binary::raw_binary_writer::RawBinaryWriter;
-pub use blocking_reader::{BlockingRawReader, RawBinaryReader, RawTextReader};
+pub use blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader};
 pub use raw_reader::{RawReader, RawStreamItem};
 pub use reader::StreamItem;
 pub use reader::{Reader, ReaderBuilder, UserReader};

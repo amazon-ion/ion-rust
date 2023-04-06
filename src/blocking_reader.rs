@@ -1,17 +1,17 @@
 use delegate::delegate;
 use std::ops::Range;
 
-use crate::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader as NBRawBinaryReader;
+use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
 use crate::data_source::ToIonDataSource;
 use crate::raw_reader::BufferedRawReader;
 use crate::result::IonResult;
 use crate::stream_reader::IonReader;
-use crate::text::non_blocking::raw_text_reader::RawTextReader as NBRawTextReader;
+use crate::text::non_blocking::raw_text_reader::RawTextReader;
 use crate::types::timestamp::Timestamp;
 use crate::{Decimal, Int, IonError, IonType, Str};
 
-pub type RawTextReader<T> = BlockingRawReader<NBRawTextReader<Vec<u8>>, T>;
-pub type RawBinaryReader<T> = BlockingRawReader<NBRawBinaryReader<Vec<u8>>, T>;
+pub type BlockingRawTextReader<T> = BlockingRawReader<RawTextReader<Vec<u8>>, T>;
+pub type BlockingRawBinaryReader<T> = BlockingRawReader<RawBinaryReader<Vec<u8>>, T>;
 
 /// The BlockingRawReader wraps a non-blocking RawReader that implements the BufferedReader trait,
 /// providing a blocking RawReader.
@@ -224,7 +224,7 @@ impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for BlockingRawReader<R
     }
 }
 
-impl<T: ToIonDataSource> BlockingRawReader<NBRawBinaryReader<Vec<u8>>, T> {
+impl<T: ToIonDataSource> BlockingRawReader<RawBinaryReader<Vec<u8>>, T> {
     delegate! {
         to self.reader {
             pub fn raw_bytes(&self) ->  Option<&[u8]>;
@@ -255,18 +255,17 @@ impl<T: ToIonDataSource> BlockingRawReader<NBRawBinaryReader<Vec<u8>>, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
+    use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader as NBRawBinaryReader;
     use crate::raw_reader::RawStreamItem;
     use crate::result::IonResult;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
 
-    fn bin_reader(source: &[u8]) -> BlockingRawReader<RawBinaryBufferReader<Vec<u8>>, Vec<u8>> {
-        let reader =
-            BlockingRawReader::<RawBinaryBufferReader<Vec<u8>>, Vec<u8>>::new(source.to_vec());
+    fn bin_reader(source: &[u8]) -> BlockingRawBinaryReader<Vec<u8>> {
+        let reader = BlockingRawReader::<NBRawBinaryReader<Vec<u8>>, Vec<u8>>::new(source.to_vec());
         reader.unwrap()
     }
 
-    fn text_reader(source: &[u8]) -> BlockingRawReader<RawTextReader<Vec<u8>>, Vec<u8>> {
+    fn text_reader(source: &[u8]) -> BlockingRawTextReader<Vec<u8>> {
         let reader = BlockingRawReader::<RawTextReader<Vec<u8>>, Vec<u8>>::new(source.to_vec());
         reader.unwrap()
     }
@@ -481,7 +480,7 @@ mod tests {
     }
 
     raw_reader_tests! {
-        binary_reader: RawBinaryBufferReader<Vec<u8>>,
+        binary_reader: RawBinaryReader<Vec<u8>>,
         text_reader: RawTextReader<Vec<u8>>,
     }
 
@@ -507,7 +506,7 @@ mod tests {
             0x8C, // * Annotation w/SID $12
             0x10, // Boolean false
         ];
-        let mut cursor = RawBinaryReader::new(ion_data.to_owned())?;
+        let mut cursor = BlockingRawBinaryReader::new(ion_data.to_owned())?;
         assert_eq!(RawStreamItem::Value(IonType::Struct), cursor.next()?);
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[0..1])); // No value bytes for containers.
         assert_eq!(cursor.raw_field_id_bytes(), None);
@@ -557,7 +556,6 @@ mod tests {
         assert_eq!(cursor.raw_bytes(), Some(&ion_data[12..16]));
         assert_eq!(cursor.raw_field_id_bytes(), None);
         assert_eq!(cursor.raw_annotations_bytes(), Some(&ion_data[12..=14]));
-        // assert_eq!(cursor.annotations().next().unwrap()?, local_sid_token(12));
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
         assert_eq!(
             cursor.raw_value_bytes(),
