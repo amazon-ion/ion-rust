@@ -124,6 +124,12 @@ impl From<String> for Symbol {
     }
 }
 
+impl From<&String> for Symbol {
+    fn from(text: &String) -> Self {
+        text.as_str().into()
+    }
+}
+
 impl<'a> From<&'a Symbol> for Symbol {
     fn from(text: &'a Symbol) -> Self {
         text.clone()

@@ -21,6 +21,7 @@ use crate::{Decimal, Int, IonResult, IonType, ReaderBuilder, Str, Symbol, Timest
 use num_bigint::BigInt;
 use std::fmt::{Display, Formatter};
 
+mod annotations;
 pub mod builders;
 mod bytes;
 mod element_stream_reader;
@@ -35,6 +36,7 @@ pub mod writer;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 pub use self::bytes::Bytes;
+pub use annotations::Annotations;
 pub use lob::{Blob, Clob};
 
 pub use list::List;
@@ -240,7 +242,7 @@ pub trait IntoAnnotatedElement: Into<Value> {
         self,
         annotations: I,
     ) -> Element {
-        let annotations = annotations.into_iter().map(|i| i.into()).collect();
+        let annotations: Vec<Symbol> = annotations.into_iter().map(|i| i.into()).collect();
         Element::new(annotations, self.into())
     }
 }
@@ -261,8 +263,11 @@ pub struct Element {
 }
 
 impl Element {
-    pub fn new(annotations: Vec<Symbol>, value: Value) -> Self {
-        Self { annotations, value }
+    pub fn new(annotations: impl Into<Vec<Symbol>>, value: impl Into<Value>) -> Self {
+        Self {
+            annotations: annotations.into(),
+            value: value.into(),
+        }
     }
 
     /// Returns a reference to this [Element]'s [Value].
