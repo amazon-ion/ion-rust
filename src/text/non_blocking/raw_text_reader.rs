@@ -975,7 +975,7 @@ mod reader_tests {
     use crate::result::{IonResult, Position};
     use crate::stream_reader::IonReader;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
-    use crate::text::text_value::{IntoAnnotations, TextValue};
+    use crate::text::text_value::{IntoRawAnnotations, TextValue};
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::Timestamp;
     use crate::IonType;
@@ -988,7 +988,7 @@ mod reader_tests {
         );
     }
 
-    fn annotations_eq<I: IntoAnnotations>(reader: &mut RawTextReader<&str>, expected: I) {
+    fn annotations_eq<I: IntoRawAnnotations>(reader: &mut RawTextReader<&str>, expected: I) {
         let expected: Vec<RawSymbolToken> = expected.into_annotations();
         let actual: Vec<RawSymbolToken> = reader
             .annotations()

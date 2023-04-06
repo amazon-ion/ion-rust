@@ -1283,7 +1283,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
 #[cfg(test)]
 mod tests {
     use crate::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
-    use crate::text::text_value::IntoAnnotations;
+    use crate::text::text_value::IntoRawAnnotations;
     use crate::{IonError, IonResult};
     use std::fmt::Debug;
 
@@ -1313,7 +1313,7 @@ mod tests {
         }
     }
 
-    fn expect_annotations<A: AsRef<[u8]>, I: IntoAnnotations>(
+    fn expect_annotations<A: AsRef<[u8]>, I: IntoRawAnnotations>(
         reader: &RawBinaryBufferReader<A>,
         annotations: I,
     ) {
