@@ -4,7 +4,7 @@ use crate::element::{Blob, Clob};
 use crate::types::string::Str;
 use nom::Err::{Error, Failure, Incomplete};
 
-use crate::raw_reader::RawStreamItem;
+use crate::raw_reader::{BufferedRawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{
     decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError,
@@ -55,7 +55,7 @@ impl ReaderState {
     }
 }
 
-pub struct RawTextReader<A: AsRef<[u8]>> {
+pub struct RawTextReader<A: AsRef<[u8]> + Expandable> {
     buffer: TextBuffer<A>,
     // If the reader is not positioned over a value inside a struct, this is None.
     current_field_name: Option<RawSymbolToken>,
@@ -97,31 +97,46 @@ pub(crate) enum RootParseResult<O> {
     Failure(String),
 }
 
-impl<A: AsRef<[u8]>> RawTextReader<A> {
+impl From<Vec<u8>> for RawTextReader<Vec<u8>> {
+    fn from(source: Vec<u8>) -> Self {
+        RawTextReader::new(source)
+    }
+}
+
+/// Provides a mechanism for identifying input types that allow adding more data.
+/// This allows for some input-type oriented behaviors, like initializing the end of stream status
+/// to true if we know more data can not be added.
+pub trait Expandable {
+    fn expandable(&self) -> bool;
+}
+
+impl<T: AsRef<[u8]> + ?Sized> Expandable for &T {
+    fn expandable(&self) -> bool {
+        false
+    }
+}
+
+impl Expandable for Vec<u8> {
+    fn expandable(&self) -> bool {
+        true
+    }
+}
+
+impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
     pub fn new(input: A) -> RawTextReader<A> {
+        let expandable = input.expandable();
         RawTextReader {
             buffer: TextBuffer::new(input),
             current_field_name: None,
             current_value: None,
             current_ivm: None,
             is_eof: false,
-            is_eos: false,
+            is_eos: !expandable,
             parents: Vec::with_capacity(INITIAL_PARENTS_CAPACITY),
             state: ReaderState::Ready,
             step_out_nest: 0,
             need_continue: false,
         }
-    }
-
-    // Mark the data stream as being complete. This tells the reader that all data has been read
-    // into the reader.
-    pub fn stream_complete(&mut self) {
-        self.is_eos = true;
-    }
-
-    // Returns true if the stream has been marked as completely loaded via `stream_complete`.
-    pub fn is_stream_complete(&self) -> bool {
-        self.is_eos
     }
 
     fn load_next_value(&mut self) -> IonResult<()> {
@@ -640,8 +655,8 @@ impl<A: AsRef<[u8]>> RawTextReader<A> {
     }
 }
 
-impl RawTextReader<Vec<u8>> {
-    pub fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
+impl BufferedRawReader for RawTextReader<Vec<u8>> {
+    fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
         match self.buffer.append_bytes(bytes) {
             Err(e) => decoding_error(e.to_string()),
             Ok(()) => {
@@ -651,12 +666,23 @@ impl RawTextReader<Vec<u8>> {
         }
     }
 
-    pub fn read_from<R: std::io::Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
+    fn read_from<R: std::io::Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
         let res = self.buffer.read_from(source, length);
         if res.is_ok() {
             self.is_eof = false;
         }
         res
+    }
+
+    // Mark the data stream as being complete. This tells the reader that all data has been read
+    // into the reader.
+    fn stream_complete(&mut self) {
+        self.is_eos = true;
+    }
+
+    // Returns true if the stream has been marked as completely loaded via `stream_complete`.
+    fn is_stream_complete(&self) -> bool {
+        self.is_eos
     }
 }
 
@@ -671,7 +697,7 @@ const EMPTY_SLICE_RAW_SYMBOL_TOKEN: &[RawSymbolToken] = &[];
 //       materializing it and then attempt to materialize it when the user calls `read_TYPE`. This
 //       would take less memory and would only materialize values that the user requests.
 //       See: https://github.com/amazon-ion/ion-rust/issues/322
-impl<A: AsRef<[u8]>> IonReader for RawTextReader<A> {
+impl<A: AsRef<[u8]> + Expandable> IonReader for RawTextReader<A> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;
 
@@ -981,7 +1007,11 @@ mod reader_tests {
     use crate::IonType;
     use crate::RawStreamItem::Nothing;
 
-    fn next_type<T: AsRef<[u8]>>(reader: &mut RawTextReader<T>, ion_type: IonType, is_null: bool) {
+    fn next_type<T: AsRef<[u8]> + Expandable>(
+        reader: &mut RawTextReader<T>,
+        ion_type: IonType,
+        is_null: bool,
+    ) {
         assert_eq!(
             reader.next().unwrap(),
             RawStreamItem::nullable_value(ion_type, is_null)
@@ -1176,7 +1206,6 @@ mod reader_tests {
     #[case(" {{\"hello\"}} ", TextValue::Clob(Vec::from("hello".as_bytes())))]
     fn test_read_single_top_level_values(#[case] text: &str, #[case] expected_value: TextValue) {
         let reader = &mut RawTextReader::new(text);
-        reader.stream_complete();
         next_type(
             reader,
             expected_value.ion_type(),
@@ -1207,7 +1236,6 @@ mod reader_tests {
         "#;
 
         let reader = &mut RawTextReader::new(ion_data);
-        reader.stream_complete();
         next_type(reader, IonType::Null, true);
 
         next_type(reader, IonType::Bool, false);
@@ -1326,7 +1354,6 @@ mod reader_tests {
         // TODO: Check for annotations after OwnedSymbolToken
 
         let reader = &mut RawTextReader::new(ion_data);
-        reader.stream_complete();
         next_type(reader, IonType::Null, true);
         annotations_eq(reader, ["mercury"]);
 

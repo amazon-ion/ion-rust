@@ -1,8 +1,8 @@
-use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
+use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryReader;
 use ion_rs::raw_reader::RawStreamItem;
 use ion_rs::result::IonResult;
 use ion_rs::RawReader;
-use ion_rs::{IonType, RawBinaryReader};
+use ion_rs::{BlockingRawBinaryReader, IonType};
 use memmap::MmapOptions;
 use std::fs::File;
 use std::process::exit;
@@ -29,11 +29,11 @@ fn main() -> IonResult<()> {
     let ion_data: &[u8] = &mmap[..];
 
     if mode == "blocking" {
-        let mut reader = RawBinaryReader::new(ion_data);
+        let mut reader = BlockingRawBinaryReader::new(ion_data)?;
         let number_of_values = read_all_values(&mut reader)?;
         println!("Blocking: read {} values", number_of_values);
     } else if mode == "nonblocking" {
-        let mut reader = RawBinaryBufferReader::new(ion_data);
+        let mut reader = RawBinaryReader::new(ion_data);
         let number_of_values = read_all_values(&mut reader)?;
         println!("Non-blocking: read {} values", number_of_values);
     } else {

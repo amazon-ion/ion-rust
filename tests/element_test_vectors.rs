@@ -379,6 +379,10 @@ mod impl_display_for_element_tests {
         "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
         "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
         "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
+        // This test requires the reader to be able to read symbols whose ID is encoded
+        // with more than 8 bytes. Having a symbol table with more than 18 quintillion
+        // symbols is not very practical.
+        "ion-tests/iontestdata/good/typecodes/T7-large.10n",
         "ion-tests/iontestdata/good/item1.10n",
         "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
         "ion-tests/iontestdata/good/testfile35.ion",
@@ -438,6 +442,10 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
                 "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
                 "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
+                // This test requires the reader to be able to read symbols whose ID is encoded
+                // with more than 8 bytes. Having a symbol table with more than 18 quintillion
+                // symbols is not very practical.
+                "ion-tests/iontestdata/good/typecodes/T7-large.10n",
                 // ---
                 // Requires importing shared symbol tables
                 "ion-tests/iontestdata/good/item1.10n",
@@ -536,9 +544,9 @@ mod native_element_tests {
 
 mod non_blocking_native_element_tests {
     use super::*;
-    use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryBufferReader;
+    use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryReader;
     use ion_rs::text::non_blocking::raw_text_reader::RawTextReader;
-    use ion_rs::{RawReader, Reader};
+    use ion_rs::Reader;
 
     struct NonBlockingNativeElementApi;
 
@@ -623,13 +631,11 @@ mod non_blocking_native_element_tests {
             use ion_rs::reader::integration_testing::new_reader;
             // If the data is binary, create a non-blocking binary reader.
             if data.starts_with(&IVM) {
-                let mut raw_reader = RawBinaryBufferReader::new(data);
-                raw_reader.stream_complete();
+                let raw_reader = RawBinaryReader::new(data);
                 Ok(new_reader(raw_reader))
             } else {
                 // Otherwise, create a non-blocking text reader
-                let mut raw_reader = RawTextReader::new(data);
-                raw_reader.stream_complete();
+                let raw_reader = RawTextReader::new(data);
                 Ok(new_reader(raw_reader))
             }
         }
