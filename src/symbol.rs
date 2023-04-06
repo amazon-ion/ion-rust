@@ -112,6 +112,10 @@ impl Symbol {
     }
 }
 
+// We cannot use a blanket impl for AsRef<str> as that would prevent us from
+// optimizing the From<String> case, a conversion which can be performed
+// without cloning.
+
 impl From<&str> for Symbol {
     fn from(text: &str) -> Self {
         Symbol::owned(text)
