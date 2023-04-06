@@ -175,6 +175,7 @@ pub mod types;
 #[cfg(feature = "ion-hash")]
 pub mod ion_hash;
 
+mod blocking_reader;
 mod catalog;
 // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
 pub mod constants;
@@ -212,14 +213,13 @@ pub use binary::binary_writer::{BinaryWriter, BinaryWriterBuilder};
 pub use text::text_writer::{TextWriter, TextWriterBuilder};
 pub use writer::IonWriter;
 
-pub use binary::raw_binary_reader::RawBinaryReader;
 pub use binary::raw_binary_writer::RawBinaryWriter;
+pub use blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader};
 pub use raw_reader::{RawReader, RawStreamItem};
 pub use reader::StreamItem;
 pub use reader::{Reader, ReaderBuilder, UserReader};
 pub use stream_reader::IonReader;
 pub use system_reader::{SystemReader, SystemStreamItem};
-pub use text::raw_text_reader::RawTextReader;
 pub use text::raw_text_writer::RawTextWriter;
 pub use text::raw_text_writer::RawTextWriterBuilder;
 

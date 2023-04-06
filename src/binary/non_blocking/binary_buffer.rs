@@ -65,6 +65,12 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         &self.data.as_ref()[self.start..self.end]
     }
 
+    /// Returns a slice containing all of the buffer's bytes. This includes all of the consumed
+    /// bytes, and remaining unconsumed bytes.
+    pub(crate) fn raw_bytes(&self) -> &[u8] {
+        self.data.as_ref()
+    }
+
     /// Gets a slice from the buffer starting at `offset` and ending at `offset + length`.
     /// The caller must check that the buffer contains `length + offset` bytes prior
     /// to calling this method.
@@ -488,6 +494,7 @@ impl BinaryBuffer<Vec<u8>> {
         let bytes_read = source.read(read_buffer)?;
         // Update `self.end` to reflect that we have more data available to read.
         self.end += bytes_read;
+
         Ok(bytes_read)
     }
 

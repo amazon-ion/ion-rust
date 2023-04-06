@@ -1,7 +1,6 @@
+use delegate::delegate;
 use std::io;
 use std::ops::Range;
-
-use delegate::delegate;
 
 use crate::constants::v1_0::{system_symbol_ids, SYSTEM_SYMBOLS};
 use crate::element::{Blob, Clob};
@@ -14,7 +13,7 @@ use crate::types::decimal::Decimal;
 use crate::types::integer::Int;
 use crate::types::string::Str;
 use crate::types::timestamp::Timestamp;
-use crate::{IonReader, IonType, RawBinaryReader, SymbolTable};
+use crate::{BlockingRawBinaryReader, IonReader, IonType, SymbolTable};
 
 /// Tracks where the [SystemReader] is in the process of reading a local symbol table.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -97,7 +96,7 @@ struct LstData {
     // because the `symbols` field of the LST can appear before the `imports` field but the `imports`
     // field MUST be processed first.
     symbols: Vec<Option<String>>,
-    // At present, RawTextReader and RawBinaryReader cannot read the same value more than once.
+    // At present, BlockingRawTextReader and BlockingRawBinaryReader cannot read the same value more than once.
     // When the SystemReader needs to read the current value as part of processing a local symbol
     // table, it must store a copy of that value in case the user requests it via `read_string()`,
     // `read_i64()`, etc. The fields below are used to store such copies.
@@ -725,7 +724,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
 
 /// Functionality that is only available if the data source we're reading from is in-memory, like
 /// a `Vec<u8>` or `&[u8]`.
-impl<T: AsRef<[u8]>> SystemReader<RawBinaryReader<io::Cursor<T>>> {
+impl<T: AsRef<[u8]>> SystemReader<BlockingRawBinaryReader<io::Cursor<T>>> {
     delegate! {
         to self.raw_reader {
             pub fn raw_bytes(&self) -> Option<&[u8]>;
@@ -756,12 +755,12 @@ impl<T: AsRef<[u8]>> SystemReader<RawBinaryReader<io::Cursor<T>>> {
 #[cfg(test)]
 mod tests {
     use super::SystemStreamItem::*;
-    use crate::text::raw_text_reader::RawTextReader;
+    use crate::blocking_reader::*;
 
     use super::*;
 
-    fn system_reader_for(ion: &str) -> SystemReader<RawTextReader<&str>> {
-        let raw_reader = RawTextReader::new(ion).expect("unable to initialize reader");
+    fn system_reader_for(ion: &str) -> SystemReader<BlockingRawTextReader<&str>> {
+        let raw_reader = BlockingRawTextReader::new(ion).expect("unable to initialize reader");
         SystemReader::new(raw_reader)
     }
 

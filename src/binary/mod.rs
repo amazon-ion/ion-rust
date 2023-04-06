@@ -12,7 +12,6 @@ mod header;
 pub mod int;
 mod nibbles;
 pub mod non_blocking;
-pub(crate) mod raw_binary_reader;
 pub mod raw_binary_writer;
 pub mod timestamp;
 mod type_code;
