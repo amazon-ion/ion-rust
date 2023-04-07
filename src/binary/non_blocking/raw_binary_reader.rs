@@ -552,14 +552,6 @@ impl<A: AsRef<[u8]>> RawBinaryReader<A> {
         Ok(bytes)
     }
 
-    /// If the reader is currently positioned on a string, returns a [&str] containing its text.
-    pub fn read_str(&mut self) -> IonResult<&str> {
-        self.read_str_bytes().and_then(|bytes| {
-            std::str::from_utf8(bytes)
-                .map_err(|_| decoding_error_raw("encountered a string with invalid utf-8 data"))
-        })
-    }
-
     /// If the reader is currently positioned on a blob, returns a slice containing its bytes.
     pub fn read_blob_bytes(&mut self) -> IonResult<&[u8]> {
         let (_encoded_value, bytes) = self.value_and_bytes(IonType::Blob)?;
@@ -945,20 +937,12 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryReader<A> {
         self.read_str().map(|s| s.into())
     }
 
-    fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&str) -> U,
-    {
-        self.read_str().map(f)
-    }
-
-    fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        self.read_str_bytes().map(f)
+    /// If the reader is currently positioned on a string, returns a [&str] containing its text.
+    fn read_str(&mut self) -> IonResult<&str> {
+        self.read_str_bytes().and_then(|bytes| {
+            std::str::from_utf8(bytes)
+                .map_err(|_| decoding_error_raw("encountered a string with invalid utf-8 data"))
+        })
     }
 
     fn read_symbol(&mut self) -> IonResult<Self::Symbol> {
@@ -969,24 +953,8 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryReader<A> {
         self.read_blob_bytes().map(Vec::from).map(Blob::from)
     }
 
-    fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        self.read_blob_bytes().map(f)
-    }
-
     fn read_clob(&mut self) -> IonResult<Clob> {
         self.read_clob_bytes().map(Vec::from).map(Clob::from)
-    }
-
-    fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        self.read_clob_bytes().map(f)
     }
 
     fn read_timestamp(&mut self) -> IonResult<Timestamp> {

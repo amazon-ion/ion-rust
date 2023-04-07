@@ -239,26 +239,17 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_string(&mut self) -> IonResult<Str> {
-        self.map_string(|s| s.into())
-    }
-
-    fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&str) -> U,
-    {
         match self.current_value.as_ref() {
-            Some(element) if element.as_text().is_some() => Ok(f(element.as_text().unwrap())),
+            Some(element) if element.as_text().is_some() => Ok(element.as_text().unwrap().into()),
             _ => Err(self.expected("string value")),
         }
     }
 
-    fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        self.map_string(|s| f(s.as_bytes()))
+    fn read_str(&mut self) -> IonResult<&str> {
+        match self.current_value.as_ref() {
+            Some(element) if element.as_text().is_some() => Ok(element.as_text().unwrap()),
+            _ => Err(self.expected("string value")),
+        }
     }
 
     fn read_symbol(&mut self) -> IonResult<Self::Symbol> {
@@ -266,31 +257,19 @@ impl IonReader for ElementStreamReader {
     }
 
     fn read_blob(&mut self) -> IonResult<Blob> {
-        self.map_blob(|b| Vec::from(b)).map(Blob::from)
-    }
-
-    fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
         match self.current_value.as_ref() {
-            Some(element) if element.as_lob().is_some() => Ok(f(element.as_lob().unwrap())),
-            _ => Err(self.expected("blob value")),
+            Some(element) if element.as_blob().is_some() => {
+                Ok(Blob::from(element.as_blob().unwrap()))
+            }
+            _ => Err(self.expected("blog value")),
         }
     }
 
     fn read_clob(&mut self) -> IonResult<Clob> {
-        self.map_clob(|c| Vec::from(c)).map(Clob::from)
-    }
-
-    fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
         match self.current_value.as_ref() {
-            Some(element) if element.as_lob().is_some() => Ok(f(element.as_lob().unwrap())),
+            Some(element) if element.as_clob().is_some() => {
+                Ok(Clob::from(element.as_clob().unwrap()))
+            }
             _ => Err(self.expected("clob value")),
         }
     }

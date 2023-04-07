@@ -334,7 +334,7 @@ impl<R: RawReader> SystemReader<R> {
             ref mut lst,
             ..
         } = *self;
-        raw_reader.map_string(|s| lst.current_string.push_str(s))?;
+        lst.current_string.push_str(raw_reader.read_str()?);
 
         Ok(())
     }
@@ -662,38 +662,18 @@ impl<R: RawReader> IonReader for SystemReader<R> {
         self.raw_reader.read_string()
     }
 
-    fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        F: FnOnce(&str) -> U,
-    {
+    fn read_str(&mut self) -> IonResult<&str> {
         if self.current_string_was_consumed() {
-            let text = self.lst.current_string.as_str();
-            return Ok(f(text));
+            return Ok(&self.lst.current_string);
         }
 
         if self.raw_reader.current() == RawStreamItem::Nothing {
             return illegal_operation(
-                "called `map_string` when reader was not positioned on a value",
+                "called `read_str` when reader was not positioned on a value",
             );
         }
-        self.raw_reader.map_string(|s| f(s))
-    }
 
-    fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        F: FnOnce(&[u8]) -> U,
-    {
-        if self.current_string_was_consumed() {
-            let bytes = self.lst.current_string.as_bytes();
-            return Ok(f(bytes));
-        }
-
-        if self.raw_reader.current() == RawStreamItem::Nothing {
-            return illegal_operation(
-                "called `map_string_bytes` when reader was not positioned on a value",
-            );
-        }
-        self.raw_reader.map_string_bytes(|b| f(b))
+        self.raw_reader.read_str()
     }
 
     // The SystemReader needs to expose many of the same functions as the Cursor, but only some of
@@ -712,9 +692,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
             fn read_f64(&mut self) -> IonResult<f64>;
             fn read_decimal(&mut self) -> IonResult<Decimal>;
             fn read_blob(&mut self) -> IonResult<Blob>;
-            fn map_blob<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
             fn read_clob(&mut self) -> IonResult<Clob>;
-            fn map_clob<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
             fn read_timestamp(&mut self) -> IonResult<Timestamp>;
             fn depth(&self) -> usize;
             fn parent_type(&self) -> Option<IonType>;

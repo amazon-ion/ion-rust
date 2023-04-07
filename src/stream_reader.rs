@@ -106,26 +106,10 @@ pub trait IonReader {
     /// item is not a string or an IO error is encountered while reading, returns [crate::IonError].
     fn read_string(&mut self) -> IonResult<Str>;
 
-    /// Takes a function that expects a string and, once the string's bytes are loaded, calls that
-    /// function passing the string as a parameter. This allows users to avoid materializing the
-    /// string if they only intend to inspect it for length, pattern matches, etc.
-    // TODO: Replace with a `read_str(&self) -> IonResult<&str>`
-    //       See: https://github.com/amazon-ion/ion-rust/issues/335
-    fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&str) -> U;
-
-    /// Takes a function that expects a string and, once the string's bytes are loaded, calls that
-    /// function passing the string's raw bytes as a parameter. Some implementations may be able
-    /// to optimize this by calling the function without first validating that the bytes are utf8.
-    /// As such, callers MUST NOT depend on the string contents being valid utf8.
-    // TODO: Replace with a `read_string_bytes(&self) -> IonResult<&[u8]>`
-    //       See: https://github.com/amazon-ion/ion-rust/issues/335
-    fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U;
+    /// Attempts to read the current item as an Ion string and return it as a [&str]. If the
+    /// current item is not a string or an IO error is encountered while reading, returns
+    /// [crate::IonError].
+    fn read_str(&mut self) -> IonResult<&str>;
 
     /// Attempts to read the current item as an Ion symbol and return it as a [Self::Symbol]. If the
     /// current item is not a symbol or an IO error is encountered while reading, returns [crate::IonError].
@@ -135,29 +119,9 @@ pub trait IonReader {
     /// current item is not a blob or an IO error is encountered while reading, returns [crate::IonError].
     fn read_blob(&mut self) -> IonResult<Blob>;
 
-    /// Takes a function that expects a byte slice and, once the blob's bytes are loaded, calls that
-    /// function passing the blob's bytes as a parameter. This allows users to avoid materializing the
-    /// clob if they only intend to inspect it for length, pattern matches, etc.
-    // TODO: Replace with a `read_blob_bytes(&self) -> IonResult<&[u8]>`
-    //       See: https://github.com/amazon-ion/ion-rust/issues/335
-    fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U;
-
     /// Attempts to read the current item as an Ion clob and return it as a `Vec<u8>`. If the
     /// current item is not a clob or an IO error is encountered while reading, returns [crate::IonError].
     fn read_clob(&mut self) -> IonResult<Clob>;
-
-    /// Takes a function that expects a byte slice and, once the clob's bytes are loaded, calls that
-    /// function passing the clob's bytes as a parameter. This allows users to avoid materializing the
-    /// clob if they only intend to inspect it for length, pattern matches, etc.
-    // TODO: Replace with a `read_clob_bytes(&self) -> IonResult<&[u8]]>`
-    //       See: https://github.com/amazon-ion/ion-rust/issues/335
-    fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U;
 
     /// Attempts to read the current item as an Ion timestamp and return [crate::Timestamp]. If the current
     /// item is not a timestamp or an IO error is encountered while reading, returns [crate::IonError].

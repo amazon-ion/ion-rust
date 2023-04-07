@@ -83,20 +83,8 @@ impl<R: RawReader + ?Sized> IonReader for Box<R> {
         (**self).read_string()
     }
 
-    fn map_string<F, U>(&mut self, _f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&str) -> U,
-    {
-        todo!("Cannot use `map_string` via dynamic dispatch. Use `read_string` instead. See: https://github.com/amazon-ion/ion-rust/issues/335")
-    }
-
-    fn map_string_bytes<F, U>(&mut self, _f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        todo!("Cannot use `map_string_bytes` via dynamic dispatch. Use `read_string` instead. See: https://github.com/amazon-ion/ion-rust/issues/335")
+    fn read_str(&mut self) -> IonResult<&str> {
+        (**self).read_str()
     }
 
     fn read_symbol(&mut self) -> IonResult<Self::Symbol> {
@@ -107,24 +95,8 @@ impl<R: RawReader + ?Sized> IonReader for Box<R> {
         (**self).read_blob()
     }
 
-    fn map_blob<F, U>(&mut self, _f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        todo!("Cannot use `map_blob` via dynamic dispatch. Use `read_blob` instead. See: https://github.com/amazon-ion/ion-rust/issues/335")
-    }
-
     fn read_clob(&mut self) -> IonResult<Clob> {
         (**self).read_clob()
-    }
-
-    fn map_clob<F, U>(&mut self, _f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        todo!("Cannot use `map_clob` via dynamic dispatch. Use `read_clob` instead. See: https://github.com/amazon-ion/ion-rust/issues/335")
     }
 
     fn read_timestamp(&mut self) -> IonResult<Timestamp> {
