@@ -83,7 +83,7 @@ impl TextValue {
     }
 
     /// Converts this [TextValue] into an [AnnotatedTextValue] with the specified annotations.
-    pub fn with_annotations<I: IntoAnnotations>(self, annotations: I) -> AnnotatedTextValue {
+    pub fn with_annotations<I: IntoRawAnnotations>(self, annotations: I) -> AnnotatedTextValue {
         AnnotatedTextValue::new(annotations.into_annotations(), self)
     }
 
@@ -95,11 +95,11 @@ impl TextValue {
 }
 
 /// Converts a given type into a `Vec<RawSymbolToken>`.
-pub trait IntoAnnotations {
+pub trait IntoRawAnnotations {
     fn into_annotations(self) -> Vec<RawSymbolToken>;
 }
 
-impl<T> IntoAnnotations for T
+impl<T> IntoRawAnnotations for T
 where
     T: Into<RawSymbolToken>,
 {
@@ -116,25 +116,25 @@ where
     collection.into_iter().map(|item| item.into()).collect()
 }
 
-impl<T: Into<RawSymbolToken>> IntoAnnotations for Vec<T> {
+impl<T: Into<RawSymbolToken>> IntoRawAnnotations for Vec<T> {
     fn into_annotations(self) -> Vec<RawSymbolToken> {
         annotations_from_iter(self)
     }
 }
 
-impl<T: Into<RawSymbolToken>, const N: usize> IntoAnnotations for [T; N] {
+impl<T: Into<RawSymbolToken>, const N: usize> IntoRawAnnotations for [T; N] {
     fn into_annotations(self) -> Vec<RawSymbolToken> {
         annotations_from_iter(self)
     }
 }
 
-impl<T: Into<RawSymbolToken> + Clone> IntoAnnotations for &[T] {
+impl<T: Into<RawSymbolToken> + Clone> IntoRawAnnotations for &[T] {
     fn into_annotations(self) -> Vec<RawSymbolToken> {
         annotations_from_iter(self)
     }
 }
 
-impl<T: Into<RawSymbolToken> + Clone, const N: usize> IntoAnnotations for &[T; N] {
+impl<T: Into<RawSymbolToken> + Clone, const N: usize> IntoRawAnnotations for &[T; N] {
     fn into_annotations(self) -> Vec<RawSymbolToken> {
         annotations_from_iter(self)
     }

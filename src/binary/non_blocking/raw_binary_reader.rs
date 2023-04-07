@@ -782,15 +782,12 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryReader<A> {
         // error. This is to match the behavior of the text reader where incomplets will only come
         // from step-out and next calls.
         if let ReaderState::OnValue(encoded_value) = tx_reader.state {
-            if !encoded_value.ion_type().is_container() {
-                if bytes_remaining < encoded_value.total_length() {
-                    *tx_reader.state = ReaderState::WaitingForData(*encoded_value);
-                    self.buffer.consume(nop_bytes_count);
-                    return incomplete_data_error(
-                        "ahead to next item",
-                        self.buffer.total_consumed(),
-                    );
-                }
+            if !encoded_value.ion_type().is_container()
+                && bytes_remaining < encoded_value.total_length()
+            {
+                *tx_reader.state = ReaderState::WaitingForData(*encoded_value);
+                self.buffer.consume(nop_bytes_count);
+                return incomplete_data_error("ahead to next item", self.buffer.total_consumed());
             }
         }
 
@@ -1481,7 +1478,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
 #[cfg(test)]
 mod tests {
     use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
-    use crate::text::text_value::IntoAnnotations;
+    use crate::text::text_value::IntoRawAnnotations;
     use crate::{IonError, IonResult};
     use std::fmt::Debug;
 
@@ -1511,7 +1508,7 @@ mod tests {
         }
     }
 
-    fn expect_annotations<A: AsRef<[u8]>, I: IntoAnnotations>(
+    fn expect_annotations<A: AsRef<[u8]>, I: IntoRawAnnotations>(
         reader: &RawBinaryReader<A>,
         annotations: I,
     ) {

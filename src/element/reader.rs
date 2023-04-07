@@ -3,7 +3,7 @@
 //! Provides APIs to read Ion data into [Element] from different sources such
 //! as slices or files.
 
-use crate::element::{Element, Sequence, Struct, Value};
+use crate::element::{Annotations, Element, Sequence, Struct, Value};
 use crate::result::{decoding_error, IonResult};
 use crate::{IonReader, StreamItem, Symbol};
 
@@ -156,7 +156,7 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
                 }
             }
         };
-        Ok(Some(Element::new(annotations, value)))
+        Ok(Some(Element::new(Annotations::new(annotations), value)))
     }
 
     /// Steps into the current sequence and materializes each of its children to construct
