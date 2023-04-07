@@ -17,13 +17,14 @@ pub struct Annotations {
 
 impl Annotations {
     // This is limited to crate visibility to allow us to change `Vec<_>` to something
-    // else (`thinvec`?) in the future.
+    // else (`thinvec`?) in the future. Users are unlikely to need to construct an `Annotations`
+    // themselves, but can use a `From` impl if necessary.
     pub(crate) fn new(symbols: Vec<Symbol>) -> Self {
         Annotations { symbols }
     }
 
-    // Constructs an Annotations object representing an empty symbol sequence
-    pub(crate) fn empty() -> Self {
+    /// Constructs an Annotations object representing an empty symbol sequence
+    pub fn empty() -> Self {
         Annotations {
             symbols: Vec::new(),
         }
@@ -72,16 +73,29 @@ impl Annotations {
         self.iter().any(|symbol| symbol.text() == Some(query))
     }
 
-    /// Determines whether this annotations sequence begins with the specified sequence of text
-    /// values.
+    /// Returns the text of the first annotation in this sequence.
+    ///
+    /// If the sequence is empty, returns `None`.
+    /// If the first annotation in the sequence is `$0` (symbol ID 0), returns `None`.
+    /// Otherwise, returns a `Some(&str)` containing the text.
+    ///
+    /// To view the first annotation as a [Symbol] rather than a `&str`, use
+    /// `annotations.iter().next()`.
     /// ```
     /// use ion_rs::element::Annotations;
+    /// use ion_rs::Symbol;
     /// let annotations: Annotations = ["foo", "bar", "baz"].into();
-    /// assert!(annotations.starts_with("foo"));
-    /// assert!(!annotations.starts_with("quux"));
+    /// assert_eq!(annotations.first(), Some("foo"));
+    ///
+    /// let empty_sequence: Vec<&str> = vec![];
+    /// let annotations: Annotations = empty_sequence.into();
+    /// assert_eq!(annotations.first(), None);
+    ///
+    /// let annotations: Annotations = [Symbol::unknown_text()].into();
+    /// assert_eq!(annotations.first(), None)
     /// ```
-    pub fn starts_with(&self, text: impl AsRef<str>) -> bool {
-        self.iter().next().and_then(|a| a.text()) == Some(text.as_ref())
+    pub fn first(&self) -> Option<&str> {
+        self.iter().next().and_then(|a| a.text())
     }
 }
 

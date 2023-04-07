@@ -782,15 +782,12 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryReader<A> {
         // error. This is to match the behavior of the text reader where incomplets will only come
         // from step-out and next calls.
         if let ReaderState::OnValue(encoded_value) = tx_reader.state {
-            if !encoded_value.ion_type().is_container() {
-                if bytes_remaining < encoded_value.total_length() {
-                    *tx_reader.state = ReaderState::WaitingForData(*encoded_value);
-                    self.buffer.consume(nop_bytes_count);
-                    return incomplete_data_error(
-                        "ahead to next item",
-                        self.buffer.total_consumed(),
-                    );
-                }
+            if !encoded_value.ion_type().is_container()
+                && bytes_remaining < encoded_value.total_length()
+            {
+                *tx_reader.state = ReaderState::WaitingForData(*encoded_value);
+                self.buffer.consume(nop_bytes_count);
+                return incomplete_data_error("ahead to next item", self.buffer.total_consumed());
             }
         }
 
