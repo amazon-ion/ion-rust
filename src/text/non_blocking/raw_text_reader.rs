@@ -844,30 +844,17 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawTextReader<A> {
     }
 
     fn read_string(&mut self) -> IonResult<Str> {
-        self.map_string(|s| s.into())
-    }
-
-    fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&str) -> U,
-    {
         match self.current_value.as_ref().map(|current| current.value()) {
-            Some(TextValue::String(ref value)) => Ok(f(value.as_str())),
+            Some(TextValue::String(ref value)) => Ok(Str::from(value.as_str())),
             _ => Err(self.expected("string value")),
         }
     }
 
-    fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        // In the binary reader, this method can bypass utf-8 validation and return a view of the
-        // raw bytes in the input buffer. In the text reader, this optimization isn't available;
-        // some of the input bytes may be encoded as text unicode escapes and require processing
-        // to turn into &[u8].
-        self.map_string(|s| f(s.as_bytes()))
+    fn read_str(&mut self) -> IonResult<&str> {
+        match self.current_value.as_ref().map(|current| current.value()) {
+            Some(TextValue::String(ref value)) => Ok(value.as_str()),
+            _ => Err(self.expected("string value")),
+        }
     }
 
     fn read_symbol(&mut self) -> IonResult<Self::Symbol> {
@@ -878,31 +865,15 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawTextReader<A> {
     }
 
     fn read_blob(&mut self) -> IonResult<Blob> {
-        self.map_blob(|b| Vec::from(b)).map(Blob::from)
-    }
-
-    fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
         match self.current_value.as_ref().map(|current| current.value()) {
-            Some(TextValue::Blob(ref value)) => Ok(f(value.as_slice())),
+            Some(TextValue::Blob(ref value)) => Ok(Blob::from(value.as_slice())),
             _ => Err(self.expected("blob value")),
         }
     }
 
     fn read_clob(&mut self) -> IonResult<Clob> {
-        self.map_clob(|c| Vec::from(c)).map(Clob::from)
-    }
-
-    fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
         match self.current_value.as_ref().map(|current| current.value()) {
-            Some(TextValue::Clob(ref value)) => Ok(f(value.as_slice())),
+            Some(TextValue::Clob(ref value)) => Ok(Clob::from(value.as_slice())),
             _ => Err(self.expected("clob value")),
         }
     }

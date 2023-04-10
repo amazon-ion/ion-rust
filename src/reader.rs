@@ -434,12 +434,9 @@ impl<R: RawReader> IonReader for UserReader<R> {
             fn read_f64(&mut self) -> IonResult<f64>;
             fn read_decimal(&mut self) -> IonResult<Decimal>;
             fn read_string(&mut self) -> IonResult<Str>;
-            fn map_string<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&str) -> U;
-            fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
+            fn read_str(&mut self) -> IonResult<&str>;
             fn read_blob(&mut self) -> IonResult<Blob>;
-            fn map_blob<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
             fn read_clob(&mut self) -> IonResult<Clob>;
-            fn map_clob<F, U>(&mut self, f: F) -> IonResult<U> where F: FnOnce(&[u8]) -> U;
             fn read_timestamp(&mut self) -> IonResult<Timestamp>;
             fn step_in(&mut self) -> IonResult<()>;
             fn step_out(&mut self) -> IonResult<()>;

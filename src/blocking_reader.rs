@@ -149,20 +149,8 @@ impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for BlockingRawReader<R
         self.reader.read_string()
     }
 
-    fn map_string<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&str) -> U,
-    {
-        self.reader.map_string(f)
-    }
-
-    fn map_string_bytes<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        self.reader.map_string_bytes(f)
+    fn read_str(&mut self) -> IonResult<&str> {
+        self.reader.read_str()
     }
 
     fn read_symbol(&mut self) -> IonResult<Self::Symbol> {
@@ -170,27 +158,11 @@ impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for BlockingRawReader<R
     }
 
     fn read_blob(&mut self) -> IonResult<Blob> {
-        self.map_blob(|b| Vec::from(b)).map(Blob::from)
-    }
-
-    fn map_blob<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        self.reader.map_blob(f)
+        self.reader.read_blob()
     }
 
     fn read_clob(&mut self) -> IonResult<Clob> {
-        self.map_clob(|c| Vec::from(c)).map(Clob::from)
-    }
-
-    fn map_clob<F, U>(&mut self, f: F) -> IonResult<U>
-    where
-        Self: Sized,
-        F: FnOnce(&[u8]) -> U,
-    {
-        self.reader.map_clob(f)
+        self.reader.read_clob()
     }
 
     fn read_timestamp(&mut self) -> IonResult<Timestamp> {
