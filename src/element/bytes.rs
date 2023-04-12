@@ -10,6 +10,11 @@
 /// let bytes: Bytes = "hello".into();
 /// assert_eq!(&bytes, "hello".as_bytes());
 /// ```
+/// ```rust
+/// use ion_rs::element::Bytes;
+/// let bytes: Bytes = b"world".into();
+/// assert_eq!(&bytes, b"world".as_slice());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bytes {
     data: Vec<u8>,
@@ -29,6 +34,14 @@ impl From<Vec<u8>> for Bytes {
 
 impl From<&[u8]> for Bytes {
     fn from(data: &[u8]) -> Self {
+        Bytes {
+            data: data.to_vec(),
+        }
+    }
+}
+
+impl<const N: usize> From<&[u8; N]> for Bytes {
+    fn from(data: &[u8; N]) -> Self {
         Bytes {
             data: data.to_vec(),
         }
