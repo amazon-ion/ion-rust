@@ -146,7 +146,7 @@ pub mod integration_testing {
 }
 
 /// Stream components that an application-level [Reader] implementation may encounter.
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum StreamItem {
     /// A non-null Ion value and its corresponding Ion data type.
     Value(IonType),
