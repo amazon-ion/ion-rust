@@ -16,7 +16,7 @@ exclude = [
   "**/ion-tests/iontestdata/**",
   "*.pdf"
 ]
-version = "0.16.0"
+version = "0.17.0"
 edition = "2021"
 # We need at least 1.65 for GATs
 # https://blog.rust-lang.org/2022/11/03/Rust-1.65.0.html
