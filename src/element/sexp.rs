@@ -1,7 +1,7 @@
 use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::ElementsIterator;
 use crate::element::{Element, Sequence};
-use crate::ion_eq::IonEq;
+use crate::ion_data::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
 use delegate::delegate;
 use std::fmt::{Display, Formatter};

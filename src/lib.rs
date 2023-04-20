@@ -180,10 +180,10 @@ mod blocking_reader;
 mod catalog;
 // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
 pub mod constants;
-pub mod ion_eq;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
 // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
+mod ion_data;
 pub mod reader;
 mod shared_symbol_table;
 mod stream_reader;
@@ -212,6 +212,11 @@ pub use types::integer::Int;
 pub use types::string::Str;
 pub use types::timestamp::Timestamp;
 pub use types::IonType;
+
+pub use ion_data::IonData;
+pub mod ion_eq {
+    pub use crate::ion_data::IonEq;
+}
 
 pub use binary::binary_writer::{BinaryWriter, BinaryWriterBuilder};
 pub use text::text_writer::{TextWriter, TextWriterBuilder};

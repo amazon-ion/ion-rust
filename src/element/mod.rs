@@ -14,10 +14,12 @@
 
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
+use crate::ion_data::IonOrd;
 use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::{Decimal, Int, IonResult, IonType, ReaderBuilder, Str, Symbol, Timestamp};
 use num_bigint::BigInt;
+use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
 mod annotations;
@@ -59,6 +61,50 @@ impl IonEq for Value {
     }
 }
 
+impl IonOrd for Value {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        use Value::*;
+
+        // First compare Ion types
+        let ord = self.ion_type().ion_cmp(&other.ion_type());
+        if !ord.is_eq() {
+            return ord;
+        }
+
+        macro_rules! compare {
+            ($p:pat => $e:expr) => {
+                match other {
+                    $p => $e,
+                    Null(_) => Ordering::Greater,
+                    _ => unreachable!("We already checked the Ion Type!"),
+                }
+            };
+        }
+
+        match self {
+            Null(_) => {
+                if let Null(_) = other {
+                    Ordering::Equal
+                } else {
+                    Ordering::Less
+                }
+            }
+            Int(this) => compare!(Int(that) => this.cmp(that)),
+            Float(this) => compare!(Float(that) => this.ion_cmp(that)),
+            Decimal(this) => compare!(Decimal(that) => this.ion_cmp(that)),
+            Timestamp(this) => compare!(Timestamp(that) => this.ion_cmp(that)),
+            String(this) => compare!(String(that) => this.cmp(that)),
+            Symbol(this) => compare!(Symbol(that) => this.cmp(that)),
+            Bool(this) => compare!(Bool(that) => this.cmp(that)),
+            Blob(this) => compare!(Blob(that) => this.cmp(that)),
+            Clob(this) => compare!(Clob(that) => this.cmp(that)),
+            SExp(this) => compare!(SExp(that) => this.ion_cmp(that)),
+            List(this) => compare!(List(that) => this.ion_cmp(that)),
+            Struct(this) => compare!(Struct(that) => this.ion_cmp(that)),
+        }
+    }
+}
+
 /// Variants for all _values_ within an [`Element`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -75,6 +121,28 @@ pub enum Value {
     SExp(Sequence),
     List(Sequence),
     Struct(Struct),
+}
+
+impl Value {
+    pub fn ion_type(&self) -> IonType {
+        use Value::*;
+
+        match self {
+            Null(t) => *t,
+            Int(_) => IonType::Int,
+            Float(_) => IonType::Float,
+            Decimal(_) => IonType::Decimal,
+            Timestamp(_) => IonType::Timestamp,
+            String(_) => IonType::String,
+            Symbol(_) => IonType::Symbol,
+            Bool(_) => IonType::Bool,
+            Blob(_) => IonType::Blob,
+            Clob(_) => IonType::Clob,
+            SExp(_) => IonType::SExp,
+            List(_) => IonType::List,
+            Struct(_) => IonType::Struct,
+        }
+    }
 }
 
 impl Display for Value {
@@ -253,6 +321,31 @@ impl IonEq for Element {
     }
 }
 
+// Ordering is done as follows:
+// 1. Ion type -- because it is the cheapest comparison
+// 2. Annotations -- the vast majority of Ion values have few annotations, so this should usually be cheap
+// 3. Value -- compared using IonOrd
+impl IonOrd for Element {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        let ord = self.ion_type().ion_cmp(&other.ion_type());
+        if !ord.is_eq() {
+            return ord;
+        }
+
+        let a1 = self.annotations();
+        let a2 = other.annotations();
+
+        let ord = a1.ion_cmp(a2);
+        if !ord.is_eq() {
+            return ord;
+        }
+
+        let v1 = self.value();
+        let v2 = other.value();
+        v1.ion_cmp(v2)
+    }
+}
+
 /// An `(annotations, value)` pair representing an Ion value.
 #[derive(Debug, Clone)]
 pub struct Element {
@@ -337,23 +430,7 @@ impl Element {
     }
 
     pub fn ion_type(&self) -> IonType {
-        use Value::*;
-
-        match &self.value {
-            Null(t) => *t,
-            Int(_) => IonType::Int,
-            Float(_) => IonType::Float,
-            Decimal(_) => IonType::Decimal,
-            Timestamp(_) => IonType::Timestamp,
-            String(_) => IonType::String,
-            Symbol(_) => IonType::Symbol,
-            Bool(_) => IonType::Bool,
-            Blob(_) => IonType::Blob,
-            Clob(_) => IonType::Clob,
-            SExp(_) => IonType::SExp,
-            List(_) => IonType::List,
-            Struct(_) => IonType::Struct,
-        }
+        self.value.ion_type()
     }
 
     pub fn annotations(&self) -> &Annotations {

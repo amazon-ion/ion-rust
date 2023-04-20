@@ -15,7 +15,7 @@
 /// let bytes: Bytes = b"world".into();
 /// assert_eq!(&bytes, b"world".as_slice());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Bytes {
     data: Vec<u8>,
 }

@@ -1,3 +1,4 @@
+use crate::ion_data::IonOrd;
 use crate::ion_eq::IonEq;
 use crate::result::{
     encoding_error, illegal_operation, illegal_operation_raw, IonError, IonResult,
@@ -751,6 +752,8 @@ impl PartialEq for Timestamp {
     }
 }
 
+impl Eq for Timestamp {}
+
 impl IonEq for Timestamp {
     fn ion_eq(&self, other: &Self) -> bool {
         if self.precision != other.precision {
@@ -788,7 +791,41 @@ impl IonEq for Timestamp {
     }
 }
 
-impl Eq for Timestamp {}
+impl IonOrd for Timestamp {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        // Compare by point in time
+        let ord = self.cmp(other);
+        if ord != Ordering::Equal {
+            return ord;
+        };
+        // And then by precision
+        match [
+            self.fractional_seconds_as_decimal(),
+            other.fractional_seconds_as_decimal(),
+        ] {
+            [None, Some(_)] => return Ordering::Less,
+            [Some(_), None] => return Ordering::Greater,
+            [Some(a), Some(b)] if !a.is_zero() || !b.is_zero() => {
+                let ord = a.ion_cmp(&b);
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+            _ => {}
+        }
+        // And finally by offset (unknown, then least to greatest)
+        let ord = self.precision.cmp(&other.precision);
+        if ord != Ordering::Equal {
+            return ord;
+        };
+        match [self.offset, other.offset] {
+            [None, Some(_)] => Ordering::Less,
+            [None, None] => Ordering::Equal,
+            [Some(_), None] => Ordering::Greater,
+            [Some(o1), Some(o2)] => o1.local_minus_utc().cmp(&o2.local_minus_utc()),
+        }
+    }
+}
 
 /// A Builder object for incrementally configuring and finally instantiating a [Timestamp].
 /// For the time being, this type is not publicly visible. Users are expected to use any of the
