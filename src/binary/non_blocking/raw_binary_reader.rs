@@ -334,9 +334,9 @@ impl BufferedRawReader for RawBinaryReader<Vec<u8>> {
         Ok(())
     }
 
-    /// Tries to read `length` bytes from `source`. Unlike [append_bytes], this method does not do
-    /// any copying. A slice of the reader's buffer is handed to `source` so it can be populated
-    /// directly.
+    /// Tries to read `length` bytes from `source`. Unlike [append_bytes](Self::append_bytes),
+    /// this method does not do any copying. A slice of the reader's buffer is handed to `source`
+    /// so it can be populated directly.
     fn read_from<R: Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
         self.buffer.read_from(source, length)
     }
