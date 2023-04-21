@@ -164,7 +164,7 @@ impl Display for RawStreamItem {
     }
 }
 
-/// BufferedRawReader is a RawReader which can be created from a Vec<u8> and implements the needed
+/// BufferedRawReader is a RawReader which can be created from a [`Vec<u8>`] and implements the needed
 /// functionality to provide non-blocking reader support. This includes the ability to add more
 /// data as needed, as well as marking when the stream is complete.
 pub trait BufferedRawReader: RawReader + From<Vec<u8>> {

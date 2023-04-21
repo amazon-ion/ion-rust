@@ -34,14 +34,14 @@ impl RawSymbolToken {
     }
 }
 
-/// Constructs an [`OwnedSymbolToken`] with unknown text and a local ID.
+/// Constructs a [`RawSymbolToken`] with unknown text and a local ID.
 /// A common case for binary parsing (though technically relevant in text).
 #[inline]
 pub fn local_sid_token(local_sid: SymbolId) -> RawSymbolToken {
     RawSymbolToken::SymbolId(local_sid)
 }
 
-/// Constructs an [`OwnedSymbolToken`] with just text.
+/// Constructs an [`RawSymbolToken`] with just text.
 /// A common case for text and synthesizing tokens.
 #[inline]
 pub fn text_token<T: Into<String>>(text: T) -> RawSymbolToken {

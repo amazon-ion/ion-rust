@@ -2,8 +2,9 @@ use crate::result::illegal_operation;
 use crate::IonResult;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// Stores [SharedSymbolTable] with the table name, version and imports
-/// For more information on [SharedSymbolTable]: https://amazon-ion.github.io/ion-docs/docs/symbols.html#shared-symbol-tables
+/// Stores [`SharedSymbolTable`] with the table name, version and imports
+/// For more information on [`SharedSymbolTable`], see:
+/// <https://amazon-ion.github.io/ion-docs/docs/symbols.html#shared-symbol-tables>
 pub struct SharedSymbolTable {
     name: String,
     version: usize,
@@ -25,12 +26,12 @@ impl SharedSymbolTable {
         })
     }
 
-    /// Returns the version of this [SharedSymbolTable]
+    /// Returns the version of this [`SharedSymbolTable`]
     pub fn version(&self) -> usize {
         self.version
     }
 
-    /// Returns the name of this [SharedSymbolTable]
+    /// Returns the name of this [`SharedSymbolTable`]
     pub fn name(&self) -> &str {
         &self.name
     }

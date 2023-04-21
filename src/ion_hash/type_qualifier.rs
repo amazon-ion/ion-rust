@@ -29,7 +29,7 @@ const fn combine(ion_type_code: IonTypeCode, q: u8) -> TypeQualifier {
 }
 
 impl TypeQualifier {
-    /// Computes a [`TypeQualifier`] from an [`IonElement`] according to the rules
+    /// Computes a [`TypeQualifier`] from an [`Element`] according to the rules
     /// laid out in the spec. In many cases, the `T` is determined by the Ion
     /// binary type code.
     ///

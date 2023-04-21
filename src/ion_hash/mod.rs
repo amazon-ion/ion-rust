@@ -45,8 +45,8 @@ impl Markers {
     const ESC: u8 = 0x0C;
 }
 
-/// This trait mostly exists to extend the [`Digest`] trait to support Ion Hash.
-/// See [`hash_element`].
+/// This trait mostly exists to extend the [`Digest`](digest::Digest) trait to support Ion Hash.
+/// See [`hash_element`](Self::hash_element).
 pub trait IonHasher {
     type Output;
 
@@ -54,7 +54,7 @@ pub trait IonHasher {
     fn hash_element(elem: &Element) -> IonResult<Self::Output>;
 }
 
-/// Implements [`IonHasher`] for any type that implements [Digest].
+/// Implements [`IonHasher`] for any type that implements [`Digest`](digest::Digest).
 ///
 /// Note: the `Digest` trait is implemented for types that implement a set of
 /// traits. You should read the `D` generic as `Digest`. The reason we list the
@@ -67,8 +67,8 @@ where
 {
     type Output = digest::Output<D>;
 
-    /// Provides Ion hash over arbitrary [`IonElement`] instances with a given
-    /// [`Digest`] algorithm.
+    /// Provides Ion hash over arbitrary [`Element`] instances with a given
+    /// [`Digest`](digest::Digest) algorithm.
     fn hash_element(elem: &Element) -> IonResult<Self::Output> {
         ElementHasher::new(D::default()).hash_element(elem)
     }

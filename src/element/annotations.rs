@@ -30,8 +30,8 @@ impl Annotations {
         }
     }
 
-    /// Returns a [SymbolsIterator] that yields each of the [Symbol]s in this annotations sequence
-    /// in order.
+    /// Returns an [`Iterator`] that yields each of the [`Symbol`]s in this annotations
+    /// sequence in order.
     pub fn iter(&self) -> SymbolsIterator {
         self.into_iter()
     }

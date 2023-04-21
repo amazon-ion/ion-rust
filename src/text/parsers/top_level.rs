@@ -60,7 +60,7 @@ pub(crate) fn version_int(input: &str) -> IonParseResult<&str> {
 /// the major and minor version of the Ion stream to follow, respectively. See [version_int].
 /// Note that this MUST be an identifier (i.e. an unquoted symbol) and not any other encoding of the
 /// same symbol value. For more information see:
-/// https://amazon-ion.github.io/ion-docs/docs/symbols.html#ion-version-markers
+/// <https://amazon-ion.github.io/ion-docs/docs/symbols.html#ion-version-markers>
 pub(crate) fn ion_version_marker(input: &str) -> IonParseResult<(u32, u32)> {
     // See if the input text matches an IVM. If not, return a non-fatal error.
     let (remaining_input, (_, major_text, _, minor_text)) = delimited(

@@ -80,8 +80,8 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         &self.data.as_ref()[from..to]
     }
 
-    /// Returns the number of bytes that have been marked as read either via the [consume] method
-    /// or one of the `read_*` methods.
+    /// Returns the number of bytes that have been marked as read either via the
+    /// [`consume`](Self::consume) method or one of the `read_*` methods.
     pub fn total_consumed(&self) -> usize {
         self.total_consumed
     }
@@ -137,7 +137,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// returns an `Ok(_)` containing a `(major, minor)` version tuple and consumes the
     /// source bytes.
     ///
-    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#value-streams
+    /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#value-streams>
     pub fn read_ivm(&mut self) -> IonResult<(u8, u8)> {
         let bytes = self
             .peek_n_bytes(IVM.len())
@@ -156,7 +156,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// Reads a `VarUInt` encoding primitive from the beginning of the buffer. If it is successful,
     /// returns an `Ok(_)` containing its [VarUInt] representation and consumes the source bytes.
     ///
-    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields
+    /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields>
     pub fn read_var_uint(&mut self) -> IonResult<VarUInt> {
         const BITS_PER_ENCODED_BYTE: usize = 7;
         const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<usize>() * 8;
@@ -194,7 +194,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// Reads a `VarInt` encoding primitive from the beginning of the buffer. If it is successful,
     /// returns an `Ok(_)` containing its [VarInt] representation and consumes the source bytes.
     ///
-    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields
+    /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields>
     pub fn read_var_int(&mut self) -> IonResult<VarInt> {
         const BITS_PER_ENCODED_BYTE: usize = 7;
         const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<i64>() * 8;
@@ -265,7 +265,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// successful, returns an `Ok(_)` containing its [DecodedUInt] representation and consumes the
     /// source bytes.
     ///
-    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields
+    /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields>
     pub fn read_uint(&mut self, length: usize) -> IonResult<DecodedUInt> {
         if length <= mem::size_of::<u64>() {
             return self.read_small_uint(length);
@@ -321,7 +321,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// successful, returns an `Ok(_)` containing its [DecodedInt] representation and consumes the
     /// source bytes.
     ///
-    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields
+    /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields>
     pub fn read_int(&mut self, length: usize) -> IonResult<DecodedInt> {
         if length == 0 {
             return Ok(DecodedInt::new(Int::I64(0), false, 0));
@@ -376,7 +376,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// Reads a `NOP` encoding primitive from the buffer. If it is successful, returns an `Ok(_)`
     /// containing the number of bytes that were consumed.
     ///
-    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#nop-pad
+    /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#nop-pad>
     #[inline(never)]
     // NOP padding is not widely used in Ion 1.0, in part because many writer implementations do not
     // expose the ability to write them. As such, this method has been marked `inline(never)` to
@@ -479,9 +479,9 @@ impl BinaryBuffer<Vec<u8>> {
         self.end += bytes.len();
     }
 
-    /// Tries to read `length` bytes from `source`. Unlike [append_bytes], this method does not do
-    /// any copying. A slice of the reader's buffer is handed to `source` so it can be populated
-    /// directly.
+    /// Tries to read `length` bytes from `source`. Unlike [`append_bytes`](Self::append_bytes),
+    /// this method does not do any copying. A slice of the reader's buffer is handed to `source`
+    /// so it can be populated directly.
     ///
     /// If successful, returns an `Ok(_)` containing the number of bytes that were actually read.
     pub fn read_from<R: Read>(&mut self, mut source: R, length: usize) -> IonResult<usize> {

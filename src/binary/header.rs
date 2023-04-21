@@ -43,7 +43,7 @@ impl Header {
 /// It is expected that the jump table will be referenced when a reader attempts to begin reading
 /// the next value from its input data. This calling code must handle the end-of-file case,
 /// IO errors, and decoding errors. Each value in the table is stored as an
-/// IonResult<Option<IonValueHeader>> so that in the even that another value is available and
+/// [`IonResult<Option<IonValueHeader>>`] so that in the even that another value is available and
 /// no IO errors occur, the value from the jump table can be returned as-is with no transformations
 /// required.
 /// All values stored in the table are either an `Err(IonError::DecodingError)` or an

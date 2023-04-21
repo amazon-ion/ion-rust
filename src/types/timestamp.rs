@@ -142,8 +142,8 @@ fn offset_east(seconds_east: i32) -> FixedOffset {
         .expect("seconds_east was outside the supported range")
 }
 
-/// Constructs a DateTime<FixedOffset> at the specified offset using the fields of [NaiveDateTime]
-/// representing the desired UTC datetime.
+/// Constructs a [`DateTime<FixedOffset>`] at the specified offset using the fields of
+/// [`NaiveDateTime`] representing the desired UTC datetime.
 fn datetime_at_offset(utc_datetime: &NaiveDateTime, seconds_east: i32) -> DateTime<FixedOffset> {
     offset_east(seconds_east).from_utc_datetime(utc_datetime)
 }
@@ -812,9 +812,9 @@ struct TimestampBuilder {
 }
 
 impl TimestampBuilder {
-    /// Sets all of the fields on the given [NaiveDateTime] or [DateTime<FixedOffset>] using the
+    /// Sets all of the fields on the given [`NaiveDateTime`] or [`DateTime<FixedOffset>`] using the
     /// values from the TimestampBuilder. Only those fields required by the TimestampBuilder's
-    /// configured [Precision] will be set.
+    /// configured [`Precision`] will be set.
     fn configure_datetime<D>(&mut self, mut datetime: D) -> IonResult<D>
     where
         D: Datelike + Timelike + Debug,

@@ -33,7 +33,7 @@ struct Checkpoint {
 /// This is used primarily for identifying where a &str comes from within our
 /// TextBuffer's data.
 ///
-/// Taken from https://stackoverflow.com/a/50781657
+/// Taken from <https://stackoverflow.com/a/50781657>
 trait SubsliceOffset {
     fn subslice_offset(&self, inner: &Self) -> Option<usize>;
 }
@@ -140,7 +140,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
     }
 
     /// Returns the trailing portion of the current line that has not yet been marked as read via
-    /// the [consume] method.
+    /// the [`consume`](Self::consume) method.
     pub fn remaining_text(&self) -> &str {
         self.string_view(self.line.increment_start(self.line_offset))
     }
@@ -153,7 +153,8 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
     }
 
     /// Returns the amount of data currently available in the buffer that has not been marked as
-    /// read via the [consume] method. This includes data that has not been split into lines yet.
+    /// read via the [`consume`](Self::consume) method. This includes data that has not been
+    /// split into lines yet.
     pub fn bytes_remaining(&self) -> usize {
         self.data_end - (self.line.0 + self.line_offset)
     }
@@ -161,9 +162,11 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
     /// Returns the number of lines that have been loaded from input.
     ///
     /// The number returned may be:
-    ///   * Greater than the number of lines that have been marked read via [consume].
-    ///   * Less than the number of lines that have been requested via [load_next_line] and
-    ///     [load_next_n_lines] if the input stream was exhausted.
+    ///   * Greater than the number of lines that have been marked read via
+    ///     [`consume`](Self::consume).
+    ///   * Less than the number of lines that have been requested via
+    ///     [`load_next_line`](Self::load_next_line) and
+    ///     [`load_next_n_lines`](Self::load_next_n_lines) if the input stream was exhausted.
     pub fn lines_loaded(&self) -> usize {
         self.line_number
     }
@@ -177,12 +180,12 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
         self.bytes_remaining() == 0 && self.data_exhausted
     }
 
-    /// Discards [number_of_bytes] bytes from the remaining line.
+    /// Discards `number_of_bytes` bytes from the remaining line.
     ///
-    /// If [number_of_bytes] would cause the remaining bytes to be invalid UTF-8,
+    /// If `number_of_bytes` would cause the remaining bytes to be invalid UTF-8,
     /// this method will panic.
     ///
-    /// If [number_of_bytes] is greater than the number of bytes remaining in the current line,
+    /// If `number_of_bytes` is greater than the number of bytes remaining in the current line,
     /// this method will panic.
     pub fn consume(&mut self, number_of_bytes: usize) {
         let remaining_line = self.remaining_text();
@@ -337,9 +340,9 @@ impl TextBuffer<Vec<u8>> {
         self.validate_data()
     }
 
-    /// Tries to read `length` bytes from `source`. Unlike [append_bytes], this method does not do
-    /// any copying. A slice of the reader's buffer is handed to `source` so it can be populated
-    /// directly.
+    /// Tries to read `length` bytes from `source`. Unlike [`append_bytes`](Self::append_bytes),
+    /// this method does not do any copying. A slice of the reader's buffer is handed to `source`
+    /// so it can be populated directly.
     pub fn read_from<R: Read>(&mut self, mut source: R, length: usize) -> IonResult<usize> {
         self.checkpoint = None;
         self.restack();

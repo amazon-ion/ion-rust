@@ -51,7 +51,7 @@ impl Fields {
     /// appearance of a field in the struct's serialized form will have been the _only_ appearance.
     /// If a field name appears more than once, this method makes the arbitrary decision to return
     /// the value associated with the last appearance. If your application uses structs that repeat
-    /// field names, you are encouraged to use [get_all] instead.
+    /// field names, you are encouraged to use [`get_all`](Self::get_all) instead.
     fn get_last<A: AsSymbolRef>(&self, field_name: A) -> Option<&Element> {
         self.get_indexes(field_name)
             .and_then(|indexes| indexes.last())
