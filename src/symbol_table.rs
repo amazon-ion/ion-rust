@@ -32,8 +32,8 @@ impl SymbolTable {
 
     // Interns the v1.0 system symbols
     fn initialize(&mut self) {
-        for (_id, text) in v1_0::SYSTEM_SYMBOLS.iter().enumerate() {
-            self.intern(text);
+        for &text in v1_0::SYSTEM_SYMBOLS.iter() {
+            self.intern_or_add_placeholder(text);
         }
     }
 

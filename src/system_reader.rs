@@ -162,7 +162,7 @@ impl<R: RawReader> SystemReader<R> {
                 .map(|a| {
                     a.matches(
                         system_symbol_ids::ION_SYMBOL_TABLE,
-                        SYSTEM_SYMBOLS[system_symbol_ids::ION_SYMBOL_TABLE],
+                        SYSTEM_SYMBOLS[system_symbol_ids::ION_SYMBOL_TABLE].unwrap(),
                     )
                 })
                 .unwrap_or(false)

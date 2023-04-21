@@ -479,12 +479,6 @@ mod native_element_tests {
                 "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
                 "ion-tests/iontestdata/good/utf16.ion",
                 "ion-tests/iontestdata/good/utf32.ion",
-                // These tests have symbols with unknown text. While the raw and system readers
-                // could process these, the user-level `Reader` simply raises an `IonError`.
-                // This is in keeping with the Ion spec, but causes these tests to fail.
-                "ion-tests/iontestdata/good/symbolExplicitZero.10n",
-                "ion-tests/iontestdata/good/symbolImplicitZero.10n",
-                "ion-tests/iontestdata/good/symbolZero.ion",
             ]
         }
 
@@ -603,12 +597,6 @@ mod non_blocking_native_element_tests {
                 "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
                 "ion-tests/iontestdata/good/utf16.ion",
                 "ion-tests/iontestdata/good/utf32.ion",
-                // These tests have symbols with unknown text. While the raw and system readers
-                // could process these, the user-level `Reader` simply raises an `IonError`.
-                // This is in keeping with the Ion spec, but causes these tests to fail.
-                "ion-tests/iontestdata/good/symbolExplicitZero.10n",
-                "ion-tests/iontestdata/good/symbolImplicitZero.10n",
-                "ion-tests/iontestdata/good/symbolZero.ion",
             ]
         }
 

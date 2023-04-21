@@ -10,7 +10,7 @@ use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
 use crate::types::ContainerType;
 use crate::writer::IonWriter;
-use crate::{Int, IonType};
+use crate::{Int, IonType, RawSymbolToken};
 
 pub struct RawTextWriterBuilder {
     whitespace_config: WhitespaceConfig,
@@ -187,8 +187,8 @@ static PRETTY_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
 
 pub struct RawTextWriter<W: Write> {
     output: BufWriter<W>,
-    annotations: Vec<String>,
-    field_name: Option<String>,
+    annotations: Vec<RawSymbolToken>,
+    field_name: Option<RawSymbolToken>,
     containers: Vec<EncodingLevel>,
     whitespace_config: Box<WhitespaceConfig>,
 }
@@ -397,11 +397,11 @@ impl<W: Write> RawTextWriter<W> {
         //       It will be common for this text to come from the symbol table; we should
         //       make it possible to pass an Arc<str> or similar when applicable.
         //       See: https://github.com/amazon-ion/ion-rust/issues/496
-        let text = match annotation.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(sid) => format!("${sid}"),
-            RawSymbolTokenRef::Text(text) => text.to_string(),
+        let token = match annotation.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(sid) => RawSymbolToken::SymbolId(sid),
+            RawSymbolTokenRef::Text(text) => RawSymbolToken::Text(text.to_string()),
         };
-        self.annotations.push(text);
+        self.annotations.push(token);
     }
 
     /// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
@@ -668,11 +668,11 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
     /// of a struct, the field name will be written before the next value. Otherwise, it will be
     /// ignored.
     fn set_field_name<A: AsRawSymbolTokenRef>(&mut self, name: A) {
-        let name = match name.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(sid) => format!("${sid}"),
-            RawSymbolTokenRef::Text(text) => text.to_string(),
+        let token = match name.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(sid) => RawSymbolToken::SymbolId(sid),
+            RawSymbolTokenRef::Text(text) => RawSymbolToken::Text(text.to_string()),
         };
-        self.field_name = Some(name);
+        self.field_name = Some(token);
     }
 
     fn parent_type(&self) -> Option<IonType> {
