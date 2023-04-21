@@ -1,5 +1,5 @@
+use crate::ion_data::IonEq;
 use crate::ion_data::IonOrd;
-use crate::IonEq;
 use std::cmp::Ordering;
 
 /// An owned, immutable byte array.

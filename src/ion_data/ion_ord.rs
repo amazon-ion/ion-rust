@@ -12,6 +12,12 @@ pub(crate) trait IonOrd {
     fn ion_cmp(&self, other: &Self) -> Ordering;
 }
 
+impl<T: IonOrd> IonOrd for &T {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        T::ion_cmp(self, other)
+    }
+}
+
 impl IonOrd for IonType {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(other).unwrap()

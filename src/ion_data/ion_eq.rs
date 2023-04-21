@@ -29,6 +29,12 @@ pub trait IonEq {
     fn ion_eq(&self, other: &Self) -> bool;
 }
 
+impl<T: IonEq> IonEq for &T {
+    fn ion_eq(&self, other: &Self) -> bool {
+        T::ion_eq(self, other)
+    }
+}
+
 impl IonEq for bool {
     fn ion_eq(&self, other: &Self) -> bool {
         self == other

@@ -4,7 +4,7 @@ mod ion_ord;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
-pub use ion_eq::IonEq;
+pub(crate) use ion_eq::IonEq;
 pub(crate) use ion_ord::IonOrd;
 
 /// A wrapper for lifting Ion compatible data into using Ion oriented comparisons (versus the Rust
@@ -22,6 +22,13 @@ pub(crate) use ion_ord::IonOrd;
 /// over all [IonData]. _The algorithm used for [Ord] may change between versions._
 #[derive(Debug, Clone)]
 pub struct IonData<T: IonEq>(T);
+
+impl<T: IonEq> IonData<T> {
+    // Checks if two values are equal according to Ion's structural equivalence.
+    pub fn eq(a: &T, b: &T) -> bool {
+        T::ion_eq(a, b)
+    }
+}
 
 impl<T: IonEq> IonData<T> {
     /// Unwraps the value.

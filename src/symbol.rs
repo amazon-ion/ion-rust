@@ -1,6 +1,6 @@
-use crate::ion_data::IonOrd;
+use crate::ion_data::{IonEq, IonOrd};
 use crate::result::decoding_error;
-use crate::{IonEq, IonResult};
+use crate::IonResult;
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};

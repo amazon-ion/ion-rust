@@ -1,7 +1,7 @@
 use crate::element::Element;
+use crate::ion_data::IonEq;
 use crate::ion_data::IonOrd;
 use crate::result::{decoding_error, IonError};
-use crate::IonEq;
 use num_bigint::{BigInt, BigUint, ToBigUint};
 use num_traits::{ToPrimitive, Zero};
 use std::cmp::Ordering;

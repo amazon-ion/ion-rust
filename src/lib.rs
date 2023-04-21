@@ -214,7 +214,6 @@ pub use types::timestamp::Timestamp;
 pub use types::IonType;
 
 pub use ion_data::IonData;
-pub use ion_data::IonEq;
 
 pub use binary::binary_writer::{BinaryWriter, BinaryWriterBuilder};
 pub use text::text_writer::{TextWriter, TextWriterBuilder};
