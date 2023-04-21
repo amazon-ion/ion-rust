@@ -37,8 +37,7 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-          # explicitly add rustc to get rustdoc
-          components: rustc, rustfmt, clippy
+          components: rustfmt, clippy
           override: true
       - name: Cargo Build
         uses: actions-rs/cargo@v1
@@ -81,5 +80,5 @@ jobs:
       - name: Rustdoc on Everything
         uses: actions-rs/cargo@v1
         with:
-          command: doc --document-private-items --all-features
-          args: --verbose -- --check
+          command: doc
+          args: --document-private-items --all-features
