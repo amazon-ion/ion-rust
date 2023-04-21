@@ -1,15 +1,15 @@
 pub(crate) mod v1_0 {
-    pub const SYSTEM_SYMBOLS: &[&str] = &[
-        "$0",                       // $0
-        "$ion",                     // $1
-        "$ion_1_0",                 // $2
-        "$ion_symbol_table",        // $3
-        "name",                     // $4
-        "version",                  // $5
-        "imports",                  // $6
-        "symbols",                  // $7
-        "max_id",                   // $8
-        "$ion_shared_symbol_table", // $9
+    pub const SYSTEM_SYMBOLS: &[Option<&str>] = &[
+        None,                             // $0
+        Some("$ion"),                     // $1
+        Some("$ion_1_0"),                 // $2
+        Some("$ion_symbol_table"),        // $3
+        Some("name"),                     // $4
+        Some("version"),                  // $5
+        Some("imports"),                  // $6
+        Some("symbols"),                  // $7
+        Some("max_id"),                   // $8
+        Some("$ion_shared_symbol_table"), // $9
     ];
 
     pub(crate) mod system_symbol_ids {

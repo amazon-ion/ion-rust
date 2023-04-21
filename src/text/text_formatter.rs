@@ -407,7 +407,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         write!(self.output, "{{")?;
         let mut peekable_itr = value.fields().peekable();
         while let Some((field_name, field_value)) = peekable_itr.next() {
-            self.format_symbol(field_name.text().unwrap())?;
+            self.format_symbol(field_name.as_raw_symbol_token_ref())?;
             write!(self.output, ": {field_value}")?;
             if peekable_itr.peek().is_some() {
                 write!(self.output, ", ")?;

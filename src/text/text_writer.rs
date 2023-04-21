@@ -1,6 +1,6 @@
 use crate::element::writer::TextKind;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
-use crate::result::{illegal_operation, IonResult};
+use crate::result::IonResult;
 use crate::text::raw_text_writer::RawTextWriter;
 use crate::types::decimal::Decimal;
 use crate::types::timestamp::Timestamp;
@@ -113,58 +113,46 @@ impl<W: Write> IonWriter for TextWriter<W> {
         I: IntoIterator<Item = A>,
     {
         for annotation in annotations {
-            let text = match annotation.as_raw_symbol_token_ref() {
+            let raw_symbol_token_ref = match annotation.as_raw_symbol_token_ref() {
                 RawSymbolTokenRef::SymbolId(symbol_id) => {
                     // Get the text associated with this symbol ID
-                    if let Some(text) = self.symbol_table.text_for(symbol_id) {
-                        text
-                    } else {
-                        // TODO: TextWriter is intended to be an application-level interface, so
-                        //       dealing with undefined symbols is out of scope for it. Users
-                        //       wishing to write a symbol ID literal could use a RawTextWriter
-                        //       instead. However, we could consider allowing this via a config
-                        //       option.
-                        panic!(
-                            "Cannot use symbol ID ${symbol_id} as an annotation; it is undefined."
-                        );
+                    match self.symbol_table.text_for(symbol_id) {
+                        Some(text) => RawSymbolTokenRef::Text(text),
+                        None => RawSymbolTokenRef::SymbolId(symbol_id),
                     }
                 }
-                RawSymbolTokenRef::Text(text) => text,
+                text_token => text_token,
             };
-            self.raw_writer.add_annotation(text);
+            self.raw_writer.add_annotation(raw_symbol_token_ref);
         }
     }
 
     fn write_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
-        let text = match value.as_raw_symbol_token_ref() {
+        let raw_symbol_token_ref = match value.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(symbol_id) => {
                 // Get the text associated with this symbol ID
-                if let Some(text) = self.symbol_table.text_for(symbol_id) {
-                    text
-                } else {
-                    return illegal_operation(format!(
-                        "Cannot write symbol ID ${symbol_id} as a symbol value; it is undefined."
-                    ));
+                match self.symbol_table.text_for(symbol_id) {
+                    Some(text) => RawSymbolTokenRef::Text(text),
+                    None => RawSymbolTokenRef::SymbolId(symbol_id),
                 }
             }
-            RawSymbolTokenRef::Text(text) => text,
+            text_token => text_token,
         };
-        self.raw_writer.write_symbol(text)
+        self.raw_writer.write_symbol(raw_symbol_token_ref)
     }
 
     fn set_field_name<A: AsRawSymbolTokenRef>(&mut self, name: A) {
-        let text = match name.as_raw_symbol_token_ref() {
+        let raw_symbol_token_ref = match name.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(symbol_id) => {
                 // Get the text associated with this symbol ID
-                if let Some(text) = self.symbol_table.text_for(symbol_id) {
-                    text
-                } else {
-                    panic!("Cannot use symbol ID ${symbol_id} as a field name; it is undefined.");
+                match self.symbol_table.text_for(symbol_id) {
+                    Some(text) => RawSymbolTokenRef::Text(text),
+                    None => RawSymbolTokenRef::SymbolId(symbol_id),
                 }
             }
-            RawSymbolTokenRef::Text(text) => text,
+            text_token => text_token,
         };
-        self.raw_writer.set_field_name(text);
+        self.raw_writer.set_field_name(raw_symbol_token_ref);
     }
 
     delegate! {
