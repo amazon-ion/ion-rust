@@ -1,24 +1,21 @@
 mod ion_eq;
 mod ion_ord;
 
-use crate::{Element, IonResult};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
-use crate::element::{Annotations, Value};
-use delegate::delegate;
 pub use ion_eq::IonEq;
 pub(crate) use ion_ord::IonOrd;
 
-/// A wrapper for lifting "data" to "Ion data". Anything that implements [IonEq] can be converted
-/// into [IonData]. As [IonData], the semantics of [Eq] are the same as [IonEq]—that is to say, [Eq]
-/// follows the rules for Ion Equivalence in the Ion specification.
+/// A wrapper for lifting Ion compatible data into using Ion oriented comparisons (versus the Rust
+/// value semantics). This enables the default semantics to be what a Rust user expects for native
+/// values, but allows a user to opt-in to Ion's structural equivalence/order.
 ///
-/// [IonData] itself does not implement [IonEq] so that it is not possible to create, for example,
-/// `IonData<IonData<Element>>`.
+/// Anything that implements [`IonEq`] can be converted into [`IonData`]. [`IonData`] itself does not
+/// implement [`IonEq`] so that it is impossible to create, for example, `IonData<IonData<Element>>`.
 ///
-/// [Hash] and [Ord] are not guaranteed to be implemented for all [IonData], but when they are, they
-/// are required to be consistent with [IonEq] (and [Eq]).
+/// [`Hash`] and [`Ord`] are not guaranteed to be implemented for all [`IonData`], but when they are,
+/// they are required to be consistent with [`IonEq`] (and [`Eq`]).
 ///
 /// __WARNING__—The Ion specification does _not_ define a total ordering over all Ion values. Do
 /// not depend on getting any particular result from [Ord]. Use it only as an opaque total ordering
@@ -68,43 +65,5 @@ impl<T: IonEq + IonOrd> PartialOrd for IonData<T> {
 impl<T: IonEq + IonOrd> Ord for IonData<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         IonOrd::ion_cmp(&self.0, &other.0)
-    }
-}
-
-impl IonData<Element> {
-    /// Reads a single [IonData<Element>] from the provided data source.
-    ///
-    /// If the data source is empty, returns `Ok(None)`.
-    /// If the data source has at least one value, returns `Ok(Some(IonData<Element>))`.
-    /// If the data source has invalid data, returns `Err`.
-    pub fn read_first<A: AsRef<[u8]>>(data: A) -> IonResult<Option<IonData<Element>>> {
-        Element::read_first(data).map(|opt| opt.map(IonData))
-    }
-
-    /// Reads a single Ion [IonData<Element>] from the provided data source. If the input has invalid
-    /// data or does not contain at exactly one Ion value, returns `Err(IonError)`.
-    pub fn read_one<A: AsRef<[u8]>>(data: A) -> IonResult<IonData<Element>> {
-        Element::read_one(data).map(IonData)
-    }
-
-    /// Reads all available [IonData<Element>]s from the provided data source.
-    ///
-    /// If the input has valid data, returns `Ok(Vec<IonData<Element>>)`.
-    /// If the input has invalid data, returns `Err(IonError)`.
-    pub fn read_all<A: AsRef<[u8]>>(data: A) -> IonResult<Vec<IonData<Element>>> {
-        Element::read_all(data).map(|vec| vec.into_iter().map(IonData).collect())
-    }
-
-    delegate! {
-        to self.0 {
-            pub fn value(&self) -> &Value;
-            pub fn annotations(&self) -> &Annotations;
-        }
-    }
-}
-
-impl From<IonData<Element>> for Element {
-    fn from(value: IonData<Element>) -> Self {
-        value.0
     }
 }

@@ -29,6 +29,12 @@ pub trait IonEq {
     fn ion_eq(&self, other: &Self) -> bool;
 }
 
+impl IonEq for bool {
+    fn ion_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
 impl IonEq for f64 {
     fn ion_eq(&self, other: &Self) -> bool {
         if self.is_nan() {
@@ -39,5 +45,19 @@ impl IonEq for f64 {
         }
         // For all other values, fall back to mathematical equivalence
         self == other
+    }
+}
+
+impl<T: IonEq> IonEq for Vec<T> {
+    fn ion_eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        for (v1, v2) in self.iter().zip(other.iter()) {
+            if !v1.ion_eq(v2) {
+                return false;
+            }
+        }
+        true
     }
 }

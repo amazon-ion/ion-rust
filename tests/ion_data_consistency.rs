@@ -39,7 +39,11 @@ fn ion_data_consistency(file_name: &str) {
         let sequence = equiv_group.as_sequence().unwrap();
         if equiv_group.annotations().contains("embedded_documents") {
             check_group(group_index, sequence, |el| {
-                IonData::read_all(el.as_string().unwrap()).unwrap()
+                Element::read_all(el.as_string().unwrap())
+                    .unwrap()
+                    .into_iter()
+                    .map(IonData::from)
+                    .collect::<Vec<_>>()
             })
         } else {
             check_group(group_index, sequence, |el| IonData::from(el.clone()))

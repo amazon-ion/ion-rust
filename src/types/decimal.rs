@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use bigdecimal::{BigDecimal, Signed};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 
+use crate::ion_data::IonEq;
 use crate::ion_data::IonOrd;
-use crate::ion_eq::IonEq;
 use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::integer::UInt;
@@ -395,7 +395,7 @@ mod decimal_tests {
     use std::convert::TryInto;
     use std::fmt::Write;
 
-    use crate::ion_eq::IonEq;
+    use crate::ion_data::IonEq;
     use rstest::*;
 
     #[rstest]

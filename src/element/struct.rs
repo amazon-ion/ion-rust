@@ -1,10 +1,11 @@
 use crate::element::builders::StructBuilder;
 use crate::element::iterators::{FieldIterator, FieldValuesIterator, IndexVec};
 use crate::element::Element;
-use crate::ion_data::IonEq;
+use crate::ion_data::{IonEq, IonOrd};
 use crate::symbol_ref::AsSymbolRef;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::Symbol;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
@@ -224,6 +225,32 @@ impl PartialEq for Struct {
 }
 
 impl Eq for Struct {}
+
+impl IonEq for Struct {
+    fn ion_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+impl IonOrd for Struct {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        let mut these_fields = self.fields.by_index.clone();
+        let mut those_fields = other.fields.by_index.clone();
+        these_fields.sort_by(IonOrd::ion_cmp);
+        those_fields.sort_by(IonOrd::ion_cmp);
+        IonOrd::ion_cmp(&these_fields, &those_fields)
+    }
+}
+
+impl IonOrd for (Symbol, Element) {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        let ord = self.0.text().cmp(&other.0.text());
+        if !ord.is_eq() {
+            return ord;
+        }
+        IonOrd::ion_cmp(&self.1, &other.1)
+    }
+}
 
 #[cfg(test)]
 mod tests {

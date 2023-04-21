@@ -1,5 +1,7 @@
 use crate::element::Element;
+use crate::ion_data::IonOrd;
 use crate::result::{decoding_error, IonError};
+use crate::IonEq;
 use num_bigint::{BigInt, BigUint, ToBigUint};
 use num_traits::{ToPrimitive, Zero};
 use std::cmp::Ordering;
@@ -346,6 +348,18 @@ impl PartialEq for Int {
 }
 
 impl Eq for Int {}
+
+impl IonEq for Int {
+    fn ion_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+impl IonOrd for Int {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
+    }
+}
 
 impl Neg for Int {
     type Output = Self;

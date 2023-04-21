@@ -71,20 +71,6 @@ impl IonEq for Sequence {
     }
 }
 
-impl IonEq for Vec<Element> {
-    fn ion_eq(&self, other: &Self) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-        for (v1, v2) in self.iter().zip(other.iter()) {
-            if !v1.ion_eq(v2) {
-                return false;
-            }
-        }
-        true
-    }
-}
-
 impl IonOrd for Sequence {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.elements.ion_cmp(&other.elements)

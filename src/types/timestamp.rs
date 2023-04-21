@@ -1,5 +1,5 @@
+use crate::ion_data::IonEq;
 use crate::ion_data::IonOrd;
-use crate::ion_eq::IonEq;
 use crate::result::{
     encoding_error, illegal_operation, illegal_operation_raw, IonError, IonResult,
 };
@@ -1312,7 +1312,7 @@ impl From<DateTime<FixedOffset>> for Timestamp {
 #[cfg(test)]
 mod timestamp_tests {
     use super::*;
-    use crate::ion_eq::IonEq;
+    use crate::ion_data::IonEq;
     use crate::result::IonResult;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::{Mantissa, Precision, Timestamp};

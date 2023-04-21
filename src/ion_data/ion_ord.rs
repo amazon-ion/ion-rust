@@ -1,5 +1,5 @@
-use crate::element::{Annotations, Struct};
-use crate::{Element, IonType, Symbol};
+use crate::element::Annotations;
+use crate::IonType;
 use std::cmp::Ordering;
 
 /// Trait used for delegating [Eq] and [PartialEq] in [IonData].
@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 /// Since there is no total ordering in the Ion specification, do not write any code that depends on
 /// a specific order being preserved. Only depend on the fact that a total ordering does exist.
 pub(crate) trait IonOrd {
+    // Intentionally not public—this trait is exposed via `impl Ord for IonData`.
     // Called ion_cmp to avoid shadowing with Ord::cmp
     fn ion_cmp(&self, other: &Self) -> Ordering;
 }
@@ -23,29 +24,15 @@ impl IonOrd for Annotations {
     }
 }
 
+impl IonOrd for bool {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
+    }
+}
+
 impl IonOrd for f64 {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.total_cmp(other)
-    }
-}
-
-impl IonOrd for Struct {
-    fn ion_cmp(&self, other: &Self) -> Ordering {
-        let mut these_fields = self.fields().collect::<Vec<(&Symbol, &Element)>>();
-        let mut those_fields = other.fields().collect::<Vec<(&Symbol, &Element)>>();
-        these_fields.sort_by(IonOrd::ion_cmp);
-        those_fields.sort_by(IonOrd::ion_cmp);
-        IonOrd::ion_cmp(&these_fields, &those_fields)
-    }
-}
-
-impl<'a> IonOrd for (&'a Symbol, &'a Element) {
-    fn ion_cmp(&self, other: &Self) -> Ordering {
-        let ord = self.0.text().cmp(&other.0.text());
-        if !ord.is_eq() {
-            return ord;
-        }
-        IonOrd::ion_cmp(self.1, other.1)
     }
 }
 
@@ -73,7 +60,7 @@ impl<T: IonOrd> IonOrd for Vec<T> {
 mod ord_tests {
     use super::*;
     use crate::element::{List, Sequence};
-    use crate::IonData;
+    use crate::{Element, IonData};
     use rstest::*;
 
     #[rstest]
@@ -232,15 +219,19 @@ mod ord_tests {
     "
     )]
     fn test_order(#[case] ion: &str) {
-        let original = IonData::read_all(ion).unwrap();
+        let original = Element::read_all(ion)
+            .unwrap()
+            .into_iter()
+            .map(IonData::from)
+            .collect::<Vec<_>>();
         let mut copy = original.clone();
         copy.sort();
 
         if original != copy {
             let original_for_display: List =
-                Sequence::new(original.iter().cloned().map(Element::from)).into();
+                Sequence::new(original.iter().cloned().map(IonData::into_inner)).into();
             let copy_for_display: List =
-                Sequence::new(copy.iter().cloned().map(Element::from)).into();
+                Sequence::new(copy.iter().cloned().map(IonData::into_inner)).into();
             // Prints using display (i.e. as Ion text)
             println!("original: {original_for_display}");
             println!("copy: {copy_for_display}");

@@ -5,7 +5,7 @@ use std::io::Write;
 use arrayvec::ArrayVec;
 use bigdecimal::Zero;
 
-use crate::ion_eq::IonEq;
+use crate::ion_data::IonEq;
 use crate::{
     binary::{
         int::DecodedInt, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt, var_uint::VarUInt,

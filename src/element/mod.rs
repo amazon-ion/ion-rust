@@ -14,8 +14,8 @@
 
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
+use crate::ion_data::IonEq;
 use crate::ion_data::IonOrd;
-use crate::ion_eq::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::{Decimal, Int, IonResult, IonType, ReaderBuilder, Str, Symbol, Timestamp};
 use num_bigint::BigInt;
@@ -49,15 +49,21 @@ impl IonEq for Value {
     fn ion_eq(&self, other: &Self) -> bool {
         use Value::*;
         match (self, other) {
-            (Float(f1), Float(f2)) => return f1.ion_eq(f2),
-            (Decimal(d1), Decimal(d2)) => return d1.ion_eq(d2),
-            (Timestamp(t1), Timestamp(t2)) => return t1.ion_eq(t2),
-            (List(l1), List(l2)) => return l1.ion_eq(l2),
-            (SExp(s1), SExp(s2)) => return s1.ion_eq(s2),
-            _ => {}
-        };
-        // For any other case, fall back to vanilla equality
-        self == other
+            (Null(this), Null(that)) => this == that,
+            (Int(this), Int(that)) => this.ion_eq(that),
+            (Float(this), Float(that)) => this.ion_eq(that),
+            (Decimal(this), Decimal(that)) => this.ion_eq(that),
+            (Timestamp(this), Timestamp(that)) => this.ion_eq(that),
+            (String(this), String(that)) => this.ion_eq(that),
+            (Symbol(this), Symbol(that)) => this.ion_eq(that),
+            (Bool(this), Bool(that)) => this.ion_eq(that),
+            (Blob(this), Blob(that)) => this.ion_eq(that),
+            (Clob(this), Clob(that)) => this.ion_eq(that),
+            (SExp(this), SExp(that)) => this.ion_eq(that),
+            (List(this), List(that)) => this.ion_eq(that),
+            (Struct(this), Struct(that)) => this.ion_eq(that),
+            _ => false,
+        }
     }
 }
 
@@ -89,15 +95,15 @@ impl IonOrd for Value {
                     Ordering::Less
                 }
             }
-            Int(this) => compare!(Int(that) => this.cmp(that)),
+            Int(this) => compare!(Int(that) => this.ion_cmp(that)),
             Float(this) => compare!(Float(that) => this.ion_cmp(that)),
             Decimal(this) => compare!(Decimal(that) => this.ion_cmp(that)),
             Timestamp(this) => compare!(Timestamp(that) => this.ion_cmp(that)),
-            String(this) => compare!(String(that) => this.cmp(that)),
-            Symbol(this) => compare!(Symbol(that) => this.cmp(that)),
-            Bool(this) => compare!(Bool(that) => this.cmp(that)),
-            Blob(this) => compare!(Blob(that) => this.cmp(that)),
-            Clob(this) => compare!(Clob(that) => this.cmp(that)),
+            String(this) => compare!(String(that) => this.ion_cmp(that)),
+            Symbol(this) => compare!(Symbol(that) => this.ion_cmp(that)),
+            Bool(this) => compare!(Bool(that) => this.ion_cmp(that)),
+            Blob(this) => compare!(Blob(that) => this.ion_cmp(that)),
+            Clob(this) => compare!(Clob(that) => this.ion_cmp(that)),
             SExp(this) => compare!(SExp(that) => this.ion_cmp(that)),
             List(this) => compare!(List(that) => this.ion_cmp(that)),
             Struct(this) => compare!(Struct(that) => this.ion_cmp(that)),
@@ -322,7 +328,7 @@ impl IonEq for Element {
 }
 
 // Ordering is done as follows:
-// 1. Ion type -- because it is the cheapest comparison
+// 1. Ion type -- It is a logical way to group Ion values, and it is the cheapest comparison
 // 2. Annotations -- the vast majority of Ion values have few annotations, so this should usually be cheap
 // 3. Value -- compared using IonOrd
 impl IonOrd for Element {
@@ -1134,7 +1140,7 @@ mod tests {
 #[cfg(test)]
 mod value_tests {
     use crate::element::*;
-    use crate::ion_eq::IonEq;
+    use crate::ion_data::IonEq;
     use crate::{ion_list, ion_sexp, ion_struct, IonType};
     use rstest::*;
 

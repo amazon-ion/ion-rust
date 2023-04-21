@@ -156,7 +156,7 @@ impl Display for Coefficient {
 
 #[cfg(test)]
 mod coefficient_tests {
-    use crate::ion_eq::IonEq;
+    use crate::ion_data::IonEq;
     use num_bigint::BigUint;
 
     use crate::types::coefficient::Coefficient;
