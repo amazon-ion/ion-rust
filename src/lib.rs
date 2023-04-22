@@ -193,6 +193,9 @@ mod symbol_table;
 mod system_reader;
 mod writer;
 
+#[cfg(feature = "experimental")]
+pub(crate) mod thunk;
+
 #[doc(inline)]
 pub use data_source::IonDataSource;
 #[doc(inline)]

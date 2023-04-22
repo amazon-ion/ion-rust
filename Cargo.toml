@@ -31,6 +31,11 @@ members = [
 default = []
 ion-hash = ["digest"]
 
+# Feature for indicating particularly bleeding edge APIs or functionality in the library.
+# These are not guaranteed any sort of API stability and may also have non-standard
+# Ion behavior (e.g., draft Ion 1.1 capabilities).
+experimental = []
+
 [dependencies]
 base64 = "0.12"
 bigdecimal = "0.3.0"
