@@ -186,7 +186,7 @@ impl IonEq for Decimal {
 }
 
 impl IonOrd for Decimal {
-    // Numerical order (least to greatest) and then precision (least to greatest)
+    // Numerical order (least to greatest) and then by number of significant figures (least to greatest)
     fn ion_cmp(&self, other: &Self) -> Ordering {
         let sign_cmp = self.coefficient.sign().cmp(&other.coefficient.sign());
         if sign_cmp != Ordering::Equal {
@@ -201,8 +201,9 @@ impl IonOrd for Decimal {
                 Sign::Positive => ordering,
             };
         };
-        // Finally, compare the precision
-        self.precision().cmp(&other.precision())
+        // Finally, compare the number of significant figures.
+        // Since we know the numeric value is the same, we only need to look at the exponents here.
+        self.exponent.cmp(&other.exponent).reverse()
     }
 }
 

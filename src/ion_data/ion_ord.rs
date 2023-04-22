@@ -103,9 +103,15 @@ mod ord_tests {
         -0.00
         0.0
         0.00
+        0.001
+        0.0010
         1.0
         1.00
         10.00
+        1d3
+        10d2
+        100d1
+        1000d0
     "
     )]
     #[case::timestamps_sorted_by_point_in_time_and_precision(
@@ -246,14 +252,19 @@ mod ord_tests {
         }
 
         let mut original_iter = original.iter();
-        let previous_element = original_iter.next().unwrap();
+        let mut previous_element = original_iter.next().unwrap();
         while let Some(element) = original_iter.next() {
             if element == previous_element {
                 assert_eq!(Ordering::Equal, element.cmp(previous_element));
             } else {
-                assert_eq!(Ordering::Greater, element.cmp(previous_element));
-                assert_eq!(Ordering::Less, previous_element.cmp(element))
+                assert_eq!(Ordering::Greater, element.cmp(previous_element), "\n{element} <:> {previous_element}\n Less: {previous_element:?}\n More: {element:?}");
+                assert_eq!(
+                    Ordering::Less,
+                    previous_element.cmp(element),
+                    "{element} {element:?} -- {previous_element} {previous_element:?}"
+                )
             }
+            previous_element = element;
         }
     }
 }

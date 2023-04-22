@@ -798,26 +798,29 @@ impl IonOrd for Timestamp {
         if ord != Ordering::Equal {
             return ord;
         };
+
         // And then by precision
+        let ord = self.precision.cmp(&other.precision);
+        if ord != Ordering::Equal {
+            return ord;
+        };
         match [
-            self.fractional_seconds_as_decimal(),
-            other.fractional_seconds_as_decimal(),
+            self.fractional_seconds_scale(),
+            other.fractional_seconds_scale(),
         ] {
-            [None, Some(_)] => return Ordering::Less,
-            [Some(_), None] => return Ordering::Greater,
-            [Some(a), Some(b)] if !a.is_zero() || !b.is_zero() => {
-                let ord = a.ion_cmp(&b);
+            [None, Some(b)] if b > 0 => return Ordering::Less,
+            [Some(a), None] if a > 0 => return Ordering::Greater,
+            [Some(a), Some(b)] => {
+                println!("{} -- {}", a, b);
+                let ord = a.cmp(&b);
                 if ord != Ordering::Equal {
                     return ord;
                 }
             }
             _ => {}
         }
+
         // And finally by offset (unknown, then least to greatest)
-        let ord = self.precision.cmp(&other.precision);
-        if ord != Ordering::Equal {
-            return ord;
-        };
         match [self.offset, other.offset] {
             [None, Some(_)] => Ordering::Less,
             [None, None] => Ordering::Equal,
