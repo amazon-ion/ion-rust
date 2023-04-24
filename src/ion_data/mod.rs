@@ -24,13 +24,11 @@ pub(crate) use ion_ord::IonOrd;
 pub struct IonData<T: IonEq>(T);
 
 impl<T: IonEq> IonData<T> {
-    // Checks if two values are equal according to Ion's structural equivalence.
-    pub fn eq(a: &T, b: &T) -> bool {
-        T::ion_eq(a, b)
+    /// Checks if two values are equal according to Ion's structural equivalence.
+    pub fn eq<U: AsRef<T>>(a: U, b: U) -> bool {
+        T::ion_eq(a.as_ref(), b.as_ref())
     }
-}
 
-impl<T: IonEq> IonData<T> {
     /// Unwraps the value.
     pub fn into_inner(self) -> T {
         self.0

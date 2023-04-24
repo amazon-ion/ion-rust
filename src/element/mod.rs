@@ -175,6 +175,12 @@ impl Display for Value {
     }
 }
 
+impl AsRef<Value> for Value {
+    fn as_ref(&self) -> &Value {
+        self
+    }
+}
+
 impl From<IonType> for Value {
     fn from(ion_type: IonType) -> Self {
         Value::Null(ion_type)
@@ -596,6 +602,12 @@ impl PartialEq for Element {
 }
 
 impl Eq for Element {}
+
+impl AsRef<Element> for Element {
+    fn as_ref(&self) -> &Element {
+        self
+    }
+}
 
 // This implementation allows APIs that require an Into<Element> to accept references to an existing
 // Element.
