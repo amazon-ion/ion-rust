@@ -177,8 +177,8 @@ static PRETTY_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
     space_between_top_level_values: "\n",
     // Each value appears on its own line
     space_between_nested_values: "\n",
-    // Values get four spaces of indentation per level of depth
-    indentation: "    ",
+    // Values get two spaces of indentation per level of depth
+    indentation: "  ",
     // Field names and values are separated by a single space
     space_after_field_name: " ",
     // The first value in a container appears on a line by itself
@@ -1040,7 +1040,7 @@ mod tests {
                 w.step_out()
             },
             "[\"foo\", 21, bar]",
-            "[\n    \"foo\",\n    21,\n    bar\n]",
+            "[\n  \"foo\",\n  21,\n  bar\n]",
             "[\"foo\", 21, bar]",
         );
     }
@@ -1058,7 +1058,7 @@ mod tests {
                 w.step_out()
             },
             "[\"foo\", 21, [bar]]",
-            "[\n    \"foo\",\n    21,\n    [\n        bar\n    ]\n]",
+            "[\n  \"foo\",\n  21,\n  [\n    bar\n  ]\n]",
             "[\"foo\", 21, [bar]]",
         );
     }
@@ -1074,7 +1074,7 @@ mod tests {
                 w.step_out()
             },
             "(\"foo\" 21 bar)",
-            "(\n    \"foo\"\n    21\n    bar\n)",
+            "(\n  \"foo\"\n  21\n  bar\n)",
             "(\"foo\" 21 bar)",
         );
     }
@@ -1094,7 +1094,7 @@ mod tests {
                 w.step_out()
             },
             "{a: \"foo\", b: 21, c: quux::bar}",
-            "{\n    a: \"foo\",\n    b: 21,\n    c: quux::bar\n}",
+            "{\n  a: \"foo\",\n  b: 21,\n  c: quux::bar\n}",
             "{a: \"foo\", b: 21, c: quux::bar}",
         );
     }
