@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::bare_urls)]
 //! # Reading and writing `Element`s
 //!
 //! The [Element] API offers a convenient way to read and write Ion data when its exact shape is

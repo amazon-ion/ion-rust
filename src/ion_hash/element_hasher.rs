@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 //! Provides [`ElementHasher`], a single-use IonHash implementation for an
-//! [`IonElement`].
+//! [`Element`].
 
 use std::io;
 

@@ -1,29 +1,30 @@
 //! The [`nom` parser combinator crate](https://docs.rs/nom/latest/nom/) intentionally provides
 //! bare-bones error reporting by default. Each error contains only a `&str` representing the input
-//! that could not be matched and an [ErrorKind] enum variant indicating which `nom` parser produced
+//! that could not be matched and an [`ErrorKind`] enum variant indicating which `nom` parser produced
 //! the error. This stack-allocated type is very cheap to create, which is important because a
 //! typical parse will require creating large numbers of short-lived error values.
 //!
-//! This module defines [IonParseError], a custom error type that can capture more information than is
-//! supported by [nom::error::Error], as well as traits and functions for upgrading an `Error` into
-//! an [IonParseError]. The module also defines [IonParseResult], a type alias for a [nom::IResult]
-//! that parses `&str`s and produces [IonParseError]s if something goes wrong.
+//! This module defines [`IonParseError`], a custom error type that can capture more information than is
+//! supported by [`nom::error::Error`], as well as traits and functions for upgrading an `Error` into
+//! an [`IonParseError`]. The module also defines [`IonParseResult`], a type alias for a [`IResult`]
+//! that parses `&str`s and produces [`IonParseError`]s if something goes wrong.
 //!
 //! Two new extension traits are also provided to facilitate combining core `nom` parsers that
 //! return an `IResult` (for example: `one_of`, `opt`, or `alt`) with higher-level parsers that
 //! return an `IonParseResult` (for example: `parse_timestamp` or `parse_decimal`).
 //!
-//! 1. [UpgradeIResult] adds an `.upgrade()` method to every `IResult` that cheaply converts it into
+//! 1. [`UpgradeIResult`] adds an `.upgrade()` method to every `IResult` that cheaply converts it into
 //! an `IonParseResult`.
-//! 2. [UpgradeParser] adds an `.upgrade()` method to every implementation of [nom::Parser] that
+//! 2. [`UpgradeParser`] adds an `.upgrade()` method to every implementation of [`Parser`] that
 //! causes it to return an `IonParseResult` instead of an `IResult`.
 
 use nom::error::{Error as NomError, ErrorKind, ParseError};
 use nom::{Err, IResult, Parser};
 use std::fmt::Debug;
 
-/// A type alias for a [nom::IResult] whose input is a `&str` and whose error type is an
-/// [IonParseError]. All of the Ion parsers in the [text::parsers] crate return an `IonParseResult`.
+/// A type alias for a [`IResult`] whose input is a `&str` and whose error type is an
+/// [`IonParseError`]. All of the Ion parsers in the `text::parsers` module return an
+/// [`IonParseResult`].
 ///
 /// If the parser is successful, it will return `Ok(output_value)`. If it encounters a problem,
 /// it will return a `nom::Err<IonParseError>`. [nom::Err] is a generic enum with three possible
@@ -250,10 +251,10 @@ where
 ///     )(input)                // <- OK!
 /// }
 /// ```
-/// This conversion is essentially free; `upgrade()` produces a stack-allocated [Upgraded] whose only field is
-/// the wrapped parser; this means that its size and layout are identical to the original parser.
-/// The only cost is the trivial expense of converting the parser's output from an `IResult` to an
-/// `IonParseResult`.
+/// This conversion is essentially free; `upgrade()` produces a stack-allocated [`UpgradedParser`]
+/// whose only field is the wrapped parser; this means that its size and layout are identical
+/// to the original parser. The only cost is the trivial expense of converting the parser's
+/// output from an `IResult` to an [`IonParseResult`].
 pub(crate) trait UpgradeParser<O> {
     fn upgrade(self) -> UpgradedParser<Self>;
 }

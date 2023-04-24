@@ -77,4 +77,8 @@ jobs:
           # Adding comments to the PR requires the GITHUB_TOKEN secret.
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all-features --tests
-
+      - name: Rustdoc on Everything
+        uses: actions-rs/cargo@v1
+        with:
+          command: doc
+          args: --document-private-items --all-features

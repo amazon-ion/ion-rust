@@ -83,7 +83,7 @@ pub(crate) fn escaped_char_no_unicode(input: &str) -> IonParseResult<StringFragm
 }
 
 /// Matches an escaped literal and returns the appropriate substitute character.
-/// See: https://amazon-ion.github.io/ion-docs/docs/spec.html#escapes
+/// See: <https://amazon-ion.github.io/ion-docs/docs/spec.html#escapes>
 pub(crate) fn escaped_char_literal(input: &str) -> IonParseResult<char> {
     alt((
         value('\n', char('n')),
@@ -177,10 +177,11 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IonParseResult<char> {
     Ok((remaining_input, character))
 }
 
-/// Rust's [char] type represents any Unicode code point EXCEPT a surrogate. If we encounter a high
-/// surrogate in the stream, we cannot convert it to a `char` yet. We must find the (mandatory)
-/// low surrogate that follows it in the stream; then we can combine the high and low surrogates
-/// into a complete code point. This code point can then be returned as a Rust [char].
+/// Rust's [`char`](prim@char) type represents any Unicode code point EXCEPT a surrogate. If we
+/// encounter a high surrogate in the stream, we cannot convert it to a `char` yet. We must find the
+/// (mandatory) low surrogate that follows it in the stream; then we can combine the high and low
+/// surrogates into a complete code point. This code point can then be returned as a Rust
+/// [`char`](prim@char).
 fn complete_surrogate_pair<'a>(
     input: &'a str,
     input_after_high_surrogate: &'a str,

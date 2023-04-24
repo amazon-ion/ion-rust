@@ -404,7 +404,8 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
     }
 
     /// Assumes that the reader is inside a struct AND that a field has already been successfully
-    /// parsed from input using [next_struct_field_name] and attempts to parse the next value.
+    /// parsed from input using [`next_struct_field_name`](Self::next_struct_field_name) and
+    /// attempts to parse the next value.
     /// In this input position, only a value (or whitespace/comments) are legal. Anything else
     /// (including EOF) will result in a decoding error.
     fn next_struct_field_value(&mut self) -> IonResult<AnnotatedTextValue> {

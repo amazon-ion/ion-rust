@@ -173,7 +173,7 @@ impl EncodedValue {
     /// Returns the number of bytes used to encode the series of VarUInt annotation symbol IDs, if
     /// any.
     ///
-    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#annotations
+    /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#annotations>
     fn annotations_sequence_length(&self) -> Option<usize> {
         if self.annotations_header_length == 0 {
             return None;
@@ -334,9 +334,9 @@ impl BufferedRawReader for RawBinaryReader<Vec<u8>> {
         Ok(())
     }
 
-    /// Tries to read `length` bytes from `source`. Unlike [append_bytes], this method does not do
-    /// any copying. A slice of the reader's buffer is handed to `source` so it can be populated
-    /// directly.
+    /// Tries to read `length` bytes from `source`. Unlike [append_bytes](Self::append_bytes),
+    /// this method does not do any copying. A slice of the reader's buffer is handed to `source`
+    /// so it can be populated directly.
     fn read_from<R: Read>(&mut self, source: R, length: usize) -> IonResult<usize> {
         self.buffer.read_from(source, length)
     }
@@ -473,7 +473,7 @@ impl<A: AsRef<[u8]>> RawBinaryReader<A> {
     /// Verifies that the reader is currently positioned over an Ion value of the expected type.
     /// If it is, returns a reference to the corresponding `&EncodedValue` and the slice of input
     /// bytes that represents the body of the value.
-    /// If it is not, returns [IonError::IllegalOperation].
+    /// If it is not, returns [`IllegalOperation`](crate::result::IonError::IllegalOperation).
     #[inline]
     fn value_and_bytes(&self, expected_ion_type: IonType) -> IonResult<(&EncodedValue, &[u8])> {
         // Get a reference to the EncodedValue. This is only possible if the reader is parked
@@ -505,8 +505,8 @@ impl<A: AsRef<[u8]>> RawBinaryReader<A> {
         Ok((encoded_value, bytes))
     }
 
-    /// Like [value_and_bytes], but wraps the byte slice in a `BinaryBuffer` to make it easy
-    /// to read a series of encoding primitives from the slice.
+    /// Like [`value_and_bytes`](Self::value_and_bytes), but wraps the byte slice in a
+    /// `BinaryBuffer` to make it easy to read a series of encoding primitives from the slice.
     #[inline]
     fn value_and_buffer(
         &mut self,

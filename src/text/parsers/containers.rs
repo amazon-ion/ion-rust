@@ -140,7 +140,8 @@ pub(crate) fn s_expression_scalar(input: &str) -> IonParseResult<AnnotatedTextVa
 }
 
 /// Returns [None] if the next token in input is an end-of-s-expression delimiter (`)`).
-/// Otherwise, matches and returns the next value in the s-expression using [s_expression_stream_value].
+/// Otherwise, matches and returns the next value in the s-expression using
+/// [`s_expression_value`].
 pub(crate) fn s_expression_value_or_end(input: &str) -> IonParseResult<Option<AnnotatedTextValue>> {
     map(s_expression_end, |_end_marker| None)
         .or(map(s_expression_value, Some))
@@ -162,7 +163,7 @@ pub(crate) fn s_expression_delimiter(input: &str) -> IonParseResult<()> {
 }
 
 /// Matches a struct field name and returns it as a [RawSymbolToken].
-/// This function should be called before [struct_stream_value].
+/// This function should be called before [`struct_field_value`].
 pub(crate) fn struct_field_name(input: &str) -> IonParseResult<RawSymbolToken> {
     delimited(
         whitespace_or_comments,

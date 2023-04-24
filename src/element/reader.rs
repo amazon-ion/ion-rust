@@ -160,7 +160,7 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
     }
 
     /// Steps into the current sequence and materializes each of its children to construct
-    /// an [Vec<Element>]. When all of the the children have been materialized, steps out.
+    /// an [`Vec<Element>`]. When all of the the children have been materialized, steps out.
     /// The reader MUST be positioned over a list or s-expression when this is called.
     fn materialize_sequence(&mut self) -> IonResult<Sequence> {
         let mut child_elements = Vec::new();
@@ -173,7 +173,7 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> 
     }
 
     /// Steps into the current struct and materializes each of its fields to construct
-    /// an [OwnedStruct]. When all of the the fields have been materialized, steps out.
+    /// an [`Struct`]. When all of the the fields have been materialized, steps out.
     /// The reader MUST be positioned over a struct when this is called.
     fn materialize_struct(&mut self) -> IonResult<Struct> {
         let mut child_elements = Vec::new();

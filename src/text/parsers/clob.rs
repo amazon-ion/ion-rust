@@ -14,8 +14,8 @@ use nom::Err::Incomplete;
 use nom::Needed;
 use std::str;
 
-/// Matches the text representation of a clob value and returns the resulting [Clob]
-/// as a [TextValue::Clob].
+/// Matches the text representation of a clob value and returns the resulting `clob`
+/// as a [`TextValue::Clob`].
 pub(crate) fn parse_clob(input: &str) -> IonParseResult<TextValue> {
     map(
         delimited(
@@ -32,16 +32,16 @@ fn parse_clob_body(input: &str) -> IonParseResult<TextValue> {
     alt((short_clob, long_clob))(input)
 }
 
-/// Matches a short clob (e.g. `"Hello"`) and returns the resulting [Clob]
-/// as a [TextValue::Clob].
+/// Matches a short clob (e.g. `"Hello"`) and returns the resulting `clob`
+/// as a [`TextValue::Clob`].
 fn short_clob(input: &str) -> IonParseResult<TextValue> {
     map(delimited(char('"'), short_clob_body, char('"')), |text| {
         TextValue::Clob(text)
     })(input)
 }
 
-/// Matches a long clob (e.g. `'''Hello, '''\n'''World!'''`) and returns the resulting [Clob]
-/// as a [TextValue::Clob].
+/// Matches a long clob (e.g. `'''Hello, '''\n'''World!'''`) and returns the resulting `clob`
+/// as a [`TextValue::Clob`].
 fn long_clob(input: &str) -> IonParseResult<TextValue> {
     // TODO: This parser allocates a Vec to hold each intermediate '''...''' string
     //       and then again to merge them into a finished product. These allocations
