@@ -49,6 +49,8 @@ where
 #[derive(Debug)]
 pub struct Thunk<'a, T>(IonResult<ThunkVal<'a, T>>);
 
+const EMPTY_THUNK_ERROR_TEXT: &'static str = "Empty thunk";
+
 impl<'a, T> Thunk<'a, T> {
     #[inline]
     pub fn wrap(value: T) -> Thunk<'static, T> {
@@ -115,7 +117,7 @@ impl<'a, T> Thunk<'a, T> {
     pub fn remove(&mut self) -> IonResult<T> {
         use ThunkVal::*;
         // move out the current value
-        let thunk_res = std::mem::replace(&mut self.0, illegal_operation("Empty thunk"));
+        let thunk_res = std::mem::replace(&mut self.0, illegal_operation(EMPTY_THUNK_ERROR_TEXT));
         // attempt to evaluate (if possible/needed)
         match thunk_res {
             Ok(Deferred(mut func)) => func(),
@@ -175,7 +177,7 @@ mod tests {
     use crate::IonResult;
 
     #[test]
-    fn test_materialize() -> IonResult<()> {
+    fn test_deferred_materialize() -> IonResult<()> {
         let thunk = {
             let i = 15;
             let i_ref = &i;
@@ -189,9 +191,23 @@ mod tests {
     }
 
     #[test]
+    fn test_value_materialize() -> IonResult<()> {
+        let thunk = {
+            let materialized = Thunk::wrap(16i32);
+            assert_eq!(ThunkState::Materialized, materialized.thunk_state());
+            materialized.materialize()?
+        };
+        assert_eq!(ThunkState::Materialized, thunk.thunk_state());
+        assert_eq!(16, thunk.evaluate()?);
+        Ok(())
+    }
+
+    #[test]
     fn test_memoize_value() -> IonResult<()> {
         let mut thunk = Thunk::defer(|| Ok(5));
         assert_eq!(ThunkState::Deferred, thunk.thunk_state());
+        assert_eq!(5, *thunk.memoize()?);
+        assert_eq!(ThunkState::Materialized, thunk.thunk_state());
         assert_eq!(5, *thunk.memoize()?);
         assert_eq!(ThunkState::Materialized, thunk.thunk_state());
         Ok(())
@@ -199,20 +215,32 @@ mod tests {
 
     #[test]
     fn test_memoize_error() -> IonResult<()> {
-        let mut thunk: Thunk<i32> = Thunk::defer(|| illegal_operation("Oops"));
+        #[inline]
+        fn expected<T>() -> IonResult<T> {
+            illegal_operation("Oops!!!")
+        }
+
+        let mut thunk: Thunk<i32> = Thunk::defer(|| expected());
         assert_eq!(ThunkState::Deferred, thunk.thunk_state());
-        assert_eq!(illegal_operation("Oops"), thunk.memoize());
+        assert_eq!(expected(), thunk.memoize());
         assert_eq!(ThunkState::Error, thunk.thunk_state());
+        assert_eq!(expected(), thunk.no_memoize());
+        assert_eq!(expected(), thunk.evaluate());
         Ok(())
     }
 
     #[test]
     fn test_remove() -> IonResult<()> {
+        #[inline]
+        fn expected_err<T>() -> IonResult<T> {
+            illegal_operation(EMPTY_THUNK_ERROR_TEXT)
+        }
         let mut thunk = Thunk::defer(|| Ok(999));
         assert_eq!(ThunkState::Deferred, thunk.thunk_state());
         assert_eq!(999, thunk.remove()?);
         assert_eq!(ThunkState::Error, thunk.thunk_state());
-        assert_eq!(illegal_operation("Empty thunk"), thunk.evaluate());
+        assert_eq!(expected_err(), thunk.remove());
+        assert_eq!(expected_err(), thunk.evaluate());
         Ok(())
     }
 
@@ -227,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn test_no_memoize() -> IonResult<()> {
+    fn test_deferred_no_memoize() -> IonResult<()> {
         let mut count = 0;
         let mut thunk = Thunk::defer(|| {
             count += 1;
@@ -238,8 +266,21 @@ mod tests {
             assert_eq!(500, thunk.no_memoize()?);
         }
         assert_eq!(ThunkState::Deferred, thunk.thunk_state());
-        drop(thunk);
-        assert_eq!(10, count);
+        // one last time - but we consume it
+        assert_eq!(500, thunk.evaluate()?);
+        assert_eq!(11, count);
+        Ok(())
+    }
+
+    #[test]
+    fn test_value_no_memoize() -> IonResult<()> {
+        let mut thunk = Thunk::wrap(999i32);
+        assert_eq!(ThunkState::Materialized, thunk.thunk_state());
+        assert_eq!(999, thunk.no_memoize()?);
+        // no change
+        assert_eq!(ThunkState::Materialized, thunk.thunk_state());
+        assert_eq!(999, thunk.no_memoize()?);
+        assert_eq!(999, thunk.evaluate()?);
         Ok(())
     }
 }
