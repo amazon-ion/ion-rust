@@ -177,12 +177,11 @@ pub(crate) fn escaped_char_unicode(input: &str) -> IonParseResult<char> {
     Ok((remaining_input, character))
 }
 
-/// Rust's [`char`][1] type represents any Unicode code point EXCEPT a surrogate. If we encounter a high
-/// surrogate in the stream, we cannot convert it to a `char` yet. We must find the (mandatory)
-/// low surrogate that follows it in the stream; then we can combine the high and low surrogates
-/// into a complete code point. This code point can then be returned as a Rust [`char`][1].
-///
-/// [1]: prim@char
+/// Rust's [`char`](prim@char) type represents any Unicode code point EXCEPT a surrogate. If we
+/// encounter a high surrogate in the stream, we cannot convert it to a `char` yet. We must find the
+/// (mandatory) low surrogate that follows it in the stream; then we can combine the high and low
+/// surrogates into a complete code point. This code point can then be returned as a Rust
+/// [`char`](prim@char).
 fn complete_surrogate_pair<'a>(
     input: &'a str,
     input_after_high_surrogate: &'a str,

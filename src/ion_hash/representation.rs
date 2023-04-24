@@ -2,7 +2,7 @@
 
 //! This module provides an extension trait [`RepresentationEncoder`] that is implemented
 //! for Ion types found in the [`Element`] API. In the fullness of time, this
-//! file should not exist as we should be using the Ion "raw" binary writer
+//! module should not exist as we should be using the Ion "raw" binary writer
 //! instead. This implementation fills in that gap, and is focused on coverage
 //! and not speed.
 
