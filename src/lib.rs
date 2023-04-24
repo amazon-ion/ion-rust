@@ -193,7 +193,7 @@ mod symbol_table;
 mod system_reader;
 mod writer;
 
-#[cfg(feature = "experimental")]
+#[cfg(feature = "experimental-streaming")]
 pub(crate) mod thunk;
 
 #[doc(inline)]

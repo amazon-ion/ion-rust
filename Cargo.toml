@@ -34,7 +34,10 @@ ion-hash = ["digest"]
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
 # These are not guaranteed any sort of API stability and may also have non-standard
 # Ion behavior (e.g., draft Ion 1.1 capabilities).
-experimental = []
+experimental = ["experimental-streaming"]
+
+# Experimental streaming APIs
+experimental-streaming = []
 
 [dependencies]
 base64 = "0.12"
