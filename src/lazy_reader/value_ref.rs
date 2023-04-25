@@ -1,6 +1,6 @@
 use crate::lazy_reader::lazy_system_reader::{LazySequence, LazyStruct};
 use crate::result::decoding_error;
-use crate::{Decimal, Int, IonResult, IonType, SymbolRef, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, Symbol, SymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
 
 /// A [ValueRef] represents a value that has been read from the input stream. Scalar variants contain
@@ -18,7 +18,7 @@ pub enum ValueRef<'a> {
     Decimal(Decimal),
     Timestamp(Timestamp),
     String(&'a str),
-    Symbol(SymbolRef<'a>),
+    Symbol(Symbol),
     Blob(&'a [u8]),
     Clob(&'a [u8]),
     // As ValueRef represents a reference to a value in the streaming APIs, the container variants
@@ -106,7 +106,7 @@ impl<'a> ValueRef<'a> {
         }
     }
 
-    pub fn expect_symbol(self) -> IonResult<SymbolRef<'a>> {
+    pub fn expect_symbol(self) -> IonResult<Symbol> {
         if let ValueRef::Symbol(s) = self {
             Ok(s)
         } else {

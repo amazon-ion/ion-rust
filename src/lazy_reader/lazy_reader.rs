@@ -78,6 +78,7 @@ mod tests {
         "#,
         )?;
         let mut reader = LazyReader::new(data);
+
         let list = reader
             .next()?
             .expect("one top level value")

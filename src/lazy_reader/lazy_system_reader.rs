@@ -1,8 +1,10 @@
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::{decoding_error, decoding_error_raw};
 use crate::{IonResult, IonType, RawSymbolTokenRef, Symbol, SymbolRef, SymbolTable};
+use std::cell::RefCell;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
+use std::rc::Rc;
 
 use crate::constants::v1_0::SYSTEM_SYMBOLS;
 use crate::lazy_reader::binary::lazy_raw_reader::{
@@ -68,27 +70,27 @@ impl<'a> Debug for LazyStruct<'a> {
 
 pub struct SequenceIterator<'a> {
     raw_sequence_reader: RawSequenceIterator<'a>,
-    symbol_table: &'a SymbolTable,
+    symbol_table: Rc<RefCell<SymbolTable>>,
 }
 
 pub struct StructIterator<'a> {
     raw_struct_reader: RawStructIterator<'a>,
-    symbol_table: &'a SymbolTable,
+    symbol_table: Rc<RefCell<SymbolTable>>,
 }
 
 pub struct LazyValue<'a> {
     raw_value: LazyRawValue<'a>,
-    symbol_table: &'a SymbolTable,
+    symbol_table: Rc<RefCell<SymbolTable>>,
 }
 
 pub struct LazySequence<'a> {
     raw_sequence: LazyRawSequence<'a>,
-    symbol_table: &'a SymbolTable,
+    symbol_table: Rc<RefCell<SymbolTable>>,
 }
 
 pub struct LazyStruct<'a> {
     raw_struct: LazyRawStruct<'a>,
-    symbol_table: &'a SymbolTable,
+    symbol_table: Rc<RefCell<SymbolTable>>,
 }
 
 pub struct LazyField<'a> {
@@ -123,7 +125,7 @@ impl<'a> LazySequence<'a> {
     pub fn iter(&self) -> SequenceIterator<'a> {
         SequenceIterator {
             raw_sequence_reader: self.raw_sequence.iter(),
-            symbol_table: self.symbol_table,
+            symbol_table: Rc::clone(&self.symbol_table),
         }
     }
 }
@@ -144,18 +146,19 @@ impl<'a> LazyStruct<'a> {
     pub fn iter(&self) -> StructIterator<'a> {
         StructIterator {
             raw_struct_reader: self.raw_struct.iter(),
-            symbol_table: self.symbol_table,
+            symbol_table: Rc::clone(&self.symbol_table),
         }
     }
 }
 
 impl<'a> LazyField<'a> {
-    pub fn name(&self) -> IonResult<SymbolRef<'a>> {
+    pub fn name(&self) -> IonResult<Symbol> {
         let field_sid = self.value.raw_value.field_name().unwrap();
         self.value
             .symbol_table
+            .borrow()
             .symbol_for(field_sid)
-            .map(|symbol| symbol.as_symbol_ref())
+            .map(|symbol| symbol.to_owned())
             .ok_or_else(|| decoding_error_raw("found a symbol ID that was not in the symbol table"))
     }
 
@@ -170,7 +173,7 @@ impl<'a> StructIterator<'a> {
         if let Some(raw_field) = raw_field {
             let lazy_value = LazyValue {
                 raw_value: raw_field.into_value(),
-                symbol_table: self.symbol_table,
+                symbol_table: Rc::clone(&self.symbol_table),
             };
             let lazy_field = LazyField { value: lazy_value };
             return Ok(Some(lazy_field));
@@ -185,7 +188,7 @@ impl<'a> SequenceIterator<'a> {
         if let Some(raw_value) = raw_value {
             let lazy_value = LazyValue {
                 raw_value,
-                symbol_table: self.symbol_table,
+                symbol_table: Rc::clone(&self.symbol_table),
             };
             return Ok(Some(lazy_value));
         }
@@ -209,7 +212,7 @@ impl<'a> LazyValue<'a> {
     pub fn annotations(&self) -> AnnotationsIterator<'a> {
         AnnotationsIterator {
             raw_annotations: self.raw_value.annotations(),
-            symbol_table: self.symbol_table,
+            symbol_table: Rc::clone(&self.symbol_table),
             initial_offset: self
                 .raw_value
                 .encoded_value
@@ -229,38 +232,39 @@ impl<'a> LazyValue<'a> {
             Timestamp(t) => ValueRef::Timestamp(t),
             String(s) => ValueRef::String(s),
             Symbol(s) => {
-                let symbol_ref = match s {
+                let symbol = match s {
                     RawSymbolTokenRef::SymbolId(sid) => self
                         .symbol_table
+                        .borrow()
                         .symbol_for(sid)
                         .ok_or_else(|| {
                             decoding_error_raw("found a symbol ID that was not in the symbol table")
                         })?
-                        .as_symbol_ref(),
-                    RawSymbolTokenRef::Text(text) => SymbolRef::with_text(text),
+                        .to_owned(),
+                    RawSymbolTokenRef::Text(text) => text.into(),
                 };
-                ValueRef::Symbol(symbol_ref)
+                ValueRef::Symbol(symbol)
             }
             Blob(b) => ValueRef::Blob(b),
             Clob(c) => ValueRef::Clob(c),
             SExp(s) => {
                 let lazy_sequence = LazySequence {
                     raw_sequence: s,
-                    symbol_table: self.symbol_table,
+                    symbol_table: Rc::clone(&self.symbol_table),
                 };
                 ValueRef::SExp(lazy_sequence)
             }
             List(l) => {
                 let lazy_sequence = LazySequence {
                     raw_sequence: l,
-                    symbol_table: self.symbol_table,
+                    symbol_table: Rc::clone(&self.symbol_table),
                 };
                 ValueRef::List(lazy_sequence)
             }
             Struct(s) => {
                 let lazy_struct = LazyStruct {
                     raw_struct: s,
-                    symbol_table: self.symbol_table,
+                    symbol_table: Rc::clone(&self.symbol_table),
                 };
                 ValueRef::Struct(lazy_struct)
             }
@@ -271,23 +275,25 @@ impl<'a> LazyValue<'a> {
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of VarUInt symbol IDs.
 pub struct AnnotationsIterator<'a> {
-    symbol_table: &'a SymbolTable,
+    symbol_table: Rc<RefCell<SymbolTable>>,
     raw_annotations: RawAnnotationsIterator<'a>,
     initial_offset: usize,
 }
 
 impl<'a> Iterator for AnnotationsIterator<'a> {
-    type Item = IonResult<SymbolRef<'a>>;
+    type Item = IonResult<Symbol>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let raw_annotation = self.raw_annotations.next()?;
         match raw_annotation {
-            Ok(RawSymbolTokenRef::SymbolId(sid)) => match self.symbol_table.symbol_for(sid) {
-                None => Some(decoding_error(
-                    "found a symbol ID that was not in the symbol table",
-                )),
-                Some(symbol) => Some(Ok(symbol.into())),
-            },
+            Ok(RawSymbolTokenRef::SymbolId(sid)) => {
+                match self.symbol_table.borrow().symbol_for(sid) {
+                    None => Some(decoding_error(
+                        "found a symbol ID that was not in the symbol table",
+                    )),
+                    Some(symbol) => Some(Ok(symbol.to_owned())),
+                }
+            }
             Ok(RawSymbolTokenRef::Text(text)) => Some(Ok(text.into())),
             Err(e) => Some(Err(e)),
         }
@@ -302,7 +308,7 @@ struct PendingLst<'a> {
 // TODO: Make generic over any impl of (not yet created) trait LazyRawReader
 pub struct LazySystemReader<'a> {
     raw_reader: LazyRawBinaryReader<'a>,
-    symbol_table: SymbolTable,
+    symbol_table: Rc<RefCell<SymbolTable>>,
     pending_lst: PendingLst<'a>,
 }
 
@@ -311,7 +317,7 @@ impl<'a> LazySystemReader<'a> {
         let raw_reader = LazyRawBinaryReader::new(ion_data);
         LazySystemReader {
             raw_reader,
-            symbol_table: SymbolTable::new(),
+            symbol_table: Rc::new(RefCell::new(SymbolTable::new())),
             pending_lst: PendingLst {
                 is_lst_append: false,
                 symbols: Vec::new(),
@@ -319,7 +325,7 @@ impl<'a> LazySystemReader<'a> {
         }
     }
 
-    fn is_symbol_table(lazy_value: &LazyRawValue) -> IonResult<bool> {
+    fn is_symbol_table_struct(lazy_value: &LazyRawValue) -> IonResult<bool> {
         let is_struct = lazy_value.ion_type() == IonType::Struct;
         if !is_struct {
             return Ok(false);
@@ -334,10 +340,12 @@ impl<'a> LazySystemReader<'a> {
         if !self.pending_lst.symbols.is_empty() {
             if !self.pending_lst.is_lst_append {
                 // We're setting the symbols list, not appending to it.
-                self.symbol_table.reset();
+                self.symbol_table.borrow_mut().reset();
             }
             for symbol in self.pending_lst.symbols.drain(..) {
-                self.symbol_table.intern_or_add_placeholder(symbol);
+                self.symbol_table
+                    .borrow_mut()
+                    .intern_or_add_placeholder(symbol);
             }
             self.pending_lst.is_lst_append = false;
         }
@@ -348,40 +356,32 @@ impl<'a> LazySystemReader<'a> {
             RawStreamItem::Value(lazy_raw_value) => {
                 // Temporarily break `self` apart into simultaneous mutable references to its
                 // constituent fields.
-                let LazySystemReader {
-                    symbol_table,
-                    pending_lst,
-                    ..
-                } = self;
-                if Self::is_symbol_table(&lazy_raw_value)? {
-                    Self::process_symbol_table(pending_lst, &lazy_raw_value)?;
+                if Self::is_symbol_table_struct(&lazy_raw_value)? {
+                    self.process_symbol_table(&lazy_raw_value)?;
+                    let lazy_value = self.resolve_lazy_raw_value(lazy_raw_value);
+                    SystemStreamItem::SymbolTable(lazy_value.read()?.expect_struct()?)
+                } else {
+                    let lazy_value = self.resolve_lazy_raw_value(lazy_raw_value);
+                    SystemStreamItem::Value(lazy_value)
                 }
-                let lazy_value = Self::resolve_lazy_raw_value(lazy_raw_value, symbol_table);
-                SystemStreamItem::Value(lazy_value)
             }
             RawStreamItem::Nothing => SystemStreamItem::Nothing,
         };
         Ok(stream_item)
     }
 
-    fn resolve_lazy_raw_value(
-        raw_value: LazyRawValue<'a>,
-        symbol_table: &'a SymbolTable,
-    ) -> LazyValue<'a> {
+    fn resolve_lazy_raw_value(&mut self, raw_value: LazyRawValue<'a>) -> LazyValue<'a> {
         LazyValue {
             raw_value,
-            symbol_table,
+            symbol_table: Rc::clone(&self.symbol_table),
         }
     }
 
-    fn process_symbol_table(
-        pending_lst: &mut PendingLst<'a>,
-        symbol_table: &LazyRawValue<'a>,
-    ) -> IonResult<()> {
+    fn process_symbol_table(&mut self, symbol_table: &LazyRawValue<'a>) -> IonResult<()> {
         // We've already confirmed this is an annotated struct
         let symbol_table = symbol_table.read()?.expect_struct()?;
         // Assume it's not an LST append unless we found `imports: $ion_symbol_table`
-        pending_lst.is_lst_append = false;
+        self.pending_lst.is_lst_append = false;
         let mut fields = symbol_table.iter();
         let mut found_symbols_field = false;
         let mut found_imports_field = false;
@@ -394,31 +394,28 @@ impl<'a> LazySystemReader<'a> {
                     return decoding_error("found symbol table with multiple 'symbols' fields");
                 }
                 found_symbols_field = true;
-                Self::process_symbols(pending_lst, field.value())?;
+                self.process_symbols(field.value())?;
             }
             if field.name() == RawSymbolTokenRef::SymbolId(6) {
                 if found_imports_field {
                     return decoding_error("found symbol table with multiple 'imports' fields");
                 }
                 found_imports_field = true;
-                Self::process_imports(pending_lst, field.value())?;
+                self.process_imports(field.value())?;
             }
             // Ignore other fields
         }
         Ok(())
     }
 
-    fn process_symbols(
-        pending_lst: &mut PendingLst<'a>,
-        symbols: &LazyRawValue<'a>,
-    ) -> IonResult<()> {
+    fn process_symbols(&mut self, symbols: &LazyRawValue<'a>) -> IonResult<()> {
         if let RawValueRef::List(list) = symbols.read()? {
             let mut reader = list.iter();
             while let Some(value) = reader.next()? {
                 if let RawValueRef::String(text) = value.read()? {
-                    pending_lst.symbols.push(Some(text))
+                    self.pending_lst.symbols.push(Some(text))
                 } else {
-                    pending_lst.symbols.push(None)
+                    self.pending_lst.symbols.push(None)
                 }
             }
         }
@@ -426,14 +423,11 @@ impl<'a> LazySystemReader<'a> {
         Ok(())
     }
 
-    fn process_imports(
-        pending_lst: &mut PendingLst<'a>,
-        imports: &LazyRawValue<'a>,
-    ) -> IonResult<()> {
+    fn process_imports(&mut self, imports: &LazyRawValue<'a>) -> IonResult<()> {
         match imports.read()? {
             RawValueRef::Symbol(symbol_ref) => {
                 if symbol_ref == RawSymbolTokenRef::SymbolId(3) {
-                    pending_lst.is_lst_append = true;
+                    self.pending_lst.is_lst_append = true;
                 }
                 // Any other symbol is ignored
             }
