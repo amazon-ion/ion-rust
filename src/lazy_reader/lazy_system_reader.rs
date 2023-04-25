@@ -70,27 +70,27 @@ impl<'a> Debug for LazyStruct<'a> {
 
 pub struct SequenceIterator<'a> {
     raw_sequence_reader: RawSequenceIterator<'a>,
-    symbol_table: Rc<RefCell<SymbolTable>>,
+    symbol_table: Rc<SymbolTable>,
 }
 
 pub struct StructIterator<'a> {
     raw_struct_reader: RawStructIterator<'a>,
-    symbol_table: Rc<RefCell<SymbolTable>>,
+    symbol_table: Rc<SymbolTable>,
 }
 
 pub struct LazyValue<'a> {
     raw_value: LazyRawValue<'a>,
-    symbol_table: Rc<RefCell<SymbolTable>>,
+    symbol_table: Rc<SymbolTable>,
 }
 
 pub struct LazySequence<'a> {
     raw_sequence: LazyRawSequence<'a>,
-    symbol_table: Rc<RefCell<SymbolTable>>,
+    symbol_table: Rc<SymbolTable>,
 }
 
 pub struct LazyStruct<'a> {
     raw_struct: LazyRawStruct<'a>,
-    symbol_table: Rc<RefCell<SymbolTable>>,
+    symbol_table: Rc<SymbolTable>,
 }
 
 pub struct LazyField<'a> {
@@ -156,7 +156,6 @@ impl<'a> LazyField<'a> {
         let field_sid = self.value.raw_value.field_name().unwrap();
         self.value
             .symbol_table
-            .borrow()
             .symbol_for(field_sid)
             .map(|symbol| symbol.to_owned())
             .ok_or_else(|| decoding_error_raw("found a symbol ID that was not in the symbol table"))
@@ -235,7 +234,6 @@ impl<'a> LazyValue<'a> {
                 let symbol = match s {
                     RawSymbolTokenRef::SymbolId(sid) => self
                         .symbol_table
-                        .borrow()
                         .symbol_for(sid)
                         .ok_or_else(|| {
                             decoding_error_raw("found a symbol ID that was not in the symbol table")
@@ -275,7 +273,7 @@ impl<'a> LazyValue<'a> {
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of VarUInt symbol IDs.
 pub struct AnnotationsIterator<'a> {
-    symbol_table: Rc<RefCell<SymbolTable>>,
+    symbol_table: Rc<SymbolTable>,
     raw_annotations: RawAnnotationsIterator<'a>,
     initial_offset: usize,
 }
@@ -286,14 +284,12 @@ impl<'a> Iterator for AnnotationsIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let raw_annotation = self.raw_annotations.next()?;
         match raw_annotation {
-            Ok(RawSymbolTokenRef::SymbolId(sid)) => {
-                match self.symbol_table.borrow().symbol_for(sid) {
-                    None => Some(decoding_error(
-                        "found a symbol ID that was not in the symbol table",
-                    )),
-                    Some(symbol) => Some(Ok(symbol.to_owned())),
-                }
-            }
+            Ok(RawSymbolTokenRef::SymbolId(sid)) => match self.symbol_table.symbol_for(sid) {
+                None => Some(decoding_error(
+                    "found a symbol ID that was not in the symbol table",
+                )),
+                Some(symbol) => Some(Ok(symbol.to_owned())),
+            },
             Ok(RawSymbolTokenRef::Text(text)) => Some(Ok(text.into())),
             Err(e) => Some(Err(e)),
         }
@@ -308,7 +304,7 @@ struct PendingLst<'a> {
 // TODO: Make generic over any impl of (not yet created) trait LazyRawReader
 pub struct LazySystemReader<'a> {
     raw_reader: LazyRawBinaryReader<'a>,
-    symbol_table: Rc<RefCell<SymbolTable>>,
+    symbol_table: Rc<SymbolTable>,
     pending_lst: PendingLst<'a>,
 }
 
@@ -317,7 +313,7 @@ impl<'a> LazySystemReader<'a> {
         let raw_reader = LazyRawBinaryReader::new(ion_data);
         LazySystemReader {
             raw_reader,
-            symbol_table: Rc::new(RefCell::new(SymbolTable::new())),
+            symbol_table: Rc::new(SymbolTable::new()),
             pending_lst: PendingLst {
                 is_lst_append: false,
                 symbols: Vec::new(),
@@ -338,14 +334,14 @@ impl<'a> LazySystemReader<'a> {
 
     pub fn next(&mut self) -> IonResult<SystemStreamItem<'a>> {
         if !self.pending_lst.symbols.is_empty() {
+            let symbol_table: &mut SymbolTable =
+                Rc::get_mut(&mut self.symbol_table).expect("lifetimes prevent a strong count > 1");
             if !self.pending_lst.is_lst_append {
                 // We're setting the symbols list, not appending to it.
-                self.symbol_table.borrow_mut().reset();
+                symbol_table.reset();
             }
             for symbol in self.pending_lst.symbols.drain(..) {
-                self.symbol_table
-                    .borrow_mut()
-                    .intern_or_add_placeholder(symbol);
+                symbol_table.intern_or_add_placeholder(symbol);
             }
             self.pending_lst.is_lst_append = false;
         }
