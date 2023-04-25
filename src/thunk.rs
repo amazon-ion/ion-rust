@@ -105,7 +105,7 @@ impl<'a, T> Thunk<'a, T> {
         match &self.0 {
             Ok(Deferred(_)) => {
                 // XXX should not be possible
-                panic!("Thunk memoization is still deferred")
+                unreachable!("Thunk memoization is still deferred")
             }
             Ok(Materialized(val_ref)) => Ok(val_ref),
             Err(e) => Err(e.clone()),
