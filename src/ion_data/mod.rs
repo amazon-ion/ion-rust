@@ -16,9 +16,9 @@ pub(crate) use ion_ord::IonOrd;
 /// they represent the same data and can be substituted for the other without loss of information.
 /// (See [`IonEq`] for more information.)
 ///
-/// Some types, such as [`Element`] and [`Value`] cannot be used as the key of a map because they
-/// adhere to Rust value semantics—these types cannot implement [`Eq`] because they include `NaN`
-/// as a possible value.
+/// Some types, such as [`Element`](crate::Element) and [`Value`](crate::element::Value) cannot be
+/// used as the key of a map because they adhere to Rust value semantics—these types cannot implement
+/// [`Eq`] because they include `NaN` as a possible value.
 ///
 /// For use cases that are concerned with preserving the original Ion data, it is necessary to use
 /// Ion value equivalence. Many common use cases, such as writing unit tests for code that produces

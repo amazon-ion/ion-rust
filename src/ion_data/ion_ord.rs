@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 use std::ops::Deref;
 
-/// Trait used for delegating [Eq] and [PartialEq] in [IonData].
-/// Implementations of [IonOrd] must be consistent with [IonEq].
+/// Trait used for delegating [Ord] and [PartialOrd] in [IonData](crate::IonData).
+/// Implementations of [IonOrd] must be consistent with [IonEq](crate::ion_data::IonEq).
 /// Since there is no total ordering in the Ion specification, do not write any code that depends on
 /// a specific order being preserved. Only depend on the fact that a total ordering does exist.
 pub(crate) trait IonOrd {
