@@ -1,3 +1,7 @@
+use crate::ion_data::IonEq;
+use crate::ion_data::IonOrd;
+use std::cmp::Ordering;
+
 /// An owned, immutable byte array.
 /// ```rust
 /// use ion_rs::element::Bytes;
@@ -15,9 +19,21 @@
 /// let bytes: Bytes = b"world".into();
 /// assert_eq!(&bytes, b"world".as_slice());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Bytes {
     data: Vec<u8>,
+}
+
+impl IonEq for Bytes {
+    fn ion_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+impl IonOrd for Bytes {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
+    }
 }
 
 impl PartialEq<[u8]> for Bytes {

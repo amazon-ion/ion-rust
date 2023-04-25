@@ -1,10 +1,11 @@
 use crate::element::builders::StructBuilder;
 use crate::element::iterators::{FieldIterator, FieldValuesIterator, IndexVec};
 use crate::element::Element;
-use crate::ion_eq::IonEq;
+use crate::ion_data::{IonEq, IonOrd};
 use crate::symbol_ref::AsSymbolRef;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::Symbol;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
@@ -224,6 +225,45 @@ impl PartialEq for Struct {
 }
 
 impl Eq for Struct {}
+
+impl IonEq for Struct {
+    fn ion_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+impl IonOrd for Struct {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        let mut these_fields = self.fields.by_index.iter().collect::<Vec<_>>();
+        let mut those_fields = other.fields.by_index.iter().collect::<Vec<_>>();
+        these_fields.sort_by(ion_cmp_field);
+        those_fields.sort_by(ion_cmp_field);
+
+        let mut i0 = these_fields.iter();
+        let mut i1 = those_fields.iter();
+        loop {
+            match [i0.next(), i1.next()] {
+                [None, Some(_)] => return Ordering::Less,
+                [None, None] => return Ordering::Equal,
+                [Some(_), None] => return Ordering::Greater,
+                [Some(a), Some(b)] => {
+                    let ord = ion_cmp_field(a, b);
+                    if ord != Ordering::Equal {
+                        return ord;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn ion_cmp_field(this: &&(Symbol, Element), that: &&(Symbol, Element)) -> Ordering {
+    let ord = this.0.ion_cmp(&that.0);
+    if !ord.is_eq() {
+        return ord;
+    }
+    IonOrd::ion_cmp(&this.1, &that.1)
+}
 
 #[cfg(test)]
 mod tests {

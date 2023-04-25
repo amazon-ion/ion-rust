@@ -10,12 +10,14 @@ pub mod integer;
 pub mod string;
 pub mod timestamp;
 
+use crate::ion_data::IonOrd;
+use std::cmp::Ordering;
 use std::fmt;
 
 /// Represents the Ion data type of a given value. To learn more about each data type,
 /// read [the Ion Data Model](https://amazon-ion.github.io/ion-docs/docs/spec.html#the-ion-data-model)
 /// section of the spec.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub enum IonType {
     Null,
     Bool,
@@ -60,6 +62,12 @@ impl IonType {
     pub fn is_container(&self) -> bool {
         use IonType::*;
         matches!(self, List | SExp | Struct)
+    }
+}
+
+impl IonOrd for IonType {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
 }
 

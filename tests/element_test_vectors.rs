@@ -3,8 +3,8 @@
 use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::{ElementWriter, Format, TextKind};
 use ion_rs::element::{Element, Sequence};
-use ion_rs::ion_eq::IonEq;
 use ion_rs::result::{decoding_error, IonError, IonResult};
+use ion_rs::IonData;
 use ion_rs::{BinaryWriterBuilder, IonWriter, Reader, TextWriterBuilder};
 
 use std::fs::read;
@@ -85,7 +85,7 @@ trait ElementApi {
         let mut reader = Self::make_reader(&bytes)?;
         let new_elements = reader.read_all_elements()?;
         assert!(
-            source_elements.ion_eq(&new_elements),
+            IonData::eq(source_elements, &new_elements),
             "Roundtrip via {:?} failed: {}",
             format,
             Self::not_eq_error_message(source_elements, &new_elements)
@@ -99,7 +99,7 @@ trait ElementApi {
         }
 
         for (index, (element1, element2)) in e1.iter().zip(e2.iter()).enumerate() {
-            if !element1.ion_eq(element2) {
+            if !IonData::eq(element1, element2) {
                 return format!(
                     "The values at position #{index} were not IonEq.\ne1: {element1}\ne2: {element2}"
                 );
@@ -119,7 +119,7 @@ trait ElementApi {
         }
         let first_write_elements = Self::assert_round_trip(&source_elements, format1)?;
         let second_write_elements = Self::assert_round_trip(&first_write_elements, format2)?;
-        assert!(source_elements.ion_eq(&second_write_elements));
+        assert!(IonData::eq(&source_elements, &second_write_elements));
         Ok(())
     }
 
@@ -241,7 +241,7 @@ trait ElementApi {
                         Ok(elem) => {
                             // only compare if we know equality to work
                             if !contains_path(Self::read_one_equivs_skip_list(), file_name) {
-                                assert!(elems[0].ion_eq(&elem))
+                                assert!(IonData::eq(&elems[0], &elem))
                             }
                         }
                         Err(e) => panic!("Expected element {elems:?}, got {e:?}"),
@@ -319,11 +319,11 @@ fn equivs<E: ElementApi>(_element_api: E, file_name: &str) {
             file_name,
             |group_index, this_index, this, that_index, that| {
                 assert!(
-                    this.ion_eq(that),
+                    IonData::eq(this,that),
                     "in group {group_index}, index {this_index} ({this}) was not ion_eq to index {that_index} ({that})"
                 )
             },
-            |this_group, that_group| assert!(this_group.ion_eq(that_group)),
+            |this_group, that_group| assert!(IonData::eq(this_group, that_group)),
         )
     });
 }
@@ -336,12 +336,12 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
             |group_index, this_index, this, that_index, that| {
                 if std::ptr::eq(this, that) {
                     assert!(
-                        this.ion_eq(that),
+                        IonData::eq(this,that),
                         "in group {group_index}, index {this_index} ({this}) was not ion_eq to index {that_index} ({that})"
                     )
                 } else {
                     assert!(
-                        !this.ion_eq(that),
+                        !IonData::eq(this,that),
                         "in group {group_index}, index {this_index} ({this}) was unexpectedly ion_eq to index {that_index} ({that})"
                     )
                 }
@@ -349,12 +349,12 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
             |this_group, that_group| {
                 if std::ptr::eq(this_group, that_group) {
                     assert!(
-                        this_group.ion_eq(that_group),
+                        IonData::eq(this_group,that_group),
                         "unexpected these to be equal but they were unequal: {this_group:?} != {that_group:?}"
                     );
                 } else {
                     assert!(
-                        !this_group.ion_eq(that_group),
+                        !IonData::eq(this_group,that_group),
                         "unexpected these to be unequal but they were equal: {this_group:?} == {that_group:?}"
                     );
                 }

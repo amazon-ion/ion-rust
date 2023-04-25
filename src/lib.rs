@@ -173,6 +173,7 @@ pub mod raw_reader;
 pub mod text;
 pub mod types;
 
+mod ion_data;
 #[cfg(feature = "ion-hash")]
 pub mod ion_hash;
 
@@ -180,7 +181,6 @@ mod blocking_reader;
 mod catalog;
 // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
 pub mod constants;
-pub mod ion_eq;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
 // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
@@ -212,6 +212,8 @@ pub use types::integer::Int;
 pub use types::string::Str;
 pub use types::timestamp::Timestamp;
 pub use types::IonType;
+
+pub use ion_data::IonData;
 
 pub use binary::binary_writer::{BinaryWriter, BinaryWriterBuilder};
 pub use text::text_writer::{TextWriter, TextWriterBuilder};

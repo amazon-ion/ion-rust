@@ -1,4 +1,7 @@
+use crate::ion_data::IonEq;
+use crate::ion_data::IonOrd;
 use crate::text::text_formatter::IonValueFormatter;
+use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
 /// An owned, immutable in-memory representation of an Ion `string`.
@@ -109,5 +112,17 @@ impl PartialEq<Str> for String {
     fn eq(&self, other: &Str) -> bool {
         let self_text: &str = self.as_str();
         self_text.eq(other.text())
+    }
+}
+
+impl IonEq for Str {
+    fn ion_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+impl IonOrd for Str {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
 }

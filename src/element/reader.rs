@@ -196,7 +196,7 @@ mod reader_tests {
     use crate::element::builders::{ion_list, ion_sexp, ion_struct};
     use crate::element::Value::*;
     use crate::element::{Element, IntoAnnotatedElement};
-    use crate::ion_eq::IonEq;
+    use crate::ion_data::IonEq;
     use crate::types::integer::Int;
     use crate::types::timestamp::Timestamp as TS;
     use crate::{IonType, Symbol};
