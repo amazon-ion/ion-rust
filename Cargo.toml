@@ -30,6 +30,7 @@ members = [
 [features]
 default = []
 ion-hash = ["digest"]
+experimental-lazy-reader = []
 
 [dependencies]
 base64 = "0.12"

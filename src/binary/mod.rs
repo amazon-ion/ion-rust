@@ -14,7 +14,7 @@ mod nibbles;
 pub mod non_blocking;
 pub mod raw_binary_writer;
 pub mod timestamp;
-mod type_code;
+pub(crate) mod type_code;
 pub mod uint;
 pub mod var_int;
 pub mod var_uint;
