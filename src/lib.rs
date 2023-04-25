@@ -196,6 +196,9 @@ mod writer;
 #[cfg(feature = "experimental-lazy-reader")]
 mod lazy_reader;
 
+#[cfg(feature = "experimental-streaming")]
+pub(crate) mod thunk;
+
 #[doc(inline)]
 pub use data_source::IonDataSource;
 #[doc(inline)]

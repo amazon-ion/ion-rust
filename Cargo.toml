@@ -30,6 +30,17 @@ members = [
 [features]
 default = []
 ion-hash = ["digest"]
+
+# Feature for indicating particularly bleeding edge APIs or functionality in the library.
+# These are not guaranteed any sort of API stability and may also have non-standard
+# Ion behavior (e.g., draft Ion 1.1 capabilities).
+experimental = ["experimental-streaming", "experimental-lazy-reader"]
+
+# Experimental streaming APIs
+experimental-streaming = []
+
+# A streaming reader API that enables random access and lazy loading within each
+# top-level value.
 experimental-lazy-reader = []
 
 [dependencies]
