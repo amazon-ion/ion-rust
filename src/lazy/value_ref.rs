@@ -1,6 +1,6 @@
-use crate::lazy_reader::lazy_system_reader::{LazySequence, LazyStruct};
+use crate::lazy::lazy_system_reader::{LazySequence, LazyStruct};
 use crate::result::decoding_error;
-use crate::{Decimal, Int, IonResult, IonType, Symbol, SymbolRef, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, Symbol, Timestamp};
 use std::fmt::{Debug, Formatter};
 
 /// A [ValueRef] represents a value that has been read from the input stream. Scalar variants contain

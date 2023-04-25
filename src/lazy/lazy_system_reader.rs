@@ -1,24 +1,20 @@
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::{decoding_error, decoding_error_raw};
 use crate::{IonResult, IonType, RawSymbolTokenRef, Symbol, SymbolRef, SymbolTable};
-use std::cell::RefCell;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
 
-use crate::constants::v1_0::SYSTEM_SYMBOLS;
-use crate::lazy_reader::binary::lazy_raw_reader::{
+use crate::lazy::binary::lazy_raw_reader::{
     LazyRawBinaryReader, LazyRawSequence, LazyRawStruct, LazyRawValue, RawAnnotationsIterator,
     RawSequenceIterator, RawStructIterator,
 };
-use crate::lazy_reader::raw_stream_item::RawStreamItem;
-use crate::lazy_reader::raw_value_ref::RawValueRef;
-use crate::lazy_reader::system_stream_item::SystemStreamItem;
-use crate::lazy_reader::value_ref::ValueRef;
-use crate::symbol_ref::AsSymbolRef;
+use crate::lazy::raw_stream_item::RawStreamItem;
+use crate::lazy::raw_value_ref::RawValueRef;
+use crate::lazy::system_stream_item::SystemStreamItem;
+use crate::lazy::value_ref::ValueRef;
 
 impl<'a> Debug for LazySequence<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut reader = self.iter();
         match self.ion_type() {
             IonType::SExp => {
@@ -152,12 +148,12 @@ impl<'a> LazyStruct<'a> {
 }
 
 impl<'a> LazyField<'a> {
-    pub fn name(&self) -> IonResult<Symbol> {
+    pub fn name(&self) -> IonResult<SymbolRef> {
         let field_sid = self.value.raw_value.field_name().unwrap();
         self.value
             .symbol_table
             .symbol_for(field_sid)
-            .map(|symbol| symbol.to_owned())
+            .map(|symbol| symbol.into())
             .ok_or_else(|| decoding_error_raw("found a symbol ID that was not in the symbol table"))
     }
 
@@ -445,8 +441,8 @@ impl<'a> LazySystemReader<'a> {
 mod tests {
     use crate::element::writer::ElementWriter;
     use crate::element::Element;
-    use crate::lazy_reader::lazy_system_reader::LazySystemReader;
-    use crate::lazy_reader::system_stream_item::SystemStreamItem;
+    use crate::lazy::lazy_system_reader::LazySystemReader;
+    use crate::lazy::system_stream_item::SystemStreamItem;
     use crate::{BinaryWriterBuilder, IonResult, IonWriter};
 
     fn to_10n(text_ion: &str) -> IonResult<Vec<u8>> {

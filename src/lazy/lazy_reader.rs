@@ -1,5 +1,5 @@
-use crate::lazy_reader::lazy_system_reader::{LazySystemReader, LazyValue};
-use crate::lazy_reader::system_stream_item::SystemStreamItem;
+use crate::lazy::lazy_system_reader::{LazySystemReader, LazyValue};
+use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::IonResult;
 
 pub struct LazyReader<'a> {
@@ -29,8 +29,8 @@ mod tests {
     use super::*;
     use crate::element::writer::ElementWriter;
     use crate::element::Element;
-    use crate::lazy_reader::value_ref::ValueRef;
-    use crate::{BinaryWriterBuilder, IonResult, IonWriter};
+    use crate::lazy::value_ref::ValueRef;
+    use crate::{BinaryWriterBuilder, Int, IonResult, IonWriter};
 
     fn to_10n(text_ion: &str) -> IonResult<Vec<u8>> {
         let mut buffer = Vec::new();
@@ -79,17 +79,12 @@ mod tests {
         )?;
         let mut reader = LazyReader::new(data);
 
-        let list = reader
-            .next()?
-            .expect("one top level value")
-            .read()?
-            .expect_list()?;
+        let first_value = reader.next()?.expect("one top level value");
+        let list = first_value.read()?.expect_list()?;
+        let lazy_values = list.iter().collect::<IonResult<Vec<_>>>()?;
 
-        let values = list.iter().collect::<IonResult<Vec<_>>>()?;
-
-        println!("=== Replay second and third values ===");
-        println!("{:?}", values[1].read()?);
-        println!("{:?}", values[2].read()?);
+        assert_eq!(lazy_values[1].read()?.expect_int()?, Int::from(77));
+        assert_eq!(lazy_values[2].read()?.expect_bool()?, true);
         Ok(())
     }
 }

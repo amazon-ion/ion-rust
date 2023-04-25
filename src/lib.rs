@@ -194,7 +194,7 @@ mod system_reader;
 mod writer;
 
 #[cfg(feature = "experimental-lazy-reader")]
-mod lazy_reader;
+pub mod lazy;
 
 #[cfg(feature = "experimental-streaming")]
 pub(crate) mod thunk;

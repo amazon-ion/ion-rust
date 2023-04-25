@@ -1,9 +1,9 @@
 use super::encoded_value::EncodedValue;
 use crate::binary::int::DecodedInt;
 use crate::binary::uint::DecodedUInt;
-use crate::lazy_reader::binary::immutable_buffer::ImmutableBuffer;
-use crate::lazy_reader::raw_stream_item::RawStreamItem;
-use crate::lazy_reader::raw_value_ref::RawValueRef;
+use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
+use crate::lazy::raw_stream_item::RawStreamItem;
+use crate::lazy::raw_value_ref::RawValueRef;
 use crate::result::{decoding_error, decoding_error_raw, incomplete_data_error};
 use crate::types::SymbolId;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
@@ -745,11 +745,11 @@ impl<'a> Iterator for RawAnnotationsIterator<'a> {
 mod tests {
     use crate::element::writer::ElementWriter;
     use crate::element::Element;
-    use crate::lazy_reader::binary::immutable_buffer::ImmutableBuffer;
-    use crate::lazy_reader::binary::lazy_raw_reader::{
+    use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
+    use crate::lazy::binary::lazy_raw_reader::{
         LazyRawBinaryReader, LazyRawValue, RawSequenceIterator,
     };
-    use crate::lazy_reader::raw_stream_item::RawStreamItem;
+    use crate::lazy::raw_stream_item::RawStreamItem;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
     use crate::{BinaryWriterBuilder, IonResult, IonType, IonWriter, RawSymbolTokenRef};
 
