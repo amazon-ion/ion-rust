@@ -14,6 +14,7 @@
 
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
+use crate::ion_data;
 use crate::ion_data::IonEq;
 use crate::ion_data::IonOrd;
 use crate::text::text_formatter::IonValueFormatter;
@@ -40,7 +41,6 @@ pub use self::bytes::Bytes;
 pub use annotations::Annotations;
 pub use lob::{Blob, Clob};
 
-use crate::types::float;
 pub use list::List;
 pub use r#struct::Struct;
 pub use sequence::Sequence;
@@ -51,9 +51,9 @@ impl IonEq for Value {
         use Value::*;
         match (self, other) {
             (Null(this), Null(that)) => this == that,
-            (Bool(this), Bool(that)) => this == that,
+            (Bool(this), Bool(that)) => ion_data::ion_eq_bool(this, that),
             (Int(this), Int(that)) => this.ion_eq(that),
-            (Float(this), Float(that)) => float::Float::ion_eq_f64(this, that),
+            (Float(this), Float(that)) => ion_data::ion_eq_f64(this, that),
             (Decimal(this), Decimal(that)) => this.ion_eq(that),
             (Timestamp(this), Timestamp(that)) => this.ion_eq(that),
             (String(this), String(that)) => this.ion_eq(that),
@@ -96,9 +96,9 @@ impl IonOrd for Value {
                     Ordering::Less
                 }
             }
-            Bool(this) => compare!(Bool(that) => this.cmp(that)),
+            Bool(this) => compare!(Bool(that) => ion_data::ion_cmp_bool(this, that)),
             Int(this) => compare!(Int(that) => this.ion_cmp(that)),
-            Float(this) => compare!(Float(that) => float::Float::ion_cmp_f64(this, that)),
+            Float(this) => compare!(Float(that) => ion_data::ion_cmp_f64(this, that)),
             Decimal(this) => compare!(Decimal(that) => this.ion_cmp(that)),
             Timestamp(this) => compare!(Timestamp(that) => this.ion_cmp(that)),
             String(this) => compare!(String(that) => this.ion_cmp(that)),
@@ -173,12 +173,6 @@ impl Display for Value {
         .map_err(|_| std::fmt::Error)?;
 
         Ok(())
-    }
-}
-
-impl AsRef<Value> for Value {
-    fn as_ref(&self) -> &Value {
-        self
     }
 }
 
@@ -603,12 +597,6 @@ impl PartialEq for Element {
 }
 
 impl Eq for Element {}
-
-impl AsRef<Element> for Element {
-    fn as_ref(&self) -> &Element {
-        self
-    }
-}
 
 // This implementation allows APIs that require an Into<Element> to accept references to an existing
 // Element.

@@ -30,24 +30,12 @@ pub trait IonEq {
     fn ion_eq(&self, other: &Self) -> bool;
 }
 
-// impl<T: IonEq> IonEq for &T {
-//     fn ion_eq(&self, other: &Self) -> bool {
-//         T::ion_eq(self, other)
-//     }
-// }
-//
-// impl<T: IonEq> IonEq for Vec<T> {
-//     fn ion_eq(&self, other: &Self) -> bool {
-//         self.as_slice().ion_eq(other.as_slice())
-//     }
-// }
-
 impl<R: Deref> IonEq for R
 where
-    <R as Deref>::Target: IonEq,
+    R::Target: IonEq,
 {
     fn ion_eq(&self, other: &Self) -> bool {
-        <Self as Deref>::Target::ion_eq(self, other)
+        R::Target::ion_eq(self, other)
     }
 }
 
@@ -63,4 +51,34 @@ impl<T: IonEq> IonEq for [T] {
         }
         true
     }
+}
+
+/// Checks Ion equivalence for [`f64`].
+///
+/// We cannot implement [`IonEq`] for [`f64`]. If [`IonEq`] is implemented directly on [`f64`], then
+/// `impl<T, R> IonEq for R where T: IonEq, R: Deref<Target = T>` or any other blanket impl of
+/// [`IonEq`] for a standard library trait will cause `error[E0119]: conflicting implementations of
+/// trait` because [`f64`] is an external type (and "upstream crates may add a new impl of trait
+/// `std::ops::Deref` for type `f64` in future versions").
+///
+/// Once [RFC-1210: Impl Specialization](https://rust-lang.github.io/rfcs/1210-impl-specialization.html)
+/// is stable, we can move this to `impl IonEq for f64`.
+pub(crate) fn ion_eq_f64(this: &f64, that: &f64) -> bool {
+    use num_traits::Zero;
+    if this.is_nan() {
+        return that.is_nan();
+    }
+    if this.is_zero() {
+        return that.is_zero() && this.is_sign_negative() == that.is_sign_negative();
+    }
+    // For all other values, fall back to mathematical equivalence
+    this == that
+}
+
+/// Checks Ion equivalence for [`bool`].
+///
+/// See docs for [`ion_eq_f64`] for general rationale. Even though the implementation is trivial,
+/// this function exists to help convey the intention of using Ion equivalence at the call site.
+pub(crate) fn ion_eq_bool(this: &bool, that: &bool) -> bool {
+    this == that
 }

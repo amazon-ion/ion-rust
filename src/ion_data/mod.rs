@@ -5,7 +5,11 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 
+pub(crate) use ion_eq::ion_eq_bool;
+pub(crate) use ion_eq::ion_eq_f64;
 pub(crate) use ion_eq::IonEq;
+pub(crate) use ion_ord::ion_cmp_bool;
+pub(crate) use ion_ord::ion_cmp_f64;
 pub(crate) use ion_ord::IonOrd;
 
 /// A wrapper for lifting Ion compatible data into using Ion-oriented comparisons (versus the Rust
@@ -103,7 +107,7 @@ mod tests {
     use std::rc::Rc;
     use std::sync::Arc;
 
-    /// These tests exist primarily to ensure that we don't break any of trait implementations
+    /// These tests exist primarily to ensure that we don't break any trait implementations
     /// needed to make this all work.
     #[rstest]
     #[case::value(|s| Element::read_one(s).unwrap().value().clone().into())]
@@ -116,9 +120,13 @@ mod tests {
     fn can_wrap_data<T: IonEq + IonOrd + Debug>(
         #[case] the_fn: impl Fn(&'static str) -> IonData<T>,
     ) {
-        let id1: IonData<_> = the_fn("abc");
-        let id2: IonData<_> = the_fn("def");
-        assert_ne!(id1, id2);
-        assert!(id1 < id2);
+        let id1: IonData<_> = the_fn("nan");
+        let id2: IonData<_> = the_fn("nan");
+        assert_eq!(id1, id2);
+
+        let id1: IonData<_> = the_fn("1.00");
+        let id2: IonData<_> = the_fn("1.0");
+        assert_ne!(id1, id2); // Checks `Eq`
+        assert!(id1 > id2); // Checks `Ord`
     }
 }

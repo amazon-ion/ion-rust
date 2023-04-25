@@ -28,7 +28,9 @@ const SKIP_LIST: &[&str] = &[
 
 #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
 #[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
-fn ion_data_consistency(file_name: &str) {
+fn ion_data_eq_ord_consistency(file_name: &str) {
+    // Best-effort tests to check that Eq and Ord are consistent.
+
     if contains_path(SKIP_LIST, file_name) {
         println!("IGNORING: {file_name}");
         return;

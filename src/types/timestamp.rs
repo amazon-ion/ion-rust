@@ -811,7 +811,6 @@ impl IonOrd for Timestamp {
             [None, Some(b)] if b > 0 => return Ordering::Less,
             [Some(a), None] if a > 0 => return Ordering::Greater,
             [Some(a), Some(b)] => {
-                println!("{} -- {}", a, b);
                 let ord = a.cmp(&b);
                 if ord != Ordering::Equal {
                     return ord;

@@ -4,10 +4,8 @@
 
 pub type SymbolId = usize;
 
-pub mod bool;
 pub mod coefficient;
 pub mod decimal;
-pub mod float;
 pub mod integer;
 pub mod string;
 pub mod timestamp;

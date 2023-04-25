@@ -13,10 +13,10 @@ pub(crate) trait IonOrd {
 
 impl<R: Deref> IonOrd for R
 where
-    <R as Deref>::Target: IonOrd,
+    R::Target: IonOrd,
 {
     fn ion_cmp(&self, other: &Self) -> Ordering {
-        <Self as Deref>::Target::ion_cmp(self, other)
+        R::Target::ion_cmp(self, other)
     }
 }
 
@@ -38,6 +38,24 @@ impl<T: IonOrd> IonOrd for [T] {
             }
         }
     }
+}
+
+/// Checks Ion ordering for [`f64`].
+///
+/// We cannot implement [`IonOrd`] directly on [`f64`]. If [`IonOrd`] is implemented directly on
+/// [`f64`], then _any_ blanket impl of [`IonOrd`] for a standard library trait will cause
+/// `error[E0119]: conflicting implementations of trait` because [`f64`] is an external type (and
+/// "upstream crates may add a new impl of trait `std::ops::Deref` for type `f64` in future versions").
+pub(crate) fn ion_cmp_f64(this: &f64, that: &f64) -> Ordering {
+    this.total_cmp(that)
+}
+
+/// Checks Ion ordering for [`bool`].
+///
+/// See docs for [`ion_cmp_f64`] for general rationale. Even though the implementation is trivial,
+/// this function exists to help convey the intention of using Ion equivalence at the call site.
+pub(crate) fn ion_cmp_bool(this: &bool, that: &bool) -> Ordering {
+    this.cmp(that)
 }
 
 #[cfg(test)]
@@ -77,6 +95,9 @@ mod ord_tests {
     #[case::decimals(
         r"
         null.decimal
+        -10.0
+        -1.0
+        -1.00
         -0.0
         -0.00
         0.0
@@ -217,17 +238,19 @@ mod ord_tests {
         let mut copy = original.clone();
         copy.sort();
 
-        if original != copy {
-            let original_for_display: List =
-                Sequence::new(original.iter().cloned().map(IonData::into_inner)).into();
-            let copy_for_display: List =
-                Sequence::new(copy.iter().cloned().map(IonData::into_inner)).into();
-            // Prints using display (i.e. as Ion text)
-            println!("original: {original_for_display}");
-            println!("copy: {copy_for_display}");
-            // Prints using debug
-            assert_eq!(original, copy);
-        }
+        // Prints using display (i.e. as Ion text)
+        println!(
+            "original: {}",
+            List::from(Sequence::new(
+                original.iter().cloned().map(IonData::into_inner)
+            ))
+        );
+        println!(
+            "copy: {}",
+            List::from(Sequence::new(copy.iter().cloned().map(IonData::into_inner)))
+        );
+        // Prints using debug
+        assert_eq!(original, copy);
 
         let mut original_iter = original.iter();
         let mut previous_element = original_iter.next().unwrap();
@@ -235,11 +258,15 @@ mod ord_tests {
             if element == previous_element {
                 assert_eq!(Ordering::Equal, element.cmp(previous_element));
             } else {
-                assert_eq!(Ordering::Greater, element.cmp(previous_element), "\n{element} <:> {previous_element}\n Less: {previous_element:?}\n More: {element:?}");
+                assert_eq!(
+                    Ordering::Greater,
+                    element.cmp(previous_element),
+                    "\nLess: {previous_element:?}\n More: {element:?}"
+                );
                 assert_eq!(
                     Ordering::Less,
                     previous_element.cmp(element),
-                    "{element} {element:?} -- {previous_element} {previous_element:?}"
+                    "\nLess: {previous_element:?}\n More: {element:?}"
                 )
             }
             previous_element = element;
