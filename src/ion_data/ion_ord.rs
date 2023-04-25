@@ -1,6 +1,5 @@
-use crate::element::Annotations;
-use crate::IonType;
 use std::cmp::Ordering;
+use std::ops::Deref;
 
 /// Trait used for delegating [Eq] and [PartialEq] in [IonData].
 /// Implementations of [IonOrd] must be consistent with [IonEq].
@@ -12,37 +11,16 @@ pub(crate) trait IonOrd {
     fn ion_cmp(&self, other: &Self) -> Ordering;
 }
 
-impl<T: IonOrd> IonOrd for &T {
+impl<R: Deref> IonOrd for R
+where
+    <R as Deref>::Target: IonOrd,
+{
     fn ion_cmp(&self, other: &Self) -> Ordering {
-        T::ion_cmp(self, other)
+        <Self as Deref>::Target::ion_cmp(self, other)
     }
 }
 
-impl IonOrd for IonType {
-    fn ion_cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-}
-
-impl IonOrd for Annotations {
-    fn ion_cmp(&self, other: &Self) -> Ordering {
-        self.iter().cmp(other.iter())
-    }
-}
-
-impl IonOrd for bool {
-    fn ion_cmp(&self, other: &Self) -> Ordering {
-        self.cmp(other)
-    }
-}
-
-impl IonOrd for f64 {
-    fn ion_cmp(&self, other: &Self) -> Ordering {
-        self.total_cmp(other)
-    }
-}
-
-impl<T: IonOrd> IonOrd for Vec<T> {
+impl<T: IonOrd> IonOrd for [T] {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         let mut i0 = self.iter();
         let mut i1 = other.iter();

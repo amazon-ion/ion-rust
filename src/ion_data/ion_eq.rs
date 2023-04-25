@@ -1,4 +1,4 @@
-use num_traits::Zero;
+use std::ops::Deref;
 
 /// Determines whether two values are equal according to Ion's definition of equivalence.
 ///
@@ -22,6 +22,7 @@ use num_traits::Zero;
 ///    * `nan` and `nan` are Ion equivalent but not mathematically equivalent.
 ///    * `0.0e` and `-0.0e` are mathematically equivalent but not Ion equivalent.
 /// * Decimal `0.0` and `-0.0` are mathematically equivalent but not Ion equivalent.
+/// * Decimal `0.0` and `0.00` are mathematically equivalent but not Ion equivalent.
 /// * Timestamps representing the same point in time at different precisions or at different
 /// timezone offsets are not Ion equivalent.
 ///
@@ -29,32 +30,28 @@ pub trait IonEq {
     fn ion_eq(&self, other: &Self) -> bool;
 }
 
-impl<T: IonEq> IonEq for &T {
+// impl<T: IonEq> IonEq for &T {
+//     fn ion_eq(&self, other: &Self) -> bool {
+//         T::ion_eq(self, other)
+//     }
+// }
+//
+// impl<T: IonEq> IonEq for Vec<T> {
+//     fn ion_eq(&self, other: &Self) -> bool {
+//         self.as_slice().ion_eq(other.as_slice())
+//     }
+// }
+
+impl<R: Deref> IonEq for R
+where
+    <R as Deref>::Target: IonEq,
+{
     fn ion_eq(&self, other: &Self) -> bool {
-        T::ion_eq(self, other)
+        <Self as Deref>::Target::ion_eq(self, other)
     }
 }
 
-impl IonEq for bool {
-    fn ion_eq(&self, other: &Self) -> bool {
-        self == other
-    }
-}
-
-impl IonEq for f64 {
-    fn ion_eq(&self, other: &Self) -> bool {
-        if self.is_nan() {
-            return other.is_nan();
-        }
-        if self.is_zero() {
-            return other.is_zero() && self.is_sign_negative() == other.is_sign_negative();
-        }
-        // For all other values, fall back to mathematical equivalence
-        self == other
-    }
-}
-
-impl<T: IonEq> IonEq for Vec<T> {
+impl<T: IonEq> IonEq for [T] {
     fn ion_eq(&self, other: &Self) -> bool {
         if self.len() != other.len() {
             return false;

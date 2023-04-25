@@ -234,22 +234,35 @@ impl IonEq for Struct {
 
 impl IonOrd for Struct {
     fn ion_cmp(&self, other: &Self) -> Ordering {
-        let mut these_fields = self.fields.by_index.clone();
-        let mut those_fields = other.fields.by_index.clone();
-        these_fields.sort_by(IonOrd::ion_cmp);
-        those_fields.sort_by(IonOrd::ion_cmp);
-        IonOrd::ion_cmp(&these_fields, &those_fields)
+        let mut these_fields = self.fields.by_index.iter().collect::<Vec<_>>();
+        let mut those_fields = other.fields.by_index.iter().collect::<Vec<_>>();
+        these_fields.sort_by(ion_cmp_field);
+        those_fields.sort_by(ion_cmp_field);
+
+        let mut i0 = these_fields.iter();
+        let mut i1 = those_fields.iter();
+        loop {
+            match [i0.next(), i1.next()] {
+                [None, Some(_)] => return Ordering::Less,
+                [None, None] => return Ordering::Equal,
+                [Some(_), None] => return Ordering::Greater,
+                [Some(a), Some(b)] => {
+                    let ord = ion_cmp_field(a, b);
+                    if ord != Ordering::Equal {
+                        return ord;
+                    }
+                }
+            }
+        }
     }
 }
 
-impl IonOrd for (Symbol, Element) {
-    fn ion_cmp(&self, other: &Self) -> Ordering {
-        let ord = self.0.text().cmp(&other.0.text());
-        if !ord.is_eq() {
-            return ord;
-        }
-        IonOrd::ion_cmp(&self.1, &other.1)
+fn ion_cmp_field(this: &&(Symbol, Element), that: &&(Symbol, Element)) -> Ordering {
+    let ord = this.0.ion_cmp(&that.0);
+    if !ord.is_eq() {
+        return ord;
     }
+    IonOrd::ion_cmp(&this.1, &that.1)
 }
 
 #[cfg(test)]

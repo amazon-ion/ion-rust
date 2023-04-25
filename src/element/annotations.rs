@@ -1,5 +1,7 @@
 use crate::element::iterators::SymbolsIterator;
+use crate::ion_data::IonOrd;
 use crate::Symbol;
+use std::cmp::Ordering;
 
 /// An ordered sequence of symbols that convey additional, application-specific information about
 /// their associated Ion value.
@@ -120,5 +122,11 @@ impl<'a> IntoIterator for &'a Annotations {
 
     fn into_iter(self) -> Self::IntoIter {
         SymbolsIterator::new(self.symbols.as_slice())
+    }
+}
+
+impl IonOrd for Annotations {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        self.symbols.ion_cmp(&other.symbols)
     }
 }

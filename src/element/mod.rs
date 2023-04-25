@@ -40,6 +40,7 @@ pub use self::bytes::Bytes;
 pub use annotations::Annotations;
 pub use lob::{Blob, Clob};
 
+use crate::types::float;
 pub use list::List;
 pub use r#struct::Struct;
 pub use sequence::Sequence;
@@ -50,13 +51,13 @@ impl IonEq for Value {
         use Value::*;
         match (self, other) {
             (Null(this), Null(that)) => this == that,
+            (Bool(this), Bool(that)) => this == that,
             (Int(this), Int(that)) => this.ion_eq(that),
-            (Float(this), Float(that)) => this.ion_eq(that),
+            (Float(this), Float(that)) => float::Float::ion_eq_f64(this, that),
             (Decimal(this), Decimal(that)) => this.ion_eq(that),
             (Timestamp(this), Timestamp(that)) => this.ion_eq(that),
             (String(this), String(that)) => this.ion_eq(that),
             (Symbol(this), Symbol(that)) => this.ion_eq(that),
-            (Bool(this), Bool(that)) => this.ion_eq(that),
             (Blob(this), Blob(that)) => this.ion_eq(that),
             (Clob(this), Clob(that)) => this.ion_eq(that),
             (SExp(this), SExp(that)) => this.ion_eq(that),
@@ -95,13 +96,13 @@ impl IonOrd for Value {
                     Ordering::Less
                 }
             }
+            Bool(this) => compare!(Bool(that) => this.cmp(that)),
             Int(this) => compare!(Int(that) => this.ion_cmp(that)),
-            Float(this) => compare!(Float(that) => this.ion_cmp(that)),
+            Float(this) => compare!(Float(that) => float::Float::ion_cmp_f64(this, that)),
             Decimal(this) => compare!(Decimal(that) => this.ion_cmp(that)),
             Timestamp(this) => compare!(Timestamp(that) => this.ion_cmp(that)),
             String(this) => compare!(String(that) => this.ion_cmp(that)),
             Symbol(this) => compare!(Symbol(that) => this.ion_cmp(that)),
-            Bool(this) => compare!(Bool(that) => this.ion_cmp(that)),
             Blob(this) => compare!(Blob(that) => this.ion_cmp(that)),
             Clob(this) => compare!(Clob(that) => this.ion_cmp(that)),
             SExp(this) => compare!(SExp(that) => this.ion_cmp(that)),
