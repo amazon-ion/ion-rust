@@ -1,4 +1,4 @@
-use crate::lazy_reader::system_reader::{LazySequence, LazyStruct};
+use crate::lazy_reader::lazy_system_reader::{LazySequence, LazyStruct};
 use crate::result::decoding_error;
 use crate::{Decimal, Int, IonResult, IonType, SymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};

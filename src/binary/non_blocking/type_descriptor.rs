@@ -17,7 +17,7 @@ pub(crate) struct TypeDescriptor {
 
 /// A statically defined array of TypeDescriptor that allows a binary reader to map a given
 /// byte (`u8`) to a `TypeDescriptor` without having to perform any masking or bitshift operations.
-pub(crate) const ION_1_0_TYPE_DESCRIPTORS: &[TypeDescriptor; 256] = &init_type_descriptor_cache();
+pub(crate) static ION_1_0_TYPE_DESCRIPTORS: &[TypeDescriptor; 256] = &init_type_descriptor_cache();
 
 const DEFAULT_HEADER: TypeDescriptor = TypeDescriptor {
     ion_type_code: IonTypeCode::NullOrNop,

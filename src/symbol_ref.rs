@@ -33,6 +33,16 @@ impl<'a> SymbolRef<'a> {
     }
 }
 
+impl<'a, A> PartialEq<A> for SymbolRef<'a>
+where
+    A: AsSymbolRef,
+{
+    fn eq(&self, other: &A) -> bool {
+        let other_symbol_ref = other.as_symbol_ref();
+        self == &other_symbol_ref
+    }
+}
+
 /// Allows a `SymbolRef` to be constructed from a source value. This enables non-symbol types to be
 /// viewed as a symbol with little to no runtime overhead.
 pub trait AsSymbolRef {
@@ -60,6 +70,14 @@ impl<'a> Hash for SymbolRef<'a> {
 impl<'a> From<&'a str> for SymbolRef<'a> {
     fn from(text: &'a str) -> Self {
         Self { text: Some(text) }
+    }
+}
+
+impl<'a> From<&'a Symbol> for SymbolRef<'a> {
+    fn from(symbol: &'a Symbol) -> Self {
+        Self {
+            text: symbol.text(),
+        }
     }
 }
 

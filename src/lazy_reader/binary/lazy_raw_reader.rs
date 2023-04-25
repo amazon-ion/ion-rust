@@ -62,17 +62,17 @@ pub struct LazyRawBinaryReader<'a> {
     data: DataSource<'a>,
 }
 
-pub struct RawSequenceReader<'a> {
+pub struct RawSequenceIterator<'a> {
     source: DataSource<'a>,
 }
 
-pub struct RawStructReader<'a> {
+pub struct RawStructIterator<'a> {
     source: DataSource<'a>,
 }
 
 pub struct LazyRawValue<'a> {
-    encoded_value: EncodedValue,
-    input: ImmutableBuffer<'a>,
+    pub(crate) encoded_value: EncodedValue,
+    pub(crate) input: ImmutableBuffer<'a>,
 }
 
 pub struct LazyRawSequence<'a> {
@@ -136,9 +136,9 @@ impl<'a> LazyRawBinaryReader<'a> {
     }
 }
 
-impl<'a> RawSequenceReader<'a> {
+impl<'a> RawSequenceIterator<'a> {
     pub(crate) fn new(input: ImmutableBuffer<'a>) -> Self {
-        RawSequenceReader {
+        RawSequenceIterator {
             source: DataSource::new(input),
         }
     }
@@ -180,9 +180,9 @@ impl<'a> Debug for LazyRawField<'a> {
     }
 }
 
-impl<'a> RawStructReader<'a> {
+impl<'a> RawStructIterator<'a> {
     pub(crate) fn new(input: ImmutableBuffer<'a>) -> Self {
-        RawStructReader {
+        RawStructIterator {
             source: DataSource::new(input),
         }
     }
@@ -198,7 +198,7 @@ impl<'a> RawStructReader<'a> {
 
 impl<'a> Debug for LazyRawStruct<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut reader = self.reader();
+        let mut reader = self.iter();
         write!(f, "{{")?;
         while let Some(field) = reader.next_field().unwrap() {
             let name = field.name();
@@ -212,11 +212,11 @@ impl<'a> Debug for LazyRawStruct<'a> {
 }
 
 impl<'a> LazyRawStruct<'a> {
-    pub fn reader(&self) -> RawStructReader<'a> {
+    pub fn iter(&self) -> RawStructIterator<'a> {
         // Get as much of the struct's body as is available in the input buffer.
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
-        RawStructReader::new(buffer_slice)
+        RawStructIterator::new(buffer_slice)
     }
 }
 
@@ -225,17 +225,17 @@ impl<'a> LazyRawSequence<'a> {
         self.value.ion_type()
     }
 
-    pub fn reader(&self) -> RawSequenceReader<'a> {
+    pub fn iter(&self) -> RawSequenceIterator<'a> {
         // Get as much of the sequence's body as is available in the input buffer.
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
-        RawSequenceReader::new(buffer_slice)
+        RawSequenceIterator::new(buffer_slice)
     }
 }
 
 impl<'a> Debug for LazyRawSequence<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut reader = self.reader();
+        let mut reader = self.iter();
         match self.value.encoded_value.ion_type() {
             IonType::SExp => {
                 write!(f, "(")?;
@@ -281,8 +281,9 @@ impl<'a> LazyRawValue<'a> {
         Self::peek_value(false, input)
     }
 
-    // TODO: Nop, etc
     // This method consumes leading NOP bytes, but leaves the header representation in the buffer.
+    // The resulting LazyRawValue's buffer slice always starts with the first non-NOP byte in the
+    // header, which can be either a field ID, an annotations wrapper, or a type descriptor.
     fn peek_value(
         has_field: bool,
         initial_input: ImmutableBuffer<'a>,
@@ -366,11 +367,11 @@ impl<'a> LazyRawValue<'a> {
             value_length,
             total_length,
         };
-        let value_reader = LazyRawValue {
+        let lazy_value = LazyRawValue {
             encoded_value,
             input: initial_input,
         };
-        Ok(Some(value_reader))
+        Ok(Some(lazy_value))
     }
 
     pub fn ion_type(&self) -> IonType {
@@ -746,7 +747,7 @@ mod tests {
     use crate::element::Element;
     use crate::lazy_reader::binary::immutable_buffer::ImmutableBuffer;
     use crate::lazy_reader::binary::lazy_raw_reader::{
-        LazyRawBinaryReader, LazyRawValue, RawSequenceReader,
+        LazyRawBinaryReader, LazyRawValue, RawSequenceIterator,
     };
     use crate::lazy_reader::raw_stream_item::RawStreamItem;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
@@ -766,8 +767,8 @@ mod tests {
     fn test_single() -> IonResult<()> {
         let data = &to_10n("null 5 false true")?[4..]; // skip ivm
         let buffer = ImmutableBuffer::new(data);
-        let value_reader = LazyRawValue::peek_value_without_field_id(buffer)?.unwrap();
-        let raw_value = value_reader.read()?;
+        let lazy_value = LazyRawValue::peek_value_without_field_id(buffer)?.unwrap();
+        let raw_value = lazy_value.read()?;
         println!("{:?}", raw_value);
         Ok(())
     }
@@ -789,7 +790,7 @@ mod tests {
         "#,
         )?[4..]; // skip ivm
         let buffer = ImmutableBuffer::new(data);
-        let mut sequence_reader = RawSequenceReader::new(buffer);
+        let mut sequence_reader = RawSequenceIterator::new(buffer);
         while let Some(value) = sequence_reader.next()? {
             println!("{:?}", value.read()?);
         }
@@ -804,7 +805,7 @@ mod tests {
         "#,
         )?[4..]; // skip ivm
         let buffer = ImmutableBuffer::new(data);
-        let mut sequence_reader = RawSequenceReader::new(buffer);
+        let mut sequence_reader = RawSequenceIterator::new(buffer);
         while let Some(value) = sequence_reader.next()? {
             println!("{:?}", value.read()?);
         }
@@ -820,7 +821,7 @@ mod tests {
             true
             {name:"hi", name: "hello"}
         "#,
-        )?; // skip ivm
+        )?;
         let mut reader = LazyRawBinaryReader::new(data);
         loop {
             match reader.next()? {
@@ -833,39 +834,11 @@ mod tests {
     }
 
     #[test]
-    fn test_rewind() -> IonResult<()> {
-        let data = &to_10n(
-            r#"
-            "yo"
-            77
-            true
-            {name:"hi", name: "hello"}
-        "#,
-        )?;
-        let mut reader = LazyRawBinaryReader::new(data);
-        let mut values = Vec::new();
-        loop {
-            match reader.next()? {
-                RawStreamItem::VersionMarker(major, minor) => println!("IVM: v{}.{}", major, minor),
-                RawStreamItem::Value(value) => {
-                    println!("{:?}", value.read()?);
-                    values.push(value);
-                }
-                RawStreamItem::Nothing => break,
-            }
-        }
-        println!("=== Replay second and third values ===");
-        println!("{:?}", values[1].read()?);
-        println!("{:?}", values[2].read()?);
-        Ok(())
-    }
-
-    #[test]
     fn annotations_sequence() -> IonResult<()> {
         let data = &to_10n(
             r#"
             $ion_symbol_table::{symbols: ["foo"]}
-            foo // binary writer will drop the symtab if we don't use a symbol 
+            foo // binary writer will omit the symtab if we don't use a symbol 
         "#,
         )?;
         let mut reader = LazyRawBinaryReader::new(data);
