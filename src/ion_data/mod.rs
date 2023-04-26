@@ -18,7 +18,6 @@ pub(crate) use ion_ord::IonOrd;
 ///
 /// Equivalence with respect to Ion values means that if two Ion values, `X` and `Y`, are equivalent,
 /// they represent the same data and can be substituted for the other without loss of information.
-/// (See [`IonEq`] for more information.)
 ///
 /// Some types, such as [`Element`](crate::Element) and [`Value`](crate::element::Value) cannot be
 /// used as the key of a map because they adhere to Rust value semantics—these types cannot implement
@@ -31,11 +30,11 @@ pub(crate) use ion_ord::IonOrd;
 /// For other use cases, such as using Ion data as the key of a map or passing Ion data to an
 /// algorithm that depends on [`Eq`], you can lift values using [`IonData::from()`].
 ///
-/// Anything that implements [`IonEq`] can be converted into [`IonData`]. [`IonData`] itself does not
-/// implement [`IonEq`] so that it is impossible to create, for example, `IonData<IonData<Element>>`.
+/// Generally, anything that is treated as Ion data (e.g., [`Element`](crate::Element) and
+/// [`Value`](crate::element::Value)), can be converted to [`IonData`].
 ///
 /// [`Hash`] and [`Ord`] are not guaranteed to be implemented for all [`IonData`], but when they are,
-/// they are required to be consistent with [`IonEq`] (and [`Eq`]).
+/// they are required to be consistent with Ion structural equality (and [`Eq`]).
 ///
 /// __WARNING__—The Ion specification does _not_ define a total ordering over all Ion values. Do
 /// not depend on getting any particular result from [Ord]. Use it only as an opaque total ordering
