@@ -41,13 +41,6 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
           override: true
-      - name: Cargo Build
-        # cargo test implies build, so only run this explicitly on default
-        if: matrix.features == 'default'
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --verbose --workspace
       - name: Cargo Test (default/no features)
         if: matrix.features == 'default'
         uses: actions-rs/cargo@v1
