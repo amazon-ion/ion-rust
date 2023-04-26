@@ -1,3 +1,4 @@
+use crate::ion_data::{IonEq, IonOrd};
 use crate::result::decoding_error;
 use crate::IonResult;
 use std::borrow::Borrow;
@@ -109,6 +110,18 @@ impl Symbol {
             Some(text) => Ok(text),
             None => decoding_error("symbol has unknown text"),
         }
+    }
+}
+
+impl IonEq for Symbol {
+    fn ion_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+impl IonOrd for Symbol {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
 }
 

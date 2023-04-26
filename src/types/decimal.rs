@@ -3,7 +3,8 @@ use std::cmp::Ordering;
 use bigdecimal::{BigDecimal, Signed};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 
-use crate::ion_eq::IonEq;
+use crate::ion_data::IonEq;
+use crate::ion_data::IonOrd;
 use crate::result::{illegal_operation, IonError};
 use crate::types::coefficient::{Coefficient, Sign};
 use crate::types::integer::UInt;
@@ -181,6 +182,28 @@ impl Eq for Decimal {}
 impl IonEq for Decimal {
     fn ion_eq(&self, other: &Self) -> bool {
         self.exponent == other.exponent && self.coefficient == other.coefficient
+    }
+}
+
+impl IonOrd for Decimal {
+    // Numerical order (least to greatest) and then by number of significant figures (least to greatest)
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        let sign_cmp = self.coefficient.sign().cmp(&other.coefficient.sign());
+        if sign_cmp != Ordering::Equal {
+            return sign_cmp;
+        }
+
+        // If the signs are the same, compare their magnitudes.
+        let ordering = Decimal::compare_magnitudes(self, other);
+        if ordering != Ordering::Equal {
+            return match self.coefficient.sign {
+                Sign::Negative => ordering.reverse(),
+                Sign::Positive => ordering,
+            };
+        };
+        // Finally, compare the number of significant figures.
+        // Since we know the numeric value is the same, we only need to look at the exponents here.
+        self.exponent.cmp(&other.exponent).reverse()
     }
 }
 
@@ -373,7 +396,7 @@ mod decimal_tests {
     use std::convert::TryInto;
     use std::fmt::Write;
 
-    use crate::ion_eq::IonEq;
+    use crate::ion_data::IonEq;
     use rstest::*;
 
     #[rstest]

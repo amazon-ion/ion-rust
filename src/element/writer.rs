@@ -97,7 +97,7 @@ pub enum Format {
 mod tests {
     use crate::element::writer::ElementWriter;
     use crate::element::Element;
-    use crate::ion_eq::IonEq;
+    use crate::ion_data::IonEq;
     use crate::text::text_writer::TextWriterBuilder;
 
     use crate::{IonResult, IonWriter};

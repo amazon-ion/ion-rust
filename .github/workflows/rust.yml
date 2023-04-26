@@ -17,6 +17,8 @@ jobs:
         # meantime, the build only tests Windows Server 2019.
         # See https://github.com/amazon-ion/ion-rust/issues/353
         os: [ubuntu-latest, windows-2019, macos-latest]
+        # build and test for different and interesting crate features
+        features: ['default', 'all', 'ion-hash', 'experimental', 'ion-hash,experimental']
     permissions:
       checks: write
 
@@ -39,22 +41,27 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
           override: true
-      - name: Cargo Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --verbose --workspace
       - name: Cargo Test (default/no features)
+        if: matrix.features == 'default'
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --verbose --workspace
       - name: Cargo Test (all features)
+        if: matrix.features == 'all'
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --verbose --workspace --all-features
+      - name: Cargo Test (specific feature)
+        if: matrix.features != 'default' && matrix.features != 'all'
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose --workspace --features "${{ matrix.features }}"
       - name: Rustfmt Check
+        # We really only need to run this once--ubuntu/all features mode is as good as any
+        if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
         uses: actions-rs/cargo@v1
         with:
           command: fmt
@@ -68,16 +75,18 @@ jobs:
         # The clippy check depends on setup steps defined above, but we don't want it to run
         # for every OS because it posts its comments to the PR. These `if` checks limit clippy to
         # only running on the Linux test. (The choice of OS was arbitrary.)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
         run: rustup component add clippy
-      - name: Run Clippy
-        if: matrix.os == 'ubuntu-latest'
+      - name: Run Clippy 
+        if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
         uses: actions-rs/clippy-check@v1
         with:
           # Adding comments to the PR requires the GITHUB_TOKEN secret.
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all-features --tests
       - name: Rustdoc on Everything
+        # We really only need to run this once--ubuntu/all features mode is as good as any
+        if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
         uses: actions-rs/cargo@v1
         with:
           command: doc

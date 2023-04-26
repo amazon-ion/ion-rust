@@ -45,6 +45,26 @@ create_new_slice_iterator_type!(
     ElementsIterator => Element
 );
 
+/// Consuming iterator for [`Annotations`](crate::element::Annotations).
+#[derive(Debug, Clone)]
+pub struct AnnotationsIntoIter {
+    into_iter: std::vec::IntoIter<Symbol>,
+}
+
+impl AnnotationsIntoIter {
+    pub(crate) fn new(into_iter: std::vec::IntoIter<Symbol>) -> Self {
+        Self { into_iter }
+    }
+}
+
+impl Iterator for AnnotationsIntoIter {
+    type Item = Symbol;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.into_iter.next()
+    }
+}
+
 // A convenient type alias for a vector capable of storing a single `usize` inline
 // without heap allocation. This type should not be used in public interfaces directly.
 pub(crate) type IndexVec = SmallVec<[usize; 1]>;

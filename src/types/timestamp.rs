@@ -1,4 +1,5 @@
-use crate::ion_eq::IonEq;
+use crate::ion_data::IonEq;
+use crate::ion_data::IonOrd;
 use crate::result::{
     encoding_error, illegal_operation, illegal_operation_raw, IonError, IonResult,
 };
@@ -751,6 +752,8 @@ impl PartialEq for Timestamp {
     }
 }
 
+impl Eq for Timestamp {}
+
 impl IonEq for Timestamp {
     fn ion_eq(&self, other: &Self) -> bool {
         if self.precision != other.precision {
@@ -788,7 +791,43 @@ impl IonEq for Timestamp {
     }
 }
 
-impl Eq for Timestamp {}
+impl IonOrd for Timestamp {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        // Compare by point in time
+        let ord = self.cmp(other);
+        if ord != Ordering::Equal {
+            return ord;
+        };
+
+        // And then by precision
+        let ord = self.precision.cmp(&other.precision);
+        if ord != Ordering::Equal {
+            return ord;
+        };
+        match [
+            self.fractional_seconds_scale(),
+            other.fractional_seconds_scale(),
+        ] {
+            [None, Some(b)] if b > 0 => return Ordering::Less,
+            [Some(a), None] if a > 0 => return Ordering::Greater,
+            [Some(a), Some(b)] => {
+                let ord = a.cmp(&b);
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+            _ => {}
+        }
+
+        // And finally by offset (unknown, then least to greatest)
+        match [self.offset, other.offset] {
+            [None, Some(_)] => Ordering::Less,
+            [None, None] => Ordering::Equal,
+            [Some(_), None] => Ordering::Greater,
+            [Some(o1), Some(o2)] => o1.local_minus_utc().cmp(&o2.local_minus_utc()),
+        }
+    }
+}
 
 /// A Builder object for incrementally configuring and finally instantiating a [Timestamp].
 /// For the time being, this type is not publicly visible. Users are expected to use any of the
@@ -1275,7 +1314,7 @@ impl From<DateTime<FixedOffset>> for Timestamp {
 #[cfg(test)]
 mod timestamp_tests {
     use super::*;
-    use crate::ion_eq::IonEq;
+    use crate::ion_data::IonEq;
     use crate::result::IonResult;
     use crate::types::decimal::Decimal;
     use crate::types::timestamp::{Mantissa, Precision, Timestamp};

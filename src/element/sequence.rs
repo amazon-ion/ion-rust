@@ -1,7 +1,8 @@
 use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::ElementsIterator;
 use crate::element::Element;
-use crate::ion_eq::IonEq;
+use crate::ion_data::{IonEq, IonOrd};
+use std::cmp::Ordering;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sequence {
@@ -53,22 +54,25 @@ impl From<Vec<Element>> for Sequence {
     }
 }
 
+impl<'a> IntoIterator for &'a Sequence {
+    type Item = &'a Element;
+    // TODO: Change once `impl Trait` type aliases are stable
+    // type IntoIter = impl Iterator<Item = &'a Element>;
+    type IntoIter = ElementsIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.elements()
+    }
+}
+
 impl IonEq for Sequence {
     fn ion_eq(&self, other: &Self) -> bool {
         self.elements.ion_eq(&other.elements)
     }
 }
 
-impl IonEq for Vec<Element> {
-    fn ion_eq(&self, other: &Self) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-        for (v1, v2) in self.iter().zip(other.iter()) {
-            if !v1.ion_eq(v2) {
-                return false;
-            }
-        }
-        true
+impl IonOrd for Sequence {
+    fn ion_cmp(&self, other: &Self) -> Ordering {
+        self.elements.ion_cmp(&other.elements)
     }
 }
