@@ -357,7 +357,7 @@ impl<'data> LazySystemReader<'data> {
             return Ok(SystemStreamItem::SymbolTable(lazy_struct));
         }
         let lazy_value = LazyValue::new(symbol_table, lazy_raw_value);
-        Ok(SystemStreamItem::Value(lazy_value.clone()))
+        Ok(SystemStreamItem::Value(lazy_value))
     }
 
     // It would make more sense for this logic to live in the user-level `LazyReader` as a simple
