@@ -56,12 +56,12 @@ impl IonEq for Value {
             (Float(this), Float(that)) => ion_data::ion_eq_f64(this, that),
             (Decimal(this), Decimal(that)) => this.ion_eq(that),
             (Timestamp(this), Timestamp(that)) => this.ion_eq(that),
-            (String(this), String(that)) => this.ion_eq(that),
             (Symbol(this), Symbol(that)) => this.ion_eq(that),
-            (Blob(this), Blob(that)) => this.ion_eq(that),
+            (String(this), String(that)) => this.ion_eq(that),
             (Clob(this), Clob(that)) => this.ion_eq(that),
-            (SExp(this), SExp(that)) => this.ion_eq(that),
+            (Blob(this), Blob(that)) => this.ion_eq(that),
             (List(this), List(that)) => this.ion_eq(that),
+            (SExp(this), SExp(that)) => this.ion_eq(that),
             (Struct(this), Struct(that)) => this.ion_eq(that),
             _ => false,
         }
@@ -101,12 +101,12 @@ impl IonOrd for Value {
             Float(this) => compare!(Float(that) => ion_data::ion_cmp_f64(this, that)),
             Decimal(this) => compare!(Decimal(that) => this.ion_cmp(that)),
             Timestamp(this) => compare!(Timestamp(that) => this.ion_cmp(that)),
-            String(this) => compare!(String(that) => this.ion_cmp(that)),
             Symbol(this) => compare!(Symbol(that) => this.ion_cmp(that)),
-            Blob(this) => compare!(Blob(that) => this.ion_cmp(that)),
+            String(this) => compare!(String(that) => this.ion_cmp(that)),
             Clob(this) => compare!(Clob(that) => this.ion_cmp(that)),
-            SExp(this) => compare!(SExp(that) => this.ion_cmp(that)),
+            Blob(this) => compare!(Blob(that) => this.ion_cmp(that)),
             List(this) => compare!(List(that) => this.ion_cmp(that)),
+            SExp(this) => compare!(SExp(that) => this.ion_cmp(that)),
             Struct(this) => compare!(Struct(that) => this.ion_cmp(that)),
         }
     }
@@ -116,17 +116,17 @@ impl IonOrd for Value {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null(IonType),
+    Bool(bool),
     Int(Int),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
-    String(Str),
     Symbol(Symbol),
-    Bool(bool),
-    Blob(Bytes),
+    String(Str),
     Clob(Bytes),
-    SExp(Sequence),
+    Blob(Bytes),
     List(Sequence),
+    SExp(Sequence),
     Struct(Struct),
 }
 
@@ -136,17 +136,17 @@ impl Value {
 
         match self {
             Null(t) => *t,
+            Bool(_) => IonType::Bool,
             Int(_) => IonType::Int,
             Float(_) => IonType::Float,
             Decimal(_) => IonType::Decimal,
             Timestamp(_) => IonType::Timestamp,
-            String(_) => IonType::String,
             Symbol(_) => IonType::Symbol,
-            Bool(_) => IonType::Bool,
-            Blob(_) => IonType::Blob,
+            String(_) => IonType::String,
             Clob(_) => IonType::Clob,
-            SExp(_) => IonType::SExp,
+            Blob(_) => IonType::Blob,
             List(_) => IonType::List,
+            SExp(_) => IonType::SExp,
             Struct(_) => IonType::Struct,
         }
     }
@@ -166,9 +166,9 @@ impl Display for Value {
             Value::String(string) => ivf.format_string(string),
             Value::Clob(clob) => ivf.format_clob(clob),
             Value::Blob(blob) => ivf.format_blob(blob),
-            Value::Struct(struct_) => ivf.format_struct(struct_),
-            Value::SExp(sequence) => ivf.format_sexp(sequence),
             Value::List(sequence) => ivf.format_list(sequence),
+            Value::SExp(sequence) => ivf.format_sexp(sequence),
+            Value::Struct(struct_) => ivf.format_struct(struct_),
         }
         .map_err(|_| std::fmt::Error)?;
 
