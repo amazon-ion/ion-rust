@@ -142,7 +142,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
 }
 
 impl<'top, 'data> LazyField<'top, 'data> {
-    pub fn name(&self) -> IonResult<SymbolRef> {
+    pub fn name(&self) -> IonResult<SymbolRef<'top>> {
         let field_sid = self.value.raw_value.field_name().unwrap();
         self.value
             .symbol_table
@@ -238,7 +238,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
                         .ok_or_else(|| {
                             decoding_error_raw("found a symbol ID that was not in the symbol table")
                         })?
-                        .to_owned(),
+                        .into(),
                     RawSymbolTokenRef::Text(text) => text.into(),
                 };
                 ValueRef::Symbol(symbol)

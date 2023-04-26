@@ -754,9 +754,7 @@ mod tests {
     use crate::element::writer::ElementWriter;
     use crate::element::Element;
     use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
-    use crate::lazy::binary::lazy_raw_reader::{
-        LazyRawBinaryReader, LazyRawValue, RawSequenceIterator,
-    };
+    use crate::lazy::binary::lazy_raw_reader::{LazyRawBinaryReader, RawSequenceIterator};
     use crate::lazy::raw_stream_item::RawStreamItem;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
     use crate::{BinaryWriterBuilder, IonResult, IonType, IonWriter, RawSymbolTokenRef};
