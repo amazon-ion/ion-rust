@@ -4,14 +4,14 @@ use crate::IonResult;
 use std::fmt::{Debug, Formatter};
 
 /// Raw stream elements that a SystemReader may encounter.
-pub enum SystemStreamItem<'a> {
+pub enum SystemStreamItem<'top, 'data> {
     VersionMarker(u8, u8),
-    SymbolTable(LazyStruct<'a>),
-    Value(LazyValue<'a>),
+    SymbolTable(LazyStruct<'top, 'data>),
+    Value(LazyValue<'top, 'data>),
     Nothing,
 }
 
-impl<'a> Debug for SystemStreamItem<'a> {
+impl<'top, 'data> Debug for SystemStreamItem<'top, 'data> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             SystemStreamItem::VersionMarker(major, minor) => {
@@ -24,7 +24,7 @@ impl<'a> Debug for SystemStreamItem<'a> {
     }
 }
 
-impl<'a> SystemStreamItem<'a> {
+impl<'top, 'data> SystemStreamItem<'top, 'data> {
     pub fn version_marker(&self) -> Option<(u8, u8)> {
         if let Self::VersionMarker(major, minor) = self {
             Some((*major, *minor))
@@ -38,7 +38,7 @@ impl<'a> SystemStreamItem<'a> {
             .ok_or_else(|| decoding_error_raw(format!("expected IVM, found {:?}", self)))
     }
 
-    pub fn value(&self) -> Option<&LazyValue<'a>> {
+    pub fn value(&self) -> Option<&LazyValue<'top, 'data>> {
         if let Self::Value(value) = self {
             Some(value)
         } else {
@@ -46,7 +46,7 @@ impl<'a> SystemStreamItem<'a> {
         }
     }
 
-    pub fn expect_value(self) -> IonResult<LazyValue<'a>> {
+    pub fn expect_value(self) -> IonResult<LazyValue<'top, 'data>> {
         if let Self::Value(value) = self {
             Ok(value)
         } else {

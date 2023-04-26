@@ -4,12 +4,12 @@ use crate::IonResult;
 
 #[derive(Debug)]
 /// Raw stream components that a RawReader may encounter.
-pub enum RawStreamItem<'a> {
+pub enum RawStreamItem<'data> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(u8, u8),
     // TODO: Doc
-    Value(LazyRawValue<'a>),
+    Value(LazyRawValue<'data>),
     /// Indicates that the reader is not positioned over anything. This can happen:
     /// * before the reader has begun processing the stream.
     /// * after the reader has stepped into a container, but before the reader has called next()

@@ -12,20 +12,20 @@ use num_traits::Zero;
 use std::fmt::{Debug, Formatter};
 use std::{fmt, mem};
 
-struct DataSource<'a> {
-    buffer: ImmutableBuffer<'a>,
-    bytes_to_skip: usize, // initially; try to advance on 'next'
+struct DataSource<'data> {
+    buffer: ImmutableBuffer<'data>,
+    bytes_to_skip: usize, // initially 0; try to advance on 'next'
 }
 
-impl<'a> DataSource<'a> {
-    fn new(buffer: ImmutableBuffer<'a>) -> DataSource<'a> {
+impl<'data> DataSource<'data> {
+    fn new(buffer: ImmutableBuffer<'data>) -> DataSource<'data> {
         DataSource {
             buffer,
             bytes_to_skip: 0,
         }
     }
 
-    fn advance_to_next_item(&mut self) -> IonResult<ImmutableBuffer<'a>> {
+    fn advance_to_next_item(&mut self) -> IonResult<ImmutableBuffer<'data>> {
         if self.buffer.len() < self.bytes_to_skip {
             return incomplete_data_error(
                 "cannot advance to next item, insufficient data in buffer",
@@ -40,10 +40,10 @@ impl<'a> DataSource<'a> {
         }
     }
 
-    fn try_parse_next<F: Fn(ImmutableBuffer<'a>) -> IonResult<Option<LazyRawValue<'a>>>>(
+    fn try_parse_next<F: Fn(ImmutableBuffer<'data>) -> IonResult<Option<LazyRawValue<'data>>>>(
         &mut self,
         parser: F,
-    ) -> IonResult<Option<LazyRawValue<'a>>> {
+    ) -> IonResult<Option<LazyRawValue<'data>>> {
         let buffer = self.advance_to_next_item()?;
 
         let lazy_value = match parser(buffer) {
@@ -58,46 +58,47 @@ impl<'a> DataSource<'a> {
     }
 }
 
-pub struct LazyRawBinaryReader<'a> {
-    data: DataSource<'a>,
+pub struct LazyRawBinaryReader<'data> {
+    data: DataSource<'data>,
 }
 
-pub struct RawSequenceIterator<'a> {
-    source: DataSource<'a>,
+pub struct RawSequenceIterator<'data> {
+    source: DataSource<'data>,
 }
 
-pub struct RawStructIterator<'a> {
-    source: DataSource<'a>,
+pub struct RawStructIterator<'data> {
+    source: DataSource<'data>,
 }
 
-pub struct LazyRawValue<'a> {
+#[derive(Clone)]
+pub struct LazyRawValue<'data> {
     pub(crate) encoded_value: EncodedValue,
-    pub(crate) input: ImmutableBuffer<'a>,
+    pub(crate) input: ImmutableBuffer<'data>,
 }
 
-pub struct LazyRawSequence<'a> {
-    value: LazyRawValue<'a>,
+pub struct LazyRawSequence<'data> {
+    pub(crate) value: LazyRawValue<'data>,
 }
 
-pub struct LazyRawStruct<'a> {
-    value: LazyRawValue<'a>,
+pub struct LazyRawStruct<'data> {
+    pub(crate) value: LazyRawValue<'data>,
 }
 
-pub struct LazyRawField<'a> {
-    value: LazyRawValue<'a>,
+pub struct LazyRawField<'data> {
+    pub(crate) value: LazyRawValue<'data>,
 }
 
-impl<'a> LazyRawBinaryReader<'a> {
-    pub fn new(data: &'a [u8]) -> LazyRawBinaryReader<'a> {
+impl<'data> LazyRawBinaryReader<'data> {
+    pub fn new(data: &'data [u8]) -> LazyRawBinaryReader<'data> {
         Self::new_with_offset(data, 0)
     }
 
-    fn new_with_offset(data: &'a [u8], offset: usize) -> LazyRawBinaryReader<'a> {
+    fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawBinaryReader<'data> {
         let data = DataSource::new(ImmutableBuffer::new_with_offset(data, offset));
         LazyRawBinaryReader { data }
     }
 
-    fn read_ivm(&mut self, buffer: ImmutableBuffer<'a>) -> IonResult<RawStreamItem<'a>> {
+    fn read_ivm(&mut self, buffer: ImmutableBuffer<'data>) -> IonResult<RawStreamItem<'data>> {
         let ((major, minor), _buffer_after_ivm) = buffer.read_ivm()?;
         if (major, minor) != (1, 0) {
             return decoding_error(format!(
@@ -110,8 +111,8 @@ impl<'a> LazyRawBinaryReader<'a> {
         return Ok(RawStreamItem::VersionMarker(1, 0));
     }
 
-    fn read_value(&mut self, buffer: ImmutableBuffer<'a>) -> IonResult<RawStreamItem<'a>> {
-        let lazy_value = match LazyRawValue::peek_value_without_field_id(buffer)? {
+    fn read_value(&mut self, buffer: ImmutableBuffer<'data>) -> IonResult<RawStreamItem<'data>> {
+        let lazy_value = match Self::peek_value_without_field_id(buffer)? {
             Some(lazy_value) => lazy_value,
             None => return Ok(RawStreamItem::Nothing),
         };
@@ -120,164 +121,13 @@ impl<'a> LazyRawBinaryReader<'a> {
         Ok(RawStreamItem::Value(lazy_value))
     }
 
-    pub fn next(&mut self) -> IonResult<RawStreamItem<'a>> {
-        let mut buffer = self.data.advance_to_next_item()?;
-        if buffer.is_empty() {
-            return Ok(RawStreamItem::Nothing);
-        }
-        let type_descriptor = buffer.peek_type_descriptor()?;
-        if type_descriptor.is_nop() {
-            (_, buffer) = buffer.consume_nop_padding(type_descriptor)?;
-        } else if type_descriptor.is_ivm_start() {
-            return self.read_ivm(buffer);
-        }
-
-        self.read_value(buffer)
-    }
-}
-
-impl<'a> RawSequenceIterator<'a> {
-    pub(crate) fn new(input: ImmutableBuffer<'a>) -> Self {
-        RawSequenceIterator {
-            source: DataSource::new(input),
-        }
-    }
-
-    pub fn next(&mut self) -> IonResult<Option<LazyRawValue<'a>>> {
-        self.source
-            .try_parse_next(LazyRawValue::peek_value_without_field_id)
-    }
-}
-
-impl<'a> LazyRawField<'a> {
-    pub(crate) fn new(value: LazyRawValue<'a>) -> Self {
-        LazyRawField { value }
-    }
-
-    pub fn name(&'a self) -> RawSymbolTokenRef<'a> {
-        // We're in a struct field, the field ID must be populated.
-        let field_id = self.value.encoded_value.field_id.unwrap();
-        RawSymbolTokenRef::SymbolId(field_id)
-    }
-
-    pub fn value(&self) -> &LazyRawValue<'a> {
-        &self.value
-    }
-
-    pub(crate) fn into_value(self) -> LazyRawValue<'a> {
-        self.value
-    }
-}
-
-impl<'a> Debug for LazyRawField<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "${}: {:?}",
-            self.value.encoded_value.field_id.unwrap(),
-            self.value()
-        )
-    }
-}
-
-impl<'a> RawStructIterator<'a> {
-    pub(crate) fn new(input: ImmutableBuffer<'a>) -> Self {
-        RawStructIterator {
-            source: DataSource::new(input),
-        }
-    }
-
-    pub fn next_field(&mut self) -> IonResult<Option<LazyRawField<'a>>> {
-        if let Some(lazy_field) = self.source.try_parse_next(LazyRawValue::peek_field)? {
-            Ok(Some(LazyRawField::new(lazy_field)))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-impl<'a> Debug for LazyRawStruct<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut reader = self.iter();
-        write!(f, "{{")?;
-        while let Some(field) = reader.next_field().unwrap() {
-            let name = field.name();
-            let lazy_value = field.value();
-            let value = lazy_value.read().unwrap();
-            write!(f, "{:?}:{:?},", name, value).unwrap();
-        }
-        write!(f, "}}").unwrap();
-        Ok(())
-    }
-}
-
-impl<'a> LazyRawStruct<'a> {
-    pub fn iter(&self) -> RawStructIterator<'a> {
-        // Get as much of the struct's body as is available in the input buffer.
-        // Reading a child value may fail as `Incomplete`
-        let buffer_slice = self.value.available_body();
-        RawStructIterator::new(buffer_slice)
-    }
-}
-
-impl<'a> LazyRawSequence<'a> {
-    pub fn ion_type(&self) -> IonType {
-        self.value.ion_type()
-    }
-
-    pub fn iter(&self) -> RawSequenceIterator<'a> {
-        // Get as much of the sequence's body as is available in the input buffer.
-        // Reading a child value may fail as `Incomplete`
-        let buffer_slice = self.value.available_body();
-        RawSequenceIterator::new(buffer_slice)
-    }
-}
-
-impl<'a> Debug for LazyRawSequence<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut reader = self.iter();
-        match self.value.encoded_value.ion_type() {
-            IonType::SExp => {
-                write!(f, "(")?;
-                while let Some(value) = reader.next().unwrap() {
-                    write!(f, "{:?} ", value.read().unwrap()).unwrap();
-                }
-                write!(f, ")").unwrap();
-            }
-            IonType::List => {
-                write!(f, "[")?;
-                while let Some(value) = reader.next().unwrap() {
-                    write!(f, "{:?},", value.read().unwrap()).unwrap();
-                }
-                write!(f, "]").unwrap();
-            }
-            _ => unreachable!("LazyRawSequence is only created for list and sexp"),
-        }
-
-        Ok(())
-    }
-}
-
-impl<'a> Debug for LazyRawValue<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "LazyRawValue {{\n  val={:?},\n  buf={:?}\n}}\n",
-            self.encoded_value, self.input
-        )
-    }
-}
-
-type ValueParseResult<'a> = IonResult<RawValueRef<'a>>;
-
-impl<'a> LazyRawValue<'a> {
-    fn peek_field(input: ImmutableBuffer<'a>) -> IonResult<Option<LazyRawValue<'a>>> {
+    fn peek_field(input: ImmutableBuffer<'data>) -> IonResult<Option<LazyRawValue<'data>>> {
         Self::peek_value(true, input)
     }
 
     fn peek_value_without_field_id(
-        input: ImmutableBuffer<'a>,
-    ) -> IonResult<Option<LazyRawValue<'a>>> {
+        input: ImmutableBuffer<'data>,
+    ) -> IonResult<Option<LazyRawValue<'data>>> {
         Self::peek_value(false, input)
     }
 
@@ -286,8 +136,8 @@ impl<'a> LazyRawValue<'a> {
     // header, which can be either a field ID, an annotations wrapper, or a type descriptor.
     fn peek_value(
         has_field: bool,
-        initial_input: ImmutableBuffer<'a>,
-    ) -> IonResult<Option<LazyRawValue<'a>>> {
+        initial_input: ImmutableBuffer<'data>,
+    ) -> IonResult<Option<LazyRawValue<'data>>> {
         if initial_input.is_empty() {
             return Ok(None);
         }
@@ -374,6 +224,164 @@ impl<'a> LazyRawValue<'a> {
         Ok(Some(lazy_value))
     }
 
+    // Elided 'top lifetime
+    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data>>
+    where
+        'data: 'top,
+    {
+        let mut buffer = self.data.advance_to_next_item()?;
+        if buffer.is_empty() {
+            return Ok(RawStreamItem::Nothing);
+        }
+        let type_descriptor = buffer.peek_type_descriptor()?;
+        if type_descriptor.is_nop() {
+            (_, buffer) = buffer.consume_nop_padding(type_descriptor)?;
+        } else if type_descriptor.is_ivm_start() {
+            return self.read_ivm(buffer);
+        }
+
+        self.read_value(buffer)
+    }
+}
+
+impl<'data> RawSequenceIterator<'data> {
+    pub(crate) fn new(input: ImmutableBuffer<'data>) -> RawSequenceIterator<'data> {
+        RawSequenceIterator {
+            source: DataSource::new(input),
+        }
+    }
+
+    pub fn next(&mut self) -> IonResult<Option<LazyRawValue<'data>>> {
+        self.source
+            .try_parse_next(LazyRawBinaryReader::peek_value_without_field_id)
+    }
+}
+
+impl<'data> LazyRawField<'data> {
+    pub(crate) fn new(value: LazyRawValue<'data>) -> Self {
+        LazyRawField { value }
+    }
+
+    pub fn name(&self) -> RawSymbolTokenRef<'data> {
+        // We're in a struct field, the field ID must be populated.
+        let field_id = self.value.encoded_value.field_id.unwrap();
+        RawSymbolTokenRef::SymbolId(field_id)
+    }
+
+    pub fn value(&self) -> &LazyRawValue<'data> {
+        &self.value
+    }
+
+    pub(crate) fn into_value(self) -> LazyRawValue<'data> {
+        self.value
+    }
+}
+
+impl<'a> Debug for LazyRawField<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "${}: {:?}",
+            self.value.encoded_value.field_id.unwrap(),
+            self.value()
+        )
+    }
+}
+
+impl<'data> RawStructIterator<'data> {
+    pub(crate) fn new(input: ImmutableBuffer<'data>) -> RawStructIterator<'data> {
+        RawStructIterator {
+            source: DataSource::new(input),
+        }
+    }
+
+    pub fn next_field(&mut self) -> IonResult<Option<LazyRawField<'data>>> {
+        if let Some(lazy_field) = self
+            .source
+            .try_parse_next(LazyRawBinaryReader::peek_field)?
+        {
+            Ok(Some(LazyRawField::new(lazy_field)))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<'a> Debug for LazyRawStruct<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut reader = self.iter();
+        write!(f, "{{")?;
+        while let Some(field) = reader.next_field().unwrap() {
+            let name = field.name();
+            let lazy_value = field.value();
+            let value = lazy_value.read().unwrap();
+            write!(f, "{:?}:{:?},", name, value).unwrap();
+        }
+        write!(f, "}}").unwrap();
+        Ok(())
+    }
+}
+
+impl<'data> LazyRawStruct<'data> {
+    pub fn iter(&self) -> RawStructIterator<'data> {
+        // Get as much of the struct's body as is available in the input buffer.
+        // Reading a child value may fail as `Incomplete`
+        let buffer_slice = self.value.available_body();
+        RawStructIterator::new(buffer_slice)
+    }
+}
+
+impl<'data> LazyRawSequence<'data> {
+    pub fn ion_type(&self) -> IonType {
+        self.value.ion_type()
+    }
+
+    pub fn iter(&self) -> RawSequenceIterator<'data> {
+        // Get as much of the sequence's body as is available in the input buffer.
+        // Reading a child value may fail as `Incomplete`
+        let buffer_slice = self.value.available_body();
+        RawSequenceIterator::new(buffer_slice)
+    }
+}
+
+impl<'a> Debug for LazyRawSequence<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut reader = self.iter();
+        match self.value.encoded_value.ion_type() {
+            IonType::SExp => {
+                write!(f, "(")?;
+                while let Some(value) = reader.next().unwrap() {
+                    write!(f, "{:?} ", value.read().unwrap()).unwrap();
+                }
+                write!(f, ")").unwrap();
+            }
+            IonType::List => {
+                write!(f, "[")?;
+                while let Some(value) = reader.next().unwrap() {
+                    write!(f, "{:?},", value.read().unwrap()).unwrap();
+                }
+                write!(f, "]").unwrap();
+            }
+            _ => unreachable!("LazyRawSequence is only created for list and sexp"),
+        }
+
+        Ok(())
+    }
+}
+
+impl<'a> Debug for LazyRawValue<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "LazyRawValue {{\n  val={:?},\n  buf={:?}\n}}\n",
+            self.encoded_value, self.input
+        )
+    }
+}
+
+type ValueParseResult<'a> = IonResult<RawValueRef<'a>>;
+
+impl<'data> LazyRawValue<'data> {
     pub fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }
@@ -382,7 +390,7 @@ impl<'a> LazyRawValue<'a> {
         self.encoded_value.has_annotations()
     }
 
-    fn annotations_sequence(&self) -> ImmutableBuffer<'a> {
+    fn annotations_sequence(&self) -> ImmutableBuffer<'data> {
         let offset_and_length = self
             .encoded_value
             .annotations_sequence_offset()
@@ -401,12 +409,12 @@ impl<'a> LazyRawValue<'a> {
         self.input.slice(local_sequence_offset, sequence_length)
     }
 
-    pub fn annotations(&self) -> RawAnnotationsIterator<'a> {
+    pub fn annotations(&self) -> RawAnnotationsIterator {
         RawAnnotationsIterator::new(self.annotations_sequence())
     }
 
     // Return the part of the input buffer immediately following this encoded value
-    fn consume_bytes(&self) -> IonResult<ImmutableBuffer<'a>> {
+    fn consume_bytes(&self) -> IonResult<ImmutableBuffer<'data>> {
         let total_length = self.encoded_value.total_length();
         if self.input.len() < total_length {
             eprintln!("[consume_bytes] Incomplete {:?}", self);
@@ -418,7 +426,7 @@ impl<'a> LazyRawValue<'a> {
         Ok(self.input.consume(total_length))
     }
 
-    pub fn read(&self) -> ValueParseResult<'a> {
+    pub fn read(&self) -> ValueParseResult {
         if self.encoded_value.header().is_null() {
             let raw_value_ref = RawValueRef::Null(self.ion_type());
             return Ok(raw_value_ref);
@@ -442,7 +450,7 @@ impl<'a> LazyRawValue<'a> {
     }
 
     // Can return Err if there aren't enough bytes available
-    fn value_body(&self) -> IonResult<&'a [u8]> {
+    fn value_body(&self) -> IonResult<&'data [u8]> {
         let value_total_length = self.encoded_value.total_length();
         if self.input.len() < value_total_length {
             eprintln!("[value_body] Incomplete {:?}", self);
@@ -456,7 +464,7 @@ impl<'a> LazyRawValue<'a> {
         Ok(self.input.bytes_range(value_offset, value_body_length))
     }
 
-    fn available_body(&self) -> ImmutableBuffer<'a> {
+    fn available_body(&self) -> ImmutableBuffer<'data> {
         let value_total_length = self.encoded_value.total_length();
         let value_body_length = self.encoded_value.value_length();
         let value_offset = value_total_length - value_body_length;
@@ -466,11 +474,11 @@ impl<'a> LazyRawValue<'a> {
         buffer_slice
     }
 
-    pub(crate) fn field_name(&'a self) -> Option<SymbolId> {
+    pub(crate) fn field_name(&self) -> Option<SymbolId> {
         self.encoded_value.field_id
     }
 
-    fn read_bool(&self) -> ValueParseResult<'a> {
+    fn read_bool(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::Bool);
         let representation = self.encoded_value.header().length_code;
         let value = match representation {
@@ -486,7 +494,7 @@ impl<'a> LazyRawValue<'a> {
         Ok(RawValueRef::Bool(value))
     }
 
-    fn read_int(&self) -> ValueParseResult<'a> {
+    fn read_int(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
         // `value_body()` returns a buffer starting at the body of the value.
         // It also confirms that the entire value is in the buffer.
@@ -509,7 +517,7 @@ impl<'a> LazyRawValue<'a> {
         Ok(RawValueRef::Int(value))
     }
 
-    fn read_float(&self) -> ValueParseResult<'a> {
+    fn read_float(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::Float);
         let ieee_bytes = self.value_body()?;
         let number_of_bytes = self.encoded_value.value_length();
@@ -522,7 +530,7 @@ impl<'a> LazyRawValue<'a> {
         Ok(RawValueRef::Float(value))
     }
 
-    fn read_decimal(&self) -> ValueParseResult<'a> {
+    fn read_decimal(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::Decimal);
 
         if self.encoded_value.value_length() == 0 {
@@ -545,7 +553,7 @@ impl<'a> LazyRawValue<'a> {
         Ok(RawValueRef::Decimal(Decimal::new(coefficient, exponent)))
     }
 
-    fn read_timestamp(&self) -> ValueParseResult<'a> {
+    fn read_timestamp(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::Timestamp);
 
         let input = ImmutableBuffer::new(self.value_body()?);
@@ -652,14 +660,14 @@ impl<'a> LazyRawValue<'a> {
         Ok(magnitude as usize)
     }
 
-    pub fn read_symbol(&self) -> ValueParseResult<'a> {
+    pub fn read_symbol(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         self.read_symbol_id()
             .map(|sid| RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(sid)))
     }
 
     /// If the reader is currently positioned on a string, returns a [&str] containing its text.
-    fn read_string(&self) -> ValueParseResult<'a> {
+    fn read_string(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::String);
         let raw_bytes = self.value_body()?;
         let text = std::str::from_utf8(raw_bytes)
@@ -667,19 +675,19 @@ impl<'a> LazyRawValue<'a> {
         Ok(RawValueRef::String(text))
     }
 
-    fn read_blob(&self) -> ValueParseResult<'a> {
+    fn read_blob(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::Blob);
         let bytes = self.value_body()?;
         Ok(RawValueRef::Blob(bytes))
     }
 
-    fn read_clob(&self) -> ValueParseResult<'a> {
+    fn read_clob(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::Clob);
         let bytes = self.value_body()?;
         Ok(RawValueRef::Clob(bytes))
     }
 
-    fn read_sexp(&self) -> ValueParseResult<'a> {
+    fn read_sexp(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::SExp);
         let lazy_value = LazyRawValue {
             encoded_value: self.encoded_value,
@@ -689,7 +697,7 @@ impl<'a> LazyRawValue<'a> {
         Ok(RawValueRef::SExp(lazy_sequence))
     }
 
-    fn read_list(&self) -> ValueParseResult<'a> {
+    fn read_list(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::List);
         let lazy_value = LazyRawValue {
             encoded_value: self.encoded_value,
@@ -699,7 +707,7 @@ impl<'a> LazyRawValue<'a> {
         Ok(RawValueRef::List(lazy_sequence))
     }
 
-    fn read_struct(&self) -> ValueParseResult<'a> {
+    fn read_struct(&self) -> ValueParseResult {
         debug_assert!(self.encoded_value.ion_type() == IonType::Struct);
         let lazy_value = LazyRawValue {
             encoded_value: self.encoded_value,
@@ -761,16 +769,6 @@ mod tests {
         writer.flush()?;
         drop(writer);
         Ok(buffer)
-    }
-
-    #[test]
-    fn test_single() -> IonResult<()> {
-        let data = &to_10n("null 5 false true")?[4..]; // skip ivm
-        let buffer = ImmutableBuffer::new(data);
-        let lazy_value = LazyRawValue::peek_value_without_field_id(buffer)?.unwrap();
-        let raw_value = lazy_value.read()?;
-        println!("{:?}", raw_value);
-        Ok(())
     }
 
     #[test]

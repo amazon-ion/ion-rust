@@ -10,25 +10,25 @@ use std::fmt::{Debug, Formatter};
 /// Unlike a [crate::element::Value], a `ValueRef` avoids heap allocation whenever possible.
 /// Numeric values and timestamps are stored within the `ValueRef` itself. Text values and lobs hold
 /// references to either a slice of input data or text in the symbol table.
-pub enum ValueRef<'a> {
+pub enum ValueRef<'top, 'data> {
     Null(IonType),
     Bool(bool),
     Int(Int),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
-    String(&'a str),
+    String(&'data str),
     Symbol(Symbol),
-    Blob(&'a [u8]),
-    Clob(&'a [u8]),
+    Blob(&'data [u8]),
+    Clob(&'data [u8]),
     // As ValueRef represents a reference to a value in the streaming APIs, the container variants
     // simply indicate their Ion type. To access their nested data, the reader would need to step in.
-    SExp(LazySequence<'a>),
-    List(LazySequence<'a>),
-    Struct(LazyStruct<'a>),
+    SExp(LazySequence<'top, 'data>),
+    List(LazySequence<'top, 'data>),
+    Struct(LazyStruct<'top, 'data>),
 }
 
-impl<'a> Debug for ValueRef<'a> {
+impl<'top, 'data> Debug for ValueRef<'top, 'data> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ValueRef::*;
         match self {
@@ -49,7 +49,7 @@ impl<'a> Debug for ValueRef<'a> {
     }
 }
 
-impl<'a> ValueRef<'a> {
+impl<'top, 'data> ValueRef<'top, 'data> {
     pub fn expect_null(self) -> IonResult<IonType> {
         if let ValueRef::Null(ion_type) = self {
             Ok(ion_type)
@@ -98,7 +98,7 @@ impl<'a> ValueRef<'a> {
         }
     }
 
-    pub fn expect_string(self) -> IonResult<&'a str> {
+    pub fn expect_string(self) -> IonResult<&'data str> {
         if let ValueRef::String(s) = self {
             Ok(s)
         } else {
@@ -114,7 +114,7 @@ impl<'a> ValueRef<'a> {
         }
     }
 
-    pub fn expect_blob(self) -> IonResult<&'a [u8]> {
+    pub fn expect_blob(self) -> IonResult<&'data [u8]> {
         if let ValueRef::Blob(b) = self {
             Ok(b)
         } else {
@@ -122,7 +122,7 @@ impl<'a> ValueRef<'a> {
         }
     }
 
-    pub fn expect_clob(self) -> IonResult<&'a [u8]> {
+    pub fn expect_clob(self) -> IonResult<&'data [u8]> {
         if let ValueRef::Clob(c) = self {
             Ok(c)
         } else {
@@ -130,7 +130,7 @@ impl<'a> ValueRef<'a> {
         }
     }
 
-    pub fn expect_list(self) -> IonResult<LazySequence<'a>> {
+    pub fn expect_list(self) -> IonResult<LazySequence<'top, 'data>> {
         if let ValueRef::List(s) = self {
             Ok(s)
         } else {
@@ -138,7 +138,7 @@ impl<'a> ValueRef<'a> {
         }
     }
 
-    pub fn expect_sexp(self) -> IonResult<LazySequence<'a>> {
+    pub fn expect_sexp(self) -> IonResult<LazySequence<'top, 'data>> {
         if let ValueRef::SExp(s) = self {
             Ok(s)
         } else {
@@ -146,7 +146,7 @@ impl<'a> ValueRef<'a> {
         }
     }
 
-    pub fn expect_struct(self) -> IonResult<LazyStruct<'a>> {
+    pub fn expect_struct(self) -> IonResult<LazyStruct<'top, 'data>> {
         if let ValueRef::Struct(s) = self {
             Ok(s)
         } else {

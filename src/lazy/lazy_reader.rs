@@ -1,26 +1,18 @@
 use crate::lazy::lazy_system_reader::{LazySystemReader, LazyValue};
-use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::IonResult;
 
-pub struct LazyReader<'a> {
-    system_reader: LazySystemReader<'a>,
+pub struct LazyReader<'data> {
+    system_reader: LazySystemReader<'data>,
 }
 
-impl<'a> LazyReader<'a> {
-    pub fn new(ion_data: &'a [u8]) -> LazyReader<'a> {
+impl<'data> LazyReader<'data> {
+    pub fn new(ion_data: &'data [u8]) -> LazyReader<'data> {
         let system_reader = LazySystemReader::new(ion_data);
         LazyReader { system_reader }
     }
 
-    pub fn next(&mut self) -> IonResult<Option<LazyValue<'a>>> {
-        let value: Option<LazyValue> = loop {
-            match self.system_reader.next()? {
-                SystemStreamItem::VersionMarker(_, _) | SystemStreamItem::SymbolTable(_) => {}
-                SystemStreamItem::Value(value) => break Some(value),
-                SystemStreamItem::Nothing => break None,
-            }
-        };
-        Ok(value)
+    pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data>>> {
+        self.system_reader.next_user_value()
     }
 }
 
