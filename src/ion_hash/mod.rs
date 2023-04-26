@@ -20,7 +20,7 @@
 //! # fn main() {}
 //! ```
 
-use digest::{self, FixedOutput, Output, Reset, Update};
+use digest::{self, FixedOutput, Reset, Update};
 
 use crate::element::Element;
 use crate::IonResult;
@@ -30,6 +30,8 @@ mod element_hasher;
 mod representation;
 mod type_qualifier;
 
+#[cfg(feature = "sha2")]
+use digest::Output;
 #[cfg(feature = "sha2")]
 use sha2::Sha256;
 /// Utility to hash an [`Element`] using SHA-256 as the hash function.
