@@ -45,7 +45,7 @@ create_new_slice_iterator_type!(
     ElementsIterator => Element
 );
 
-/// Consuming iterator for [`Annotations`].
+/// Consuming iterator for [`Annotations`](crate::element::Annotations).
 #[derive(Debug, Clone)]
 pub struct AnnotationsIntoIter {
     into_iter: std::vec::IntoIter<Symbol>,

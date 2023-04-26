@@ -19,7 +19,6 @@ use crate::ion_data::IonEq;
 use crate::ion_data::IonOrd;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::{Decimal, Int, IonResult, IonType, ReaderBuilder, Str, Symbol, Timestamp};
-use annotations::IntoAnnotations;
 use num_bigint::BigInt;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -39,7 +38,7 @@ pub mod writer;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 pub use self::bytes::Bytes;
-pub use annotations::Annotations;
+pub use annotations::{Annotations, IntoAnnotations};
 pub use lob::{Blob, Clob};
 
 pub use list::List;

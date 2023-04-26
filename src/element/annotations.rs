@@ -5,9 +5,13 @@ use std::cmp::Ordering;
 
 /// An ordered sequence of symbols that convey additional, application-specific information about
 /// their associated Ion value.
+///
+/// The [`IntoAnnotations`] trait is a convenient way to convert collections of symbol convertible
+/// things (including [`&str`] and [`String`]) into this sequence.
+///
 /// ```
-/// use ion_rs::element::Annotations;
-/// let annotations: Annotations = ["foo", "bar", "baz"].into();
+/// use ion_rs::element::{Annotations, IntoAnnotations};
+/// let annotations: Annotations = ["foo", "bar", "baz"].into_annotations();
 /// for annotation in &annotations {
 ///     assert_eq!(annotation.text().map(|s| s.len()), Some(3));
 /// }
@@ -40,8 +44,8 @@ impl Annotations {
 
     /// Returns the number of annotations in this sequence.
     /// ```
-    /// use ion_rs::element::Annotations;
-    /// let annotations: Annotations = ["foo", "bar", "baz"].into();
+    /// use ion_rs::element::{Annotations, IntoAnnotations};
+    /// let annotations: Annotations = ["foo", "bar", "baz"].into_annotations();
     /// assert_eq!(annotations.len(), 3);
     /// ```
     pub fn len(&self) -> usize {
@@ -50,8 +54,8 @@ impl Annotations {
 
     /// Returns `true` if this sequence contains zero annotations. Otherwise, returns `false`.
     /// ```
-    /// use ion_rs::element::Annotations;
-    /// let annotations: Annotations = ["foo", "bar", "baz"].into();
+    /// use ion_rs::element::{Annotations, IntoAnnotations};
+    /// let annotations: Annotations = ["foo", "bar", "baz"].into_annotations();
     /// assert!(!annotations.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
@@ -61,8 +65,8 @@ impl Annotations {
     /// Returns `true` if any symbol in this annotations sequence is equal to the provided text.
     /// Otherwise, returns `false`.
     /// ```
-    /// use ion_rs::element::Annotations;
-    /// let annotations: Annotations = ["foo", "bar", "baz"].into();
+    /// use ion_rs::element::{Annotations, IntoAnnotations};
+    /// let annotations: Annotations = ["foo", "bar", "baz"].into_annotations();
     /// assert!(annotations.contains("foo"));
     /// assert!(annotations.contains("bar"));
     /// assert!(annotations.contains("baz"));
@@ -84,16 +88,16 @@ impl Annotations {
     /// To view the first annotation as a [Symbol] rather than a `&str`, use
     /// `annotations.iter().next()`.
     /// ```
-    /// use ion_rs::element::Annotations;
+    /// use ion_rs::element::{Annotations, IntoAnnotations};
     /// use ion_rs::Symbol;
-    /// let annotations: Annotations = ["foo", "bar", "baz"].into();
+    /// let annotations: Annotations = ["foo", "bar", "baz"].into_annotations();
     /// assert_eq!(annotations.first(), Some("foo"));
     ///
     /// let empty_sequence: Vec<&str> = vec![];
-    /// let annotations: Annotations = empty_sequence.into();
+    /// let annotations: Annotations = empty_sequence.into_annotations();
     /// assert_eq!(annotations.first(), None);
     ///
-    /// let annotations: Annotations = [Symbol::unknown_text()].into();
+    /// let annotations: Annotations = [Symbol::unknown_text()].into_annotations();
     /// assert_eq!(annotations.first(), None)
     /// ```
     pub fn first(&self) -> Option<&str> {
@@ -142,10 +146,9 @@ impl IonOrd for Annotations {
 /// This trait allows us to have a blanket implementations that can cover many type combinations
 /// without conflicting in ways that blanket [`From`] implementations can.
 ///
-/// Examples of what we can convert:
-///
-///     A {slice, array, Vec,...} of {&str, String, Symbol, ...}
-///
+/// With this we can convert for some `T` that is string-like (`&str`, `String`, `Symbol`, etc...)
+/// we can convert from collections of that type like `[T]`, `[T; n]`, `Vec<T>`, and
+/// iterators of `T` generically.
 pub trait IntoAnnotations {
     fn into_annotations(self) -> Annotations;
 }
