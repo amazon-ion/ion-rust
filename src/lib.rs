@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::private_intra_doc_links)]
 #![deny(rustdoc::bare_urls)]
 //! # Reading and writing `Element`s
 //!
