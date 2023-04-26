@@ -84,8 +84,8 @@ jobs:
         # only running on the Linux test. (The choice of OS was arbitrary.)
         if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
         run: rustup component add clippy
-      - name: Run Clippy && matrix.features == 'all'
-        if: matrix.os == 'ubuntu-latest'
+      - name: Run Clippy 
+        if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
         uses: actions-rs/clippy-check@v1
         with:
           # Adding comments to the PR requires the GITHUB_TOKEN secret.
