@@ -19,6 +19,7 @@ use crate::ion_data::IonEq;
 use crate::ion_data::IonOrd;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::{Decimal, Int, IonResult, IonType, ReaderBuilder, Str, Symbol, Timestamp};
+use annotations::IntoAnnotations;
 use num_bigint::BigInt;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -312,11 +313,8 @@ impl From<Struct> for Value {
 /// ```
 pub trait IntoAnnotatedElement: Into<Value> {
     /// Converts the value into an [Element] with the specified annotations.
-    fn with_annotations<S: Into<Symbol>, I: IntoIterator<Item = S>>(
-        self,
-        annotations: I,
-    ) -> Element {
-        Element::new(annotations.into(), self.into())
+    fn with_annotations<I: IntoAnnotations>(self, annotations: I) -> Element {
+        Element::new(annotations.into_annotations(), self.into())
     }
 }
 
@@ -444,11 +442,8 @@ impl Element {
         &self.annotations
     }
 
-    pub fn with_annotations<S: Into<Symbol>, I: IntoIterator<Item = S>>(
-        self,
-        annotations: I,
-    ) -> Self {
-        Element::new(annotations.into(), self.value)
+    pub fn with_annotations<I: IntoAnnotations>(self, annotations: I) -> Self {
+        Element::new(annotations.into_annotations(), self.value)
     }
 
     pub fn is_null(&self) -> bool {
@@ -619,6 +614,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::element::annotations::IntoAnnotations;
     use crate::types::timestamp::Timestamp;
     use crate::{ion_list, ion_sexp, ion_struct, Decimal, Int, IonType, Symbol};
     use chrono::*;
@@ -638,7 +634,7 @@ mod tests {
     fn annotations_text_case() -> CaseAnnotations {
         CaseAnnotations {
             elem: 10i64.with_annotations(["foo", "bar", "baz"]),
-            annotations: ["foo", "bar", "baz"].into(),
+            annotations: ["foo", "bar", "baz"].into_annotations(),
         }
     }
 

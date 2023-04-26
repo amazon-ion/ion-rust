@@ -1,4 +1,4 @@
-use crate::element::iterators::SymbolsIterator;
+use crate::element::iterators::{AnnotationsIntoIter, SymbolsIterator};
 use crate::ion_data::IonOrd;
 use crate::Symbol;
 use std::cmp::Ordering;
@@ -35,7 +35,7 @@ impl Annotations {
     /// Returns an [`Iterator`] that yields each of the [`Symbol`]s in this annotations
     /// sequence in order.
     pub fn iter(&self) -> SymbolsIterator {
-        self.into_iter()
+        SymbolsIterator::new(self.symbols.as_slice())
     }
 
     /// Returns the number of annotations in this sequence.
@@ -101,18 +101,15 @@ impl Annotations {
     }
 }
 
-// NB: This blanket implementation covers a LOT of type combinations:
-//
-//     A {slice, array, Vec...} of {&str, String, Symbol, ...}
-//
-// Unfortunately, it also prevents us from having special cases for Vec<Symbol>
-// (which would otherwise be able to be converted directly to an `Annotations` without cloning)
-// or for a single value that could be turned into a `Symbol`. If we need that ability in the
-// future, consider defining a custom `IntoAnnotations` trait.
-impl<S: Into<Symbol>, I: IntoIterator<Item = S>> From<I> for Annotations {
-    fn from(annotations: I) -> Self {
-        let symbols: Vec<Symbol> = annotations.into_iter().map(|a| a.into()).collect();
-        Annotations::new(symbols)
+impl From<Vec<Symbol>> for Annotations {
+    fn from(value: Vec<Symbol>) -> Self {
+        Annotations::new(value)
+    }
+}
+
+impl<S: Into<Symbol>> FromIterator<S> for Annotations {
+    fn from_iter<T: IntoIterator<Item = S>>(iter: T) -> Self {
+        iter.into_annotations()
     }
 }
 
@@ -125,8 +122,61 @@ impl<'a> IntoIterator for &'a Annotations {
     }
 }
 
+impl IntoIterator for Annotations {
+    type Item = Symbol;
+    type IntoIter = AnnotationsIntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        AnnotationsIntoIter::new(self.symbols.into_iter())
+    }
+}
+
 impl IonOrd for Annotations {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.symbols.ion_cmp(&other.symbols)
+    }
+}
+
+/// Defines conversion into [`Annotations`].
+///
+/// This trait allows us to have a blanket implementations that can cover many type combinations
+/// without conflicting in ways that blanket [`From`] implementations can.
+///
+/// Examples of what we can convert:
+///
+///     A {slice, array, Vec,...} of {&str, String, Symbol, ...}
+///
+pub trait IntoAnnotations {
+    fn into_annotations(self) -> Annotations;
+}
+
+impl<S, I> IntoAnnotations for I
+where
+    S: Into<Symbol>,
+    I: IntoIterator<Item = S>,
+{
+    fn into_annotations(self) -> Annotations {
+        let symbols: Vec<Symbol> = self.into_iter().map(|a| a.into()).collect();
+        Annotations::new(symbols)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_into_iter() {
+        let expected = vec!["a", "b", "c"].into_annotations();
+        let collect: Annotations = expected.clone().into_iter().collect();
+        assert_eq!(expected, collect);
+    }
+
+    #[test]
+    fn test_from_vec() {
+        let expected = vec!["d", "e", "f"].into_annotations();
+        let symbols: Vec<_> = expected.clone().into_iter().collect();
+        let from: Annotations = symbols.into();
+        assert_eq!(expected, from);
     }
 }
