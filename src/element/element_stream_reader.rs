@@ -179,7 +179,7 @@ impl IonReader for ElementStreamReader {
         let iterator = self
             .current_value
             .as_ref()
-            .map(|value| value.annotations().into_iter())
+            .map(|value| value.annotations().iter())
             .unwrap_or_else(|| SymbolsIterator::empty())
             .cloned()
             // The annotations are already in memory and are already resolved to text, so
