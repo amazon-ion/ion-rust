@@ -68,7 +68,7 @@ mod lazy_reader_example {
     fn read_struct(lazy_struct: &LazyStruct) -> IonResult<usize> {
         let mut count = 0;
         for field in lazy_struct {
-            count += read_value(&field?.value())?;
+            count += read_value(field?.value())?;
         }
         Ok(count)
     }

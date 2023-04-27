@@ -66,7 +66,7 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Returns a slice containing all of the buffer's remaining bytes.
     pub fn bytes(&self) -> &[u8] {
-        &self.data
+        self.data
     }
 
     /// Gets a slice from the buffer starting at `offset` and ending at `offset + length`.
@@ -102,7 +102,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// If the buffer is not empty, returns `Some(_)` containing the next byte in the buffer.
     /// Otherwise, returns `None`.
     pub fn peek_next_byte(&self) -> Option<u8> {
-        self.data.get(0).copied()
+        self.data.first().copied()
     }
 
     /// If there are at least `n` bytes left in the buffer, returns `Some(_)` containing a slice
@@ -437,7 +437,7 @@ impl<'a> ImmutableBuffer<'a> {
         let wrapper = AnnotationsWrapper {
             header_length: annotations_header_length,
             sequence_length: annotations_sequence_length,
-            expected_value_length: expected_value_length,
+            expected_value_length,
         };
 
         Ok((wrapper, final_input))

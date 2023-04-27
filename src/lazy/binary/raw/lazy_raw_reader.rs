@@ -165,7 +165,7 @@ mod tests {
             {name:"hi", name: "hello"}
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(&data);
+        let mut reader = LazyRawBinaryReader::new(data);
         let _ivm = reader.next()?.expect_ivm()?;
         let value = reader.next()?.expect_value()?;
         let lazy_struct = value.read()?.expect_struct()?;

@@ -183,7 +183,7 @@ impl<'top, 'data> LazySequence<'top, 'data> {
     pub fn iter(&self) -> SequenceIterator<'top, 'data> {
         SequenceIterator {
             raw_sequence_reader: self.raw_sequence.iter(),
-            symbol_table: &self.symbol_table,
+            symbol_table: self.symbol_table,
         }
     }
 
@@ -196,7 +196,7 @@ impl<'top, 'data> LazySequence<'top, 'data> {
                 .value
                 .encoded_value
                 .annotations_offset()
-                .unwrap_or_else(|| self.raw_sequence.value.encoded_value.header_offset),
+                .unwrap_or(self.raw_sequence.value.encoded_value.header_offset),
         }
     }
 }
@@ -214,20 +214,20 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     pub fn iter(&self) -> StructIterator<'top, 'data> {
         StructIterator {
             raw_struct_reader: self.raw_struct.iter(),
-            symbol_table: &self.symbol_table,
+            symbol_table: self.symbol_table,
         }
     }
 
     pub fn annotations(&self) -> AnnotationsIterator<'top, 'data> {
         AnnotationsIterator {
             raw_annotations: self.raw_struct.value.annotations(),
-            symbol_table: &self.symbol_table,
+            symbol_table: self.symbol_table,
             initial_offset: self
                 .raw_struct
                 .value
                 .encoded_value
                 .annotations_offset()
-                .unwrap_or_else(|| self.raw_struct.value.encoded_value.header_offset),
+                .unwrap_or(self.raw_struct.value.encoded_value.header_offset),
         }
     }
 }
@@ -253,7 +253,7 @@ impl<'top, 'data> StructIterator<'top, 'data> {
         if let Some(raw_field) = raw_field {
             let lazy_value = LazyValue {
                 raw_value: raw_field.into_value(),
-                symbol_table: &self.symbol_table,
+                symbol_table: self.symbol_table,
             };
             let lazy_field = LazyField { value: lazy_value };
             return Ok(Some(lazy_field));
@@ -268,7 +268,7 @@ impl<'top, 'data> SequenceIterator<'top, 'data> {
         if let Some(raw_value) = raw_value {
             let lazy_value = LazyValue {
                 raw_value,
-                symbol_table: &self.symbol_table,
+                symbol_table: self.symbol_table,
             };
             return Ok(Some(lazy_value));
         }
@@ -302,12 +302,12 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     pub fn annotations(&self) -> AnnotationsIterator {
         AnnotationsIterator {
             raw_annotations: self.raw_value.annotations(),
-            symbol_table: &self.symbol_table,
+            symbol_table: self.symbol_table,
             initial_offset: self
                 .raw_value
                 .encoded_value
                 .annotations_offset()
-                .unwrap_or_else(|| self.raw_value.encoded_value.header_offset),
+                .unwrap_or(self.raw_value.encoded_value.header_offset),
         }
     }
 
@@ -339,21 +339,21 @@ impl<'top, 'data> LazyValue<'top, 'data> {
             SExp(s) => {
                 let lazy_sequence = LazySequence {
                     raw_sequence: s,
-                    symbol_table: &self.symbol_table,
+                    symbol_table: self.symbol_table,
                 };
                 ValueRef::SExp(lazy_sequence)
             }
             List(l) => {
                 let lazy_sequence = LazySequence {
                     raw_sequence: l,
-                    symbol_table: &self.symbol_table,
+                    symbol_table: self.symbol_table,
                 };
                 ValueRef::List(lazy_sequence)
             }
             Struct(s) => {
                 let lazy_struct = LazyStruct {
                     raw_struct: s,
-                    symbol_table: &self.symbol_table,
+                    symbol_table: self.symbol_table,
                 };
                 ValueRef::Struct(lazy_struct)
             }
@@ -460,7 +460,7 @@ impl<'data> LazySystemReader<'data> {
                 raw_struct: LazyRawStruct {
                     value: lazy_raw_value,
                 },
-                symbol_table: symbol_table,
+                symbol_table,
             };
             return Ok(SystemStreamItem::SymbolTable(lazy_struct));
         }

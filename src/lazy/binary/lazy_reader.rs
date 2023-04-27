@@ -113,7 +113,7 @@ mod tests {
         let lazy_values = list.iter().collect::<IonResult<Vec<_>>>()?;
 
         assert_eq!(lazy_values[1].read()?.expect_int()?, Int::from(77));
-        assert_eq!(lazy_values[2].read()?.expect_bool()?, true);
+        assert!(lazy_values[2].read()?.expect_bool()?);
         Ok(())
     }
 
