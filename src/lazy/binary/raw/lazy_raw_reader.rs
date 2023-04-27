@@ -170,7 +170,7 @@ mod tests {
         let value = reader.next()?.expect_value()?;
         let lazy_struct = value.read()?.expect_struct()?;
         let mut fields = lazy_struct.iter();
-        let field1 = fields.next()?.expect("field 1");
+        let field1 = fields.next().expect("field 1")?;
         assert_eq!(field1.name(), 4.as_raw_symbol_token_ref()); // 'name'
         Ok(())
     }

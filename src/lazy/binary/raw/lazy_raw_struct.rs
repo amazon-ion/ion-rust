@@ -9,17 +9,26 @@ pub struct LazyRawStruct<'data> {
     pub(crate) value: LazyRawValue<'data>,
 }
 
+impl<'a, 'data> IntoIterator for &'a LazyRawStruct<'data> {
+    type Item = IonResult<LazyRawField<'data>>;
+    type IntoIter = RawStructIterator<'data>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<'a> Debug for LazyRawStruct<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut reader = self.iter();
         write!(f, "{{")?;
-        while let Some(field) = reader.next().unwrap() {
+        for field in self {
+            let field = field.map_err(|_| fmt::Error)?;
             let name = field.name();
             let lazy_value = field.value();
-            let value = lazy_value.read().unwrap();
+            let value = lazy_value.read().map_err(|_| fmt::Error)?;
             write!(f, "{:?}:{:?},", name, value).unwrap();
         }
-        write!(f, "}}").unwrap();
+        write!(f, "}}")?;
         Ok(())
     }
 }
@@ -43,12 +52,16 @@ impl<'data> RawStructIterator<'data> {
             source: DataSource::new(input),
         }
     }
+}
 
-    pub fn next(&mut self) -> IonResult<Option<LazyRawField<'data>>> {
-        if let Some(lazy_field) = self.source.try_parse_next(ImmutableBuffer::peek_field)? {
-            Ok(Some(LazyRawField::new(lazy_field)))
-        } else {
-            Ok(None)
+impl<'data> Iterator for RawStructIterator<'data> {
+    type Item = IonResult<LazyRawField<'data>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.source.try_parse_next(ImmutableBuffer::peek_field) {
+            Ok(Some(lazy_raw_value)) => Some(Ok(LazyRawField::new(lazy_raw_value))),
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
         }
     }
 }

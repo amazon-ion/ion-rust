@@ -17,19 +17,32 @@ use crate::lazy::value_ref::ValueRef;
 
 impl<'top, 'data> Debug for LazySequence<'top, 'data> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut reader = self.iter();
         match self.ion_type() {
             IonType::SExp => {
                 write!(f, "(")?;
-                while let Some(value) = reader.next().map_err(|_| fmt::Error)? {
-                    write!(f, "{:?} ", value.read().map_err(|_| fmt::Error)?)?;
+                for value in self {
+                    write!(
+                        f,
+                        "{:?} ",
+                        value
+                            .map_err(|_| fmt::Error)?
+                            .read()
+                            .map_err(|_| fmt::Error)?
+                    )?;
                 }
                 write!(f, ")")?;
             }
             IonType::List => {
                 write!(f, "[")?;
-                while let Some(value) = reader.next().map_err(|_| fmt::Error)? {
-                    write!(f, "{:?},", value.read().map_err(|_| fmt::Error)?)?;
+                for value in self {
+                    write!(
+                        f,
+                        "{:?},",
+                        value
+                            .map_err(|_| fmt::Error)?
+                            .read()
+                            .map_err(|_| fmt::Error)?
+                    )?;
                 }
                 write!(f, "]")?;
             }
@@ -67,12 +80,12 @@ impl<'top, 'data> Debug for LazyStruct<'top, 'data> {
 }
 
 pub struct SequenceIterator<'top, 'data> {
-    raw_sequence_reader: RawSequenceIterator<'data>,
+    raw_sequence_iter: RawSequenceIterator<'data>,
     symbol_table: &'top SymbolTable,
 }
 
 pub struct StructIterator<'top, 'data> {
-    raw_struct_reader: RawStructIterator<'data>,
+    raw_struct_iter: RawStructIterator<'data>,
     symbol_table: &'top SymbolTable,
 }
 
@@ -182,7 +195,7 @@ impl<'top, 'data> LazySequence<'top, 'data> {
 
     pub fn iter(&self) -> SequenceIterator<'top, 'data> {
         SequenceIterator {
-            raw_sequence_reader: self.raw_sequence.iter(),
+            raw_sequence_iter: self.raw_sequence.iter(),
             symbol_table: self.symbol_table,
         }
     }
@@ -213,7 +226,7 @@ impl<'a, 'top, 'data> IntoIterator for &'a LazySequence<'top, 'data> {
 impl<'top, 'data> LazyStruct<'top, 'data> {
     pub fn iter(&self) -> StructIterator<'top, 'data> {
         StructIterator {
-            raw_struct_reader: self.raw_struct.iter(),
+            raw_struct_iter: self.raw_struct.iter(),
             symbol_table: self.symbol_table,
         }
     }
@@ -249,30 +262,17 @@ impl<'top, 'data> LazyField<'top, 'data> {
 
 impl<'top, 'data> StructIterator<'top, 'data> {
     pub fn next_field(&mut self) -> IonResult<Option<LazyField<'top, 'data>>> {
-        let raw_field = self.raw_struct_reader.next()?;
-        if let Some(raw_field) = raw_field {
-            let lazy_value = LazyValue {
-                raw_value: raw_field.into_value(),
-                symbol_table: self.symbol_table,
-            };
-            let lazy_field = LazyField { value: lazy_value };
-            return Ok(Some(lazy_field));
-        }
-        Ok(None)
-    }
-}
+        let raw_field = match self.raw_struct_iter.next() {
+            Some(raw_field) => raw_field?,
+            None => return Ok(None),
+        };
 
-impl<'top, 'data> SequenceIterator<'top, 'data> {
-    pub fn next(&mut self) -> IonResult<Option<LazyValue<'top, 'data>>> {
-        let raw_value = self.raw_sequence_reader.next()?;
-        if let Some(raw_value) = raw_value {
-            let lazy_value = LazyValue {
-                raw_value,
-                symbol_table: self.symbol_table,
-            };
-            return Ok(Some(lazy_value));
-        }
-        Ok(None)
+        let lazy_value = LazyValue {
+            raw_value: raw_field.into_value(),
+            symbol_table: self.symbol_table,
+        };
+        let lazy_field = LazyField { value: lazy_value };
+        Ok(Some(lazy_field))
     }
 }
 
@@ -280,7 +280,17 @@ impl<'top, 'data> Iterator for SequenceIterator<'top, 'data> {
     type Item = IonResult<LazyValue<'top, 'data>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        SequenceIterator::next(self).transpose()
+        let raw_value = match self.raw_sequence_iter.next() {
+            Some(Ok(raw_value)) => raw_value,
+            Some(Err(e)) => return Some(Err(e)),
+            None => return None,
+        };
+
+        let lazy_value = LazyValue {
+            raw_value,
+            symbol_table: self.symbol_table,
+        };
+        Some(Ok(lazy_value))
     }
 }
 
@@ -440,7 +450,7 @@ impl<'data> LazySystemReader<'data> {
         Ok(false)
     }
 
-    pub fn next<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, 'data>> {
+    pub fn next_item<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, 'data>> {
         let LazySystemReader {
             raw_reader,
             symbol_table,
@@ -473,7 +483,7 @@ impl<'data> LazySystemReader<'data> {
     // not able to determine that calling next() multiple times is safe. Rust's experimental
     // borrow checker, Polonius, is able to understand it. In the meantime,
     // [1]: https://github.com/rust-lang/rust/issues/70255
-    pub fn next_user_value<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data>>> {
+    pub fn next_value<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data>>> {
         let LazySystemReader {
             raw_reader,
             symbol_table,
@@ -517,13 +527,14 @@ impl<'data> LazySystemReader<'data> {
         let symbol_table = symbol_table.read()?.expect_struct()?;
         // Assume it's not an LST append unless we found `imports: $ion_symbol_table`
         pending_lst.is_lst_append = false;
-        let mut fields = symbol_table.iter();
+        // let mut fields = symbol_table.iter();
         let mut found_symbols_field = false;
         let mut found_imports_field = false;
 
         // TODO: Add a symbol_id() method to RawSymbolTokenRef
 
-        while let Some(field) = fields.next()? {
+        for field in &symbol_table {
+            let field = field?;
             if field.name() == RawSymbolTokenRef::SymbolId(7) {
                 if found_symbols_field {
                     return decoding_error("found symbol table with multiple 'symbols' fields");
@@ -545,9 +556,8 @@ impl<'data> LazySystemReader<'data> {
 
     fn process_symbols(pending_lst: &mut PendingLst, symbols: &LazyRawValue) -> IonResult<()> {
         if let RawValueRef::List(list) = symbols.read()? {
-            let mut reader = list.iter();
-            while let Some(value) = reader.next()? {
-                if let RawValueRef::String(text) = value.read()? {
+            for symbol_text in &list {
+                if let RawValueRef::String(text) = symbol_text?.read()? {
                     pending_lst.symbols.push(Some(text.to_owned()))
                 } else {
                     pending_lst.symbols.push(None)
@@ -614,7 +624,7 @@ mod tests {
         )?;
         let mut system_reader = LazySystemReader::new(&ion_data);
         loop {
-            match system_reader.next()? {
+            match system_reader.next_item()? {
                 SystemStreamItem::VersionMarker(major, minor) => {
                     println!("ivm => v{}.{}", major, minor)
                 }
@@ -639,7 +649,7 @@ mod tests {
         )?;
         let mut system_reader = LazySystemReader::new(&ion_data);
         loop {
-            match system_reader.next()? {
+            match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {
                     for value in &value.read()?.expect_sexp()? {
                         println!("{:?}", value?.read()?);
@@ -666,7 +676,7 @@ mod tests {
         )?;
         let mut system_reader = LazySystemReader::new(&ion_data);
         loop {
-            match system_reader.next()? {
+            match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {
                     for field in &value.read()?.expect_struct()? {
                         let field = field?;

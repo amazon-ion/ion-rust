@@ -2,6 +2,7 @@ use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::lazy_raw_reader::DataSource;
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::{IonResult, IonType};
+use std::fmt;
 use std::fmt::{Debug, Formatter};
 
 pub struct LazyRawSequence<'data> {
@@ -21,21 +22,43 @@ impl<'data> LazyRawSequence<'data> {
     }
 }
 
+impl<'a, 'data> IntoIterator for &'a LazyRawSequence<'data> {
+    type Item = IonResult<LazyRawValue<'data>>;
+    type IntoIter = RawSequenceIterator<'data>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<'a> Debug for LazyRawSequence<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut reader = self.iter();
         match self.value.encoded_value.ion_type() {
             IonType::SExp => {
                 write!(f, "(")?;
-                while let Some(value) = reader.next().unwrap() {
-                    write!(f, "{:?} ", value.read().unwrap()).unwrap();
+                for value in self {
+                    write!(
+                        f,
+                        "{:?} ",
+                        value
+                            .map_err(|_| fmt::Error)?
+                            .read()
+                            .map_err(|_| fmt::Error)?
+                    )?;
                 }
                 write!(f, ")").unwrap();
             }
             IonType::List => {
                 write!(f, "[")?;
-                while let Some(value) = reader.next().unwrap() {
-                    write!(f, "{:?},", value.read().unwrap()).unwrap();
+                for value in self {
+                    write!(
+                        f,
+                        "{:?},",
+                        value
+                            .map_err(|_| fmt::Error)?
+                            .read()
+                            .map_err(|_| fmt::Error)?
+                    )?;
                 }
                 write!(f, "]").unwrap();
             }
@@ -56,9 +79,14 @@ impl<'data> RawSequenceIterator<'data> {
             source: DataSource::new(input),
         }
     }
+}
 
-    pub fn next(&mut self) -> IonResult<Option<LazyRawValue<'data>>> {
+impl<'data> Iterator for RawSequenceIterator<'data> {
+    type Item = IonResult<LazyRawValue<'data>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
         self.source
             .try_parse_next(ImmutableBuffer::peek_value_without_field_id)
+            .transpose()
     }
 }

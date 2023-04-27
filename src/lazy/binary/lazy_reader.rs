@@ -14,7 +14,7 @@ impl<'data> LazyReader<'data> {
     }
 
     pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data>>> {
-        self.system_reader.next_user_value()
+        self.system_reader.next_value()
     }
 }
 
