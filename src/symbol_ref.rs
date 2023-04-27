@@ -31,6 +31,13 @@ impl<'a> SymbolRef<'a> {
     pub fn with_text(text: &str) -> SymbolRef {
         SymbolRef { text: Some(text) }
     }
+
+    pub fn to_owned(self) -> Symbol {
+        match self.text() {
+            None => Symbol::unknown_text(),
+            Some(text) => Symbol::owned(text),
+        }
+    }
 }
 
 impl<'a, A> PartialEq<A> for SymbolRef<'a>

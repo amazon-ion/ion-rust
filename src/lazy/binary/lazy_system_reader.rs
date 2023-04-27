@@ -1,12 +1,15 @@
+use crate::element::builders::StructBuilder;
+use crate::element::{Annotations, Element, IntoAnnotatedElement, Sequence, Struct, Value};
 use crate::result::{decoding_error, decoding_error_raw};
-use crate::{IonResult, IonType, RawSymbolTokenRef, Symbol, SymbolRef, SymbolTable};
+use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTable};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
-use crate::lazy::binary::lazy_raw_reader::{
-    LazyRawBinaryReader, LazyRawSequence, LazyRawStruct, LazyRawValue, RawAnnotationsIterator,
-    RawSequenceIterator, RawStructIterator,
-};
+use crate::lazy::binary::raw::lazy_raw_reader::LazyRawBinaryReader;
+use crate::lazy::binary::raw::lazy_raw_sequence::{LazyRawSequence, RawSequenceIterator};
+use crate::lazy::binary::raw::lazy_raw_struct::{LazyRawStruct, RawStructIterator};
+use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
+use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::system_stream_item::SystemStreamItem;
@@ -38,7 +41,7 @@ impl<'top, 'data> Debug for LazySequence<'top, 'data> {
 }
 
 impl<'top, 'data> Debug for LazyField<'top, 'data> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}: {:?}",
@@ -93,6 +96,68 @@ pub struct LazyField<'top, 'data> {
     value: LazyValue<'top, 'data>,
 }
 
+impl<'top, 'data> TryFrom<LazyValue<'top, 'data>> for Element {
+    type Error = IonError;
+
+    fn try_from(value: LazyValue<'top, 'data>) -> Result<Self, Self::Error> {
+        let annotations: Annotations = value.annotations().try_into()?;
+        let value = Value::try_from(value.read()?)?;
+        Ok(value.with_annotations(annotations))
+    }
+}
+
+impl<'top, 'data> TryFrom<LazySequence<'top, 'data>> for Sequence {
+    type Error = IonError;
+
+    fn try_from(lazy_sequence: LazySequence<'top, 'data>) -> Result<Self, Self::Error> {
+        let sequence: Sequence = lazy_sequence
+            .iter()
+            .map(|v| Element::try_from(v?))
+            .collect::<IonResult<Vec<_>>>()?
+            .into();
+        Ok(sequence)
+    }
+}
+
+impl<'top, 'data> TryFrom<LazySequence<'top, 'data>> for Element {
+    type Error = IonError;
+
+    fn try_from(lazy_sequence: LazySequence<'top, 'data>) -> Result<Self, Self::Error> {
+        let ion_type = lazy_sequence.ion_type();
+        let annotations: Annotations = lazy_sequence.annotations().try_into()?;
+        let sequence: Sequence = lazy_sequence.try_into()?;
+        let value = match ion_type {
+            IonType::SExp => Value::SExp(sequence),
+            IonType::List => Value::List(sequence),
+            _ => unreachable!("no other IonTypes are sequences"),
+        };
+        Ok(value.with_annotations(annotations))
+    }
+}
+
+impl<'top, 'data> TryFrom<LazyStruct<'top, 'data>> for Struct {
+    type Error = IonError;
+
+    fn try_from(lazy_struct: LazyStruct<'top, 'data>) -> Result<Self, Self::Error> {
+        let mut builder = StructBuilder::new();
+        for field in &lazy_struct {
+            let field = field?;
+            builder = builder.with_field(field.name()?, Element::try_from(field.value().clone())?);
+        }
+        Ok(builder.build())
+    }
+}
+
+impl<'top, 'data> TryFrom<LazyStruct<'top, 'data>> for Element {
+    type Error = IonError;
+
+    fn try_from(lazy_struct: LazyStruct<'top, 'data>) -> Result<Self, Self::Error> {
+        let annotations: Annotations = lazy_struct.annotations().try_into()?;
+        let struct_: Struct = lazy_struct.try_into()?;
+        Ok(struct_.with_annotations(annotations))
+    }
+}
+
 impl<'top, 'data> Iterator for StructIterator<'top, 'data> {
     type Item = IonResult<LazyField<'top, 'data>>;
 
@@ -121,6 +186,19 @@ impl<'top, 'data> LazySequence<'top, 'data> {
             symbol_table: &self.symbol_table,
         }
     }
+
+    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data> {
+        AnnotationsIterator {
+            raw_annotations: self.raw_sequence.value.annotations(),
+            symbol_table: self.symbol_table,
+            initial_offset: self
+                .raw_sequence
+                .value
+                .encoded_value
+                .annotations_offset()
+                .unwrap_or_else(|| self.raw_sequence.value.encoded_value.header_offset),
+        }
+    }
 }
 
 impl<'a, 'top, 'data> IntoIterator for &'a LazySequence<'top, 'data> {
@@ -137,6 +215,19 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
         StructIterator {
             raw_struct_reader: self.raw_struct.iter(),
             symbol_table: &self.symbol_table,
+        }
+    }
+
+    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data> {
+        AnnotationsIterator {
+            raw_annotations: self.raw_struct.value.annotations(),
+            symbol_table: &self.symbol_table,
+            initial_offset: self
+                .raw_struct
+                .value
+                .encoded_value
+                .annotations_offset()
+                .unwrap_or_else(|| self.raw_struct.value.encoded_value.header_offset),
         }
     }
 }
@@ -158,7 +249,7 @@ impl<'top, 'data> LazyField<'top, 'data> {
 
 impl<'top, 'data> StructIterator<'top, 'data> {
     pub fn next_field(&mut self) -> IonResult<Option<LazyField<'top, 'data>>> {
-        let raw_field = self.raw_struct_reader.next_field()?;
+        let raw_field = self.raw_struct_reader.next()?;
         if let Some(raw_field) = raw_field {
             let lazy_value = LazyValue {
                 raw_value: raw_field.into_value(),
@@ -221,7 +312,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     }
 
     pub fn read(&self) -> IonResult<ValueRef> {
-        use super::raw_value_ref::RawValueRef::*;
+        use RawValueRef::*;
         let value_ref = match self.raw_value.read()? {
             Null(ion_type) => ValueRef::Null(ion_type),
             Bool(b) => ValueRef::Bool(b),
@@ -278,8 +369,11 @@ pub struct AnnotationsIterator<'top, 'data> {
     initial_offset: usize,
 }
 
-impl<'top, 'data> Iterator for AnnotationsIterator<'top, 'data> {
-    type Item = IonResult<Symbol>;
+impl<'top, 'data> Iterator for AnnotationsIterator<'top, 'data>
+where
+    'data: 'top,
+{
+    type Item = IonResult<SymbolRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let raw_annotation = self.raw_annotations.next()?;
@@ -290,9 +384,23 @@ impl<'top, 'data> Iterator for AnnotationsIterator<'top, 'data> {
                 )),
                 Some(symbol) => Some(Ok(symbol.into())),
             },
-            Ok(RawSymbolTokenRef::Text(text)) => Some(Ok(text.into())),
+            Ok(RawSymbolTokenRef::Text(text)) => Some(Ok(SymbolRef::with_text(text))),
             Err(e) => Some(Err(e)),
         }
+    }
+}
+
+impl<'top, 'data> TryFrom<AnnotationsIterator<'top, 'data>> for Annotations {
+    type Error = IonError;
+
+    fn try_from(iter: AnnotationsIterator<'top, 'data>) -> Result<Self, Self::Error> {
+        let annotations = iter
+            .map(|symbol_ref| match symbol_ref {
+                Ok(symbol_ref) => Ok(symbol_ref.to_owned()),
+                Err(e) => Err(e),
+            })
+            .collect::<IonResult<Vec<_>>>()?;
+        Ok(Annotations::from(annotations))
     }
 }
 
@@ -415,7 +523,7 @@ impl<'data> LazySystemReader<'data> {
 
         // TODO: Add a symbol_id() method to RawSymbolTokenRef
 
-        while let Some(field) = fields.next_field()? {
+        while let Some(field) = fields.next()? {
             if field.name() == RawSymbolTokenRef::SymbolId(7) {
                 if found_symbols_field {
                     return decoding_error("found symbol table with multiple 'symbols' fields");
@@ -476,11 +584,11 @@ impl<'data> LazySystemReader<'data> {
 mod tests {
     use crate::element::writer::ElementWriter;
     use crate::element::Element;
-    use crate::lazy::lazy_system_reader::LazySystemReader;
+    use crate::lazy::binary::lazy_system_reader::LazySystemReader;
     use crate::lazy::system_stream_item::SystemStreamItem;
     use crate::{BinaryWriterBuilder, IonResult, IonWriter};
 
-    fn to_10n(text_ion: &str) -> IonResult<Vec<u8>> {
+    fn to_binary_ion(text_ion: &str) -> IonResult<Vec<u8>> {
         let mut buffer = Vec::new();
         let mut writer = BinaryWriterBuilder::default().build(&mut buffer)?;
         let elements = Element::read_all(text_ion)?;
@@ -492,7 +600,7 @@ mod tests {
 
     #[test]
     fn try_it() -> IonResult<()> {
-        let ion_data = to_10n(
+        let ion_data = to_binary_ion(
             r#"
         foo
         bar
@@ -520,7 +628,7 @@ mod tests {
 
     #[test]
     fn sequence_iter() -> IonResult<()> {
-        let ion_data = to_10n(
+        let ion_data = to_binary_ion(
             r#"
         (
           (foo baz baz)
@@ -546,7 +654,7 @@ mod tests {
 
     #[test]
     fn struct_iter() -> IonResult<()> {
-        let ion_data = to_10n(
+        let ion_data = to_binary_ion(
             r#"
         {
           foo: 1,

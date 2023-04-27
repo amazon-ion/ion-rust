@@ -1,6 +1,7 @@
-use crate::lazy::lazy_system_reader::{LazySequence, LazyStruct};
+use crate::element::Value;
+use crate::lazy::binary::lazy_system_reader::{LazySequence, LazyStruct};
 use crate::result::decoding_error;
-use crate::{Decimal, Int, IonResult, IonType, SymbolRef, Timestamp};
+use crate::{Decimal, Int, IonError, IonResult, IonType, SymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
 
 /// A [ValueRef] represents a value that has been read from the input stream. Scalar variants contain
@@ -46,6 +47,30 @@ impl<'top, 'data> Debug for ValueRef<'top, 'data> {
             List(l) => write!(f, "{:?}", l),
             Struct(s) => write!(f, "{:?}", s),
         }
+    }
+}
+
+impl<'top, 'data> TryFrom<ValueRef<'top, 'data>> for Value {
+    type Error = IonError;
+
+    fn try_from(value: ValueRef<'top, 'data>) -> Result<Self, Self::Error> {
+        use ValueRef::*;
+        let value = match value {
+            Null(ion_type) => Value::Null(ion_type),
+            Bool(b) => Value::Bool(b),
+            Int(i) => Value::Int(i),
+            Float(f) => Value::Float(f),
+            Decimal(d) => Value::Decimal(d),
+            Timestamp(t) => Value::Timestamp(t),
+            String(s) => Value::String(s.into()),
+            Symbol(s) => Value::Symbol(s.into()),
+            Blob(b) => Value::Blob(b.into()),
+            Clob(c) => Value::Clob(c.into()),
+            SExp(s) => Value::SExp(s.try_into()?),
+            List(l) => Value::List(l.try_into()?),
+            Struct(s) => Value::Struct(s.try_into()?),
+        };
+        Ok(value)
     }
 }
 

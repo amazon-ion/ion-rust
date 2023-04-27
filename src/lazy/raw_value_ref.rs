@@ -1,4 +1,5 @@
-use crate::lazy::binary::lazy_raw_reader::{LazyRawSequence, LazyRawStruct};
+use crate::lazy::binary::raw::lazy_raw_sequence::LazyRawSequence;
+use crate::lazy::binary::raw::lazy_raw_struct::LazyRawStruct;
 use crate::result::decoding_error;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use std::fmt::{Debug, Formatter};

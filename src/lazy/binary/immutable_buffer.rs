@@ -6,6 +6,8 @@ use crate::binary::non_blocking::type_descriptor::{
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
+use crate::lazy::binary::encoded_value::EncodedValue;
+use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::result::{
     decoding_error, decoding_error_raw, incomplete_data_error, incomplete_data_error_raw,
 };
@@ -471,7 +473,7 @@ impl<'a> ImmutableBuffer<'a> {
         let mut buffer = self;
         // Skip over any number of NOP regions
         while type_descriptor.is_nop() {
-            let (_, buffer_after_nop) = self.read_nop_pad()?;
+            let (_, buffer_after_nop) = buffer.read_nop_pad()?;
             buffer = buffer_after_nop;
             if buffer.is_empty() {
                 break;
@@ -542,6 +544,105 @@ impl<'a> ImmutableBuffer<'a> {
         // If we reach this point, the length was in the header byte and no additional bytes were
         // consumed
         Ok((length, self))
+    }
+
+    pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawValue<'a>>> {
+        self.peek_value(true)
+    }
+
+    pub(crate) fn peek_value_without_field_id(self) -> IonResult<Option<LazyRawValue<'a>>> {
+        self.peek_value(false)
+    }
+
+    // This method consumes leading NOP bytes, but leaves the header representation in the buffer.
+    // The resulting LazyRawValue's buffer slice always starts with the first non-NOP byte in the
+    // header, which can be either a field ID, an annotations wrapper, or a type descriptor.
+    fn peek_value(self, has_field: bool) -> IonResult<Option<LazyRawValue<'a>>> {
+        let initial_input = self;
+        if initial_input.is_empty() {
+            return Ok(None);
+        }
+        let (field_id, field_id_length, mut input) = if has_field {
+            let (field_id_var_uint, input_after_field_id) = initial_input.read_var_uint()?;
+            if input_after_field_id.is_empty() {
+                return incomplete_data_error(
+                    "found field name but no value",
+                    input_after_field_id.offset(),
+                );
+            }
+            let field_id_length = u8::try_from(field_id_var_uint.size_in_bytes())
+                .map_err(|_| decoding_error_raw("found a field id with length over 255 bytes"))?;
+            (
+                Some(field_id_var_uint.value()),
+                field_id_length,
+                input_after_field_id,
+            )
+        } else {
+            (None, 0, initial_input)
+        };
+
+        let mut annotations_header_length = 0u8;
+        let mut annotations_sequence_length = 0u8;
+        let mut expected_value_length = None;
+
+        let mut type_descriptor = input.peek_type_descriptor()?;
+        if type_descriptor.is_annotation_wrapper() {
+            let (wrapper, input_after_annotations) =
+                input.read_annotations_wrapper(type_descriptor)?;
+            annotations_header_length = wrapper.header_length;
+            annotations_sequence_length = wrapper.sequence_length;
+            expected_value_length = Some(wrapper.expected_value_length);
+            input = input_after_annotations;
+            type_descriptor = input.peek_type_descriptor()?;
+            if type_descriptor.is_annotation_wrapper() {
+                return decoding_error("found an annotations wrapper ");
+            }
+        } else if type_descriptor.is_nop() {
+            (_, input) = input.consume_nop_padding(type_descriptor)?;
+        }
+
+        let header = type_descriptor
+            .to_header()
+            .ok_or_else(|| decoding_error_raw("found a non-value in value position"))?;
+
+        let header_offset = input.offset();
+        let (length, _) = input.consume(1).read_value_length(header)?;
+        let header_length = u8::try_from(length.size_in_bytes()).map_err(|_e| {
+            decoding_error_raw("found a value with a header length field over 255 bytes long")
+        })?;
+        let value_length = length.value(); // ha
+        let total_length = field_id_length as usize
+            + annotations_header_length as usize
+            + 1 // Header byte
+            + header_length as usize
+            + value_length;
+
+        if let Some(expected_value_length) = expected_value_length {
+            let actual_value_length = 1 + header_length as usize + value_length;
+            if expected_value_length != actual_value_length {
+                println!("{} != {}", expected_value_length, actual_value_length);
+                return decoding_error(
+                    "value length did not match length declared by annotations wrapper",
+                );
+            }
+        }
+
+        let encoded_value = EncodedValue {
+            header,
+            field_id_length,
+            field_id,
+            annotations_header_length,
+            annotations_sequence_length,
+            header_offset,
+            header_length,
+            value_length,
+            total_length,
+        };
+        let lazy_value = LazyRawValue {
+            encoded_value,
+            input: initial_input,
+        };
+        Ok(Some(lazy_value))
     }
 }
 

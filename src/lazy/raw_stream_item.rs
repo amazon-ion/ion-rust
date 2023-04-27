@@ -1,4 +1,4 @@
-use crate::lazy::binary::lazy_raw_reader::LazyRawValue;
+use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::result::{decoding_error, decoding_error_raw};
 use crate::IonResult;
 
