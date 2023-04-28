@@ -27,15 +27,17 @@ const INT_STACK_BUFFER_SIZE: usize = 16;
 // This number was chosen somewhat arbitrarily and could be lifted if a use case demands it.
 const MAX_INT_SIZE_IN_BYTES: usize = 2048;
 
-/// A stack-allocated wrapper around an `AsRef<[u8]>` that provides methods to read Ion's
-/// encoding primitives.
+/// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
+/// the various encoding elements of a binary Ion stream.
 ///
-/// When the wrapped type is a `Vec<u8>`, data can be appended to the buffer between read
-/// operations.
+/// Upon success, each parsing method on the `ImmutableBuffer` will return the value that was read
+/// and a copy of the `ImmutableBuffer` that starts _after_ the bytes that were parsed.
+///
+/// Methods that `peek` at the input stream do not return a copy of the buffer.
 #[derive(PartialEq, Clone, Copy)]
 pub(crate) struct ImmutableBuffer<'a> {
     data: &'a [u8],
-    total_consumed: usize,
+    offset: usize,
 }
 
 impl<'a> Debug for ImmutableBuffer<'a> {
@@ -51,20 +53,17 @@ impl<'a> Debug for ImmutableBuffer<'a> {
 pub(crate) type ParseResult<'a, T> = IonResult<(T, ImmutableBuffer<'a>)>;
 
 impl<'a> ImmutableBuffer<'a> {
-    /// Constructs a new BinaryBuffer that wraps `data`.
+    /// Constructs a new `ImmutableBuffer` that wraps `data`.
     #[inline]
     pub fn new(data: &[u8]) -> ImmutableBuffer {
         Self::new_with_offset(data, 0)
     }
 
     pub fn new_with_offset(data: &[u8], offset: usize) -> ImmutableBuffer {
-        ImmutableBuffer {
-            data,
-            total_consumed: offset,
-        }
+        ImmutableBuffer { data, offset }
     }
 
-    /// Returns a slice containing all of the buffer's remaining bytes.
+    /// Returns a slice containing all of the buffer's bytes.
     pub fn bytes(&self) -> &[u8] {
         self.data
     }
@@ -76,25 +75,27 @@ impl<'a> ImmutableBuffer<'a> {
         &self.data[offset..offset + length]
     }
 
+    /// Like [`Self::bytes_range`] above, but returns an updated copy of the [`ImmutableBuffer`]
+    /// instead of a `&[u8]`.
     pub fn slice(&self, offset: usize, length: usize) -> ImmutableBuffer<'a> {
         ImmutableBuffer {
             data: self.bytes_range(offset, length),
-            total_consumed: self.total_consumed + offset,
+            offset: self.offset + offset,
         }
     }
 
-    /// Returns the number of bytes that have been marked as read either via the [consume] method
-    /// or one of the `read_*` methods.
+    /// Returns the number of bytes between the start of the original input byte array and the
+    /// subslice of that byte array that this `ImmutableBuffer` represents.
     pub fn offset(&self) -> usize {
-        self.total_consumed
+        self.offset
     }
 
-    /// Returns the number of unread bytes left in the buffer.
+    /// Returns the number of bytes in the buffer.
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
-    /// Returns `true` if there are no bytes remaining in the buffer. Otherwise, returns `false`.
+    /// Returns `true` if there are no bytes in the buffer. Otherwise, returns `false`.
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -111,25 +112,20 @@ impl<'a> ImmutableBuffer<'a> {
         self.data.get(..n)
     }
 
-    /// Marks the first `num_bytes_to_consume` bytes in the buffer as having been read.
-    ///
-    /// After data has been inspected using the `peek` methods, those bytes can be marked as read
-    /// by calling the `consume` method.
-    ///
-    /// Note that the various `read_*` methods to parse Ion encoding primitives automatically
-    /// consume the bytes they read if they are successful.
+    /// Creates a copy of this `ImmutableBuffer` that begins `num_bytes_to_consume` further into the
+    /// slice.
     #[inline]
     pub fn consume(&self, num_bytes_to_consume: usize) -> Self {
         // This assertion is always run during testing but is removed in the release build.
         debug_assert!(num_bytes_to_consume <= self.len());
         Self {
             data: &self.data[num_bytes_to_consume..],
-            total_consumed: self.total_consumed + num_bytes_to_consume,
+            offset: self.offset + num_bytes_to_consume,
         }
     }
 
-    /// Reads (but does not consume) the first byte in the buffer and returns it as a
-    /// [TypeDescriptor].
+    /// Reads the first byte in the buffer and returns it as a [TypeDescriptor].
+    #[inline]
     pub fn peek_type_descriptor(&self) -> IonResult<TypeDescriptor> {
         if self.is_empty() {
             return incomplete_data_error("a type descriptor", self.offset());
@@ -139,8 +135,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Reads the first four bytes in the buffer as an Ion version marker. If it is successful,
-    /// returns an `Ok(_)` containing a `(major, minor)` version tuple and consumes the
-    /// source bytes.
+    /// returns an `Ok(_)` containing a `(major, minor)` version tuple.
     ///
     /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#value-streams
     pub fn read_ivm(self) -> ParseResult<'a, (u8, u8)> {
@@ -158,7 +153,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Reads a `VarUInt` encoding primitive from the beginning of the buffer. If it is successful,
-    /// returns an `Ok(_)` containing its [VarUInt] representation and consumes the source bytes.
+    /// returns an `Ok(_)` containing its [VarUInt] representation.
     ///
     /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields
     pub fn read_var_uint(self) -> ParseResult<'a, VarUInt> {
@@ -198,7 +193,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Reads a `VarInt` encoding primitive from the beginning of the buffer. If it is successful,
-    /// returns an `Ok(_)` containing its [VarInt] representation and consumes the source bytes.
+    /// returns an `Ok(_)` containing its [VarInt] representation.
     ///
     /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields
     pub fn read_var_int(self) -> ParseResult<'a, VarInt> {
@@ -265,8 +260,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Reads the first `length` bytes from the buffer as a `UInt` encoding primitive. If it is
-    /// successful, returns an `Ok(_)` containing its [DecodedUInt] representation and consumes the
-    /// source bytes.
+    /// successful, returns an `Ok(_)` containing its [DecodedUInt] representation.
     ///
     /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields
     pub fn read_uint(self, length: usize) -> ParseResult<'a, DecodedUInt> {
@@ -382,6 +376,8 @@ impl<'a> ImmutableBuffer<'a> {
         ))
     }
 
+    /// Attempts to decode an annotations wrapper at the beginning of the buffer and returning
+    /// its subfields in an [`AnnotationsWrapper`].
     pub fn read_annotations_wrapper(
         &self,
         type_descriptor: TypeDescriptor,
@@ -465,6 +461,8 @@ impl<'a> ImmutableBuffer<'a> {
         Ok((total_nop_pad_size, remaining))
     }
 
+    /// Calls [`Self::read_nop_pad`] in a loop until the buffer is empty or a type descriptor
+    /// is encountered that is not a NOP.
     #[inline(never)]
     // NOP padding is not widely used in Ion 1.0. This method is annotated with `inline(never)`
     // to avoid the compiler bloating other methods on the hot path with its rarely used
@@ -485,9 +483,8 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Interprets the length code in the provided [Header]; if necessary, will read more bytes
     /// from the buffer to interpret as the value's length. If it is successful, returns an `Ok(_)`
-    /// containing a [VarUInt] representation of the value's length and consumes any additional
-    /// bytes read. If no additional bytes were read, the returned `VarUInt`'s `size_in_bytes()`
-    /// method will return `0`.
+    /// containing a [VarUInt] representation of the value's length. If no additional bytes were
+    /// read, the returned `VarUInt`'s `size_in_bytes()` method will return `0`.
     pub fn read_value_length(self, header: Header) -> ParseResult<'a, VarUInt> {
         use IonType::*;
         // Some type-specific `length` field overrides
@@ -533,7 +530,7 @@ impl<'a> ImmutableBuffer<'a> {
     ///   * anything else: the `L` represents the actual length.
     ///
     /// If successful, returns an `Ok(_)` that contains the [VarUInt] representation
-    /// of the value's length and consumes any additional bytes read.
+    /// of the value's length.
     pub fn read_length(self, length_code: u8) -> ParseResult<'a, VarUInt> {
         let length = match length_code {
             length_codes::NULL => VarUInt::new(0, 0),
@@ -546,14 +543,17 @@ impl<'a> ImmutableBuffer<'a> {
         Ok((length, self))
     }
 
+    /// Reads a field ID and a value from the buffer.
     pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawValue<'a>>> {
         self.peek_value(true)
     }
 
+    /// Reads a value from the buffer.
     pub(crate) fn peek_value_without_field_id(self) -> IonResult<Option<LazyRawValue<'a>>> {
         self.peek_value(false)
     }
 
+    /// Reads a value from the buffer. If `has_field` is true, it will read a field ID first.
     // This method consumes leading NOP bytes, but leaves the header representation in the buffer.
     // The resulting LazyRawValue's buffer slice always starts with the first non-NOP byte in the
     // header, which can be either a field ID, an annotations wrapper, or a type descriptor.
@@ -646,6 +646,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 }
 
+/// Represents the data found in an Ion 1.0 annotations wrapper.
 pub struct AnnotationsWrapper {
     pub header_length: u8,
     pub sequence_length: u8,

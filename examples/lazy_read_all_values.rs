@@ -33,44 +33,44 @@ mod lazy_reader_example {
 
         let file = File::open(path).unwrap();
 
-        // This example uses `mmap` so we can use either the blocking reader (which reads from an
-        // io::BufRead) or the non-blocking reader (which reads from an AsRef<[u8]>).
+        // This example uses `mmap` so we can view the entire input file as a `&[u8]`.
         let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
-
-        // Treat the mmap as a byte array.
         let ion_data: &[u8] = &mmap[..];
 
-        let mut reader = LazyReader::new(ion_data)?;
+        // We're going to recursively visit and read every value in the input stream, counting
+        // them as we go.
         let mut count = 0;
+        let mut reader = LazyReader::new(ion_data)?;
         while let Some(lazy_value) = reader.next()? {
-            count += read_value(&lazy_value)?;
+            count += count_value_and_children(&lazy_value)?;
         }
         println!("Read {} values.", count);
         Ok(())
     }
 
-    fn read_value(lazy_value: &LazyValue) -> IonResult<usize> {
+    // Counts scalar values as 1 and container values as (the number of children) + 1.
+    fn count_value_and_children(lazy_value: &LazyValue) -> IonResult<usize> {
         use ValueRef::*;
         let child_count = match lazy_value.read()? {
-            List(s) | SExp(s) => read_sequence(&s)?,
-            Struct(s) => read_struct(&s)?,
+            List(s) | SExp(s) => count_sequence_children(&s)?,
+            Struct(s) => count_struct_children(&s)?,
             _ => 0,
         };
         Ok(1 + child_count)
     }
 
-    fn read_sequence(lazy_sequence: &LazySequence) -> IonResult<usize> {
+    fn count_sequence_children(lazy_sequence: &LazySequence) -> IonResult<usize> {
         let mut count = 0;
         for value in lazy_sequence {
-            count += read_value(&value?)?;
+            count += count_value_and_children(&value?)?;
         }
         Ok(count)
     }
 
-    fn read_struct(lazy_struct: &LazyStruct) -> IonResult<usize> {
+    fn count_struct_children(lazy_struct: &LazyStruct) -> IonResult<usize> {
         let mut count = 0;
         for field in lazy_struct {
-            count += read_value(field?.value())?;
+            count += count_value_and_children(field?.value())?;
         }
         Ok(count)
     }
