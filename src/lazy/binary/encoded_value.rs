@@ -163,7 +163,7 @@ impl EncodedValue {
     /// Returns the number of bytes used to encode the series of VarUInt annotation symbol IDs, if
     /// any.
     ///
-    /// See: https://amazon-ion.github.io/ion-docs/docs/binary.html#annotations
+    /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#annotations>
     pub fn annotations_sequence_length(&self) -> Option<usize> {
         if self.annotations_header_length == 0 {
             return None;

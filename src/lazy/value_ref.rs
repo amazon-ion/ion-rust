@@ -7,7 +7,7 @@ use std::fmt::{Debug, Formatter};
 
 /// A [ValueRef] represents a value that has been read from the input stream. Scalar variants contain
 /// their associated data, while container variants contain a handle to traverse the container. (See
-/// [SequenceRef] and [StructRef].)
+/// [LazySequence] and [LazyStruct].)
 ///
 /// Unlike a [Value], a `ValueRef` avoids heap allocation whenever possible, choosing to point instead
 /// to existing resources. Numeric values and timestamps are stored within the `ValueRef` itself.

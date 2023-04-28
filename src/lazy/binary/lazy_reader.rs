@@ -1,8 +1,11 @@
 use crate::binary::constants::v1_0::IVM;
 use crate::element::reader::ElementReader;
 use crate::element::Element;
+use crate::lazy::binary::system::lazy_sequence::LazySequence;
+use crate::lazy::binary::system::lazy_struct::LazyStruct;
 use crate::lazy::binary::system::lazy_system_reader::LazySystemReader;
 use crate::lazy::binary::system::lazy_value::LazyValue;
+use crate::lazy::value_ref::ValueRef;
 use crate::result::decoding_error;
 use crate::IonResult;
 
@@ -10,8 +13,8 @@ use crate::IonResult;
 ///
 /// Each time [`LazyReader::next`] is called, the reader will advance to the next top-level value
 /// in the input stream. Once positioned on a top-level value, users may visit nested values by
-/// calling [`LazyValue::read`] and working with the resulting [`ValueRef`], which may contain
-/// either a scalar value or a lazy container that may itself be traversed.
+/// calling [`LazyValue::read`] and working with the resulting [`ValueRef`],
+/// which may contain either a scalar value or a lazy container that may itself be traversed.
 ///
 /// The values that the reader yields ([`LazyValue`], [`LazySequence`], and [`LazyStruct`]) are
 /// immutable references to the data stream, and remain valid until [`LazyReader::next`] is called

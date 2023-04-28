@@ -1,15 +1,18 @@
 use crate::result::decoding_error;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
 
+use crate::lazy::binary::lazy_reader::LazyReader;
 use crate::lazy::binary::raw::lazy_raw_reader::LazyRawBinaryReader;
 use crate::lazy::binary::raw::lazy_raw_struct::LazyRawStruct;
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
+use crate::lazy::binary::system::lazy_sequence::LazySequence;
 
 use crate::lazy::binary::system::lazy_struct::LazyStruct;
 use crate::lazy::binary::system::lazy_value::LazyValue;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::system_stream_item::SystemStreamItem;
+use crate::lazy::value_ref::ValueRef;
 
 // Symbol IDs used for processing symbol table structs
 const ION_SYMBOL_TABLE: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(3);
@@ -22,13 +25,13 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 /// [`LazySystemReader`] also yields Ion version markers (as [`SystemStreamItem::VersionMarker`])
 /// and structs representing a symbol table (as [`SystemStreamItem::SymbolTable`]).
 ///
-/// Each time [`SystemStreamItem::next`] is called, the reader will advance to the next top-level
+/// Each time [`LazySystemReader::next_item`] is called, the reader will advance to the next top-level
 /// value in the input stream. Once positioned on a top-level value, users may visit nested values by
 /// calling [`LazyValue::read`] and working with the resulting [`ValueRef`], which may contain
 /// either a scalar value or a lazy container that may itself be traversed.
 ///
 /// The values that the reader yields ([`LazyValue`], [`LazySequence`], and [`LazyStruct`]) are
-/// immutable references to the data stream, and remain valid until [`LazySystemReader::next`] is
+/// immutable references to the data stream, and remain valid until [`LazySystemReader::next_item`] is
 /// called again to advance the reader to the next top level value. This means that these references
 /// can be stored, read, and re-read as long as the reader remains on the same top-level value.
 /// ```
