@@ -11,10 +11,7 @@ use crate::{
         var_uint::VarUInt,
     },
     result::IonResult,
-    types::{
-        decimal::Decimal,
-        timestamp::{Mantissa, Precision, Timestamp},
-    },
+    types::{Decimal, Mantissa, Precision, Timestamp},
 };
 
 const MAX_TIMESTAMP_LENGTH: usize = 32;

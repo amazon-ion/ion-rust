@@ -11,8 +11,8 @@ use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
-use crate::types::decimal::Decimal;
-use crate::types::timestamp::Timestamp;
+use crate::types::Decimal;
+use crate::types::Timestamp;
 use crate::types::{ContainerType, SymbolId};
 use crate::writer::IonWriter;
 use crate::{Int, IonType};
@@ -910,10 +910,10 @@ mod writer_tests {
     use rstest::*;
 
     use super::*;
-    use crate::element::{Blob, Clob};
     use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
     use crate::reader::{Reader, ReaderBuilder};
-    use crate::symbol::Symbol;
+    use crate::types::Symbol;
+    use crate::types::{Blob, Clob};
     use crate::IonReader;
     use num_bigint::BigInt;
     use num_traits::Float;

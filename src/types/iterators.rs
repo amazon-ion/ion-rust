@@ -99,9 +99,9 @@ impl<'a> Iterator for FieldIterator<'a> {
 
 /// Iterates over the values associated with a given field name in a Struct.
 pub struct FieldValuesIterator<'a> {
-    pub(super) current: usize,
-    pub(super) indexes: Option<&'a IndexVec>,
-    pub(super) by_index: &'a Vec<(Symbol, Element)>,
+    pub(crate) current: usize,
+    pub(crate) indexes: Option<&'a IndexVec>,
+    pub(crate) by_index: &'a Vec<(Symbol, Element)>,
 }
 
 impl<'a> Iterator for FieldValuesIterator<'a> {

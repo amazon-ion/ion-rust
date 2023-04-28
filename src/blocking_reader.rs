@@ -8,7 +8,7 @@ use crate::raw_reader::BufferedRawReader;
 use crate::result::IonResult;
 use crate::stream_reader::IonReader;
 use crate::text::non_blocking::raw_text_reader::RawTextReader;
-use crate::types::timestamp::Timestamp;
+use crate::types::Timestamp;
 use crate::{Decimal, Int, IonError, IonType, Str};
 
 pub type BlockingRawTextReader<T> = BlockingRawReader<RawTextReader<Vec<u8>>, T>;

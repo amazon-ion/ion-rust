@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::constants::v1_0;
-use crate::symbol::Symbol;
+use crate::types::Symbol;
 use crate::types::SymbolId;
 
 /// Stores mappings from Symbol IDs to text and vice-versa.

@@ -16,7 +16,7 @@ pub trait IntAccess {
     /// ```
     /// # use ion_rs::element::*;
     /// # use ion_rs::element::*;
-    /// # use ion_rs::types::integer::*;
+    /// # use ion_rs::types::*;
     /// # use num_bigint::*;
     /// let big_int = Int::BigInt(BigInt::from(100));
     /// let i64_int = Int::I64(100);
@@ -39,7 +39,7 @@ pub trait IntAccess {
     /// ```
     /// # use ion_rs::element::*;
     /// # use ion_rs::element::*;
-    /// # use ion_rs::types::integer::*;
+    /// # use ion_rs::types::*;
     /// # use num_bigint::*;
     /// # use std::str::FromStr;
     /// let big_int = Int::BigInt(BigInt::from(100));
@@ -509,8 +509,8 @@ mod integer_tests {
     use num_bigint::BigUint;
     use num_traits::Zero;
     // The 'Big' alias helps distinguish between the enum variant and the wrapped numeric type
-    use crate::types::integer::Int::{self, BigInt as Big, I64};
-    use crate::types::integer::UInt;
+    use crate::types::Int::{self, BigInt as Big, I64};
+    use crate::types::UInt;
     use rstest::*;
     use std::cmp::Ordering;
 

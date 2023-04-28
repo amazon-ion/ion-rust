@@ -5,17 +5,17 @@ use crate::binary::non_blocking::type_descriptor::{Header, TypeDescriptor};
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
 use crate::binary::IonTypeCode;
-use crate::element::{Blob, Clob};
 use crate::result::{
     decoding_error, decoding_error_raw, illegal_operation, illegal_operation_raw,
     incomplete_data_error,
 };
-use crate::types::integer::IntAccess;
-use crate::types::string::Str;
+use crate::types::IntAccess;
+use crate::types::Str;
 use crate::types::SymbolId;
+use crate::types::{Blob, Clob};
 use crate::{
-    raw_reader::BufferedRawReader, Decimal, Int, IonReader, IonResult, IonType, RawStreamItem,
-    RawSymbolToken, Timestamp,
+    raw_reader::BufferedRawReader, types::Decimal, Int, IonReader, IonResult, IonType,
+    RawStreamItem, RawSymbolToken, Timestamp,
 };
 use bytes::{BigEndian, Buf, ByteOrder};
 use num_bigint::BigUint;

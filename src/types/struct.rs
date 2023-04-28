@@ -1,9 +1,9 @@
 use crate::element::builders::StructBuilder;
-use crate::element::iterators::{FieldIterator, FieldValuesIterator, IndexVec};
 use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
 use crate::symbol_ref::AsSymbolRef;
 use crate::text::text_formatter::IonValueFormatter;
+use crate::types::iterators::{FieldIterator, FieldValuesIterator, IndexVec};
 use crate::Symbol;
 use std::cmp::Ordering;
 use std::collections::HashMap;

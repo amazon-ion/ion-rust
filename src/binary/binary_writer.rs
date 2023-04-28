@@ -2,11 +2,11 @@ use crate::binary::raw_binary_writer::{RawBinaryWriter, RawBinaryWriterBuilder};
 use crate::constants::v1_0::system_symbol_ids;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
-use crate::types::decimal::Decimal;
-use crate::types::timestamp::Timestamp;
+use crate::types::Decimal;
 use crate::types::SymbolId;
+use crate::types::Timestamp;
 use crate::writer::IonWriter;
-use crate::{Int, IonType, SymbolTable};
+use crate::{types::Int, types::IonType, SymbolTable};
 use delegate::delegate;
 use std::io::Write;
 
