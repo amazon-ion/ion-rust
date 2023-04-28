@@ -48,7 +48,7 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
     match format {
         Format::Text(kind) => {
             let mut writer = match kind {
-                TextKind::Compact => TextWriterBuilder::new().build(&mut buffer),
+                TextKind::Compact => TextWriterBuilder::default().build(&mut buffer),
                 TextKind::Lines => TextWriterBuilder::lines().build(&mut buffer),
                 TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
             }?;
@@ -406,7 +406,7 @@ mod impl_display_for_element_tests {
 
         for element in elements {
             let mut buffer = Vec::with_capacity(2048);
-            let mut writer = TextWriterBuilder::new().build(&mut buffer).unwrap();
+            let mut writer = TextWriterBuilder::default().build(&mut buffer).unwrap();
             writer.write_element(&element).unwrap();
             writer.flush().unwrap();
             drop(writer);

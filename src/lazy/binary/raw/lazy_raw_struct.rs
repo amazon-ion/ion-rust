@@ -1,7 +1,7 @@
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
-use crate::lazy::binary::raw::lazy_raw_reader::{DataSource, LazyRawField};
+use crate::lazy::binary::raw::lazy_raw_reader::DataSource;
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
-use crate::IonResult;
+use crate::{IonResult, RawSymbolTokenRef};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
@@ -63,5 +63,40 @@ impl<'data> Iterator for RawStructIterator<'data> {
             Ok(None) => None,
             Err(e) => Some(Err(e)),
         }
+    }
+}
+
+pub struct LazyRawField<'data> {
+    pub(crate) value: LazyRawValue<'data>,
+}
+
+impl<'data> LazyRawField<'data> {
+    pub(crate) fn new(value: LazyRawValue<'data>) -> Self {
+        LazyRawField { value }
+    }
+
+    pub fn name(&self) -> RawSymbolTokenRef<'data> {
+        // We're in a struct field, the field ID must be populated.
+        let field_id = self.value.encoded_value.field_id.unwrap();
+        RawSymbolTokenRef::SymbolId(field_id)
+    }
+
+    pub fn value(&self) -> &LazyRawValue<'data> {
+        &self.value
+    }
+
+    pub(crate) fn into_value(self) -> LazyRawValue<'data> {
+        self.value
+    }
+}
+
+impl<'a> Debug for LazyRawField<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "${}: {:?}",
+            self.value.encoded_value.field_id.unwrap(),
+            self.value()
+        )
     }
 }

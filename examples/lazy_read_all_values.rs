@@ -14,7 +14,9 @@ fn main() -> IonResult<()> {
 mod lazy_reader_example {
 
     use ion_rs::lazy::binary::lazy_reader::LazyReader;
-    use ion_rs::lazy::binary::lazy_system_reader::{LazySequence, LazyStruct, LazyValue};
+    use ion_rs::lazy::binary::system::lazy_sequence::LazySequence;
+    use ion_rs::lazy::binary::system::lazy_struct::LazyStruct;
+    use ion_rs::lazy::binary::system::lazy_value::LazyValue;
     use ion_rs::lazy::value_ref::ValueRef;
     use ion_rs::IonResult;
     use memmap::MmapOptions;
@@ -38,7 +40,7 @@ mod lazy_reader_example {
         // Treat the mmap as a byte array.
         let ion_data: &[u8] = &mmap[..];
 
-        let mut reader = LazyReader::new(ion_data);
+        let mut reader = LazyReader::new(ion_data)?;
         let mut count = 0;
         while let Some(lazy_value) = reader.next()? {
             count += read_value(&lazy_value)?;

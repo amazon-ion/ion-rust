@@ -260,7 +260,7 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
 /// name of the test is the Ion text representation of the input value.
 fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
     let mut buf = Vec::new();
-    let mut text_writer = ion_rs::TextWriterBuilder::new().build(&mut buf)?;
+    let mut text_writer = ion_rs::TextWriterBuilder::default().build(&mut buf)?;
     text_writer.write_element(test_input_ion)?;
     text_writer.flush()?;
     drop(text_writer);

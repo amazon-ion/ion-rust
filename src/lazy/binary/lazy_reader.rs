@@ -1,18 +1,77 @@
+use crate::binary::constants::v1_0::IVM;
 use crate::element::reader::ElementReader;
 use crate::element::Element;
-use crate::lazy::binary::lazy_system_reader::{LazySystemReader, LazyValue};
+use crate::lazy::binary::system::lazy_system_reader::LazySystemReader;
+use crate::lazy::binary::system::lazy_value::LazyValue;
+use crate::result::decoding_error;
 use crate::IonResult;
 
+/// A binary reader that only reads each value that it visits upon request (that is: lazily).
+///
+/// Each time [`LazyReader::next`] is called, the reader will advance to the next top-level value
+/// in the input stream. Once positioned on a top-level value, users may visit nested values by
+/// calling [`LazyValue::read`] and working with the resulting [`ValueRef`], which may contain
+/// either a scalar value or a lazy container that may itself be traversed.
+///
+/// The values that the reader yields ([`LazyValue`], [`LazySequence`], and [`LazyStruct`]) are
+/// immutable references to the data stream, and remain valid until [`LazyReader::next`] is called
+/// again to advance the reader to the next top level value. This means that these references can
+/// be stored, read, and re-read as long as the reader remains on the same top-level value.
+/// ```
+///# use ion_rs::IonResult;
+///# fn main() -> IonResult<()> {
+///
+/// // Construct an Element and serialize it as binary Ion.
+/// use ion_rs::element::Element;
+/// use ion_rs::ion_list;
+/// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+///
+/// let element: Element = ion_list! [10, 20, 30].into();
+/// let binary_ion = element.to_binary()?;
+///
+/// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+///
+/// // Get the first value from the stream and confirm that it's a list.
+/// let lazy_list = lazy_reader.next()?.expect("first value").read()?.expect_list()?;
+///
+/// // Visit the values in the list
+/// let mut sum = 0;
+/// for lazy_value in &lazy_list {
+///     // Read each lazy value in the lazy list as an int (i64) and
+///     // add it to the running total
+///     sum += lazy_value?.read()?.expect_i64()?;
+/// }
+///
+/// assert_eq!(sum, 60);
+///
+/// // Note that we can re-read any of the lazy values. Here we'll step into the list again and
+/// // read the first child value.
+/// let first_int = lazy_list.iter().next().unwrap()?.read()?.expect_i64()?;
+/// assert_eq!(first_int, 10);
+///
+///# Ok(())
+///# }
+/// ```
 pub struct LazyReader<'data> {
     system_reader: LazySystemReader<'data>,
 }
 
 impl<'data> LazyReader<'data> {
-    pub fn new(ion_data: &'data [u8]) -> LazyReader<'data> {
+    pub fn new(ion_data: &'data [u8]) -> IonResult<LazyReader<'data>> {
+        if ion_data.len() < IVM.len() {
+            return decoding_error("input is too short to be recognized as Ion");
+        } else if &ion_data[..IVM.len()] != &IVM {
+            return decoding_error("input does not begin with an Ion version marker");
+        }
+
         let system_reader = LazySystemReader::new(ion_data);
-        LazyReader { system_reader }
+        Ok(LazyReader { system_reader })
     }
 
+    /// Returns the next top-level value in the input stream as `Ok(Some(lazy_value))`.
+    /// If there are no more top-level values in the stream, returns `Ok(None)`.
+    /// If the next value is incomplete (that is: only part of it is in the input buffer) or if the
+    /// input buffer contains invalid data, returns `Err(ion_error)`.
     pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data>>> {
         self.system_reader.next_value()
     }
@@ -80,7 +139,7 @@ mod tests {
                 (a b c)
         "#,
         )?;
-        let mut reader = LazyReader::new(&ion_data);
+        let mut reader = LazyReader::new(&ion_data)?;
         // For each top-level value...
         while let Some(top_level_value) = reader.next()? {
             // ...see if it's an S-expression...
@@ -106,7 +165,7 @@ mod tests {
             ]
         "#,
         )?;
-        let mut reader = LazyReader::new(data);
+        let mut reader = LazyReader::new(data)?;
 
         let first_value = reader.next()?.expect("one top level value");
         let list = first_value.read()?.expect_list()?;
@@ -131,7 +190,7 @@ mod tests {
             (null null.string)
         "#,
         )?;
-        let mut reader = LazyReader::new(data);
+        let mut reader = LazyReader::new(data)?;
         let list: Element = ion_list![
             "yo",
             77,

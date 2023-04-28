@@ -1,5 +1,6 @@
 use crate::element::Value;
-use crate::lazy::binary::lazy_system_reader::{LazySequence, LazyStruct};
+use crate::lazy::binary::system::lazy_sequence::LazySequence;
+use crate::lazy::binary::system::lazy_struct::LazyStruct;
 use crate::result::decoding_error;
 use crate::{Decimal, Int, IonError, IonResult, IonType, SymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
@@ -8,9 +9,9 @@ use std::fmt::{Debug, Formatter};
 /// their associated data, while container variants contain a handle to traverse the container. (See
 /// [SequenceRef] and [StructRef].)
 ///
-/// Unlike a [crate::element::Value], a `ValueRef` avoids heap allocation whenever possible.
-/// Numeric values and timestamps are stored within the `ValueRef` itself. Text values and lobs hold
-/// references to either a slice of input data or text in the symbol table.
+/// Unlike a [Value], a `ValueRef` avoids heap allocation whenever possible, choosing to point instead
+/// to existing resources. Numeric values and timestamps are stored within the `ValueRef` itself.
+/// Text values and lobs hold references to either a slice of input data or text in the symbol table.
 pub enum ValueRef<'top, 'data> {
     Null(IonType),
     Bool(bool),
@@ -27,6 +28,27 @@ pub enum ValueRef<'top, 'data> {
     SExp(LazySequence<'top, 'data>),
     List(LazySequence<'top, 'data>),
     Struct(LazyStruct<'top, 'data>),
+}
+
+impl<'top, 'data> PartialEq for ValueRef<'top, 'data> {
+    fn eq(&self, other: &Self) -> bool {
+        use ValueRef::*;
+        match (self, other) {
+            (Null(i1), Null(i2)) => i1 == i2,
+            (Bool(b1), Bool(b2)) => b1 == b2,
+            (Int(i1), Int(i2)) => i1 == i2,
+            (Float(f1), Float(f2)) => f1 == f2,
+            (Decimal(d1), Decimal(d2)) => d1 == d2,
+            (Timestamp(t1), Timestamp(t2)) => t1 == t2,
+            (String(s1), String(s2)) => s1 == s2,
+            (Symbol(s1), Symbol(s2)) => s1 == s2,
+            (Blob(b1), Blob(b2)) => b1 == b2,
+            (Clob(c1), Clob(c2)) => c1 == c2,
+            // We cannot compare lazy containers as we cannot guarantee that their complete contents
+            // are available in the buffer. Is `{foo: bar}` equal to `{foo: b`?
+            _ => false,
+        }
+    }
 }
 
 impl<'top, 'data> Debug for ValueRef<'top, 'data> {
@@ -96,6 +118,14 @@ impl<'top, 'data> ValueRef<'top, 'data> {
             Ok(i)
         } else {
             decoding_error("expected an int")
+        }
+    }
+
+    pub fn expect_i64(self) -> IonResult<i64> {
+        if let ValueRef::Int(Int::I64(i)) = self {
+            Ok(i)
+        } else {
+            decoding_error("expected an int (i64)")
         }
     }
 

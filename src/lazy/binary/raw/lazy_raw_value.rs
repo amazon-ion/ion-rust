@@ -76,7 +76,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(self.input.consume(total_length))
     }
 
-    pub fn read(&self) -> ValueParseResult {
+    pub fn read(&self) -> ValueParseResult<'data> {
         if self.encoded_value.header().is_null() {
             let raw_value_ref = RawValueRef::Null(self.ion_type());
             return Ok(raw_value_ref);
@@ -128,7 +128,7 @@ impl<'data> LazyRawValue<'data> {
         self.encoded_value.field_id
     }
 
-    fn read_bool(&self) -> ValueParseResult {
+    fn read_bool(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Bool);
         let representation = self.encoded_value.header().length_code;
         let value = match representation {
@@ -144,7 +144,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::Bool(value))
     }
 
-    fn read_int(&self) -> ValueParseResult {
+    fn read_int(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
         // `value_body()` returns a buffer starting at the body of the value.
         // It also confirms that the entire value is in the buffer.
@@ -169,7 +169,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::Int(value))
     }
 
-    fn read_float(&self) -> ValueParseResult {
+    fn read_float(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Float);
         let ieee_bytes = self.value_body()?;
         let number_of_bytes = self.encoded_value.value_length();
@@ -182,7 +182,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::Float(value))
     }
 
-    fn read_decimal(&self) -> ValueParseResult {
+    fn read_decimal(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Decimal);
 
         if self.encoded_value.value_length() == 0 {
@@ -205,7 +205,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::Decimal(Decimal::new(coefficient, exponent)))
     }
 
-    fn read_timestamp(&self) -> ValueParseResult {
+    fn read_timestamp(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Timestamp);
 
         let input = ImmutableBuffer::new(self.value_body()?);
@@ -312,14 +312,14 @@ impl<'data> LazyRawValue<'data> {
         Ok(magnitude as usize)
     }
 
-    pub fn read_symbol(&self) -> ValueParseResult {
+    pub fn read_symbol(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         self.read_symbol_id()
             .map(|sid| RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(sid)))
     }
 
     /// If the reader is currently positioned on a string, returns a [&str] containing its text.
-    fn read_string(&self) -> ValueParseResult {
+    fn read_string(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::String);
         let raw_bytes = self.value_body()?;
         let text = std::str::from_utf8(raw_bytes)
@@ -327,19 +327,19 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::String(text))
     }
 
-    fn read_blob(&self) -> ValueParseResult {
+    fn read_blob(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Blob);
         let bytes = self.value_body()?;
         Ok(RawValueRef::Blob(bytes))
     }
 
-    fn read_clob(&self) -> ValueParseResult {
+    fn read_clob(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Clob);
         let bytes = self.value_body()?;
         Ok(RawValueRef::Clob(bytes))
     }
 
-    fn read_sexp(&self) -> ValueParseResult {
+    fn read_sexp(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::SExp);
         let lazy_value = LazyRawValue {
             encoded_value: self.encoded_value,
@@ -349,7 +349,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::SExp(lazy_sequence))
     }
 
-    fn read_list(&self) -> ValueParseResult {
+    fn read_list(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::List);
         let lazy_value = LazyRawValue {
             encoded_value: self.encoded_value,
@@ -359,7 +359,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::List(lazy_sequence))
     }
 
-    fn read_struct(&self) -> ValueParseResult {
+    fn read_struct(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Struct);
         let lazy_value = LazyRawValue {
             encoded_value: self.encoded_value,

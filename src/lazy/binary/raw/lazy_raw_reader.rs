@@ -5,64 +5,8 @@ use crate::result::{decoding_error, incomplete_data_error};
 use crate::{IonResult, RawSymbolTokenRef};
 use std::fmt::{self, Debug, Formatter};
 
-pub(crate) struct DataSource<'data> {
-    buffer: ImmutableBuffer<'data>,
-    bytes_to_skip: usize, // initially 0; try to advance on 'next'
-}
-
-impl<'data> DataSource<'data> {
-    pub(crate) fn new(buffer: ImmutableBuffer<'data>) -> DataSource<'data> {
-        DataSource {
-            buffer,
-            bytes_to_skip: 0,
-        }
-    }
-
-    pub(crate) fn buffer(&self) -> ImmutableBuffer<'data> {
-        self.buffer
-    }
-
-    fn advance_to_next_item(&mut self) -> IonResult<ImmutableBuffer<'data>> {
-        if self.buffer.len() < self.bytes_to_skip {
-            return incomplete_data_error(
-                "cannot advance to next item, insufficient data in buffer",
-                self.buffer.offset(),
-            );
-        }
-
-        if self.bytes_to_skip > 0 {
-            Ok(self.buffer.consume(self.bytes_to_skip))
-        } else {
-            Ok(self.buffer)
-        }
-    }
-
-    pub(crate) fn try_parse_next<
-        F: Fn(ImmutableBuffer<'data>) -> IonResult<Option<LazyRawValue<'data>>>,
-    >(
-        &mut self,
-        parser: F,
-    ) -> IonResult<Option<LazyRawValue<'data>>> {
-        let buffer = self.advance_to_next_item()?;
-
-        let lazy_value = match parser(buffer) {
-            Ok(Some(output)) => output,
-            Ok(None) => return Ok(None),
-            Err(e) => return Err(e),
-        };
-
-        self.buffer = buffer;
-        self.bytes_to_skip = lazy_value.encoded_value.total_length();
-        Ok(Some(lazy_value))
-    }
-}
-
 pub struct LazyRawBinaryReader<'data> {
     data: DataSource<'data>,
-}
-
-pub struct LazyRawField<'data> {
-    pub(crate) value: LazyRawValue<'data>,
 }
 
 impl<'data> LazyRawBinaryReader<'data> {
@@ -118,34 +62,60 @@ impl<'data> LazyRawBinaryReader<'data> {
     }
 }
 
-impl<'data> LazyRawField<'data> {
-    pub(crate) fn new(value: LazyRawValue<'data>) -> Self {
-        LazyRawField { value }
-    }
-
-    pub fn name(&self) -> RawSymbolTokenRef<'data> {
-        // We're in a struct field, the field ID must be populated.
-        let field_id = self.value.encoded_value.field_id.unwrap();
-        RawSymbolTokenRef::SymbolId(field_id)
-    }
-
-    pub fn value(&self) -> &LazyRawValue<'data> {
-        &self.value
-    }
-
-    pub(crate) fn into_value(self) -> LazyRawValue<'data> {
-        self.value
-    }
+/// Wraps an [`ImmutableBuffer`], allowing the reader to advance each time an item is successfully
+/// parsed from it.
+pub(crate) struct DataSource<'data> {
+    // The buffer we're reading from
+    buffer: ImmutableBuffer<'data>,
+    // Each time something is parsed from the buffer successfully, the caller will mark the number
+    // of bytes that may be skipped the next time `advance_to_next_item` is called.
+    bytes_to_skip: usize,
 }
 
-impl<'a> Debug for LazyRawField<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "${}: {:?}",
-            self.value.encoded_value.field_id.unwrap(),
-            self.value()
-        )
+impl<'data> DataSource<'data> {
+    pub(crate) fn new(buffer: ImmutableBuffer<'data>) -> DataSource<'data> {
+        DataSource {
+            buffer,
+            bytes_to_skip: 0,
+        }
+    }
+
+    pub(crate) fn buffer(&self) -> ImmutableBuffer<'data> {
+        self.buffer
+    }
+
+    fn advance_to_next_item(&mut self) -> IonResult<ImmutableBuffer<'data>> {
+        if self.buffer.len() < self.bytes_to_skip {
+            return incomplete_data_error(
+                "cannot advance to next item, insufficient data in buffer",
+                self.buffer.offset(),
+            );
+        }
+
+        if self.bytes_to_skip > 0 {
+            Ok(self.buffer.consume(self.bytes_to_skip))
+        } else {
+            Ok(self.buffer)
+        }
+    }
+
+    pub(crate) fn try_parse_next<
+        F: Fn(ImmutableBuffer<'data>) -> IonResult<Option<LazyRawValue<'data>>>,
+    >(
+        &mut self,
+        parser: F,
+    ) -> IonResult<Option<LazyRawValue<'data>>> {
+        let buffer = self.advance_to_next_item()?;
+
+        let lazy_value = match parser(buffer) {
+            Ok(Some(output)) => output,
+            Ok(None) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+
+        self.buffer = buffer;
+        self.bytes_to_skip = lazy_value.encoded_value.total_length();
+        Ok(Some(lazy_value))
     }
 }
 
