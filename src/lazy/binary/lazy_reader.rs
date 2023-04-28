@@ -60,7 +60,7 @@ impl<'data> LazyReader<'data> {
     pub fn new(ion_data: &'data [u8]) -> IonResult<LazyReader<'data>> {
         if ion_data.len() < IVM.len() {
             return decoding_error("input is too short to be recognized as Ion");
-        } else if &ion_data[..IVM.len()] != &IVM {
+        } else if ion_data[..IVM.len()] != IVM {
             return decoding_error("input does not begin with an Ion version marker");
         }
 

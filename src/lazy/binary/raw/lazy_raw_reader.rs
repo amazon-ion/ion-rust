@@ -2,8 +2,7 @@ use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::result::{decoding_error, incomplete_data_error};
-use crate::{IonResult, RawSymbolTokenRef};
-use std::fmt::{self, Debug, Formatter};
+use crate::IonResult;
 
 pub struct LazyRawBinaryReader<'data> {
     data: DataSource<'data>,
