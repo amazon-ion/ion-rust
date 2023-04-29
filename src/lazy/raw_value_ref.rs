@@ -1,6 +1,5 @@
 use crate::lazy::binary::raw::lazy_raw_sequence::LazyRawSequence;
 use crate::lazy::binary::raw::lazy_raw_struct::LazyRawStruct;
-use crate::lazy::value_ref::ValueRef;
 use crate::result::decoding_error;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use std::fmt::{Debug, Formatter};
@@ -9,7 +8,7 @@ use std::fmt::{Debug, Formatter};
 /// If the value is a symbol, it only contains the information found in the data stream (a symbol ID
 /// or text literal). If it is a symbol ID, a symbol table will be needed to find its associated text.
 ///
-/// For a resolved version of this type, see [ValueRef].
+/// For a resolved version of this type, see [crate::lazy::value_ref::ValueRef].
 pub enum RawValueRef<'a> {
     Null(IonType),
     Bool(bool),

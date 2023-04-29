@@ -114,6 +114,11 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
         Ok(None)
     }
 
+    pub fn find_expected(&self, name: &str) -> IonResult<LazyValue<'top, 'data>> {
+        self.find(name)?
+            .ok_or_else(|| decoding_error_raw(format!("missing required field {}", name)))
+    }
+
     /// Like [`LazyStruct::find`], but eagerly calls [`LazyValue::read`] on the first field with a
     /// matching name.
     /// ```
@@ -141,6 +146,14 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
         'data: 'top,
     {
         self.find(name)?.map(|f| f.read()).transpose()
+    }
+
+    pub fn get_expected(&self, name: &str) -> IonResult<ValueRef<'top, 'data>>
+    where
+        'data: 'top,
+    {
+        self.get(name)?
+            .ok_or_else(move || decoding_error_raw(format!("missing required field {}", name)))
     }
 
     pub fn annotations(&self) -> AnnotationsIterator<'top, 'data> {

@@ -3,6 +3,7 @@ use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::decoding_error;
+use crate::symbol_ref::AsSymbolRef;
 use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTable};
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
@@ -232,6 +233,37 @@ pub struct AnnotationsIterator<'top, 'data> {
     pub(crate) initial_offset: usize,
 }
 
+impl<'top, 'data> AnnotationsIterator<'top, 'data>
+where
+    'data: 'top,
+{
+    fn expect<A: AsSymbolRef, I: IntoIterator<Item = A>>(
+        self,
+        annotations_to_match: I,
+    ) -> IonResult<()> {
+        if self.are(annotations_to_match)? {
+            Ok(())
+        } else {
+            decoding_error("value annotations did not match expected sequence")
+        }
+    }
+
+    fn are<A: AsSymbolRef, I: IntoIterator<Item = A>>(
+        mut self,
+        annotations_to_match: I,
+    ) -> IonResult<bool> {
+        for to_match in annotations_to_match {
+            match self.next() {
+                Some(Ok(actual)) if actual == to_match => {}
+                Some(Err(e)) => return Err(e),
+                Some(_) | None => return Ok(false),
+            }
+        }
+        // We've exhausted `annotations_to_match`, now make sure `self` is empty
+        Ok(self.next().is_none())
+    }
+}
+
 impl<'top, 'data> Iterator for AnnotationsIterator<'top, 'data>
 where
     'data: 'top,
@@ -264,5 +296,32 @@ impl<'top, 'data> TryFrom<AnnotationsIterator<'top, 'data>> for Annotations {
             })
             .collect::<IonResult<Vec<_>>>()?;
         Ok(Annotations::from(annotations))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lazy::binary::lazy_reader::LazyReader;
+    use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::IonResult;
+
+    #[test]
+    fn annotations_are() -> IonResult<()> {
+        let ion_data = to_binary_ion("foo::bar::baz::5")?;
+        let mut reader = LazyReader::new(&ion_data)?;
+        let first = reader.next()?.expect("first value");
+        assert!(first.annotations().are(["foo", "bar", "baz"])?);
+
+        // No similarity
+        assert!(!first.annotations().are(["quux", "quuz"])?);
+
+        // Prefix subset
+        assert!(!first.annotations().are(["foo", "bar"])?);
+        assert!(!first.annotations().are(["foo"])?);
+
+        // Superset
+        assert!(!first.annotations().are(["foo", "bar", "baz", "quux"])?);
+
+        Ok(())
     }
 }
