@@ -356,9 +356,12 @@ impl<'top, 'data> TryFrom<AnnotationsIterator<'top, 'data>> for Annotations {
 
 #[cfg(test)]
 mod tests {
+    use crate::element::{Element, IntoAnnotatedElement};
     use crate::lazy::binary::lazy_reader::LazyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::IonResult;
+    use crate::{ion_list, ion_sexp, ion_struct, Decimal, IonResult, IonType, Symbol, Timestamp};
+    use num_traits::Float;
+    use rstest::*;
 
     #[test]
     fn annotations_are() -> IonResult<()> {
@@ -377,6 +380,42 @@ mod tests {
         // Superset
         assert!(!first.annotations().are(["foo", "bar", "baz", "quux"])?);
 
+        Ok(())
+    }
+
+    fn lazy_value_equals(ion_text: &str, expected: impl Into<Element>) -> IonResult<()> {
+        let binary_ion = &to_binary_ion(ion_text)?;
+        let mut reader = LazyReader::new(binary_ion)?;
+        let value = reader.expect_next()?;
+        let actual: Element = value.try_into()?;
+        let expected = expected.into();
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::null("null", IonType::Null)]
+    #[case::typed_null("null.list", IonType::List)]
+    #[case::annotated_typed_null("foo::null.list", IonType::List.with_annotations(["foo"]))]
+    #[case::boolean("false", false)]
+    #[case::negative_int("-1", -1)]
+    #[case::positive_int("1", 1)]
+    #[case::float("2.5e0", 2.5f64)]
+    #[case::special_float("-inf", f64::neg_infinity())]
+    #[case::decimal("3.14159", Decimal::new(314159, -5))]
+    #[case::timestamp("2023-04-29T", Timestamp::with_ymd(2023, 04, 29).build()?)]
+    #[case::symbol("foo", Symbol::owned("foo"))]
+    #[case::string("\"hello\"", "hello")]
+    #[case::blob("{{Blob}}", Element::blob(&[0x06, 0x5A, 0x1B]))]
+    #[case::clob("{{\"Clob\"}}", Element::clob("Clob".as_bytes()))]
+    #[case::list("[1, 2, 3]", ion_list![1, 2, 3])]
+    #[case::sexp("(1 2 3)", ion_sexp!(1 2 3))]
+    #[case::struct_("{foo: 1, bar: 2}", ion_struct! {"foo": 1, "bar": 2})]
+    fn try_into_element(
+        #[case] ion_text: &str,
+        #[case] expected: impl Into<Element>,
+    ) -> IonResult<()> {
+        lazy_value_equals(ion_text, expected)?;
         Ok(())
     }
 }

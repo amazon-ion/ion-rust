@@ -166,7 +166,7 @@ mod tests {
             1
             2.5e0
             2.5
-            2023-04-29T
+            2023-04-29T13:45:38.281Z
             foo
             "hello"
             {{Blob}}
@@ -201,7 +201,7 @@ mod tests {
         );
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_timestamp()?,
-            Timestamp::with_ymd(2023, 4, 29).build()?
+            Timestamp::with_ymd_hms_millis(2023, 4, 29, 13, 45, 38, 281).build_at_offset(0)?
         );
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_symbol()?,

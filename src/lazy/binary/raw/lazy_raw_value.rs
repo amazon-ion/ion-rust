@@ -63,19 +63,6 @@ impl<'data> LazyRawValue<'data> {
         RawAnnotationsIterator::new(self.annotations_sequence())
     }
 
-    // Return the part of the input buffer immediately following this encoded value
-    fn consume_bytes(&self) -> IonResult<ImmutableBuffer<'data>> {
-        let total_length = self.encoded_value.total_length();
-        if self.input.len() < total_length {
-            eprintln!("[consume_bytes] Incomplete {:?}", self);
-            return incomplete_data_error(
-                "only part of the current value is in the buffer",
-                self.input.offset(),
-            );
-        }
-        Ok(self.input.consume(total_length))
-    }
-
     pub fn read(&self) -> ValueParseResult<'data> {
         if self.encoded_value.header().is_null() {
             let raw_value_ref = RawValueRef::Null(self.ion_type());
