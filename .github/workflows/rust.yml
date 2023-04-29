@@ -83,7 +83,9 @@ jobs:
         with:
           # Adding comments to the PR requires the GITHUB_TOKEN secret.
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features --tests
+          # We are opinionated here and fail the build if anything is complained about.
+          # We can always explicitly allow clippy things we disagree with or if this gets too annoying, get rid of it.
+          args: --workspace --all-features --tests -- -Dwarnings
       - name: Rustdoc on Everything
         # We really only need to run this once--ubuntu/all features mode is as good as any
         if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
