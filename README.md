@@ -39,6 +39,14 @@ Running all tests for `ion-rust`:
 $ cargo test --workspace --all-features
 ```
 
+Our continuous integration builds/tests, checks formatting, builds all API docs including private,
+and clippy linting, you will likely want to check most of these to avoid having to wait until the
+CI finds it:
+
+```bash
+$ ./clean-rebuild.sh
+```
+
 [spec]: https://amazon-ion.github.io/ion-docs/docs/spec.html
 [ion-tests]: https://github.com/amazon-ion/ion-tests
 [bindgen-req]: https://rust-lang.github.io/rust-bindgen/requirements.html
