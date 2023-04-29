@@ -145,6 +145,33 @@ mod tests {
     }
 
     #[test]
+    fn test_sequence() -> IonResult<()> {
+        // This test only uses symbols in the system symbol table to avoid LST processing
+        let data = &to_binary_ion(
+            r#"
+            [1, true, foo]
+        "#,
+        )?;
+        let mut reader = LazyRawReader::new(data);
+        let _ivm = reader.next()?.expect_ivm()?;
+        let _symbol_table = reader.next()?.expect_value()?;
+        let lazy_list = reader.next()?.expect_value()?.read()?.expect_list()?;
+        // Exercise the `Debug` impl
+        println!("Lazy Raw Sequence: {:?}", lazy_list);
+        let mut list_values = lazy_list.iter();
+        assert_eq!(list_values.next().expect("first")?.ion_type(), IonType::Int);
+        assert_eq!(
+            list_values.next().expect("second")?.ion_type(),
+            IonType::Bool
+        );
+        assert_eq!(
+            list_values.next().expect("third")?.ion_type(),
+            IonType::Symbol
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_top_level() -> IonResult<()> {
         let data = &to_binary_ion(
             r#"
