@@ -4,18 +4,18 @@ use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::result::{decoding_error, incomplete_data_error};
 use crate::IonResult;
 
-pub struct LazyRawBinaryReader<'data> {
+pub struct LazyRawReader<'data> {
     data: DataSource<'data>,
 }
 
-impl<'data> LazyRawBinaryReader<'data> {
-    pub fn new(data: &'data [u8]) -> LazyRawBinaryReader<'data> {
+impl<'data> LazyRawReader<'data> {
+    pub fn new(data: &'data [u8]) -> LazyRawReader<'data> {
         Self::new_with_offset(data, 0)
     }
 
-    fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawBinaryReader<'data> {
+    fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawReader<'data> {
         let data = DataSource::new(ImmutableBuffer::new_with_offset(data, offset));
-        LazyRawBinaryReader { data }
+        LazyRawReader { data }
     }
 
     fn read_ivm(&mut self, buffer: ImmutableBuffer<'data>) -> IonResult<RawStreamItem<'data>> {
@@ -120,7 +120,7 @@ impl<'data> DataSource<'data> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::raw::lazy_raw_reader::LazyRawBinaryReader;
+    use crate::lazy::binary::raw::lazy_raw_reader::LazyRawReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::raw_stream_item::RawStreamItem;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
@@ -134,7 +134,7 @@ mod tests {
             {name:"hi", name: "hello"}
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(data);
+        let mut reader = LazyRawReader::new(data);
         let _ivm = reader.next()?.expect_ivm()?;
         let value = reader.next()?.expect_value()?;
         let lazy_struct = value.read()?.expect_struct()?;
@@ -154,7 +154,7 @@ mod tests {
             {name:"hi", name: "hello"}
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(data);
+        let mut reader = LazyRawReader::new(data);
         loop {
             match reader.next()? {
                 RawStreamItem::VersionMarker(major, minor) => println!("IVM: v{}.{}", major, minor),
@@ -173,7 +173,7 @@ mod tests {
             foo::bar::baz::7             
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(data);
+        let mut reader = LazyRawReader::new(data);
         let _ivm = reader.next()?.expect_ivm()?;
 
         // Read annotations from $ion_symbol_table::{...}
@@ -208,7 +208,7 @@ mod tests {
             0x0f, // null
         ];
 
-        let mut reader = LazyRawBinaryReader::new(&data);
+        let mut reader = LazyRawReader::new(&data);
         let _ivm = reader.next()?.expect_ivm()?;
 
         assert_eq!(

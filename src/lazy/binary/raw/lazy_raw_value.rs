@@ -189,7 +189,10 @@ impl<'data> LazyRawValue<'data> {
             return Ok(RawValueRef::Decimal(Decimal::new(0i32, 0i64)));
         }
 
-        let (exponent_var_int, remaining) = self.input.read_var_int()?;
+        // Skip the type descriptor
+        let input = self.input.consume(1);
+
+        let (exponent_var_int, remaining) = input.read_var_int()?;
         let coefficient_size_in_bytes =
             self.encoded_value.value_length() - exponent_var_int.size_in_bytes();
 
@@ -372,7 +375,7 @@ impl<'data> LazyRawValue<'data> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::raw::lazy_raw_reader::LazyRawBinaryReader;
+    use crate::lazy::binary::raw::lazy_raw_reader::LazyRawReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::IonResult;
 
@@ -384,7 +387,7 @@ mod tests {
             foo // binary writer will omit the symtab if we don't use a symbol 
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(data);
+        let mut reader = LazyRawReader::new(data);
         let _ivm = reader.next()?.expect_ivm()?;
         let value = reader.next()?.expect_value()?;
         let annotations_sequence = value.annotations_sequence();

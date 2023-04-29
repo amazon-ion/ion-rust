@@ -25,7 +25,7 @@ use std::fmt::{Debug, Formatter};
 /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
-/// let lazy_list = lazy_reader.next()?.expect("first value").read()?.expect_list()?;
+/// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
 ///
 /// // Visit the values in the list
 /// let mut sum = 0;
@@ -85,7 +85,7 @@ impl<'top, 'data> LazySequence<'top, 'data> {
     /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
-    /// let lazy_sexp = lazy_reader.next()?.expect("first value").read()?.expect_sexp()?;
+    /// let lazy_sexp = lazy_reader.expect_next()?.read()?.expect_sexp()?;
     ///
     /// // Inspect its annotations.
     /// let mut annotations = lazy_sexp.annotations();

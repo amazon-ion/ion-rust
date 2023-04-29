@@ -24,7 +24,7 @@ use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTa
 /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
-/// let lazy_list = lazy_reader.next()?.expect("first value").read()?.expect_list()?;
+/// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
 ///
 /// // Visit the values in the list
 /// let mut sum = 0;
@@ -77,7 +77,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
-    /// let lazy_value = lazy_reader.next()?.expect("first value");
+    /// let lazy_value = lazy_reader.expect_next()?;
     ///
     /// // Check its type
     /// assert_eq!(lazy_value.ion_type(), IonType::String);
@@ -107,7 +107,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
-    /// let lazy_value = lazy_reader.next()?.expect("first value");
+    /// let lazy_value = lazy_reader.expect_next()?;
     ///
     /// // Inspect its annotations.
     /// let mut annotations = lazy_value.annotations();
@@ -147,7 +147,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
-    /// let lazy_value = lazy_reader.next()?.expect("first value");
+    /// let lazy_value = lazy_reader.expect_next()?;
     ///
     /// if let ValueRef::String(text) = lazy_value.read()? {
     ///     assert_eq!(text, "hello");
@@ -253,7 +253,7 @@ where
     /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
     ///
     /// // Get the first value from the stream
-    /// let lazy_value = lazy_reader.next()?.expect("first value");
+    /// let lazy_value = lazy_reader.expect_next()?;
     ///
     /// assert!(lazy_value.annotations().are(["foo", "bar", "baz"])?);
     ///
@@ -295,7 +295,7 @@ where
     /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
     ///
     /// // Get the first value from the stream
-    /// let lazy_value = lazy_reader.next()?.expect("first value");
+    /// let lazy_value = lazy_reader.expect_next()?;
     ///
     /// assert!(lazy_value.annotations().expect(["foo", "bar", "baz"]).is_ok());
     ///
@@ -364,7 +364,7 @@ mod tests {
     fn annotations_are() -> IonResult<()> {
         let ion_data = to_binary_ion("foo::bar::baz::5")?;
         let mut reader = LazyReader::new(&ion_data)?;
-        let first = reader.next()?.expect("first value");
+        let first = reader.expect_next()?;
         assert!(first.annotations().are(["foo", "bar", "baz"])?);
 
         // No similarity

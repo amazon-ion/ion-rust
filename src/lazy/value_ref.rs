@@ -209,3 +209,62 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::lazy::binary::lazy_reader::LazyReader;
+    use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::{Decimal, IonResult, IonType, SymbolRef, Timestamp};
+
+    #[test]
+    fn expect_type() -> IonResult<()> {
+        let ion_data = to_binary_ion(
+            r#"
+            null
+            true
+            1
+            2.5e0
+            2.5
+            2023-04-29T
+            foo
+            "hello"
+            {{Blob}}
+            {{"Clob"}}
+            [this, is, a, list]
+            (this is a sexp)
+            {this: is, a: struct}
+        "#,
+        )?;
+        let mut reader = LazyReader::new(&ion_data)?;
+        assert_eq!(reader.expect_next()?.read()?.expect_null()?, IonType::Null);
+        assert_eq!(reader.expect_next()?.read()?.expect_bool()?, true);
+        assert_eq!(reader.expect_next()?.read()?.expect_i64()?, 1);
+        assert_eq!(reader.expect_next()?.read()?.expect_float()?, 2.5f64);
+        assert_eq!(
+            reader.expect_next()?.read()?.expect_decimal()?,
+            Decimal::new(25, -1)
+        );
+        assert_eq!(
+            reader.expect_next()?.read()?.expect_timestamp()?,
+            Timestamp::with_ymd(2023, 4, 29).build()?
+        );
+        assert_eq!(
+            reader.expect_next()?.read()?.expect_symbol()?,
+            SymbolRef::from("foo")
+        );
+        assert_eq!(reader.expect_next()?.read()?.expect_string()?, "hello");
+        assert_eq!(
+            reader.expect_next()?.read()?.expect_blob()?,
+            &[0x06, 0x5A, 0x1B] // Base64-decoded "Blob"
+        );
+        assert_eq!(
+            reader.expect_next()?.read()?.expect_clob()?,
+            "Clob".as_bytes()
+        );
+        assert!(reader.expect_next()?.read()?.expect_list().is_ok());
+        assert!(reader.expect_next()?.read()?.expect_sexp().is_ok());
+        assert!(reader.expect_next()?.read()?.expect_struct().is_ok());
+
+        Ok(())
+    }
+}

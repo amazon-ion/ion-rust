@@ -151,58 +151,83 @@ impl<'a> RawValueRef<'a> {
     }
 }
 
-pub trait ReadRawValueRef {
-    fn read_value(&self) -> IonResult<RawValueRef>;
+#[cfg(test)]
+mod tests {
+    use crate::lazy::binary::raw::lazy_raw_reader::LazyRawReader;
+    use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::{Decimal, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 
-    fn read_null(&self) -> IonResult<IonType> {
-        self.read_value()?.expect_null()
-    }
+    #[test]
+    fn expect_type() -> IonResult<()> {
+        let ion_data = to_binary_ion(
+            r#"
+            null
+            true
+            1
+            2.5e0
+            2.5
+            2023-04-29T
+            foo
+            "hello"
+            {{Blob}}
+            {{"Clob"}}
+            [this, is, a, list]
+            (this is a sexp)
+            {this: is, a: struct}
+        "#,
+        )?;
+        let mut reader = LazyRawReader::new(&ion_data);
+        // IVM
+        reader.next()?.expect_ivm()?;
+        // Symbol table
+        reader.next()?.expect_value()?.read()?.expect_struct()?;
+        // User data
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_null()?,
+            IonType::Null
+        );
+        assert_eq!(reader.next()?.expect_value()?.read()?.expect_bool()?, true);
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            1.into()
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_float()?,
+            2.5f64
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_decimal()?,
+            Decimal::new(25, -1)
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_ymd(2023, 4, 29).build()?
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            RawSymbolTokenRef::SymbolId(10) // foo
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_string()?,
+            "hello"
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_blob()?,
+            &[0x06, 0x5A, 0x1B] // Base64-decoded "Blob"
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_clob()?,
+            "Clob".as_bytes()
+        );
+        assert!(reader.next()?.expect_value()?.read()?.expect_list().is_ok());
+        assert!(reader.next()?.expect_value()?.read()?.expect_sexp().is_ok());
+        assert!(reader
+            .next()?
+            .expect_value()?
+            .read()?
+            .expect_struct()
+            .is_ok());
 
-    fn read_bool(&self) -> IonResult<bool> {
-        self.read_value()?.expect_bool()
-    }
-
-    fn read_int(&self) -> IonResult<Int> {
-        self.read_value()?.expect_int()
-    }
-
-    fn read_float(&self) -> IonResult<f64> {
-        self.read_value()?.expect_float()
-    }
-
-    fn read_decimal(&self) -> IonResult<Decimal> {
-        self.read_value()?.expect_decimal()
-    }
-
-    fn read_timestamp(&self) -> IonResult<Timestamp> {
-        self.read_value()?.expect_timestamp()
-    }
-
-    fn read_string(&self) -> IonResult<&str> {
-        self.read_value()?.expect_string()
-    }
-
-    fn read_symbol(&self) -> IonResult<RawSymbolTokenRef> {
-        self.read_value()?.expect_symbol()
-    }
-
-    fn read_clob(&self) -> IonResult<&[u8]> {
-        self.read_value()?.expect_clob()
-    }
-
-    fn read_blob(&self) -> IonResult<&[u8]> {
-        self.read_value()?.expect_blob()
-    }
-
-    fn as_list(&self) -> IonResult<LazyRawSequence> {
-        self.read_value()?.expect_list()
-    }
-
-    fn as_sexp(&self) -> IonResult<LazyRawSequence> {
-        self.read_value()?.expect_sexp()
-    }
-
-    fn as_struct(&self) -> IonResult<LazyRawStruct> {
-        self.read_value()?.expect_struct()
+        Ok(())
     }
 }

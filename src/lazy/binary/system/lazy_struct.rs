@@ -26,7 +26,7 @@ use std::fmt::{Debug, Formatter};
 /// let mut reader = LazyReader::new(&ion_bytes)?;
 ///
 /// // Advance the reader to the first value and confirm it's a struct
-/// let lazy_struct = reader.next()?.expect("first element").read()?.expect_struct()?;
+/// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
 ///
 /// // Add up the integer values of all the fields named 'foo'
 /// let mut foo_sum = 0i64;
@@ -89,7 +89,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
     /// let mut reader = LazyReader::new(&ion_bytes)?;
     ///
-    /// let lazy_struct = reader.next()?.expect("first element").read()?.expect_struct()?;
+    /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
     /// assert!(lazy_struct.find("foo")?.is_some());
     /// assert!(lazy_struct.find("Ontario")?.is_none());
@@ -128,7 +128,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
     /// let mut reader = LazyReader::new(&ion_bytes)?;
     ///
-    /// let lazy_struct = reader.next()?.expect("first element").read()?.expect_struct()?;
+    /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
     /// assert!(lazy_struct.find_expected("foo").is_ok());
     /// assert!(lazy_struct.find_expected("Ontario").is_err());
@@ -155,7 +155,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// let ion_bytes = Element::read_one(ion_data)?.to_binary()?;
     /// let mut reader = LazyReader::new(&ion_bytes)?;
     ///
-    /// let lazy_struct = reader.next()?.expect("first element").read()?.expect_struct()?;
+    /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
     /// assert_eq!(lazy_struct.get("foo")?, Some(ValueRef::String("hello")));
     /// assert_eq!(lazy_struct.get("baz")?, Some(ValueRef::Int(3.into())));
@@ -184,7 +184,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// let ion_bytes = Element::read_one(ion_data)?.to_binary()?;
     /// let mut reader = LazyReader::new(&ion_bytes)?;
     ///
-    /// let lazy_struct = reader.next()?.expect("first element").read()?.expect_struct()?;
+    /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
     /// assert_eq!(lazy_struct.get_expected("foo")?, ValueRef::String("hello"));
     /// assert!(dbg!(lazy_struct.get_expected("Ontario")).is_err());
@@ -217,7 +217,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
-    /// let lazy_struct = lazy_reader.next()?.expect("first value").read()?.expect_struct()?;
+    /// let lazy_struct = lazy_reader.expect_next()?.read()?.expect_struct()?;
     ///
     /// // Inspect its annotations.
     /// let mut annotations = lazy_struct.annotations();

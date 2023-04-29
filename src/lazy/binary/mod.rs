@@ -6,4 +6,4 @@ pub mod system;
 
 mod data_source;
 #[cfg(test)]
-mod test_utilities;
+pub(crate) mod test_utilities;

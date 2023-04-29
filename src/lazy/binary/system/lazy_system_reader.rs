@@ -1,7 +1,7 @@
 use crate::result::decoding_error;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
 
-use crate::lazy::binary::raw::lazy_raw_reader::LazyRawBinaryReader;
+use crate::lazy::binary::raw::lazy_raw_reader::LazyRawReader;
 use crate::lazy::binary::raw::lazy_raw_struct::LazyRawStruct;
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 
@@ -48,7 +48,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
-/// let lazy_list = lazy_reader.next()?.expect("first value").read()?.expect_list()?;
+/// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
 ///
 /// // Visit the values in the list
 /// let mut sum = 0;
@@ -69,7 +69,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///# }
 /// ```
 pub struct LazySystemReader<'data> {
-    raw_reader: LazyRawBinaryReader<'data>,
+    raw_reader: LazyRawReader<'data>,
     symbol_table: SymbolTable,
     pending_lst: PendingLst,
 }
@@ -83,7 +83,7 @@ struct PendingLst {
 
 impl<'data> LazySystemReader<'data> {
     pub(crate) fn new(ion_data: &'data [u8]) -> LazySystemReader<'data> {
-        let raw_reader = LazyRawBinaryReader::new(ion_data);
+        let raw_reader = LazyRawReader::new(ion_data);
         LazySystemReader {
             raw_reader,
             symbol_table: SymbolTable::new(),

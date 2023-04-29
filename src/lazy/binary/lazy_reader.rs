@@ -3,7 +3,7 @@ use crate::element::reader::ElementReader;
 use crate::element::Element;
 use crate::lazy::binary::system::lazy_system_reader::LazySystemReader;
 use crate::lazy::binary::system::lazy_value::LazyValue;
-use crate::result::decoding_error;
+use crate::result::{decoding_error, decoding_error_raw};
 use crate::IonResult;
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
@@ -34,7 +34,7 @@ use crate::IonResult;
 /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
-/// let lazy_list = lazy_reader.next()?.expect("first value").read()?.expect_list()?;
+/// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
 ///
 /// // Visit the values in the list
 /// let mut sum = 0;
@@ -76,6 +76,12 @@ impl<'data> LazyReader<'data> {
     /// input buffer contains invalid data, returns `Err(ion_error)`.
     pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data>>> {
         self.system_reader.next_value()
+    }
+
+    /// Like [`Self::next`], but returns an `IonError` if there are no more values in the stream.
+    pub fn expect_next<'top>(&'top mut self) -> IonResult<LazyValue<'top, 'data>> {
+        self.next()?
+            .ok_or_else(|| decoding_error_raw("expected another top-level value"))
     }
 }
 
@@ -169,7 +175,7 @@ mod tests {
         )?;
         let mut reader = LazyReader::new(data)?;
 
-        let first_value = reader.next()?.expect("one top level value");
+        let first_value = reader.expect_next()?;
         let list = first_value.read()?.expect_list()?;
         let lazy_values = list.iter().collect::<IonResult<Vec<_>>>()?;
 
