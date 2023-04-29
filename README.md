@@ -30,13 +30,13 @@ $ git submodule update --init --recursive
 Building the project:
 
 ```bash
-$ cargo build --workspace --all-targets
+$ cargo build --workspace --all-features
 ```
 
 Running all tests for `ion-rust`:
 
 ```bash
-$ cargo test --workspace
+$ cargo test --workspace --all-features
 ```
 
 [spec]: https://amazon-ion.github.io/ion-docs/docs/spec.html
