@@ -49,7 +49,7 @@ where
 #[derive(Debug)]
 pub struct Thunk<'a, T>(IonResult<ThunkVal<'a, T>>);
 
-const EMPTY_THUNK_ERROR_TEXT: &'static str = "Empty thunk";
+const EMPTY_THUNK_ERROR_TEXT: &str = "Empty thunk";
 
 impl<'a, T> Thunk<'a, T> {
     #[inline]
@@ -220,7 +220,7 @@ mod tests {
             illegal_operation("Oops!!!")
         }
 
-        let mut thunk: Thunk<i32> = Thunk::defer(|| expected());
+        let mut thunk: Thunk<i32> = Thunk::defer(expected);
         assert_eq!(ThunkState::Deferred, thunk.thunk_state());
         assert_eq!(expected(), thunk.memoize());
         assert_eq!(ThunkState::Error, thunk.thunk_state());

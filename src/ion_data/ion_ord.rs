@@ -254,7 +254,7 @@ mod ord_tests {
 
         let mut original_iter = original.iter();
         let mut previous_element = original_iter.next().unwrap();
-        while let Some(element) = original_iter.next() {
+        for element in original_iter {
             if element == previous_element {
                 assert_eq!(Ordering::Equal, element.cmp(previous_element));
             } else {
