@@ -30,13 +30,21 @@ $ git submodule update --init --recursive
 Building the project:
 
 ```bash
-$ cargo build --workspace --all-targets
+$ cargo build --workspace --all-features
 ```
 
 Running all tests for `ion-rust`:
 
 ```bash
-$ cargo test --workspace
+$ cargo test --workspace --all-features
+```
+
+Our continuous integration builds/tests, checks formatting, builds all API docs including private,
+and clippy linting, you will likely want to check most of these to avoid having to wait until the
+CI finds it:
+
+```bash
+$ ./clean-rebuild.sh
 ```
 
 [spec]: https://amazon-ion.github.io/ion-docs/docs/spec.html
