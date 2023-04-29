@@ -186,7 +186,7 @@ mod tests {
             reader.next()?.expect_value()?.read()?.expect_null()?,
             IonType::Null
         );
-        assert_eq!(reader.next()?.expect_value()?.read()?.expect_bool()?, true);
+        assert!(reader.next()?.expect_value()?.read()?.expect_bool()?);
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_int()?,
             1.into()

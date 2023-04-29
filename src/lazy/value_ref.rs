@@ -237,7 +237,7 @@ mod tests {
         )?;
         let mut reader = LazyReader::new(&ion_data)?;
         assert_eq!(reader.expect_next()?.read()?.expect_null()?, IonType::Null);
-        assert_eq!(reader.expect_next()?.read()?.expect_bool()?, true);
+        assert!(reader.expect_next()?.read()?.expect_bool()?);
         assert_eq!(reader.expect_next()?.read()?.expect_i64()?, 1);
         assert_eq!(reader.expect_next()?.read()?.expect_float()?, 2.5f64);
         assert_eq!(
