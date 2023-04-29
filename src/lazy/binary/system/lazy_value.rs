@@ -237,18 +237,35 @@ impl<'top, 'data> AnnotationsIterator<'top, 'data>
 where
     'data: 'top,
 {
-    fn expect<A: AsSymbolRef, I: IntoIterator<Item = A>>(
-        self,
-        annotations_to_match: I,
-    ) -> IonResult<()> {
-        if self.are(annotations_to_match)? {
-            Ok(())
-        } else {
-            decoding_error("value annotations did not match expected sequence")
-        }
-    }
-
-    fn are<A: AsSymbolRef, I: IntoIterator<Item = A>>(
+    /// Returns `Ok(true)` if this annotations iterator matches the provided sequence exactly, or
+    /// `Ok(false)` if not. If a decoding error occurs while visiting and resolving each annotation,
+    /// returns an `Err(IonError)`.
+    /// ```
+    ///# use ion_rs::IonResult;
+    ///# fn main() -> IonResult<()> {
+    ///
+    /// // Construct an Element and serialize it as binary Ion.
+    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    ///
+    /// let element = Element::read_one("foo::bar::baz::99")?;
+    /// let binary_ion = element.to_binary()?;
+    /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+    ///
+    /// // Get the first value from the stream
+    /// let lazy_value = lazy_reader.next()?.expect("first value");
+    ///
+    /// assert!(lazy_value.annotations().are(["foo", "bar", "baz"])?);
+    ///
+    /// assert!(!lazy_value.annotations().are(["foo", "bar", "baz", "quux"])?);
+    /// assert!(!lazy_value.annotations().are(["baz", "bar", "foo"])?);
+    /// assert!(!lazy_value.annotations().are(["foo", "bar"])?);
+    /// assert!(!lazy_value.annotations().are(["foo"])?);
+    ///
+    ///# Ok(())
+    ///# }
+    /// ```
+    pub fn are<A: AsSymbolRef, I: IntoIterator<Item = A>>(
         mut self,
         annotations_to_match: I,
     ) -> IonResult<bool> {
@@ -261,6 +278,44 @@ where
         }
         // We've exhausted `annotations_to_match`, now make sure `self` is empty
         Ok(self.next().is_none())
+    }
+
+    /// Like [`Self::are`], but returns an [`IonError::DecodingError`] if the iterator's annotations
+    /// don't match the provided sequence exactly.
+    /// ```
+    ///# use ion_rs::IonResult;
+    ///# fn main() -> IonResult<()> {
+    ///
+    /// // Construct an Element and serialize it as binary Ion.
+    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    ///
+    /// let element = Element::read_one("foo::bar::baz::99")?;
+    /// let binary_ion = element.to_binary()?;
+    /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+    ///
+    /// // Get the first value from the stream
+    /// let lazy_value = lazy_reader.next()?.expect("first value");
+    ///
+    /// assert!(lazy_value.annotations().expect(["foo", "bar", "baz"]).is_ok());
+    ///
+    /// assert!(lazy_value.annotations().expect(["foo", "bar", "baz", "quux"]).is_err());
+    /// assert!(lazy_value.annotations().expect(["baz", "bar", "foo"]).is_err());
+    /// assert!(lazy_value.annotations().expect(["foo", "bar"]).is_err());
+    /// assert!(lazy_value.annotations().expect(["foo"]).is_err());
+    ///
+    ///# Ok(())
+    ///# }
+    /// ```
+    pub fn expect<A: AsSymbolRef, I: IntoIterator<Item = A>>(
+        self,
+        annotations_to_match: I,
+    ) -> IonResult<()> {
+        if self.are(annotations_to_match)? {
+            Ok(())
+        } else {
+            decoding_error("value annotations did not match expected sequence")
+        }
     }
 }
 
