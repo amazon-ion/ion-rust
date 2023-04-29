@@ -15,35 +15,30 @@ jobs:
 
     steps:
       - name: Git Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: recursive
       - name: Rust Toolchain
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          # Coverage requires the nightly toolchain because it uses the presently unstable `-Z profile` feature
-          # See: https://github.com/rust-lang/rust/issues/42524
-          # See also: https://github.com/actions-rs/grcov#usage
-          toolchain: nightly-2022-12-18 # nightly can be very volatile--pin this to a version we know works well
+          toolchain: stable
+          # We need this component to generate source coverage in stable
+          components: llvm-tools-preview
           override: true
-      - name: Cargo Test
+      # Wrapper for running coverage with -C instrument-coverage
+      - name: Cargo Install Coverage Wrapper
         uses: actions-rs/cargo@v1
         with:
-          command: test
-          args: --verbose --workspace --all-features --no-fail-fast
-        env:
-          CARGO_INCREMENTAL: '0'
-          # https://github.com/marketplace/actions/rust-grcov
-          # For some reason the panic=abort modes don't work for build script...
-          #RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-          #RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
-          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
-      - id: coverage
-        name: Code Coverage
-        uses: actions-rs/grcov@v0.1
-      - name: Codecov Upload
-        uses: codecov/codecov-action@v1
+          command: install
+          args: cargo-llvm-cov
+      - name: Cargo Test w/ Coverage
+        uses: actions-rs/cargo@v1
         with:
-          files: ${{ steps.coverage.outputs.report }}
+          command: llvm-cov
+          args: --verbose --workspace --all-features --no-fail-fast --codecov --output-path codecov.json
+      - name: Codecov Upload
+        uses: codecov/codecov-action@v3
+        with:
+          files: codecov.json
+          fail_ci_if_error: true
