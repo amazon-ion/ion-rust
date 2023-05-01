@@ -6,9 +6,7 @@ use chrono::{DateTime, FixedOffset};
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::text::text_formatter::STRING_ESCAPE_CODES;
-use crate::types::ContainerType;
-use crate::types::Decimal;
-use crate::types::Timestamp;
+use crate::types::{ContainerType, Decimal, Timestamp};
 use crate::writer::IonWriter;
 use crate::{Int, IonType, RawSymbolToken};
 

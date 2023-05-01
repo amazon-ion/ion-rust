@@ -13,9 +13,7 @@ use crate::text::parsers::numeric_support::{
 };
 use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
-use crate::types::Decimal;
-use crate::types::UInt;
-use crate::types::{Coefficient, Sign};
+use crate::types::{Coefficient, Decimal, Sign, UInt};
 
 /// Matches the text representation of a decimal value and returns the resulting [Decimal]
 /// as a [TextValue::Decimal].

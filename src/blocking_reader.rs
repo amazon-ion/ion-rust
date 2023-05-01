@@ -532,7 +532,7 @@ mod tests {
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
         assert_eq!(
             cursor.raw_value_bytes(),
-            Some(&ion_data[15..15] /*That is, zero bytes*/)
+            Some(&ion_data[15..15] /* That is, zero bytes */)
         );
         Ok(())
     }

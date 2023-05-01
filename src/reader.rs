@@ -13,10 +13,7 @@ use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, decoding_error_raw, IonResult};
 use crate::stream_reader::IonReader;
 use crate::symbol_table::SymbolTable;
-use crate::types::Decimal;
-use crate::types::Int;
-use crate::types::Symbol;
-use crate::types::Timestamp;
+use crate::types::{Decimal, Int, Symbol, Timestamp};
 use crate::{BlockingRawBinaryReader, BlockingRawTextReader, IonType};
 use std::fmt::{Display, Formatter};
 
