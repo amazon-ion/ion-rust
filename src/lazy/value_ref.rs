@@ -214,6 +214,8 @@ impl<'top, 'data> ValueRef<'top, 'data> {
 mod tests {
     use crate::lazy::binary::lazy_reader::LazyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::raw_stream_item::RawStreamItem::Value;
+    use crate::lazy::value_ref::ValueRef;
     use crate::{Decimal, IonResult, IonType, SymbolRef, Timestamp};
 
     #[test]
@@ -264,6 +266,56 @@ mod tests {
         assert!(reader.expect_next()?.read()?.expect_list().is_ok());
         assert!(reader.expect_next()?.read()?.expect_sexp().is_ok());
         assert!(reader.expect_next()?.read()?.expect_struct().is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn partial_eq() -> IonResult<()> {
+        let ion_data = to_binary_ion(
+            r#"
+            null
+            true
+            1
+            2.5e0
+            2.5
+            2023-04-29T
+            foo
+            "hello"
+            {{Blob}}
+            {{"Clob"}}
+        "#,
+        )?;
+        let mut reader = LazyReader::new(&ion_data)?;
+        let first_value = reader.expect_next()?.read()?;
+        assert_ne!(first_value, ValueRef::String("it's not a string"));
+        assert_eq!(first_value, ValueRef::Null(IonType::Null));
+        assert_eq!(reader.expect_next()?.read()?, ValueRef::Bool(true));
+        assert_eq!(reader.expect_next()?.read()?, ValueRef::Int(1.into()));
+        assert_eq!(reader.expect_next()?.read()?, ValueRef::Float(2.5f64));
+        assert_eq!(
+            reader.expect_next()?.read()?,
+            ValueRef::Decimal(Decimal::new(25, -1))
+        );
+        assert_eq!(
+            reader.expect_next()?.read()?,
+            ValueRef::Timestamp(Timestamp::with_ymd(2023, 4, 29).build()?)
+        );
+        assert_eq!(
+            reader.expect_next()?.read()?,
+            ValueRef::Symbol(SymbolRef::from("foo"))
+        );
+        assert_eq!(reader.expect_next()?.read()?, ValueRef::String("hello"));
+        assert_eq!(
+            reader.expect_next()?.read()?,
+            ValueRef::Blob(&[0x06, 0x5A, 0x1B]) // Base64-decoded "Blob"
+        );
+        assert_eq!(
+            reader.expect_next()?.read()?,
+            ValueRef::Clob("Clob".as_bytes())
+        );
+
+        // PartialEq doesn't cover lazy containers
 
         Ok(())
     }
