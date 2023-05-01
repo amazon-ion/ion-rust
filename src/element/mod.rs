@@ -562,7 +562,7 @@ impl Element {
         ReaderBuilder::default().build(bytes)?.elements().collect()
     }
 
-    /// Serializes this element to the provided writer and flushes the writer's output.
+    /// Serializes this element to the provided writer.
     ///
     /// ```
     ///# use ion_rs::IonResult;
@@ -591,8 +591,8 @@ impl Element {
         Ok(())
     }
 
-    /// Serializes this [`Element`] as binary Ion, writing the resulting bytes to the provided
-    /// [`io::Write`]. The caller must verify that `output` is either empty or only contains Ion of the same
+    /// Serializes this [`Element`] as Ion, writing the resulting bytes to the provided [`io::Write`].
+    /// The caller must verify that `output` is either empty or only contains Ion of the same
     /// format (text or binary) before writing begins.
     ///
     /// This method constructs a new writer for each invocation. To reuse a writer and have greater

@@ -1,9 +1,10 @@
-use ion_rs::IonResult;
-
 #[cfg(not(feature = "experimental-lazy-reader"))]
 fn main() {
     println!("This example requires the 'experimental-lazy-reader' feature to work.");
 }
+
+#[cfg(feature = "experimental-lazy-reader")]
+use ion_rs::IonResult;
 
 #[cfg(feature = "experimental-lazy-reader")]
 fn main() -> IonResult<()> {
