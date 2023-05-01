@@ -14,11 +14,9 @@
 
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
-use crate::ion_data;
-use crate::ion_data::IonEq;
-use crate::ion_data::IonOrd;
+use crate::ion_data::{IonEq, IonOrd};
 use crate::text::text_formatter::IonValueFormatter;
-use crate::{Decimal, Int, IonResult, IonType, ReaderBuilder, Str, Symbol, Timestamp};
+use crate::{ion_data, Decimal, Int, IonResult, IonType, ReaderBuilder, Str, Symbol, Timestamp};
 use num_bigint::BigInt;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -31,14 +29,10 @@ pub mod reader;
 pub mod writer;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
-pub use crate::types::Bytes;
-pub use crate::types::{Blob, Clob};
+pub use crate::types::{Blob, Bytes, Clob};
 pub use annotations::{Annotations, IntoAnnotations};
 
-pub use crate::types::List;
-pub use crate::types::SExp;
-pub use crate::types::Sequence;
-pub use crate::types::Struct;
+pub use crate::types::{List, SExp, Sequence, Struct};
 
 impl IonEq for Value {
     fn ion_eq(&self, other: &Self) -> bool {
@@ -291,8 +285,8 @@ impl From<Struct> for Value {
 /// an [Element].
 ///
 /// ```
-/// use ion_rs::ion_list;
 /// use ion_rs::element::{Element, IntoAnnotatedElement, Value};
+/// use ion_rs::ion_list;
 ///
 /// // Explicit conversion of a Rust bool (`true`) into a `Value`...
 /// let boolean_value: Value = true.into();

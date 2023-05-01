@@ -159,8 +159,7 @@ mod coefficient_tests {
     use crate::ion_data::IonEq;
     use num_bigint::BigUint;
 
-    use crate::types::Coefficient;
-    use crate::types::Decimal;
+    use crate::types::{Coefficient, Decimal};
 
     fn eq_test<I1, I2>(c1: I1, c2: I2)
     where

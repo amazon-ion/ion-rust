@@ -1,0 +1,9 @@
+newline_style = "Unix"
+
+# These properties intentionally commented out. You can uncomment them and
+# run `cargo +nightly fmt` locally, but they should not be enforced in CI
+# workflow until they are stable.
+
+# format_code_in_doc_comments = true
+# imports_granularity = 'Module'
+# imports_layout = "HorizontalVertical"
