@@ -607,18 +607,18 @@ impl<'a> ImmutableBuffer<'a> {
 
         let header_offset = input.offset();
         let (length, _) = input.consume(1).read_value_length(header)?;
-        let header_length = u8::try_from(length.size_in_bytes()).map_err(|_e| {
+        let length_length = u8::try_from(length.size_in_bytes()).map_err(|_e| {
             decoding_error_raw("found a value with a header length field over 255 bytes long")
         })?;
         let value_length = length.value(); // ha
         let total_length = field_id_length as usize
             + annotations_header_length as usize
             + 1 // Header byte
-            + header_length as usize
+            + length_length as usize
             + value_length;
 
         if let Some(expected_value_length) = expected_value_length {
-            let actual_value_length = 1 + header_length as usize + value_length;
+            let actual_value_length = 1 + length_length as usize + value_length;
             if expected_value_length != actual_value_length {
                 println!("{} != {}", expected_value_length, actual_value_length);
                 return decoding_error(
@@ -634,7 +634,7 @@ impl<'a> ImmutableBuffer<'a> {
             annotations_header_length,
             annotations_sequence_length,
             header_offset,
-            header_length,
+            length_length,
             value_length,
             total_length,
         };

@@ -54,8 +54,8 @@ pub struct EncodedValue {
     pub annotations_sequence_length: u8,
     // Type descriptor byte location.
     pub header_offset: usize,
-    // The number of bytes used to encode the header not including the type descriptor byte.
-    pub header_length: u8,
+    // The number of bytes used to encode the optional length VarUInt following the header byte.
+    pub length_length: u8,
     // The number of bytes used to encode the value itself, not including the header byte
     // or length fields.
     pub value_length: usize,
@@ -80,8 +80,8 @@ impl EncodedValue {
     /// Returns the length of this value's header, including the type descriptor byte and any
     /// additional bytes used to encode the value's length.
     pub fn header_length(&self) -> usize {
-        // The `header_length` field does not include the type descriptor byte, so add 1.
-        self.header_length as usize + 1
+        // The `length_length` field does not include the type descriptor byte, so add 1.
+        self.length_length as usize + 1
     }
 
     /// Returns an offset Range that contains this value's type descriptor byte and any additional
@@ -228,9 +228,59 @@ impl Default for EncodedValue {
             annotations_header_length: 0,
             annotations_sequence_length: 0,
             header_offset: 0,
-            header_length: 0,
+            length_length: 0,
             value_length: 0,
             total_length: 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::binary::non_blocking::type_descriptor::Header;
+    use crate::binary::IonTypeCode;
+    use crate::lazy::binary::encoded_value::EncodedValue;
+    use crate::{IonResult, IonType};
+
+    #[test]
+    fn accessors() -> IonResult<()> {
+        // 3-byte String with 1-byte annotation and field ID $10
+        let value = EncodedValue {
+            header: Header {
+                ion_type: IonType::String,
+                ion_type_code: IonTypeCode::String,
+                length_code: 3,
+            },
+            field_id_length: 1,
+            field_id: Some(10),
+            annotations_header_length: 3,
+            annotations_sequence_length: 1,
+            header_offset: 200,
+            length_length: 0,
+            value_length: 3,
+            total_length: 7,
+        };
+        assert_eq!(value.ion_type(), IonType::String);
+        assert_eq!(
+            value.header(),
+            Header {
+                ion_type: IonType::String,
+                ion_type_code: IonTypeCode::String,
+                length_code: 3,
+            }
+        );
+        assert_eq!(value.header_offset(), 200);
+        assert_eq!(value.header_length(), 1);
+        assert_eq!(value.header_range(), 200..201);
+        assert_eq!(value.field_id_length(), Some(1));
+        assert_eq!(value.field_id_offset(), Some(196));
+        assert_eq!(value.field_id_range(), Some(196..197));
+        assert_eq!(value.annotations_header_length(), Some(3));
+        assert_eq!(value.annotations_sequence_offset(), Some(199));
+        assert_eq!(value.annotations_sequence_length(), Some(1));
+        assert_eq!(value.annotations_sequence_range(), Some(199..200));
+        assert_eq!(value.value_length(), 3);
+        assert_eq!(value.total_length(), 7);
+        Ok(())
     }
 }
