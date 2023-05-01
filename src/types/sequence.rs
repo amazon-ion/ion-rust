@@ -1,7 +1,7 @@
 use crate::element::builders::SequenceBuilder;
+use crate::element::iterators::ElementsIterator;
 use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
-use crate::types::iterators::ElementsIterator;
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -26,6 +26,7 @@ use std::fmt::{Display, Formatter};
 mod annotations;
 pub mod builders;
 mod element_stream_reader;
+pub(crate) mod iterators;
 pub mod reader;
 pub mod writer;
 

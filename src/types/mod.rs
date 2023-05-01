@@ -8,7 +8,6 @@ mod bytes;
 mod coefficient;
 mod decimal;
 mod integer;
-pub mod iterators;
 mod list;
 mod lob;
 mod sequence;

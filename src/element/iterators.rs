@@ -1,6 +1,5 @@
 use crate::element::Element;
 use crate::Symbol;
-use smallvec::SmallVec;
 // This macro defines a new iterator type for a given `Iterator => Item` type name pair.
 //
 // The implementation produced can be used to iterate over any `Vec<Item>` or `&[Item]`.
@@ -62,58 +61,5 @@ impl Iterator for AnnotationsIntoIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.into_iter.next()
-    }
-}
-
-// A convenient type alias for a vector capable of storing a single `usize` inline
-// without heap allocation. This type should not be used in public interfaces directly.
-pub(crate) type IndexVec = SmallVec<[usize; 1]>;
-
-/// Iterates over the (field name, field value) pairs in a Struct.
-pub struct FieldIterator<'a> {
-    values: Option<std::slice::Iter<'a, (Symbol, Element)>>,
-}
-
-impl<'a> FieldIterator<'a> {
-    pub(crate) fn new(data: &'a [(Symbol, Element)]) -> Self {
-        FieldIterator {
-            values: Some(data.iter()),
-        }
-    }
-
-    pub(crate) fn empty() -> FieldIterator<'static> {
-        FieldIterator { values: None }
-    }
-}
-
-impl<'a> Iterator for FieldIterator<'a> {
-    type Item = (&'a Symbol, &'a Element);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.values
-            .as_mut()
-            // Get the next &(name, value) and convert it to (&name, &value)
-            .and_then(|iter| iter.next().map(|field| (&field.0, &field.1)))
-    }
-}
-
-/// Iterates over the values associated with a given field name in a Struct.
-pub struct FieldValuesIterator<'a> {
-    pub(crate) current: usize,
-    pub(crate) indexes: Option<&'a IndexVec>,
-    pub(crate) by_index: &'a Vec<(Symbol, Element)>,
-}
-
-impl<'a> Iterator for FieldValuesIterator<'a> {
-    type Item = &'a Element;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.indexes
-            .and_then(|i| i.get(self.current))
-            .and_then(|i| {
-                self.current += 1;
-                self.by_index.get(*i)
-            })
-            .map(|(_name, value)| value)
     }
 }

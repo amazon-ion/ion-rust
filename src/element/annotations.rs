@@ -1,5 +1,5 @@
+use crate::element::iterators::{AnnotationsIntoIter, SymbolsIterator};
 use crate::ion_data::IonOrd;
-use crate::types::iterators::{AnnotationsIntoIter, SymbolsIterator};
 use crate::Symbol;
 use std::cmp::Ordering;
 

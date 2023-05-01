@@ -3,11 +3,15 @@ use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
 use crate::symbol_ref::AsSymbolRef;
 use crate::text::text_formatter::IonValueFormatter;
-use crate::types::iterators::{FieldIterator, FieldValuesIterator, IndexVec};
 use crate::Symbol;
+use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+
+// A convenient type alias for a vector capable of storing a single `usize` inline
+// without heap allocation. This type should not be used in public interfaces directly.
+type IndexVec = SmallVec<[usize; 1]>;
 
 // This collection is broken out into its own type to allow instances of it to be shared with Arc/Rc.
 #[derive(Debug, Clone)]
@@ -73,6 +77,55 @@ impl Fields {
     /// Iterates over all of the (field name, field value) pairs in the struct.
     fn iter(&self) -> impl Iterator<Item = &(Symbol, Element)> {
         self.by_index.iter()
+    }
+}
+
+/// Iterates over the (field name, field value) pairs in a Struct.
+pub struct FieldIterator<'a> {
+    values: Option<std::slice::Iter<'a, (Symbol, Element)>>,
+}
+
+impl<'a> FieldIterator<'a> {
+    fn new(data: &'a [(Symbol, Element)]) -> Self {
+        FieldIterator {
+            values: Some(data.iter()),
+        }
+    }
+
+    fn empty() -> FieldIterator<'static> {
+        FieldIterator { values: None }
+    }
+}
+
+impl<'a> Iterator for FieldIterator<'a> {
+    type Item = (&'a Symbol, &'a Element);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.values
+            .as_mut()
+            // Get the next &(name, value) and convert it to (&name, &value)
+            .and_then(|iter| iter.next().map(|field| (&field.0, &field.1)))
+    }
+}
+
+/// Iterates over the values associated with a given field name in a Struct.
+pub struct FieldValuesIterator<'a> {
+    current: usize,
+    indexes: Option<&'a IndexVec>,
+    by_index: &'a Vec<(Symbol, Element)>,
+}
+
+impl<'a> Iterator for FieldValuesIterator<'a> {
+    type Item = &'a Element;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.indexes
+            .and_then(|i| i.get(self.current))
+            .and_then(|i| {
+                self.current += 1;
+                self.by_index.get(*i)
+            })
+            .map(|(_name, value)| value)
     }
 }
 

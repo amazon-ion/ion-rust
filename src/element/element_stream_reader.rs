@@ -1,8 +1,8 @@
 use crate::result::{decoding_error, illegal_operation, illegal_operation_raw};
 use crate::text::parent_container::ParentContainer;
 
+use crate::element::iterators::SymbolsIterator;
 use crate::element::{Blob, Clob, Element};
-use crate::types::iterators::SymbolsIterator;
 use crate::{
     Decimal, Int, IonError, IonReader, IonResult, IonType, Str, StreamItem, Symbol, Timestamp,
 };
