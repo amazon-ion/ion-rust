@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use ion_rs::external::bigdecimal::{BigDecimal, Zero};
-use ion_rs::types::decimal::Decimal;
+use ion_rs::types::Decimal;
 
 /// This test shows how the ion_rs integration with bigdecimal can be used
 /// through a reexport. This means that consumers of ion_rs can use this

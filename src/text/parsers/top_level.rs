@@ -90,7 +90,7 @@ mod parse_top_level_values_tests {
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok, parse_unwrap};
     use crate::text::parsers::value::value;
     use crate::text::text_value::TextValue;
-    use crate::types::integer::Int;
+    use crate::types::Int;
     use crate::IonType;
 
     use super::*;

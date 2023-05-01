@@ -7,7 +7,7 @@ use ion_rs::element::writer::ElementWriter;
 use ion_rs::element::{Element, Struct};
 use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
-use ion_rs::types::integer::IntAccess;
+use ion_rs::types::IntAccess;
 
 use ion_rs::IonWriter;
 use std::convert::From;

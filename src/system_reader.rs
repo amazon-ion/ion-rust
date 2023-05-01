@@ -7,12 +7,12 @@ use crate::element::{Blob, Clob};
 use crate::raw_reader::{RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, decoding_error_raw, illegal_operation, IonError, IonResult};
-use crate::symbol::Symbol;
 use crate::system_reader::LstPosition::*;
-use crate::types::decimal::Decimal;
-use crate::types::integer::Int;
-use crate::types::string::Str;
-use crate::types::timestamp::Timestamp;
+use crate::types::Decimal;
+use crate::types::Int;
+use crate::types::Str;
+use crate::types::Symbol;
+use crate::types::Timestamp;
 use crate::{BlockingRawBinaryReader, IonReader, IonType, SymbolTable};
 
 /// Tracks where the [SystemReader] is in the process of reading a local symbol table.

@@ -361,8 +361,8 @@ mod reader_tests {
     use super::*;
     use crate::result::IonResult;
     use crate::stream_reader::IonReader;
-    use crate::types::decimal::Decimal;
-    use crate::types::timestamp::Timestamp;
+    use crate::types::Decimal;
+    use crate::types::Timestamp;
 
     use crate::IonType;
 

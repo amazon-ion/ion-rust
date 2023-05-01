@@ -11,7 +11,7 @@ use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::result::{
     decoding_error, decoding_error_raw, incomplete_data_error, incomplete_data_error_raw,
 };
-use crate::types::integer::UInt;
+use crate::types::UInt;
 use crate::{Int, IonResult, IonType};
 use num_bigint::{BigInt, BigUint, Sign};
 use std::fmt::{Debug, Formatter};
