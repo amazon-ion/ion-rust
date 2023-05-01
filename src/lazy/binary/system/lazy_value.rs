@@ -399,7 +399,9 @@ mod tests {
     #[case::annotated_typed_null("foo::null.list", IonType::List.with_annotations(["foo"]))]
     #[case::boolean("false", false)]
     #[case::negative_int("-1", -1)]
+    #[case::int_zero("0", 0)]
     #[case::positive_int("1", 1)]
+    #[case::float_zero("0e0", 0f64)]
     #[case::float("2.5e0", 2.5f64)]
     #[case::special_float("-inf", f64::neg_infinity())]
     #[case::decimal("3.14159", Decimal::new(314159, -5))]
@@ -416,6 +418,30 @@ mod tests {
         #[case] expected: impl Into<Element>,
     ) -> IonResult<()> {
         lazy_value_equals(ion_text, expected)?;
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::negative_int("-1")]
+    #[case::positive_int("1")]
+    #[case::float("2.5e0")]
+    #[case::special_float("-inf")]
+    #[case::decimal("3.14159")]
+    #[case::timestamp("2023-04-29T")]
+    #[case::symbol("foo")]
+    #[case::string("\"hello\"")]
+    #[case::blob("{{Blob}}")]
+    #[case::clob("{{\"Clob\"}}")]
+    #[case::list("[1, 2, 3]")]
+    #[case::sexp("(1 2 3)")]
+    #[case::struct_("{foo: 1, bar: 2}")]
+    fn try_into_element_error(#[case] ion_text: &str) -> IonResult<()> {
+        let mut binary_ion = to_binary_ion(ion_text)?;
+        let _oops_i_lost_a_byte = binary_ion.pop().unwrap();
+        let mut reader = LazyReader::new(&binary_ion)?;
+        let value = reader.expect_next()?;
+        let result: IonResult<Element> = value.try_into();
+        assert!(result.is_err());
         Ok(())
     }
 }
