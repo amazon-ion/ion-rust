@@ -595,8 +595,10 @@ impl Element {
     /// The caller must verify that `output` is either empty or only contains Ion of the same
     /// format (text or binary) before writing begins.
     ///
-    /// This method constructs a new writer for each invocation. To reuse a writer and have greater
-    /// control over resource management, see [`Element::write_to`].
+    /// This method constructs a new writer for each invocation, which means that there will only be a single
+    /// top level value in the output stream. Writing several values to the same stream is preferable to
+    /// maximize encoding efficiency. To reuse a writer and have greater control over resource
+    /// management, see [`Element::write_to`].
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
@@ -636,7 +638,7 @@ impl Element {
 
     /// Serializes this [`Element`] as binary Ion, returning the output as a `Vec<u8>`.
     ///
-    /// This is a convenience method; it is less efficient than [`Element::write_as`] because:
+    /// This is a convenience method; it is less efficient than [`Element::write_to`] because:
     /// 1. It must allocate a new `Vec<u8>` to fill and return.
     /// 2. It encodes this [`Element`] as its own binary Ion stream, limiting the benefit of the
     ///    symbol table.
