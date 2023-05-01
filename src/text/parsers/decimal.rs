@@ -13,9 +13,9 @@ use crate::text::parsers::numeric_support::{
 };
 use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
-use crate::types::coefficient::{Coefficient, Sign};
-use crate::types::decimal::Decimal;
-use crate::types::integer::UInt;
+use crate::types::Decimal;
+use crate::types::UInt;
+use crate::types::{Coefficient, Sign};
 
 /// Matches the text representation of a decimal value and returns the resulting [Decimal]
 /// as a [TextValue::Decimal].
@@ -123,7 +123,7 @@ mod reader_tests {
     use crate::text::parsers::decimal::parse_decimal;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::text_value::TextValue;
-    use crate::types::decimal::Decimal;
+    use crate::types::Decimal;
 
     fn parse_equals(text: &str, expected: Decimal) {
         parse_test_ok(parse_decimal, text, TextValue::Decimal(expected))

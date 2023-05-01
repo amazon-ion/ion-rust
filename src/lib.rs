@@ -188,7 +188,6 @@ mod raw_symbol_token_ref;
 pub mod reader;
 mod shared_symbol_table;
 mod stream_reader;
-mod symbol;
 mod symbol_ref;
 mod symbol_table;
 mod system_reader;
@@ -204,15 +203,15 @@ pub use raw_symbol_token::RawSymbolToken;
 #[doc(inline)]
 pub use raw_symbol_token_ref::RawSymbolTokenRef;
 
-pub use symbol::Symbol;
 pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
 
-pub use types::decimal::Decimal;
-pub use types::integer::Int;
-pub use types::string::Str;
-pub use types::timestamp::Timestamp;
+pub use types::Decimal;
+pub use types::Int;
 pub use types::IonType;
+pub use types::Str;
+pub use types::Symbol;
+pub use types::Timestamp;
 
 pub use ion_data::IonData;
 

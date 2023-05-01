@@ -1,7 +1,7 @@
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::types::decimal::Decimal;
-use crate::types::integer::Int;
-use crate::types::timestamp::Timestamp;
+use crate::types::Decimal;
+use crate::types::Int;
+use crate::types::Timestamp;
 use crate::IonType;
 
 #[derive(Debug, Clone, PartialEq)]

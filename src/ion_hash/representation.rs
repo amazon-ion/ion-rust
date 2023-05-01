@@ -10,9 +10,9 @@ use crate::binary::{self, decimal::DecimalBinaryEncoder, timestamp::TimestampBin
 use crate::element::{Element, Sequence, Struct};
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
-use crate::types::decimal::Decimal;
-use crate::types::integer::Int;
-use crate::{result::IonResult, types::timestamp::Timestamp, IonType, Symbol};
+use crate::types::Decimal;
+use crate::types::Int;
+use crate::{result::IonResult, types::Timestamp, IonType, Symbol};
 use digest::{FixedOutput, Output, Reset, Update};
 
 pub(crate) trait RepresentationEncoder {

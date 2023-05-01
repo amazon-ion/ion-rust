@@ -4,7 +4,7 @@ use crate::text::parse_result::{
 use crate::text::parsers::numeric_support::base_10_integer_digits;
 use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
-use crate::types::integer::Int;
+use crate::types::Int;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, tag, take_while1};
 use nom::character::streaming::char;

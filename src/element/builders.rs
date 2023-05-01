@@ -348,8 +348,8 @@ macro_rules! ion_struct {
     }};
 }
 
-use crate::element::list::List;
-use crate::element::sexp::SExp;
+use crate::types::List;
+use crate::types::SExp;
 pub use ion_list;
 pub use ion_sexp;
 pub use ion_struct;

@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::element::{Blob, Clob};
-use crate::types::string::Str;
+use crate::types::Str;
 use nom::Err::{Error, Failure, Incomplete};
 
 use crate::raw_reader::{BufferedRawReader, RawStreamItem};
@@ -20,9 +20,9 @@ use crate::text::parsers::containers::{
 };
 use crate::text::parsers::top_level::{stream_item, RawTextStreamItem};
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
-use crate::types::decimal::Decimal;
-use crate::types::integer::Int;
-use crate::types::timestamp::Timestamp;
+use crate::types::Decimal;
+use crate::types::Int;
+use crate::types::Timestamp;
 use crate::IonType;
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
@@ -974,8 +974,8 @@ mod reader_tests {
     use crate::stream_reader::IonReader;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoRawAnnotations, TextValue};
-    use crate::types::decimal::Decimal;
-    use crate::types::timestamp::Timestamp;
+    use crate::types::Decimal;
+    use crate::types::Timestamp;
     use crate::IonType;
     use crate::RawStreamItem::Nothing;
 

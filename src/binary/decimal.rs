@@ -11,11 +11,7 @@ use crate::{
         int::DecodedInt, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt, var_uint::VarUInt,
     },
     result::IonResult,
-    types::{
-        coefficient::{Coefficient, Sign},
-        decimal::Decimal,
-        integer::UInt,
-    },
+    types::{Coefficient, Decimal, Sign, UInt},
     IonError,
 };
 
