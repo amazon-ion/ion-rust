@@ -214,7 +214,6 @@ impl<'top, 'data> ValueRef<'top, 'data> {
 mod tests {
     use crate::lazy::binary::lazy_reader::LazyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::lazy::raw_stream_item::RawStreamItem::Value;
     use crate::lazy::value_ref::ValueRef;
     use crate::{Decimal, IonResult, IonType, SymbolRef, Timestamp};
 

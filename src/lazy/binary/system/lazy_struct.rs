@@ -395,11 +395,36 @@ mod tests {
 
     #[test]
     fn annotations() -> IonResult<()> {
-        let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: quux::quuz::3}")?;
+        let ion_data = to_binary_ion("a::b::c::{foo: 1, bar: 2, baz: quux::quuz::3}")?;
         let mut reader = LazyReader::new(&ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
+        assert!(struct_.annotations().are(["a", "b", "c"])?);
         let baz = struct_.find_expected("baz")?;
         assert!(baz.annotations().are(["quux", "quuz"])?);
+        Ok(())
+    }
+
+    #[test]
+    fn try_into_element() -> IonResult<()> {
+        let ion_text = "foo::baz::baz::{a: 1, b: 2, c: 3}";
+        let binary_ion = to_binary_ion(ion_text)?;
+        let mut reader = LazyReader::new(&binary_ion)?;
+        let struct_ = reader.expect_next()?.read()?.expect_struct()?;
+        let result: IonResult<Element> = struct_.try_into();
+        assert!(result.is_ok());
+        assert_eq!(result?, Element::read_one(ion_text)?);
+        Ok(())
+    }
+
+    #[test]
+    fn try_into_element_error() -> IonResult<()> {
+        let mut binary_ion = to_binary_ion("foo::baz::baz::{a: 1, b: 2, c: 3}")?;
+        let _oops_i_lost_a_byte = binary_ion.pop().unwrap();
+        let mut reader = LazyReader::new(&binary_ion)?;
+        let struct_ = reader.expect_next()?.read()?.expect_struct()?;
+        // Conversion will fail because the reader will encounter an unexpected end of input
+        let result: IonResult<Element> = struct_.try_into();
+        assert!(result.is_err());
         Ok(())
     }
 }
