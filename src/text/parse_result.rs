@@ -85,7 +85,6 @@ pub(crate) type IonParseResult<'a, O> = IResult<&'a str, O, IonParseError<'a>>;
 ///     // Return the IonParseResult
 ///     ion_parse_result
 /// }
-///
 /// ```
 /// This is defined as an extension trait (rather than a [std::convert::From] implementation)
 /// because both `IResult` and `IonParseResult` are just type aliases for different configurations

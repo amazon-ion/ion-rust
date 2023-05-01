@@ -1,5 +1,4 @@
-use crate::result::IonResult;
-use crate::result::{illegal_operation, illegal_operation_raw};
+use crate::result::{illegal_operation, illegal_operation_raw, IonResult};
 use crate::shared_symbol_table::SharedSymbolTable;
 use std::collections::{BTreeMap, HashMap};
 

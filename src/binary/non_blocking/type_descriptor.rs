@@ -1,7 +1,7 @@
-use crate::{
-    binary::{constants::v1_0::length_codes, nibbles::nibbles_from_byte, IonTypeCode},
-    types::IonType,
-};
+use crate::binary::constants::v1_0::length_codes;
+use crate::binary::nibbles::nibbles_from_byte;
+use crate::binary::IonTypeCode;
+use crate::types::IonType;
 
 /// Contains all of the information that can be extracted from the one-octet type descriptor
 /// found at the beginning of each value, annotations wrapper, IVM, or NOP in a binary Ion stream.

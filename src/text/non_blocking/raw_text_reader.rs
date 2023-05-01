@@ -20,9 +20,7 @@ use crate::text::parsers::containers::{
 };
 use crate::text::parsers::top_level::{stream_item, RawTextStreamItem};
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
-use crate::types::Decimal;
-use crate::types::Int;
-use crate::types::Timestamp;
+use crate::types::{Decimal, Int, Timestamp};
 use crate::IonType;
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
@@ -627,7 +625,7 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
                 RootParseResult::Failure(format!(
                     "Parsing error occurred near line {}: '{}': '{:?}'",
                     self.buffer.lines_loaded(),
-                    &self.buffer.remaining_text()[..original_length], // Don't show the extra `\n0\n`
+                    &self.buffer.remaining_text()[..original_length], /* Don't show the extra `\n0\n` */
                     ion_parse_error
                 ))
             }
@@ -635,7 +633,7 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
                 RootParseResult::Failure(format!(
                     "A fatal error occurred while reading near line {}: '{}': '{:?}'",
                     self.buffer.lines_loaded(),
-                    &self.buffer.remaining_text()[..original_length], // Don't show the extra `\n0\n`
+                    &self.buffer.remaining_text()[..original_length], /* Don't show the extra `\n0\n` */
                     ion_parse_error
                 ))
             }
@@ -974,8 +972,7 @@ mod reader_tests {
     use crate::stream_reader::IonReader;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoRawAnnotations, TextValue};
-    use crate::types::Decimal;
-    use crate::types::Timestamp;
+    use crate::types::{Decimal, Timestamp};
     use crate::IonType;
     use crate::RawStreamItem::Nothing;
 

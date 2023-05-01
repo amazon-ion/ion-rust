@@ -93,10 +93,10 @@
 //! ```no_run
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use std::fs::File;
-//! use ion_rs::element::Element;
 //! use ion_rs::element::reader::ElementReader;
+//! use ion_rs::element::Element;
 //! use ion_rs::ReaderBuilder;
+//! use std::fs::File;
 //! let ion_file = File::open("/foo/bar/baz.ion").unwrap();
 //! let mut reader = ReaderBuilder::default().build(ion_file)?;
 //! // A simple pretty-printer
@@ -112,23 +112,24 @@
 //! ```
 //! use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::{Element, IntoAnnotatedElement,  Value};
-//! use ion_rs::{ion_struct, ion_list};
+//! use ion_rs::element::{Element, IntoAnnotatedElement, Value};
+//! use ion_rs::{ion_list, ion_struct};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
 //!   "bar": true,
 //!   "baz": ion_list! [4, 5, 6]
-//! }.into();
+//! }
+//! .into();
 //!
 //! if let Value::Struct(s) = element.value() {
-//!   if let Some(Value::List(l)) = s.get("baz").map(|b| b.value()) {
-//!     for (index, element) in l.elements().enumerate() {
-//!         println!("{}. {}", index+1, element);
-//!         // 1) 4
-//!         // 2) 5
-//!         // 3) 6
+//!     if let Some(Value::List(l)) = s.get("baz").map(|b| b.value()) {
+//!         for (index, element) in l.elements().enumerate() {
+//!             println!("{}. {}", index + 1, element);
+//!             // 1) 4
+//!             // 2) 5
+//!             // 3) 6
+//!         }
 //!     }
-//!   }
 //! }
 //! # Ok(())
 //! # }
@@ -139,22 +140,23 @@
 //! ```
 //! use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::{Element, IntoAnnotatedElement,  Value};
-//! use ion_rs::{ion_struct, ion_list, TextWriterBuilder, IonWriter};
 //! use ion_rs::element::writer::ElementWriter;
+//! use ion_rs::element::{Element, IntoAnnotatedElement, Value};
+//! use ion_rs::{ion_list, ion_struct, IonWriter, TextWriterBuilder};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
 //!   "bar": true,
 //!   "baz": ion_list! [4, 5, 6]
-//! }.into();
+//! }
+//! .into();
 //!
 //! let mut buffer: Vec<u8> = Vec::new();
 //! let mut writer = TextWriterBuilder::default().build(&mut buffer)?;
 //! writer.write_element(&element)?;
 //! writer.flush()?;
 //! assert_eq!(
-//!   "{foo: \"hello\", bar: true, baz: [4, 5, 6]}".as_bytes(),
-//!   writer.output().as_slice()
+//!     "{foo: \"hello\", bar: true, baz: [4, 5, 6]}".as_bytes(),
+//!     writer.output().as_slice()
 //! );
 //! # Ok(())
 //! # }
@@ -209,12 +211,7 @@ pub use raw_symbol_token_ref::RawSymbolTokenRef;
 pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
 
-pub use types::Decimal;
-pub use types::Int;
-pub use types::IonType;
-pub use types::Str;
-pub use types::Symbol;
-pub use types::Timestamp;
+pub use types::{Decimal, Int, IonType, Str, Symbol, Timestamp};
 
 pub use ion_data::IonData;
 
@@ -225,15 +222,12 @@ pub use writer::IonWriter;
 pub use binary::raw_binary_writer::RawBinaryWriter;
 pub use blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader};
 pub use raw_reader::{RawReader, RawStreamItem};
-pub use reader::StreamItem;
-pub use reader::{Reader, ReaderBuilder, UserReader};
+pub use reader::{Reader, ReaderBuilder, StreamItem, UserReader};
 pub use stream_reader::IonReader;
 pub use system_reader::{SystemReader, SystemStreamItem};
-pub use text::raw_text_writer::RawTextWriter;
-pub use text::raw_text_writer::RawTextWriterBuilder;
+pub use text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder};
 
-pub use result::IonError;
-pub use result::IonResult;
+pub use result::{IonError, IonResult};
 
 /// Re-exports of third party dependencies that are part of our public API.
 ///

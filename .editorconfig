@@ -1,0 +1,6 @@
+# Unix-style newlines with a newline ending every file. `rustfmt` already
+# enforces these rules for Rust files, but this informs IDEs to do the same
+# for all files.
+[*]
+end_of_line = lf
+insert_final_newline = true

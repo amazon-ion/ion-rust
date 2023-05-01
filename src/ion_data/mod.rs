@@ -5,12 +5,8 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 
-pub(crate) use ion_eq::ion_eq_bool;
-pub(crate) use ion_eq::ion_eq_f64;
-pub(crate) use ion_eq::IonEq;
-pub(crate) use ion_ord::ion_cmp_bool;
-pub(crate) use ion_ord::ion_cmp_f64;
-pub(crate) use ion_ord::IonOrd;
+pub(crate) use ion_eq::{ion_eq_bool, ion_eq_f64, IonEq};
+pub(crate) use ion_ord::{ion_cmp_bool, ion_cmp_f64, IonOrd};
 
 /// A wrapper for lifting Ion compatible data into using Ion-oriented comparisons (versus the Rust
 /// value semantics). This enables the default semantics to be what a Rust user expects for native
@@ -39,7 +35,6 @@ pub(crate) use ion_ord::IonOrd;
 /// __WARNING__—The Ion specification does _not_ define a total ordering over all Ion values. Do
 /// not depend on getting any particular result from [Ord]. Use it only as an opaque total ordering
 /// over all [IonData]. _The algorithm used for [Ord] may change between versions._
-///
 #[derive(Debug, Clone)]
 pub struct IonData<T>(T);
 
@@ -96,9 +91,7 @@ impl<T: IonEq + IonOrd> Ord for IonData<T> {
 #[cfg(test)]
 mod tests {
     use crate::ion_data::{IonEq, IonOrd};
-    use crate::Element;
-    use crate::IonData;
-    use crate::Symbol;
+    use crate::{Element, IonData, Symbol};
     use rstest::*;
     use std::boxed::Box;
     use std::fmt::Debug;
