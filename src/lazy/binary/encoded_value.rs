@@ -1,6 +1,4 @@
-use crate::binary::constants::v1_0::length_codes;
 use crate::binary::non_blocking::type_descriptor::Header;
-use crate::binary::IonTypeCode;
 use crate::types::SymbolId;
 use crate::IonType;
 use std::ops::Range;
@@ -214,27 +212,6 @@ impl EncodedValue {
     }
 }
 
-/// Constructs an 'empty' EncodedValue that the reader can populate while parsing.
-impl Default for EncodedValue {
-    fn default() -> EncodedValue {
-        EncodedValue {
-            header: Header {
-                ion_type: IonType::Null,
-                ion_type_code: IonTypeCode::NullOrNop,
-                length_code: length_codes::NULL,
-            },
-            field_id: None,
-            field_id_length: 0,
-            annotations_header_length: 0,
-            annotations_sequence_length: 0,
-            header_offset: 0,
-            length_length: 0,
-            value_length: 0,
-            total_length: 0,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::binary::non_blocking::type_descriptor::Header;
@@ -275,11 +252,16 @@ mod tests {
         assert_eq!(value.field_id_length(), Some(1));
         assert_eq!(value.field_id_offset(), Some(196));
         assert_eq!(value.field_id_range(), Some(196..197));
+        assert!(value.has_annotations());
+        assert_eq!(value.annotations_range(), Some(197..200));
         assert_eq!(value.annotations_header_length(), Some(3));
         assert_eq!(value.annotations_sequence_offset(), Some(199));
         assert_eq!(value.annotations_sequence_length(), Some(1));
         assert_eq!(value.annotations_sequence_range(), Some(199..200));
         assert_eq!(value.value_length(), 3);
+        assert_eq!(value.value_offset(), 201);
+        assert_eq!(value.value_range(), 201..204);
+        assert_eq!(value.value_end_exclusive(), 204);
         assert_eq!(value.total_length(), 7);
         Ok(())
     }
