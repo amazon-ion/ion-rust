@@ -208,3 +208,45 @@ impl<'top, 'data> Debug for LazySequence<'top, 'data> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::element::Element;
+    use crate::lazy::binary::lazy_reader::LazyReader;
+    use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::IonResult;
+
+    #[test]
+    fn annotations() -> IonResult<()> {
+        let binary_ion = to_binary_ion("foo::bar::baz::[1, 2, 3]")?;
+        let mut reader = LazyReader::new(&binary_ion)?;
+        let list = reader.expect_next()?.read()?.expect_list()?;
+        assert!(list.annotations().are(["foo", "bar", "baz"])?);
+        list.annotations().expect(["foo", "bar", "baz"])?;
+        Ok(())
+    }
+
+    #[test]
+    fn try_into_element() -> IonResult<()> {
+        let ion_text = "foo::baz::baz::[1, 2, 3]";
+        let binary_ion = to_binary_ion(ion_text)?;
+        let mut reader = LazyReader::new(&binary_ion)?;
+        let list = reader.expect_next()?.read()?.expect_list()?;
+        let result: IonResult<Element> = list.try_into();
+        assert!(result.is_ok());
+        assert_eq!(result?, Element::read_one(ion_text)?);
+        Ok(())
+    }
+
+    #[test]
+    fn try_into_element_error() -> IonResult<()> {
+        let mut binary_ion = to_binary_ion("foo::baz::baz::[1, 2, 3]")?;
+        let _oops_i_lost_a_byte = binary_ion.pop().unwrap();
+        let mut reader = LazyReader::new(&binary_ion)?;
+        let list = reader.expect_next()?.read()?.expect_list()?;
+        // Conversion will fail because the reader will encounter an unexpected end of input
+        let result: IonResult<Element> = list.try_into();
+        assert!(result.is_err());
+        Ok(())
+    }
+}
