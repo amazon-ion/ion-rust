@@ -336,3 +336,70 @@ impl<'a, 'top, 'data> IntoIterator for &'a LazyStruct<'top, 'data> {
         self.iter()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lazy::binary::lazy_reader::LazyReader;
+    use crate::lazy::binary::test_utilities::to_binary_ion;
+
+    #[test]
+    fn find() -> IonResult<()> {
+        let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
+        let mut reader = LazyReader::new(&ion_data)?;
+        let struct_ = reader.expect_next()?.read()?.expect_struct()?;
+        let baz = struct_.find("baz")?;
+        assert!(baz.is_some());
+        assert_eq!(baz.unwrap().read()?, ValueRef::Int(3.into()));
+        let quux = struct_.get("quux")?;
+        assert_eq!(quux, None);
+        Ok(())
+    }
+
+    #[test]
+    fn find_expected() -> IonResult<()> {
+        let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
+        let mut reader = LazyReader::new(&ion_data)?;
+        let struct_ = reader.expect_next()?.read()?.expect_struct()?;
+        let baz = struct_.find_expected("baz");
+        assert!(baz.is_ok());
+        assert_eq!(baz.unwrap().read()?, ValueRef::Int(3.into()));
+        let quux = struct_.find_expected("quux");
+        assert!(quux.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn get() -> IonResult<()> {
+        let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
+        let mut reader = LazyReader::new(&ion_data)?;
+        let struct_ = reader.expect_next()?.read()?.expect_struct()?;
+        let baz = struct_.get("baz")?;
+        assert_eq!(baz, Some(ValueRef::Int(3.into())));
+        let quux = struct_.get("quux")?;
+        assert_eq!(quux, None);
+        Ok(())
+    }
+
+    #[test]
+    fn get_expected() -> IonResult<()> {
+        let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
+        let mut reader = LazyReader::new(&ion_data)?;
+        let struct_ = reader.expect_next()?.read()?.expect_struct()?;
+        let baz = struct_.get_expected("baz");
+        assert_eq!(baz, Ok(ValueRef::Int(3.into())));
+        let quux = struct_.get_expected("quux");
+        assert!(quux.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn annotations() -> IonResult<()> {
+        let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: quux::quuz::3}")?;
+        let mut reader = LazyReader::new(&ion_data)?;
+        let struct_ = reader.expect_next()?.read()?.expect_struct()?;
+        let baz = struct_.find_expected("baz")?;
+        assert!(baz.annotations().are(["quux", "quuz"])?);
+        Ok(())
+    }
+}
