@@ -230,4 +230,35 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn expect_type_error() -> IonResult<()> {
+        let ion_data = to_binary_ion(
+            r#"
+            true
+            null.bool
+        "#,
+        )?;
+        let mut reader = LazyRawReader::new(&ion_data);
+        // IVM
+        reader.next()?.expect_ivm()?;
+
+        let bool_value = reader.next()?.expect_value()?;
+        assert!(bool_value.read()?.expect_null().is_err());
+        assert!(bool_value.read()?.expect_int().is_err());
+        assert!(bool_value.read()?.expect_float().is_err());
+        assert!(bool_value.read()?.expect_decimal().is_err());
+        assert!(bool_value.read()?.expect_timestamp().is_err());
+        assert!(bool_value.read()?.expect_symbol().is_err());
+        assert!(bool_value.read()?.expect_string().is_err());
+        assert!(bool_value.read()?.expect_blob().is_err());
+        assert!(bool_value.read()?.expect_clob().is_err());
+        assert!(bool_value.read()?.expect_list().is_err());
+        assert!(bool_value.read()?.expect_sexp().is_err());
+        assert!(bool_value.read()?.expect_struct().is_err());
+
+        let null_value = reader.next()?.expect_value()?;
+        assert!(null_value.read()?.expect_bool().is_err());
+        Ok(())
+    }
 }
