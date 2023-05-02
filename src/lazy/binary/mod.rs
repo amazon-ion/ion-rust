@@ -4,6 +4,5 @@ pub mod lazy_reader;
 pub mod raw;
 pub mod system;
 
-mod data_source;
 #[cfg(test)]
 pub(crate) mod test_utilities;
