@@ -195,6 +195,9 @@ mod symbol_table;
 mod system_reader;
 mod writer;
 
+#[cfg(feature = "experimental-lazy-reader")]
+pub mod lazy;
+
 #[cfg(feature = "experimental-streaming")]
 pub(crate) mod thunk;
 

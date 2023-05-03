@@ -4,8 +4,7 @@ use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::{ElementWriter, Format, TextKind};
 use ion_rs::element::{Element, Sequence};
 use ion_rs::result::{decoding_error, IonError, IonResult};
-use ion_rs::{BinaryWriterBuilder, IonData, IonWriter, Reader, TextWriterBuilder};
-
+use ion_rs::{BinaryWriterBuilder, IonData, IonWriter, TextWriterBuilder};
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 use test_generator::test_resources;
@@ -30,9 +29,6 @@ fn contains_path(paths: &[&str], file_name: &str) -> bool {
 // Statically defined arrays containing test file paths to skip in various contexts.
 type SkipList = &'static [&'static str];
 
-// TODO: This trait exists solely for the purposes of this integration test. It allows us to paper
-// over the differences in the ion-c and native Rust ElementWriter implementations.
-// Once all of the tests are passing, we should work to unify their APIs.
 trait RoundTrip {
     /// Encodes `elements` to a buffer in the specified Ion `format` and then reads them back into
     /// a `Vec<Element>` using the provided reader.
@@ -50,7 +46,7 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
     match format {
         Format::Text(kind) => {
             let mut writer = match kind {
-                TextKind::Compact => TextWriterBuilder::new().build(&mut buffer),
+                TextKind::Compact => TextWriterBuilder::default().build(&mut buffer),
                 TextKind::Lines => TextWriterBuilder::lines().build(&mut buffer),
                 TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
             }?;
@@ -67,13 +63,15 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
 }
 
 trait ElementApi {
+    type ElementReader<'a>: ElementReader;
+
     fn global_skip_list() -> SkipList;
     fn read_one_equivs_skip_list() -> SkipList;
     fn round_trip_skip_list() -> SkipList;
     fn equivs_skip_list() -> SkipList;
     fn non_equivs_skip_list() -> SkipList;
 
-    fn make_reader(data: &[u8]) -> IonResult<Reader<'_>>;
+    fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>>;
 
     /// Asserts the given elements can be round-tripped and equivalent, then returns the new elements.
     fn assert_round_trip(
@@ -406,7 +404,7 @@ mod impl_display_for_element_tests {
 
         for element in elements {
             let mut buffer = Vec::with_capacity(2048);
-            let mut writer = TextWriterBuilder::new().build(&mut buffer).unwrap();
+            let mut writer = TextWriterBuilder::default().build(&mut buffer).unwrap();
             writer.write_element(&element).unwrap();
             writer.flush().unwrap();
             drop(writer);
@@ -426,6 +424,12 @@ mod native_element_tests {
     struct NativeElementApi;
 
     impl ElementApi for NativeElementApi {
+        type ElementReader<'a> = Reader<'a>;
+
+        fn make_reader(data: &[u8]) -> IonResult<Reader<'_>> {
+            ReaderBuilder::default().build(data)
+        }
+
         fn global_skip_list() -> SkipList {
             &[
                 // The binary reader does not check whether nested values are longer than their
@@ -491,10 +495,6 @@ mod native_element_tests {
 
         fn non_equivs_skip_list() -> SkipList {
             &[]
-        }
-
-        fn make_reader(data: &[u8]) -> IonResult<Reader<'_>> {
-            ReaderBuilder::default().build(data)
         }
     }
 
@@ -544,6 +544,24 @@ mod non_blocking_native_element_tests {
     struct NonBlockingNativeElementApi;
 
     impl ElementApi for NonBlockingNativeElementApi {
+        type ElementReader<'a> = Reader<'a>;
+
+        fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
+            // These imports are visible as a temporary workaround.
+            // See: https://github.com/amazon-ion/ion-rust/issues/484
+            use ion_rs::binary::constants::v1_0::IVM;
+            use ion_rs::reader::integration_testing::new_reader;
+            // If the data is binary, create a non-blocking binary reader.
+            if data.starts_with(&IVM) {
+                let raw_reader = RawBinaryReader::new(data);
+                Ok(new_reader(raw_reader))
+            } else {
+                // Otherwise, create a non-blocking text reader
+                let raw_reader = RawTextReader::new(data);
+                Ok(new_reader(raw_reader))
+            }
+        }
+
         fn global_skip_list() -> SkipList {
             &[
                 // The binary reader does not check whether nested values are longer than their
@@ -609,22 +627,6 @@ mod non_blocking_native_element_tests {
 
         fn non_equivs_skip_list() -> SkipList {
             &[]
-        }
-
-        fn make_reader(data: &[u8]) -> IonResult<Reader<'_>> {
-            // These imports are visible as a temporary workaround.
-            // See: https://github.com/amazon-ion/ion-rust/issues/484
-            use ion_rs::binary::constants::v1_0::IVM;
-            use ion_rs::reader::integration_testing::new_reader;
-            // If the data is binary, create a non-blocking binary reader.
-            if data.starts_with(&IVM) {
-                let raw_reader = RawBinaryReader::new(data);
-                Ok(new_reader(raw_reader))
-            } else {
-                // Otherwise, create a non-blocking text reader
-                let raw_reader = RawTextReader::new(data);
-                Ok(new_reader(raw_reader))
-            }
         }
     }
 

@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn element_roundtrip() -> IonResult<()> {
         let mut buffer = Vec::new();
-        let mut writer = TextWriterBuilder::new().build(&mut buffer)?;
+        let mut writer = TextWriterBuilder::default().build(&mut buffer)?;
 
         let ion = r#"
             null true 0 1e0 2.0 2022T foo "bar" (foo bar baz) [foo, bar, baz] {foo: true, bar: false}

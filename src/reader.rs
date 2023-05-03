@@ -121,7 +121,7 @@ pub struct UserReader<R: RawReader> {
 }
 
 impl<R: RawReader> UserReader<R> {
-    pub(crate) fn new(raw_reader: R) -> UserReader<R> {
+    pub fn new(raw_reader: R) -> UserReader<R> {
         UserReader {
             raw_reader,
             symbol_table: SymbolTable::new(),
