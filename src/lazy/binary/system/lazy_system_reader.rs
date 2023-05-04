@@ -120,7 +120,7 @@ impl<'data> LazySystemReader<'data> {
                 return Ok(SystemStreamItem::VersionMarker(major, minor));
             }
             RawStreamItem::Value(lazy_raw_value) => lazy_raw_value,
-            RawStreamItem::Nothing => return Ok(SystemStreamItem::Nothing),
+            RawStreamItem::EndOfStream => return Ok(SystemStreamItem::EndOfStream),
         };
         if Self::is_symbol_table_struct(&lazy_raw_value)? {
             Self::process_symbol_table(pending_lst, &lazy_raw_value)?;
@@ -155,7 +155,7 @@ impl<'data> LazySystemReader<'data> {
             let lazy_raw_value = match raw_reader.next()? {
                 RawStreamItem::VersionMarker(_, _) => continue,
                 RawStreamItem::Value(lazy_raw_value) => lazy_raw_value,
-                RawStreamItem::Nothing => return Ok(None),
+                RawStreamItem::EndOfStream => return Ok(None),
             };
             if Self::is_symbol_table_struct(&lazy_raw_value)? {
                 // process the symbol table, but do not surface it
@@ -291,7 +291,7 @@ mod tests {
                 }
                 SystemStreamItem::SymbolTable(ref s) => println!("symtab => {:?}", s),
                 SystemStreamItem::Value(ref v) => println!("value => {:?}", v.read()?),
-                SystemStreamItem::Nothing => break,
+                SystemStreamItem::EndOfStream => break,
             }
         }
         Ok(())
@@ -316,7 +316,7 @@ mod tests {
                         println!("{:?}", value?.read()?);
                     }
                 }
-                SystemStreamItem::Nothing => break,
+                SystemStreamItem::EndOfStream => break,
                 _ => {}
             }
         }
@@ -344,7 +344,7 @@ mod tests {
                         println!("{:?}: {:?},", field.name()?, field.value().read()?);
                     }
                 }
-                SystemStreamItem::Nothing => break,
+                SystemStreamItem::EndOfStream => break,
                 _ => {}
             }
         }

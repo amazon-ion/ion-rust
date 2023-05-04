@@ -43,7 +43,7 @@ impl<'data> LazyRawReader<'data> {
     fn read_value(&mut self, buffer: ImmutableBuffer<'data>) -> IonResult<RawStreamItem<'data>> {
         let lazy_value = match ImmutableBuffer::peek_value_without_field_id(buffer)? {
             Some(lazy_value) => lazy_value,
-            None => return Ok(RawStreamItem::Nothing),
+            None => return Ok(RawStreamItem::EndOfStream),
         };
         self.data.buffer = buffer;
         self.data.bytes_to_skip = lazy_value.encoded_value.total_length();
@@ -57,7 +57,7 @@ impl<'data> LazyRawReader<'data> {
     {
         let mut buffer = self.data.advance_to_next_item()?;
         if buffer.is_empty() {
-            return Ok(RawStreamItem::Nothing);
+            return Ok(RawStreamItem::EndOfStream);
         }
         let type_descriptor = buffer.peek_type_descriptor()?;
         if type_descriptor.is_nop() {
@@ -195,7 +195,7 @@ mod tests {
             match reader.next()? {
                 RawStreamItem::VersionMarker(major, minor) => println!("IVM: v{}.{}", major, minor),
                 RawStreamItem::Value(value) => println!("{:?}", value.read()?),
-                RawStreamItem::Nothing => break,
+                RawStreamItem::EndOfStream => break,
             }
         }
         Ok(())

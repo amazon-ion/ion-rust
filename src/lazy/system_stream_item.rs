@@ -4,12 +4,17 @@ use crate::result::{decoding_error, decoding_error_raw};
 use crate::IonResult;
 use std::fmt::{Debug, Formatter};
 
-/// Raw stream elements that a SystemReader may encounter.
+/// System stream elements that a SystemReader may encounter.
 pub enum SystemStreamItem<'top, 'data> {
+    /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
+    /// encode the values that follow.
     VersionMarker(u8, u8),
+    /// An Ion symbol table encoded as a struct annotated with `$ion_symbol_table`.
     SymbolTable(LazyStruct<'top, 'data>),
+    /// An application-level Ion value
     Value(LazyValue<'top, 'data>),
-    Nothing,
+    /// The end of the stream
+    EndOfStream,
 }
 
 impl<'top, 'data> Debug for SystemStreamItem<'top, 'data> {
@@ -20,12 +25,14 @@ impl<'top, 'data> Debug for SystemStreamItem<'top, 'data> {
             }
             SystemStreamItem::SymbolTable(_) => write!(f, "a symbol table"),
             SystemStreamItem::Value(value) => write!(f, "{}", value.ion_type()),
-            SystemStreamItem::Nothing => write!(f, "<nothing>"),
+            SystemStreamItem::EndOfStream => write!(f, "<nothing>"),
         }
     }
 }
 
 impl<'top, 'data> SystemStreamItem<'top, 'data> {
+    /// If this item is an Ion version marker (IVM), returns `Some((major, minor))` indicating the
+    /// version. Otherwise, returns `None`.
     pub fn version_marker(&self) -> Option<(u8, u8)> {
         if let Self::VersionMarker(major, minor) = self {
             Some((*major, *minor))
@@ -34,11 +41,15 @@ impl<'top, 'data> SystemStreamItem<'top, 'data> {
         }
     }
 
+    /// Like [`Self::version_marker`], but returns a [`crate::IonError::DecodingError`] if this item
+    /// is not an IVM.
     pub fn expect_ivm(self) -> IonResult<(u8, u8)> {
         self.version_marker()
             .ok_or_else(|| decoding_error_raw(format!("expected IVM, found {:?}", self)))
     }
 
+    /// If this item is a application-level value, returns `Some(&LazyValue)`. Otherwise,
+    /// returns `None`.
     pub fn value(&self) -> Option<&LazyValue<'top, 'data>> {
         if let Self::Value(value) = self {
             Some(value)
@@ -47,6 +58,8 @@ impl<'top, 'data> SystemStreamItem<'top, 'data> {
         }
     }
 
+    /// Like [`Self::value`], but returns a [`crate::IonError::DecodingError`] if this item is not
+    /// an application-level value.
     pub fn expect_value(self) -> IonResult<LazyValue<'top, 'data>> {
         if let Self::Value(value) = self {
             Ok(value)
