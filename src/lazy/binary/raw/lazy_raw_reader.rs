@@ -4,20 +4,29 @@ use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::result::{decoding_error, incomplete_data_error};
 use crate::IonResult;
 
+/// A binary Ion 1.0 reader that yields [`LazyRawValue`]s representing the top level values found
+/// in the provided input stream.
 pub struct LazyRawReader<'data> {
     data: DataSource<'data>,
 }
 
 impl<'data> LazyRawReader<'data> {
+    /// Constructs a `LazyRawReader` positioned at the beginning of the provided input stream.
     pub fn new(data: &'data [u8]) -> LazyRawReader<'data> {
         Self::new_with_offset(data, 0)
     }
 
+    /// Constructs a `LazyRawReader` positioned at the beginning of the provided input stream.
+    /// The provided input stream is itself a slice starting `offset` bytes from the beginning
+    /// of a larger data stream. This offset is used for reporting the absolute (stream-level)
+    /// position of values encountered in `data`.
     fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawReader<'data> {
         let data = DataSource::new(ImmutableBuffer::new_with_offset(data, offset));
         LazyRawReader { data }
     }
 
+    /// Helper method called by [`Self::next`]. Reads the current stream item as an Ion version
+    /// marker. If the version is not 1.0, returns an [`crate::IonError::DecodingError`].
     fn read_ivm(&mut self, buffer: ImmutableBuffer<'data>) -> IonResult<RawStreamItem<'data>> {
         let ((major, minor), _buffer_after_ivm) = buffer.read_ivm()?;
         if (major, minor) != (1, 0) {

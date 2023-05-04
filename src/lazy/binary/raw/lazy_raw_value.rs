@@ -13,6 +13,11 @@ use bytes::{BigEndian, ByteOrder};
 use std::fmt::{Debug, Formatter};
 use std::{fmt, mem};
 
+/// A value that has been identified in the input stream but whose data has not yet been read.
+/// `LazyRawValue`s are "unresolved," which is to say that symbol values, annotations, and
+/// struct field names may or may not include a text definition. For a resolved lazy value that
+/// includes a text definition for these items whenever one exists, see
+/// [`crate::lazy::binary::system::lazy_value::LazyValue`].
 #[derive(Clone)]
 pub struct LazyRawValue<'data> {
     pub(crate) encoded_value: EncodedValue,
@@ -32,14 +37,19 @@ impl<'a> Debug for LazyRawValue<'a> {
 type ValueParseResult<'a> = IonResult<RawValueRef<'a>>;
 
 impl<'data> LazyRawValue<'data> {
+    /// Indicates the Ion data type of this value. Calling this method does not require additional
+    /// parsing of the input stream.
     pub fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }
 
+    /// Returns `true` if this value has a non-empty annotations sequence; otherwise, returns `false`.
     fn has_annotations(&self) -> bool {
         self.encoded_value.has_annotations()
     }
 
+    /// Returns an `ImmutableBuffer` that contains the bytes comprising this value's encoded
+    /// annotations sequence.
     fn annotations_sequence(&self) -> ImmutableBuffer<'data> {
         let offset_and_length = self
             .encoded_value
@@ -59,10 +69,15 @@ impl<'data> LazyRawValue<'data> {
         self.input.slice(local_sequence_offset, sequence_length)
     }
 
+    /// Returns an iterator over this value's unresolved annotation symbols.
     pub fn annotations(&self) -> RawAnnotationsIterator<'data> {
         RawAnnotationsIterator::new(self.annotations_sequence())
     }
 
+    /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,
+    /// calling this method will not read additional data; the `RawValueRef` will provide a
+    /// [`LazyRawSequence`] or [`crate::lazy::binary::system::lazy_struct::LazyStruct`] that can be
+    /// traversed to access the container's contents.
     pub fn read(&self) -> ValueParseResult<'data> {
         if self.encoded_value.header().is_null() {
             let raw_value_ref = RawValueRef::Null(self.ion_type());
@@ -86,7 +101,7 @@ impl<'data> LazyRawValue<'data> {
         }
     }
 
-    // Can return Err if there aren't enough bytes available
+    /// Returns the encoded byte slice representing this value's data.
     fn value_body(&self) -> IonResult<&'data [u8]> {
         let value_total_length = self.encoded_value.total_length();
         if self.input.len() < value_total_length {
@@ -101,6 +116,9 @@ impl<'data> LazyRawValue<'data> {
         Ok(self.input.bytes_range(value_offset, value_body_length))
     }
 
+    /// Returns an [`ImmutableBuffer`] containing whatever bytes of this value's body are currently
+    /// available. This method is used to construct lazy containers, which are not required to be
+    /// fully buffered before reading begins.
     pub(crate) fn available_body(&self) -> ImmutableBuffer<'data> {
         let value_total_length = self.encoded_value.total_length();
         let value_body_length = self.encoded_value.value_length();
@@ -111,10 +129,13 @@ impl<'data> LazyRawValue<'data> {
         buffer_slice
     }
 
+    /// If this value is within a struct, returns its associated field name as a `Some(SymbolID)`.
+    /// Otherwise, returns `None`.
     pub(crate) fn field_name(&self) -> Option<SymbolId> {
         self.encoded_value.field_id
     }
 
+    /// Helper method called by [`Self::read`]. Reads the current value as a bool.
     fn read_bool(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Bool);
         let representation = self.encoded_value.header().length_code;
@@ -131,6 +152,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::Bool(value))
     }
 
+    /// Helper method called by [`Self::read`]. Reads the current value as an int.
     fn read_int(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
         // `value_body()` returns a buffer starting at the body of the value.
@@ -156,6 +178,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::Int(value))
     }
 
+    /// Helper method called by [`Self::read`]. Reads the current value as a float.
     fn read_float(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Float);
         let ieee_bytes = self.value_body()?;
@@ -169,6 +192,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::Float(value))
     }
 
+    /// Helper method called by [`Self::read`]. Reads the current value as a decimal.
     fn read_decimal(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Decimal);
 
@@ -195,6 +219,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::Decimal(Decimal::new(coefficient, exponent)))
     }
 
+    /// Helper method called by [`Self::read`]. Reads the current value as a timestamp.
     fn read_timestamp(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Timestamp);
 
@@ -290,8 +315,8 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::Timestamp(timestamp))
     }
 
-    /// If the reader is currently positioned on a symbol value, parses that value into a `SymbolId`.
-    pub fn read_symbol_id(&self) -> IonResult<SymbolId> {
+    /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.
+    fn read_symbol_id(&self) -> IonResult<SymbolId> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         let uint_bytes = self.value_body()?;
         if uint_bytes.len() > mem::size_of::<usize>() {
@@ -302,13 +327,14 @@ impl<'data> LazyRawValue<'data> {
         Ok(magnitude as usize)
     }
 
-    pub fn read_symbol(&self) -> ValueParseResult<'data> {
+    /// Helper method called by [`Self::read`]. Reads the current value as a symbol.
+    fn read_symbol(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         self.read_symbol_id()
             .map(|sid| RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(sid)))
     }
 
-    /// If the reader is currently positioned on a string, returns a [&str] containing its text.
+    /// Helper method called by [`Self::read`]. Reads the current value as a string.
     fn read_string(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::String);
         let raw_bytes = self.value_body()?;
@@ -317,18 +343,21 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::String(text))
     }
 
+    /// Helper method called by [`Self::read`]. Reads the current value as a blob.
     fn read_blob(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Blob);
         let bytes = self.value_body()?;
         Ok(RawValueRef::Blob(bytes))
     }
 
+    /// Helper method called by [`Self::read`]. Reads the current value as a clob.
     fn read_clob(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Clob);
         let bytes = self.value_body()?;
         Ok(RawValueRef::Clob(bytes))
     }
 
+    /// Helper method called by [`Self::read`]. Reads the current value as an S-expression.
     fn read_sexp(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::SExp);
         let lazy_value = LazyRawValue {
@@ -339,6 +368,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::SExp(lazy_sequence))
     }
 
+    /// Helper method called by [`Self::read`]. Reads the current value as a list.
     fn read_list(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::List);
         let lazy_value = LazyRawValue {
@@ -349,6 +379,7 @@ impl<'data> LazyRawValue<'data> {
         Ok(RawValueRef::List(lazy_sequence))
     }
 
+    /// Helper method called by [`Self::read`]. Reads the current value as a struct.
     fn read_struct(&self) -> ValueParseResult<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Struct);
         let lazy_value = LazyRawValue {
