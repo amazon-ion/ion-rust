@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Provides a simple stream API bi-directionally over [`IonReader`](crate::IonReader).
+//! Provides a simple stream API to and from [`IonReader`](crate::IonReader).
 //!
 //! Conceptually [`TokenStream`] can be thought of as a continuation of the computation of
 //! an Ion data stream.  This is useful for composing and transforming over streams of Ion data.
@@ -203,7 +203,7 @@ impl<'a> ScalarThunk<'a> {
         self.1.memoize()
     }
 
-    /// Evaluates the current value and moves it out of the value without materializing.
+    /// Evaluates the current value and moves it out of the thunk without materializing.
     /// See [`Thunk::no_memoize`] for details
     pub fn no_memoize(&mut self) -> IonResult<ScalarValue> {
         self.1.no_memoize()
