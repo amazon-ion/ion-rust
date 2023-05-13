@@ -6,7 +6,7 @@
 //! an Ion data stream.  This is useful for composing and transforming over streams of Ion data.
 //!
 //! It pulls in parts of the [element crate](crate::element) API to make it easier to work
-//! with values without pulling in fully materializing the tree.
+//! with values without fully materializing the tree.
 
 use crate::element::{Annotations, Bytes, Value};
 use crate::result::illegal_operation;
@@ -169,7 +169,7 @@ impl Display for ScalarValue {
     }
 }
 
-// XXX ideally we'd have our annotations return an borrowing iterator...
+// XXX ideally we'd have our annotations return a borrowing iterator...
 /// Deferred computation of annotations.
 pub type AnnotationsThunk<'a> = Thunk<'a, Annotations>;
 
@@ -203,7 +203,7 @@ impl<'a> ScalarThunk<'a> {
         self.1.memoize()
     }
 
-    /// Evaluates the ccurrent values and moves it out of the value without materializing.
+    /// Evaluates the current value and moves it out of the value without materializing.
     /// See [`Thunk::no_memoize`] for details
     pub fn no_memoize(&mut self) -> IonResult<ScalarValue> {
         self.1.no_memoize()
