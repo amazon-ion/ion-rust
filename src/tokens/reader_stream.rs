@@ -83,7 +83,7 @@ impl PendingToken {
 enum ReaderPosition {
     /// We are positioned on nothing.
     Nothing,
-    /// We are positioned on some value.
+    /// We are positioned on some value, which could be a null-container or scalar.
     NonContainer,
     /// We are positioned on the start of some container.
     Container(ContainerType),
