@@ -162,6 +162,13 @@
 //! # }
 //! ```
 
+// XXX this top-level import is required because of the macro factoring of rstest_reuse
+// XXX Clippy incorrectly indicates that this is redundant
+#[cfg(test)]
+#[allow(unused_imports)]
+#[allow(clippy::single_component_path_imports)]
+use rstest_reuse;
+
 // This import is used in the doc comments and test code above. Clippy incorrectly
 // declares it an unused import.
 #[allow(unused_imports)]
@@ -195,8 +202,11 @@ mod symbol_table;
 mod system_reader;
 mod writer;
 
+// Experimental Streaming APIs
 #[cfg(feature = "experimental-streaming")]
-pub(crate) mod thunk;
+pub mod thunk;
+#[cfg(feature = "experimental-streaming")]
+pub mod tokens;
 
 #[doc(inline)]
 pub use data_source::IonDataSource;

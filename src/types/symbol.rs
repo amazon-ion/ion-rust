@@ -101,6 +101,15 @@ impl Symbol {
         }
     }
 
+    /// Converts this symbol into a shared one
+    pub(crate) fn into_shared(self) -> Symbol {
+        match self.text {
+            SymbolText::Shared(text) => Symbol::shared(text),
+            SymbolText::Owned(text) => Symbol::shared(text.into()),
+            SymbolText::Unknown => Symbol::unknown_text(),
+        }
+    }
+
     pub fn text(&self) -> Option<&str> {
         self.text.text()
     }
