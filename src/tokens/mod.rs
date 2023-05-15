@@ -15,6 +15,10 @@ use crate::thunk::{Thunk, ThunkState};
 use crate::{Decimal, Int, IonError, IonResult, IonType, Str, Symbol, Timestamp};
 use std::fmt::{Display, Formatter};
 
+pub(crate) mod reader_stream;
+
+pub use reader_stream::ReaderTokenStream;
+
 /// Generic display for anything that could be converted to `IonType`.
 fn display_type<T>(value: T, f: &mut Formatter<'_>) -> std::fmt::Result
 where
