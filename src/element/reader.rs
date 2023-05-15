@@ -197,8 +197,7 @@ mod reader_tests {
     use crate::element::Value::*;
     use crate::element::{Element, IntoAnnotatedElement};
     use crate::ion_data::IonEq;
-    use crate::types::integer::Int;
-    use crate::types::timestamp::Timestamp as TS;
+    use crate::types::{Int, Timestamp as TS};
     use crate::{IonType, Symbol};
     use bigdecimal::BigDecimal;
     use num_bigint::BigInt;

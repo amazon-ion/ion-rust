@@ -8,7 +8,7 @@ use crate::raw_reader::BufferedRawReader;
 use crate::result::IonResult;
 use crate::stream_reader::IonReader;
 use crate::text::non_blocking::raw_text_reader::RawTextReader;
-use crate::types::timestamp::Timestamp;
+use crate::types::Timestamp;
 use crate::{Decimal, Int, IonError, IonType, Str};
 
 pub type BlockingRawTextReader<T> = BlockingRawReader<RawTextReader<Vec<u8>>, T>;
@@ -532,7 +532,7 @@ mod tests {
         assert_eq!(cursor.raw_header_bytes(), Some(&ion_data[15..=15]));
         assert_eq!(
             cursor.raw_value_bytes(),
-            Some(&ion_data[15..15] /*That is, zero bytes*/)
+            Some(&ion_data[15..15] /* That is, zero bytes */)
         );
         Ok(())
     }

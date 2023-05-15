@@ -1,5 +1,4 @@
-use crate::ion_data::IonEq;
-use crate::ion_data::IonOrd;
+use crate::ion_data::{IonEq, IonOrd};
 use crate::text::text_formatter::IonValueFormatter;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};

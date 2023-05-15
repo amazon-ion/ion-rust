@@ -233,8 +233,7 @@ mod container_parsing_tests {
     use crate::raw_symbol_token::{local_sid_token, text_token};
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::text_value::TextValue;
-    use crate::types::decimal::Decimal;
-    use crate::types::integer::Int;
+    use crate::types::{Decimal, Int};
 
     use super::*;
 

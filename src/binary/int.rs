@@ -2,9 +2,8 @@ use std::mem;
 
 use crate::data_source::IonDataSource;
 use crate::result::{decoding_error, IonResult};
-use crate::types::coefficient;
-use crate::types::coefficient::Coefficient;
-use crate::Int;
+use crate::types;
+use crate::types::{Coefficient, Int};
 use num_bigint::{BigInt, Sign};
 use num_traits::Zero;
 use std::io::Write;
@@ -196,7 +195,7 @@ impl From<DecodedInt> for Coefficient {
             is_negative,
             .. // ignore `size_in_bytes`
         } = int;
-        use coefficient::Sign::{Negative, Positive};
+        use types::Sign::{Negative, Positive};
         let sign = if is_negative { Negative } else { Positive };
         Coefficient::new(sign, value)
     }
@@ -206,7 +205,7 @@ impl From<DecodedInt> for Coefficient {
 mod tests {
     use super::*;
     use crate::result::IonResult;
-    use crate::Int;
+    use crate::types::Int;
     use std::io;
     use std::io::Cursor;
 

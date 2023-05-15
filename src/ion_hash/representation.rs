@@ -6,13 +6,15 @@
 //! instead. This implementation fills in that gap, and is focused on coverage
 //! and not speed.
 
-use crate::binary::{self, decimal::DecimalBinaryEncoder, timestamp::TimestampBinaryEncoder};
+use crate::binary::decimal::DecimalBinaryEncoder;
+use crate::binary::timestamp::TimestampBinaryEncoder;
+use crate::binary::{self};
 use crate::element::{Element, Sequence, Struct};
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
-use crate::types::decimal::Decimal;
-use crate::types::integer::Int;
-use crate::{result::IonResult, types::timestamp::Timestamp, IonType, Symbol};
+use crate::result::IonResult;
+use crate::types::{Decimal, Int, Timestamp};
+use crate::{IonType, Symbol};
 use digest::{FixedOutput, Output, Reset, Update};
 
 pub(crate) trait RepresentationEncoder {

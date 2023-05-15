@@ -6,29 +6,29 @@ use crate::text::text_formatter::IonValueFormatter;
 use delegate::delegate;
 use std::fmt::{Display, Formatter};
 
-/// An in-memory representation of an Ion s-expression
+/// An in-memory representation of an Ion list.
 /// ```
 /// use ion_rs::element::{Element, List};
-/// use ion_rs::ion_sexp;
+/// use ion_rs::ion_list;
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
-/// let sexp = ion_sexp!(1 2 3);
-/// assert_eq!(sexp.len(), 3);
-/// assert_eq!(sexp.get(1), Some(&Element::integer(2)));
+/// let list = ion_list![1, 2, 3];
+/// assert_eq!(list.len(), 3);
+/// assert_eq!(list.get(1), Some(&Element::integer(2)));
 /// # Ok(())
 /// # }
 /// ```
-/// To build a `SExp` incrementally, see [SequenceBuilder].
+/// To build a `List` incrementally, see [SequenceBuilder].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SExp(pub Sequence);
+pub struct List(pub Sequence);
 
-impl SExp {
+impl List {
     pub(crate) fn new(elements: impl Into<Sequence>) -> Self {
-        SExp(elements.into())
+        List(elements.into())
     }
 }
 
-impl SExp {
+impl List {
     delegate! {
         to self.0 {
             pub fn clone_builder(&self) -> SequenceBuilder;
@@ -40,21 +40,21 @@ impl SExp {
     }
 }
 
-impl IonEq for SExp {
+impl IonEq for List {
     fn ion_eq(&self, other: &Self) -> bool {
         // The inner `Sequence` of both Lists are IonEq
         self.0.ion_eq(&other.0)
     }
 }
 
-impl AsRef<Sequence> for SExp {
+impl AsRef<Sequence> for List {
     fn as_ref(&self) -> &Sequence {
         &self.0
     }
 }
 
-// Allows `for element in &sexp {...}` syntax
-impl<'a> IntoIterator for &'a SExp {
+// Allows `for element in &list {...}` syntax
+impl<'a> IntoIterator for &'a List {
     type Item = &'a Element;
     type IntoIter = ElementsIterator<'a>;
 
@@ -63,37 +63,37 @@ impl<'a> IntoIterator for &'a SExp {
     }
 }
 
-impl Display for SExp {
+impl Display for List {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut ivf = IonValueFormatter { output: f };
-        ivf.format_sexp(self).map_err(|_| std::fmt::Error)?;
+        ivf.format_list(self).map_err(|_| std::fmt::Error)?;
         Ok(())
     }
 }
 
-impl From<Sequence> for SExp {
+impl From<Sequence> for List {
     fn from(sequence: Sequence) -> Self {
-        SExp(sequence)
+        List(sequence)
     }
 }
 
-impl From<SExp> for Sequence {
-    fn from(value: SExp) -> Self {
+impl From<List> for Sequence {
+    fn from(value: List) -> Self {
         value.0
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::ion_sexp;
-    use crate::types::integer::IntAccess;
+    use crate::ion_list;
+    use crate::types::IntAccess;
 
     #[test]
-    fn for_element_in_sexp() {
-        // Simple example to exercise SExp's implementation of IntoIterator
-        let sexp = ion_sexp!(1 2 3);
+    fn for_element_in_list() {
+        // Simple example to exercise List's implementation of IntoIterator
+        let list = ion_list![1, 2, 3];
         let mut sum = 0;
-        for element in &sexp {
+        for element in &list {
             sum += element.as_i64().unwrap();
         }
         assert_eq!(sum, 6i64);

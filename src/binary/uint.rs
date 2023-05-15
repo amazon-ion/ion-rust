@@ -4,7 +4,7 @@ use std::mem;
 
 use crate::data_source::IonDataSource;
 use crate::result::{decoding_error, IonResult};
-use crate::types::integer::{Int, UInt};
+use crate::types::{Int, UInt};
 
 // This limit is used for stack-allocating buffer space to encode/decode UInts.
 const UINT_STACK_BUFFER_SIZE: usize = 16;
