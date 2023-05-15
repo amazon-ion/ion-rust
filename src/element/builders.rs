@@ -6,15 +6,11 @@ use crate::Symbol;
 /// Building a [Sequence]:
 /// ```
 /// use ion_rs::element::{Element, Sequence};
-/// let actual: Sequence = Sequence::builder()
-///     .push(1)
-///     .push(true)
-///     .push("foo")
-///     .build();
+/// let actual: Sequence = Sequence::builder().push(1).push(true).push("foo").build();
 /// let expected: Sequence = Sequence::new([
-///   Element::integer(1),
-///   Element::boolean(true),
-///   Element::string("foo"),
+///     Element::integer(1),
+///     Element::boolean(true),
+///     Element::string("foo"),
 /// ]);
 /// assert_eq!(actual, expected);
 /// ```
@@ -27,9 +23,9 @@ use crate::Symbol;
 ///     .push("foo")
 ///     .build_list();
 /// let expected: List = List(Sequence::new([
-///   Element::integer(1),
-///   Element::boolean(true),
-///   Element::string("foo"),
+///     Element::integer(1),
+///     Element::boolean(true),
+///     Element::string("foo"),
 /// ]));
 /// assert_eq!(actual, expected);
 /// ```
@@ -42,9 +38,9 @@ use crate::Symbol;
 ///     .push("foo")
 ///     .build_sexp();
 /// let expected: SExp = SExp(Sequence::new([
-///   Element::integer(1),
-///   Element::boolean(true),
-///   Element::string("foo"),
+///     Element::integer(1),
+///     Element::boolean(true),
+///     Element::string("foo"),
 /// ]));
 /// assert_eq!(actual, expected);
 /// ```
@@ -101,27 +97,29 @@ impl SequenceBuilder {
 /// Constructs [Struct] values incrementally.
 ///
 /// ```
-/// use ion_rs::ion_struct;
 /// use ion_rs::element::Element;
+/// use ion_rs::ion_struct;
 /// let actual: Element = ion_struct! {
 ///     "a": 1,
 ///     "b": true,
 ///     "c": "foo"
-/// }.into();
+/// }
+/// .into();
 /// let expected = Element::read_one(r#"{a: 1, b: true, c: "foo"}"#).unwrap();
 /// assert_eq!(actual, expected);
 /// ```
 ///
 /// ```
+/// use ion_rs::element::{Element, Struct};
 /// use ion_rs::ion_struct;
-/// use ion_rs::element::{Struct, Element};
 /// let base_struct: Struct = ion_struct! {
 ///     "foo": 1,
 ///     "bar": 2,
 ///     "baz": 3
 /// };
 ///
-/// let modified_struct: Element = base_struct.clone_builder()
+/// let modified_struct: Element = base_struct
+///     .clone_builder()
 ///     .remove_field("bar")
 ///     .with_field("quux", 4)
 ///     .build()
@@ -162,8 +160,8 @@ impl StructBuilder {
     /// Adds all of the provided `(name, value)` pairs to the [`Struct`] being constructed.
     ///
     /// ```
-    /// use ion_rs::ion_struct;
     /// use ion_rs::element::{Element, Struct};
+    /// use ion_rs::ion_struct;
     ///
     /// let struct1 = ion_struct! {
     ///     "foo": 1,
@@ -184,7 +182,6 @@ impl StructBuilder {
     ///
     /// let expected = Element::read_one("{foo: 1, bar: 2, baz: 3, a: 4, b: 5, c: 6}").unwrap();
     /// ```
-    ///
     pub fn with_fields<S, E, I>(mut self, fields: I) -> Self
     where
         S: Into<Symbol>,
@@ -222,15 +219,10 @@ impl StructBuilder {
 /// Constructs a list [`Element`] with the specified child values.
 ///
 /// ```
-/// use ion_rs::ion_list;
 /// use ion_rs::element::Element;
+/// use ion_rs::ion_list;
 /// // Construct a list Element from Rust values
-/// let actual: Element = ion_list![
-///     "foo",
-///     7,
-///     false,
-///     ion_list![1.5f64, -8.25f64]
-/// ].into();
+/// let actual: Element = ion_list!["foo", 7, false, ion_list![1.5f64, -8.25f64]].into();
 /// // Construct an Element from serialized Ion data
 /// let expected = Element::read_one(r#"["foo", 7, false, [1.5e0, -8.25e0]]"#).unwrap();
 /// // Compare the two Elements
@@ -242,8 +234,8 @@ impl StructBuilder {
 ///
 /// ```
 /// // Construct a list Element from existing Elements
-/// use ion_rs::ion_list;
 /// use ion_rs::element::{Element, IntoAnnotatedElement};
+/// use ion_rs::ion_list;
 ///
 /// let string_element: Element = "foo".into();
 /// let bool_element: Element = true.into();
@@ -254,7 +246,8 @@ impl StructBuilder {
 ///     10i64.with_annotations(["bar"]), // .with_annotations() constructs an Element
 ///     Element::clob("hello"),
 ///     Element::symbol("world")
-/// ].into();
+/// ]
+/// .into();
 /// // Construct an Element from serialized Ion data
 /// let expected = Element::read_one(r#"["foo", true, bar::10, {{"hello"}}, world]"#).unwrap();
 /// // Compare the two Elements
@@ -318,13 +311,13 @@ macro_rules! ion_sexp {
 /// `Into<Element>`.
 ///
 /// ```
-/// use ion_rs::{ion_struct, IonType};
 /// use ion_rs::element::Element;
+/// use ion_rs::{ion_struct, IonType};
 /// let field_name_2 = "x";
 /// let prefix = "abc";
 /// let suffix = "def";
 /// // Construct an s-expression Element from Rust values
-/// let actual = ion_struct!{
+/// let actual = ion_struct! {
 ///     "w": "foo",
 /// //   ^--- Quoted strings are field name literals
 /// //   v--- Unquoted field names are interpreted as variables
@@ -334,9 +327,13 @@ macro_rules! ion_sexp {
 /// //        Arbitrary expressions are acceptable, though some may require
 /// //   v--- an extra scope (braces: `{}`) to be understood properly.
 ///      {format!("{}_{}", prefix, suffix)}: IonType::Null
-/// }.into();
+/// }
+/// .into();
 /// // Construct an Element from serialized Ion data
-/// let expected = Element::read_one(r#"{w: "foo", x: 7, y: false, z: {a: 1.5e0, b: -8.25e0}, abc_def: null}"#).unwrap();
+/// let expected = Element::read_one(
+///     r#"{w: "foo", x: 7, y: false, z: {a: 1.5e0, b: -8.25e0}, abc_def: null}"#,
+/// )
+/// .unwrap();
 /// // Compare the two Elements
 /// assert_eq!(expected, actual);
 /// ```
@@ -348,18 +345,14 @@ macro_rules! ion_struct {
     }};
 }
 
-use crate::element::list::List;
-use crate::element::sexp::SExp;
-pub use ion_list;
-pub use ion_sexp;
-pub use ion_struct;
+use crate::types::{List, SExp};
+pub use {ion_list, ion_sexp, ion_struct};
 
 #[cfg(test)]
 mod tests {
     use crate::element::builders::{SequenceBuilder, StructBuilder};
     use crate::element::Element;
-    use crate::Symbol;
-    use crate::{ion_list, ion_sexp, ion_struct};
+    use crate::{ion_list, ion_sexp, ion_struct, Symbol};
 
     #[test]
     fn make_list_with_builder() {

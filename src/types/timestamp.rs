@@ -1,11 +1,9 @@
-use crate::ion_data::IonEq;
-use crate::ion_data::IonOrd;
+use crate::ion_data::{IonEq, IonOrd};
 use crate::result::{
     encoding_error, illegal_operation, illegal_operation_raw, IonError, IonResult,
 };
-use crate::types::coefficient::Sign::Negative;
-use crate::types::decimal::Decimal;
-use crate::types::integer::UInt;
+use crate::types::Sign::Negative;
+use crate::types::{Decimal, UInt};
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
 };
@@ -1316,8 +1314,7 @@ mod timestamp_tests {
     use super::*;
     use crate::ion_data::IonEq;
     use crate::result::IonResult;
-    use crate::types::decimal::Decimal;
-    use crate::types::timestamp::{Mantissa, Precision, Timestamp};
+    use crate::types::{Decimal, Mantissa, Precision, Timestamp};
     use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
     use rstest::*;
     use std::cmp::Ordering;

@@ -12,15 +12,12 @@ use crate::raw_reader::{RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, decoding_error_raw, IonResult};
 use crate::stream_reader::IonReader;
-use crate::symbol::Symbol;
 use crate::symbol_table::SymbolTable;
-use crate::types::decimal::Decimal;
-use crate::types::integer::Int;
-use crate::types::timestamp::Timestamp;
+use crate::types::{Decimal, Int, Symbol, Timestamp};
 use crate::{BlockingRawBinaryReader, BlockingRawTextReader, IonType};
 use std::fmt::{Display, Formatter};
 
-use crate::types::string::Str;
+use crate::types::Str;
 /// Configures and constructs new instances of [Reader].
 pub struct ReaderBuilder {}
 

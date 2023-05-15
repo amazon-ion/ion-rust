@@ -1,10 +1,6 @@
 use crate::element::{Blob, Clob};
 use crate::result::IonResult;
-use crate::types::decimal::Decimal;
-use crate::types::integer::Int;
-use crate::types::string::Str;
-use crate::types::timestamp::Timestamp;
-use crate::types::IonType;
+use crate::types::{Decimal, Int, IonType, Str, Timestamp};
 
 /**
  * This trait captures the format-agnostic parser functionality needed to navigate within an Ion
@@ -85,7 +81,7 @@ pub trait IonReader {
     /// error is encountered while reading, returns [crate::IonError].
     fn read_i64(&mut self) -> IonResult<i64>;
 
-    /// Attempts to read the current item as an Ion integer and return it as an [crate::Int]. If the
+    /// Attempts to read the current item as an Ion integer and return it as an [`Int`](crate::types::Int). If the
     /// current item is not an integer or an IO error is encountered while reading, returns
     /// [crate::IonError].
     fn read_int(&mut self) -> IonResult<Int>;

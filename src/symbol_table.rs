@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::constants::v1_0;
-use crate::symbol::Symbol;
-use crate::types::SymbolId;
+use crate::types::{Symbol, SymbolId};
 
 /// Stores mappings from Symbol IDs to text and vice-versa.
 // SymbolTable instances always have at least system symbols; they are never empty.

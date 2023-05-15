@@ -1,21 +1,17 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use std::{io::Write, ops::Neg};
+use std::io::Write;
+use std::ops::Neg;
 
 use arrayvec::ArrayVec;
 use chrono::{Datelike, Timelike};
 
-use crate::{
-    binary::{
-        decimal::DecimalBinaryEncoder, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt,
-        var_uint::VarUInt,
-    },
-    result::IonResult,
-    types::{
-        decimal::Decimal,
-        timestamp::{Mantissa, Precision, Timestamp},
-    },
-};
+use crate::binary::decimal::DecimalBinaryEncoder;
+use crate::binary::raw_binary_writer::MAX_INLINE_LENGTH;
+use crate::binary::var_int::VarInt;
+use crate::binary::var_uint::VarUInt;
+use crate::result::IonResult;
+use crate::types::{Decimal, Mantissa, Precision, Timestamp};
 
 const MAX_TIMESTAMP_LENGTH: usize = 32;
 
@@ -134,10 +130,7 @@ where
 #[cfg(test)]
 mod binary_timestamp_tests {
     use super::*;
-    use crate::reader;
-    use crate::IonReader;
-    use crate::IonType;
-    use crate::ReaderBuilder;
+    use crate::{reader, IonReader, IonType, ReaderBuilder};
     use rstest::*;
 
     // These tests show how varying levels of precision affects number of bytes
