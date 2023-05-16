@@ -30,7 +30,7 @@ impl<R: BufferedRawReader, T: ToIonDataSource> BlockingRawReader<R, T> {
         loop {
             let n = self.reader.read_from(&mut self.source, length)?;
             bytes_read += n;
-            if n == 0 || bytes_read + n >= length {
+            if n == 0 || bytes_read >= length {
                 break;
             }
         }

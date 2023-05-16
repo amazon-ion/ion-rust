@@ -489,7 +489,7 @@ impl BinaryBuffer<Vec<u8>> {
         // Make sure that there are `length` bytes in the `Vec` beyond `self.end`.
         self.reserve_capacity(length);
         // Get a mutable slice to the first `length` bytes starting at `self.end`.
-        let read_buffer = &mut self.data.as_mut_slice()[self.end..length];
+        let read_buffer = &mut self.data.as_mut_slice()[self.end..(self.end + length)];
         // Use that slice as our input buffer to read from the source.
         let bytes_read = source.read(read_buffer)?;
         // Update `self.end` to reflect that we have more data available to read.
@@ -507,9 +507,7 @@ impl BinaryBuffer<Vec<u8>> {
         //       For now, it is unlikely that this would happen often.
         let capacity = self.data.len() - self.end;
         if capacity < length {
-            for _ in 0..(length - capacity) {
-                self.data.push(0);
-            }
+            self.data.resize(self.data.len() + length - capacity, 0);
         }
     }
 }
