@@ -137,7 +137,7 @@ where
             None => self.next_token(Instruction::Next),
             Some(token_cell) => {
                 let token = token_cell.borrow();
-                let insn_opt: Option<_> = match token.content() {
+                let instruction_opt: Option<_> = match token.content() {
                     // normal values are just a next
                     Content::Null(_) | Content::Scalar(_) => Some(Instruction::Next),
                     Content::StartContainer(_) => {
@@ -156,7 +156,7 @@ where
                 };
                 drop(token);
                 // we need to drop the cell borrow before we can advance
-                match insn_opt {
+                match instruction_opt {
                     Some(instruction) => self.next_token(instruction),
                     None => Ok(StreamItem::Nothing),
                 }
