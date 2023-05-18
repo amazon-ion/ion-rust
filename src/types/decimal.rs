@@ -3,11 +3,9 @@ use std::cmp::Ordering;
 use bigdecimal::{BigDecimal, Signed};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 
-use crate::ion_data::IonEq;
-use crate::ion_data::IonOrd;
+use crate::ion_data::{IonEq, IonOrd};
 use crate::result::{illegal_operation, IonError};
-use crate::types::coefficient::{Coefficient, Sign};
-use crate::types::integer::UInt;
+use crate::types::{Coefficient, Sign, UInt};
 use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
@@ -387,8 +385,7 @@ impl TryFrom<Decimal> for BigDecimal {
 #[cfg(test)]
 mod decimal_tests {
     use crate::result::IonResult;
-    use crate::types::coefficient::{Coefficient, Sign};
-    use crate::types::decimal::Decimal;
+    use crate::types::{Coefficient, Decimal, Sign};
     use bigdecimal::BigDecimal;
     use num_bigint::BigUint;
     use num_traits::{Float, ToPrimitive};

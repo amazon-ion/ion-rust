@@ -1,6 +1,5 @@
 use crate::element::Element;
-use crate::ion_data::IonEq;
-use crate::ion_data::IonOrd;
+use crate::ion_data::{IonEq, IonOrd};
 use crate::result::{decoding_error, IonError};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 use num_traits::{ToPrimitive, Zero};
@@ -16,7 +15,7 @@ pub trait IntAccess {
     /// ```
     /// # use ion_rs::element::*;
     /// # use ion_rs::element::*;
-    /// # use ion_rs::types::integer::*;
+    /// # use ion_rs::types::*;
     /// # use num_bigint::*;
     /// let big_int = Int::BigInt(BigInt::from(100));
     /// let i64_int = Int::I64(100);
@@ -39,17 +38,23 @@ pub trait IntAccess {
     /// ```
     /// # use ion_rs::element::*;
     /// # use ion_rs::element::*;
-    /// # use ion_rs::types::integer::*;
+    /// # use ion_rs::types::*;
     /// # use num_bigint::*;
     /// # use std::str::FromStr;
     /// let big_int = Int::BigInt(BigInt::from(100));
-    /// assert_eq!(BigInt::from_str("100").unwrap(), *big_int.as_big_int().unwrap());
+    /// assert_eq!(
+    ///     BigInt::from_str("100").unwrap(),
+    ///     *big_int.as_big_int().unwrap()
+    /// );
     /// let i64_int = Int::I64(100);
     /// assert_eq!(None, i64_int.as_big_int());
     ///
     /// // works on element too
     /// let big_elem: Element = big_int.into();
-    /// assert_eq!(BigInt::from_str("100").unwrap(), *big_elem.as_big_int().unwrap());
+    /// assert_eq!(
+    ///     BigInt::from_str("100").unwrap(),
+    ///     *big_elem.as_big_int().unwrap()
+    /// );
     /// let i64_elem: Element = i64_int.into();
     /// assert_eq!(None, i64_elem.as_big_int());
     /// ```
@@ -509,8 +514,8 @@ mod integer_tests {
     use num_bigint::BigUint;
     use num_traits::Zero;
     // The 'Big' alias helps distinguish between the enum variant and the wrapped numeric type
-    use crate::types::integer::Int::{self, BigInt as Big, I64};
-    use crate::types::integer::UInt;
+    use crate::types::Int::{self, BigInt as Big, I64};
+    use crate::types::UInt;
     use rstest::*;
     use std::cmp::Ordering;
 

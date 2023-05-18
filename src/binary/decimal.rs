@@ -5,19 +5,14 @@ use std::io::Write;
 use arrayvec::ArrayVec;
 use bigdecimal::Zero;
 
+use crate::binary::int::DecodedInt;
+use crate::binary::raw_binary_writer::MAX_INLINE_LENGTH;
+use crate::binary::var_int::VarInt;
+use crate::binary::var_uint::VarUInt;
 use crate::ion_data::IonEq;
-use crate::{
-    binary::{
-        int::DecodedInt, raw_binary_writer::MAX_INLINE_LENGTH, var_int::VarInt, var_uint::VarUInt,
-    },
-    result::IonResult,
-    types::{
-        coefficient::{Coefficient, Sign},
-        decimal::Decimal,
-        integer::UInt,
-    },
-    IonError,
-};
+use crate::result::IonResult;
+use crate::types::{Coefficient, Decimal, Sign, UInt};
+use crate::IonError;
 
 const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {

@@ -1,8 +1,7 @@
 use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryReader;
 use ion_rs::raw_reader::RawStreamItem;
 use ion_rs::result::IonResult;
-use ion_rs::RawReader;
-use ion_rs::{BlockingRawBinaryReader, IonType};
+use ion_rs::{BlockingRawBinaryReader, IonType, RawReader};
 use memmap::MmapOptions;
 use std::fs::File;
 use std::process::exit;

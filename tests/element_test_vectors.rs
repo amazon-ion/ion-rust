@@ -4,8 +4,9 @@ use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::{ElementWriter, Format, TextKind};
 use ion_rs::element::{Element, Sequence};
 use ion_rs::result::{decoding_error, IonError, IonResult};
-use ion_rs::{BinaryWriterBuilder, IonWriter, TextWriterBuilder};
-use ion_rs::{IonData, IonReader, StreamItem, Symbol};
+use ion_rs::{
+    BinaryWriterBuilder, IonData, IonReader, IonWriter, StreamItem, Symbol, TextWriterBuilder,
+};
 
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;

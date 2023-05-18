@@ -4,7 +4,7 @@ use super::{ContainerType, Content, Instruction, Token, TokenStream};
 use crate::element::{Annotations, Blob, Clob};
 use crate::result::{illegal_operation, illegal_operation_raw};
 use crate::tokens::ScalarValue;
-use crate::types::integer::IntAccess;
+use crate::types::IntAccess;
 use crate::{Decimal, Int, IonReader, IonResult, IonType, Str, StreamItem, Symbol, Timestamp};
 use std::cell::RefCell;
 

@@ -4,11 +4,34 @@
 
 pub type SymbolId = usize;
 
-pub mod coefficient;
-pub mod decimal;
-pub mod integer;
-pub mod string;
-pub mod timestamp;
+mod bytes;
+mod coefficient;
+mod decimal;
+mod integer;
+mod list;
+mod lob;
+mod sequence;
+mod sexp;
+mod string;
+mod r#struct;
+mod symbol;
+mod timestamp;
+
+pub use crate::types::bytes::Bytes;
+pub use coefficient::{Coefficient, Sign};
+pub use decimal::Decimal;
+pub use integer::{Int, IntAccess, UInt};
+pub use list::List;
+pub use lob::{Blob, Clob};
+pub use r#struct::Struct;
+pub use sequence::Sequence;
+pub use sexp::SExp;
+pub use string::Str;
+pub use symbol::Symbol;
+pub use timestamp::{
+    DaySetter, FractionalSecondSetter, HourAndMinuteSetter, Mantissa, MonthSetter, Precision,
+    SecondSetter, Timestamp,
+};
 
 use crate::ion_data::IonOrd;
 use std::cmp::Ordering;

@@ -2,7 +2,7 @@ use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
 
 use crate::result::{illegal_operation, IonError};
-use crate::types::integer::UInt;
+use crate::types::UInt;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::ops::{MulAssign, Neg};
@@ -159,8 +159,7 @@ mod coefficient_tests {
     use crate::ion_data::IonEq;
     use num_bigint::BigUint;
 
-    use crate::types::coefficient::Coefficient;
-    use crate::types::decimal::Decimal;
+    use crate::types::{Coefficient, Decimal};
 
     fn eq_test<I1, I2>(c1: I1, c2: I2)
     where

@@ -6,9 +6,7 @@ use chrono::{DateTime, FixedOffset};
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::text::text_formatter::STRING_ESCAPE_CODES;
-use crate::types::decimal::Decimal;
-use crate::types::timestamp::Timestamp;
-use crate::types::ContainerType;
+use crate::types::{ContainerType, Decimal, Timestamp};
 use crate::writer::IonWriter;
 use crate::{Int, IonType, RawSymbolToken};
 
@@ -743,7 +741,7 @@ mod tests {
 
     use crate::result::IonResult;
     use crate::text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder};
-    use crate::types::timestamp::Timestamp;
+    use crate::types::Timestamp;
     use crate::writer::IonWriter;
     use crate::IonType;
 

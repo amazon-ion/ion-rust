@@ -83,7 +83,7 @@ impl PendingToken {
 enum ReaderPosition {
     /// We are positioned on nothing.
     Nothing,
-    /// We are positioned on some value.
+    /// We are positioned on some value, which could be a null-container or scalar.
     NonContainer,
     /// We are positioned on the start of some container.
     Container(ContainerType),
@@ -231,8 +231,8 @@ where
     fn next_token(&mut self, instruction: Instruction) -> IonResult<Token<'a>> {
         use self::Instruction::*;
 
-        // once we enter this method--we must invalidate any outstanding token references
-        // this has to do with the lifetime of the returned token which cannot be statically
+        // once we enter this method--we must invalidate any outstanding token references.
+        // this has to do with the lifetime of the returned token which cannot be statically modeled
         self.invalidate_token();
 
         // assume materialized
