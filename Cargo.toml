@@ -30,7 +30,6 @@ members = [
 [features]
 default = []
 ion-hash = ["digest"]
-experimental-lazy-reader = []
 
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
 # These are not guaranteed any sort of API stability and may also have non-standard
@@ -39,6 +38,11 @@ experimental = ["experimental-streaming"]
 
 # Experimental streaming APIs
 experimental-streaming = []
+
+# A reader API that parks on a top-level value and yields 'lazy' handles to the data
+# contained therein. These lazy handles can be read multiple times, allowing for
+# an inexpensive form of 'rewind' functionality.
+experimental-lazy-reader = []
 
 [dependencies]
 base64 = "0.12"

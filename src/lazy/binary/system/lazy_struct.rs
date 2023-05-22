@@ -75,8 +75,9 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// Returns the value of the first field with the specified name, if any. The returned value is
     /// a [`LazyValue`]. Its type and annotations can be inspected without calling [LazyValue::read].
     ///
-    /// Because the `LazyStruct` does not store materialized values, it must seek over its fields
-    /// to find one with the requested name, giving this method linear time complexity.
+    /// Because the `LazyStruct` does not store materialized values or index field names, it must
+    /// seek over its fields to find one with the requested name, giving this method linear time
+    /// complexity.
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
@@ -261,6 +262,8 @@ impl<'top, 'data> Debug for LazyField<'top, 'data> {
 impl<'top, 'data> LazyField<'top, 'data> {
     /// Returns a symbol representing the name of this field.
     pub fn name(&self) -> IonResult<SymbolRef<'top>> {
+        // This is a LazyField (not a LazyValue), so the field name is defined.
+        debug_assert!(self.value.raw_value.field_name().is_some());
         let field_sid = self.value.raw_value.field_name().unwrap();
         self.value
             .symbol_table

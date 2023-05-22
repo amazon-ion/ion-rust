@@ -14,6 +14,10 @@ use std::fmt::{Debug, Formatter};
 use std::{fmt, mem};
 
 /// A value that has been identified in the input stream but whose data has not yet been read.
+///
+/// If only part of the value is in the input buffer, calls to [`LazyRawValue::read`] (which examines
+/// bytes beyond the value's header) may return [crate::IonError::Incomplete].
+///
 /// `LazyRawValue`s are "unresolved," which is to say that symbol values, annotations, and
 /// struct field names may or may not include a text definition. For a resolved lazy value that
 /// includes a text definition for these items whenever one exists, see
@@ -76,8 +80,8 @@ impl<'data> LazyRawValue<'data> {
 
     /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,
     /// calling this method will not read additional data; the `RawValueRef` will provide a
-    /// [`LazyRawSequence`] or [`crate::lazy::binary::system::lazy_struct::LazyStruct`] that can be
-    /// traversed to access the container's contents.
+    /// [`LazyRawSequence`] or [`LazyStruct`](crate::lazy::binary::system::lazy_struct::LazyStruct)
+    /// that can be traversed to access the container's contents.
     pub fn read(&self) -> ValueParseResult<'data> {
         if self.encoded_value.header().is_null() {
             let raw_value_ref = RawValueRef::Null(self.ion_type());

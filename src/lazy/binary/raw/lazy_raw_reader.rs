@@ -50,7 +50,6 @@ impl<'data> LazyRawReader<'data> {
         Ok(RawStreamItem::Value(lazy_value))
     }
 
-    // Elided 'top lifetime
     pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data>>
     where
         'data: 'top,

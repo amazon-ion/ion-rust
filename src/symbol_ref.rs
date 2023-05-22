@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 
 /// A reference to a fully resolved symbol. Like `Symbol` (a fully resolved symbol with a
-/// static lifetime), a `SymbolRef` may have known or undefined text.
+/// static lifetime), a `SymbolRef` may have known or undefined text (i.e. `$0`).
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct SymbolRef<'a> {
     text: Option<&'a str>,

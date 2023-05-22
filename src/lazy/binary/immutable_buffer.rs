@@ -36,6 +36,13 @@ const MAX_INT_SIZE_IN_BYTES: usize = 2048;
 /// Methods that `peek` at the input stream do not return a copy of the buffer.
 #[derive(PartialEq, Clone, Copy)]
 pub(crate) struct ImmutableBuffer<'a> {
+    // `data` is a slice of remaining data in the larger input stream.
+    // `offset` is the position in the overall input stream where that slice begins.
+    //
+    // input: 00 01 02 03 04 05 06 07 08 09
+    //                          └────┬────┘
+    //                          data: &[u8]
+    //                          offset: 6
     data: &'a [u8],
     offset: usize,
 }

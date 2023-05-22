@@ -9,6 +9,9 @@ use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTa
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
 /// not. A `LazyValue` is immutable; its data can be read any number of times.
 ///
+/// Note that `LazyValue` does not memoize the result of a read. Each time that [`LazyValue::read()`]
+/// is called, the serialized body of the value is parsed again.
+///
 /// ```
 ///# use ion_rs::IonResult;
 ///# fn main() -> IonResult<()> {

@@ -3,10 +3,14 @@ use crate::types::SymbolId;
 use crate::IonType;
 use std::ops::Range;
 
-/// Type, offset, and length information about the serialized value over which the
-/// NonBlockingRawBinaryReader is currently positioned.
+/// Represents the type, offset, and length metadata of the various components of an encoded value
+/// in an input stream.
+///
+/// Each [`LazyRawValue`](super::raw::lazy_raw_value::LazyRawValue) contains an `EncodedValue`,
+/// allowing a user to re-read (that is: parse) the body of the value as many times as necessary
+/// without re-parsing its header information each time.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct EncodedValue {
+pub(crate) struct EncodedValue {
     // If the compiler decides that a value is too large to be moved/copied with inline code,
     // it will relocate the value using memcpy instead. This can be quite slow by comparison.
     //
@@ -18,7 +22,7 @@ pub struct EncodedValue {
 
     // The type descriptor byte that identified this value; includes the type code, length code,
     // and IonType.
-    pub header: Header,
+    pub(crate) header: Header,
 
     // Each encoded value has up to five components, appearing in the following order:
     //
@@ -50,7 +54,7 @@ pub struct EncodedValue {
     pub annotations_header_length: u8,
     // The number of bytes used to encode the series of symbol IDs inside the annotations wrapper.
     pub annotations_sequence_length: u8,
-    // Type descriptor byte location.
+    // The offset of the type descriptor byte within the overall input stream.
     pub header_offset: usize,
     // The number of bytes used to encode the optional length VarUInt following the header byte.
     pub length_length: u8,
