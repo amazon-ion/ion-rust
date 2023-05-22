@@ -278,19 +278,15 @@ impl Timestamp {
             other.fractional_seconds.as_ref(),
         ) {
             (None, None) => Ordering::Equal,
-            (Some(m), None) => {
-                if m.is_zero() {
-                    Ordering::Equal
-                } else {
-                    Ordering::Greater
-                }
+            (Some(_m), None) => {
+                let d1 = self.fractional_seconds_as_decimal().unwrap();
+                let d2 = Decimal::new(0u64, 0);
+                d1.cmp(&d2)
             }
-            (None, Some(m)) => {
-                if m.is_zero() {
-                    Ordering::Equal
-                } else {
-                    Ordering::Less
-                }
+            (None, Some(_m)) => {
+                let d1 = Decimal::new(0u64, 0);
+                let d2 = other.fractional_seconds_as_decimal().unwrap();
+                d1.cmp(&d2)
             }
             (Some(Digits(_d1)), Some(Digits(_d2))) => {
                 let d1 = self.date_time.nanosecond();
@@ -1951,6 +1947,8 @@ mod timestamp_tests {
     #[case::timestamp_with_same_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Equal)]
     #[case::timestamp_with_different_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
     #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
+    #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_nanoseconds(0).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_nanoseconds(449000005).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Ordering::Greater)]
     #[case::timestamp_with_second_precison_and_year_precision(Timestamp::with_ymd(2001, 1, 1).build().unwrap(), Timestamp::with_ymd_hms(2001, 1, 1, 0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000u128, -20)).build_at_unknown_offset().unwrap(), Ordering::Equal)]
     fn timestamp_ordering_tests(
         #[case] this: Timestamp,

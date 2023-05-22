@@ -63,7 +63,7 @@ pub trait ElementReader {
 
 impl<R> ElementReader for R
 where
-    R: IonReader<Item = StreamItem, Symbol = Symbol>,
+    R: IonReader<Item = StreamItem, Symbol = Symbol> + ?Sized,
 {
     type ElementIterator<'a> = ElementIterator<'a, R> where R: 'a;
 
@@ -78,11 +78,11 @@ where
 
 /// Holds a reference to a given [ElementReader] implementation and yields one [Element] at a time
 /// until the stream is exhausted or invalid data is encountered.
-pub struct ElementIterator<'a, R: ElementReader> {
+pub struct ElementIterator<'a, R: ElementReader + ?Sized> {
     reader: &'a mut R,
 }
 
-impl<'a, R: ElementReader> Iterator for ElementIterator<'a, R> {
+impl<'a, R: ElementReader + ?Sized> Iterator for ElementIterator<'a, R> {
     type Item = IonResult<Element>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -96,11 +96,11 @@ impl<'a, R: ElementReader> Iterator for ElementIterator<'a, R> {
 
 /// Helper type; wraps an [ElementReader] and recursively materializes the next value in the
 /// reader's input, reporting any errors that might occur along the way.
-struct ElementLoader<'a, R> {
+struct ElementLoader<'a, R: ?Sized> {
     reader: &'a mut R,
 }
 
-impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol>> ElementLoader<'a, R> {
+impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol> + ?Sized> ElementLoader<'a, R> {
     pub(crate) fn for_reader(reader: &mut R) -> ElementLoader<R> {
         ElementLoader { reader }
     }

@@ -286,6 +286,24 @@ impl From<Struct> for Value {
     }
 }
 
+#[cfg(feature = "experimental-streaming")]
+impl From<crate::tokens::ScalarValue> for Value {
+    fn from(value: crate::tokens::ScalarValue) -> Self {
+        use crate::tokens::ScalarValue;
+        match value {
+            ScalarValue::Bool(bool) => Value::Bool(bool),
+            ScalarValue::Int(int) => Value::Int(int),
+            ScalarValue::Float(float) => Value::Float(float),
+            ScalarValue::Decimal(decimal) => Value::Decimal(decimal),
+            ScalarValue::Timestamp(timestamp) => Value::Timestamp(timestamp),
+            ScalarValue::String(text) => Value::String(text),
+            ScalarValue::Symbol(symbol) => Value::Symbol(symbol),
+            ScalarValue::Blob(bytes) => Value::Blob(bytes),
+            ScalarValue::Clob(bytes) => Value::Clob(bytes),
+        }
+    }
+}
+
 /// Allows types that can be converted into an Ion [Value] to also specify annotations, producing
 /// an [Element].
 ///

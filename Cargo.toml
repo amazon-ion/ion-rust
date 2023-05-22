@@ -48,7 +48,10 @@ experimental-lazy-reader = []
 base64 = "0.12"
 bigdecimal = "0.3.0"
 bytes = "0.4"
-chrono = "0.4"
+# chrono < 0.5 brings in a deprecated version of the `time` crate via `oldtime` feature by default
+# this makes it explicitly not do this as there is an advisory warning against this:
+# See: https://github.com/chronotope/chrono/issues/602
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
 delegate = "0.9.0"
 thiserror = "1.0"
 nom = "7.1.1"
@@ -61,7 +64,8 @@ digest = { version = "0.9", optional = true }
 sha2 = { version = "0.9", optional = true }
 
 [dev-dependencies]
-rstest = "0.16.0"
+rstest = "0.17.0"
+rstest_reuse = "0.5.0"
 # Used by ion-tests integration
 walkdir = "2.3"
 test-generator = "0.3"
