@@ -30,7 +30,7 @@ impl<R: BufferedRawReader, T: ToIonDataSource> BlockingRawReader<R, T> {
         loop {
             let n = self.reader.read_from(&mut self.source, length)?;
             bytes_read += n;
-            if n == 0 || bytes_read + n >= length {
+            if n == 0 || bytes_read >= length {
                 break;
             }
         }
@@ -534,6 +534,41 @@ mod tests {
             cursor.raw_value_bytes(),
             Some(&ion_data[15..15] /* That is, zero bytes */)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_binary_end_of_stream() -> IonResult<()> {
+        // This test is to ensure that the non-blocking binary reader is honoring the end of stream
+        // flag, and that the blocking reader is making use of it. A previous bug existed where the
+        // binary reader was not using the end of stream flag, and ending a read on a data boundary
+        // would result in the blocking reader not providing any more data, since it relies on
+        // Incomplete errors to do so.
+
+        // {$11: [1, 2, 3], $10: 1}
+        let ion_data: &[u8] = &[
+            // First top-level value in the stream
+            0xDB, // 11-byte struct
+            0x8B, // Field ID 11
+            0xB6, // 6-byte List
+            0x21, 0x01, // Integer 1
+            0x21, 0x02, // Integer 2
+            0x21, 0x03, // Integer 3
+            0x8A, // Field ID 10
+            0x21, 0x01, // Integer 1
+            // Second top-level value in the stream
+            0xE3, // 3-byte annotations envelope
+            0x81, // * Annotations themselves take 1 byte
+            0x8C, // * Annotation w/SID $12
+            0x10, // Boolean false
+        ];
+        // Create a blocking reader with an initial buffer size of 12, so that we can read exactly
+        // the first value. If EOS is not honored, our second call to `next` should result in no
+        // value being read, since the blocking reader would not know to provide more data.
+        let mut cursor = BlockingRawBinaryReader::new_with_size(ion_data.to_owned(), 12)?;
+        assert_eq!(RawStreamItem::Value(IonType::Struct), cursor.next()?);
+        assert_eq!(RawStreamItem::Value(IonType::Bool), cursor.next()?);
+
         Ok(())
     }
 }

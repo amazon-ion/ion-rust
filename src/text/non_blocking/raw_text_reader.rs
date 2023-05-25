@@ -4,7 +4,7 @@ use crate::element::{Blob, Clob};
 use crate::types::Str;
 use nom::Err::{Error, Failure, Incomplete};
 
-use crate::raw_reader::{BufferedRawReader, RawStreamItem};
+use crate::raw_reader::{BufferedRawReader, Expandable, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{
     decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError,
@@ -98,25 +98,6 @@ pub(crate) enum RootParseResult<O> {
 impl From<Vec<u8>> for RawTextReader<Vec<u8>> {
     fn from(source: Vec<u8>) -> Self {
         RawTextReader::new(source)
-    }
-}
-
-/// Provides a mechanism for identifying input types that allow adding more data.
-/// This allows for some input-type oriented behaviors, like initializing the end of stream status
-/// to true if we know more data can not be added.
-pub trait Expandable {
-    fn expandable(&self) -> bool;
-}
-
-impl<T: AsRef<[u8]> + ?Sized> Expandable for &T {
-    fn expandable(&self) -> bool {
-        false
-    }
-}
-
-impl Expandable for Vec<u8> {
-    fn expandable(&self) -> bool {
-        true
     }
 }
 
