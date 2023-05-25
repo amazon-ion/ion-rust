@@ -811,7 +811,7 @@ mod tests {
 
     #[test]
     fn validate_read_from_size() -> IonResult<()> {
-        // This test validates that the size of data we wish to read, is actually honored by
+        // This test validates that the size of data we wish to read is actually honored by
         // read_from. A bug existed where the sub-slice of the buffer was calculated incorrectly,
         // leading to the potential for failed reads, or increasingly smaller reads.
         let mut buffer = BinaryBuffer::new(vec![0; 10]);
