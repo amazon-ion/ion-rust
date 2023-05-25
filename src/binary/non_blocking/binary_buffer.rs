@@ -808,4 +808,17 @@ mod tests {
             .expect_err("This exceeded the configured max Int size.");
         Ok(())
     }
+
+    #[test]
+    fn validate_read_from_size() -> IonResult<()> {
+        // This test validates that the size of data we wish to read, is actually honored by
+        // read_from. A bug existed where the sub-slice of the buffer was calculated incorrectly,
+        // leading to the potential for failed reads, or increasingly smaller reads.
+        let mut buffer = BinaryBuffer::new(vec![0; 10]);
+        let new_data: &[u8] = &[0; 11];
+        let bytes_read = buffer.read_from(new_data, 11)?;
+        assert_eq!(bytes_read, 11);
+
+        Ok(())
+    }
 }

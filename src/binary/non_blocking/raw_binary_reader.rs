@@ -2062,4 +2062,38 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn test_incomplete_annotation_wrapper() -> IonResult<()> {
+        // This test ensures that if we reach the end of the buffer while processing the annotation
+        // wrapper, we do not try to consume beyond the buffer's limits. Instead, we should get an
+        // incomplete error so that the data can be skipped properly.
+
+        let ion_data = &[
+            // First top-level value in the stream
+            0xDB, // 11-byte struct
+            0x8B, // Field ID 11
+            0xB6, // 6-byte List
+            0x21, 0x01, // Integer 1
+            0x21, 0x02, // Integer 2
+            0x21, 0x03, // Integer 3
+            0x8A, // Field ID 10
+            0x21, 0x01, // Integer 1
+            // Second top-level value in the stream
+            0xE3, // 3-byte annotations envelope
+            0x81, // * Annotations themselves take 1 byte  (buffer read stops here)
+            0x8C, // * Annotation w/SID $12
+            0x10, // Boolean false
+        ];
+
+        let mut cursor = RawBinaryReader::new(&ion_data[0..14]);
+        assert_eq!(RawStreamItem::Value(IonType::Struct), cursor.next()?);
+        match cursor.next() {
+            Err(IonError::Incomplete { .. }) => (),
+            Err(_) => assert!(false, "Unexpected error"),
+            Ok(_) => assert!(false, "Successful parse of incomplete data."),
+        }
+
+        Ok(())
+    }
 }
