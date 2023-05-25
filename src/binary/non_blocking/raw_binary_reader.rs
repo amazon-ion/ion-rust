@@ -2090,8 +2090,8 @@ mod tests {
         assert_eq!(RawStreamItem::Value(IonType::Struct), cursor.next()?);
         match cursor.next() {
             Err(IonError::Incomplete { .. }) => (),
-            Err(_) => assert!(false, "Unexpected error"),
-            Ok(_) => assert!(false, "Successful parse of incomplete data."),
+            Err(_) => panic!("Unexpected error"),
+            Ok(_) => panic!("Successful parse of incomplete data."),
         }
 
         Ok(())
