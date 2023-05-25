@@ -4,7 +4,9 @@ use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::{ElementWriter, Format, TextKind};
 use ion_rs::element::{Element, Sequence};
 use ion_rs::result::{decoding_error, IonError, IonResult};
-use ion_rs::{BinaryWriterBuilder, IonData, IonWriter, Reader, TextWriterBuilder};
+use ion_rs::{
+    BinaryWriterBuilder, IonData, IonReader, IonWriter, StreamItem, Symbol, TextWriterBuilder,
+};
 
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
@@ -66,6 +68,9 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
     Ok(buffer)
 }
 
+/// Allow for anything that implements a user-like reader
+type DynamicReader<'a> = Box<dyn IonReader<Item = StreamItem, Symbol = Symbol> + 'a>;
+
 trait ElementApi {
     fn global_skip_list() -> SkipList;
     fn read_one_equivs_skip_list() -> SkipList;
@@ -73,7 +78,7 @@ trait ElementApi {
     fn equivs_skip_list() -> SkipList;
     fn non_equivs_skip_list() -> SkipList;
 
-    fn make_reader(data: &[u8]) -> IonResult<Reader<'_>>;
+    fn make_reader(data: &[u8]) -> IonResult<DynamicReader>;
 
     /// Asserts the given elements can be round-tripped and equivalent, then returns the new elements.
     fn assert_round_trip(
@@ -418,46 +423,69 @@ mod impl_display_for_element_tests {
     }
 }
 
+const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
+    // The binary reader does not check whether nested values are longer than their
+    // parent container.
+    "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
+    // ROUND TRIP
+    // These tests have shared symbol table imports in them, which the Reader does not
+    // yet support.
+    "ion-tests/iontestdata/good/subfieldInt.ion",
+    "ion-tests/iontestdata/good/subfieldUInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
+    // This test requires the reader to be able to read symbols whose ID is encoded
+    // with more than 8 bytes. Having a symbol table with more than 18 quintillion
+    // symbols is not very practical.
+    "ion-tests/iontestdata/good/typecodes/T7-large.10n",
+    // ---
+    // Requires importing shared symbol tables
+    "ion-tests/iontestdata/good/item1.10n",
+    "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
+    // Requires importing shared symbol tables
+    "ion-tests/iontestdata/good/testfile35.ion",
+    // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
+    "ion-tests/iontestdata/good/utf16.ion",
+    "ion-tests/iontestdata/good/utf32.ion",
+    // NON-EQUIVS
+    "ion-tests/iontestdata/good/non-equivs/localSymbolTableWithAnnotations.ion",
+    "ion-tests/iontestdata/good/non-equivs/symbolTablesUnknownText.ion",
+];
+
+const ELEMENT_ROUND_TRIP_SKIP_LIST: SkipList = &[
+    "ion-tests/iontestdata/good/item1.10n",
+    "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
+    "ion-tests/iontestdata/good/notVersionMarkers.ion",
+    "ion-tests/iontestdata/good/subfieldInt.ion",
+    "ion-tests/iontestdata/good/subfieldUInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
+    "ion-tests/iontestdata/good/utf16.ion",
+    "ion-tests/iontestdata/good/utf32.ion",
+];
+
+const ELEMENT_EQUIVS_SKIP_LIST: SkipList = &[
+    "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
+    "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
+    "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
+];
+
 #[cfg(test)]
 mod native_element_tests {
     use super::*;
-    use ion_rs::{Reader, ReaderBuilder};
+    use ion_rs::ReaderBuilder;
 
     struct NativeElementApi;
 
     impl ElementApi for NativeElementApi {
         fn global_skip_list() -> SkipList {
-            &[
-                // The binary reader does not check whether nested values are longer than their
-                // parent container.
-                "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
-                // ROUND TRIP
-                // These tests have shared symbol table imports in them, which the Reader does not
-                // yet support.
-                "ion-tests/iontestdata/good/subfieldInt.ion",
-                "ion-tests/iontestdata/good/subfieldUInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
-                // This test requires the reader to be able to read symbols whose ID is encoded
-                // with more than 8 bytes. Having a symbol table with more than 18 quintillion
-                // symbols is not very practical.
-                "ion-tests/iontestdata/good/typecodes/T7-large.10n",
-                // ---
-                // Requires importing shared symbol tables
-                "ion-tests/iontestdata/good/item1.10n",
-                "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
-                // Requires importing shared symbol tables
-                "ion-tests/iontestdata/good/testfile35.ion",
-                // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
-                "ion-tests/iontestdata/good/utf16.ion",
-                "ion-tests/iontestdata/good/utf32.ion",
-                // NON-EQUIVS
-                "ion-tests/iontestdata/good/non-equivs/localSymbolTableWithAnnotations.ion",
-                "ion-tests/iontestdata/good/non-equivs/symbolTablesUnknownText.ion",
-            ]
+            ELEMENT_GLOBAL_SKIP_LIST
         }
 
         fn read_one_equivs_skip_list() -> SkipList {
@@ -465,36 +493,20 @@ mod native_element_tests {
         }
 
         fn round_trip_skip_list() -> SkipList {
-            &[
-                "ion-tests/iontestdata/good/item1.10n",
-                "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
-                "ion-tests/iontestdata/good/notVersionMarkers.ion",
-                "ion-tests/iontestdata/good/subfieldInt.ion",
-                "ion-tests/iontestdata/good/subfieldUInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
-                "ion-tests/iontestdata/good/utf16.ion",
-                "ion-tests/iontestdata/good/utf32.ion",
-            ]
+            ELEMENT_ROUND_TRIP_SKIP_LIST
         }
 
         fn equivs_skip_list() -> SkipList {
-            &[
-                "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
-                "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
-                "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
-            ]
+            ELEMENT_EQUIVS_SKIP_LIST
         }
 
         fn non_equivs_skip_list() -> SkipList {
             &[]
         }
 
-        fn make_reader(data: &[u8]) -> IonResult<Reader<'_>> {
-            ReaderBuilder::default().build(data)
+        fn make_reader(data: &[u8]) -> IonResult<DynamicReader<'_>> {
+            let reader = ReaderBuilder::default().build(data)?;
+            Ok(Box::new(reader))
         }
     }
 
@@ -535,47 +547,17 @@ mod native_element_tests {
     }
 }
 
+#[cfg(test)]
 mod non_blocking_native_element_tests {
     use super::*;
     use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryReader;
     use ion_rs::text::non_blocking::raw_text_reader::RawTextReader;
-    use ion_rs::Reader;
 
     struct NonBlockingNativeElementApi;
 
     impl ElementApi for NonBlockingNativeElementApi {
         fn global_skip_list() -> SkipList {
-            &[
-                // The binary reader does not check whether nested values are longer than their
-                // parent container.
-                "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
-                // ROUND TRIP
-                // These tests have shared symbol table imports in them, which the Reader does not
-                // yet support.
-                "ion-tests/iontestdata/good/subfieldInt.ion",
-                "ion-tests/iontestdata/good/subfieldUInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
-                // This test requires the reader to be able to read symbols whose ID is encoded
-                // with more than 8 bytes. Having a symbol table with more than 18 quintillion
-                // symbols is not very practical.
-                "ion-tests/iontestdata/good/typecodes/T7-large.10n",
-                // ---
-                // Requires importing shared symbol tables
-                "ion-tests/iontestdata/good/item1.10n",
-                "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
-                // Requires importing shared symbol tables
-                "ion-tests/iontestdata/good/testfile35.ion",
-                // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
-                "ion-tests/iontestdata/good/utf16.ion",
-                "ion-tests/iontestdata/good/utf32.ion",
-                // NON-EQUIVS
-                "ion-tests/iontestdata/good/non-equivs/localSymbolTableWithAnnotations.ion",
-                "ion-tests/iontestdata/good/non-equivs/symbolTablesUnknownText.ion",
-            ]
+            ELEMENT_GLOBAL_SKIP_LIST
         }
 
         fn read_one_equivs_skip_list() -> SkipList {
@@ -583,35 +565,18 @@ mod non_blocking_native_element_tests {
         }
 
         fn round_trip_skip_list() -> SkipList {
-            &[
-                "ion-tests/iontestdata/good/item1.10n",
-                "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
-                "ion-tests/iontestdata/good/notVersionMarkers.ion",
-                "ion-tests/iontestdata/good/subfieldInt.ion",
-                "ion-tests/iontestdata/good/subfieldUInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
-                "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
-                "ion-tests/iontestdata/good/utf16.ion",
-                "ion-tests/iontestdata/good/utf32.ion",
-            ]
+            ELEMENT_ROUND_TRIP_SKIP_LIST
         }
 
         fn equivs_skip_list() -> SkipList {
-            &[
-                "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
-                "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
-                "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
-            ]
+            ELEMENT_EQUIVS_SKIP_LIST
         }
 
         fn non_equivs_skip_list() -> SkipList {
             &[]
         }
 
-        fn make_reader(data: &[u8]) -> IonResult<Reader<'_>> {
+        fn make_reader(data: &[u8]) -> IonResult<DynamicReader<'_>> {
             // These imports are visible as a temporary workaround.
             // See: https://github.com/amazon-ion/ion-rust/issues/484
             use ion_rs::binary::constants::v1_0::IVM;
@@ -619,11 +584,11 @@ mod non_blocking_native_element_tests {
             // If the data is binary, create a non-blocking binary reader.
             if data.starts_with(&IVM) {
                 let raw_reader = RawBinaryReader::new(data);
-                Ok(new_reader(raw_reader))
+                Ok(Box::new(new_reader(raw_reader)))
             } else {
                 // Otherwise, create a non-blocking text reader
                 let raw_reader = RawTextReader::new(data);
-                Ok(new_reader(raw_reader))
+                Ok(Box::new(new_reader(raw_reader)))
             }
         }
     }
@@ -662,5 +627,79 @@ mod non_blocking_native_element_tests {
     //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
     fn native_non_equivs(file_name: &str) {
         non_equivs(NonBlockingNativeElementApi, file_name)
+    }
+}
+
+#[cfg(all(test, feature = "experimental-streaming"))]
+mod token_native_element_tests {
+    use super::*;
+    use ion_rs::tokens::{ReaderTokenStream, TokenStreamReader};
+    use ion_rs::ReaderBuilder;
+
+    struct TokenNativeElementApi;
+
+    impl ElementApi for TokenNativeElementApi {
+        fn global_skip_list() -> SkipList {
+            ELEMENT_GLOBAL_SKIP_LIST
+        }
+
+        fn read_one_equivs_skip_list() -> SkipList {
+            &[]
+        }
+
+        fn round_trip_skip_list() -> SkipList {
+            ELEMENT_ROUND_TRIP_SKIP_LIST
+        }
+
+        fn equivs_skip_list() -> SkipList {
+            ELEMENT_EQUIVS_SKIP_LIST
+        }
+
+        fn non_equivs_skip_list() -> SkipList {
+            &[]
+        }
+
+        fn make_reader<'a>(data: &'a [u8]) -> IonResult<DynamicReader<'a>> {
+            let reader = ReaderBuilder::default().build(data)?;
+            let tokens: ReaderTokenStream<'a, _> = reader.into();
+            let token_reader: TokenStreamReader<'a, _> = tokens.into();
+            Ok(Box::new(token_reader))
+        }
+    }
+
+    good_round_trip! {
+        use TokenNativeElementApi;
+        fn binary_compact(Format::Binary, Format::Text(TextKind::Compact));
+        fn binary_lines(Format::Binary, Format::Text(TextKind::Lines));
+        fn binary_pretty(Format::Binary, Format::Text(TextKind::Pretty));
+        fn compact_binary(Format::Text(TextKind::Compact), Format::Binary);
+        fn compact_lines(Format::Text(TextKind::Compact), Format::Text(TextKind::Lines));
+        fn compact_pretty(Format::Text(TextKind::Compact), Format::Text(TextKind::Pretty));
+        fn lines_binary(Format::Text(TextKind::Lines), Format::Binary);
+        fn lines_compact(Format::Text(TextKind::Lines), Format::Text(TextKind::Compact));
+        fn lines_pretty(Format::Text(TextKind::Lines), Format::Text(TextKind::Pretty));
+        fn pretty_binary(Format::Text(TextKind::Pretty), Format::Binary);
+        fn pretty_compact(Format::Text(TextKind::Pretty), Format::Text(TextKind::Compact));
+        fn pretty_lines(Format::Text(TextKind::Pretty), Format::Text(TextKind::Lines));
+    }
+
+    #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/bad/**/*.10n")]
+    fn native_bad(file_name: &str) {
+        bad(TokenNativeElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
+    fn native_equivs(file_name: &str) {
+        equivs(TokenNativeElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.ion")]
+    // no binary files exist and the macro doesn't like empty globs...
+    // see frehberg/test-generator#12
+    //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
+    fn native_non_equivs(file_name: &str) {
+        non_equivs(TokenNativeElementApi, file_name)
     }
 }
