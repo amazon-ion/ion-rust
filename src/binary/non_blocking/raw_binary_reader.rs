@@ -5,7 +5,7 @@ use crate::binary::non_blocking::type_descriptor::{Header, TypeDescriptor};
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
 use crate::binary::IonTypeCode;
-use crate::raw_reader::BufferedRawReader;
+use crate::raw_reader::{BufferedRawReader, Expandable};
 use crate::result::{
     decoding_error, decoding_error_raw, illegal_operation, illegal_operation_raw,
     incomplete_data_error,
@@ -314,7 +314,7 @@ impl Container {
 /// Note that if the buffer runs out of data between top level values, this will be interpreted
 /// as the end of the stream. Applications can still add more data to the buffer and resume reading.
 #[derive(Debug)]
-pub struct RawBinaryReader<A: AsRef<[u8]>> {
+pub struct RawBinaryReader<A: AsRef<[u8]> + Expandable> {
     ion_version: (u8, u8),
     state: ReaderState,
     buffer: BinaryBuffer<A>,
@@ -351,15 +351,16 @@ impl From<Vec<u8>> for RawBinaryReader<Vec<u8>> {
     }
 }
 
-impl<A: AsRef<[u8]>> RawBinaryReader<A> {
+impl<A: AsRef<[u8]> + Expandable> RawBinaryReader<A> {
     /// Constructs a RawBinaryReader from a value that can be viewed as a byte slice.
     pub fn new(source: A) -> RawBinaryReader<A> {
+        let expandable = source.expandable();
         RawBinaryReader {
             ion_version: (1, 0),
             state: ReaderState::Ready,
             buffer: BinaryBuffer::new(source),
             parents: Vec::new(), // Does not allocate yet
-            is_eos: false,
+            is_eos: !expandable,
         }
     }
 
@@ -704,7 +705,7 @@ impl<A: AsRef<[u8]>> RawBinaryReader<A> {
     }
 }
 
-impl<A: AsRef<[u8]>> IonReader for RawBinaryReader<A> {
+impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
     type Item = RawStreamItem;
     type Symbol = RawSymbolToken;
 
@@ -745,10 +746,18 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryReader<A> {
                     return Ok(RawStreamItem::Nothing);
                 }
             } else {
-                // We're at the top level. If we're out of data (`buffer.is_empty()`) and aren't waiting
-                // on more data (`Skipping(n)`), we return `Nothing` to indicate that we're at EOF.
+                // We're at the top level. If we are out of data, then we need to determine if we
+                // are at the end of the stream or not. If not, then we need to signal an
+                // incomplete error, otherwise we can return Nothing to indicate that we are done.
                 if self.buffer.is_empty() && self.state == ReaderState::Ready {
-                    return Ok(RawStreamItem::Nothing);
+                    if self.is_eos {
+                        return Ok(RawStreamItem::Nothing);
+                    } else {
+                        return incomplete_data_error(
+                            "ahead to next item",
+                            self.buffer.total_consumed(),
+                        );
+                    }
                 }
             }
         }
@@ -762,7 +771,7 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryReader<A> {
         // parsing will create a fresh transaction reader starting from the last good state.
         let mut tx_reader = self.transaction_reader();
 
-        let item_result = tx_reader.read_next_item();
+        let item_result = tx_reader.read_next_item()?;
         let nop_bytes_count = tx_reader.nop_bytes_count as usize;
 
         // If we do not have enough bytes to materialize the next value, return an incomplete
@@ -782,7 +791,7 @@ impl<A: AsRef<[u8]>> IonReader for RawBinaryReader<A> {
         // This guarantees that the first byte in the buffer is the first byte of the current item.
         self.buffer.consume(nop_bytes_count);
 
-        item_result
+        Ok(item_result)
     }
 
     fn current(&self) -> Self::Item {
@@ -1374,6 +1383,10 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
             return decoding_error("found an annotation wrapper with no value");
         }
 
+        if annotations_length.value() > self.tx_buffer.remaining() {
+            return incomplete_data_error("an annotation wrapper", self.tx_buffer.total_consumed());
+        }
+
         // Skip over the annotations sequence itself; the reader will return to it if/when the
         // reader asks to iterate over those symbol IDs.
         self.tx_buffer.consume(annotations_length.value());
@@ -1471,7 +1484,7 @@ mod tests {
         }
     }
 
-    fn expect_annotations<A: AsRef<[u8]>, I: IntoRawAnnotations>(
+    fn expect_annotations<A: AsRef<[u8]> + Expandable, I: IntoRawAnnotations>(
         reader: &RawBinaryReader<A>,
         annotations: I,
     ) {
@@ -1513,7 +1526,7 @@ mod tests {
     #[test]
     fn read_int_header() -> IonResult<()> {
         let data = vec![0x21, 0x03];
-        let mut reader = RawBinaryReader::new(data);
+        let mut reader = RawBinaryReader::new(data.as_slice());
         expect_value(reader.next(), IonType::Int);
         expect_eof(reader.next());
         Ok(())
@@ -1529,11 +1542,14 @@ mod tests {
         // This byte completes the int, but we still don't have another value to move to.
         reader.append_bytes(&[0x03])?;
         expect_value(reader.next(), IonType::Int);
-        expect_eof(reader.next());
+        expect_incomplete(reader.next()); // Incomplete, rather than EOF because we have not marked
+                                          // the stream complete.
 
         // Now there's an empty string after the int
         reader.append_bytes(&[0x80])?;
+        reader.stream_complete();
         expect_value(reader.next(), IonType::String);
+        expect_eof(reader.next());
 
         Ok(())
     }
@@ -1545,7 +1561,7 @@ mod tests {
             0x21, 0x02, // 2
             0x21, 0x03, // 3
         ];
-        let mut reader = RawBinaryReader::new(data);
+        let mut reader = RawBinaryReader::new(data.as_slice());
         expect_value(reader.next(), IonType::Int);
         assert_eq!(reader.read_int()?, Int::I64(1));
         expect_value(reader.next(), IonType::Int);
@@ -1564,7 +1580,7 @@ mod tests {
             0x48, 0x40, 0x92, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, // 1.2e3
             0x48, 0xc0, 0x20, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, // -8.125e0
         ];
-        let mut reader = RawBinaryReader::new(data);
+        let mut reader = RawBinaryReader::new(data.as_slice());
         expect_value(reader.next(), IonType::Float);
         assert_eq!(reader.read_f64()?, 5.5f64);
         expect_value(reader.next(), IonType::Float);
@@ -1584,7 +1600,7 @@ mod tests {
             0x52, 0x80, 0xe4, // -100.
             0x52, 0x80, 0x1c, // 28.
         ];
-        let mut reader = RawBinaryReader::new(data);
+        let mut reader = RawBinaryReader::new(data.as_slice());
         expect_value(reader.next(), IonType::Decimal);
         assert_eq!(reader.read_decimal()?, Decimal::new(0, 0));
         expect_value(reader.next(), IonType::Decimal);
@@ -1612,7 +1628,7 @@ mod tests {
             0xbb, // 2022-06-09T22:59:59.000+00:00
             0xbb, 0xc3,
         ];
-        let mut reader = RawBinaryReader::new(data);
+        let mut reader = RawBinaryReader::new(data.as_slice());
         expect_value(reader.next(), IonType::Timestamp);
         assert_eq!(
             reader.read_timestamp()?,
@@ -1674,7 +1690,7 @@ mod tests {
             0x71, 0x02, // $2
             0x72, 0x00, 0x03, // inefficiently encoded $3
         ];
-        let mut reader = RawBinaryReader::new(data);
+        let mut reader = RawBinaryReader::new(data.as_slice());
         expect_value(reader.next(), IonType::Symbol);
         assert_eq!(reader.read_symbol_id()?, 0);
         expect_value(reader.next(), IonType::Symbol);
@@ -1696,7 +1712,7 @@ mod tests {
             0x83, 0x62, 0x61, 0x72, // "bar"
             0x83, 0x62, 0x61, 0x7a, // "baz"
         ];
-        let mut reader = RawBinaryReader::new(data);
+        let mut reader = RawBinaryReader::new(data.as_slice());
         expect_value(reader.next(), IonType::String);
         assert_eq!(reader.read_str()?, "");
         expect_value(reader.next(), IonType::String);
@@ -1718,7 +1734,7 @@ mod tests {
             0x93, 0x62, 0x61, 0x72, // b"bar"
             0x93, 0x62, 0x61, 0x7a, // b"baz"
         ];
-        let mut reader = RawBinaryReader::new(data);
+        let mut reader = RawBinaryReader::new(data.as_slice());
         expect_value(reader.next(), IonType::Clob);
         assert_eq!(reader.read_clob_bytes()?, b"");
         expect_value(reader.next(), IonType::Clob);
@@ -1740,7 +1756,7 @@ mod tests {
             0xA3, 0x62, 0x61, 0x72, // b"bar"
             0xA3, 0x62, 0x61, 0x7a, // b"baz"
         ];
-        let mut reader = RawBinaryReader::new(data);
+        let mut reader = RawBinaryReader::new(data.as_slice());
         expect_value(reader.next(), IonType::Blob);
         assert_eq!(reader.read_blob_bytes()?, b"");
         expect_value(reader.next(), IonType::Blob);
@@ -1761,7 +1777,7 @@ mod tests {
             0xE4, 0x81, 0x85, 0x21, 0x02, // $5::2
             0xE6, 0x83, 0x86, 0x87, 0x88, 0x21, 0x03, // $6::$7::$8::3
         ];
-        let mut reader = RawBinaryReader::new(data);
+        let mut reader = RawBinaryReader::new(data.as_slice());
 
         expect_value(reader.next(), IonType::Int);
         expect_annotations(&reader, [4]);
@@ -2044,6 +2060,40 @@ mod tests {
             cursor.raw_value_bytes(),
             Some(&ion_data[15..15] /* That is, zero bytes */)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_incomplete_annotation_wrapper() -> IonResult<()> {
+        // This test ensures that if we reach the end of the buffer while processing the annotation
+        // wrapper, we do not try to consume beyond the buffer's limits. Instead, we should get an
+        // incomplete error so that the data can be skipped properly.
+
+        let ion_data = &[
+            // First top-level value in the stream
+            0xDB, // 11-byte struct
+            0x8B, // Field ID 11
+            0xB6, // 6-byte List
+            0x21, 0x01, // Integer 1
+            0x21, 0x02, // Integer 2
+            0x21, 0x03, // Integer 3
+            0x8A, // Field ID 10
+            0x21, 0x01, // Integer 1
+            // Second top-level value in the stream
+            0xE3, // 3-byte annotations envelope
+            0x81, // * Annotations themselves take 1 byte  (buffer read stops here)
+            0x8C, // * Annotation w/SID $12
+            0x10, // Boolean false
+        ];
+
+        let mut cursor = RawBinaryReader::new(&ion_data[0..14]);
+        assert_eq!(RawStreamItem::Value(IonType::Struct), cursor.next()?);
+        match cursor.next() {
+            Err(IonError::Incomplete { .. }) => (),
+            Err(_) => panic!("Unexpected error"),
+            Ok(_) => panic!("Successful parse of incomplete data."),
+        }
+
         Ok(())
     }
 }

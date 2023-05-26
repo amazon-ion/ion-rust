@@ -174,3 +174,22 @@ pub trait BufferedRawReader: RawReader + From<Vec<u8>> {
     fn stream_complete(&mut self);
     fn is_stream_complete(&self) -> bool;
 }
+
+/// Provides a mechanism for identifying input types that allow adding more data.
+/// This allows for some input-type oriented behaviors, like initializing the end of stream status
+/// to true if we know more data can not be added.
+pub trait Expandable {
+    fn expandable(&self) -> bool;
+}
+
+impl<T: AsRef<[u8]> + ?Sized> Expandable for &T {
+    fn expandable(&self) -> bool {
+        false
+    }
+}
+
+impl Expandable for Vec<u8> {
+    fn expandable(&self) -> bool {
+        true
+    }
+}
