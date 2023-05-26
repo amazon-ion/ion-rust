@@ -106,6 +106,10 @@ impl<'data> DataSource<'data> {
         }
     }
 
+    /// Runs the provided parsing function on this DataSource's buffer.
+    /// If it succeeds, marks the `DataSource` as ready to advance by the 'n' bytes
+    /// that were consumed.
+    /// If it does not succeed, the `DataSource` remains unchanged.
     pub(crate) fn try_parse_next<
         F: Fn(ImmutableBuffer<'data>) -> IonResult<Option<LazyRawValue<'data>>>,
     >(

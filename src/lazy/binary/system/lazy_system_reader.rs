@@ -202,8 +202,8 @@ impl<'data> LazySystemReader<'data> {
         let mut found_symbols_field = false;
         let mut found_imports_field = false;
 
-        for field in &symbol_table {
-            let field = field?;
+        for field_result in &symbol_table {
+            let field = field_result?;
             if field.name() == SYMBOLS {
                 if found_symbols_field {
                     return decoding_error("found symbol table with multiple 'symbols' fields");

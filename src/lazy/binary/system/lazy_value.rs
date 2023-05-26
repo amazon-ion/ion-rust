@@ -184,7 +184,10 @@ impl<'top, 'data> LazyValue<'top, 'data> {
                         .symbol_table
                         .symbol_for(sid)
                         .ok_or_else(|| {
-                            decoding_error_raw("found a symbol ID that was not in the symbol table")
+                            decoding_error_raw(format!(
+                                "found a symbol ID (${}) that was not in the symbol table",
+                                sid
+                            ))
                         })?
                         .into(),
                     RawSymbolTokenRef::Text(text) => text.into(),
@@ -224,7 +227,7 @@ impl<'top, 'data> TryFrom<LazyValue<'top, 'data>> for Element {
 
     fn try_from(value: LazyValue<'top, 'data>) -> Result<Self, Self::Error> {
         let annotations: Annotations = value.annotations().try_into()?;
-        let value = Value::try_from(value.read()?)?;
+        let value: Value = value.read()?.try_into()?;
         Ok(value.with_annotations(annotations))
     }
 }
