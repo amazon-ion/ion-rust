@@ -13,6 +13,11 @@ pub struct TextWriterBuilder {
 }
 
 impl TextWriterBuilder {
+    /// Constructs a text Ion writer with the specified formatting. See [`TextKind`] for details.
+    pub fn new(format: TextKind) -> TextWriterBuilder {
+        TextWriterBuilder { text_kind: format }
+    }
+
     /// Constructs a text Ion writer that serializes data with modest (but not strictly minimal)
     /// spacing.
     ///
@@ -20,7 +25,7 @@ impl TextWriterBuilder {
     /// ```text
     /// {foo: 1, bar: 2, baz: 3} [1, 2, 3] true "hello"
     /// ```
-    pub fn new() -> TextWriterBuilder {
+    pub fn compact() -> TextWriterBuilder {
         TextWriterBuilder {
             text_kind: TextKind::Compact,
         }
@@ -69,7 +74,7 @@ impl TextWriterBuilder {
     /// implementation.
     pub fn build<W: Write>(self, sink: W) -> IonResult<TextWriter<W>> {
         let builder = match self.text_kind {
-            TextKind::Compact => RawTextWriterBuilder::new(),
+            TextKind::Compact => RawTextWriterBuilder::default(),
             TextKind::Pretty => RawTextWriterBuilder::pretty(),
             TextKind::Lines => RawTextWriterBuilder::lines(),
         };
@@ -84,7 +89,7 @@ impl TextWriterBuilder {
 
 impl Default for TextWriterBuilder {
     fn default() -> Self {
-        TextWriterBuilder::new()
+        TextWriterBuilder::new(TextKind::Compact)
     }
 }
 
@@ -193,7 +198,7 @@ mod tests {
         // However, if you ask it to write a symbol ID (e.g. $10) for which its initial symbol
         // table has text, it will convert it to text before writing it.
         let mut buffer = Vec::new();
-        let mut text_writer = TextWriterBuilder::new().build(&mut buffer)?;
+        let mut text_writer = TextWriterBuilder::default().build(&mut buffer)?;
         // The following symbol IDs are in the system symbol table.
         // https://amazon-ion.github.io/ion-docs/docs/symbols.html#system-symbols
         text_writer.step_in(IonType::Struct)?;

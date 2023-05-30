@@ -3,6 +3,7 @@ use std::io::{BufWriter, Write};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 
+use crate::element::writer::TextKind;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::text::text_formatter::STRING_ESCAPE_CODES;
@@ -15,13 +16,22 @@ pub struct RawTextWriterBuilder {
 }
 
 impl RawTextWriterBuilder {
+    /// Constructs a text Ion writer with the specified formatting. See [`TextKind`] for details.
+    pub fn new(text_kind: TextKind) -> RawTextWriterBuilder {
+        match text_kind {
+            TextKind::Compact => Self::compact(),
+            TextKind::Lines => Self::lines(),
+            TextKind::Pretty => Self::pretty(),
+        }
+    }
+
     /// Constructs a text Ion writer with modest (but not strictly minimal) spacing.
     ///
     /// For example:
     /// ```text
     /// {foo: 1, bar: 2, baz: 3} [1, 2, 3] true "hello"
     /// ```
-    pub fn new() -> RawTextWriterBuilder {
+    pub fn compact() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
             whitespace_config: COMPACT_WHITESPACE_CONFIG.clone(),
         }
@@ -126,7 +136,7 @@ impl RawTextWriterBuilder {
 
 impl Default for RawTextWriterBuilder {
     fn default() -> Self {
-        RawTextWriterBuilder::new()
+        RawTextWriterBuilder::new(TextKind::Compact)
     }
 }
 
@@ -945,7 +955,7 @@ mod tests {
     #[test]
     fn with_space_between_top_level_values() {
         writer_test_with_builder(
-            RawTextWriterBuilder::new().with_space_between_top_level_values("  "),
+            RawTextWriterBuilder::default().with_space_between_top_level_values("  "),
             |w| {
                 w.write_bool(true)?;
                 w.write_bool(false)
@@ -957,7 +967,7 @@ mod tests {
     #[test]
     fn with_space_between_nested_values() {
         writer_test_with_builder(
-            RawTextWriterBuilder::new().with_space_between_nested_values("  "),
+            RawTextWriterBuilder::default().with_space_between_nested_values("  "),
             |w| {
                 w.write_bool(true)?;
                 w.step_in(IonType::List)?;
@@ -988,7 +998,7 @@ mod tests {
     #[test]
     fn with_space_after_field_name() {
         writer_test_with_builder(
-            RawTextWriterBuilder::new().with_space_after_field_name("   "),
+            RawTextWriterBuilder::default().with_space_after_field_name("   "),
             |w| {
                 w.step_in(IonType::Struct)?;
                 w.set_field_name("a");
@@ -1002,7 +1012,7 @@ mod tests {
     #[test]
     fn with_space_after_container_start() {
         writer_test_with_builder(
-            RawTextWriterBuilder::new().with_space_after_container_start("   "),
+            RawTextWriterBuilder::default().with_space_after_container_start("   "),
             |w| {
                 w.step_in(IonType::Struct)?;
                 w.set_field_name("a");

@@ -1,12 +1,19 @@
 use crate::Symbol;
 use std::borrow::Borrow;
+use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 
 /// A reference to a fully resolved symbol. Like `Symbol` (a fully resolved symbol with a
-/// static lifetime), a `SymbolRef` may have known or undefined text.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+/// static lifetime), a `SymbolRef` may have known or undefined text (i.e. `$0`).
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct SymbolRef<'a> {
     text: Option<&'a str>,
+}
+
+impl<'a> Debug for SymbolRef<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.text.unwrap_or("$0"))
+    }
 }
 
 impl<'a> SymbolRef<'a> {
@@ -23,6 +30,23 @@ impl<'a> SymbolRef<'a> {
     /// Constructs a `SymbolRef` with the specified text.
     pub fn with_text(text: &str) -> SymbolRef {
         SymbolRef { text: Some(text) }
+    }
+
+    pub fn to_owned(self) -> Symbol {
+        match self.text() {
+            None => Symbol::unknown_text(),
+            Some(text) => Symbol::owned(text),
+        }
+    }
+}
+
+impl<'a, A> PartialEq<A> for SymbolRef<'a>
+where
+    A: AsSymbolRef,
+{
+    fn eq(&self, other: &A) -> bool {
+        let other_symbol_ref = other.as_symbol_ref();
+        self == &other_symbol_ref
     }
 }
 
@@ -53,6 +77,14 @@ impl<'a> Hash for SymbolRef<'a> {
 impl<'a> From<&'a str> for SymbolRef<'a> {
     fn from(text: &'a str) -> Self {
         Self { text: Some(text) }
+    }
+}
+
+impl<'a> From<&'a Symbol> for SymbolRef<'a> {
+    fn from(symbol: &'a Symbol) -> Self {
+        Self {
+            text: symbol.text(),
+        }
     }
 }
 

@@ -4,9 +4,7 @@ use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::{ElementWriter, Format, TextKind};
 use ion_rs::element::{Element, Sequence};
 use ion_rs::result::{decoding_error, IonError, IonResult};
-use ion_rs::{
-    BinaryWriterBuilder, IonData, IonReader, IonWriter, StreamItem, Symbol, TextWriterBuilder,
-};
+use ion_rs::{BinaryWriterBuilder, IonData, IonWriter, TextWriterBuilder};
 
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
@@ -32,9 +30,6 @@ fn contains_path(paths: &[&str], file_name: &str) -> bool {
 // Statically defined arrays containing test file paths to skip in various contexts.
 type SkipList = &'static [&'static str];
 
-// TODO: This trait exists solely for the purposes of this integration test. It allows us to paper
-// over the differences in the ion-c and native Rust ElementWriter implementations.
-// Once all of the tests are passing, we should work to unify their APIs.
 trait RoundTrip {
     /// Encodes `elements` to a buffer in the specified Ion `format` and then reads them back into
     /// a `Vec<Element>` using the provided reader.
@@ -52,7 +47,7 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
     match format {
         Format::Text(kind) => {
             let mut writer = match kind {
-                TextKind::Compact => TextWriterBuilder::new().build(&mut buffer),
+                TextKind::Compact => TextWriterBuilder::default().build(&mut buffer),
                 TextKind::Lines => TextWriterBuilder::lines().build(&mut buffer),
                 TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
             }?;
@@ -68,17 +63,16 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
     Ok(buffer)
 }
 
-/// Allow for anything that implements a user-like reader
-type DynamicReader<'a> = Box<dyn IonReader<Item = StreamItem, Symbol = Symbol> + 'a>;
-
 trait ElementApi {
+    type ElementReader<'a>: ElementReader;
+
     fn global_skip_list() -> SkipList;
     fn read_one_equivs_skip_list() -> SkipList;
     fn round_trip_skip_list() -> SkipList;
     fn equivs_skip_list() -> SkipList;
     fn non_equivs_skip_list() -> SkipList;
 
-    fn make_reader(data: &[u8]) -> IonResult<DynamicReader>;
+    fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>>;
 
     /// Asserts the given elements can be round-tripped and equivalent, then returns the new elements.
     fn assert_round_trip(
@@ -411,7 +405,7 @@ mod impl_display_for_element_tests {
 
         for element in elements {
             let mut buffer = Vec::with_capacity(2048);
-            let mut writer = TextWriterBuilder::new().build(&mut buffer).unwrap();
+            let mut writer = TextWriterBuilder::default().build(&mut buffer).unwrap();
             writer.write_element(&element).unwrap();
             writer.flush().unwrap();
             drop(writer);
@@ -479,11 +473,17 @@ const ELEMENT_EQUIVS_SKIP_LIST: SkipList = &[
 #[cfg(test)]
 mod native_element_tests {
     use super::*;
-    use ion_rs::ReaderBuilder;
+    use ion_rs::{Reader, ReaderBuilder};
 
     struct NativeElementApi;
 
     impl ElementApi for NativeElementApi {
+        type ElementReader<'a> = Reader<'a>;
+
+        fn make_reader(data: &[u8]) -> IonResult<Reader<'_>> {
+            ReaderBuilder::default().build(data)
+        }
+
         fn global_skip_list() -> SkipList {
             ELEMENT_GLOBAL_SKIP_LIST
         }
@@ -502,11 +502,6 @@ mod native_element_tests {
 
         fn non_equivs_skip_list() -> SkipList {
             &[]
-        }
-
-        fn make_reader(data: &[u8]) -> IonResult<DynamicReader<'_>> {
-            let reader = ReaderBuilder::default().build(data)?;
-            Ok(Box::new(reader))
         }
     }
 
@@ -552,10 +547,29 @@ mod non_blocking_native_element_tests {
     use super::*;
     use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryReader;
     use ion_rs::text::non_blocking::raw_text_reader::RawTextReader;
+    use ion_rs::Reader;
 
     struct NonBlockingNativeElementApi;
 
     impl ElementApi for NonBlockingNativeElementApi {
+        type ElementReader<'a> = Reader<'a>;
+
+        fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
+            // These imports are visible as a temporary workaround.
+            // See: https://github.com/amazon-ion/ion-rust/issues/484
+            use ion_rs::binary::constants::v1_0::IVM;
+            use ion_rs::reader::integration_testing::new_reader;
+            // If the data is binary, create a non-blocking binary reader.
+            if data.starts_with(&IVM) {
+                let raw_reader = RawBinaryReader::new(data);
+                Ok(new_reader(raw_reader))
+            } else {
+                // Otherwise, create a non-blocking text reader
+                let raw_reader = RawTextReader::new(data);
+                Ok(new_reader(raw_reader))
+            }
+        }
+
         fn global_skip_list() -> SkipList {
             ELEMENT_GLOBAL_SKIP_LIST
         }
@@ -574,22 +588,6 @@ mod non_blocking_native_element_tests {
 
         fn non_equivs_skip_list() -> SkipList {
             &[]
-        }
-
-        fn make_reader(data: &[u8]) -> IonResult<DynamicReader<'_>> {
-            // These imports are visible as a temporary workaround.
-            // See: https://github.com/amazon-ion/ion-rust/issues/484
-            use ion_rs::binary::constants::v1_0::IVM;
-            use ion_rs::reader::integration_testing::new_reader;
-            // If the data is binary, create a non-blocking binary reader.
-            if data.starts_with(&IVM) {
-                let raw_reader = RawBinaryReader::new(data);
-                Ok(Box::new(new_reader(raw_reader)))
-            } else {
-                // Otherwise, create a non-blocking text reader
-                let raw_reader = RawTextReader::new(data);
-                Ok(Box::new(new_reader(raw_reader)))
-            }
         }
     }
 
@@ -634,11 +632,13 @@ mod non_blocking_native_element_tests {
 mod token_native_element_tests {
     use super::*;
     use ion_rs::tokens::{ReaderTokenStream, TokenStreamReader};
-    use ion_rs::ReaderBuilder;
+    use ion_rs::{Reader, ReaderBuilder};
 
     struct TokenNativeElementApi;
 
     impl ElementApi for TokenNativeElementApi {
+        type ElementReader<'a> = TokenStreamReader<'a, ReaderTokenStream<'a, Reader<'a>>>;
+
         fn global_skip_list() -> SkipList {
             ELEMENT_GLOBAL_SKIP_LIST
         }
@@ -659,11 +659,11 @@ mod token_native_element_tests {
             &[]
         }
 
-        fn make_reader<'a>(data: &'a [u8]) -> IonResult<DynamicReader<'a>> {
+        fn make_reader<'a>(data: &'a [u8]) -> IonResult<Self::ElementReader<'a>> {
             let reader = ReaderBuilder::default().build(data)?;
             let tokens: ReaderTokenStream<'a, _> = reader.into();
             let token_reader: TokenStreamReader<'a, _> = tokens.into();
-            Ok(Box::new(token_reader))
+            Ok(token_reader)
         }
     }
 

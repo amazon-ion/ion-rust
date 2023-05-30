@@ -202,6 +202,8 @@ mod symbol_table;
 mod system_reader;
 mod writer;
 
+#[cfg(feature = "experimental-lazy-reader")]
+pub mod lazy;
 // Experimental Streaming APIs
 #[cfg(feature = "experimental-streaming")]
 pub mod thunk;

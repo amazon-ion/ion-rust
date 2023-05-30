@@ -1,6 +1,6 @@
 use crate::ion_data::{IonEq, IonOrd};
 use crate::result::decoding_error;
-use crate::IonResult;
+use crate::{IonResult, SymbolRef};
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -159,6 +159,12 @@ impl From<&String> for Symbol {
 impl<'a> From<&'a Symbol> for Symbol {
     fn from(text: &'a Symbol) -> Self {
         text.clone()
+    }
+}
+
+impl<'a> From<SymbolRef<'a>> for Symbol {
+    fn from(symbol_ref: SymbolRef<'a>) -> Self {
+        symbol_ref.to_owned()
     }
 }
 
