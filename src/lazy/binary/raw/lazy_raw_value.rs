@@ -65,7 +65,19 @@ impl<'data> LazyRawValue<'data> {
                 )
             });
         let (sequence_offset, sequence_length) = match offset_and_length {
-            None => return self.input.slice(0, 0),
+            None => {
+                return self
+                    .input
+                    // A value's binary layout is:
+                    //
+                    //     field_id? | annotation_sequence? | type_descriptor | length? | body
+                    //
+                    // If this value has no annotation sequence, then the first byte after the
+                    // field ID is the type descriptor.
+                    //
+                    // If there is no field ID, field_id_length will be zero.
+                    .slice(self.encoded_value.field_id_length as usize, 0);
+            }
             Some(offset_and_length) => offset_and_length,
         };
         let local_sequence_offset = sequence_offset - self.input.offset();
