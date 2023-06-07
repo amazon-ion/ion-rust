@@ -1,14 +1,13 @@
 // Copyright Amazon.com, Inc. or its affiliates.
-
-use std::slice;
-
-///! Implements "type qualifiers" (TQ) as per the [spec][spec].
-///!
-///! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
+//! Implements "type qualifiers" (TQ) as per the [spec][spec].
+//!
+//! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
 use crate::binary::IonTypeCode;
 use crate::element::{Element, Sequence, Struct};
 use crate::{Decimal, Int, IonType, Symbol, Timestamp};
 use num_bigint::Sign;
+
+use std::slice;
 
 // For many types, the qualifier is either 'null' or 'not null'. That's what
 // these constants are for!
