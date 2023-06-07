@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 
 use bigdecimal::{BigDecimal, Signed};
-use num_bigint::{BigInt, BigUint, ToBigUint};
+use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};
 
 use crate::ion_data::{IonEq, IonOrd};
-use crate::result::{illegal_operation, IonError};
+use crate::result::{illegal_operation, illegal_operation_raw, IonError};
 use crate::types::{Coefficient, Sign, UInt};
 use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
@@ -311,7 +311,18 @@ impl TryFrom<f64> for Decimal {
         let coefficient = value * 10f64.powi(PRECISION as i32);
         let exponent = -(PRECISION as i64);
 
-        Ok(Decimal::new(coefficient as i64, exponent))
+        // prefer a compact representation for the coefficient; fallback to bigint
+        let coefficient: Coefficient = if coefficient <= i64::MAX as f64 {
+            (coefficient as i64).into()
+        } else {
+            coefficient
+                .trunc()
+                .to_bigint()
+                .ok_or_else(|| illegal_operation_raw("Cannot convert large f64 to Decimal."))?
+                .try_into()?
+        };
+
+        Ok(Decimal::new(coefficient, exponent))
     }
 }
 
@@ -387,7 +398,8 @@ mod decimal_tests {
     use crate::result::IonResult;
     use crate::types::{Coefficient, Decimal, Sign};
     use bigdecimal::BigDecimal;
-    use num_bigint::BigUint;
+    use num_bigint::{BigInt, BigUint};
+    use num_integer::Integer;
     use num_traits::{Float, ToPrimitive};
     use std::cmp::Ordering;
     use std::convert::TryInto;
@@ -512,6 +524,39 @@ mod decimal_tests {
     fn test_decimal_try_from_f64_ok(#[case] value: f64, #[case] expected: Decimal) {
         let actual: Decimal = value.try_into().unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_decimal_try_from_large_f64_ok() {
+        // returns (BigInt, BigInt) representing the differences between integer and fractional
+        // components of d1 & d2 respectively
+        fn parts_diff(d1: Decimal, d2: Decimal) -> (BigInt, BigInt) {
+            if d2.exponent > d1.exponent {
+                let (quot, rem) = parts_diff(d2, d1);
+                (-quot, -rem)
+            } else {
+                let exponent_max = d2.exponent.unsigned_abs() as u32;
+                let exponent_delta = d1.exponent - d2.exponent;
+                // scale the magnitude of d1 by the delta between d2's and d1's exponents
+                let d1m: BigInt = d1.coefficient.try_into().unwrap();
+                let d1m_scaled = d1m * BigInt::from(10u64).pow(exponent_delta as u32);
+                let d2m: BigInt = d2.coefficient.try_into().unwrap();
+
+                // divide d2 and the scaled d1 by the exponent delta to
+                let divisor = BigInt::from(10u64).pow(exponent_max);
+                let (d1_quot, d1_rem) = d1m_scaled.div_rem(&divisor);
+                let (d2_quot, d2_rem) = d2m.div_rem(&divisor);
+
+                ((d1_quot - d2_quot), (d1_rem - d2_rem))
+            }
+        }
+
+        let actual: Decimal = 1234567.89f64.try_into().unwrap();
+        let expected = Decimal::new(123456789, -2);
+
+        let (diff_int, diff_fract) = parts_diff(actual, expected);
+        assert_eq!(diff_int, 0.into(), "integer component expected equal");
+        assert!(diff_fract < 100_000.into()); // 100,000 arbitrarily chosen as 1/3 of the 15 decimal digits of precision
     }
 
     #[rstest]
