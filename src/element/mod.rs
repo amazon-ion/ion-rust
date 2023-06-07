@@ -27,7 +27,8 @@ use std::io;
 
 mod annotations;
 pub mod builders;
-mod element_stream_reader;
+pub mod element_stream_reader;
+pub mod element_stream_writer;
 pub(crate) mod iterators;
 pub mod reader;
 pub mod writer;
