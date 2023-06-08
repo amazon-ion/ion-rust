@@ -4,7 +4,8 @@ use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::illegal_operation;
 use crate::types::Bytes;
 use crate::{
-    Decimal, Int, IonResult, IonType, IonWriter, RawSymbolTokenRef, Str, Symbol, Timestamp,
+    Decimal, Int, IonResult, IonType, IonWriter, RawSymbolTokenRef, Str, Symbol, SymbolTable,
+    Timestamp,
 };
 
 // Represents a level into which the writer has stepped.
@@ -16,7 +17,7 @@ struct ContainerContext {
     container: Container,
 }
 
-// A container for values that writer will writ into.
+// A container for values that the writer will write into.
 // A writer that has not yet called step_in() is at the top level.
 #[derive(Debug, PartialEq)]
 enum Container {
@@ -36,6 +37,7 @@ where
     containers: Vec<ContainerContext>,
     annotations: Annotations,
     field_name: Option<Symbol>,
+    symbol_table: SymbolTable,
 }
 
 impl<'e, E> ElementStreamWriter<'e, E>
@@ -52,6 +54,7 @@ where
             }],
             annotations: Annotations::empty(),
             field_name: None,
+            symbol_table: SymbolTable::default(),
         }
     }
 
@@ -120,9 +123,16 @@ where
         A: AsRawSymbolTokenRef,
     {
         match sym_ref.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(_symbol_id) => {
-                // TODO what to do with symbol ids?
-                todo!()
+            RawSymbolTokenRef::SymbolId(symbol_id) => {
+                if self.symbol_table.sid_is_valid(symbol_id) {
+                    Ok(self
+                        .symbol_table
+                        .symbol_for(symbol_id)
+                        .cloned()
+                        .unwrap_or(Symbol::unknown_text()))
+                } else {
+                    illegal_operation(format!("Symbol ID ${symbol_id} is undefined."))
+                }
             }
             RawSymbolTokenRef::Text(txt) => Ok(Symbol::owned(txt)),
         }
@@ -140,8 +150,8 @@ where
     }
 
     fn write_ion_version_marker(&mut self, _major: u8, _minor: u8) -> IonResult<()> {
-        // TODO what does this mean for an element writer?
-        todo!()
+        // Nothing to do here
+        Ok(())
     }
 
     fn supports_text_symbol_tokens(&self) -> bool {
@@ -155,8 +165,15 @@ where
     {
         let annotations: IonResult<_> =
             annotations.into_iter().map(|s| self.to_symbol(s)).collect();
-        // TODO what to do with the expect?
-        self.set_current_annotations(Annotations::new(annotations.expect("symbols")));
+        match annotations {
+            Ok(annotations) => {
+                self.set_current_annotations(Annotations::new(annotations));
+            }
+            Err(e) => {
+                // TODO: This panic should be fixed as part of https://github.com/amazon-ion/ion-rust/issues/564
+                panic!("Cannot set as annotation due to {e}");
+            }
+        }
     }
 
     fn write_null(&mut self, ion_type: IonType) -> IonResult<()> {
@@ -219,10 +236,12 @@ where
     }
 
     fn set_field_name<A: AsRawSymbolTokenRef>(&mut self, name: A) {
-        // TODO what to do with the panic?
         match self.to_symbol(name) {
             Ok(s) => self.field_name = Some(s),
-            Err(_e) => panic!("set field name invalid symbol"),
+            Err(e) => {
+                // TODO: This panic should be fixed as part of https://github.com/amazon-ion/ion-rust/issues/564
+                panic!("Cannot set field name due to {e}");
+            }
         }
     }
 
@@ -276,9 +295,6 @@ mod tests {
 
     use crate::element::element_stream_writer::ElementStreamWriter;
     use crate::element::{Element, IntoAnnotatedElement, Value};
-
-    use num_bigint::BigInt;
-    use num_integer::Integer;
 
     use crate::element::builders::{SequenceBuilder, StructBuilder};
     use crate::result::IonResult;
@@ -394,29 +410,6 @@ mod tests {
 
     #[test]
     fn write_decimal() {
-        // returns (BigInt, BigInt) representing the differences between integer and fractional
-        // components of d1 & d2 respectively
-        fn parts_diff(d1: Decimal, d2: Decimal) -> (BigInt, BigInt) {
-            if d2.exponent > d1.exponent {
-                let (quot, rem) = parts_diff(d2, d1);
-                (-quot, -rem)
-            } else {
-                let exponent_max = d2.exponent.unsigned_abs() as u32;
-                let exponent_delta = d1.exponent - d2.exponent;
-                // scale the magnitude of d1 by the delta between d2's and d1's exponents
-                let d1m: BigInt = d1.coefficient.try_into().unwrap();
-                let d1m_scaled = d1m * BigInt::from(10u64).pow(exponent_delta as u32);
-                let d2m: BigInt = d2.coefficient.try_into().unwrap();
-
-                // divide d2 and the scaled d1 by the exponent delta to
-                let divisor = BigInt::from(10u64).pow(exponent_max);
-                let (d1_quot, d1_rem) = d1m_scaled.div_rem(&divisor);
-                let (d2_quot, d2_rem) = d2m.div_rem(&divisor);
-
-                ((d1_quot - d2_quot), (d1_rem - d2_rem))
-            }
-        }
-
         let decimal: Decimal = 731221.9948f64.try_into().expect("float to decimal");
         writer_scalar_test_with_assertion(
             |w| w.write_decimal(&decimal),
