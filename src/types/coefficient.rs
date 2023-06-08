@@ -150,7 +150,13 @@ impl TryFrom<BigInt> for Coefficient {
             num_bigint::Sign::Minus => Sign::Negative,
             num_bigint::Sign::Plus => Sign::Positive,
             num_bigint::Sign::NoSign => {
-                return illegal_operation("Cannot convert sign-less BigInt to Decimal.")
+                if magnitude.is_zero() {
+                    Sign::Positive
+                } else {
+                    return illegal_operation(
+                        "Cannot convert sign-less non-zero BigInt to Decimal.",
+                    );
+                }
             }
         };
         Ok(Coefficient::new(sign, magnitude))
