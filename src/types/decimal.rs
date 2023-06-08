@@ -368,10 +368,9 @@ impl TryFrom<f64> for Decimal {
         }
 
         // If the f64 is an integer value, we can convert it to a decimal trivially.
-        // The `fract()` method returns the fractional part of the value. If fract() returns zero,
-        // then `value` is an integer.
+        // The `fract()` method returns the fractional part of the value.
+        // If fract() is zero, then `value` is an integer.
         if value.fract().is_zero() {
-            // The `trunc()` method returns the integer part of the value.
             try_convert(value, 0)
         } else {
             // If the f64 is not a round number, attempt to preserve as many decimal places of precision
