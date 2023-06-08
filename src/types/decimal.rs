@@ -210,7 +210,8 @@ impl Decimal {
         let (d1_int, d1_frac) = d1.into_parts();
         let (d2_int, d2_frac) = d2.into_parts();
 
-        fn normalize(frac: BigInt) -> f64 {
+        // turn a fractional part (e.g., `123`) into an f64 less than `0` (e.g., `0.123`)
+        fn to_fract(frac: BigInt) -> f64 {
             if frac.is_zero() {
                 0.0
             } else {
@@ -219,8 +220,8 @@ impl Decimal {
             }
         }
 
-        let d1_frac = normalize(d1_frac);
-        let d2_frac = normalize(d2_frac);
+        let d1_frac = to_fract(d1_frac);
+        let d2_frac = to_fract(d2_frac);
 
         ((d1_int - d2_int), (d1_frac - d2_frac))
     }
@@ -369,7 +370,7 @@ impl TryFrom<f64> for Decimal {
         // If the f64 is an integer value, we can convert it to a decimal trivially.
         // The `fract()` method returns the fractional part of the value. If fract() returns zero,
         // then `value` is an integer.
-        if value.fract() == 0f64 {
+        if value.fract().is_zero() {
             // The `trunc()` method returns the integer part of the value.
             try_convert(value, 0)
         } else {
@@ -378,9 +379,14 @@ impl TryFrom<f64> for Decimal {
 
             // f64::DIGITS is the number of base 10 digits of fractional precision in an f64: 15
             const PRECISION: u32 = f64::DIGITS;
-            let coefficient = value * 10f64.powi(PRECISION as i32);
-            let exponent = -(PRECISION as i64);
 
+            // For `value.abs() >= 1` -> 0
+            // Else -> number of decimal `0` before the first non-`0` after the decimal point
+            let leading_zeroes = (-1.0 - (value % 1.0).abs().log10().floor()).max(0.0) as u32;
+            let precision = (leading_zeroes + PRECISION).clamp(0, f64::MAX_10_EXP as u32);
+
+            let coefficient = value * 10f64.powi(precision as i32);
+            let exponent = -(precision as i64);
             try_convert(coefficient, exponent)
         }
     }
@@ -657,19 +663,26 @@ mod decimal_tests {
         assert_eq!(diff_fract, 0.into());
     }
 
-    // TODO `impl TryFrom<f64> for Decimal` doesn't handle small values correctly
-    #[ignore]
     #[test]
     fn test_decimal_try_from_very_small_f64_ok() {
-        // MIN_POSITIVE f64 - e.g., 2.2250738585072014e-308_f64
-        let actual: Decimal = f64::MIN_POSITIVE.try_into().unwrap();
-        let expected = Decimal::new(0, 0);
+        let actual: Decimal = 0.000_000_000_000_000_1.try_into().unwrap();
+        let expected = Decimal::new(1, -25);
 
         let (diff_int, diff_fract) = Decimal::difference_by_parts(actual, expected);
         assert_eq!(
             UInt::from(diff_int.magnitude().clone()).number_of_decimal_digits(),
-            0,
-            "f64::MIN_POSITIVE should have 0 decimal digits"
+            1
+        );
+        assert_eq!(diff_fract, 0.into());
+
+        // MIN_POSITIVE f64 - e.g., 2.2250738585072014e-308_f64
+        let actual: Decimal = f64::MIN_POSITIVE.try_into().unwrap();
+        let expected = Decimal::new(2, -308);
+
+        let (diff_int, diff_fract) = Decimal::difference_by_parts(actual, expected);
+        assert_eq!(
+            UInt::from(diff_int.magnitude().clone()).number_of_decimal_digits(),
+            1
         );
         assert_eq!(diff_fract, 0.into());
     }
