@@ -1,15 +1,15 @@
 use delegate::delegate;
-use std::io;
 use std::ops::Range;
 
+use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
 use crate::constants::v1_0::{system_symbol_ids, SYSTEM_SYMBOLS};
 use crate::element::{Blob, Clob};
-use crate::raw_reader::{RawReader, RawStreamItem};
+use crate::raw_reader::{Expandable, RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, decoding_error_raw, illegal_operation, IonError, IonResult};
 use crate::system_reader::LstPosition::*;
 use crate::types::{Decimal, Int, Str, Symbol, Timestamp};
-use crate::{BlockingRawBinaryReader, IonReader, IonType, SymbolTable};
+use crate::{IonReader, IonType, SymbolTable};
 
 /// Tracks where the [SystemReader] is in the process of reading a local symbol table.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -698,7 +698,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
 
 /// Functionality that is only available if the data source we're reading from is in-memory, like
 /// a `Vec<u8>` or `&[u8]`.
-impl<T: AsRef<[u8]>> SystemReader<BlockingRawBinaryReader<io::Cursor<T>>> {
+impl<T: AsRef<[u8]> + Expandable> SystemReader<RawBinaryReader<T>> {
     delegate! {
         to self.raw_reader {
             pub fn raw_bytes(&self) -> Option<&[u8]>;
