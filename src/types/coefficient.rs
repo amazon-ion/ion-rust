@@ -128,7 +128,7 @@ impl TryFrom<Coefficient> for BigInt {
     /// converted is a negative zero, which BigInt cannot represent. Returns Ok otherwise.
     fn try_from(value: Coefficient) -> Result<Self, Self::Error> {
         if value.is_negative_zero() {
-            illegal_operation("Cannot convert negative zero Decimal to BigDecimal")?;
+            illegal_operation("Cannot convert negative zero Decimal to BigInt")?;
         }
         let mut big_int: BigInt = match value.magnitude {
             UInt::U64(m) => m.into(),
@@ -138,6 +138,28 @@ impl TryFrom<Coefficient> for BigInt {
             big_int.mul_assign(-1);
         }
         Ok(big_int)
+    }
+}
+
+impl TryFrom<BigInt> for Coefficient {
+    type Error = IonError;
+
+    fn try_from(value: BigInt) -> Result<Self, Self::Error> {
+        let (sign, magnitude) = value.into_parts();
+        let sign = match sign {
+            num_bigint::Sign::Minus => Sign::Negative,
+            num_bigint::Sign::Plus => Sign::Positive,
+            num_bigint::Sign::NoSign => {
+                if magnitude.is_zero() {
+                    Sign::Positive
+                } else {
+                    return illegal_operation(
+                        "Cannot convert sign-less non-zero BigInt to Decimal.",
+                    );
+                }
+            }
+        };
+        Ok(Coefficient::new(sign, magnitude))
     }
 }
 

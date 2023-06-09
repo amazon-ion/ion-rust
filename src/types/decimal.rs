@@ -1,12 +1,13 @@
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 
 use bigdecimal::{BigDecimal, Signed};
-use num_bigint::{BigInt, BigUint, ToBigUint};
+use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};
 
 use crate::ion_data::{IonEq, IonOrd};
-use crate::result::{illegal_operation, IonError};
+use crate::result::{illegal_operation, illegal_operation_raw, IonError};
 use crate::types::{Coefficient, Sign, UInt};
-use num_traits::Zero;
+use num_integer::Integer;
+use num_traits::{ToPrimitive, Zero};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
@@ -167,6 +168,80 @@ impl Decimal {
         scaled_coefficient *= BigUint::from(10u64).pow(exponent_delta as u32);
         UInt::BigUInt(scaled_coefficient).cmp(d2.coefficient.magnitude())
     }
+
+    /// Extract the integer and fractional parts and the exponents of this as a `(BigInt, (BigInt, i64))`
+    ///
+    /// ```ignore
+    /// # use num_bigint::BigInt;
+    /// # use ion_rs::Decimal;
+    /// let d1: Decimal = Decimal::new(123456789, -2);
+    /// let (int_part, (frac_part, exponent)) = d1.into_parts();
+    /// assert_eq!(int_part, BigInt::from(1234567u64));
+    /// assert_eq!(frac_part, BigInt::from(89));
+    /// assert_eq!(exponent, -2);
+    /// ```
+    pub(crate) fn into_parts(self) -> (BigInt, (BigInt, i64)) {
+        let magnitude: BigInt = self.coefficient.try_into().unwrap();
+        if self.exponent.is_zero() {
+            (magnitude, (BigInt::zero(), 0))
+        } else if self.exponent.is_negative() {
+            let divisor = BigInt::from(10u64).pow((-self.exponent) as u32);
+            let (i, f) = magnitude.div_rem(&divisor);
+            (i, (f, self.exponent))
+        } else {
+            let multiplicand = BigInt::from(10u64).pow(self.exponent as u32);
+            (magnitude * multiplicand, (BigInt::zero(), 0))
+        }
+    }
+
+    /// Extract the integer and fractional parts of this as a `(BigInt, f64)`.
+    /// Some precision is lost in the conversion of the fractional part to an `f64`.
+    /// See also [`Self::into_parts`]
+    ///
+    /// ```ignore
+    /// # use num_bigint::BigInt;
+    /// # use ion_rs::Decimal;
+    /// let d1: Decimal = Decimal::new(123456789, -2);
+    /// let (int_part, frac_part) = d1.into_parts_lossy();
+    /// assert_eq!(int_part, BigInt::from(1234567u64));
+    /// assert_eq!(frac_part, 0.89);
+    /// ```
+    pub(crate) fn into_parts_lossy(self) -> (BigInt, f64) {
+        // turn a fractional part and exponent (e.g., `123` & -3) into an f64 less than `0` (e.g., `0.123`)
+        fn to_fract(frac: BigInt, exponent: i64) -> f64 {
+            if frac.is_zero() {
+                0.0
+            } else {
+                frac.to_f64().unwrap() / 10f64.powi(max(0, -exponent) as i32)
+            }
+        }
+        let (i, (f, e)) = self.into_parts();
+        (i, to_fract(f, e))
+    }
+
+    /// Returns ([`num_bigint::BigInt`], [`f64`]) representing the differences
+    /// between integer and fractional components of d1 & d2 respectively.
+    ///
+    /// This is largely useful to compare two [`Decimal`] values without the full suite of mathematical
+    /// and comparison operations.
+    ///
+    /// ```ignore
+    /// # use num_bigint::BigInt;
+    /// # use ion_rs::Decimal;
+    /// let (diff_integer, diff_fractional) = Decimal::difference_by_parts_lossy(Decimal::new(123, 0), Decimal::new(12, 1));
+    /// assert_eq!(diff_integer, BigInt::from(3));
+    /// assert_eq!(diff_fractional, 0.0);
+    ///
+    /// let (diff_integer, diff_fractional) = Decimal::difference_by_parts_lossy(Decimal::new(12345, -2), Decimal::new(123, 0));
+    /// assert_eq!(diff_integer, BigInt::from(0));
+    /// assert_eq!(diff_fractional, 0.45);
+    /// ```
+    pub(crate) fn difference_by_parts_lossy(d1: &Decimal, d2: &Decimal) -> (BigInt, f64) {
+        let (d1_int, d1_frac) = d1.clone().into_parts_lossy();
+        let (d2_int, d2_frac) = d2.clone().into_parts_lossy();
+
+        ((d1_int - d2_int), (d1_frac - d2_frac))
+    }
 }
 
 impl PartialEq for Decimal {
@@ -293,25 +368,43 @@ impl TryFrom<f64> for Decimal {
             return Ok(Decimal::new(0, 0));
         }
 
-        // If the f64 is an integer value, we can convert it to a decimal trivially.
-        // The `fract()` method returns the fractional part of the value. If fract() returns zero,
-        // then `value` is an integer.
-        if value.fract() == 0f64 {
-            // The `trunc()` method returns the integer part of the value.
-            // We can use i64's Into implementation to convert it to a Decimal.
-            // This will produce a Decimal with an exponent of zero.
-            return Ok((value.trunc() as i64).into());
+        fn try_convert(coefficient: f64, exponent: i64) -> Result<Decimal, IonError> {
+            // prefer a compact representation for the coefficient; fallback to bigint
+            let coefficient: Coefficient = if !coefficient.trunc().is_zero()
+                && coefficient.abs() <= i64::MAX as f64
+            {
+                (coefficient as i64).into()
+            } else {
+                coefficient
+                    .to_bigint()
+                    .ok_or_else(|| illegal_operation_raw("Cannot convert large f64 to Decimal."))?
+                    .try_into()?
+            };
+
+            Ok(Decimal::new(coefficient, exponent))
         }
 
-        // If the f64 is not a round number, attempt to preserve as many decimal places of precision
-        // as possible.
+        // If the f64 is an integer value, we can convert it to a decimal trivially.
+        // The `fract()` method returns the fractional part of the value.
+        // If fract() is zero, then `value` is an integer.
+        if value.fract().is_zero() {
+            try_convert(value, 0)
+        } else {
+            // If the f64 is not a round number, attempt to preserve as many decimal places of precision
+            // as possible.
 
-        // f64::DIGITS is the number of base 10 digits of fractional precision in an f64: 15
-        const PRECISION: u32 = f64::DIGITS;
-        let coefficient = value * 10f64.powi(PRECISION as i32);
-        let exponent = -(PRECISION as i64);
+            // f64::DIGITS is the number of base 10 digits of fractional precision in an f64: 15
+            const PRECISION: u32 = f64::DIGITS;
 
-        Ok(Decimal::new(coefficient as i64, exponent))
+            // For `value.abs() >= 1` -> 0
+            // Else -> number of decimal `0` before the first non-`0` after the decimal point
+            let leading_zeroes = (-1.0 - (value % 1.0).abs().log10().floor()).max(0.0) as u32;
+            let precision = (leading_zeroes + PRECISION).clamp(0, f64::MAX_10_EXP as u32);
+
+            let coefficient = value * 10f64.powi(precision as i32);
+            let exponent = -(precision as i64);
+            try_convert(coefficient, exponent)
+        }
     }
 }
 
@@ -385,15 +478,17 @@ impl TryFrom<Decimal> for BigDecimal {
 #[cfg(test)]
 mod decimal_tests {
     use crate::result::IonResult;
-    use crate::types::{Coefficient, Decimal, Sign};
+    use crate::types::{Coefficient, Decimal, Sign, UInt};
     use bigdecimal::BigDecimal;
     use num_bigint::BigUint;
+
     use num_traits::{Float, ToPrimitive};
     use std::cmp::Ordering;
     use std::convert::TryInto;
     use std::fmt::Write;
 
     use crate::ion_data::IonEq;
+
     use rstest::*;
 
     #[rstest]
@@ -512,6 +607,119 @@ mod decimal_tests {
     fn test_decimal_try_from_f64_ok(#[case] value: f64, #[case] expected: Decimal) {
         let actual: Decimal = value.try_into().unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_difference_by_parts_lossy() {
+        let d1: Decimal = Decimal::new(123456789, -2);
+        let (int_part, frac_part) = d1.into_parts_lossy();
+        assert_eq!(int_part, num_bigint::BigInt::from(1234567u64));
+        assert_eq!(frac_part, 0.89);
+
+        let d1: Decimal = Decimal::new(123456789, -2);
+        let d10: Decimal = Decimal::new(123456789, -1);
+        let d100: Decimal = Decimal::new(123456789, 0);
+
+        // diff d1 with d1
+        let (diff_integer, diff_fractional) = Decimal::difference_by_parts_lossy(&d1, &d1);
+        // 1234567 - 1234567 -> 0
+        assert_eq!(diff_integer, 0.into());
+        // 89 - 89 -> 0
+        assert_eq!(diff_fractional, 0.0);
+
+        // diff d10 with d1
+        let (diff_integer, diff_fractional) = Decimal::difference_by_parts_lossy(&d10, &d1);
+        // 12345678 - 1234567 -> 11111111
+        assert_eq!(diff_integer, 11111111.into());
+        // .9 - .89 -> .01
+        let expected = 0.01;
+        // ideally, this would be based on ULPs, not epsilon
+        //  Cf. https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
+        let relative_error = ((diff_fractional - expected) / expected).abs();
+        assert!(relative_error <= 10.0 * f64::EPSILON);
+
+        // diff d100 with d1
+        let (diff_integer, diff_fractional) = Decimal::difference_by_parts_lossy(&d100, &d1);
+        // 123456789 - 1234567 -> 122222222
+        assert_eq!(diff_integer, 122222222.into());
+        // .0 - .89 -> -.89
+        let expected = -0.89;
+        // ideally, this would be based on ULPs, not epsilon
+        //  Cf. https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
+        let relative_error = ((diff_fractional - expected) / expected).abs();
+        assert!(relative_error <= 10.0 * f64::EPSILON);
+
+        // diff 1.000_000_2 with 1.2
+        let (diff_integer, diff_fractional) = Decimal::difference_by_parts_lossy(
+            &Decimal::new(10_000_002, -7),
+            &Decimal::new(12, -1),
+        );
+        // 1 - 1 -> 0
+        assert_eq!(diff_integer, 0.into());
+        // 0.0000002 - 0.2 -> -0.1999998
+        let expected = -0.1999998;
+        // ideally, this would be based on ULPs, not epsilon
+        //  Cf. https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
+        let relative_error = ((diff_fractional - expected) / expected).abs();
+        assert!(relative_error <= 10.0 * f64::EPSILON);
+    }
+
+    #[test]
+    fn test_decimal_try_from_large_f64_ok() {
+        let actual: Decimal = 1234567.89f64.try_into().unwrap();
+        let expected = Decimal::new(123456789, -2);
+
+        let (diff_int, diff_fract) = Decimal::difference_by_parts_lossy(&actual, &expected);
+        assert_eq!(diff_int, 0.into(), "integer component expected equal");
+        assert!(diff_fract < 100_000.into()); // 100,000 arbitrarily chosen as 1/3 of the 15 decimal digits of precision
+
+        // MAX f64 - e.g., 1.7976931348623157e+308_f64
+        let actual: Decimal = f64::MAX.try_into().unwrap();
+        let expected = Decimal::new(0, 0);
+
+        let (diff_int, diff_fract) = Decimal::difference_by_parts_lossy(&actual, &expected);
+        assert_eq!(
+            UInt::from(diff_int.magnitude().clone()).number_of_decimal_digits(),
+            309,
+            "f64::MAX should have 309 decimal digits"
+        );
+        assert_eq!(diff_fract, 0.into());
+
+        // MIN f64 - e.g., -1.7976931348623157e+308_f64
+        let actual: Decimal = f64::MIN.try_into().unwrap();
+        let expected = Decimal::new(0, 0);
+
+        let (diff_int, diff_fract) = Decimal::difference_by_parts_lossy(&actual, &expected);
+        assert_eq!(
+            UInt::from(diff_int.magnitude().clone()).number_of_decimal_digits(),
+            309,
+            "f64::MIN should have 309 decimal digits"
+        );
+        assert_eq!(diff_fract, 0.into());
+    }
+
+    #[test]
+    fn test_decimal_try_from_very_small_f64_ok() {
+        let actual: Decimal = 0.000_000_000_000_000_1.try_into().unwrap();
+        let expected = Decimal::new(1, -16);
+
+        let (diff_int, diff_fract) = Decimal::difference_by_parts_lossy(&actual, &expected);
+        assert_eq!(
+            UInt::from(diff_int.magnitude().clone()).number_of_decimal_digits(),
+            1
+        );
+        assert_eq!(diff_fract, 0.into());
+
+        // MIN_POSITIVE f64 - e.g., 2.2250738585072014e-308_f64
+        let actual: Decimal = f64::MIN_POSITIVE.try_into().unwrap();
+        let expected = Decimal::new(2, -308);
+
+        let (diff_int, diff_fract) = Decimal::difference_by_parts_lossy(&actual, &expected);
+        assert_eq!(
+            UInt::from(diff_int.magnitude().clone()).number_of_decimal_digits(),
+            1
+        );
+        assert_eq!(diff_fract, 0.into());
     }
 
     #[rstest]
