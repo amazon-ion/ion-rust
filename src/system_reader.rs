@@ -430,7 +430,7 @@ impl<R: RawReader> SystemReader<R> {
             && !self.raw_reader.is_null()
         {
             // The raw reader is at the `imports` field of an LST and its value is a symbol.
-            return Ok(self.raw_reader.read_symbol()?);
+            return self.raw_reader.read_symbol();
         }
         // Otherwise, delegate to the raw reader
         if self.raw_reader.current() == RawStreamItem::Nothing {

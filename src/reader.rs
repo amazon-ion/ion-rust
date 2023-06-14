@@ -188,7 +188,7 @@ impl<R: RawReader> UserReader<R> {
     }
 
     pub fn symbol_table(&self) -> &SymbolTable {
-        &self.system_reader.symbol_table()
+        self.system_reader.symbol_table()
     }
 }
 
