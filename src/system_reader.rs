@@ -95,13 +95,6 @@ struct LstData {
     // Whether we've already encountered a `symbols` field.
     has_found_symbols: bool,
     has_found_imports: bool,
-    // At present, BlockingRawTextReader and BlockingRawBinaryReader cannot read the same value more than once.
-    // When the SystemReader needs to read the current value as part of processing a local symbol
-    // table, it must store a copy of that value in case the user requests it via `read_string()`,
-    // `read_i64()`, etc. The fields below are used to store such copies.
-    current_symbol: RawSymbolToken,
-    current_string: String,
-    current_int: i64,
 }
 
 impl LstData {
@@ -109,12 +102,9 @@ impl LstData {
         LstData {
             is_append: false,
             symbols: vec![],
-            state: LstPosition::NotReadingAnLst,
+            state: NotReadingAnLst,
             has_found_symbols: false,
             has_found_imports: false,
-            current_symbol: RawSymbolToken::SymbolId(0),
-            current_string: String::new(),
-            current_int: 0,
         }
     }
 }
@@ -274,16 +264,14 @@ impl<R: RawReader> SystemReader<R> {
                 }
             }
             ProcessingLstImports => {
-                todo!("Support shared symbol table imports.");
+                return decoding_error("Importing shared symbol tables is not yet supported.");
             }
             ProcessingLstSymbols => {
                 // We're in the `symbols` list.
                 if let (IonType::String, false) = (ion_type, is_null) {
-                    // If the current value is a non-null string, add its text to the symbol table.
-                    self.load_current_string()?;
-                    // We clone the current string because the user may ask for its value via
-                    // read_string().
-                    self.lst.symbols.push(Some(self.lst.current_string.clone()))
+                    self.lst
+                        .symbols
+                        .push(Some(self.raw_reader.read_str()?.to_string()))
                 } else {
                     // Non-string values and nulls are treated as symbols with unknown text.
                     self.lst.symbols.push(None);
@@ -308,10 +296,9 @@ impl<R: RawReader> SystemReader<R> {
             IonType::Symbol => {
                 // If the `imports` field value is the symbol '$ion_symbol_table', then this is an
                 // LST append.
-                self.load_current_symbol()?;
                 if self
-                    .lst
-                    .current_symbol
+                    .raw_reader
+                    .read_symbol()?
                     .matches(system_symbol_ids::ION_SYMBOL_TABLE, "$ion_symbol_table")
                 {
                     self.lst.is_append = true;
@@ -328,39 +315,6 @@ impl<R: RawReader> SystemReader<R> {
                 // Non-list, non-symbol values for the `imports` field are ignored.
             }
         };
-        Ok(())
-    }
-
-    // Reads the raw reader's current value expecting a symbol. Stores the value in
-    // `self.lst.current_symbol` so it can be returned if the user requests it.
-    fn load_current_symbol(&mut self) -> IonResult<()> {
-        let token = self.raw_reader.read_symbol()?;
-        self.lst.current_symbol = token;
-        Ok(())
-    }
-
-    // Reads the raw reader's current value expecting a string. Stores the value in
-    // `self.lst.current_string` so it can be returned if the user requests it.
-    fn load_current_string(&mut self) -> IonResult<()> {
-        self.lst.current_string.clear();
-        let SystemReader {
-            ref mut raw_reader,
-            ref mut lst,
-            ..
-        } = *self;
-        lst.current_string.push_str(raw_reader.read_str()?);
-
-        Ok(())
-    }
-
-    // Reads the raw reader's current value expecting an integer. Stores the value in
-    // `self.lst.current_int` so it can be returned if the user requests it.
-    fn load_current_int(&mut self) -> IonResult<()> {
-        // Note: This method will only be called on integers found inside of local symbol tables.
-        //       If an LST has an integer that's too big to fit in an i64, this will fail.
-        self.raw_reader
-            .read_i64()
-            .expect("load_current_int() called at a value that was not an integer.");
         Ok(())
     }
 
@@ -476,9 +430,7 @@ impl<R: RawReader> SystemReader<R> {
             && !self.raw_reader.is_null()
         {
             // The raw reader is at the `imports` field of an LST and its value is a symbol.
-            // This means that it has eagerly loaded the symbol to see if it is $ion_symbol_table.
-            // Return a copy of the materialized symbol value.
-            return Ok(self.lst.current_symbol.clone());
+            return Ok(self.raw_reader.read_symbol()?);
         }
         // Otherwise, delegate to the raw reader
         if self.raw_reader.current() == RawStreamItem::Nothing {
@@ -489,17 +441,6 @@ impl<R: RawReader> SystemReader<R> {
 
     pub fn raw_field_name_token(&mut self) -> IonResult<RawSymbolToken> {
         self.raw_reader.field_name()
-    }
-
-    // Returns true if the system reader already consumed the current string from input as part of
-    // processing the current local symbol table.
-    pub fn current_string_was_consumed(&self) -> bool {
-        // The raw reader is inside the `symbols` field of an LST and its value is a string.
-        // This means that the system reader has eagerly loaded the string to eventually store
-        // its text in the current symbol table. Return a copy of the materialized string value.
-        self.lst.state == ProcessingLstSymbols
-            && self.raw_reader.ion_type() == Some(IonType::String)
-            && !self.raw_reader.is_null()
     }
 }
 
@@ -663,33 +604,6 @@ impl<R: RawReader> IonReader for SystemReader<R> {
         }
     }
 
-    fn read_string(&mut self) -> IonResult<Str> {
-        if self.current_string_was_consumed() {
-            return Ok(self.lst.current_string.clone().into());
-        }
-        // Otherwise, delegate to the raw reader
-        if self.raw_reader.current() == RawStreamItem::Nothing {
-            return illegal_operation(
-                "called `read_string` when reader was not positioned on a value",
-            );
-        }
-        self.raw_reader.read_string()
-    }
-
-    fn read_str(&mut self) -> IonResult<&str> {
-        if self.current_string_was_consumed() {
-            return Ok(&self.lst.current_string);
-        }
-
-        if self.raw_reader.current() == RawStreamItem::Nothing {
-            return illegal_operation(
-                "called `read_str` when reader was not positioned on a value",
-            );
-        }
-
-        self.raw_reader.read_str()
-    }
-
     // The SystemReader needs to expose many of the same functions as the Cursor, but only some of
     // those need to be re-defined to allow for system value processing. Any method listed here will
     // be delegated to self.raw_reader directly.
@@ -705,6 +619,8 @@ impl<R: RawReader> IonReader for SystemReader<R> {
             fn read_f32(&mut self) -> IonResult<f32>;
             fn read_f64(&mut self) -> IonResult<f64>;
             fn read_decimal(&mut self) -> IonResult<Decimal>;
+            fn read_str(&mut self) -> IonResult<&str>;
+            fn read_string(&mut self) -> IonResult<Str>;
             fn read_blob(&mut self) -> IonResult<Blob>;
             fn read_clob(&mut self) -> IonResult<Clob>;
             fn read_timestamp(&mut self) -> IonResult<Timestamp>;
