@@ -92,6 +92,9 @@ struct LstData {
     // because the `symbols` field of the LST can appear before the `imports` field but the `imports`
     // field MUST be processed first.
     symbols: Vec<Option<String>>,
+    // Whether we've already encountered a `symbols` field.
+    has_found_symbols: bool,
+    has_found_imports: bool,
     // At present, BlockingRawTextReader and BlockingRawBinaryReader cannot read the same value more than once.
     // When the SystemReader needs to read the current value as part of processing a local symbol
     // table, it must store a copy of that value in case the user requests it via `read_string()`,
@@ -107,6 +110,8 @@ impl LstData {
             is_append: false,
             symbols: vec![],
             state: LstPosition::NotReadingAnLst,
+            has_found_symbols: false,
+            has_found_imports: false,
             current_symbol: RawSymbolToken::SymbolId(0),
             current_string: String::new(),
             current_int: 0,
@@ -149,19 +154,20 @@ impl<R: RawReader> SystemReader<R> {
 
     // Returns true if the raw reader is positioned over a top-level struct whose first annotation
     // is $ion_symbol_table.
-    fn current_value_is_symbol_table(&self) -> bool {
-        self.raw_reader.current() == RawStreamItem::Value(IonType::Struct)
-            && self.depth() == 0
-            && self
-                .raw_annotations()
-                .next()
-                .map(|a| {
-                    a.matches(
-                        system_symbol_ids::ION_SYMBOL_TABLE,
-                        SYSTEM_SYMBOLS[system_symbol_ids::ION_SYMBOL_TABLE].unwrap(),
-                    )
-                })
-                .unwrap_or(false)
+    fn current_value_is_symbol_table(&self) -> IonResult<bool> {
+        let on_top_level_struct =
+            self.raw_reader.current() == RawStreamItem::Value(IonType::Struct) && self.depth() == 0;
+        if !on_top_level_struct {
+            return Ok(false);
+        }
+        if let Some(first_annotation_result) = self.raw_annotations().next() {
+            let first_annotation = first_annotation_result?;
+            return Ok(first_annotation.matches(
+                system_symbol_ids::ION_SYMBOL_TABLE,
+                SYSTEM_SYMBOLS[system_symbol_ids::ION_SYMBOL_TABLE].unwrap(),
+            ));
+        }
+        Ok(false)
     }
 
     // When next() is called, process any LST-related data in the reader's current position before
@@ -218,7 +224,7 @@ impl<R: RawReader> SystemReader<R> {
             NotReadingAnLst | AtLstStart => {
                 // If we're at the top level and the next element we encounter is a struct whose
                 // first annotation is $ion_symbol_table, then set the state to `AtLstStart`
-                if self.current_value_is_symbol_table() {
+                if self.current_value_is_symbol_table()? {
                     self.lst.state = AtLstStart;
                 } else {
                     // Otherwise, it's just a plain user value.
@@ -237,8 +243,20 @@ impl<R: RawReader> SystemReader<R> {
                 match self.raw_reader.field_name() {
                     Ok(field_name_token) => {
                         if field_name_token.matches(system_symbol_ids::IMPORTS, "imports") {
+                            if self.lst.has_found_imports {
+                                return decoding_error(
+                                    "symbol table had multiple `imports` fields",
+                                );
+                            }
+                            self.lst.has_found_imports = true;
                             self.move_to_lst_imports_field(ion_type)?;
                         } else if field_name_token.matches(system_symbol_ids::SYMBOLS, "symbols") {
+                            if self.lst.has_found_symbols {
+                                return decoding_error(
+                                    "symbol table had multiple `symbols` fields",
+                                );
+                            }
+                            self.lst.has_found_symbols = true;
                             self.lst.state = AtLstSymbols;
                         } else {
                             // This field has no effect on our handling of the LST.
@@ -304,7 +322,7 @@ impl<R: RawReader> SystemReader<R> {
                 // be processed when the user steps into/through it or when they try to skip over
                 // it, not when it's first encountered. For now though, we fail because this
                 // feature is not yet supported.
-                todo!("Support shared symbol table imports.");
+                return decoding_error("Shared symbol table imports are not yet supported.");
             }
             _ => {
                 // Non-list, non-symbol values for the `imports` field are ignored.
@@ -444,11 +462,8 @@ impl<R: RawReader> SystemReader<R> {
         }
     }
 
-    pub fn raw_annotations(&self) -> impl Iterator<Item = RawSymbolToken> + '_ {
-        // RawReader implementations do not attempt to resolve each annotation into text.
-        // Additionally, they perform all I/O related to annotations in their implementations
-        // of Reader::next. As such, it's safe to call `unwrap()` on each raw annotation.
-        self.raw_reader.annotations().map(|a| a.unwrap())
+    pub fn raw_annotations(&self) -> impl Iterator<Item = IonResult<RawSymbolToken>> + '_ {
+        self.raw_reader.annotations()
     }
 
     pub fn symbol_table(&self) -> &SymbolTable {
@@ -579,7 +594,10 @@ impl<R: RawReader> IonReader for SystemReader<R> {
                 // LST instead of skipping its remaining contents.
                 self.finish_reading_current_level()?;
                 self.add_lst_symbols_to_current_symbol_table();
+                // Reset other LST-related state.
                 self.lst.is_append = false;
+                self.lst.has_found_symbols = false;
+                self.lst.has_found_imports = false;
                 new_lst_state = NotReadingAnLst;
             }
             ProcessingLstImports | ProcessingLstSymbols | ProcessingLstOpenContent => {
