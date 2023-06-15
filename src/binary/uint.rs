@@ -221,7 +221,7 @@ mod tests {
         let data = &[0b1000_0000];
         let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(uint.size_in_bytes(), 1);
-        assert_eq!(uint.value(), &UInt::from(128));
+        assert_eq!(uint.value(), &UInt::from(128u64));
     }
 
     #[test]
@@ -229,7 +229,7 @@ mod tests {
         let data = &[0b0111_1111, 0b1111_1111];
         let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(uint.size_in_bytes(), 2);
-        assert_eq!(uint.value(), &UInt::from(32_767));
+        assert_eq!(uint.value(), &UInt::from(32_767u64));
     }
 
     #[test]
@@ -237,7 +237,7 @@ mod tests {
         let data = &[0b0011_1100, 0b1000_0111, 0b1000_0001];
         let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
         assert_eq!(uint.size_in_bytes(), 3);
-        assert_eq!(uint.value(), &UInt::from(3_966_849));
+        assert_eq!(uint.value(), &UInt::from(3_966_849u64));
     }
 
     #[test]

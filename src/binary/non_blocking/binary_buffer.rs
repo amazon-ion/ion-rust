@@ -690,7 +690,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b1000_0000]);
         let var_int = buffer.read_uint(buffer.remaining())?;
         assert_eq!(var_int.size_in_bytes(), 1);
-        assert_eq!(var_int.value(), &UInt::from(128));
+        assert_eq!(var_int.value(), &UInt::from(128u64));
         Ok(())
     }
 
@@ -699,7 +699,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
         let var_int = buffer.read_uint(buffer.remaining())?;
         assert_eq!(var_int.size_in_bytes(), 2);
-        assert_eq!(var_int.value(), &UInt::from(32_767));
+        assert_eq!(var_int.value(), &UInt::from(32_767u64));
         Ok(())
     }
 
@@ -708,7 +708,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0011_1100, 0b1000_0111, 0b1000_0001]);
         let var_int = buffer.read_uint(buffer.remaining())?;
         assert_eq!(var_int.size_in_bytes(), 3);
-        assert_eq!(var_int.value(), &UInt::from(3_966_849));
+        assert_eq!(var_int.value(), &UInt::from(3_966_849u64));
         Ok(())
     }
 

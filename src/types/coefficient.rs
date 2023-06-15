@@ -16,6 +16,67 @@ pub enum Sign {
     Positive,
 }
 
+/// A simple wrapper type around a [`UInt`]. Users are not expected to construct
+/// instances of `Magnitude` directly; it is provided for conversion ergonomics.
+///
+/// Signed integer types cannot implement `Into<UInt>`. Instead, they implement
+/// `TryInto<UInt>` and report an error if the input integer is negative.
+///
+/// Signed integers can infallibly implement `Into<Magnitude>` by using their
+/// absolute value.
+pub struct Magnitude(UInt);
+
+impl Magnitude {
+    fn new<I: Into<UInt>>(value: I) -> Self {
+        Magnitude(value.into())
+    }
+}
+
+impl From<UInt> for Magnitude {
+    fn from(value: UInt) -> Self {
+        Magnitude(value)
+    }
+}
+
+impl From<Magnitude> for UInt {
+    fn from(value: Magnitude) -> Self {
+        value.0
+    }
+}
+
+impl From<BigUint> for Magnitude {
+    fn from(value: BigUint) -> Self {
+        let uint: UInt = value.into();
+        Magnitude(uint)
+    }
+}
+
+macro_rules! impl_magnitude_from_small_unsigned_int_types {
+    ($($t:ty),*) => ($(
+        impl From<$t> for Magnitude {
+            fn from(value: $t) -> Magnitude {
+                let uint: UInt = value.into();
+                Magnitude(uint)
+            }
+        }
+    )*)
+}
+
+impl_magnitude_from_small_unsigned_int_types!(u8, u16, u32, u64, u128, usize);
+
+macro_rules! impl_magnitude_from_small_signed_int_types {
+    ($($t:ty),*) => ($(
+        impl From<$t> for Magnitude {
+            fn from(value: $t) -> Magnitude {
+                let uint: UInt = (value.unsigned_abs() as u64).into();
+                Magnitude(uint)
+            }
+        }
+    )*)
+}
+
+impl_magnitude_from_small_signed_int_types!(i8, i16, i32, i64, isize);
+
 /// A signed integer that can be used as the coefficient of a Decimal value. This type does not
 /// consider `0` and `-0` to be equal and supports magnitudes of arbitrary size.
 // These trait derivations rely closely on the manual implementations of PartialEq and Ord on
@@ -27,8 +88,9 @@ pub struct Coefficient {
 }
 
 impl Coefficient {
-    pub(crate) fn new<I: Into<UInt>>(sign: Sign, magnitude: I) -> Self {
-        let magnitude = magnitude.into();
+    pub(crate) fn new<I: Into<Magnitude>>(sign: Sign, magnitude: I) -> Self {
+        let magnitude: Magnitude = magnitude.into();
+        let magnitude: UInt = magnitude.into();
         Coefficient { sign, magnitude }
     }
 
@@ -114,7 +176,7 @@ macro_rules! impl_coefficient_from_signed_int_types {
         impl From<$t> for Coefficient {
             fn from(value: $t) -> Coefficient {
                 let sign = if value < <$t>::zero() { Sign::Negative } else { Sign::Positive };
-                Coefficient::new(sign, value)
+                Coefficient::new(sign, value.unsigned_abs())
             }
         }
     )*)
