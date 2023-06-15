@@ -11,6 +11,7 @@ use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::ion_data::IonEq;
 use crate::result::IonResult;
+use crate::types::integer::UIntData;
 use crate::types::{Coefficient, Decimal, Sign, UInt};
 use crate::IonError;
 
@@ -18,7 +19,9 @@ const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
     coefficient: Coefficient {
         sign: Sign::Positive,
-        magnitude: UInt::U64(0),
+        magnitude: UInt {
+            data: UIntData::U64(0),
+        },
     },
     exponent: 0,
 };
@@ -69,9 +72,9 @@ where
             }
         } else {
             // Otherwise, allocate a Vec<u8> with the necessary representation.
-            let mut coefficient_bytes = match decimal.coefficient.magnitude() {
-                UInt::U64(unsigned) => unsigned.to_be_bytes().into(),
-                UInt::BigUInt(big) => big.to_bytes_be(),
+            let mut coefficient_bytes = match &decimal.coefficient.magnitude().data {
+                UIntData::U64(unsigned) => unsigned.to_be_bytes().into(),
+                UIntData::BigUInt(big) => big.to_bytes_be(),
             };
 
             let first_byte: &mut u8 = &mut coefficient_bytes[0];

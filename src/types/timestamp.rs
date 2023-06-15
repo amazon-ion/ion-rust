@@ -2,8 +2,9 @@ use crate::ion_data::{IonEq, IonOrd};
 use crate::result::{
     encoding_error, illegal_operation, illegal_operation_raw, IonError, IonResult,
 };
+use crate::types::integer::UIntData;
+use crate::types::Decimal;
 use crate::types::Sign::Negative;
-use crate::types::{Decimal, UInt};
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
 };
@@ -243,9 +244,9 @@ impl Timestamp {
             Some(Arbitrary(decimal)) => {
                 const NANOSECONDS_EXPONENT: i64 = -9;
                 let exponent_delta = decimal.exponent - NANOSECONDS_EXPONENT;
-                let magnitude = match decimal.coefficient.magnitude() {
-                    UInt::U64(magnitude) => *magnitude,
-                    UInt::BigUInt(magnitude) => {
+                let magnitude = match &decimal.coefficient.magnitude().data {
+                    UIntData::U64(magnitude) => *magnitude,
+                    UIntData::BigUInt(magnitude) => {
                         // If the magnitude is small enough to fit in a u64, do the conversion.
                         if let Ok(small_magnitude) = u64::try_from(magnitude) {
                             small_magnitude

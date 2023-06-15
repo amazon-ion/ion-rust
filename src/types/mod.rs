@@ -7,7 +7,7 @@ pub type SymbolId = usize;
 mod bytes;
 mod coefficient;
 mod decimal;
-mod integer;
+pub(crate) mod integer;
 mod list;
 mod lob;
 mod sequence;

@@ -5,6 +5,7 @@ use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};
 
 use crate::ion_data::{IonEq, IonOrd};
 use crate::result::{illegal_operation, illegal_operation_raw, IonError};
+use crate::types::integer::UIntData;
 use crate::types::{Coefficient, Sign, UInt};
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};
@@ -15,14 +16,14 @@ use std::ops::Neg;
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
 #[derive(Clone, Debug)]
 pub struct Decimal {
-    // A Coefficient is a Sign/UInteger pair supporting integers of arbitrary size
+    // A Coefficient is a `(Sign, UInt)` pair supporting integers of arbitrary size
     pub(crate) coefficient: Coefficient,
     pub(crate) exponent: i64,
 }
 
 impl Decimal {
-    /// Constructs a new Decimal with the provided components. The value of the decimal is
-    ///    (coefficient * 10^exponent) * (if sign == Sign::Negative { -1 } else { 1 })
+    /// Constructs a new Decimal with the provided components. The value of the decimal is:
+    ///    `coefficient * 10^exponent`
     pub fn new<I: Into<Coefficient>>(coefficient: I, exponent: i64) -> Decimal {
         let coefficient = coefficient.into();
         Decimal {
@@ -66,9 +67,9 @@ impl Decimal {
 
     /// Returns `true` if this Decimal is a zero of any sign or exponent.
     pub fn is_zero(&self) -> bool {
-        match self.coefficient.magnitude() {
-            UInt::U64(0) => true,
-            UInt::BigUInt(m) => m.is_zero(),
+        match &self.coefficient.magnitude().data {
+            UIntData::U64(0) => true,
+            UIntData::BigUInt(m) => m.is_zero(),
             _ => false,
         }
     }
@@ -76,9 +77,9 @@ impl Decimal {
     /// Returns true if this Decimal's coefficient has a negative sign AND a magnitude greater than
     /// zero. Otherwise, returns false. (Negative zero returns false.)
     pub fn is_less_than_zero(&self) -> bool {
-        match (self.coefficient.sign(), self.coefficient.magnitude()) {
-            (Sign::Negative, UInt::U64(m)) if *m > 0 => true,
-            (Sign::Negative, UInt::BigUInt(m)) if m > &BigUint::zero() => true,
+        match (self.coefficient.sign(), &self.coefficient.magnitude().data) {
+            (Sign::Negative, UIntData::U64(m)) if *m > 0 => true,
+            (Sign::Negative, UIntData::BigUInt(m)) if m > &BigUint::zero() => true,
             _ => false,
         }
     }
@@ -87,9 +88,9 @@ impl Decimal {
     pub(crate) fn is_greater_than_or_equal_to_one(&self) -> bool {
         // If the coefficient has a magnitude of zero, the Decimal is a zero of some precision
         // and so is not >= 1.
-        match &self.coefficient.magnitude {
-            UInt::U64(magnitude) if magnitude.is_zero() => return false,
-            UInt::BigUInt(magnitude) if magnitude.is_zero() => return false,
+        match &self.coefficient.magnitude.data {
+            UIntData::U64(magnitude) if magnitude.is_zero() => return false,
+            UIntData::BigUInt(magnitude) if magnitude.is_zero() => return false,
             _ => {}
         }
 
@@ -166,7 +167,7 @@ impl Decimal {
         // This lets us compare 80 and 80, determining that the decimals are equal.
         let mut scaled_coefficient: BigUint = d1.coefficient.magnitude().to_biguint().unwrap();
         scaled_coefficient *= BigUint::from(10u64).pow(exponent_delta as u32);
-        UInt::BigUInt(scaled_coefficient).cmp(d2.coefficient.magnitude())
+        UInt::from(scaled_coefficient).cmp(d2.coefficient.magnitude())
     }
 
     /// Extract the integer and fractional parts and the exponents of this as a `(BigInt, (BigInt, i64))`

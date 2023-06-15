@@ -90,12 +90,12 @@ fn decimal_from_text_components<'a>(
         let value = u64::from_str(&magnitude_text)
             .or_fatal_parse_error(input, "parsing coefficient magnitude as u64 failed")?
             .1;
-        UInt::U64(value)
+        value.into()
     } else {
         let value = BigUint::from_str(&magnitude_text)
             .or_fatal_parse_error(input, "parsing coefficient magnitude as u64 failed")?
             .1;
-        UInt::BigUInt(value)
+        value.into()
     };
 
     let coefficient = Coefficient::new(sign, magnitude);
