@@ -253,7 +253,7 @@ macro_rules! impl_int_types_from_uint {
     )*)
 }
 
-impl_int_types_from_uint!(i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
+impl_int_types_from_uint!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
 impl From<i128> for UInt {
     fn from(value: i128) -> UInt {

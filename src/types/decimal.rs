@@ -16,14 +16,14 @@ use std::ops::Neg;
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
 #[derive(Clone, Debug)]
 pub struct Decimal {
-    // A Coefficient is a Sign/UInteger pair supporting integers of arbitrary size
+    // A Coefficient is a `(Sign, UInt)` pair supporting integers of arbitrary size
     pub(crate) coefficient: Coefficient,
     pub(crate) exponent: i64,
 }
 
 impl Decimal {
-    /// Constructs a new Decimal with the provided components. The value of the decimal is
-    ///    (coefficient * 10^exponent) * (if sign == Sign::Negative { -1 } else { 1 })
+    /// Constructs a new Decimal with the provided components. The value of the decimal is:
+    ///    `coefficient * 10^exponent`
     pub fn new<I: Into<Coefficient>>(coefficient: I, exponent: i64) -> Decimal {
         let coefficient = coefficient.into();
         Decimal {
