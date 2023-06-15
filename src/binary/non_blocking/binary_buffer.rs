@@ -7,7 +7,7 @@ use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::result::{decoding_error, incomplete_data_error, incomplete_data_error_raw};
-use crate::types::{Int, UInt};
+use crate::types::Int;
 use crate::{IonResult, IonType};
 use num_bigint::{BigInt, BigUint, Sign};
 use std::io::Read;
@@ -284,7 +284,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
             .ok_or_else(|| incomplete_data_error_raw("a UInt", self.total_consumed()))?;
         let magnitude = DecodedUInt::small_uint_from_slice(uint_bytes);
         self.consume(length);
-        Ok(DecodedUInt::new(UInt::U64(magnitude), length))
+        Ok(DecodedUInt::new(magnitude.into(), length))
     }
 
     /// Reads the first `length` bytes from the buffer as a `UInt`. If `length` is small enough
@@ -305,7 +305,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
 
         let magnitude = BigUint::from_bytes_be(uint_bytes);
         self.consume(length);
-        Ok(DecodedUInt::new(UInt::BigUInt(magnitude), length))
+        Ok(DecodedUInt::new(magnitude.into(), length))
     }
 
     #[inline(never)]
@@ -529,6 +529,7 @@ impl<A: AsRef<[u8]>> From<A> for BinaryBuffer<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::UInt;
     use crate::IonError;
     use num_traits::Num;
 
@@ -689,7 +690,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b1000_0000]);
         let var_int = buffer.read_uint(buffer.remaining())?;
         assert_eq!(var_int.size_in_bytes(), 1);
-        assert_eq!(var_int.value(), &UInt::U64(128));
+        assert_eq!(var_int.value(), &UInt::from(128));
         Ok(())
     }
 
@@ -698,7 +699,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
         let var_int = buffer.read_uint(buffer.remaining())?;
         assert_eq!(var_int.size_in_bytes(), 2);
-        assert_eq!(var_int.value(), &UInt::U64(32_767));
+        assert_eq!(var_int.value(), &UInt::from(32_767));
         Ok(())
     }
 
@@ -707,7 +708,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0011_1100, 0b1000_0111, 0b1000_0001]);
         let var_int = buffer.read_uint(buffer.remaining())?;
         assert_eq!(var_int.size_in_bytes(), 3);
-        assert_eq!(var_int.value(), &UInt::U64(3_966_849));
+        assert_eq!(var_int.value(), &UInt::from(3_966_849));
         Ok(())
     }
 
@@ -719,7 +720,7 @@ mod tests {
         assert_eq!(uint.size_in_bytes(), 10);
         assert_eq!(
             uint.value(),
-            &UInt::BigUInt(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap())
+            &UInt::from(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap())
         );
         Ok(())
     }

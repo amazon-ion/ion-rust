@@ -64,7 +64,12 @@ pub trait IntAccess {
 /// Represents a UInt of any size. Used for reading binary integers and symbol Ids.
 /// Used to represent the unsigned magnitude of Decimal values and fractional seconds.
 #[derive(Debug, Clone)]
-pub enum UInt {
+pub struct UInt {
+    pub(crate) data: UIntData,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum UIntData {
     U64(u64),
     BigUInt(BigUint),
 }
@@ -92,9 +97,9 @@ impl UInt {
 
     /// Returns the number of digits in the base-10 representation of the UInteger.
     pub(crate) fn number_of_decimal_digits(&self) -> u64 {
-        match self {
-            UInt::U64(u64_value) => super::num_decimal_digits_in_u64(*u64_value),
-            UInt::BigUInt(big_uint_value) => UInt::calculate_big_uint_digits(big_uint_value),
+        match &self.data {
+            UIntData::U64(u64_value) => super::num_decimal_digits_in_u64(*u64_value),
+            UIntData::BigUInt(big_uint_value) => UInt::calculate_big_uint_digits(big_uint_value),
         }
     }
 
@@ -115,8 +120,8 @@ impl UInt {
 
 impl PartialEq for UInt {
     fn eq(&self, other: &Self) -> bool {
-        use UInt::*;
-        match (self, other) {
+        use UIntData::*;
+        match (&self.data, &other.data) {
             (U64(m1), U64(m2)) => m1 == m2,
             (BigUInt(m1), BigUInt(m2)) => m1 == m2,
             (U64(m1), BigUInt(m2)) => UInt::cross_representation_eq(*m1, m2),
@@ -135,8 +140,8 @@ impl PartialOrd for UInt {
 
 impl Ord for UInt {
     fn cmp(&self, other: &Self) -> Ordering {
-        use UInt::*;
-        match (self, other) {
+        use UIntData::*;
+        match (&self.data, &other.data) {
             (U64(m1), U64(m2)) => m1.cmp(m2),
             (BigUInt(m1), BigUInt(m2)) => m1.cmp(m2),
             (U64(m1), BigUInt(m2)) => UInt::cross_representation_cmp(*m1, m2),
@@ -147,8 +152,8 @@ impl Ord for UInt {
 
 impl From<UInt> for Int {
     fn from(value: UInt) -> Self {
-        match value {
-            UInt::U64(uint) => {
+        match value.data {
+            UIntData::U64(uint) => {
                 if let Ok(signed) = i64::try_from(uint) {
                     // The u64 was successfully converted to an i64
                     Int::I64(signed)
@@ -158,8 +163,14 @@ impl From<UInt> for Int {
                     big_integer_from_u64(uint)
                 }
             }
-            UInt::BigUInt(big_uint) => big_integer_from_big_uint(big_uint),
+            UIntData::BigUInt(big_uint) => big_integer_from_big_uint(big_uint),
         }
+    }
+}
+
+impl From<UIntData> for UInt {
+    fn from(data: UIntData) -> Self {
+        UInt { data }
     }
 }
 
@@ -167,16 +178,16 @@ impl From<BigUint> for UInt {
     fn from(value: BigUint) -> Self {
         // prefer a compact representation for the magnitude
         match value.to_u64() {
-            Some(unsigned) => UInt::U64(unsigned),
-            None => UInt::BigUInt(value),
+            Some(unsigned) => UIntData::U64(unsigned).into(),
+            None => UIntData::BigUInt(value).into(),
         }
     }
 }
 
 impl From<UInt> for BigUint {
     fn from(value: UInt) -> Self {
-        use UInt::*;
-        match value {
+        use UIntData::*;
+        match value.data {
             U64(m) => BigUint::from(m),
             BigUInt(m) => m,
         }
@@ -197,7 +208,7 @@ macro_rules! impl_uint_from_small_unsigned_int_types {
     ($($t:ty),*) => ($(
         impl From<$t> for UInt {
             fn from(value: $t) -> UInt {
-                UInt::U64(value as u64)
+                UIntData::U64(value as u64).into()
             }
         }
     )*)
@@ -210,7 +221,7 @@ macro_rules! impl_uint_from_small_signed_int_types {
         impl From<$t> for UInt {
             fn from(value: $t) -> UInt {
                 let abs_value = value.unsigned_abs();
-                UInt::U64(abs_value.try_into().unwrap())
+                UIntData::U64(abs_value.try_into().unwrap()).into()
             }
         }
     )*)
@@ -220,13 +231,13 @@ impl_uint_from_small_signed_int_types!(i8, i16, i32, i64, isize);
 
 impl From<u128> for UInt {
     fn from(value: u128) -> UInt {
-        UInt::BigUInt(BigUint::from(value))
+        UIntData::BigUInt(BigUint::from(value)).into()
     }
 }
 
 impl From<i128> for UInt {
     fn from(value: i128) -> UInt {
-        UInt::BigUInt(value.abs().to_biguint().unwrap())
+        UIntData::BigUInt(value.abs().to_biguint().unwrap()).into()
     }
 }
 
@@ -236,7 +247,7 @@ impl From<Int> for UInt {
             Int::I64(i) => i.into(),
             // num_bigint::BigInt's `into_parts` consumes the BigInt and returns a
             // (sign: Sign, magnitude: BigUint) tuple. We only care about the magnitude, so we
-            // extract it here with `.1` ---------------v and then convert the BigUint to a UInteger
+            // extract it here with `.1` -----------v and then convert the BigUint to a UInteger
             Int::BigInt(i) => i.into_parts().1.into(), // <-- using `.into()`
         }
     }
@@ -256,13 +267,13 @@ impl TryFrom<&UInt> for i64 {
     type Error = IonError;
 
     fn try_from(value: &UInt) -> Result<Self, Self::Error> {
-        match value {
-            UInt::U64(uint) => i64::try_from(*uint).or_else(|_| {
+        match &value.data {
+            UIntData::U64(uint) => i64::try_from(*uint).or_else(|_| {
                 decoding_error(format!(
                     "Unsigned integer {uint:?} was too large to be represented as an i64."
                 ))
             }),
-            UInt::BigUInt(big_uint) => i64::try_from(big_uint).or_else(|_| {
+            UIntData::BigUInt(big_uint) => i64::try_from(big_uint).or_else(|_| {
                 decoding_error(format!(
                     "Unsigned integer {big_uint:?} was too large to be represented as an i64."
                 ))
@@ -275,13 +286,13 @@ impl TryFrom<&UInt> for usize {
     type Error = IonError;
 
     fn try_from(value: &UInt) -> Result<Self, Self::Error> {
-        match value {
-            UInt::U64(uint) => usize::try_from(*uint).or_else(|_| {
+        match &value.data {
+            UIntData::U64(uint) => usize::try_from(*uint).or_else(|_| {
                 decoding_error(format!(
                     "Unsigned integer {uint:?} was too large to be represented as an usize."
                 ))
             }),
-            UInt::BigUInt(big_uint) => usize::try_from(big_uint).or_else(|_| {
+            UIntData::BigUInt(big_uint) => usize::try_from(big_uint).or_else(|_| {
                 decoding_error(format!(
                     "Unsigned integer {big_uint:?} was too large to be represented as an usize."
                 ))
@@ -432,9 +443,9 @@ impl Zero for Int {
 
 impl Display for UInt {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &self {
-            UInt::U64(i) => write!(f, "{i}"),
-            UInt::BigUInt(i) => write!(f, "{i}"),
+        match &self.data {
+            UIntData::U64(i) => write!(f, "{i}"),
+            UIntData::BigUInt(i) => write!(f, "{i}"),
         }
     }
 }
@@ -568,19 +579,19 @@ mod integer_tests {
     }
 
     #[rstest]
-    #[case::u64(UInt::U64(5), UInt::U64(4), Ordering::Greater)]
-    #[case::u64_equal(UInt::U64(5), UInt::U64(5), Ordering::Equal)]
-    #[case::u64_gt_big_uint(UInt::U64(4), UInt::BigUInt(BigUint::from(3u64)), Ordering::Greater)]
-    #[case::u64_lt_big_uint(UInt::U64(3), UInt::BigUInt(BigUint::from(5u64)), Ordering::Less)]
-    #[case::u64_eq_big_uint(UInt::U64(3), UInt::BigUInt(BigUint::from(3u64)), Ordering::Equal)]
+    #[case::u64(UInt::from(5), UInt::from(4), Ordering::Greater)]
+    #[case::u64_equal(UInt::from(5), UInt::from(5), Ordering::Equal)]
+    #[case::u64_gt_big_uint(UInt::from(4), UInt::from(BigUint::from(3u64)), Ordering::Greater)]
+    #[case::u64_lt_big_uint(UInt::from(3), UInt::from(BigUint::from(5u64)), Ordering::Less)]
+    #[case::u64_eq_big_uint(UInt::from(3), UInt::from(BigUint::from(3u64)), Ordering::Equal)]
     #[case::big_uint(
-        UInt::BigUInt(BigUint::from(1100u64)),
-        UInt::BigUInt(BigUint::from(1005u64)),
+        UInt::from(BigUint::from(1100u64)),
+        UInt::from(BigUint::from(1005u64)),
         Ordering::Greater
     )]
     #[case::big_uint(
-        UInt::BigUInt(BigUint::from(1005u64)),
-        UInt::BigUInt(BigUint::from(1005u64)),
+        UInt::from(BigUint::from(1005u64)),
+        UInt::from(BigUint::from(1005u64)),
         Ordering::Equal
     )]
     fn unsigned_integer_ordering_tests(
@@ -592,11 +603,11 @@ mod integer_tests {
     }
 
     #[rstest]
-    #[case(UInt::U64(1), 1)] // only one test case for U64 as that's delegated to another impl
-    #[case(UInt::BigUInt(BigUint::from(0u64)), 1)]
-    #[case(UInt::BigUInt(BigUint::from(1u64)), 1)]
-    #[case(UInt::BigUInt(BigUint::from(10u64)), 2)]
-    #[case(UInt::BigUInt(BigUint::from(3117u64)), 4)]
+    #[case(UInt::from(1), 1)] // only one test case for U64 as that's delegated to another impl
+    #[case(UInt::from(BigUint::from(0u64)), 1)]
+    #[case(UInt::from(BigUint::from(1u64)), 1)]
+    #[case(UInt::from(BigUint::from(10u64)), 2)]
+    #[case(UInt::from(BigUint::from(3117u64)), 4)]
     fn uint_decimal_digits_test(#[case] uint: UInt, #[case] expected: i32) {
         assert_eq!(uint.number_of_decimal_digits(), expected as u64)
     }
@@ -614,10 +625,10 @@ mod integer_tests {
     }
 
     #[rstest]
-    #[case(UInt::U64(5), "5")]
-    #[case(UInt::U64(0), "0")]
-    #[case(UInt::BigUInt(BigUint::from(0u64)), "0")]
-    #[case(UInt::BigUInt(BigUint::from(1100u64)), "1100")]
+    #[case(UInt::from(5), "5")]
+    #[case(UInt::from(0), "0")]
+    #[case(UInt::from(BigUint::from(0u64)), "0")]
+    #[case(UInt::from(BigUint::from(1100u64)), "1100")]
     fn uint_display_test(#[case] value: UInt, #[case] expect: String) {
         let mut buf = Vec::new();
         write!(&mut buf, "{value}").unwrap();

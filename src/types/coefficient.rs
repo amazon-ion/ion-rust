@@ -2,6 +2,7 @@ use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
 
 use crate::result::{illegal_operation, IonError};
+use crate::types::integer::UIntData;
 use crate::types::UInt;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
@@ -48,33 +49,33 @@ impl Coefficient {
     pub(crate) fn negative_zero() -> Self {
         Coefficient {
             sign: Sign::Negative,
-            magnitude: UInt::U64(0),
+            magnitude: 0u64.into(),
         }
     }
 
     /// Returns true if the Coefficient represents positive zero.
     pub(crate) fn is_negative_zero(&self) -> bool {
-        match (self.sign, &self.magnitude) {
-            (Sign::Negative, UInt::U64(0)) => true,
-            (Sign::Negative, UInt::BigUInt(b)) if b.is_zero() => true,
+        match (self.sign, &self.magnitude.data) {
+            (Sign::Negative, UIntData::U64(0)) => true,
+            (Sign::Negative, UIntData::BigUInt(b)) if b.is_zero() => true,
             _ => false,
         }
     }
 
     /// Returns true if the Coefficient represents positive zero.
     pub(crate) fn is_positive_zero(&self) -> bool {
-        match (self.sign, &self.magnitude) {
-            (Sign::Positive, UInt::U64(0)) => true,
-            (Sign::Positive, UInt::BigUInt(b)) if b.is_zero() => true,
+        match (self.sign, &self.magnitude.data) {
+            (Sign::Positive, UIntData::U64(0)) => true,
+            (Sign::Positive, UIntData::BigUInt(b)) if b.is_zero() => true,
             _ => false,
         }
     }
 
     /// Returns true if the Coefficient represents a zero of any sign.
     pub(crate) fn is_zero(&self) -> bool {
-        match (self.sign, &self.magnitude) {
-            (_, UInt::U64(0)) => true,
-            (_, UInt::BigUInt(b)) if b.is_zero() => true,
+        match (self.sign, &self.magnitude.data) {
+            (_, UIntData::U64(0)) => true,
+            (_, UIntData::BigUInt(b)) if b.is_zero() => true,
             _ => false,
         }
     }
@@ -82,15 +83,15 @@ impl Coefficient {
     /// If the value can fit in an i64, return it as such. This is useful for
     /// inline representations.
     pub(crate) fn as_i64(&self) -> Option<i64> {
-        match self.magnitude {
-            UInt::U64(unsigned) => match i64::try_from(unsigned) {
+        match &self.magnitude.data {
+            UIntData::U64(unsigned) => match i64::try_from(*unsigned) {
                 Ok(signed) => match self.sign {
                     Sign::Negative => Some(signed.neg()), // cannot overflow (never `MIN`)
                     Sign::Positive => Some(signed),
                 },
                 Err(_) => None,
             },
-            UInt::BigUInt(_) => None,
+            UIntData::BigUInt(_) => None,
         }
     }
 }
@@ -130,9 +131,9 @@ impl TryFrom<Coefficient> for BigInt {
         if value.is_negative_zero() {
             illegal_operation("Cannot convert negative zero Decimal to BigInt")?;
         }
-        let mut big_int: BigInt = match value.magnitude {
-            UInt::U64(m) => m.into(),
-            UInt::BigUInt(m) => m.into(),
+        let mut big_int: BigInt = match value.magnitude.data {
+            UIntData::U64(m) => m.into(),
+            UIntData::BigUInt(m) => m.into(),
         };
         if value.sign == Sign::Negative {
             big_int.mul_assign(-1);
@@ -169,9 +170,9 @@ impl Display for Coefficient {
             Sign::Positive => {}
             Sign::Negative => write!(f, "-")?,
         };
-        match &self.magnitude {
-            UInt::U64(m) => write!(f, "{}", *m),
-            UInt::BigUInt(m) => write!(f, "{m}"),
+        match &self.magnitude.data {
+            UIntData::U64(m) => write!(f, "{}", *m),
+            UIntData::BigUInt(m) => write!(f, "{m}"),
         }
     }
 }
