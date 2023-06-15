@@ -1,6 +1,5 @@
 use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
-use crate::result::{decoding_error, IonError};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 use num_traits::{ToPrimitive, Zero};
 use std::cmp::Ordering;
@@ -235,6 +234,27 @@ impl From<u128> for UInt {
     }
 }
 
+macro_rules! impl_int_types_from_uint {
+    ($($t:ty),*) => ($(
+        impl TryFrom<&UInt> for $t {
+            // This allows the caller to reclaim the UInt in the event that conversion fails.
+            type Error = ();
+
+            // If conversion fails, we discard the error. `TryFromIntError` provides no
+            // additional context and cannot be constructed outside of `std`. We'll return
+            // the unit type, `()`.
+            fn try_from(value: &UInt) -> Result<Self, Self::Error> {
+                match &value.data {
+                    UIntData::U64(value) => <$t>::try_from(*value).map_err(|_|()),
+                    UIntData::BigUInt(value) => <$t>::try_from(value).map_err(|_|()),
+                }
+            }
+        }
+    )*)
+}
+
+impl_int_types_from_uint!(i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
+
 impl From<i128> for UInt {
     fn from(value: i128) -> UInt {
         UIntData::BigUInt(value.abs().to_biguint().unwrap()).into()
@@ -261,44 +281,6 @@ fn big_integer_from_u64(value: u64) -> Int {
 #[inline(never)]
 fn big_integer_from_big_uint(value: BigUint) -> Int {
     Int::BigInt(BigInt::from(value))
-}
-
-impl TryFrom<&UInt> for i64 {
-    type Error = IonError;
-
-    fn try_from(value: &UInt) -> Result<Self, Self::Error> {
-        match &value.data {
-            UIntData::U64(uint) => i64::try_from(*uint).or_else(|_| {
-                decoding_error(format!(
-                    "Unsigned integer {uint:?} was too large to be represented as an i64."
-                ))
-            }),
-            UIntData::BigUInt(big_uint) => i64::try_from(big_uint).or_else(|_| {
-                decoding_error(format!(
-                    "Unsigned integer {big_uint:?} was too large to be represented as an i64."
-                ))
-            }),
-        }
-    }
-}
-
-impl TryFrom<&UInt> for usize {
-    type Error = IonError;
-
-    fn try_from(value: &UInt) -> Result<Self, Self::Error> {
-        match &value.data {
-            UIntData::U64(uint) => usize::try_from(*uint).or_else(|_| {
-                decoding_error(format!(
-                    "Unsigned integer {uint:?} was too large to be represented as an usize."
-                ))
-            }),
-            UIntData::BigUInt(big_uint) => usize::try_from(big_uint).or_else(|_| {
-                decoding_error(format!(
-                    "Unsigned integer {big_uint:?} was too large to be represented as an usize."
-                ))
-            }),
-        }
-    }
 }
 
 /// Container for either an integer that can fit in a 64-bit word or an arbitrarily sized
