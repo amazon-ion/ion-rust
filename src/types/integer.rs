@@ -1,7 +1,7 @@
 use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
 use num_bigint::{BigInt, BigUint, ToBigUint};
-use num_traits::{ToPrimitive, Zero};
+use num_traits::{Signed, ToPrimitive, Zero};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::{Add, Neg};
@@ -215,18 +215,24 @@ macro_rules! impl_uint_from_small_unsigned_int_types {
 
 impl_uint_from_small_unsigned_int_types!(u8, u16, u32, u64, usize);
 
-macro_rules! impl_uint_from_small_signed_int_types {
+macro_rules! impl_uint_try_from_small_signed_int_types {
     ($($t:ty),*) => ($(
-        impl From<$t> for UInt {
-            fn from(value: $t) -> UInt {
-                let abs_value = value.unsigned_abs();
-                UIntData::U64(abs_value.try_into().unwrap()).into()
+        impl TryFrom<$t> for UInt {
+            // If conversion fails, we discard the error. `TryFromIntError` provides no
+            // additional context and cannot be constructed outside of `std`. We'll return
+            // the unit type, `()`.
+            type Error = ();
+            fn try_from(value: $t) -> Result<Self, Self::Error> {
+                if value < 0 {
+                    return Err(());
+                }
+                Ok((value.unsigned_abs() as u64).into())
             }
         }
     )*)
 }
 
-impl_uint_from_small_signed_int_types!(i8, i16, i32, i64, isize);
+impl_uint_try_from_small_signed_int_types!(i8, i16, i32, i64, isize);
 
 impl From<u128> for UInt {
     fn from(value: u128) -> UInt {
@@ -234,15 +240,14 @@ impl From<u128> for UInt {
     }
 }
 
-macro_rules! impl_int_types_from_uint {
+macro_rules! impl_int_types_try_from_uint {
     ($($t:ty),*) => ($(
         impl TryFrom<&UInt> for $t {
-            // This allows the caller to reclaim the UInt in the event that conversion fails.
-            type Error = ();
-
             // If conversion fails, we discard the error. `TryFromIntError` provides no
             // additional context and cannot be constructed outside of `std`. We'll return
             // the unit type, `()`.
+            type Error = ();
+
             fn try_from(value: &UInt) -> Result<Self, Self::Error> {
                 match &value.data {
                     UIntData::U64(value) => <$t>::try_from(*value).map_err(|_|()),
@@ -253,22 +258,39 @@ macro_rules! impl_int_types_from_uint {
     )*)
 }
 
-impl_int_types_from_uint!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+impl_int_types_try_from_uint!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
-impl From<i128> for UInt {
-    fn from(value: i128) -> UInt {
-        UIntData::BigUInt(value.abs().to_biguint().unwrap()).into()
+impl TryFrom<i128> for UInt {
+    // If the i128 is negative, this will return the unit type.
+    type Error = ();
+
+    fn try_from(value: i128) -> Result<Self, Self::Error> {
+        if value < 0 {
+            Err(())
+        } else {
+            Ok(value.unsigned_abs().to_biguint().unwrap().into())
+        }
     }
 }
 
-impl From<Int> for UInt {
-    fn from(value: Int) -> Self {
+impl TryFrom<Int> for UInt {
+    // Returns the unit type if the input `Int` is negative.
+    type Error = ();
+
+    fn try_from(value: Int) -> Result<Self, Self::Error> {
         match value {
-            Int::I64(i) => i.into(),
+            Int::I64(i) if i >= 0 => Ok(i.unsigned_abs().into()),
+            Int::I64(_i) => Err(()),
             // num_bigint::BigInt's `into_parts` consumes the BigInt and returns a
-            // (sign: Sign, magnitude: BigUint) tuple. We only care about the magnitude, so we
-            // extract it here with `.1` -----------v and then convert the BigUint to a UInteger
-            Int::BigInt(i) => i.into_parts().1.into(), // <-- using `.into()`
+            // (sign: Sign, magnitude: BigUint) tuple.
+            Int::BigInt(i) => {
+                let (sign, magnitude) = i.into_parts();
+                if sign == num_bigint::Sign::Minus {
+                    Err(())
+                } else {
+                    Ok(magnitude.into())
+                }
+            }
         }
     }
 }
@@ -294,6 +316,14 @@ pub enum Int {
 }
 
 impl Int {
+    /// Returns a [`UInt`] representing the unsigned magnitude of this `Int`.
+    pub(crate) fn unsigned_abs(&self) -> UInt {
+        match self {
+            Int::I64(i) => i.unsigned_abs().into(),
+            Int::BigInt(i) => i.abs().into_parts().1.into(),
+        }
+    }
+
     /// Compares a [i64] integer with a [BigInt] to see if they are equal. This method never
     /// allocates. It will always prefer to downgrade a BigUint and compare the two integers as
     /// u64 values. If this is not possible, then the two numbers cannot be equal anyway.
@@ -561,11 +591,11 @@ mod integer_tests {
     }
 
     #[rstest]
-    #[case::u64(UInt::from(5), UInt::from(4), Ordering::Greater)]
-    #[case::u64_equal(UInt::from(5), UInt::from(5), Ordering::Equal)]
-    #[case::u64_gt_big_uint(UInt::from(4), UInt::from(BigUint::from(3u64)), Ordering::Greater)]
-    #[case::u64_lt_big_uint(UInt::from(3), UInt::from(BigUint::from(5u64)), Ordering::Less)]
-    #[case::u64_eq_big_uint(UInt::from(3), UInt::from(BigUint::from(3u64)), Ordering::Equal)]
+    #[case::u64(UInt::from(5u64), UInt::from(4u64), Ordering::Greater)]
+    #[case::u64_equal(UInt::from(5u64), UInt::from(5u64), Ordering::Equal)]
+    #[case::u64_gt_big_uint(UInt::from(4u64), UInt::from(BigUint::from(3u64)), Ordering::Greater)]
+    #[case::u64_lt_big_uint(UInt::from(3u64), UInt::from(BigUint::from(5u64)), Ordering::Less)]
+    #[case::u64_eq_big_uint(UInt::from(3u64), UInt::from(BigUint::from(3u64)), Ordering::Equal)]
     #[case::big_uint(
         UInt::from(BigUint::from(1100u64)),
         UInt::from(BigUint::from(1005u64)),
@@ -585,7 +615,7 @@ mod integer_tests {
     }
 
     #[rstest]
-    #[case(UInt::from(1), 1)] // only one test case for U64 as that's delegated to another impl
+    #[case(UInt::from(1u64), 1)] // only one test case for U64 as that's delegated to another impl
     #[case(UInt::from(BigUint::from(0u64)), 1)]
     #[case(UInt::from(BigUint::from(1u64)), 1)]
     #[case(UInt::from(BigUint::from(10u64)), 2)]
@@ -607,8 +637,8 @@ mod integer_tests {
     }
 
     #[rstest]
-    #[case(UInt::from(5), "5")]
-    #[case(UInt::from(0), "0")]
+    #[case(UInt::from(5u64), "5")]
+    #[case(UInt::from(0u64), "0")]
     #[case(UInt::from(BigUint::from(0u64)), "0")]
     #[case(UInt::from(BigUint::from(1100u64)), "1100")]
     fn uint_display_test(#[case] value: UInt, #[case] expect: String) {

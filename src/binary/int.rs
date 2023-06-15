@@ -197,7 +197,7 @@ impl From<DecodedInt> for Coefficient {
         } = int;
         use types::Sign::{Negative, Positive};
         let sign = if is_negative { Negative } else { Positive };
-        Coefficient::new(sign, value)
+        Coefficient::new(sign, value.unsigned_abs())
     }
 }
 
