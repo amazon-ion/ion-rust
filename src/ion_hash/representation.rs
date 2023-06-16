@@ -13,9 +13,10 @@ use crate::element::{Element, Sequence, Struct};
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
 use crate::result::IonResult;
-use crate::types::{Decimal, Int, Timestamp};
+use crate::types::{Decimal, Int, IntAccess, Timestamp};
 use crate::{IonType, Symbol};
 use digest::{FixedOutput, Output, Reset, Update};
+use num_bigint::BigInt;
 
 pub(crate) trait RepresentationEncoder {
     fn update_with_representation(&mut self, elem: &Element) -> IonResult<()> {
@@ -53,17 +54,20 @@ where
     D: Update + FixedOutput + Reset + Clone + Default,
 {
     fn write_repr_integer(&mut self, value: Option<&Int>) -> IonResult<()> {
-        match value {
-            Some(Int::I64(v)) => match v {
-                0 => {}
-                _ => {
-                    let magnitude = v.unsigned_abs();
-                    let encoded = binary::uint::encode_u64(magnitude);
-                    self.update_escaping(encoded.as_bytes());
+        if let Some(int) = value {
+            if let Some(i) = int.as_i64() {
+                match i {
+                    0 => {}
+                    _ => {
+                        let magnitude = i.unsigned_abs();
+                        let encoded = binary::uint::encode_u64(magnitude);
+                        self.update_escaping(encoded.as_bytes());
+                    }
                 }
-            },
-            Some(Int::BigInt(b)) => self.update_escaping(&b.magnitude().to_bytes_be()[..]),
-            None => {}
+            } else {
+                let i: BigInt = int.clone().into();
+                self.update_escaping(&i.magnitude().to_bytes_be()[..]);
+            }
         }
 
         Ok(())

@@ -4,7 +4,7 @@ use crate::text::parse_result::{
 use crate::text::parsers::numeric_support::base_10_integer_digits;
 use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
-use crate::types::Int;
+use crate::Int;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, tag, take_while1};
 use nom::character::streaming::char;
@@ -119,14 +119,14 @@ fn parse_integer_with_radix(text: &str, radix: u32) -> IonParseResult<Int> {
 fn parse_sanitized_text_with_radix(text: &str, radix: u32) -> IonParseResult<Int> {
     // Try to parse it as an i64...
     match i64::from_str_radix(text, radix) {
-        Ok(integer) => Ok(("", Int::I64(integer))),
+        Ok(integer) => Ok(("", integer.into())),
         Err(e)
             if e.kind() == &IntErrorKind::NegOverflow || e.kind() == &IntErrorKind::PosOverflow =>
         {
             // The text is ok, but the magnitude of the integer it represents is too large to
             // represent using an i64. Try again with BigInt.
             BigInt::from_str_radix(text, radix)
-                .map(Int::BigInt)
+                .map(Int::from)
                 .or_fatal_parse_error(text, "found big integer with invalid text")
         }
         Err(e) => {
@@ -139,13 +139,12 @@ fn parse_sanitized_text_with_radix(text: &str, radix: u32) -> IonParseResult<Int
 
 #[cfg(test)]
 mod integer_parsing_tests {
-    use super::*;
     use crate::text::parsers::integer::parse_integer;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::text_value::TextValue;
 
     fn parse_equals_i64(text: &str, expected: i64) {
-        parse_test_ok(parse_integer, text, TextValue::Int(Int::I64(expected)))
+        parse_test_ok(parse_integer, text, TextValue::Int(expected.into()))
     }
 
     fn parse_fails(text: &str) {

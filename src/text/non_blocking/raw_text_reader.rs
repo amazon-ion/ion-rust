@@ -577,7 +577,7 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
         let value = match stream_item(&remaining_text) {
             Ok(("\n", RawTextStreamItem::AnnotatedTextValue(value)))
                 if value.annotations().is_empty()
-                    && *value.value() == TextValue::Int(Int::I64(0)) =>
+                    && *value.value() == TextValue::Int(0i64.into()) =>
             {
                 // We found the unannotated zero that we appended to the end of the buffer.
                 // The "\n" in this pattern is the unparsed text left in the buffer,
@@ -794,10 +794,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawTextReader<A> {
 
     fn read_i64(&mut self) -> IonResult<i64> {
         match self.current_value.as_ref().map(|current| current.value()) {
-            Some(TextValue::Int(Int::I64(value))) => Ok(*value),
-            Some(TextValue::Int(Int::BigInt(value))) => {
-                decoding_error(format!("Integer {value} is too large to fit in an i64."))
-            }
+            Some(TextValue::Int(i)) => i.expect_i64(),
             _ => Err(self.expected("int value")),
         }
     }
@@ -1146,7 +1143,7 @@ mod reader_tests {
     #[case(" null.string ", TextValue::Null(IonType::String))]
     #[case(" true ", TextValue::Bool(true))]
     #[case(" false ", TextValue::Bool(false))]
-    #[case(" 738 ", TextValue::Int(Int::I64(738)))]
+    #[case(" 738 ", TextValue::Int(738.into()))]
     #[case(" 2.5e0 ", TextValue::Float(2.5))]
     #[case(" 2.5 ", TextValue::Decimal(Decimal::new(25, -1)))]
     #[case(" 2007-07-12T ", TextValue::Timestamp(Timestamp::with_ymd(2007, 7, 12).build().unwrap()))]

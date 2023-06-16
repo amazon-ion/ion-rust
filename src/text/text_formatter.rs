@@ -451,7 +451,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
 #[cfg(test)]
 mod formatter_test {
     use crate::text::text_formatter::IonValueFormatter;
-    use crate::{ion_list, ion_sexp, ion_struct, Int, IonResult, IonType, Timestamp};
+    use crate::{ion_list, ion_sexp, ion_struct, IonResult, IonType, Timestamp};
     use num_bigint::BigInt;
 
     fn formatter<F>(mut f: F, expected: &str)
@@ -483,18 +483,15 @@ mod formatter_test {
 
     #[test]
     fn test_format_i64() -> IonResult<()> {
-        formatter(|ivf| ivf.format_integer(&Int::I64(4)), "4");
-        formatter(|ivf| ivf.format_integer(&Int::I64(-4)), "-4");
+        formatter(|ivf| ivf.format_integer(&4i64.into()), "4");
+        formatter(|ivf| ivf.format_integer(&(-4i64).into()), "-4");
         Ok(())
     }
 
     #[test]
     fn test_format_big_int() -> IonResult<()> {
-        formatter(|ivf| ivf.format_integer(&Int::BigInt(BigInt::from(4))), "4");
-        formatter(
-            |ivf| ivf.format_integer(&Int::BigInt(BigInt::from(-4))),
-            "-4",
-        );
+        formatter(|ivf| ivf.format_integer(&BigInt::from(4).into()), "4");
+        formatter(|ivf| ivf.format_integer(&BigInt::from(-4).into()), "-4");
         Ok(())
     }
 

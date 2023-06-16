@@ -8,7 +8,7 @@ use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::result::{decoding_error, decoding_error_raw, incomplete_data_error};
 use crate::types::SymbolId;
-use crate::{Decimal, IonResult, IonType, RawSymbolTokenRef, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use bytes::{BigEndian, ByteOrder};
 use std::fmt::{Debug, Formatter};
 use std::{fmt, mem};
@@ -181,7 +181,6 @@ impl<'data> LazyRawValue<'data> {
         };
 
         use crate::binary::type_code::IonTypeCode::*;
-        use crate::Int;
         use num_traits::Zero;
         let value = match (self.encoded_value.header.ion_type_code, magnitude) {
             (PositiveInteger, integer) => integer,

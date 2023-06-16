@@ -5,7 +5,6 @@
 use crate::binary::IonTypeCode;
 use crate::element::{Element, Sequence, Struct};
 use crate::{Decimal, Int, IonType, Symbol, Timestamp};
-use num_bigint::Sign;
 
 use std::slice;
 
@@ -59,13 +58,7 @@ impl TypeQualifier {
 }
 
 fn is_integer_positive(value: Option<&Int>) -> bool {
-    match value {
-        None => true,
-        Some(any) => match any {
-            Int::I64(i) => *i >= 0,
-            Int::BigInt(b) => !std::matches!(b.sign(), Sign::Minus),
-        },
-    }
+    value.map(|i| !i.is_negative()).unwrap_or(true)
 }
 
 /// For many types, the qualifier (see: [`TypeQualifier`]) is based on whether

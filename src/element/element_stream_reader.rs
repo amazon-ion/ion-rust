@@ -1,4 +1,4 @@
-use crate::result::{decoding_error, illegal_operation, illegal_operation_raw};
+use crate::result::{illegal_operation, illegal_operation_raw};
 use crate::text::parent_container::ParentContainer;
 
 use crate::element::iterators::SymbolsIterator;
@@ -216,12 +216,7 @@ impl IonReader for ElementStreamReader {
 
     fn read_i64(&mut self) -> IonResult<i64> {
         match self.current_value.as_ref() {
-            Some(element) if element.as_int().is_some() => match element.as_int().unwrap() {
-                Int::I64(value) => Ok(*value),
-                Int::BigInt(value) => {
-                    decoding_error(format!("Integer {value} is too large to fit in an i64."))
-                }
-            },
+            Some(element) if element.as_int().is_some() => element.as_int().unwrap().expect_i64(),
             _ => Err(self.expected("int value")),
         }
     }

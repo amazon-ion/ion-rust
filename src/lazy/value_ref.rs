@@ -122,8 +122,8 @@ impl<'top, 'data> ValueRef<'top, 'data> {
     }
 
     pub fn expect_i64(self) -> IonResult<i64> {
-        if let ValueRef::Int(Int::I64(i)) = self {
-            Ok(i)
+        if let ValueRef::Int(i) = self {
+            i.expect_i64()
         } else {
             decoding_error("expected an int (i64)")
         }

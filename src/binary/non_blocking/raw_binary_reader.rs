@@ -1563,11 +1563,11 @@ mod tests {
         ];
         let mut reader = RawBinaryReader::new(data.as_slice());
         expect_value(reader.next(), IonType::Int);
-        assert_eq!(reader.read_int()?, Int::I64(1));
+        assert_eq!(reader.read_int()?, 1i64.into());
         expect_value(reader.next(), IonType::Int);
-        assert_eq!(reader.read_int()?, Int::I64(2));
+        assert_eq!(reader.read_int()?, 2i64.into());
         expect_value(reader.next(), IonType::Int);
-        assert_eq!(reader.read_int()?, Int::I64(3));
+        assert_eq!(reader.read_int()?, 3i64.into());
         // Nothing else in the buffer
         expect_eof(reader.next());
         Ok(())
@@ -1972,7 +1972,7 @@ mod tests {
         assert_eq!(reader.next()?, RawStreamItem::Nothing);
         reader.append_bytes(&[0x20])?;
         assert_eq!(reader.next()?, RawStreamItem::Value(IonType::Int));
-        assert_eq!(reader.read_int()?, Int::I64(0));
+        assert_eq!(reader.read_int()?, 0.into());
         Ok(())
     }
 
