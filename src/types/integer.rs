@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::{Add, Neg};
 
-/// Provides convenient integer accessors for integer values that are like [`IntData`]
+/// Provides convenient integer accessors for integer values that are like [`Int`]
 pub trait IntAccess {
     /// Returns the value as an `i64` if it can be represented as such.
     ///
