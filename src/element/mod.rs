@@ -178,13 +178,13 @@ impl From<IonType> for Value {
 
 impl From<i64> for Value {
     fn from(i64_val: i64) -> Self {
-        Value::Int(Int::I64(i64_val))
+        Value::Int(i64_val.into())
     }
 }
 
 impl From<BigInt> for Value {
     fn from(big_int_val: BigInt) -> Self {
-        Value::Int(Int::BigInt(big_int_val))
+        Value::Int(big_int_val.into())
     }
 }
 
@@ -1063,7 +1063,7 @@ mod tests {
             ops: vec![AsAnyInt],
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = 100i64.into();
-                assert_eq!(Some(&Int::I64(100)), e.as_int());
+                assert_eq!(Some(&Int::from(100i64)), e.as_int());
                 assert_eq!(Some(100), e.as_i64());
                 assert_eq!(None, e.as_big_int());
                 assert_eq!(&expected, e);
@@ -1078,7 +1078,7 @@ mod tests {
             ops: vec![AsAnyInt],
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = BigInt::from(100).into();
-                assert_eq!(Some(&Int::BigInt(BigInt::from(100))), e.as_int());
+                assert_eq!(Some(&Int::from(BigInt::from(100))), e.as_int());
                 assert_eq!(BigInt::from_str("100").unwrap(), *e.as_big_int().unwrap());
                 assert_eq!(&expected, e);
             }),

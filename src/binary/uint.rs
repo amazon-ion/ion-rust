@@ -126,7 +126,7 @@ impl From<DecodedUInt> for Int {
             value,
             .. // Ignore 'size_in_bytes'
         } = uint;
-        Int::from(value)
+        value.into()
     }
 }
 

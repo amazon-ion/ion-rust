@@ -90,7 +90,6 @@ mod parse_top_level_values_tests {
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok, parse_unwrap};
     use crate::text::parsers::value::value;
     use crate::text::text_value::TextValue;
-    use crate::types::Int;
     use crate::IonType;
 
     use super::*;
@@ -145,7 +144,7 @@ mod parse_top_level_values_tests {
     // Here, 'END' is simply an unrelated symbol value that the parser knows to ignore.
     #[case("foo::bar::baz END", &["foo", "bar"], TextValue::Symbol(text_token("baz")))]
     #[case("foo::bar::baz END", &["foo", "bar"], TextValue::Symbol(text_token("baz")))]
-    #[case("foo::'bar'::7 END", &["foo", "bar"], TextValue::Int(Int::I64(7)))]
+    #[case("foo::'bar'::7 END", &["foo", "bar"], TextValue::Int(7.into()))]
     #[case("'foo'::'bar'::{ END", &["foo", "bar"], TextValue::StructStart)]
     #[case("'foo bar'::false END", &["foo bar"], TextValue::Bool(false))]
     fn test_parse_annotated_value(

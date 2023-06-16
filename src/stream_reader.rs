@@ -81,7 +81,7 @@ pub trait IonReader {
     /// error is encountered while reading, returns [crate::IonError].
     fn read_i64(&mut self) -> IonResult<i64>;
 
-    /// Attempts to read the current item as an Ion integer and return it as an [`Int`](crate::types::Int). If the
+    /// Attempts to read the current item as an Ion integer and return it as an [`Int`](crate::types::IntData). If the
     /// current item is not an integer or an IO error is encountered while reading, returns
     /// [crate::IonError].
     fn read_int(&mut self) -> IonResult<Int>;

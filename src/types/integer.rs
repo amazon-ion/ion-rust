@@ -1,12 +1,14 @@
 use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
+use crate::result::decoding_error;
+use crate::IonResult;
 use num_bigint::{BigInt, BigUint, ToBigUint};
-use num_traits::{Signed, ToPrimitive, Zero};
+use num_traits::{CheckedAdd, Signed, ToPrimitive, Zero};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::{Add, Neg};
 
-/// Provides convenient integer accessors for integer values that are like [`Int`]
+/// Provides convenient integer accessors for integer values that are like [`IntData`]
 pub trait IntAccess {
     /// Returns the value as an `i64` if it can be represented as such.
     ///
@@ -16,8 +18,8 @@ pub trait IntAccess {
     /// # use ion_rs::element::*;
     /// # use ion_rs::types::*;
     /// # use num_bigint::*;
-    /// let big_int = Int::BigInt(BigInt::from(100));
-    /// let i64_int = Int::I64(100);
+    /// let big_int = Int::from(BigInt::from(100));
+    /// let i64_int = Int::from(100);
     /// assert_eq!(big_int.as_i64(), i64_int.as_i64());
     ///
     /// // works on element too
@@ -40,12 +42,12 @@ pub trait IntAccess {
     /// # use ion_rs::types::*;
     /// # use num_bigint::*;
     /// # use std::str::FromStr;
-    /// let big_int = Int::BigInt(BigInt::from(100));
+    /// let big_int = Int::from(BigInt::from(100));
     /// assert_eq!(
     ///     BigInt::from_str("100").unwrap(),
     ///     *big_int.as_big_int().unwrap()
     /// );
-    /// let i64_int = Int::I64(100);
+    /// let i64_int = Int::from(100);
     /// assert_eq!(None, i64_int.as_big_int());
     ///
     /// // works on element too
@@ -145,24 +147,6 @@ impl Ord for UInt {
             (BigUInt(m1), BigUInt(m2)) => m1.cmp(m2),
             (U64(m1), BigUInt(m2)) => UInt::cross_representation_cmp(*m1, m2),
             (BigUInt(m1), U64(m2)) => UInt::cross_representation_cmp(*m2, m1).reverse(),
-        }
-    }
-}
-
-impl From<UInt> for Int {
-    fn from(value: UInt) -> Self {
-        match value.data {
-            UIntData::U64(uint) => {
-                if let Ok(signed) = i64::try_from(uint) {
-                    // The u64 was successfully converted to an i64
-                    Int::I64(signed)
-                } else {
-                    // The u64 was slightly too big to be represented as an i64; it required the
-                    // 64th bit to store the magnitude. Up-convert it to a BigInt.
-                    big_integer_from_u64(uint)
-                }
-            }
-            UIntData::BigUInt(big_uint) => big_integer_from_big_uint(big_uint),
         }
     }
 }
@@ -278,18 +262,15 @@ impl TryFrom<Int> for UInt {
     type Error = ();
 
     fn try_from(value: Int) -> Result<Self, Self::Error> {
-        match value {
-            Int::I64(i) if i >= 0 => Ok(i.unsigned_abs().into()),
-            Int::I64(_i) => Err(()),
-            // num_bigint::BigInt's `into_parts` consumes the BigInt and returns a
-            // (sign: Sign, magnitude: BigUint) tuple.
-            Int::BigInt(i) => {
-                let (sign, magnitude) = i.into_parts();
-                if sign == num_bigint::Sign::Minus {
-                    Err(())
-                } else {
-                    Ok(magnitude.into())
-                }
+        match value.data {
+            IntData::I64(i) if i < 0 => Err(()),
+            IntData::I64(i) => Ok(i.unsigned_abs().into()),
+            IntData::BigInt(i) if i.sign() == num_bigint::Sign::Minus => Err(()),
+            IntData::BigInt(i) => {
+                // num_bigint::BigInt's `into_parts` consumes the BigInt and returns a
+                // (sign: Sign, magnitude: BigUint) tuple.
+                let (_, magnitude) = i.into_parts();
+                Ok(magnitude.into())
             }
         }
     }
@@ -297,41 +278,70 @@ impl TryFrom<Int> for UInt {
 
 #[inline(never)]
 fn big_integer_from_u64(value: u64) -> Int {
-    Int::BigInt(BigInt::from(value))
+    IntData::BigInt(BigInt::from(value)).into()
 }
 
 #[inline(never)]
 fn big_integer_from_big_uint(value: BigUint) -> Int {
-    Int::BigInt(BigInt::from(value))
+    IntData::BigInt(BigInt::from(value)).into()
 }
 
 /// Container for either an integer that can fit in a 64-bit word or an arbitrarily sized
 /// [`BigInt`].
-///
-/// See [`IntAccess`] for common operations.
 #[derive(Debug, Clone)]
-pub enum Int {
+pub(crate) enum IntData {
     I64(i64),
     BigInt(BigInt),
+}
+
+impl From<IntData> for Int {
+    fn from(data: IntData) -> Self {
+        Int { data }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Int {
+    pub(crate) data: IntData,
 }
 
 impl Int {
     /// Returns a [`UInt`] representing the unsigned magnitude of this `Int`.
     pub(crate) fn unsigned_abs(&self) -> UInt {
-        match self {
-            Int::I64(i) => i.unsigned_abs().into(),
-            Int::BigInt(i) => i.abs().into_parts().1.into(),
+        match &self.data {
+            IntData::I64(i) => i.unsigned_abs().into(),
+            IntData::BigInt(i) => i.abs().into_parts().1.into(),
         }
     }
 
-    /// Compares a [i64] integer with a [BigInt] to see if they are equal. This method never
+    /// Returns `true` if this value is less than zero.
+    /// If this value is greater than or equal to zero, returns `false`.
+    pub fn is_negative(&self) -> bool {
+        match &self.data {
+            IntData::I64(i) => *i < 0,
+            IntData::BigInt(i) => i.is_negative(),
+        }
+    }
+
+    /// If this value is small enough to fit in an `i64`, returns `Ok(i64)`. Otherwise,
+    /// returns a [`DecodingError`](crate::IonError::DecodingError).
+    pub fn expect_i64(&self) -> IonResult<i64> {
+        match &self.data {
+            IntData::I64(i) => Ok(*i),
+            IntData::BigInt(_) => {
+                decoding_error(format!("Int {self} is too large to fit in an i64."))
+            }
+        }
+    }
+
+    /// Compares an [i64] integer with a [BigInt] to see if they are equal. This method never
     /// allocates. It will always prefer to downgrade a BigUint and compare the two integers as
     /// u64 values. If this is not possible, then the two numbers cannot be equal anyway.
     fn cross_representation_eq(m1: i64, m2: &BigInt) -> bool {
         Int::cross_representation_cmp(m1, m2) == Ordering::Equal
     }
 
-    /// Compares a [i64] integer with a [BigInt]. This method never allocates. It will always
+    /// Compares an [i64] integer with a [BigInt]. This method never allocates. It will always
     /// prefer to downgrade a BigUint and compare the two integers as u64 values. If this is
     /// not possible, then the BigUint is larger than the u64.
     fn cross_representation_cmp(m1: i64, m2: &BigInt) -> Ordering {
@@ -348,25 +358,25 @@ impl Int {
 impl IntAccess for Int {
     #[inline]
     fn as_i64(&self) -> Option<i64> {
-        match &self {
-            Int::I64(i) => Some(*i),
-            Int::BigInt(big) => big.to_i64(),
+        match &self.data {
+            IntData::I64(i) => Some(*i),
+            IntData::BigInt(big) => big.to_i64(),
         }
     }
 
     #[inline]
     fn as_big_int(&self) -> Option<&BigInt> {
-        match &self {
-            Int::I64(_) => None,
-            Int::BigInt(big) => Some(big),
+        match &self.data {
+            IntData::I64(_) => None,
+            IntData::BigInt(big) => Some(big),
         }
     }
 }
 
 impl PartialEq for Int {
     fn eq(&self, other: &Self) -> bool {
-        use Int::*;
-        match (self, other) {
+        use IntData::*;
+        match (&self.data, &other.data) {
             (I64(m1), I64(m2)) => m1 == m2,
             (BigInt(m1), BigInt(m2)) => m1 == m2,
             (I64(m1), BigInt(m2)) => Int::cross_representation_eq(*m1, m2),
@@ -393,11 +403,12 @@ impl Neg for Int {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        use Int::*;
-        match self {
-            I64(value) => I64(-value),
-            BigInt(value) => BigInt(-value),
+        use IntData::*;
+        match &self.data {
+            I64(value) => I64(-*value),
+            BigInt(value) => BigInt(value.neg()),
         }
+        .into()
     }
 }
 
@@ -409,8 +420,8 @@ impl PartialOrd for Int {
 
 impl Ord for Int {
     fn cmp(&self, other: &Self) -> Ordering {
-        use Int::*;
-        match (self, other) {
+        use IntData::*;
+        match (&self.data, &other.data) {
             (I64(m1), I64(m2)) => m1.cmp(m2),
             (BigInt(m1), BigInt(m2)) => m1.cmp(m2),
             (I64(m1), BigInt(m2)) => Int::cross_representation_cmp(*m1, m2),
@@ -424,31 +435,32 @@ impl Add<Self> for Int {
 
     fn add(self, rhs: Self) -> Self::Output {
         // The alias 'Big' differentiates the enum variant from the wrapped 'BigInt' type
-        use Int::{BigInt as Big, I64};
-        match (self, rhs) {
+        use IntData::{BigInt as Big, I64};
+        match (&self.data, &rhs.data) {
             (I64(this), I64(that)) => {
                 // Try to add the i64s together; if they overflow, upconvert to BigInts
                 match this.checked_add(that) {
                     Some(result) => I64(result),
-                    None => Big(BigInt::from(this).add(BigInt::from(that))),
+                    None => Big(BigInt::from(*this).add(BigInt::from(*that))),
                 }
             }
-            (I64(this), Big(that)) => Big(BigInt::from(this).add(that)),
-            (Big(this), I64(that)) => Big(this.add(&BigInt::from(that))),
-            (Big(this), Big(that)) => Big(this.add(&that)),
+            (I64(this), Big(that)) => Big(BigInt::from(*this).add(that)),
+            (Big(this), I64(that)) => Big(this.add(&BigInt::from(*that))),
+            (Big(this), Big(that)) => Big(this.add(that)),
         }
+        .into()
     }
 }
 
 impl Zero for Int {
     fn zero() -> Self {
-        Int::I64(0)
+        IntData::I64(0).into()
     }
 
     fn is_zero(&self) -> bool {
-        match self {
-            Int::I64(value) => *value == 0i64,
-            Int::BigInt(value) => value.is_zero(),
+        match &self.data {
+            IntData::I64(value) => *value == 0i64,
+            IntData::BigInt(value) => value.is_zero(),
         }
     }
 }
@@ -462,13 +474,13 @@ impl Display for UInt {
     }
 }
 
-// Trivial conversion to Int::I64 from integers that can safely be converted to an i64
+// Trivial conversion to Int from integers that can safely be converted to an i64
 macro_rules! impl_int_i64_from {
     ($($t:ty),*) => ($(
         impl From<$t> for Int {
             fn from(value: $t) -> Int {
                 let i64_value = i64::from(value);
-                Int::I64(i64_value)
+                IntData::I64(i64_value).into()
             }
         }
     )*)
@@ -481,9 +493,9 @@ macro_rules! impl_int_from {
         impl From<$t> for Int {
             fn from(value: $t) -> Int {
                 match i64::try_from(value) {
-                    Ok(i64_value) => Int::I64(i64_value),
-                    Err(_) => Int::BigInt(BigInt::from(value))
-                }
+                    Ok(i64_value) => IntData::I64(i64_value),
+                    Err(_) => IntData::BigInt(BigInt::from(value))
+                }.into()
             }
         }
     )*)
@@ -491,16 +503,43 @@ macro_rules! impl_int_from {
 
 impl_int_from!(isize, usize, u64);
 
+impl From<UInt> for Int {
+    fn from(value: UInt) -> Self {
+        match value.data {
+            UIntData::U64(uint) => {
+                if let Ok(signed) = i64::try_from(uint) {
+                    // The u64 was successfully converted to an i64
+                    signed.into()
+                } else {
+                    // The u64 was slightly too big to be represented as an i64; it required the
+                    // 64th bit to store the magnitude. Up-convert it to a BigInt.
+                    big_integer_from_u64(uint)
+                }
+            }
+            UIntData::BigUInt(big_uint) => big_integer_from_big_uint(big_uint),
+        }
+    }
+}
+
 impl From<BigUint> for Int {
     fn from(value: BigUint) -> Self {
         let big_int = BigInt::from(value);
-        Int::BigInt(big_int)
+        IntData::BigInt(big_int).into()
     }
 }
 
 impl From<BigInt> for Int {
     fn from(value: BigInt) -> Self {
-        Int::BigInt(value)
+        IntData::BigInt(value).into()
+    }
+}
+
+impl From<Int> for BigInt {
+    fn from(value: Int) -> Self {
+        match value.data {
+            IntData::I64(i) => i.into(),
+            IntData::BigInt(i) => i,
+        }
     }
 }
 
@@ -522,9 +561,9 @@ impl IntAccess for Element {
 
 impl Display for Int {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match &self {
-            Int::I64(i) => write!(f, "{i}"),
-            Int::BigInt(i) => write!(f, "{i}"),
+        match &self.data {
+            IntData::I64(i) => write!(f, "{i}"),
+            IntData::BigInt(i) => write!(f, "{i}"),
         }
     }
 }
@@ -534,22 +573,21 @@ mod integer_tests {
     use num_bigint::BigInt;
     use std::io::Write;
 
+    use super::*;
+    use crate::types::UInt;
     use num_bigint::BigUint;
     use num_traits::Zero;
-    // The 'Big' alias helps distinguish between the enum variant and the wrapped numeric type
-    use crate::types::Int::{self, BigInt as Big, I64};
-    use crate::types::UInt;
     use rstest::*;
     use std::cmp::Ordering;
 
     #[test]
     fn is_zero() {
-        assert!(I64(0).is_zero());
-        assert!(Big(BigInt::from(0)).is_zero());
-        assert!(!I64(55).is_zero());
-        assert!(!Big(BigInt::from(55)).is_zero());
-        assert!(!I64(-55).is_zero());
-        assert!(!Big(BigInt::from(-55)).is_zero());
+        assert!(Int::from(0).is_zero());
+        assert!(Int::from(BigInt::from(0)).is_zero());
+        assert!(!Int::from(55).is_zero());
+        assert!(!Int::from(BigInt::from(55)).is_zero());
+        assert!(!Int::from(-55).is_zero());
+        assert!(!Int::from(BigInt::from(-55)).is_zero());
     }
 
     #[test]
@@ -559,31 +597,37 @@ mod integer_tests {
 
     #[test]
     fn add() {
-        assert_eq!(I64(0) + I64(0), I64(0));
-        assert_eq!(I64(5) + I64(7), I64(12));
-        assert_eq!(I64(-5) + I64(7), I64(2));
-        assert_eq!(I64(100) + Big(BigInt::from(1000)), Big(BigInt::from(1100)));
-        assert_eq!(Big(BigInt::from(100)) + I64(1000), Big(BigInt::from(1100)));
+        assert_eq!(Int::from(0) + Int::from(0), Int::from(0));
+        assert_eq!(Int::from(5) + Int::from(7), Int::from(12));
+        assert_eq!(Int::from(-5) + Int::from(7), Int::from(2));
         assert_eq!(
-            Big(BigInt::from(100)) + Big(BigInt::from(1000)),
-            Big(BigInt::from(1100))
+            Int::from(100) + Int::from(BigInt::from(1000)),
+            Int::from(BigInt::from(1100))
+        );
+        assert_eq!(
+            Int::from(BigInt::from(100)) + Int::from(1000),
+            Int::from(BigInt::from(1100))
+        );
+        assert_eq!(
+            Int::from(BigInt::from(100)) + Int::from(BigInt::from(1000)),
+            Int::from(BigInt::from(1100))
         );
     }
 
     #[rstest]
-    #[case::i64(Int::I64(5), Int::I64(4), Ordering::Greater)]
-    #[case::i64_equal(Int::I64(-5), Int::I64(-5), Ordering::Equal)]
-    #[case::i64_gt_big_int(Int::I64(4), Int::BigInt(BigInt::from(3)), Ordering::Greater)]
-    #[case::i64_eq_big_int(Int::I64(3), Int::BigInt(BigInt::from(3)), Ordering::Equal)]
-    #[case::i64_lt_big_int(Int::I64(-3), Int::BigInt(BigInt::from(5)), Ordering::Less)]
+    #[case::i64(5.into(), 4.into(), Ordering::Greater)]
+    #[case::i64_equal(Int::from(-5), Int::from(-5), Ordering::Equal)]
+    #[case::i64_gt_big_int(Int::from(4), Int::from(BigInt::from(3)), Ordering::Greater)]
+    #[case::i64_eq_big_int(Int::from(3), Int::from(BigInt::from(3)), Ordering::Equal)]
+    #[case::i64_lt_big_int(Int::from(-3), Int::from(BigInt::from(5)), Ordering::Less)]
     #[case::big_int(
-        Int::BigInt(BigInt::from(1100)),
-        Int::BigInt(BigInt::from(-1005)),
+        Int::from(BigInt::from(1100)),
+        Int::from(BigInt::from(-1005)),
         Ordering::Greater
     )]
     #[case::big_int(
-        Int::BigInt(BigInt::from(1100)),
-        Int::BigInt(BigInt::from(1100)),
+        Int::from(BigInt::from(1100)),
+        Int::from(BigInt::from(1100)),
         Ordering::Equal
     )]
     fn integer_ordering_tests(#[case] this: Int, #[case] other: Int, #[case] expected: Ordering) {
@@ -625,11 +669,11 @@ mod integer_tests {
     }
 
     #[rstest]
-    #[case(Int::I64(5), "5")]
-    #[case(Int::I64(-5), "-5")]
-    #[case(Int::I64(0), "0")]
-    #[case(Int::BigInt(BigInt::from(1100)), "1100")]
-    #[case(Int::BigInt(BigInt::from(-1100)), "-1100")]
+    #[case(Int::from(5), "5")]
+    #[case(Int::from(-5), "-5")]
+    #[case(Int::from(0), "0")]
+    #[case(Int::from(BigInt::from(1100)), "1100")]
+    #[case(Int::from(BigInt::from(-1100)), "-1100")]
     fn int_display_test(#[case] value: Int, #[case] expect: String) {
         let mut buf = Vec::new();
         write!(&mut buf, "{value}").unwrap();

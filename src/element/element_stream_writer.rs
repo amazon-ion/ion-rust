@@ -185,7 +185,7 @@ where
     }
 
     fn write_i64(&mut self, value: i64) -> IonResult<()> {
-        self.write_scalar(Value::Int(Int::I64(value)))
+        self.write_scalar(Value::Int(value.into()))
     }
 
     fn write_int(&mut self, value: &Int) -> IonResult<()> {
@@ -301,7 +301,7 @@ mod tests {
 
     use crate::types::{Bytes, Timestamp};
     use crate::writer::IonWriter;
-    use crate::{Decimal, Int, IonType, Symbol};
+    use crate::{Decimal, IonType, Symbol};
 
     #[track_caller]
     fn writer_test_with_assertion<F, E, A>(mut commands: F, expected: Vec<E>, mut assertion: A)
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn write_i64() {
-        writer_scalar_test(|w| w.write_i64(7), Value::Int(Int::I64(7)));
+        writer_scalar_test(|w| w.write_i64(7), Value::Int(7i64.into()));
     }
 
     #[test]
@@ -404,7 +404,7 @@ mod tests {
                 w.set_annotations(["foo", "bar", "baz quux"]);
                 w.write_i64(7)
             },
-            Value::Int(Int::I64(7)).with_annotations(["foo", "bar", "baz quux"]),
+            Value::Int(7i64.into()).with_annotations(["foo", "bar", "baz quux"]),
         );
     }
 

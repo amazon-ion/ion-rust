@@ -247,16 +247,16 @@ mod reader_tests {
             -79228162514264337593543950336 79228162514264337593543950335
         "#,
         vec![
-            0,
+            0i64,
             -65536, 65535,
             -4294967296, 4294967295,
             -9007199254740992, 9007199254740991,
-        ].into_iter().map(Int::I64).chain(
+        ].into_iter().map(Int::from).chain(
             vec![
                 "-18446744073709551616", "18446744073709551615",
                 "-79228162514264337593543950336", "79228162514264337593543950335",
             ].into_iter()
-            .map(|v| Int::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap()))
+            .map(|v| Int::from(BigInt::parse_bytes(v.as_bytes(), 10).unwrap()))
         ).map(|ai| Int(ai).into()).collect(),
     )]
     #[case::int64_threshold_as_big_int(
@@ -264,14 +264,14 @@ mod reader_tests {
         vec![
             "18446744073709551615",
         ].into_iter()
-        .map(|v| Int::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Int(ai).into()).collect(),
+        .map(|v| Int::from(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Int(ai).into()).collect(),
     )]
     #[case::int64_threshold_as_int64(
         &[0xE0, 0x01, 0x00, 0xEA, 0x38, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
         vec![
             "-9223372036854775808",
         ].into_iter()
-        .map(|v| Int::BigInt(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Int(ai).into()).collect(),
+        .map(|v| Int::from(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Int(ai).into()).collect(),
     )]
     #[case::floats(
         br#"

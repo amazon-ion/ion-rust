@@ -11,9 +11,10 @@ use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
-use crate::types::{ContainerType, Decimal, SymbolId, Timestamp};
+use crate::types::integer::IntData;
+use crate::types::{ContainerType, Decimal, Int, SymbolId, Timestamp};
 use crate::writer::IonWriter;
-use crate::{Int, IonType};
+use crate::IonType;
 
 use super::decimal::DecimalBinaryEncoder;
 use super::timestamp::TimestampBinaryEncoder;
@@ -600,9 +601,9 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
     /// Writes an Ion integer with the specified value.
     fn write_int(&mut self, value: &Int) -> IonResult<()> {
         // If the `value` is an `i64`, use `write_i64` and return.
-        let value = match value {
-            Int::I64(i) => return self.write_i64(*i),
-            Int::BigInt(i) => i,
+        let value = match &value.data {
+            IntData::I64(i) => return self.write_i64(*i),
+            IntData::BigInt(i) => i,
         };
 
         // From here on, `value` is a `BigInt`.
@@ -1151,12 +1152,7 @@ mod writer_tests {
     }
 
     fn expect_big_integer(reader: &mut TestReader, value: &BigInt) {
-        expect_scalar(
-            reader,
-            IonType::Int,
-            |r| r.read_int(),
-            Int::BigInt(value.clone()),
-        );
+        expect_scalar(reader, IonType::Int, |r| r.read_int(), value.clone().into());
     }
 
     fn expect_float(reader: &mut TestReader, value: f64) {
@@ -1243,11 +1239,11 @@ mod writer_tests {
         let very_big_negative = -very_big_positive.clone();
         binary_writer_test(
             |writer| {
-                writer.write_int(&Int::BigInt(BigInt::zero()))?;
-                writer.write_int(&Int::BigInt(big_positive.clone()))?;
-                writer.write_int(&Int::BigInt(very_big_positive.clone()))?;
-                writer.write_int(&Int::BigInt(big_negative.clone()))?;
-                writer.write_int(&Int::BigInt(very_big_negative.clone()))?;
+                writer.write_int(&(BigInt::zero().into()))?;
+                writer.write_int(&big_positive.clone().into())?;
+                writer.write_int(&very_big_positive.clone().into())?;
+                writer.write_int(&big_negative.clone().into())?;
+                writer.write_int(&very_big_negative.clone().into())?;
                 Ok(())
             },
             |reader| {

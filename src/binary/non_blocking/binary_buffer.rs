@@ -324,7 +324,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields>
     pub fn read_int(&mut self, length: usize) -> IonResult<DecodedInt> {
         if length == 0 {
-            return Ok(DecodedInt::new(Int::I64(0), false, 0));
+            return Ok(DecodedInt::new(0i64, false, 0));
         } else if length > MAX_INT_SIZE_IN_BYTES {
             return decoding_error(format!(
                 "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
@@ -337,7 +337,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
 
         let mut is_negative: bool = false;
 
-        let value = if length <= mem::size_of::<i64>() {
+        let value: Int = if length <= mem::size_of::<i64>() {
             // This Int will fit in an i64.
             let first_byte: i64 = i64::from(int_bytes[0]);
             let sign: i64 = if first_byte & 0b1000_0000 == 0 {
@@ -352,7 +352,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
                 magnitude <<= 8;
                 magnitude |= byte;
             }
-            Int::I64(sign * magnitude)
+            (sign * magnitude).into()
         } else {
             // This Int is too big for an i64, we'll need to use a BigInt
             let value = if int_bytes[0] & 0b1000_0000 == 0 {
@@ -367,7 +367,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
                 BigInt::from_bytes_be(Sign::Minus, owned_int_bytes.as_slice())
             };
 
-            Int::BigInt(value)
+            value.into()
         };
         self.consume(length);
         Ok(DecodedInt::new(value, is_negative, length))
@@ -740,7 +740,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b1000_0000]); // Negative zero
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 1);
-        assert_eq!(int.value(), &Int::I64(0));
+        assert_eq!(int.value(), &Int::from(0i64));
         assert!(int.is_negative_zero());
         Ok(())
     }
@@ -750,7 +750,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0000_0000]); // Negative zero
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 1);
-        assert_eq!(int.value(), &Int::I64(0));
+        assert_eq!(int.value(), &Int::from(0i64));
         assert!(!int.is_negative_zero());
         Ok(())
     }
@@ -760,7 +760,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[]); // Negative zero
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 0);
-        assert_eq!(int.value(), &Int::I64(0));
+        assert_eq!(int.value(), &Int::from(0i64));
         assert!(!int.is_negative_zero());
         Ok(())
     }
@@ -770,7 +770,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b1111_1111, 0b1111_1111]);
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 2);
-        assert_eq!(int.value(), &Int::I64(-32_767));
+        assert_eq!(int.value(), &Int::from(-32_767i64));
         Ok(())
     }
 
@@ -779,7 +779,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 2);
-        assert_eq!(int.value(), &Int::I64(32_767));
+        assert_eq!(int.value(), &Int::from(32_767i64));
         Ok(())
     }
 
@@ -788,7 +788,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b1011_1100, 0b1000_0111, 0b1000_0001]);
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 3);
-        assert_eq!(int.value(), &Int::I64(-3_966_849));
+        assert_eq!(int.value(), &Int::from(-3_966_849i64));
         Ok(())
     }
 
@@ -797,7 +797,7 @@ mod tests {
         let mut buffer = BinaryBuffer::new(&[0b0011_1100, 0b1000_0111, 0b1000_0001]);
         let int = buffer.read_int(buffer.remaining())?;
         assert_eq!(int.size_in_bytes(), 3);
-        assert_eq!(int.value(), &Int::I64(3_966_849));
+        assert_eq!(int.value(), &Int::from(3_966_849i64));
         Ok(())
     }
 
