@@ -34,6 +34,7 @@ pub mod reader;
 pub mod writer;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
+use crate::data_source::ToIonDataSource;
 use crate::element::writer::{ElementWriter, Format, TextKind};
 pub use crate::types::{Blob, Bytes, Clob};
 pub use annotations::{Annotations, IntoAnnotations};
@@ -578,9 +579,17 @@ impl Element {
     ///
     /// If the input has valid data, returns `Ok(Vec<Element>)`.
     /// If the input has invalid data, returns `Err(IonError)`.
-    pub fn read_all<A: AsRef<[u8]>>(data: A) -> IonResult<Vec<Element>> {
-        let bytes: &[u8] = data.as_ref();
-        ReaderBuilder::default().build(bytes)?.elements().collect()
+    pub fn read_all<A: AsRef<[u8]>>(data: A) -> IonResult<Sequence> {
+        Element::iter(data.as_ref())?.collect()
+    }
+
+    /// Returns an iterator over the Elements in the provided Ion data source.
+    /// If the data source cannot be read or contains invalid Ion data, this method
+    /// will return an `Err`.
+    pub fn iter<'a, I: ToIonDataSource + 'a>(
+        source: I,
+    ) -> IonResult<impl Iterator<Item = IonResult<Element>> + 'a> {
+        Ok(ReaderBuilder::default().build(source)?.into_elements())
     }
 
     /// Serializes this element to the provided writer.

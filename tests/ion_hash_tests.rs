@@ -4,7 +4,7 @@
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
 use ion_rs::element::writer::ElementWriter;
-use ion_rs::element::{Element, Struct};
+use ion_rs::element::{Element, Sequence, Struct};
 use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::IntAccess;
@@ -126,7 +126,7 @@ fn test_file(file_name: &str) -> IonHashTestResult<()> {
     test_all(elems)
 }
 
-fn test_all(elems: Vec<Element>) -> IonHashTestResult<()> {
+fn test_all(elems: Sequence) -> IonHashTestResult<()> {
     let mut failures: Vec<IonHashTestError> = vec![];
     for case in &elems {
         let annotated_test_name = test_case_name_from_annotation(case);

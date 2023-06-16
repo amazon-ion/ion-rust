@@ -345,6 +345,29 @@ macro_rules! ion_struct {
     }};
 }
 
+/// Constructs a [`Sequence`] with the specified child values.
+///
+/// Note that a `Sequence` is NOT a type of `Element`. However, one can convert a `Sequence` into a
+/// `List` or `SExp`.
+///
+/// ```
+/// use ion_rs::element::{Element, Sequence};
+/// use ion_rs::{ion_seq, ion_list};
+/// // Construct a Sequence from Rust values
+/// let actual: Sequence = ion_seq!["foo" 7 false ion_list![1.5f64, -8.25f64]];
+/// // Construct a Sequence from serialized Ion data
+/// let expected: Sequence = Element::read_all(r#" "foo" 7 false [1.5e0, -8.25e0] "#).unwrap();
+/// // Compare the two Sequences
+/// assert_eq!(expected, actual);
+/// ```
+#[macro_export]
+macro_rules! ion_seq {
+    ($($element:expr)*) => {{
+        use $crate::element::Sequence;
+        Sequence::builder()$(.push($element))*.build()
+    }};
+}
+
 use crate::types::{List, SExp};
 pub use {ion_list, ion_sexp, ion_struct};
 

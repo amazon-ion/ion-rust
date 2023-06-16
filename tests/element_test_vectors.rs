@@ -398,7 +398,7 @@ mod impl_display_for_element_tests {
         }
 
         let data = read(file_name).unwrap();
-        let result: IonResult<Vec<Element>> = Element::read_all(data.as_slice());
+        let result: IonResult<Sequence> = Element::read_all(data.as_slice());
         let elements = result.unwrap_or_else(|e| {
             panic!("Expected to be able to read Ion values for contents of file {file_name}: {e:?}")
         });

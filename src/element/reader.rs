@@ -24,6 +24,13 @@ pub trait ElementReader {
     /// Returns an iterator over the [Element]s in the data stream.
     fn elements(&mut self) -> Self::ElementIterator<'_>;
 
+    fn into_elements(self) -> OwnedElementIterator<Self>
+    where
+        Self: Sized,
+    {
+        OwnedElementIterator { reader: self }
+    }
+
     /// Like [Self::read_next_element], this method reads the next Ion value in the input stream,
     /// returning it as an `Ok(Element)`. However, it also requires that the stream contain exactly
     /// one value.
@@ -91,6 +98,18 @@ impl<'a, R: ElementReader + ?Sized> Iterator for ElementIterator<'a, R> {
             Ok(None) => None,
             Err(error) => Some(Err(error)),
         }
+    }
+}
+
+pub struct OwnedElementIterator<R: ElementReader> {
+    reader: R,
+}
+
+impl<R: ElementReader> Iterator for OwnedElementIterator<R> {
+    type Item = IonResult<Element>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.reader.read_next_element().transpose()
     }
 }
 
@@ -193,11 +212,11 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol> + ?Sized> ElementLoade
 #[cfg(test)]
 mod reader_tests {
     use super::*;
-    use crate::element::builders::{ion_list, ion_sexp, ion_struct};
     use crate::element::Value::*;
     use crate::element::{Element, IntoAnnotatedElement};
     use crate::ion_data::IonEq;
     use crate::types::{Int, Timestamp as TS};
+    use crate::{ion_list, ion_seq, ion_sexp, ion_struct};
     use crate::{IonType, Symbol};
     use bigdecimal::BigDecimal;
     use num_bigint::BigInt;
@@ -252,7 +271,7 @@ mod reader_tests {
             -4294967296, 4294967295,
             -9007199254740992, 9007199254740991,
         ].into_iter().map(Int::from).chain(
-            vec![
+        vec![
                 "-18446744073709551616", "18446744073709551615",
                 "-79228162514264337593543950336", "79228162514264337593543950335",
             ].into_iter()
@@ -355,16 +374,16 @@ mod reader_tests {
         br#"
             ["a", "b"]
         "#,
-        vec![
-            ion_list!["a", "b"].into()
+        ion_seq![
+            ion_list!["a", "b"]
         ]
     )]
     #[case::sexps(
         br#"
             (e f g)
         "#,
-        vec![
-            ion_sexp!(Symbol::owned("e") Symbol::owned("f") Symbol::owned("g")).into()
+        ion_seq![
+            ion_sexp!(Symbol::owned("e") Symbol::owned("f") Symbol::owned("g"))
         ]
     )]
     #[case::structs(
@@ -375,15 +394,15 @@ mod reader_tests {
                 string_field: a::"oink!",
             }
         "#,
-        vec![
+        ion_seq![
             ion_struct! {
                 "string_field": "oink!".with_annotations(["a"]),
                 "string_field": "moo!".with_annotations(["a"]),
                 "bool_field": true.with_annotations(["a"])
-            }.into()
+            }
         ]
     )]
-    fn read_and_compare(#[case] input: &[u8], #[case] expected: Vec<Element>) -> IonResult<()> {
+    fn read_and_compare(#[case] input: &[u8], #[case] expected: Sequence) -> IonResult<()> {
         let actual = Element::read_all(input)?;
         assert!(expected.ion_eq(&actual));
         Ok(())

@@ -41,7 +41,7 @@ create_new_slice_iterator_type!(
     // Used for iterating over an Element's annotations
     SymbolsIterator => Symbol,
     // Used for iterating over a Sequence's Elements
-    ElementsIterator => Element
+    SequenceIterator => Element
 );
 
 /// Consuming iterator for [`Annotations`](crate::element::Annotations).
