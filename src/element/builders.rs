@@ -255,7 +255,7 @@ impl StructBuilder {
 /// ```
 #[macro_export]
 macro_rules! ion_list {
-    ($($element:expr),*) => {{
+    ($($element:expr),* $(,)?) => {{
         use $crate::element::Sequence;
         Sequence::builder()$(.push($element))*.build_list()
     }};
@@ -339,7 +339,7 @@ macro_rules! ion_sexp {
 /// ```
 #[macro_export]
 macro_rules! ion_struct {
-    ($($field_name:tt : $element:expr),*) => {{
+    ($($field_name:tt : $element:expr),* $(,)?) => {{
         use $crate::element::Struct;
         Struct::builder()$(.with_field($field_name, $element))*.build()
     }};
@@ -413,6 +413,9 @@ mod tests {
     fn make_list_with_macro() {
         let actual: Element = ion_list![1, true, "foo", Symbol::owned("bar")].into();
         let expected = Element::read_one(r#"[1, true, "foo", bar]"#).unwrap();
+        assert_eq!(actual, expected);
+        // Trailing commas are allowed
+        let actual: Element = ion_list![1, true, "foo", Symbol::owned("bar"),].into();
         assert_eq!(actual, expected);
     }
 
@@ -515,6 +518,16 @@ mod tests {
         }
         .into();
         let expected = Element::read_one(r#"{a: 1, b: true, c: "foo", d: bar}"#).unwrap();
+        assert_eq!(actual, expected);
+
+        // Trailing commas are allowed
+        let actual: Element = ion_struct! {
+            "a": 1,
+            "b": true,
+            "c": "foo",
+            "d": Symbol::owned("bar"), // <-- trailing comma
+        }
+        .into();
         assert_eq!(actual, expected);
     }
 
