@@ -1,9 +1,10 @@
 use crate::element::builders::SequenceBuilder;
-use crate::element::iterators::ElementsIterator;
+use crate::element::iterators::SequenceIterator;
 use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
 use std::cmp::Ordering;
 
+/// An iterable, addressable series of Ion [`Element`]s.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sequence {
     elements: Vec<Element>,
@@ -23,8 +24,8 @@ impl Sequence {
         SequenceBuilder::with_initial_elements(&self.elements)
     }
 
-    pub fn elements(&self) -> ElementsIterator<'_> {
-        ElementsIterator::new(&self.elements)
+    pub fn elements(&self) -> SequenceIterator<'_> {
+        SequenceIterator::new(&self.elements)
     }
 
     pub fn get(&self, index: usize) -> Option<&Element> {
@@ -37,6 +38,10 @@ impl Sequence {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn iter(&self) -> SequenceIterator<'_> {
+        self.elements()
     }
 }
 
@@ -58,10 +63,32 @@ impl<'a> IntoIterator for &'a Sequence {
     type Item = &'a Element;
     // TODO: Change once `impl Trait` type aliases are stable
     // type IntoIter = impl Iterator<Item = &'a Element>;
-    type IntoIter = ElementsIterator<'a>;
+    type IntoIter = SequenceIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.elements()
+    }
+}
+
+// TODO: This currently clones elements. We should change `Sequence` to wrap a VecDeque so we can
+//       pop from the front.
+impl IntoIterator for Sequence {
+    type Item = Element;
+    // TODO: Change once `impl Trait` type aliases are stable
+    // type IntoIter = impl Iterator<Item = &'a Element>;
+    type IntoIter = OwnedSequenceIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        OwnedSequenceIterator {
+            current: 0,
+            sequence: self,
+        }
+    }
+}
+
+impl FromIterator<Element> for Sequence {
+    fn from_iter<T: IntoIterator<Item = Element>>(iter: T) -> Self {
+        Vec::from_iter(iter.into_iter()).into()
     }
 }
 
@@ -74,5 +101,23 @@ impl IonEq for Sequence {
 impl IonOrd for Sequence {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.elements.ion_cmp(&other.elements)
+    }
+}
+
+pub struct OwnedSequenceIterator {
+    current: usize,
+    sequence: Sequence,
+}
+
+impl Iterator for OwnedSequenceIterator {
+    type Item = Element;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(element) = self.sequence.get(self.current) {
+            self.current += 1;
+            Some(element.clone())
+        } else {
+            None
+        }
     }
 }

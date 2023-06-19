@@ -1,5 +1,5 @@
 use crate::element::builders::SequenceBuilder;
-use crate::element::iterators::ElementsIterator;
+use crate::element::iterators::SequenceIterator;
 use crate::element::{Element, Sequence};
 use crate::ion_data::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
@@ -32,7 +32,7 @@ impl SExp {
     delegate! {
         to self.0 {
             pub fn clone_builder(&self) -> SequenceBuilder;
-            pub fn elements(&self) -> ElementsIterator<'_>;
+            pub fn elements(&self) -> SequenceIterator<'_>;
             pub fn get(&self, index: usize) -> Option<&Element>;
             pub fn len(&self) -> usize;
             pub fn is_empty(&self) -> bool;
@@ -56,7 +56,7 @@ impl AsRef<Sequence> for SExp {
 // Allows `for element in &sexp {...}` syntax
 impl<'a> IntoIterator for &'a SExp {
     type Item = &'a Element;
-    type IntoIter = ElementsIterator<'a>;
+    type IntoIter = SequenceIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.elements()

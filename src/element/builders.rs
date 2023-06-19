@@ -255,7 +255,7 @@ impl StructBuilder {
 /// ```
 #[macro_export]
 macro_rules! ion_list {
-    ($($element:expr),*) => {{
+    ($($element:expr),* $(,)?) => {{
         use $crate::element::Sequence;
         Sequence::builder()$(.push($element))*.build_list()
     }};
@@ -339,9 +339,40 @@ macro_rules! ion_sexp {
 /// ```
 #[macro_export]
 macro_rules! ion_struct {
-    ($($field_name:tt : $element:expr),*) => {{
+    ($($field_name:tt : $element:expr),* $(,)?) => {{
         use $crate::element::Struct;
         Struct::builder()$(.with_field($field_name, $element))*.build()
+    }};
+}
+
+/// Constructs a [`Sequence`] with the specified child values.
+///
+/// Note that a `Sequence` is NOT a type of `Element`. However, one can convert a `Sequence` into a
+/// `List` or `SExp`.
+///
+/// ```
+/// use ion_rs::element::{Element, Sequence};
+/// use ion_rs::{ion_seq, ion_list};
+/// // Construct a Sequence from serialized Ion data
+/// let expected: Sequence = Element::read_all(r#" "foo" 7 false [1.5e0, -8.25e0] "#).unwrap();
+/// // Construct a Sequence from Rust values
+/// let actual: Sequence = ion_seq!("foo" 7 false ion_list![1.5f64, -8.25f64]);
+/// // Compare the two Sequences
+/// assert_eq!(expected, actual);
+///
+/// // The ion_seq! macro can also accept a comma-delimited list of Rust values to convert
+/// let actual: Sequence = ion_seq!["foo", 7, false, ion_list![1.5f64, -8.25f64]];
+/// assert_eq!(expected, actual);
+/// ```
+#[macro_export]
+macro_rules! ion_seq {
+    ($($element:expr),* $(,)?) => {{
+        use $crate::element::Sequence;
+        Sequence::builder()$(.push($element))*.build()
+    }};
+    ($($element:expr)*) => {{
+        use $crate::element::Sequence;
+        Sequence::builder()$(.push($element))*.build()
     }};
 }
 
@@ -353,6 +384,17 @@ mod tests {
     use crate::element::builders::{SequenceBuilder, StructBuilder};
     use crate::element::Element;
     use crate::{ion_list, ion_sexp, ion_struct, Symbol};
+
+    #[test]
+    fn make_seq_with_macro() {
+        let expected = Element::read_all(r#"1 true "foo" "bar""#).unwrap();
+        // Sequences without commas (as found in SExps and at the top level) are ok
+        assert_eq!(ion_seq!(1 true "foo" "bar"), expected);
+        // Sequences with commas (as found in lists) are ok
+        assert_eq!(ion_seq![1, true, "foo", "bar"], expected);
+        // Trailing commas are allowed
+        assert_eq!(ion_seq![1, true, "foo", "bar",], expected);
+    }
 
     #[test]
     fn make_list_with_builder() {
@@ -371,6 +413,9 @@ mod tests {
     fn make_list_with_macro() {
         let actual: Element = ion_list![1, true, "foo", Symbol::owned("bar")].into();
         let expected = Element::read_one(r#"[1, true, "foo", bar]"#).unwrap();
+        assert_eq!(actual, expected);
+        // Trailing commas are allowed
+        let actual: Element = ion_list![1, true, "foo", Symbol::owned("bar"),].into();
         assert_eq!(actual, expected);
     }
 
@@ -473,6 +518,16 @@ mod tests {
         }
         .into();
         let expected = Element::read_one(r#"{a: 1, b: true, c: "foo", d: bar}"#).unwrap();
+        assert_eq!(actual, expected);
+
+        // Trailing commas are allowed
+        let actual: Element = ion_struct! {
+            "a": 1,
+            "b": true,
+            "c": "foo",
+            "d": Symbol::owned("bar"), // <-- trailing comma
+        }
+        .into();
         assert_eq!(actual, expected);
     }
 
