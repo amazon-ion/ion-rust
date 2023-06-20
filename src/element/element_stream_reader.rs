@@ -3,9 +3,9 @@ use crate::text::parent_container::ParentContainer;
 
 use crate::element::iterators::SymbolsIterator;
 use crate::element::{Blob, Clob, Element};
-use crate::{
-    Decimal, Int, IonError, IonReader, IonResult, IonType, Str, StreamItem, Symbol, Timestamp,
-};
+use crate::ion_reader::IonReader;
+use crate::reader::StreamItem;
+use crate::{Decimal, Int, IonError, IonResult, IonType, Str, Symbol, Timestamp};
 use std::fmt::Display;
 use std::mem;
 
@@ -354,8 +354,8 @@ mod reader_tests {
     use rstest::*;
 
     use super::*;
+    use crate::ion_reader::IonReader;
     use crate::result::IonResult;
-    use crate::stream_reader::IonReader;
     use crate::types::{Decimal, Timestamp};
 
     use crate::IonType;

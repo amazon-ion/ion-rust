@@ -5,13 +5,14 @@ use crate::binary::non_blocking::type_descriptor::{Header, TypeDescriptor};
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
 use crate::binary::IonTypeCode;
-use crate::raw_reader::{BufferedRawReader, Expandable};
+use crate::ion_reader::IonReader;
+use crate::raw_reader::{BufferedRawReader, Expandable, RawStreamItem};
 use crate::result::{
     decoding_error, decoding_error_raw, illegal_operation, illegal_operation_raw,
     incomplete_data_error,
 };
 use crate::types::{Blob, Clob, Decimal, IntAccess, Str, SymbolId};
-use crate::{Int, IonReader, IonResult, IonType, RawStreamItem, RawSymbolToken, Timestamp};
+use crate::{Int, IonResult, IonType, RawSymbolToken, Timestamp};
 use bytes::{BigEndian, Buf, ByteOrder};
 use num_bigint::BigUint;
 use num_traits::Zero;

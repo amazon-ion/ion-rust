@@ -6,17 +6,17 @@ use delegate::delegate;
 
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
+use crate::blocking_reader::{BlockingRawBinaryReader, BlockingRawTextReader};
 use crate::data_source::ToIonDataSource;
 use crate::element::{Blob, Clob};
+use crate::ion_reader::IonReader;
 use crate::raw_reader::{Expandable, RawReader};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, IonResult};
-use crate::stream_reader::IonReader;
 use crate::symbol_table::SymbolTable;
+use crate::system_reader::SystemReader;
 use crate::types::{Decimal, Int, Symbol, Timestamp};
-use crate::{
-    BlockingRawBinaryReader, BlockingRawTextReader, IonType, SystemReader, SystemStreamItem,
-};
+use crate::IonType;
 use std::fmt::{Display, Formatter};
 
 use crate::types::Str;
@@ -129,7 +129,8 @@ impl<R: RawReader> UserReader<R> {
 // See: https://github.com/amazon-ion/ion-rust/issues/484
 #[doc(hidden)]
 pub mod integration_testing {
-    use crate::{RawReader, Reader, UserReader};
+    use crate::raw_reader::RawReader;
+    use crate::reader::{Reader, UserReader};
 
     pub fn new_reader<'a, R: 'a + RawReader>(raw_reader: R) -> Reader<'a> {
         UserReader::new(Box::new(raw_reader))
@@ -201,7 +202,7 @@ impl<R: RawReader> IonReader for UserReader<R> {
     // v-- Clippy complains that `next` resembles `Iterator::next()`
     #[allow(clippy::should_implement_trait)]
     fn next(&mut self) -> IonResult<Self::Item> {
-        use SystemStreamItem::*;
+        use crate::system_reader::SystemStreamItem::*;
         loop {
             // If the system reader encounters an encoding artifact like a symbol table or IVM,
             // keep going until we find a value or exhaust the stream.
@@ -290,11 +291,10 @@ mod tests {
 
     use super::*;
     use crate::binary::constants::v1_0::IVM;
-    use crate::BlockingRawBinaryReader;
+    use crate::reader::{BlockingRawBinaryReader, StreamItem::Value};
 
     use crate::result::IonResult;
     use crate::types::IonType;
-    use crate::StreamItem::Value;
 
     type TestDataSource = io::Cursor<Vec<u8>>;
 
@@ -314,7 +314,7 @@ mod tests {
 
     // Prepends an Ion 1.0 IVM to the provided data and then creates a BinaryIonCursor over it
     fn raw_binary_reader_for(bytes: &[u8]) -> BlockingRawBinaryReader<TestDataSource> {
-        use crate::RawStreamItem::*;
+        use crate::raw_reader::RawStreamItem::*;
         let mut raw_reader =
             BlockingRawBinaryReader::new(data_source_for(bytes)).expect("unable to create reader");
         assert_eq!(raw_reader.ion_type(), None);

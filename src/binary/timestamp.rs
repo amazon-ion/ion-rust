@@ -130,7 +130,9 @@ where
 #[cfg(test)]
 mod binary_timestamp_tests {
     use super::*;
-    use crate::{reader, IonReader, IonType, ReaderBuilder};
+    use crate::ion_reader::IonReader;
+    use crate::reader::{ReaderBuilder, StreamItem};
+    use crate::IonType;
     use rstest::*;
 
     // These tests show how varying levels of precision affects number of bytes
@@ -148,7 +150,7 @@ mod binary_timestamp_tests {
     ) -> IonResult<()> {
         let mut reader = ReaderBuilder::new().build(input).unwrap();
         match reader.next().unwrap() {
-            reader::StreamItem::Value(IonType::Timestamp) => {
+            StreamItem::Value(IonType::Timestamp) => {
                 let timestamp = reader.read_timestamp().unwrap();
                 let mut buf = vec![];
                 let written = buf.encode_timestamp_value(&timestamp)?;

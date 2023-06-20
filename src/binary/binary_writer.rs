@@ -201,10 +201,10 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ion_reader::IonReader;
     use crate::reader::ReaderBuilder;
-    use crate::stream_reader::IonReader;
 
-    use crate::StreamItem::Value;
+    use crate::reader::StreamItem::Value;
 
     #[test]
     fn intern_field_names() -> IonResult<()> {
