@@ -233,7 +233,7 @@ pub use text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder};
 pub use {
     blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader},
     ion_reader::IonReader,
-    raw_reader::{RawReader, RawStreamItem},
+    raw_reader::{BufferedRawReader, RawReader, RawStreamItem},
     // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
     reader::integration_testing,
     reader::{Reader, ReaderBuilder, StreamItem, UserReader},
