@@ -501,7 +501,7 @@ macro_rules! impl_int_from {
     )*)
 }
 
-impl_int_from!(isize, usize, u64);
+impl_int_from!(isize, i128, usize, u64, u128);
 
 impl From<UInt> for Int {
     fn from(value: UInt) -> Self {

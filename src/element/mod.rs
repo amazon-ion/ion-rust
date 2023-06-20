@@ -20,7 +20,6 @@ use crate::{
     ion_data, BinaryWriterBuilder, Decimal, Int, IonResult, IonType, IonWriter, ReaderBuilder, Str,
     Symbol, TextWriterBuilder, Timestamp,
 };
-use num_bigint::BigInt;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::io;
@@ -177,21 +176,12 @@ impl From<IonType> for Value {
     }
 }
 
-impl From<i64> for Value {
-    fn from(i64_val: i64) -> Self {
-        Value::Int(i64_val.into())
-    }
-}
-
-impl From<BigInt> for Value {
-    fn from(big_int_val: BigInt) -> Self {
-        Value::Int(big_int_val.into())
-    }
-}
-
-impl From<Int> for Value {
-    fn from(integer_val: Int) -> Self {
-        Value::Int(integer_val)
+// Provides Into<Value> for all int types, both signed and unsigned.
+// Those types can also use the blanket Into<Element> impl that exists for T: Into<Value>.
+impl<I: Into<Int>> From<I> for Value {
+    fn from(value: I) -> Self {
+        let int: Int = value.into();
+        Value::Int(int)
     }
 }
 
@@ -778,8 +768,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::element::annotations::IntoAnnotations;
-    use crate::types::Timestamp;
-    use crate::{ion_list, ion_sexp, ion_struct, Decimal, Int, IonType, Symbol};
+    use crate::{ion_list, ion_sexp, ion_struct, Decimal, Int, IonType, Symbol, Timestamp};
     use chrono::*;
     use rstest::*;
     use std::iter::{once, Once};
@@ -1301,6 +1290,7 @@ mod tests {
 mod value_tests {
     use crate::element::*;
     use crate::ion_data::IonEq;
+    use crate::types::UInt;
     use crate::{ion_list, ion_sexp, ion_struct, IonType};
     use rstest::*;
 
@@ -1436,5 +1426,33 @@ mod value_tests {
         let expected_element: Element = struct_.into();
         let actual_element = Element::read_one(text_struct).unwrap();
         assert!(expected_element.ion_eq(&actual_element));
+    }
+
+    #[rstest]
+    #[case::i8(42i8)]
+    #[case::i8_neg(-42i8)]
+    #[case::i16(42i16)]
+    #[case::i16_neg(-42i16)]
+    #[case::i32(42i32)]
+    #[case::i32_neg(-42i32)]
+    #[case::i64(42i64)]
+    #[case::i64_neg(-42i64)]
+    #[case::i128(42i128)]
+    #[case::i128_neg(-42i128)]
+    #[case::isize(42isize)]
+    #[case::isize_neg(-42isize)]
+    #[case::int(Int::from(42i64))]
+    #[case::int_neg(Int::from(-42i64))]
+    #[case::u8(42u8)]
+    #[case::u16(42u16)]
+    #[case::u32(42u32)]
+    #[case::u64(42u64)]
+    #[case::u128(42u128)]
+    #[case::usize(42usize)]
+    #[case::uint(UInt::from(42u64))]
+    fn element_from_int(#[case] source_int: impl Into<Int>) {
+        let int: Int = source_int.into();
+        let element: Element = int.clone().into();
+        assert_eq!(element.as_int().unwrap().expect_i64(), int.expect_i64())
     }
 }
