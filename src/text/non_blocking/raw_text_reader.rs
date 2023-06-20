@@ -4,13 +4,13 @@ use crate::element::{Blob, Clob};
 use crate::types::Str;
 use nom::Err::{Error, Failure, Incomplete};
 
+use crate::ion_reader::IonReader;
 use crate::raw_reader::{BufferedRawReader, Expandable, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{
     decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError,
     IonResult, Position,
 };
-use crate::stream_reader::IonReader;
 use crate::text::non_blocking::text_buffer::TextBuffer;
 use crate::text::parent_container::ParentContainer;
 use crate::text::parse_result::IonParseResult;
@@ -944,15 +944,15 @@ mod reader_tests {
     use rstest::*;
 
     use super::*;
+    use crate::ion_reader::IonReader;
     use crate::raw_reader::RawStreamItem;
+    use crate::raw_reader::RawStreamItem::Nothing;
     use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
     use crate::result::{IonResult, Position};
-    use crate::stream_reader::IonReader;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoRawAnnotations, TextValue};
     use crate::types::{Decimal, Timestamp};
     use crate::IonType;
-    use crate::RawStreamItem::Nothing;
 
     fn next_type<T: AsRef<[u8]> + Expandable>(
         reader: &mut RawTextReader<T>,

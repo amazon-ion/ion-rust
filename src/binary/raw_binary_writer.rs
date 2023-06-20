@@ -904,15 +904,13 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
 mod writer_tests {
     use std::fmt::Debug;
 
-    use crate::StreamItem;
-
     use rstest::*;
 
     use super::*;
+    use crate::ion_reader::IonReader;
     use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
-    use crate::reader::{Reader, ReaderBuilder};
+    use crate::reader::{Reader, ReaderBuilder, StreamItem};
     use crate::types::{Blob, Clob, Symbol};
-    use crate::IonReader;
     use num_bigint::BigInt;
     use num_traits::Float;
     use std::convert::TryInto;

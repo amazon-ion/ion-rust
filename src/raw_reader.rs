@@ -1,6 +1,6 @@
 use crate::element::{Blob, Clob};
+use crate::ion_reader::IonReader;
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::stream_reader::IonReader;
 use crate::types::{IonType, Str};
 use crate::{Decimal, Int, IonResult, Timestamp};
 use std::fmt::{Display, Formatter};

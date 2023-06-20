@@ -17,8 +17,8 @@ use crate::element::reader::ElementReader;
 use crate::ion_data::{IonEq, IonOrd};
 use crate::text::text_formatter::IonValueFormatter;
 use crate::{
-    ion_data, BinaryWriterBuilder, Decimal, Int, IonResult, IonType, IonWriter, ReaderBuilder, Str,
-    Symbol, TextWriterBuilder, Timestamp,
+    ion_data, BinaryWriterBuilder, Decimal, Int, IonResult, IonType, IonWriter, Str, Symbol,
+    TextWriterBuilder, Timestamp,
 };
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -35,6 +35,7 @@ pub mod writer;
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::data_source::ToIonDataSource;
 use crate::element::writer::{ElementWriter, Format, TextKind};
+use crate::reader::ReaderBuilder;
 pub use crate::types::{Blob, Bytes, Clob};
 pub use annotations::{Annotations, IntoAnnotations};
 

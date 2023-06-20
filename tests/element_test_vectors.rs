@@ -1,4 +1,5 @@
 // Copyright Amazon.com, Inc. or its affiliates.
+#![cfg(feature = "experimental-reader")]
 
 use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::{ElementWriter, Format, TextKind};
@@ -558,7 +559,7 @@ mod non_blocking_native_element_tests {
             // These imports are visible as a temporary workaround.
             // See: https://github.com/amazon-ion/ion-rust/issues/484
             use ion_rs::binary::constants::v1_0::IVM;
-            use ion_rs::reader::integration_testing::new_reader;
+            use ion_rs::integration_testing::new_reader;
             // If the data is binary, create a non-blocking binary reader.
             if data.starts_with(&IVM) {
                 let raw_reader = RawBinaryReader::new(data);

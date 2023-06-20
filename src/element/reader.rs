@@ -4,8 +4,10 @@
 //! as slices or files.
 
 use crate::element::{Annotations, Element, Sequence, Struct, Value};
+use crate::ion_reader::IonReader;
+use crate::reader::StreamItem;
 use crate::result::{decoding_error, IonResult};
-use crate::{IonReader, StreamItem, Symbol};
+use crate::Symbol;
 
 /// Reads Ion data into [`Element`] instances.
 ///
