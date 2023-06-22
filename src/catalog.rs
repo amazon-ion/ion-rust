@@ -16,7 +16,13 @@ pub trait Catalog {
     fn get_table_with_version(&self, name: &str, version: usize) -> IonResult<SharedSymbolTable>;
 }
 
-struct MapCatalog {
+impl Default for MapCatalog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct MapCatalog {
     tables_by_name: HashMap<String, BTreeMap<usize, SharedSymbolTable>>,
 }
 
@@ -64,7 +70,7 @@ impl Catalog for MapCatalog {
 
 impl MapCatalog {
     /// Adds a Shared Symbol Table with name into the Catalog
-    fn put_table(&mut self, table: SharedSymbolTable) {
+    pub fn put_table(&mut self, table: SharedSymbolTable) {
         match self.tables_by_name.get_mut(table.name()) {
             None => {
                 let mut versions: BTreeMap<usize, SharedSymbolTable> = BTreeMap::new();

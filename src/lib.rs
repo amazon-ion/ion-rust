@@ -186,7 +186,7 @@ mod ion_data;
 pub mod ion_hash;
 
 pub(crate) mod blocking_reader;
-mod catalog;
+pub mod catalog;
 
 mod ion_reader;
 mod raw_symbol_token;

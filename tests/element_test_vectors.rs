@@ -369,15 +369,6 @@ mod impl_display_for_element_tests {
     use std::fs::read;
 
     const TO_STRING_SKIP_LIST: &[&str] = &[
-        // These tests have shared symbol table imports in them, which the Reader does not
-        // yet support.
-        "ion-tests/iontestdata/good/subfieldInt.ion",
-        "ion-tests/iontestdata/good/subfieldUInt.ion",
-        "ion-tests/iontestdata/good/subfieldVarInt.ion",
-        "ion-tests/iontestdata/good/subfieldVarUInt.ion",
-        "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
-        "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
-        "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
         // This test requires the reader to be able to read symbols whose ID is encoded
         // with more than 8 bytes. Having a symbol table with more than 18 quintillion
         // symbols is not very practical.
@@ -423,15 +414,6 @@ const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
     // parent container.
     "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
     // ROUND TRIP
-    // These tests have shared symbol table imports in them, which the Reader does not
-    // yet support.
-    "ion-tests/iontestdata/good/subfieldInt.ion",
-    "ion-tests/iontestdata/good/subfieldUInt.ion",
-    "ion-tests/iontestdata/good/subfieldVarInt.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
     // This test requires the reader to be able to read symbols whose ID is encoded
     // with more than 8 bytes. Having a symbol table with more than 18 quintillion
     // symbols is not very practical.
@@ -439,9 +421,6 @@ const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
     // ---
     // Requires importing shared symbol tables
     "ion-tests/iontestdata/good/item1.10n",
-    "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
-    // Requires importing shared symbol tables
-    "ion-tests/iontestdata/good/testfile35.ion",
     // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
     "ion-tests/iontestdata/good/utf16.ion",
     "ion-tests/iontestdata/good/utf32.ion",
