@@ -9,7 +9,6 @@ use crate::ion_reader::IonReader;
 use crate::raw_reader::{Expandable, RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{decoding_error, decoding_error_raw, illegal_operation, IonError, IonResult};
-use crate::shared_symbol_table::SharedSymbolTable;
 use crate::system_reader::LstPosition::*;
 use crate::types::{Decimal, Int, Str, Symbol, Timestamp};
 use crate::{IonType, SymbolTable};
@@ -294,21 +293,10 @@ impl<R: RawReader> SystemReader<R> {
                     {
                         if let Some(catalog) = self.catalog.as_ref() {
                             // TODO: Use a MapCatalog wrapper that always returns a shared symbol table i.e. provides dummy table when ti doesn't exist.
-                            let sst = catalog
-                                .get_table_with_version(
-                                    self.lst.current_import_name.clone().unwrap().as_str(),
-                                    self.lst.current_import_version.unwrap(),
-                                )
-                                .unwrap_or({
-                                    let symbols = (0..self.lst.current_import_max_id.unwrap_or(0))
-                                        .map(|_| None)
-                                        .collect();
-                                    SharedSymbolTable::new(
-                                        self.lst.current_import_name.clone().unwrap(),
-                                        self.lst.current_import_version.unwrap(),
-                                        symbols,
-                                    )?
-                                });
+                            let sst = catalog.get_table_with_version(
+                                self.lst.current_import_name.clone().unwrap().as_str(),
+                                self.lst.current_import_version.unwrap(),
+                            )?;
                             for sym in sst.symbols() {
                                 self.lst.imported_symbols.push(sym.to_owned())
                             }
@@ -661,21 +649,10 @@ impl<R: RawReader> IonReader for SystemReader<R> {
                     && self.lst.current_import_version.is_some()
                 {
                     if let Some(catalog) = self.catalog.as_ref() {
-                        let sst = catalog
-                            .get_table_with_version(
-                                self.lst.current_import_name.clone().unwrap().as_str(),
-                                self.lst.current_import_version.unwrap(),
-                            )
-                            .unwrap_or({
-                                let symbols = (0..self.lst.current_import_max_id.unwrap_or(0))
-                                    .map(|_| None)
-                                    .collect();
-                                SharedSymbolTable::new(
-                                    self.lst.current_import_name.clone().unwrap(),
-                                    self.lst.current_import_version.unwrap(),
-                                    symbols,
-                                )?
-                            });
+                        let sst = catalog.get_table_with_version(
+                            self.lst.current_import_name.clone().unwrap().as_str(),
+                            self.lst.current_import_version.unwrap(),
+                        )?;
                         for sym in sst.symbols() {
                             self.lst.imported_symbols.push(sym.to_owned())
                         }
@@ -1076,16 +1053,10 @@ mod tests {
           "#,
             Box::new(map_catalog),
         );
-        // We step over the LST...
+        // We step over LST...
         assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
-        // ...but expect all of the symbols we encounter after it to be in the symbol table,
-        // indicating that the SystemReader processed the LST even though we skipped it with `next()`
-        assert_eq!(reader.next()?, Value(IonType::Symbol));
-        assert_eq!(reader.read_symbol()?, "bar");
-        assert_eq!(reader.next()?, Value(IonType::Symbol));
-        assert_eq!(reader.read_symbol()?, Symbol::unknown_text());
-        assert_eq!(reader.next()?, Value(IonType::Symbol));
-        assert_eq!(reader.read_symbol()?, "local_symbol");
+        // ...but expect error as the reader would not be able to process a non existing shared symbol table
+        assert_eq!(reader.next().is_err(), true);
         Ok(())
     }
 
