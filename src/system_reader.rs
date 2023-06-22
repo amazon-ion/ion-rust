@@ -292,7 +292,7 @@ impl<R: RawReader> SystemReader<R> {
                         && self.lst.current_import_version.is_some()
                     {
                         if let Some(catalog) = self.catalog.as_ref() {
-                            // TODO: Use a MapCatalog wrapper that always returns a shared symbol table i.e. provides dummy table when ti doesn't exist.
+                            // TODO: add a fallback mechanism that always returns a shared symbol table i.e. provides dummy table when it doesn't exist.
                             let sst = catalog.get_table_with_version(
                                 self.lst.current_import_name.clone().unwrap().as_str(),
                                 self.lst.current_import_version.unwrap(),
@@ -649,6 +649,7 @@ impl<R: RawReader> IonReader for SystemReader<R> {
                     && self.lst.current_import_version.is_some()
                 {
                     if let Some(catalog) = self.catalog.as_ref() {
+                        // TODO: add a fallback mechanism that always returns a shared symbol table i.e. provides dummy table when it doesn't exist.
                         let sst = catalog.get_table_with_version(
                             self.lst.current_import_name.clone().unwrap().as_str(),
                             self.lst.current_import_version.unwrap(),
@@ -1056,7 +1057,7 @@ mod tests {
         // We step over LST...
         assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
         // ...but expect error as the reader would not be able to process a non existing shared symbol table
-        assert_eq!(reader.next().is_err(), true);
+        assert!(reader.next().is_err());
         Ok(())
     }
 
