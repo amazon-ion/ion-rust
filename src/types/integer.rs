@@ -15,7 +15,6 @@ pub trait IntAccess {
     /// ## Usage
     /// ```
     /// # use ion_rs::element::*;
-    /// # use ion_rs::element::*;
     /// # use ion_rs::types::*;
     /// # use num_bigint::*;
     /// let big_int = Int::from(BigInt::from(100));
@@ -37,7 +36,6 @@ pub trait IntAccess {
     ///
     /// ## Usage
     /// ```
-    /// # use ion_rs::element::*;
     /// # use ion_rs::element::*;
     /// # use ion_rs::types::*;
     /// # use num_bigint::*;

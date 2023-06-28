@@ -75,8 +75,8 @@ impl<'top, 'data> LazySequence<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
+    /// use ion_rs::ion_sexp;
     /// use ion_rs::element::{Element, IntoAnnotatedElement};
-    /// use ion_rs::{ion_sexp, IonType};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element: Element = ion_sexp!(true false).with_annotations(["foo", "bar", "baz"]);

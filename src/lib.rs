@@ -2,6 +2,8 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::private_intra_doc_links)]
 #![deny(rustdoc::bare_urls)]
+// Warn if example code in the doc tests contains unused imports/variables
+#![doc(test(attr(warn(unused))))]
 //! # Reading and writing `Element`s
 //!
 //! The [Element] API offers a convenient way to read and write Ion data when its exact shape is
@@ -109,7 +111,7 @@
 //! ```
 //! use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::{Element, IntoAnnotatedElement, Value};
+//! use ion_rs::element::{Element, Value};
 //! use ion_rs::{ion_list, ion_struct};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
@@ -137,8 +139,7 @@
 //! ```
 //! use ion_rs::{Format, IonResult, TextKind};
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::writer::{ElementWriter  };
-//! use ion_rs::element::{Element, IntoAnnotatedElement, Value};
+//! use ion_rs::element::Element;
 //! use ion_rs::{ion_list, ion_struct};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",

@@ -8,7 +8,7 @@ use std::fmt::{Display, Formatter};
 
 /// An in-memory representation of an Ion list.
 /// ```
-/// use ion_rs::element::{Element, List};
+/// use ion_rs::element::Element;
 /// use ion_rs::ion_list;
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {

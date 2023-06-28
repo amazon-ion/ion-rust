@@ -101,7 +101,6 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::element::{Element, IntoAnnotatedElement};
-    /// use ion_rs::IonType;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
@@ -140,7 +139,6 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::element::{Element, IntoAnnotatedElement};
-    /// use ion_rs::IonType;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -251,7 +249,7 @@ where
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::element::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
@@ -293,7 +291,7 @@ where
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::element::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;

@@ -302,7 +302,6 @@ impl From<crate::tokens::ScalarValue> for Value {
 ///
 /// ```
 /// use ion_rs::element::{Element, IntoAnnotatedElement, Value};
-/// use ion_rs::ion_list;
 ///
 /// // Explicit conversion of a Rust bool (`true`) into a `Value`...
 /// let boolean_value: Value = true.into();
@@ -589,7 +588,7 @@ impl Element {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::element::Element;
-    /// use ion_rs::{ion_list, IonType, IonWriter, TextWriterBuilder};
+    /// use ion_rs::{ion_list, IonWriter, TextWriterBuilder};
     ///
     /// // Construct an Element
     /// let element_before: Element = ion_list! [1, 2, 3].into();

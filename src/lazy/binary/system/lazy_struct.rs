@@ -15,11 +15,8 @@ use std::fmt::{Debug, Formatter};
 /// ```
 ///# use ion_rs::IonResult;
 ///# fn main() -> IonResult<()> {
-/// use nom::AsBytes;
-/// use ion_rs::{BinaryWriterBuilder, ion_struct, IonType};
 /// use ion_rs::element::Element;
 /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
-/// use ion_rs::lazy::value_ref::ValueRef;
 ///
 /// let ion_data = r#"{foo: 1, bar: 2, foo: 3, bar: 4}"#;
 /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
@@ -82,7 +79,6 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -121,9 +117,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
-    /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
     /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
@@ -177,7 +171,6 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -209,7 +202,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::element::{Element, IntoAnnotatedElement};
-    /// use ion_rs::{ion_struct, IonType};
+    /// use ion_rs::ion_struct;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element: Element = ion_struct! {"foo": 1, "bar": 2}.with_annotations(["foo", "bar", "baz"]);

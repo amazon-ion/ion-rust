@@ -160,7 +160,7 @@ impl StructBuilder {
     /// Adds all of the provided `(name, value)` pairs to the [`Struct`] being constructed.
     ///
     /// ```
-    /// use ion_rs::element::{Element, Struct};
+    /// use ion_rs::element::Element;
     /// use ion_rs::ion_struct;
     ///
     /// let struct1 = ion_struct! {
