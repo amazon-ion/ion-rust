@@ -96,7 +96,7 @@ mod tests {
     use crate::text::text_writer::TextWriterBuilder;
 
     use crate::ion_writer::IonWriter;
-    use crate::IonResult;
+    use crate::{IonResult, IonType};
     use nom::AsBytes;
 
     #[test]
