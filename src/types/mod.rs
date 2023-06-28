@@ -27,11 +27,8 @@ pub use sequence::Sequence;
 pub use sexp::SExp;
 pub use string::Str;
 pub use symbol::Symbol;
-pub use timestamp::{
-    DaySetter, FractionalSecondSetter, HourAndMinuteSetter, Mantissa, MonthSetter, Precision,
-    SecondSetter, Timestamp,
-};
-
+pub use timestamp::{ Mantissa, Precision, Timestamp, TimestampBuilder };
+pub(crate) use timestamp::{ HasSeconds, HasFractionalSeconds };
 use crate::ion_data::IonOrd;
 use std::cmp::Ordering;
 use std::fmt;

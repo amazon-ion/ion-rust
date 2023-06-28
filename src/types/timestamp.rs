@@ -11,6 +11,7 @@ use num_traits::ToPrimitive;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomData;
 use std::ops::Div;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
@@ -503,22 +504,16 @@ impl Timestamp {
     // See [TimestampBuilder]'s documentation for more details.
 
     /// Creates a TimestampBuilder with the specified year and [Precision::Year].
-    pub fn with_year(year: u32) -> MonthSetter {
-        let builder: TimestampBuilder = TimestampBuilder {
-            year: year as u16,
-            ..Default::default()
-        };
-        MonthSetter { builder }
+    pub fn with_year(year: u32) -> TimestampBuilder<HasYear> {
+        TimestampBuilder::new().with_year(year as u16)
     }
 
     /// Creates a TimestampBuilder with the specified year, month, and day. Its precision is
     /// set to [Precision::Day].
-    pub fn with_ymd(year: u32, month: u32, day: u32) -> HourAndMinuteSetter {
-        let builder = Timestamp::with_year(year)
+    pub fn with_ymd(year: u32, month: u32, day: u32) -> TimestampBuilder<HasDay> {
+        Timestamp::with_year(year)
             .with_month(month)
             .with_day(day)
-            .into_builder();
-        HourAndMinuteSetter { builder }
     }
 
     /// Creates a TimestampBuilder with the specified year, month, day, hour, minute, and second.
@@ -530,11 +525,9 @@ impl Timestamp {
         hour: u32,
         minute: u32,
         second: u32,
-    ) -> FractionalSecondSetter {
-        let builder = Timestamp::with_ymd(year, month, day)
+    ) -> TimestampBuilder<HasSeconds> {
+        Timestamp::with_ymd(year, month, day)
             .with_hms(hour, minute, second)
-            .into_builder();
-        FractionalSecondSetter { builder }
     }
 
     /// Creates a TimestampBuilder with the specified year, month, day, hour, minute, second and
@@ -547,12 +540,10 @@ impl Timestamp {
         minute: u32,
         second: u32,
         milliseconds: u32,
-    ) -> FractionalSecondSetter {
-        let builder = Timestamp::with_ymd(year, month, day)
+    ) -> TimestampBuilder<HasFractionalSeconds> {
+        Timestamp::with_ymd(year, month, day)
             .with_hms(hour, minute, second)
             .with_milliseconds(milliseconds)
-            .into_builder();
-        FractionalSecondSetter { builder }
     }
 
     /// Returns the offset in minutes that has been specified in the [Timestamp].
@@ -831,7 +822,8 @@ impl IonOrd for Timestamp {
 /// without first setting the `year` and `month` fields.
 // See the unit tests for usage examples.
 #[derive(Debug, Clone, Default)]
-struct TimestampBuilder {
+pub struct TimestampBuilder<T> {
+    _state: PhantomData<T>,
     fields_are_utc: bool,
     precision: Precision,
     offset: Option<i32>,
@@ -845,7 +837,59 @@ struct TimestampBuilder {
     nanoseconds: Option<u32>,
 }
 
-impl TimestampBuilder {
+pub trait TimestampBuilderCanBuild {}
+pub trait TimestampBuilderCanBuildWithOffset: TimestampBuilderCanBuild {}
+macro_rules! state_with_markers {
+    ($name:ident $(,$trait_name:ident)*)=> {
+        #[derive(Debug, Clone, Default)]
+        pub struct $name;
+        $(
+        impl $trait_name for $name {}
+        )*
+    };
+}
+
+state_with_markers!(Init);
+state_with_markers!(HasYear, TimestampBuilderCanBuild);
+state_with_markers!(HasMonth, TimestampBuilderCanBuild);
+state_with_markers!(HasDay, TimestampBuilderCanBuild);
+state_with_markers!(HasHour);
+state_with_markers!(HasMinute, TimestampBuilderCanBuild, TimestampBuilderCanBuildWithOffset);
+state_with_markers!(HasSeconds, TimestampBuilderCanBuild, TimestampBuilderCanBuildWithOffset);
+state_with_markers!(HasFractionalSeconds, TimestampBuilderCanBuild, TimestampBuilderCanBuildWithOffset);
+
+impl TimestampBuilder<Init> {
+    pub fn new() -> Self {
+        TimestampBuilder { ..Default::default() }
+    }
+
+    fn with_year(mut self, year: u16) -> TimestampBuilder<HasYear> {
+        self.year = year;
+        self.precision = Precision::Year;
+        self.change_state()
+    }
+}
+
+
+impl<T> TimestampBuilder<T> {
+
+    fn change_state<U>(self) -> TimestampBuilder<U> {
+        TimestampBuilder {
+            _state: PhantomData::default(),
+            fields_are_utc: self.fields_are_utc,
+            precision: self.precision,
+            offset: self.offset,
+            year: self.year,
+            month: self.month,
+            day: self.day,
+            hour: self.hour,
+            minute: self.minute,
+            second: self.second,
+            fractional_seconds: self.fractional_seconds,
+            nanoseconds: self.nanoseconds,
+        }
+    }
+
     /// Sets all of the fields on the given [`NaiveDateTime`] or [`DateTime<FixedOffset>`] using the
     /// values from the TimestampBuilder. Only those fields required by the TimestampBuilder's
     /// configured [`Precision`] will be set.
@@ -960,12 +1004,127 @@ impl TimestampBuilder {
             }
         }
     }
+}
+
+impl TimestampBuilder<HasYear> {
+    // Libraries have conflicting opinions about whether months should be
+    // 0- or 1-indexed, so Timestamp follows chrono's lead and provides
+    // convenient ways to do both. Internally, it uses a 1-based representation.
+
+    // 0-indexed month
+    pub fn with_month0(self, year: u32) -> TimestampBuilder<HasMonth> {
+        self.with_month(year + 1)
+    }
+
+    // 1-indexed month
+    pub fn with_month(mut self, month: u32) -> TimestampBuilder<HasMonth> {
+        self.precision = Precision::Month;
+        self.month = Some(month as u8);
+        self.change_state()
+    }
+}
+
+impl TimestampBuilder<HasMonth> {
+    // Libraries have conflicting opinions about whether days should be
+    // 0- or 1-indexed, so Timestamp follows chrono's lead and provides
+    // convenient ways to do both. Internally, it uses a 1-based representation.
+
+    // 0-indexed day
+    pub fn with_day0(self, day: u32) -> TimestampBuilder<HasDay> {
+        self.with_day(day + 1)
+    }
+
+    // 1-indexed day
+    pub fn with_day(mut self, day: u32) -> TimestampBuilder<HasDay> {
+        self.precision = Precision::Day;
+        self.day = Some(day as u8);
+        self.change_state()
+    }
+}
+
+impl TimestampBuilder<HasDay> {
+
+    pub fn with_hms(self, hour: u32, minute: u32, second: u32) -> TimestampBuilder<HasSeconds> {
+        self.with_hour(hour)
+            .with_minute(minute)
+            .with_second(second)
+    }
+
+    pub fn with_hour_and_minute(mut self, hour: u32, minute: u32) -> TimestampBuilder<HasMinute> {
+        self.precision = Precision::HourAndMinute;
+        self.hour = Some(hour as u8);
+        self.minute = Some(minute as u8);
+        self.change_state()
+    }
+
+    pub fn with_hour(mut self, hour: u32) -> TimestampBuilder<HasHour> {
+        self.hour = Some(hour as u8);
+        self.change_state()
+    }
+}
+
+impl TimestampBuilder<HasHour> {
+    pub fn with_minute(mut self, minute: u32) -> TimestampBuilder<HasMinute> {
+        self.precision = Precision::HourAndMinute;
+        self.minute = Some(minute as u8);
+        self.change_state()
+    }
+}
+
+impl TimestampBuilder<HasMinute> {
+    pub fn with_second(mut self, second: u32) -> TimestampBuilder<HasSeconds> {
+        self.precision = Precision::Second;
+        self.second = Some(second as u8);
+        self.change_state()
+    }
+}
+
+impl TimestampBuilder<HasSeconds> {
+    // Note that in order to create a `FractionalSecondSetter`, the user will have had to first
+    // create a `SecondSetter`. Because of this, the builder's precision is already set to
+    // `Precision::Second`.
+    pub fn with_nanoseconds(mut self, nanosecond: u32) -> TimestampBuilder<HasFractionalSeconds> {
+        self.fractional_seconds = Some(Mantissa::Digits(9));
+        self.nanoseconds = Some(nanosecond);
+        self.change_state()
+    }
+
+    pub fn with_microseconds(mut self, microsecond: u32) -> TimestampBuilder<HasFractionalSeconds> {
+        self.fractional_seconds = Some(Mantissa::Digits(6));
+        self.nanoseconds = Some(microsecond * 1000);
+        self.change_state()
+    }
+
+    pub fn with_milliseconds(mut self, millisecond: u32) -> TimestampBuilder<HasFractionalSeconds> {
+        self.fractional_seconds = Some(Mantissa::Digits(3));
+        self.nanoseconds = Some(millisecond * 1_000_000);
+        self.change_state()
+    }
+
+    pub fn with_nanoseconds_and_precision(
+        mut self,
+        nanoseconds: u32,
+        precision_digits: u32,
+    ) -> TimestampBuilder<HasFractionalSeconds> {
+        self.fractional_seconds = Some(Mantissa::Digits(precision_digits));
+        self.nanoseconds = Some(nanoseconds);
+        self.change_state()
+    }
+
+    pub fn with_fractional_seconds(mut self, fractional_seconds: Decimal) -> TimestampBuilder<HasFractionalSeconds> {
+        self.fractional_seconds = Some(Mantissa::Arbitrary(fractional_seconds));
+        self.nanoseconds = None;
+        self.change_state()
+    }
+}
+
+impl <T: TimestampBuilderCanBuild> TimestampBuilder<T> {
 
     /// Attempt to construct a [Timestamp] using the values configured on the [TimestampBuilder].
     /// If any of the individual fields are invalid (for example, a `month` value that is greater
     /// than `12`) or if the resulting timestamp would represent a non-existent point in time
     /// (like those bypassed by daylight saving time), this method will return an `Err(IonError)`.
-    fn build(mut self) -> IonResult<Timestamp> {
+    pub(crate) fn build(mut self) -> IonResult<Timestamp> {
         // Start with a clean slate NaiveDateTime that we can configure. (These are cheap to copy.)
         let mut datetime: NaiveDateTime = NaiveDate::from_ymd_opt(0, 1, 1)
             .unwrap()
@@ -1007,230 +1166,31 @@ impl TimestampBuilder {
         }
         Ok(timestamp)
     }
-}
 
-/// Allows the user to set the `month` field on a builder that has already had its `year`
-/// field set. Or, if `Year` is the desired precision, they may build the [Timestamp] with an
-/// unknown offset instead.
-#[derive(Debug, Clone)]
-pub struct MonthSetter {
-    builder: TimestampBuilder,
-}
-
-impl MonthSetter {
-    // Libraries have conflicting opinions about whether months should be
-    // 0- or 1-indexed, so Timestamp follows chrono's lead and provides
-    // convenient ways to do both. Internally, it uses a 1-based representation.
-
-    // 0-indexed month
-    pub fn with_month0(self, year: u32) -> DaySetter {
-        self.with_month(year + 1)
-    }
-
-    // 1-indexed month
-    pub fn with_month(self, month: u32) -> DaySetter {
-        let mut builder = self.builder;
-        builder.precision = Precision::Month;
-        builder.month = Some(month as u8);
-        DaySetter { builder }
-    }
-
-    pub fn build(self) -> IonResult<Timestamp> {
-        self.into_builder().build()
+    pub fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
+        self.offset = None;
+        self.build()
     }
 }
 
-/// Allows the user to set the `day` field on a builder that has already had its `year`
-/// and `month` fields set. Or, if `Month` is the desired precision, they may build the [Timestamp]
-/// with an unknown offset instead.
-#[derive(Debug, Clone)]
-pub struct DaySetter {
-    builder: TimestampBuilder,
-}
-
-impl DaySetter {
-    // Libraries have conflicting opinions about whether days should be
-    // 0- or 1-indexed, so Timestamp follows chrono's lead and provides
-    // convenient ways to do both. Internally, it uses a 1-based representation.
-
-    // 0-indexed day
-    pub fn with_day0(self, day: u32) -> HourAndMinuteSetter {
-        self.with_day(day + 1)
-    }
-
-    // 1-indexed day
-    pub fn with_day(self, day: u32) -> HourAndMinuteSetter {
-        let mut builder = self.builder;
-        builder.precision = Precision::Day;
-        builder.day = Some(day as u8);
-        HourAndMinuteSetter { builder }
-    }
-
-    pub fn build(self) -> IonResult<Timestamp> {
-        self.into_builder().build()
-    }
-}
-
-/// Allows the user to set the `hour` and `minute` fields on a builder that has already
-/// had its `year`, `month`, and `day` fields set. Or, if `Day` is the desired precision,
-/// they may build the [Timestamp] with an unknown offset instead.
-#[derive(Debug, Clone)]
-pub struct HourAndMinuteSetter {
-    builder: TimestampBuilder,
-}
-
-impl HourAndMinuteSetter {
-    pub fn with_hms(self, hour: u32, minute: u32, second: u32) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.hour = Some(hour as u8);
-        builder.minute = Some(minute as u8);
-        builder.second = Some(second as u8);
-        builder.precision = Precision::Second;
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn with_hour_and_minute(self, hour: u32, minute: u32) -> SecondSetter {
-        let mut builder = self.builder;
-        builder.precision = Precision::HourAndMinute;
-        builder.hour = Some(hour as u8);
-        builder.minute = Some(minute as u8);
-        SecondSetter { builder }
-    }
-
-    pub fn build(self) -> IonResult<Timestamp> {
-        self.into_builder().build()
-    }
-}
-
-/// Allows the user to set the `second` field on a builder that has already
-/// had its `year`, `month`, `day`, `hour`, and `minute` fields set. Or, if `HourAndMinute` is the
-/// desired precision, they may build the [Timestamp] instead, optionally specifying an offset if
-/// known.
-#[derive(Debug, Clone)]
-pub struct SecondSetter {
-    builder: TimestampBuilder,
-}
-
-impl SecondSetter {
-    pub fn with_second(self, second: u32) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.precision = Precision::Second;
-        builder.second = Some(second as u8);
-        FractionalSecondSetter { builder }
-    }
-
+impl <T: TimestampBuilderCanBuildWithOffset> TimestampBuilder<T> {
     /// Sets the difference, in minutes, from UTC. A positive value indicates
     /// Eastern Hemisphere, while a negative value indicates Western Hemisphere.
     // The unit (minutes) could be seconds (which is what the chrono crate uses
     // internally), but Ion uses minutes in its binary representation, so it
     // makes sense to be consistent.
     pub fn build_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
-        self.builder.offset = Some(offset_minutes);
-        self.into_builder().build()
+        self.offset = Some(offset_minutes);
+        self.build()
     }
 
     /// Like [Self::build_at_offset], but the fields provided for each time unit are understood
     /// to be in UTC rather than in the local time of the specified offset.
     pub fn build_utc_fields_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
-        self.builder.fields_are_utc = true;
+        self.fields_are_utc = true;
         self.build_at_offset(offset_minutes)
     }
-
-    pub fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
-        self.builder.offset = None;
-        self.into_builder().build()
-    }
 }
-
-/// Allows the user to set the `fractional_seconds` field on a builder that has already
-/// had its `year`, `month`, `day`, `hour`, `minute`, and `second` fields set. Or, if
-/// `Second` is the desired precision, they may build the [Timestamp] instead, optionally
-/// specifying an offset if known.
-#[derive(Debug, Clone)]
-pub struct FractionalSecondSetter {
-    builder: TimestampBuilder,
-}
-
-impl FractionalSecondSetter {
-    // Note that in order to create a `FractionalSecondSetter`, the user will have had to first
-    // create a `SecondSetter`. Because of this, the builder's precision is already set to
-    // `Precision::Second`.
-    pub fn with_nanoseconds(self, nanosecond: u32) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.fractional_seconds = Some(Mantissa::Digits(9));
-        builder.nanoseconds = Some(nanosecond);
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn with_microseconds(self, microsecond: u32) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.fractional_seconds = Some(Mantissa::Digits(6));
-        builder.nanoseconds = Some(microsecond * 1000);
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn with_milliseconds(self, millisecond: u32) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.fractional_seconds = Some(Mantissa::Digits(3));
-        builder.nanoseconds = Some(millisecond * 1_000_000);
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn with_nanoseconds_and_precision(
-        self,
-        nanoseconds: u32,
-        precision_digits: u32,
-    ) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.fractional_seconds = Some(Mantissa::Digits(precision_digits));
-        builder.nanoseconds = Some(nanoseconds);
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn with_fractional_seconds(self, fractional_seconds: Decimal) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.fractional_seconds = Some(Mantissa::Arbitrary(fractional_seconds));
-        builder.nanoseconds = None;
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn build_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
-        self.builder.offset = Some(offset_minutes);
-        self.into_builder().build()
-    }
-
-    /// Like [Self::build_at_offset], but the fields provided for each time unit are understood
-    /// to be in UTC rather than in the local time of the specified offset.
-    pub fn build_utc_fields_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
-        self.builder.fields_are_utc = true;
-        self.build_at_offset(offset_minutes)
-    }
-
-    pub fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
-        self.builder.offset = None;
-        self.into_builder().build()
-    }
-}
-
-trait TimeUnitSetter {
-    fn into_builder(self) -> TimestampBuilder;
-}
-
-macro_rules! impl_time_unit_setter_for {
-    ($type_name:ty) => {
-        impl TimeUnitSetter for $type_name {
-            fn into_builder(self) -> TimestampBuilder {
-                self.builder
-            }
-        }
-    };
-}
-
-impl_time_unit_setter_for!(MonthSetter);
-impl_time_unit_setter_for!(DaySetter);
-impl_time_unit_setter_for!(HourAndMinuteSetter);
-impl_time_unit_setter_for!(SecondSetter);
-impl_time_unit_setter_for!(FractionalSecondSetter);
 
 fn downconvert_to_naive_datetime_with_nanoseconds(timestamp: &Timestamp) -> NaiveDateTime {
     if timestamp.precision == Precision::Second {

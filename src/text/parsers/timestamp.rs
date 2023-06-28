@@ -14,7 +14,7 @@ use crate::text::parse_result::{
 };
 use crate::text::parsers::{stop_character, trim_zeros_and_parse_i32, trim_zeros_and_parse_u32};
 use crate::text::text_value::TextValue;
-use crate::types::{Decimal, FractionalSecondSetter, Timestamp};
+use crate::types::{Decimal, Timestamp, TimestampBuilder, HasFractionalSeconds, HasSeconds};
 
 /// Matches the text representation of a timestamp value and returns the resulting Timestamp
 /// as a [TextValue::Timestamp].
@@ -142,16 +142,16 @@ fn timestamp_precision_ymd_hms_fractional(input: &str) -> IonParseResult<TextVal
 /// Parses the fractional seconds and stores it in the [FractionalSecondSetter].
 fn assign_fractional_seconds(
     fractional_text: &str,
-    mut setter: FractionalSecondSetter,
-) -> IonParseResult<FractionalSecondSetter> {
+    setter: TimestampBuilder<HasSeconds>,
+) -> IonParseResult<TimestampBuilder<HasFractionalSeconds>> {
     let number_of_digits = fractional_text.len();
     // If the precision is less than or equal to nanoseconds...
-    if number_of_digits <= 9 {
+    let setter = if number_of_digits <= 9 {
         // Convert the number to nanoseconds and make a note of its original precision.
         let power = 9 - number_of_digits;
         let (_, fractional) = trim_zeros_and_parse_u32(fractional_text, "fractional seconds")?;
         let nanoseconds = fractional * 10u32.pow(power as u32);
-        setter = setter.with_nanoseconds_and_precision(nanoseconds, number_of_digits as u32);
+        setter.with_nanoseconds_and_precision(nanoseconds, number_of_digits as u32)
     } else {
         // Otherwise, the number's precision is great enough that we'll need to construct a Decimal
         // to store it without loss of fidelity.
@@ -162,8 +162,8 @@ fn assign_fractional_seconds(
             )?
             .1;
         let decimal = Decimal::new(coefficient, -(number_of_digits as i64));
-        setter = setter.with_fractional_seconds(decimal);
-    }
+        setter.with_fractional_seconds(decimal)
+    };
     Ok(("", setter))
 }
 
