@@ -3,9 +3,9 @@ use crate::element::{Annotations, Element, IntoAnnotatedElement, Value};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::illegal_operation;
 use crate::types::Bytes;
+use crate::writer::IonWriter;
 use crate::{
-    Decimal, Int, IonResult, IonType, IonWriter, RawSymbolTokenRef, Str, Symbol, SymbolTable,
-    Timestamp,
+    Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Str, Symbol, SymbolTable, Timestamp,
 };
 
 // Represents a level into which the writer has stepped.

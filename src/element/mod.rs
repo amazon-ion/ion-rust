@@ -12,14 +12,14 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
+use crate::binary::binary_writer::BinaryWriterBuilder;
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
 use crate::ion_data::{IonEq, IonOrd};
 use crate::text::text_formatter::IonValueFormatter;
-use crate::{
-    ion_data, BinaryWriterBuilder, Decimal, Int, IonResult, IonType, IonWriter, Str, Symbol,
-    TextWriterBuilder, Timestamp,
-};
+use crate::text::text_writer::TextWriterBuilder;
+use crate::writer::IonWriter;
+use crate::{ion_data, Decimal, Int, IonResult, IonType, Str, Symbol, Timestamp};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::io;
@@ -607,7 +607,15 @@ impl Element {
     ///# Ok(())
     ///# }
     /// ```
+    #[cfg(feature = "experimental-writer")]
     pub fn write_to<W: ElementWriter>(&self, writer: &mut W) -> IonResult<()> {
+        Self::write_element_to(self, writer)
+    }
+
+    // This method performs the logic of the `write_to` method above, but is always limited to
+    // crate visibility. The `write_to` method can be exposed publicly by enabling the
+    // "experimental-writer" feature.
+    pub(crate) fn write_element_to<W: ElementWriter>(&self, writer: &mut W) -> IonResult<()> {
         writer.write_element(self)?;
         Ok(())
     }
@@ -624,7 +632,7 @@ impl Element {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::element::Element;
-    /// use ion_rs::{ion_list, IonType, IonWriter, TextWriterBuilder};
+    /// use ion_rs::ion_list;
     /// use ion_rs::element::writer::{Format, TextKind};
     ///
     /// // Construct an Element
@@ -646,12 +654,12 @@ impl Element {
         match format {
             Format::Text(text_kind) => {
                 let mut text_writer = TextWriterBuilder::new(text_kind).build(output)?;
-                self.write_to(&mut text_writer)?;
+                Element::write_element_to(self, &mut text_writer)?;
                 text_writer.flush()
             }
             Format::Binary => {
                 let mut binary_writer = BinaryWriterBuilder::default().build(output)?;
-                self.write_to(&mut binary_writer)?;
+                Element::write_element_to(self, &mut binary_writer)?;
                 binary_writer.flush()
             }
         }
@@ -668,8 +676,7 @@ impl Element {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::element::Element;
-    /// use ion_rs::{ion_list, IonType, IonWriter, TextWriterBuilder};
-    /// use ion_rs::element::writer::{Format, TextKind};
+    /// use ion_rs::ion_list;
     ///
     /// // Construct an Element
     /// let element_before: Element = ion_list! [1, 2, 3].into();
@@ -701,9 +708,9 @@ impl Element {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
+    /// use ion_rs::ion_list;
     /// use ion_rs::element::Element;
-    /// use ion_rs::{ion_list, IonType, IonWriter, TextWriterBuilder};
-    /// use ion_rs::element::writer::{Format, TextKind};
+    /// use ion_rs::element::writer::TextKind;
     ///
     /// // Construct an Element
     /// let element_before: Element = ion_list! [1, 2, 3].into();

@@ -137,9 +137,9 @@
 //! ```
 //! use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::writer::ElementWriter;
+//! use ion_rs::element::writer::{ElementWriter, Format, TextKind};
 //! use ion_rs::element::{Element, IntoAnnotatedElement, Value};
-//! use ion_rs::{ion_list, ion_struct, IonWriter, TextWriterBuilder};
+//! use ion_rs::{ion_list, ion_struct};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
 //!   "bar": true,
@@ -148,12 +148,10 @@
 //! .into();
 //!
 //! let mut buffer: Vec<u8> = Vec::new();
-//! let mut writer = TextWriterBuilder::default().build(&mut buffer)?;
-//! writer.write_element(&element)?;
-//! writer.flush()?;
+//! element.write_as(Format::Text(TextKind::Compact), &mut buffer)?;
 //! assert_eq!(
 //!     "{foo: \"hello\", bar: true, baz: [4, 5, 6]}".as_bytes(),
-//!     writer.output().as_slice()
+//!     buffer.as_slice()
 //! );
 //! # Ok(())
 //! # }
@@ -221,16 +219,10 @@ pub use types::{Decimal, Int, IonType, Str, Symbol, Timestamp};
 
 pub use ion_data::IonData;
 
-pub use binary::binary_writer::{BinaryWriter, BinaryWriterBuilder};
-pub use text::text_writer::{TextWriter, TextWriterBuilder};
-pub use writer::IonWriter;
-
-pub use binary::raw_binary_writer::RawBinaryWriter;
-pub use text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder};
-
 // These re-exports are only visible if the "experimental-reader" feature is enabled.
 #[cfg(feature = "experimental-reader")]
 pub use {
+    binary::raw_binary_writer::RawBinaryWriter,
     blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader},
     ion_reader::IonReader,
     raw_reader::{BufferedRawReader, RawReader, RawStreamItem},
@@ -238,6 +230,15 @@ pub use {
     reader::integration_testing,
     reader::{Reader, ReaderBuilder, StreamItem, UserReader},
     system_reader::{SystemReader, SystemStreamItem},
+    text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder},
+};
+
+// These re-exports are only visible if the "experimental-writer" feature is enabled.
+#[cfg(feature = "experimental-writer")]
+pub use {
+    binary::binary_writer::{BinaryWriter, BinaryWriterBuilder},
+    text::text_writer::{TextWriter, TextWriterBuilder},
+    writer::IonWriter,
 };
 
 pub use result::{IonError, IonResult};
