@@ -4,11 +4,11 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 
 use crate::element::writer::TextKind;
+use crate::ion_writer::IonWriter;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::text::text_formatter::STRING_ESCAPE_CODES;
 use crate::types::{ContainerType, Decimal, Timestamp};
-use crate::writer::IonWriter;
 use crate::{Int, IonType, RawSymbolToken};
 
 pub struct RawTextWriterBuilder {
@@ -749,10 +749,10 @@ mod tests {
     use bigdecimal::BigDecimal;
     use chrono::{FixedOffset, NaiveDate, TimeZone};
 
+    use crate::ion_writer::IonWriter;
     use crate::result::IonResult;
     use crate::text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder};
     use crate::types::Timestamp;
-    use crate::writer::IonWriter;
     use crate::IonType;
 
     fn writer_test_with_builder<F>(builder: RawTextWriterBuilder, mut commands: F, expected: &str)

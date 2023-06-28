@@ -9,11 +9,11 @@ use num_traits::Zero;
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
+use crate::ion_writer::IonWriter;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::types::integer::IntData;
 use crate::types::{ContainerType, Decimal, Int, SymbolId, Timestamp};
-use crate::writer::IonWriter;
 use crate::IonType;
 
 use super::decimal::DecimalBinaryEncoder;

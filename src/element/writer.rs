@@ -6,7 +6,7 @@
 use crate::result::IonResult;
 
 use crate::element::{Element, Value};
-use crate::writer::IonWriter;
+use crate::ion_writer::IonWriter;
 use crate::IonType;
 pub use Format::*;
 pub use TextKind::*;
@@ -101,7 +101,7 @@ mod tests {
     use crate::ion_data::IonEq;
     use crate::text::text_writer::TextWriterBuilder;
 
-    use crate::writer::IonWriter;
+    use crate::ion_writer::IonWriter;
     use crate::IonResult;
     use nom::AsBytes;
 

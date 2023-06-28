@@ -190,12 +190,12 @@ mod ion_reader;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
 // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
+mod ion_writer;
 pub(crate) mod reader;
 mod shared_symbol_table;
 mod symbol_ref;
 mod symbol_table;
 mod system_reader;
-mod writer;
 
 #[cfg(feature = "experimental-lazy-reader")]
 pub mod lazy;
@@ -237,8 +237,8 @@ pub use {
 #[cfg(feature = "experimental-writer")]
 pub use {
     binary::binary_writer::{BinaryWriter, BinaryWriterBuilder},
+    ion_writer::IonWriter,
     text::text_writer::{TextWriter, TextWriterBuilder},
-    writer::IonWriter,
 };
 
 pub use result::{IonError, IonResult};

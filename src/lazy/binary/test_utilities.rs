@@ -1,5 +1,5 @@
 use crate::element::Element;
-use crate::writer::IonWriter;
+use crate::ion_writer::IonWriter;
 use crate::{BinaryWriterBuilder, IonResult};
 
 /// Transcribes text Ion to binary Ion
