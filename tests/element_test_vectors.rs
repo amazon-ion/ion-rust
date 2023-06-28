@@ -51,6 +51,7 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
                 TextKind::Compact => TextWriterBuilder::default().build(&mut buffer),
                 TextKind::Lines => TextWriterBuilder::lines().build(&mut buffer),
                 TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
+                _ => unimplemented!("No text writer available for requested TextKind {:?}", kind),
             }?;
             writer.write_elements(elements)?;
             writer.flush()?;
@@ -60,6 +61,7 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
             binary_writer.write_elements(elements)?;
             binary_writer.flush()?;
         }
+        _ => unimplemented!("requested format '{:?}' is not supported", format),
     };
     Ok(buffer)
 }

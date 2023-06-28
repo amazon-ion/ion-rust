@@ -249,18 +249,20 @@ pub mod external {
     pub use bigdecimal;
 }
 
-/// Whether or not the text is pretty printed or serialized in a more compact representation.
+/// Whether or not the text spacing is generous/human-friendly or something more compact.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum TextKind {
     Compact,
     Lines,
     Pretty,
 }
 
-/// Basic configuration options for [`ElementWriter`] instances.
+/// Supported Ion encodings.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum Format {
     Text(TextKind),
     Binary,
-    // TODO a mode for Json(TextKind)
+    // TODO: Json(TextKind)
 }
