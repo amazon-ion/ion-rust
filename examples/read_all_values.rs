@@ -10,8 +10,8 @@ fn main() {
 
 #[cfg(feature = "experimental-reader")]
 mod example {
-    use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryReader;
     use ion_rs::result::IonResult;
+    use ion_rs::RawBinaryReader;
     use ion_rs::RawStreamItem;
     use ion_rs::{BlockingRawBinaryReader, IonReader, IonType, RawReader, StreamItem, UserReader};
     use memmap::MmapOptions;

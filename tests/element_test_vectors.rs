@@ -1,5 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 #![cfg(feature = "experimental-reader")]
+#![cfg(feature = "experimental-writer")]
 
 use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::ElementWriter;
@@ -548,9 +549,7 @@ mod native_element_tests {
 #[cfg(test)]
 mod non_blocking_native_element_tests {
     use super::*;
-    use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryReader;
-    use ion_rs::text::non_blocking::raw_text_reader::RawTextReader;
-    use ion_rs::Reader;
+    use ion_rs::{RawBinaryReader, RawTextReader, Reader};
 
     struct NonBlockingNativeElementApi;
 

@@ -222,7 +222,7 @@ pub use ion_data::IonData;
 // These re-exports are only visible if the "experimental-reader" feature is enabled.
 #[cfg(feature = "experimental-reader")]
 pub use {
-    binary::raw_binary_writer::RawBinaryWriter,
+    binary::non_blocking::raw_binary_reader::RawBinaryReader,
     blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader},
     ion_reader::IonReader,
     raw_reader::{BufferedRawReader, RawReader, RawStreamItem},
@@ -230,6 +230,7 @@ pub use {
     reader::integration_testing,
     reader::{Reader, ReaderBuilder, StreamItem, UserReader},
     system_reader::{SystemReader, SystemStreamItem},
+    text::non_blocking::raw_text_reader::RawTextReader,
     text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder},
 };
 
@@ -237,6 +238,7 @@ pub use {
 #[cfg(feature = "experimental-writer")]
 pub use {
     binary::binary_writer::{BinaryWriter, BinaryWriterBuilder},
+    binary::raw_binary_writer::RawBinaryWriter,
     ion_writer::IonWriter,
     text::text_writer::{TextWriter, TextWriterBuilder},
 };
