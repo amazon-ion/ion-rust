@@ -3,12 +3,12 @@ use std::io::{BufWriter, Write};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 
-use crate::element::writer::TextKind;
 use crate::ion_writer::IonWriter;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{illegal_operation, IonResult};
 use crate::text::text_formatter::STRING_ESCAPE_CODES;
 use crate::types::{ContainerType, Decimal, Timestamp};
+use crate::TextKind;
 use crate::{Int, IonType, RawSymbolToken};
 
 pub struct RawTextWriterBuilder {

@@ -19,7 +19,7 @@ use crate::ion_data::{IonEq, IonOrd};
 use crate::ion_writer::IonWriter;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::text::text_writer::TextWriterBuilder;
-use crate::{ion_data, Decimal, Int, IonResult, IonType, Str, Symbol, Timestamp};
+use crate::{ion_data, Decimal, Format, Int, IonResult, IonType, Str, Symbol, TextKind, Timestamp};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::io;
@@ -34,7 +34,7 @@ pub mod writer;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::data_source::ToIonDataSource;
-use crate::element::writer::{ElementWriter, Format, TextKind};
+use crate::element::writer::ElementWriter;
 use crate::reader::ReaderBuilder;
 pub use crate::types::{Blob, Bytes, Clob};
 pub use annotations::{Annotations, IntoAnnotations};
@@ -629,11 +629,10 @@ impl Element {
     /// maximize encoding efficiency. To reuse a writer and have greater control over resource
     /// management, see [`Element::write_to`].
     /// ```
-    ///# use ion_rs::IonResult;
+    ///# use ion_rs::{Format, IonResult, TextKind};
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::element::Element;
     /// use ion_rs::ion_list;
-    /// use ion_rs::element::writer::{Format, TextKind};
     ///
     /// // Construct an Element
     /// let element_before: Element = ion_list! [1, 2, 3].into();
@@ -710,7 +709,7 @@ impl Element {
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::ion_list;
     /// use ion_rs::element::Element;
-    /// use ion_rs::element::writer::TextKind;
+    /// use ion_rs::TextKind;
     ///
     /// // Construct an Element
     /// let element_before: Element = ion_list! [1, 2, 3].into();

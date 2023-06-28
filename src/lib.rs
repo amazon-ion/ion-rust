@@ -135,9 +135,9 @@
 //! ## Writing an `Element` to an `io::Write`
 //!
 //! ```
-//! use ion_rs::IonResult;
+//! use ion_rs::{Format, IonResult, TextKind};
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::writer::{ElementWriter, Format, TextKind};
+//! use ion_rs::element::writer::{ElementWriter  };
 //! use ion_rs::element::{Element, IntoAnnotatedElement, Value};
 //! use ion_rs::{ion_list, ion_struct};
 //! let element: Element = ion_struct! {
@@ -169,9 +169,9 @@ use rstest_reuse;
 #[allow(unused_imports)]
 use element::Element;
 
-pub mod result;
-
 pub mod binary;
+pub mod result;
+// Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
 pub mod constants;
 pub mod data_source;
 pub mod element;
@@ -187,10 +187,9 @@ pub(crate) mod blocking_reader;
 mod catalog;
 
 mod ion_reader;
+mod ion_writer;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
-// Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
-mod ion_writer;
 pub(crate) mod reader;
 mod shared_symbol_table;
 mod symbol_ref;
@@ -248,4 +247,20 @@ pub use result::{IonError, IonResult};
 /// See also: <https://github.com/amazon-ion/ion-rust/issues/302>
 pub mod external {
     pub use bigdecimal;
+}
+
+/// Whether or not the text is pretty printed or serialized in a more compact representation.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TextKind {
+    Compact,
+    Lines,
+    Pretty,
+}
+
+/// Basic configuration options for [`ElementWriter`] instances.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Format {
+    Text(TextKind),
+    Binary,
+    // TODO a mode for Json(TextKind)
 }
