@@ -6,9 +6,10 @@
 use crate::result::IonResult;
 
 use crate::element::{Element, Value};
-use crate::{IonType, IonWriter};
-pub use Format::*;
-pub use TextKind::*;
+use crate::ion_writer::IonWriter;
+pub use crate::Format::*;
+use crate::IonType;
+pub use crate::TextKind::*;
 
 /// Serializes [`Element`] instances into some kind of output sink.
 pub trait ElementWriter {
@@ -87,22 +88,6 @@ where
     }
 }
 
-/// Whether or not the text is pretty printed or serialized in a more compact representation.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum TextKind {
-    Compact,
-    Lines,
-    Pretty,
-}
-
-/// Basic configuration options for [`ElementWriter`] instances.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Format {
-    Text(TextKind),
-    Binary,
-    // TODO a mode for Json(TextKind)
-}
-
 #[cfg(test)]
 mod tests {
     use crate::element::writer::ElementWriter;
@@ -110,7 +95,8 @@ mod tests {
     use crate::ion_data::IonEq;
     use crate::text::text_writer::TextWriterBuilder;
 
-    use crate::{IonResult, IonType, IonWriter};
+    use crate::ion_writer::IonWriter;
+    use crate::{IonResult, IonType};
     use nom::AsBytes;
 
     #[test]

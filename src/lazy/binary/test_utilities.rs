@@ -1,5 +1,6 @@
 use crate::element::Element;
-use crate::{BinaryWriterBuilder, IonResult, IonWriter};
+use crate::ion_writer::IonWriter;
+use crate::{BinaryWriterBuilder, IonResult};
 
 /// Transcribes text Ion to binary Ion
 pub fn to_binary_ion(text_ion: &str) -> IonResult<Vec<u8>> {

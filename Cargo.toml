@@ -34,14 +34,23 @@ ion-hash = ["digest"]
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
 # These are not guaranteed any sort of API stability and may also have non-standard
 # Ion behavior (e.g., draft Ion 1.1 capabilities).
-experimental = ["experimental-streaming", "experimental-reader", "experimental-lazy-reader"]
+experimental = [
+  "experimental-lazy-reader",
+  "experimental-reader",
+  "experimental-writer",
+  "experimental-streaming"
+]
 
 # Experimental streaming APIs
 experimental-streaming = []
 
-# Access to the `IonReader` trait, its implementations, and the `ReaderBuilder` requires enabling this feature.
+# Access to the `IonReader` trait, its implementations, and the `ReaderBuilder`.
 # These APIs are functional and well-tested, but are not yet stable.
 experimental-reader = []
+
+# Access to the `IonWriter` trait and its implementations.
+# These APIs are functional and well-tested, but are not yet stable.
+experimental-writer = []
 
 # A reader API that parks on a top-level value and yields 'lazy' handles to the data
 # contained therein. These lazy handles can be read multiple times, allowing for

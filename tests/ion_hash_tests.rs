@@ -3,13 +3,11 @@
 
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
-use ion_rs::element::writer::ElementWriter;
 use ion_rs::element::{Element, Sequence, Struct};
 use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::{illegal_operation, IonResult};
 use ion_rs::types::IntAccess;
 
-use ion_rs::IonWriter;
 use std::convert::From;
 use std::fmt::Debug;
 use std::fs::read;
@@ -187,14 +185,7 @@ fn test_case(
 ) -> IonHashTestResult<()> {
     let test_case_name = match test_case_name {
         Some(name) => name,
-        None => test_case_name_from_value(input).map_err(|e| IonHashTestError::TestError {
-            test_case_name: None,
-            message: Some(format!(
-                "Unable to determine test case name for {:?}",
-                input
-            )),
-            cause: Some(Box::new(e)),
-        })?,
+        None => input.to_string(),
     };
 
     if should_ignore(&test_case_name) {
@@ -254,18 +245,6 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
     } else {
         illegal_operation("expected at least expectation!")?
     }
-}
-
-/// Test cases may be annotated with a test name. Or, not! If they aren't, the
-/// name of the test is the Ion text representation of the input value.
-fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
-    let mut buf = Vec::new();
-    let mut text_writer = ion_rs::TextWriterBuilder::default().build(&mut buf)?;
-    text_writer.write_element(test_input_ion)?;
-    text_writer.flush()?;
-    drop(text_writer);
-
-    Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
 fn test_case_name_from_annotation(test_case_ion: &Element) -> Option<String> {
