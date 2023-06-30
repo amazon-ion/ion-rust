@@ -16,6 +16,7 @@ mod r#struct;
 mod symbol;
 mod timestamp;
 
+use crate::ion_data::IonOrd;
 pub use crate::types::bytes::Bytes;
 pub use decimal::coefficient::{Coefficient, Sign};
 pub use decimal::Decimal;
@@ -25,13 +26,12 @@ pub use lob::{Blob, Clob};
 pub use r#struct::Struct;
 pub use sequence::Sequence;
 pub use sexp::SExp;
-pub use string::Str;
-pub use symbol::Symbol;
-pub use timestamp::{ Mantissa, Precision, Timestamp, TimestampBuilder };
-pub(crate) use timestamp::{ HasSeconds, HasFractionalSeconds };
-use crate::ion_data::IonOrd;
 use std::cmp::Ordering;
 use std::fmt;
+pub use string::Str;
+pub use symbol::Symbol;
+pub(crate) use timestamp::{HasFractionalSeconds, HasSeconds};
+pub use timestamp::{Mantissa, Precision, Timestamp, TimestampBuilder};
 
 /// Represents the Ion data type of a given value. To learn more about each data type,
 /// read [the Ion Data Model](https://amazon-ion.github.io/ion-docs/docs/spec.html#the-ion-data-model)

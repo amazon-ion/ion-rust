@@ -511,9 +511,7 @@ impl Timestamp {
     /// Creates a TimestampBuilder with the specified year, month, and day. Its precision is
     /// set to [Precision::Day].
     pub fn with_ymd(year: u32, month: u32, day: u32) -> TimestampBuilder<HasDay> {
-        Timestamp::with_year(year)
-            .with_month(month)
-            .with_day(day)
+        Timestamp::with_year(year).with_month(month).with_day(day)
     }
 
     /// Creates a TimestampBuilder with the specified year, month, day, hour, minute, and second.
@@ -526,8 +524,7 @@ impl Timestamp {
         minute: u32,
         second: u32,
     ) -> TimestampBuilder<HasSeconds> {
-        Timestamp::with_ymd(year, month, day)
-            .with_hms(hour, minute, second)
+        Timestamp::with_ymd(year, month, day).with_hms(hour, minute, second)
     }
 
     /// Creates a TimestampBuilder with the specified year, month, day, hour, minute, second and
@@ -816,10 +813,13 @@ impl IonOrd for Timestamp {
 }
 
 /// A Builder object for incrementally configuring and finally instantiating a [Timestamp].
-/// For the time being, this type is not publicly visible. Users are expected to use any of the
-/// [TimeUnitSetter] implementations that wrap it. These wrappers expose only those methods which
-/// can result in a valid Timestamp. For example, it is not possible to set the `day` field
-/// without first setting the `year` and `month` fields.
+/// This builder uses the type-state pattern to expose only those methods which can result in a
+/// valid Timestamp. For example, it is not possible to set the `day` field without first setting
+/// the `year` and `month` fields.
+///
+/// The `Buildable` states are `HasYear`, `HasMonth`, `HasDay`, `HasMinute`, `HasSecond`, and
+/// `HasFractionalSeconds`. The `BuildableWithOffset` states are `HasMinute`, `HasSecond`, and
+/// `HasFractionalSeconds`.
 // See the unit tests for usage examples.
 #[derive(Debug, Clone, Default)]
 pub struct TimestampBuilder<T> {
@@ -837,8 +837,14 @@ pub struct TimestampBuilder<T> {
     nanoseconds: Option<u32>,
 }
 
-pub trait TimestampBuilderCanBuild {}
-pub trait TimestampBuilderCanBuildWithOffset: TimestampBuilderCanBuild {}
+// The marker traits and the state structs are pub in this module, but they do not appear as types
+// in the documentation, they cannot be imported, and they are not nameable from outside this crate.
+
+/// Marker trait indicating a valid state to build a timestamp
+pub trait Buildable {}
+/// Marker trait indicating that the state includes a time, and can be built with an offset.
+pub trait BuildableWithOffset: Buildable {}
+
 macro_rules! state_with_markers {
     ($name:ident $(,$trait_name:ident)*)=> {
         #[derive(Debug, Clone, Default)]
@@ -848,32 +854,19 @@ macro_rules! state_with_markers {
         )*
     };
 }
-
 state_with_markers!(Init);
-state_with_markers!(HasYear, TimestampBuilderCanBuild);
-state_with_markers!(HasMonth, TimestampBuilderCanBuild);
-state_with_markers!(HasDay, TimestampBuilderCanBuild);
+state_with_markers!(HasYear, Buildable);
+state_with_markers!(HasMonth, Buildable);
+state_with_markers!(HasDay, Buildable);
 state_with_markers!(HasHour);
-state_with_markers!(HasMinute, TimestampBuilderCanBuild, TimestampBuilderCanBuildWithOffset);
-state_with_markers!(HasSeconds, TimestampBuilderCanBuild, TimestampBuilderCanBuildWithOffset);
-state_with_markers!(HasFractionalSeconds, TimestampBuilderCanBuild, TimestampBuilderCanBuildWithOffset);
-
-impl TimestampBuilder<Init> {
-    pub fn new() -> Self {
-        TimestampBuilder { ..Default::default() }
-    }
-
-    fn with_year(mut self, year: u16) -> TimestampBuilder<HasYear> {
-        self.year = year;
-        self.precision = Precision::Year;
-        self.change_state()
-    }
-}
-
+state_with_markers!(HasMinute, Buildable, BuildableWithOffset);
+state_with_markers!(HasSeconds, Buildable, BuildableWithOffset);
+state_with_markers!(HasFractionalSeconds, Buildable, BuildableWithOffset);
 
 impl<T> TimestampBuilder<T> {
-
     fn change_state<U>(self) -> TimestampBuilder<U> {
+        // TODO: This entire function could be replaced with one line of unsafe code, but is it worthwhile?
+        // unsafe { std::mem::transmute(self) }
         TimestampBuilder {
             _state: PhantomData::default(),
             fields_are_utc: self.fields_are_utc,
@@ -1006,6 +999,18 @@ impl<T> TimestampBuilder<T> {
     }
 }
 
+impl TimestampBuilder<Init> {
+    pub fn new() -> TimestampBuilder<Init> {
+        TimestampBuilder::default()
+    }
+
+    pub fn with_year(mut self, year: u16) -> TimestampBuilder<HasYear> {
+        self.year = year;
+        self.precision = Precision::Year;
+        self.change_state()
+    }
+}
+
 impl TimestampBuilder<HasYear> {
     // Libraries have conflicting opinions about whether months should be
     // 0- or 1-indexed, so Timestamp follows chrono's lead and provides
@@ -1043,11 +1048,8 @@ impl TimestampBuilder<HasMonth> {
 }
 
 impl TimestampBuilder<HasDay> {
-
     pub fn with_hms(self, hour: u32, minute: u32, second: u32) -> TimestampBuilder<HasSeconds> {
-        self.with_hour(hour)
-            .with_minute(minute)
-            .with_second(second)
+        self.with_hour(hour).with_minute(minute).with_second(second)
     }
 
     pub fn with_hour_and_minute(mut self, hour: u32, minute: u32) -> TimestampBuilder<HasMinute> {
@@ -1111,15 +1113,17 @@ impl TimestampBuilder<HasSeconds> {
         self.change_state()
     }
 
-    pub fn with_fractional_seconds(mut self, fractional_seconds: Decimal) -> TimestampBuilder<HasFractionalSeconds> {
+    pub fn with_fractional_seconds(
+        mut self,
+        fractional_seconds: Decimal,
+    ) -> TimestampBuilder<HasFractionalSeconds> {
         self.fractional_seconds = Some(Mantissa::Arbitrary(fractional_seconds));
         self.nanoseconds = None;
         self.change_state()
     }
 }
 
-impl <T: TimestampBuilderCanBuild> TimestampBuilder<T> {
-
+impl<T: Buildable> TimestampBuilder<T> {
     /// Attempt to construct a [Timestamp] using the values configured on the [TimestampBuilder].
     /// If any of the individual fields are invalid (for example, a `month` value that is greater
     /// than `12`) or if the resulting timestamp would represent a non-existent point in time
@@ -1173,7 +1177,7 @@ impl <T: TimestampBuilderCanBuild> TimestampBuilder<T> {
     }
 }
 
-impl <T: TimestampBuilderCanBuildWithOffset> TimestampBuilder<T> {
+impl<T: BuildableWithOffset> TimestampBuilder<T> {
     /// Sets the difference, in minutes, from UTC. A positive value indicates
     /// Eastern Hemisphere, while a negative value indicates Western Hemisphere.
     // The unit (minutes) could be seconds (which is what the chrono crate uses

@@ -14,7 +14,7 @@ use crate::text::parse_result::{
 };
 use crate::text::parsers::{stop_character, trim_zeros_and_parse_i32, trim_zeros_and_parse_u32};
 use crate::text::text_value::TextValue;
-use crate::types::{Decimal, Timestamp, TimestampBuilder, HasFractionalSeconds, HasSeconds};
+use crate::types::{Decimal, HasFractionalSeconds, HasSeconds, Timestamp, TimestampBuilder};
 
 /// Matches the text representation of a timestamp value and returns the resulting Timestamp
 /// as a [TextValue::Timestamp].
