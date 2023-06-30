@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader, Read, StdinLock};
 
-use crate::result::{decoding_error, IonError, IonResult};
+use crate::result::{decoding_error, IonResult};
 
 /// Optimized read operations for parsing Ion.
 ///
@@ -143,13 +143,13 @@ pub trait IonDataSource: BufRead {
         // Fill the fallback buffer with bytes from the data source
         match self.read_exact(buffer) {
             Ok(()) => slice_processor(buffer),
-            Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            Err(ref e) if e.kind() == io::ErrorKind::UnexpectedEof =>
             // TODO: IonResult should have a distinct `IncompleteData` error case
             //       https://github.com/amazon-ion/ion-rust/issues/299
             {
                 decoding_error("Unexpected end of stream.")
             }
-            Err(io_error) => Err(IonError::IoError { source: io_error }),
+            Err(io_error) => Err(io_error.into()),
         }
     }
 }

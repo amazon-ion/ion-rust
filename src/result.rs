@@ -73,15 +73,34 @@ impl Display for Position {
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;
 
+#[derive(Debug, Error)]
+#[error("{source:?}")]
+pub struct IoError {
+    #[from]
+    source: io::Error,
+}
+
+impl From<io::Error> for IonError {
+    fn from(io_error: io::Error) -> Self {
+        IoError::from(io_error).into()
+    }
+}
+
+impl From<io::ErrorKind> for IonError {
+    fn from(error_kind: io::ErrorKind) -> Self {
+        // io::ErrorKind -> io::Error
+        let io_error = io::Error::from(error_kind);
+        // io::Error -> IoError -> IonError
+        IoError::from(io_error).into()
+    }
+}
+
 /// Represents the different types of high-level failures that might occur when reading Ion data.
 #[derive(Debug, Error)]
 pub enum IonError {
     /// Indicates that an IO error was encountered while reading or writing.
-    #[error("{source:?}")]
-    IoError {
-        #[from]
-        source: io::Error,
-    },
+    #[error("{0}")]
+    IoError(#[from] IoError),
 
     /// Indicates that the input buffer did not contain enough data to perform the requested read
     /// operation. If the input source contains more data, the reader can append it to the buffer
@@ -124,10 +143,7 @@ impl Clone for IonError {
     fn clone(&self) -> Self {
         use IonError::*;
         match self {
-            IoError { source } => IoError {
-                // io::Error implements From<ErrorKind>, and ErrorKind is cloneable.
-                source: io::Error::from(source.kind()),
-            },
+            IoError(io_error) => io_error.source.kind().into(),
             Incomplete { label, position } => Incomplete {
                 label,
                 position: position.clone(),
@@ -153,7 +169,7 @@ impl PartialEq for IonError {
         use IonError::*;
         match (self, other) {
             // We can compare the io::Errors' ErrorKinds, offering a weak definition of equality.
-            (IoError { source: s1 }, IoError { source: s2 }) => s1.kind() == s2.kind(),
+            (IoError(e1), IoError(e2)) => e1.source.kind() == e2.source.kind(),
             (
                 Incomplete {
                     label: l1,
