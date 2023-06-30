@@ -6,7 +6,7 @@ use crate::lazy::binary::raw::lazy_raw_sequence::LazyRawSequence;
 use crate::lazy::binary::raw::lazy_raw_struct::LazyRawStruct;
 use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
 use crate::lazy::raw_value_ref::RawValueRef;
-use crate::result::{decoding_error, decoding_error_raw, incomplete_data_error};
+use crate::result::{decoding_error, decoding_error_raw, incomplete};
 use crate::types::SymbolId;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use bytes::{BigEndian, ByteOrder};
@@ -122,7 +122,7 @@ impl<'data> LazyRawValue<'data> {
         let value_total_length = self.encoded_value.total_length();
         if self.input.len() < value_total_length {
             eprintln!("[value_body] Incomplete {:?}", self);
-            return incomplete_data_error(
+            return incomplete(
                 "only part of the requested value is available in the buffer",
                 self.input.offset(),
             );

@@ -1,7 +1,7 @@
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::lazy::raw_stream_item::RawStreamItem;
-use crate::result::{decoding_error, incomplete_data_error};
+use crate::result::{decoding_error, incomplete};
 use crate::IonResult;
 
 /// A binary Ion 1.0 reader that yields [`LazyRawValue`]s representing the top level values found
@@ -93,7 +93,7 @@ impl<'data> DataSource<'data> {
 
     fn advance_to_next_item(&mut self) -> IonResult<ImmutableBuffer<'data>> {
         if self.buffer.len() < self.bytes_to_skip {
-            return incomplete_data_error(
+            return incomplete(
                 "cannot advance to next item, insufficient data in buffer",
                 self.buffer.offset(),
             );

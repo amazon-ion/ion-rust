@@ -12,7 +12,7 @@ pub struct Position {
 
 impl Position {
     /// Creates a new Position with the provided offset in bytes.
-    /// Line and Column offsets can be added using [`Self::with_text_position()`].
+    /// Line and Column offsets can be added using [`Self::with_line_and_column()`].
     pub fn with_offset(offset: usize) -> Self {
         Position {
             byte_offset: offset,
@@ -21,7 +21,7 @@ impl Position {
     }
 
     /// Add line and column information to the current Position.
-    pub fn with_text_position(&self, line: usize, column: usize) -> Self {
+    pub fn with_line_and_column(&self, line: usize, column: usize) -> Self {
         Position {
             line_column: Some((line, column)),
             ..*self
@@ -34,7 +34,7 @@ impl Position {
     }
 
     /// If available returns the text position as line and column offsets.
-    pub fn text_position(&self) -> Option<(usize, usize)> {
+    pub fn line_and_column(&self) -> Option<(usize, usize)> {
         self.line_column
     }
 
@@ -49,7 +49,7 @@ impl Position {
     }
 
     /// Returns true if the current Position contains line and column offsets.
-    pub fn has_text_position(&self) -> bool {
+    pub fn has_line_and_column(&self) -> bool {
         self.line_column.is_some()
     }
 }
@@ -63,5 +63,11 @@ impl Display for Position {
                 write!(f, "{} ({}:{})", self.byte_offset, line, column)
             }
         }
+    }
+}
+
+impl From<usize> for Position {
+    fn from(offset: usize) -> Self {
+        Position::with_offset(offset)
     }
 }

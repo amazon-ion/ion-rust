@@ -8,8 +8,7 @@ use crate::binary::IonTypeCode;
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{BufferedRawReader, Expandable, RawStreamItem};
 use crate::result::{
-    decoding_error, decoding_error_raw, illegal_operation, illegal_operation_raw,
-    incomplete_data_error,
+    decoding_error, decoding_error_raw, illegal_operation, illegal_operation_raw, incomplete,
 };
 use crate::types::{Blob, Clob, Decimal, IntAccess, Str, SymbolId};
 use crate::{Int, IonResult, IonType, RawSymbolToken, Timestamp};
@@ -413,7 +412,7 @@ impl<A: AsRef<[u8]> + Expandable> RawBinaryReader<A> {
         } else {
             self.buffer.consume(bytes_available);
             self.state = Skipping(bytes_to_skip - bytes_available);
-            incomplete_data_error("ahead to next item", self.buffer.total_consumed())
+            incomplete("ahead to next item", self.buffer.total_consumed())
         }
     }
 
@@ -487,7 +486,7 @@ impl<A: AsRef<[u8]> + Expandable> RawBinaryReader<A> {
 
         let value_total_length = encoded_value.total_length();
         if self.buffer.remaining() < value_total_length {
-            return incomplete_data_error(
+            return incomplete(
                 "only part of the requested value is available in the buffer",
                 self.buffer.total_consumed(),
             );
@@ -718,7 +717,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
     fn next(&mut self) -> IonResult<Self::Item> {
         if let ReaderState::WaitingForData(value) = self.state {
             if self.buffer.remaining() < value.total_length() {
-                return incomplete_data_error("ahead to next item", self.buffer.total_consumed());
+                return incomplete("ahead to next item", self.buffer.total_consumed());
             } else {
                 self.state = ReaderState::OnValue(value);
                 if value.header.is_null() {
@@ -754,10 +753,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
                     if self.is_eos {
                         return Ok(RawStreamItem::Nothing);
                     } else {
-                        return incomplete_data_error(
-                            "ahead to next item",
-                            self.buffer.total_consumed(),
-                        );
+                        return incomplete("ahead to next item", self.buffer.total_consumed());
                     }
                 }
             }
@@ -784,7 +780,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
             {
                 *tx_reader.state = ReaderState::WaitingForData(*encoded_value);
                 self.buffer.consume(nop_bytes_count);
-                return incomplete_data_error("ahead to next item", self.buffer.total_consumed());
+                return incomplete("ahead to next item", self.buffer.total_consumed());
             }
         }
 
@@ -1109,7 +1105,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
             self.state = ReaderState::Skipping(bytes_left_to_skip);
             // Skip what we can; and return `Incomplete` so more data can be added.
             self.buffer.consume(bytes_left_to_skip);
-            incomplete_data_error("ahead to next item", self.buffer.total_consumed())
+            incomplete("ahead to next item", self.buffer.total_consumed())
         }
     }
 
@@ -1385,7 +1381,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         }
 
         if annotations_length.value() > self.tx_buffer.remaining() {
-            return incomplete_data_error("an annotation wrapper", self.tx_buffer.total_consumed());
+            return incomplete("an annotation wrapper", self.tx_buffer.total_consumed());
         }
 
         // Skip over the annotations sequence itself; the reader will return to it if/when the

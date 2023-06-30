@@ -8,9 +8,7 @@ use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
-use crate::result::{
-    decoding_error, decoding_error_raw, incomplete_data_error, incomplete_data_error_raw,
-};
+use crate::result::{decoding_error, decoding_error_raw, incomplete, incomplete_error};
 use crate::types::UInt;
 use crate::{Int, IonResult, IonType};
 use num_bigint::{BigInt, BigUint, Sign};
@@ -135,7 +133,7 @@ impl<'a> ImmutableBuffer<'a> {
     #[inline]
     pub fn peek_type_descriptor(&self) -> IonResult<TypeDescriptor> {
         if self.is_empty() {
-            return incomplete_data_error("a type descriptor", self.offset());
+            return incomplete("a type descriptor", self.offset());
         }
         let next_byte = self.data[0];
         Ok(ION_1_0_TYPE_DESCRIPTORS[next_byte as usize])
@@ -148,7 +146,7 @@ impl<'a> ImmutableBuffer<'a> {
     pub fn read_ivm(self) -> ParseResult<'a, (u8, u8)> {
         let bytes = self
             .peek_n_bytes(IVM.len())
-            .ok_or_else(|| incomplete_data_error_raw("an IVM", self.offset()))?;
+            .ok_or_else(|| incomplete_error("an IVM", self.offset()))?;
 
         match bytes {
             [0xE0, major, minor, 0xEA] => {
@@ -196,7 +194,7 @@ impl<'a> ImmutableBuffer<'a> {
             }
         }
 
-        incomplete_data_error("a VarUInt", self.offset() + encoded_size_in_bytes)
+        incomplete("a VarUInt", self.offset() + encoded_size_in_bytes)
     }
 
     /// Reads a `VarInt` encoding primitive from the beginning of the buffer. If it is successful,
@@ -220,7 +218,7 @@ impl<'a> ImmutableBuffer<'a> {
         // negative (1).
 
         if self.is_empty() {
-            return incomplete_data_error("a VarInt", self.offset());
+            return incomplete("a VarInt", self.offset());
         }
         let first_byte: u8 = self.peek_next_byte().unwrap();
         let no_more_bytes: bool = first_byte >= 0b1000_0000; // If the first bit is 1, we're done.
@@ -251,7 +249,7 @@ impl<'a> ImmutableBuffer<'a> {
         }
 
         if !terminated {
-            return incomplete_data_error("a VarInt", self.offset() + encoded_size_in_bytes);
+            return incomplete("a VarInt", self.offset() + encoded_size_in_bytes);
         }
 
         if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
@@ -285,7 +283,7 @@ impl<'a> ImmutableBuffer<'a> {
     fn read_small_uint(self, length: usize) -> ParseResult<'a, DecodedUInt> {
         let uint_bytes = self
             .peek_n_bytes(length)
-            .ok_or_else(|| incomplete_data_error_raw("a UInt", self.offset()))?;
+            .ok_or_else(|| incomplete_error("a UInt", self.offset()))?;
         let magnitude = DecodedUInt::small_uint_from_slice(uint_bytes);
         Ok((
             DecodedUInt::new(UInt::from(magnitude), length),
@@ -307,7 +305,7 @@ impl<'a> ImmutableBuffer<'a> {
 
         let uint_bytes = self
             .peek_n_bytes(length)
-            .ok_or_else(|| incomplete_data_error_raw("a UInt", self.offset()))?;
+            .ok_or_else(|| incomplete_error("a UInt", self.offset()))?;
 
         let magnitude = BigUint::from_bytes_be(uint_bytes);
         Ok((
@@ -341,7 +339,7 @@ impl<'a> ImmutableBuffer<'a> {
 
         let int_bytes = self
             .peek_n_bytes(length)
-            .ok_or_else(|| incomplete_data_error_raw("an Int encoding primitive", self.offset()))?;
+            .ok_or_else(|| incomplete_error("an Int encoding primitive", self.offset()))?;
 
         let mut is_negative: bool = false;
 
@@ -461,7 +459,7 @@ impl<'a> ImmutableBuffer<'a> {
         // If the type descriptor says we should skip more bytes, skip them.
         let (length, remaining) = remaining.read_length(type_descriptor.length_code)?;
         if remaining.len() < length.value() {
-            return incomplete_data_error("a NOP", remaining.offset());
+            return incomplete("a NOP", remaining.offset());
         }
         let remaining = remaining.consume(length.value());
         let total_nop_pad_size = 1 + length.size_in_bytes() + length.value();
@@ -572,7 +570,7 @@ impl<'a> ImmutableBuffer<'a> {
         let (field_id, field_id_length, mut input) = if has_field {
             let (field_id_var_uint, input_after_field_id) = initial_input.read_var_uint()?;
             if input_after_field_id.is_empty() {
-                return incomplete_data_error(
+                return incomplete(
                     "found field name but no value",
                     input_after_field_id.offset(),
                 );

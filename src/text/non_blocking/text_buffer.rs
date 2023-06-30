@@ -114,7 +114,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
 
     pub fn get_position(&self) -> Position {
         Position::with_offset(self.bytes_consumed)
-            .with_text_position(self.line_number, self.line_offset)
+            .with_line_and_column(self.line_number, self.line_offset)
     }
 
     /// Save a checkpoint that can be rolled back to.
