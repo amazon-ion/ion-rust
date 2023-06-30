@@ -7,9 +7,10 @@ use nom::Err::{Error, Failure, Incomplete};
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{BufferedRawReader, Expandable, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
+use crate::result::position::Position;
 use crate::result::{
     decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError,
-    IonResult, Position,
+    IonResult,
 };
 use crate::text::non_blocking::text_buffer::TextBuffer;
 use crate::text::parent_container::ParentContainer;
@@ -948,7 +949,8 @@ mod reader_tests {
     use crate::raw_reader::RawStreamItem;
     use crate::raw_reader::RawStreamItem::Nothing;
     use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
-    use crate::result::{IonResult, Position};
+    use crate::result::position::Position;
+    use crate::result::IonResult;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoRawAnnotations, TextValue};
     use crate::types::{Decimal, Timestamp};
