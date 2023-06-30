@@ -2,11 +2,13 @@ use std::convert::From;
 use std::fmt::{Debug, Error};
 use std::{fmt, io};
 
+use crate::result::encoding_error::EncodingError;
 use crate::result::incomplete::Incomplete;
 use io_error::IoError;
 use position::Position;
 use thiserror::Error;
 
+pub mod encoding_error;
 pub mod incomplete;
 pub mod io_error;
 pub mod position;
@@ -28,8 +30,8 @@ pub enum IonError {
     Incomplete(#[from] Incomplete),
 
     /// Indicates that the writer encountered a problem while serializing a given piece of data.
-    #[error("{description}")]
-    EncodingError { description: String },
+    #[error("{0}")]
+    EncodingError(#[from] EncodingError),
 
     /// Indicates that the data stream being read contained illegal or otherwise unreadable data.
     #[error("{description}")]
@@ -60,9 +62,7 @@ impl From<io::ErrorKind> for IonError {
 
 impl From<fmt::Error> for IonError {
     fn from(error: Error) -> Self {
-        IonError::EncodingError {
-            description: error.to_string(),
-        }
+        EncodingError::new(error.to_string()).into()
     }
 }
 
@@ -76,9 +76,7 @@ impl Clone for IonError {
         match self {
             IoError(io_error) => io_error.clone().into(),
             Incomplete(incomplete) => incomplete.clone().into(),
-            EncodingError { description } => EncodingError {
-                description: description.clone(),
-            },
+            EncodingError(e) => e.clone().into(),
             DecodingError { description } => DecodingError {
                 description: description.clone(),
             },
@@ -99,7 +97,7 @@ impl PartialEq for IonError {
             // We can compare the io::Errors' ErrorKinds, offering a weak definition of equality.
             (IoError(e1), IoError(e2)) => e1 == e2,
             (Incomplete(e1), Incomplete(e2)) => e1 == e2,
-            (EncodingError { description: s1 }, EncodingError { description: s2 }) => s1 == s2,
+            (EncodingError(e1), EncodingError(e2)) => e1 == e2,
             (DecodingError { description: s1 }, DecodingError { description: s2 }) => s1 == s2,
             (IllegalOperation { operation: s1 }, IllegalOperation { operation: s2 }) => s1 == s2,
             _ => false,
@@ -117,45 +115,43 @@ pub(crate) fn incomplete_error(label: &'static str, position: impl Into<Position
 
 /// A convenience method for creating an IonResult containing an IonError::DecodingError with the
 /// provided description text.
-pub(crate) fn decoding_error<T, S: AsRef<str>>(description: S) -> IonResult<T> {
+pub fn decoding_error<T, S: Into<String>>(description: S) -> IonResult<T> {
     Err(decoding_error_raw(description))
 }
 
 /// A convenience method for creating an IonError::DecodingError with the provided operation
 /// text. Useful for calling Option#ok_or_else.
 #[inline(never)]
-pub(crate) fn decoding_error_raw<S: AsRef<str>>(description: S) -> IonError {
+pub(crate) fn decoding_error_raw<S: Into<String>>(description: S) -> IonError {
     IonError::DecodingError {
-        description: description.as_ref().to_string(),
+        description: description.into(),
     }
 }
 
 /// A convenience method for creating an IonResult containing an IonError::EncodingError with the
 /// provided description text.
-pub(crate) fn encoding_error<T, S: AsRef<str>>(description: S) -> IonResult<T> {
+pub(crate) fn encoding_error<T, S: Into<String>>(description: S) -> IonResult<T> {
     Err(encoding_error_raw(description))
 }
 
 /// A convenience method for creating an IonError::EncodingError with the provided operation
 /// text. Useful for calling Option#ok_or_else.
 #[inline(never)]
-pub(crate) fn encoding_error_raw<S: AsRef<str>>(description: S) -> IonError {
-    IonError::EncodingError {
-        description: description.as_ref().to_string(),
-    }
+pub(crate) fn encoding_error_raw<S: Into<String>>(description: S) -> IonError {
+    EncodingError::new(description).into()
 }
 
 /// A convenience method for creating an IonResult containing an IonError::IllegalOperation with the
 /// provided operation text.
-pub fn illegal_operation<T, S: AsRef<str>>(operation: S) -> IonResult<T> {
+pub fn illegal_operation<T, S: Into<String>>(operation: S) -> IonResult<T> {
     Err(illegal_operation_raw(operation))
 }
 
 /// A convenience method for creating an IonError::IllegalOperation with the provided operation
 /// text. Useful for calling Option#ok_or_else.
 #[inline(never)]
-pub(crate) fn illegal_operation_raw<S: AsRef<str>>(operation: S) -> IonError {
+pub(crate) fn illegal_operation_raw<S: Into<String>>(operation: S) -> IonError {
     IonError::IllegalOperation {
-        operation: operation.as_ref().to_string(),
+        operation: operation.into(),
     }
 }
