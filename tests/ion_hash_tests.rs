@@ -120,7 +120,7 @@ fn ion_hash_tests() -> IonHashTestResult<()> {
 }
 
 fn test_file(file_name: &str) -> IonHashTestResult<()> {
-    let data = read(file_name).map_err(|source| IonError::from(source))?;
+    let data = read(file_name).map_err(IonError::from)?;
     let elems = Element::read_all(data)?;
     test_all(elems)
 }
