@@ -4,6 +4,7 @@ use std::{fmt, io};
 
 use crate::result::decoding_error::DecodingError;
 use crate::result::encoding_error::EncodingError;
+use crate::result::illegal_operation::IllegalOperation;
 use crate::result::incomplete::Incomplete;
 use io_error::IoError;
 use position::Position;
@@ -11,6 +12,7 @@ use thiserror::Error;
 
 pub mod decoding_error;
 pub mod encoding_error;
+pub mod illegal_operation;
 pub mod incomplete;
 pub mod io_error;
 pub mod position;
@@ -19,8 +21,7 @@ pub mod position;
 pub type IonResult<T> = Result<T, IonError>;
 
 /// Represents the different types of high-level failures that might occur when reading Ion data.
-#[derive(Debug, Error)]
-
+#[derive(Clone, Debug, Error)]
 pub enum IonError {
     /// Indicates that an IO error was encountered while reading or writing.
     #[error("{0}")]
@@ -42,10 +43,8 @@ pub enum IonError {
 
     /// Returned when the user has performed an illegal operation (for example: calling stepOut()
     /// on the cursor at the top level.)
-    #[error(
-        "The user has performed an operation that is not legal in the current state: {operation}"
-    )]
-    IllegalOperation { operation: String },
+    #[error("{0}")]
+    IllegalOperation(#[from] IllegalOperation),
 }
 
 impl From<io::Error> for IonError {
@@ -69,25 +68,6 @@ impl From<fmt::Error> for IonError {
     }
 }
 
-// io::Error does not implement Clone, which precludes us from simply deriving an implementation.
-// IonError needs a Clone implementation because we use a jump table of cached IonResult values when
-// parsing type descriptor bytes. The only error type that will be cloned by virtue of using the jump
-// table is DecodingError.
-impl Clone for IonError {
-    fn clone(&self) -> Self {
-        use IonError::*;
-        match self {
-            IoError(e) => e.clone().into(),
-            Incomplete(e) => e.clone().into(),
-            EncodingError(e) => e.clone().into(),
-            DecodingError(e) => e.clone().into(),
-            IllegalOperation { operation } => IllegalOperation {
-                operation: operation.clone(),
-            },
-        }
-    }
-}
-
 // io::Error does not implement PartialEq, which precludes us from simply deriving an implementation.
 // Providing an implementation of PartialEq allows IonResult values to be the left or right side in
 // an assert_eq!() statement.
@@ -100,7 +80,7 @@ impl PartialEq for IonError {
             (Incomplete(e1), Incomplete(e2)) => e1 == e2,
             (EncodingError(e1), EncodingError(e2)) => e1 == e2,
             (DecodingError(e1), DecodingError(e2)) => e1 == e2,
-            (IllegalOperation { operation: s1 }, IllegalOperation { operation: s2 }) => s1 == s2,
+            (IllegalOperation(e1), IllegalOperation(e2)) => e1 == e2,
             _ => false,
         }
     }
@@ -150,7 +130,5 @@ pub fn illegal_operation<T, S: Into<String>>(operation: S) -> IonResult<T> {
 /// text. Useful for calling Option#ok_or_else.
 #[inline(never)]
 pub(crate) fn illegal_operation_raw<S: Into<String>>(operation: S) -> IonError {
-    IonError::IllegalOperation {
-        operation: operation.into(),
-    }
+    IllegalOperation::new(operation).into()
 }

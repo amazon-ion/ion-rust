@@ -539,8 +539,8 @@ mod tests {
 
             // make sure the token is invalid (annotations/field name on start container)
             match invalid_token.materialize() {
-                Err(IonError::IllegalOperation { operation }) => {
-                    assert_eq!(INVALID_TOKEN_ERR_TEXT, operation)
+                Err(IonError::IllegalOperation(e)) => {
+                    assert_eq!(INVALID_TOKEN_ERR_TEXT, e.operation())
                 }
                 Err(e) => panic!("Unexpected Error: {}", e),
                 _ => panic!("Should not be able to materialize"),
