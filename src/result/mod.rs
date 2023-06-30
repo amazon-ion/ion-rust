@@ -2,12 +2,14 @@ use std::convert::From;
 use std::fmt::{Debug, Error};
 use std::{fmt, io};
 
+use crate::result::decoding_error::DecodingError;
 use crate::result::encoding_error::EncodingError;
 use crate::result::incomplete::Incomplete;
 use io_error::IoError;
 use position::Position;
 use thiserror::Error;
 
+pub mod decoding_error;
 pub mod encoding_error;
 pub mod incomplete;
 pub mod io_error;
@@ -18,6 +20,7 @@ pub type IonResult<T> = Result<T, IonError>;
 
 /// Represents the different types of high-level failures that might occur when reading Ion data.
 #[derive(Debug, Error)]
+
 pub enum IonError {
     /// Indicates that an IO error was encountered while reading or writing.
     #[error("{0}")]
@@ -34,8 +37,8 @@ pub enum IonError {
     EncodingError(#[from] EncodingError),
 
     /// Indicates that the data stream being read contained illegal or otherwise unreadable data.
-    #[error("{description}")]
-    DecodingError { description: String },
+    #[error("{0}")]
+    DecodingError(#[from] DecodingError),
 
     /// Returned when the user has performed an illegal operation (for example: calling stepOut()
     /// on the cursor at the top level.)
@@ -74,12 +77,10 @@ impl Clone for IonError {
     fn clone(&self) -> Self {
         use IonError::*;
         match self {
-            IoError(io_error) => io_error.clone().into(),
-            Incomplete(incomplete) => incomplete.clone().into(),
+            IoError(e) => e.clone().into(),
+            Incomplete(e) => e.clone().into(),
             EncodingError(e) => e.clone().into(),
-            DecodingError { description } => DecodingError {
-                description: description.clone(),
-            },
+            DecodingError(e) => e.clone().into(),
             IllegalOperation { operation } => IllegalOperation {
                 operation: operation.clone(),
             },
@@ -98,7 +99,7 @@ impl PartialEq for IonError {
             (IoError(e1), IoError(e2)) => e1 == e2,
             (Incomplete(e1), Incomplete(e2)) => e1 == e2,
             (EncodingError(e1), EncodingError(e2)) => e1 == e2,
-            (DecodingError { description: s1 }, DecodingError { description: s2 }) => s1 == s2,
+            (DecodingError(e1), DecodingError(e2)) => e1 == e2,
             (IllegalOperation { operation: s1 }, IllegalOperation { operation: s2 }) => s1 == s2,
             _ => false,
         }
@@ -123,9 +124,7 @@ pub fn decoding_error<T, S: Into<String>>(description: S) -> IonResult<T> {
 /// text. Useful for calling Option#ok_or_else.
 #[inline(never)]
 pub(crate) fn decoding_error_raw<S: Into<String>>(description: S) -> IonError {
-    IonError::DecodingError {
-        description: description.into(),
-    }
+    DecodingError::new(description).into()
 }
 
 /// A convenience method for creating an IonResult containing an IonError::EncodingError with the

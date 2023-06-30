@@ -1,8 +1,9 @@
 use crate::result::position::Position;
-use crate::{IonError, IonResult};
+use crate::IonResult;
 
 use std::io::Read;
 
+use crate::result::decoding_error;
 use thiserror::Error;
 
 /// Represents a span of bytes that have been validated as UTF-8 strings.
@@ -354,9 +355,7 @@ impl TextBuffer<Vec<u8>> {
 
         // We have new data, so we need to ensure that it is valid UTF-8.
         if self.validate_data().is_err() {
-            Err(IonError::DecodingError {
-                description: "Invalid UTF-8 sequence in data".to_owned(),
-            })?
+            return decoding_error("Invalid UTF-8 sequence in data");
         }
 
         self.data_exhausted = self.data_end == 0;
