@@ -2,7 +2,10 @@ use std::convert::From;
 use std::fmt::{Debug, Display, Error};
 use std::{fmt, io};
 
+use io_error::IoError;
 use thiserror::Error;
+
+mod io_error;
 
 /// Position represents the location within an Ion stream where an error has been
 /// identified. For all formats `byte_offset` will contain the number of bytes into the stream
@@ -73,13 +76,6 @@ impl Display for Position {
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;
 
-#[derive(Debug, Error)]
-#[error("{source:?}")]
-pub struct IoError {
-    #[from]
-    source: io::Error,
-}
-
 impl From<io::Error> for IonError {
     fn from(io_error: io::Error) -> Self {
         IoError::from(io_error).into()
@@ -143,7 +139,7 @@ impl Clone for IonError {
     fn clone(&self) -> Self {
         use IonError::*;
         match self {
-            IoError(io_error) => io_error.source.kind().into(),
+            IoError(io_error) => io_error.source().kind().into(),
             Incomplete { label, position } => Incomplete {
                 label,
                 position: position.clone(),
@@ -169,7 +165,7 @@ impl PartialEq for IonError {
         use IonError::*;
         match (self, other) {
             // We can compare the io::Errors' ErrorKinds, offering a weak definition of equality.
-            (IoError(e1), IoError(e2)) => e1.source.kind() == e2.source.kind(),
+            (IoError(e1), IoError(e2)) => e1.source().kind() == e2.source().kind(),
             (
                 Incomplete {
                     label: l1,
