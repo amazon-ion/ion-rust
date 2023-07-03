@@ -1,6 +1,6 @@
 #![allow(dead_code)]
-// #![deny(rustdoc::broken_intra_doc_links)]
-// #![deny(rustdoc::private_intra_doc_links)]
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::private_intra_doc_links)]
 #![deny(rustdoc::bare_urls)]
 // Warn if example code in the doc tests contains unused imports/variables
 #![doc(test(attr(warn(unused))))]
