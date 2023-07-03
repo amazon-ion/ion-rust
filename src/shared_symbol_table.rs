@@ -1,8 +1,6 @@
-use crate::element::reader::ElementReader;
-use crate::reader::Reader;
+use crate::element::{Element, Sequence};
 use crate::result::{illegal_operation, illegal_operation_raw};
-use crate::types::IntAccess;
-use crate::{Int, IonResult};
+use crate::{Int, IonError, IonResult, Symbol};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Stores [`SharedSymbolTable`] with the table name, version and imports
@@ -11,11 +9,11 @@ use crate::{Int, IonResult};
 pub struct SharedSymbolTable {
     name: String,
     version: usize,
-    symbols: Vec<Option<String>>,
+    symbols: Vec<Symbol>,
 }
 
 impl SharedSymbolTable {
-    pub fn new(name: String, version: usize, imports: Vec<Option<String>>) -> IonResult<Self> {
+    pub fn new(name: String, version: usize, imports: Vec<Symbol>) -> IonResult<Self> {
         // As per Ion Specification, the name field should be a string with length at least one.
         // If the field has any other value, then materialization of this symbol table must fail.
         if name.is_empty() {
@@ -29,66 +27,6 @@ impl SharedSymbolTable {
         })
     }
 
-    /**
-       Constructs a shared symbol table using Ion reader.
-       Below is an example of a shared symbol table:
-       $ion_shared_symbol_table::
-       {
-         name: "com.amazon.ols.symbols.offer",
-         version: 1,
-         imports: // For informational purposes only.
-         [
-           { name:"..." , version:1 },
-           // ...
-         ],
-         symbols:
-         [
-           "fee", "fie", "foe", /* ... */ "hooligan"
-         ]
-       }
-    */
-    pub fn new_shared_symbol_table_using_reader(reader: &mut Reader) -> IonResult<Self> {
-        return if let Some(sst_element) = reader.read_next_element()? {
-            let sst_struct = sst_element
-                .as_struct()
-                .ok_or(illegal_operation_raw(format!(
-                    "Expected struct found {}",
-                    sst_element.ion_type()
-                )))?
-                .to_owned();
-            let name =
-                sst_struct
-                    .get("name")
-                    .and_then(|i| i.as_string())
-                    .ok_or(illegal_operation_raw(
-                        "Unable to process name of shared symbol table",
-                    ))?;
-            let mut version = sst_struct
-                .get("version")
-                .and_then(|i| i.as_int())
-                .unwrap_or(&Int::from(1))
-                .as_i64()
-                .unwrap() as usize;
-            if version < 1 {
-                version = 1;
-            }
-            let symbols: Vec<Option<String>> = sst_struct
-                .get("symbols")
-                .and_then(|i| i.as_sequence())
-                .map(|s| {
-                    s.elements()
-                        .map(|sym| sym.as_text().map(|text| text.to_string()))
-                })
-                .ok_or(illegal_operation_raw(
-                    "Unable to process symbols of shared symbol table",
-                ))?
-                .collect();
-            SharedSymbolTable::new(name.to_string(), version, symbols)
-        } else {
-            illegal_operation("Unable to read a shared symbol table struct")
-        };
-    }
-
     /// Returns the version of this [`SharedSymbolTable`]
     pub fn version(&self) -> usize {
         self.version
@@ -100,16 +38,79 @@ impl SharedSymbolTable {
     }
 
     /// Returns the symbols defined in this [`SharedSymbolTable`]
-    pub fn symbols(&self) -> &Vec<Option<String>> {
+    pub fn symbols(&self) -> &[Symbol] {
         &self.symbols
+    }
+}
+
+/// Constructs a [shared symbol table]( https://amazon-ion.github.io/ion-docs/docs/symbols.html#shared-symbol-tables) using Ion reader.
+/// Below is an example of a shared symbol table:
+///
+/// ```ignore
+/// $ion_shared_symbol_table::
+/// {
+///   name: "com.amazon.ols.symbols.offer",
+///   version: 1,
+///   imports: // For informational purposes only.
+///   [
+///     { name:"..." , version:1 },
+///     // ...
+///   ],
+///   symbols:
+///   [
+///     "fee", "fie", "foe", /* ... */ "hooligan"
+///   ]
+/// }
+/// ```
+
+impl TryFrom<Element> for SharedSymbolTable {
+    type Error = IonError;
+
+    fn try_from(sst_element: Element) -> Result<Self, Self::Error> {
+        let sst_struct = sst_element
+            .as_struct()
+            .ok_or(illegal_operation_raw(format!(
+                "expected a struct, but found a(n) {}",
+                sst_element.ion_type()
+            )))?
+            .to_owned();
+        let name_field = sst_struct
+            .get("name")
+            .ok_or_else(|| illegal_operation_raw("missing a 'name' field"))?;
+        let name = name_field.as_string().ok_or_else(|| {
+            illegal_operation_raw(format!(
+                "expected the 'name' field to be a string, but found a(n) {}",
+                name_field
+            ))
+        })?;
+        let mut version = sst_struct
+            .get("version")
+            .and_then(|i| i.as_int())
+            .unwrap_or(&Int::from(1))
+            .expect_i64()? as usize;
+        if version < 1 {
+            version = 1;
+        }
+        let symbols: Vec<Symbol> = sst_struct
+            .get("symbols")
+            .and_then(|s| s.as_sequence())
+            .unwrap_or(&Sequence::from(vec![])) // If the `symbols` field is missing or has any other type, it is treated as if it were an empty list.
+            .elements()
+            .map(|sym| {
+                sym.as_string()
+                    .map(Symbol::owned)
+                    .unwrap_or(Symbol::unknown_text()) // adds undefined symbol IDs("gaps) for null or non symbol elements
+            })
+            .collect();
+        SharedSymbolTable::new(name.to_string(), version, symbols)
     }
 }
 
 #[cfg(test)]
 mod shared_symbol_table_tests {
-    use crate::reader::ReaderBuilder;
+    use crate::element::Element;
     use crate::shared_symbol_table::SharedSymbolTable;
-    use crate::IonResult;
+    use crate::{IonResult, Symbol};
 
     #[test]
     fn shared_symbol_table_read_test() -> IonResult<()> {
@@ -126,14 +127,13 @@ mod shared_symbol_table_tests {
              ]
             }
         "#;
-        let mut reader = ReaderBuilder::new().build(ion_data.as_bytes())?;
-        let sst = SharedSymbolTable::new_shared_symbol_table_using_reader(&mut reader)?;
+        let sst: SharedSymbolTable = Element::read_one(ion_data.as_bytes())?.try_into()?;
         assert_eq!(sst.name(), "com.amazon.test.symbols");
         assert_eq!(sst.version(), 1);
         assert_eq!(sst.symbols().len(), 3);
-        assert_eq!(sst.symbols()[0], Some("fee".to_string()));
-        assert_eq!(sst.symbols()[1], Some("fie".to_string()));
-        assert_eq!(sst.symbols()[2], Some("foe".to_string()));
+        assert_eq!(sst.symbols()[0], Symbol::owned("fee"));
+        assert_eq!(sst.symbols()[1], Symbol::owned("fie"));
+        assert_eq!(sst.symbols()[2], Symbol::owned("foe"));
         Ok(())
     }
 }

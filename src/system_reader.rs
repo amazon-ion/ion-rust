@@ -2,13 +2,16 @@ use delegate::delegate;
 use std::ops::Range;
 
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
-use crate::catalog::Catalog;
+use crate::catalog::{Catalog, EmptyCatalog};
 use crate::constants::v1_0::{system_symbol_ids, SYSTEM_SYMBOLS};
 use crate::element::{Blob, Clob};
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{Expandable, RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::result::{decoding_error, decoding_error_raw, illegal_operation, IonError, IonResult};
+use crate::result::{
+    decoding_error, decoding_error_raw, illegal_operation, illegal_operation_raw, IonError,
+    IonResult,
+};
 use crate::system_reader::LstPosition::*;
 use crate::types::{Decimal, Int, Str, Symbol, Timestamp};
 use crate::{IonType, SymbolTable};
@@ -38,6 +41,23 @@ enum LstPosition {
 
     /// Inside the `imports` field
     ProcessingLstImports,
+
+    /// Positioned on an LST import but have not yet stepped in
+    AtLstImportStart,
+
+    /// Inside an LST import but between fields at depth 2. This occurs when:
+    /// * the reader has stepped into the LST import but has not yet read a field
+    /// * after the reader has stepped out of a field in the LST import and is back at depth 2
+    BetweenLstImportFields,
+
+    /// Positioned on an name field of an import
+    AtImportName,
+
+    /// Positioned on an version field of an import
+    AtImportVersion,
+
+    /// Positioned on an max_id field of an import
+    AtImportMaxId,
 
     /// Inside an $ion_symbol_table and positioned at the `symbols` field but have not yet stepped in
     AtLstSymbols,
@@ -142,7 +162,7 @@ pub struct SystemReader<R: RawReader> {
     // Information about the local symbol table we're currently reading, if any
     lst: LstData,
     current_item: SystemStreamItem,
-    catalog: Option<Box<dyn Catalog>>,
+    catalog: Box<dyn Catalog>,
 }
 
 impl<R: RawReader> SystemReader<R> {
@@ -152,18 +172,12 @@ impl<R: RawReader> SystemReader<R> {
             symbol_table: SymbolTable::new(),
             lst: LstData::new(),
             current_item: SystemStreamItem::Nothing,
-            catalog: None,
+            catalog: Box::<EmptyCatalog>::default(),
         }
     }
 
     pub fn with_catalog(self, catalog: Box<dyn Catalog>) -> SystemReader<R> {
-        SystemReader {
-            raw_reader: self.raw_reader,
-            symbol_table: self.symbol_table,
-            lst: self.lst,
-            current_item: self.current_item,
-            catalog: Some(catalog),
-        }
+        SystemReader { catalog, ..self }
     }
 
     // Returns true if the raw reader is positioned over a top-level struct whose first annotation
@@ -216,6 +230,51 @@ impl<R: RawReader> SystemReader<R> {
                     self.step_in()?;
                     self.finish_reading_current_level()?;
                 }
+            }
+            AtLstImportStart => {
+                // If the reader is positioned over the beginning of an LST import when next() is called,
+                // we need to process the entire LST import instead of just skipping to the next value.
+                self.step_in()?;
+                self.finish_reading_current_level()?;
+            }
+            AtImportName => {
+                // We're inside a shared symbol table import processing `name`, otherwise do nothing for open content.
+                if let Some(IonType::String) = self.raw_reader.ion_type() {
+                    self.lst.current_import_name = Some(self.raw_reader.read_str()?.to_string());
+                }
+                self.lst.state = BetweenLstImportFields;
+            }
+            AtImportVersion => {
+                // We're inside a shared symbol table import processing either `version` otherwise do nothing for open content.
+                if let Some(IonType::Int) = self.raw_reader.ion_type() {
+                    self.lst.current_import_version = Some(self.raw_reader.read_i64()? as usize);
+                }
+                self.lst.state = BetweenLstImportFields;
+            }
+            AtImportMaxId => {
+                // We're inside a shared symbol table import processing either `max_id` otherwise do nothing for open content.
+                match self.raw_reader.ion_type() {
+                    None => {
+                        return decoding_error(
+                            "symbol table import's max_id should be a non null integer.",
+                        );
+                    }
+                    Some(IonType::Int) => {
+                        let max_id = self.raw_reader.read_i64()?;
+                        if max_id < 0 {
+                            return decoding_error(
+                                        "symbol table import should have max_id greater than or equal to zero.",
+                                    );
+                        }
+                        self.lst.current_import_max_id = Some(max_id as usize);
+                    }
+                    _ => {
+                        return decoding_error(
+                            "symbol table import's max_id should be a non null integer.",
+                        );
+                    }
+                }
+                self.lst.state = BetweenLstImportFields;
             }
             _ => {
                 // Allow values at depths > 1 to be skipped.
@@ -288,64 +347,66 @@ impl<R: RawReader> SystemReader<R> {
             ProcessingLstImports => {
                 // We're in the `imports` list processing a shared symbol table import.
                 if let (IonType::Struct, false) = (ion_type, is_null) {
-                    if self.lst.current_import_name.is_some()
-                        && self.lst.current_import_version.is_some()
-                    {
-                        if let Some(catalog) = self.catalog.as_ref() {
-                            // TODO: add a fallback mechanism that always returns a shared symbol table i.e. provides dummy table when it doesn't exist.
-                            let sst = catalog.get_table_with_version(
-                                self.lst.current_import_name.clone().unwrap().as_str(),
-                                self.lst.current_import_version.unwrap(),
-                            )?;
-                            for sym in sst.symbols() {
-                                self.lst.imported_symbols.push(sym.to_owned())
+                    self.lst.state = AtLstImportStart;
+                }
+            }
+            AtLstImportStart | BetweenLstImportFields => {
+                match self.raw_reader.field_name() {
+                    Ok(field_name_token) => {
+                        if let Some(field_name) = field_name_token.text() {
+                            if field_name == "name" {
+                                self.lst.state = AtImportName;
+                            } else if field_name == "version" {
+                                self.lst.state = AtImportVersion;
+                            } else if field_name == "max_id" {
+                                self.lst.state = AtImportMaxId;
                             }
-                            self.lst.current_import_name = None;
-                            self.lst.current_import_max_id = None;
-                            self.lst.current_import_version = None;
                         }
                     }
+                    Err(IonError::IllegalOperation { .. }) => {
+                        // We're between the fields of LST import; do nothing.
+                    }
+                    Err(error) => panic!(
+                        "the RawReader returned an unexpected error from `field_name()`: {error:?}"
+                    ),
                 }
+            }
+            AtImportName => {
                 // We're inside a shared symbol table import processing `name`, otherwise do nothing for open content.
                 if let (IonType::String, false) = (ion_type, is_null) {
-                    if let Some(field_name) = self.raw_reader.field_name()?.text() {
-                        if field_name == "name" {
-                            self.lst.current_import_name =
-                                Some(self.raw_reader.read_str()?.to_string());
-                        }
-                    }
+                    self.lst.current_import_name = Some(self.raw_reader.read_str()?.to_string());
                 }
-                // We're inside a shared symbol table import processing either `version` or `max_id` otherwise do nothing for open content.
+                self.lst.state = BetweenLstImportFields;
+            }
+            AtImportVersion => {
+                // We're inside a shared symbol table import processing either `version` otherwise do nothing for open content.
                 if let IonType::Int = ion_type {
-                    if let Some(field_name) = self.raw_reader.field_name()?.text() {
-                        if field_name == "version" {
-                            self.lst.current_import_version =
-                                Some(self.raw_reader.read_i64()? as usize);
-                        } else if field_name == "max_id" {
-                            if is_null {
-                                return decoding_error(
-                                    "symbol table import's max_id should be a non null integer.",
-                                );
-                            }
-                            let max_id = self.raw_reader.read_i64()?;
-                            if max_id < 0 {
-                                return decoding_error(
-                                    "symbol table import should have max_id greater than or equal to zero.",
-                                );
-                            }
-                            self.lst.current_import_max_id = Some(max_id as usize);
-                        }
-                    }
+                    self.lst.current_import_version = Some(self.raw_reader.read_i64()? as usize);
                 }
-                if self.depth() == 3 {
-                    if let Some(field_name) = self.raw_reader.field_name()?.text() {
-                        if field_name == "max_id" && ion_type != IonType::Int {
-                            return decoding_error(
-                                "symbol table import's max_id should be a non null integer.",
-                            );
-                        }
+                self.lst.state = BetweenLstImportFields;
+            }
+            AtImportMaxId => {
+                // We're inside a shared symbol table import processing either `max_id` otherwise do nothing for open content.
+                if let IonType::Int = ion_type {
+                    if is_null {
+                        return decoding_error(
+                            "symbol table import's max_id should be a non null integer.",
+                        );
                     }
+                    let max_id = self.raw_reader.read_i64()?;
+                    if max_id < 0 {
+                        return decoding_error(
+                            "symbol table import should have max_id greater than or equal to zero.",
+                        );
+                    }
+                    self.lst.current_import_max_id = Some(max_id as usize);
                 }
+                if ion_type != IonType::Int {
+                    return decoding_error(
+                        "symbol table import's max_id should be a non null integer.",
+                    );
+                }
+                self.lst.state = BetweenLstImportFields;
             }
             ProcessingLstSymbols => {
                 // We're in the `symbols` list.
@@ -417,13 +478,7 @@ impl<R: RawReader> SystemReader<R> {
         }
         // This for loop consumes the `String` values, clearing `self.lst.imported_symbols`
         for value in self.lst.imported_symbols.drain(..) {
-            if let Some(text) = value {
-                // This symbol has defined text. Add it to the symbol table.
-                self.symbol_table.intern(text);
-            } else {
-                // This symbol was a null or non-string value. Add a placeholder.
-                self.symbol_table.add_placeholder();
-            }
+            self.symbol_table.intern_or_add_placeholder(value);
         }
         // This for loop consumes the `String` values, clearing `self.lst.symbols`.
         for value in self.lst.symbols.drain(..) {
@@ -584,7 +639,16 @@ impl<R: RawReader> IonReader for SystemReader<R> {
                 // We've stepped into the `imports` field of an LST.
                 self.lst.state = ProcessingLstImports;
             }
-            ProcessingLstImports => {
+            ProcessingLstImports => {}
+            AtLstImportStart => {
+                // We've stepped into an LST import struct but are not yet positioned on a field.
+                self.lst.state = BetweenLstImportFields;
+            }
+            BetweenLstImportFields => {
+                // raw_reader.step_in() above should have returned an error.
+                unreachable!("The raw reader stepped in but the LST import state was BetweenLstImportFields.");
+            }
+            AtImportName | AtImportVersion | AtImportMaxId => {
                 // We're diving deeper into the imports; do nothing.
             }
             AtLstSymbols => {
@@ -640,7 +704,52 @@ impl<R: RawReader> IonReader for SystemReader<R> {
                     new_lst_state = BetweenLstFields;
                 }
             }
+            AtLstImportStart | BetweenLstImportFields => {
+                // We're inside one of the LST import. Finish processing the current level before
+                // stepping out.
+                self.finish_reading_current_level()?;
+                // If the upcoming call to step_out() will cause us to leave the field altogether,
+                // update our state to indicate that we're back at depth=1.
+                if self.depth() == 3 {
+                    new_lst_state = ProcessingLstImports;
+                }
+                // Finish processing LST shared symbol table import by retrieving shared symbol table from catalog.
+                if self.lst.current_import_name.is_some()
+                    && self.lst.current_import_version.is_some()
+                {
+                    let catalog = self.catalog.as_ref();
+                    let import_name = self.lst.current_import_name.clone().unwrap();
+                    // TODO: add a fallback mechanism that always returns a shared symbol table i.e. provides dummy table when it doesn't exist.
+                    let sst = catalog
+                        .get_table_with_version(
+                            &import_name,
+                            self.lst.current_import_version.unwrap(),
+                        )
+                        .ok_or(illegal_operation_raw(format!(
+                            "symbol table with name {import_name} doesn't exist"
+                        )))?;
+                    for sym in sst.symbols() {
+                        self.lst
+                            .imported_symbols
+                            .push(sym.text().map(|s| s.to_string()))
+                    }
+                    // Clear all the import information once it is processed.
+                    self.lst.current_import_name = None;
+                    self.lst.current_import_max_id = None;
+                    self.lst.current_import_version = None;
+                }
+            }
             ProcessingLstImports => {
+                // We're inside one of the LST fields. Finish processing the current level before
+                // stepping out.
+                self.finish_reading_current_level()?;
+                // If the upcoming call to step_out() will cause us to leave the field altogether,
+                // update our state to indicate that we're back at depth=1.
+                if self.depth() == 2 {
+                    new_lst_state = BetweenLstFields;
+                }
+            }
+            AtImportName | AtImportMaxId | AtImportVersion => {
                 // We're inside one of the LST fields. Finish processing the current level before
                 // stepping out.
                 self.finish_reading_current_level()?;
@@ -648,25 +757,29 @@ impl<R: RawReader> IonReader for SystemReader<R> {
                 if self.lst.current_import_name.is_some()
                     && self.lst.current_import_version.is_some()
                 {
-                    if let Some(catalog) = self.catalog.as_ref() {
-                        // TODO: add a fallback mechanism that always returns a shared symbol table i.e. provides dummy table when it doesn't exist.
-                        let sst = catalog.get_table_with_version(
-                            self.lst.current_import_name.clone().unwrap().as_str(),
+                    let catalog = self.catalog.as_ref();
+                    let import_name = self.lst.current_import_name.clone().unwrap();
+                    // TODO: add a fallback mechanism that always returns a shared symbol table i.e. provides dummy table when it doesn't exist.
+                    let sst = catalog
+                        .get_table_with_version(
+                            &import_name,
                             self.lst.current_import_version.unwrap(),
-                        )?;
-                        for sym in sst.symbols() {
-                            self.lst.imported_symbols.push(sym.to_owned())
-                        }
+                        )
+                        .ok_or(illegal_operation_raw(format!(
+                            "symbol table with name: {import_name} does not exist"
+                        )))?;
+                    for sym in sst.symbols() {
+                        self.lst
+                            .imported_symbols
+                            .push(sym.text().map(|s| s.to_string()))
                     }
                     // Clear all the import information once it is processed.
                     self.lst.current_import_name = None;
                     self.lst.current_import_max_id = None;
                     self.lst.current_import_version = None;
                 }
-                // If the upcoming call to step_out() will cause us to leave the field altogether,
-                // update our state to indicate that we're back at depth=1.
-                if self.depth() == 2 {
-                    new_lst_state = BetweenLstFields;
+                if self.depth() == 3 {
+                    new_lst_state = ProcessingLstImports;
                 }
             }
         }
@@ -829,10 +942,10 @@ mod tests {
     #[test]
     fn shared_symbol_table() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.put_table(SharedSymbolTable::new(
+        map_catalog.insert_table(SharedSymbolTable::new(
             "shared_table".to_string(),
             1,
-            vec![Some("foo".to_string())],
+            vec![Symbol::owned("foo")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -856,10 +969,10 @@ mod tests {
     #[test]
     fn shared_symbol_table_import_with_max_id() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.put_table(SharedSymbolTable::new(
+        map_catalog.insert_table(SharedSymbolTable::new(
             "shared_table".to_string(),
             1,
-            vec![Some("foo".to_string())],
+            vec![Symbol::owned("foo")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -868,6 +981,7 @@ mod tests {
                 imports: [ { name:"shared_table", version: 1, max_id: 1 }],
             }
             $10 // "foo"
+            $11
           "#,
             Box::new(map_catalog),
         );
@@ -875,6 +989,7 @@ mod tests {
         assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
         // ...but expect all of the symbols we encounter after it to be in the symbol table,
         // indicating that the SystemReader processed the LST even though we skipped it with `next()`
+        // since the max_id matches with the number of symbols in the `shared_table` no new unknown symbols be added to the table
         assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, "foo");
         Ok(())
@@ -883,10 +998,10 @@ mod tests {
     #[test]
     fn shared_symbol_table_step_in() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.put_table(SharedSymbolTable::new(
+        map_catalog.insert_table(SharedSymbolTable::new(
             "shared_table".to_string(),
             1,
-            vec![Some("foo".to_string())],
+            vec![Symbol::owned("foo")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -911,7 +1026,7 @@ mod tests {
         assert_eq!(reader.read_string()?, "shared_table");
         assert_eq!(reader.next()?, SymbolTableValue(IonType::Int));
         assert_eq!(reader.read_i64()?, 1);
-        // We do not process the `version` and `max_id` fields to see if the SystemReader processed
+        // We do not process the `version` fields to see if the SystemReader processed
         // the LST even though we skipped it with `step_out()`.
         reader.step_out()?;
         reader.step_out()?;
@@ -924,10 +1039,10 @@ mod tests {
     #[test]
     fn shared_symbol_table_partial_read() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.put_table(SharedSymbolTable::new(
+        map_catalog.insert_table(SharedSymbolTable::new(
             "shared_table".to_string(),
             1,
-            vec![Some("foo".to_string())],
+            vec![Symbol::owned("foo")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -961,10 +1076,10 @@ mod tests {
     #[test]
     fn shared_and_local_symbols() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.put_table(SharedSymbolTable::new(
+        map_catalog.insert_table(SharedSymbolTable::new(
             "shared_table".to_string(),
             1,
-            vec![Some("foo".to_string())],
+            vec![Symbol::owned("foo")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -992,15 +1107,15 @@ mod tests {
     #[test]
     fn multiple_shared_symbol_table_imports() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.put_table(SharedSymbolTable::new(
+        map_catalog.insert_table(SharedSymbolTable::new(
             "shared_table_1".to_string(),
             1,
-            vec![Some("foo".to_string())],
+            vec![Symbol::owned("foo")],
         )?);
-        map_catalog.put_table(SharedSymbolTable::new(
+        map_catalog.insert_table(SharedSymbolTable::new(
             "shared_table_2".to_string(),
             1,
-            vec![Some("bar".to_string())],
+            vec![Symbol::owned("bar")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -1031,15 +1146,15 @@ mod tests {
     #[test]
     fn non_existing_shared_symbol_table_imports() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.put_table(SharedSymbolTable::new(
+        map_catalog.insert_table(SharedSymbolTable::new(
             "shared_table_1".to_string(),
             1,
-            vec![Some("foo".to_string())],
+            vec![Symbol::owned("foo")],
         )?);
-        map_catalog.put_table(SharedSymbolTable::new(
+        map_catalog.insert_table(SharedSymbolTable::new(
             "shared_table_2".to_string(),
             1,
-            vec![Some("bar".to_string())],
+            vec![Symbol::owned("bar")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -1049,8 +1164,6 @@ mod tests {
                 symbols: [ "local_symbol" ]
             }
             $13 // "bar"
-            $14 // unknown symbol
-            $15 // "local_symbol"
           "#,
             Box::new(map_catalog),
         );
