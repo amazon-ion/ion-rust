@@ -347,7 +347,7 @@ where
 mod tests {
     use super::Instruction::*;
     use super::*;
-    use crate::data_source::ToIonDataSource;
+    use crate::data_source::IonDataSource;
     use crate::element::{Blob as ElemBlob, Clob as ElemClob};
     use crate::tokens::{ContainerType, ScalarValue, Value};
     use crate::{Decimal, IonError, IonResult, ReaderBuilder, Symbol};
@@ -474,7 +474,7 @@ mod tests {
     #[case::ann(annotate_first_srcs(["a", "b", "c"], single_src(false)), "a::b::c::false")]
     fn stream_test<S>(#[case] expected: IonResult<Srcs>, #[case] data: S) -> IonResult<()>
     where
-        S: ToIonDataSource,
+        S: IonDataSource,
     {
         use Content::*;
         let mut expected_src = expected?;

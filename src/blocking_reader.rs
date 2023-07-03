@@ -2,7 +2,7 @@ use delegate::delegate;
 use std::ops::Range;
 
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
-use crate::data_source::ToIonDataSource;
+use crate::data_source::IonDataSource;
 use crate::element::{Blob, Clob};
 use crate::ion_reader::IonReader;
 use crate::raw_reader::BufferedRawReader;
@@ -16,7 +16,7 @@ pub type BlockingRawBinaryReader<T> = BlockingRawReader<RawBinaryReader<Vec<u8>>
 
 /// The BlockingRawReader wraps a non-blocking RawReader that implements the BufferedReader trait,
 /// providing a blocking RawReader.
-pub struct BlockingRawReader<R: BufferedRawReader, T: ToIonDataSource> {
+pub struct BlockingRawReader<R: BufferedRawReader, T: IonDataSource> {
     source: T::DataSource,
     reader: R,
     expected_read_size: usize,
@@ -24,7 +24,7 @@ pub struct BlockingRawReader<R: BufferedRawReader, T: ToIonDataSource> {
 
 const READER_DEFAULT_BUFFER_CAPACITY: usize = 1024 * 4;
 
-impl<R: BufferedRawReader, T: ToIonDataSource> BlockingRawReader<R, T> {
+impl<R: BufferedRawReader, T: IonDataSource> BlockingRawReader<R, T> {
     pub fn read_source(&mut self, length: usize) -> IonResult<usize> {
         let mut bytes_read = 0;
         loop {
@@ -53,7 +53,7 @@ impl<R: BufferedRawReader, T: ToIonDataSource> BlockingRawReader<R, T> {
     }
 }
 
-impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for BlockingRawReader<R, T> {
+impl<R: BufferedRawReader, T: IonDataSource> IonReader for BlockingRawReader<R, T> {
     type Item = R::Item;
     type Symbol = R::Symbol;
 
@@ -197,7 +197,7 @@ impl<R: BufferedRawReader, T: ToIonDataSource> IonReader for BlockingRawReader<R
     }
 }
 
-impl<T: ToIonDataSource> BlockingRawReader<RawBinaryReader<Vec<u8>>, T> {
+impl<T: IonDataSource> BlockingRawReader<RawBinaryReader<Vec<u8>>, T> {
     delegate! {
         to self.reader {
             pub fn raw_bytes(&self) ->  Option<&[u8]>;
