@@ -1,11 +1,9 @@
 use std::mem;
 
-use crate::data_source::IonDataSource;
-use crate::result::{IonFailure, IonResult};
+use crate::result::IonResult;
 use crate::types;
 use crate::types::integer::Int;
 use crate::types::Coefficient;
-use num_bigint::{BigInt, Sign};
 use num_traits::Zero;
 use std::io::Write;
 
@@ -24,7 +22,7 @@ const MAX_INT_SIZE_IN_BYTES: usize = 2048;
 pub struct DecodedInt {
     size_in_bytes: usize,
     value: Int,
-    // [Integer] is not capable of natively representing negative zero. We track the sign
+    // [Int] is not capable of natively representing negative zero. We track the sign
     // of the value separately so we can distinguish between 0 and -0.
     is_negative: bool,
 }
@@ -39,81 +37,7 @@ impl DecodedInt {
         }
     }
 
-    /// Reads an Int with `length` bytes from the provided data source.
-    pub fn read<R: IonDataSource>(data_source: &mut R, length: usize) -> IonResult<DecodedInt> {
-        if length == 0 {
-            return Ok(DecodedInt {
-                size_in_bytes: 0,
-                value: 0i64.into(),
-                is_negative: false,
-            });
-        } else if length > MAX_INT_SIZE_IN_BYTES {
-            return IonResult::decoding_error(format!(
-                "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
-            ));
-        }
-
-        if length <= INT_STACK_BUFFER_SIZE {
-            let buffer = &mut [0u8; INT_STACK_BUFFER_SIZE];
-            DecodedInt::read_using_buffer(data_source, length, buffer)
-        } else {
-            // We're reading an enormous int. Heap-allocate a Vec to use as storage.
-            let mut buffer = vec![0u8; length];
-            DecodedInt::read_using_buffer(data_source, length, buffer.as_mut_slice())
-        }
-    }
-
-    pub fn read_using_buffer<R: IonDataSource>(
-        data_source: &mut R,
-        length: usize,
-        buffer: &mut [u8],
-    ) -> IonResult<DecodedInt> {
-        // Get a mutable reference to a portion of the buffer just big enough to fit
-        // the requested number of bytes.
-        let buffer = &mut buffer[0..length];
-
-        data_source.read_exact(buffer)?;
-        let mut byte_iter = buffer.iter();
-        let mut is_negative: bool = false;
-
-        let value = if length <= mem::size_of::<i64>() {
-            // This Int will fit in an i64.
-            let first_byte: i64 = i64::from(byte_iter.next().copied().unwrap());
-            let sign: i64 = if first_byte & 0b1000_0000 == 0 {
-                1
-            } else {
-                is_negative = true;
-                -1
-            };
-            let mut magnitude: i64 = first_byte & 0b0111_1111;
-            for &byte in byte_iter {
-                let byte = i64::from(byte);
-                magnitude <<= 8;
-                magnitude |= byte;
-            }
-            (sign * magnitude).into()
-        } else {
-            // This Int is too big for an i64, we'll need to use a BigInt
-            let sign: num_bigint::Sign = if buffer[0] & 0b1000_0000 == 0 {
-                Sign::Plus
-            } else {
-                is_negative = true;
-                Sign::Minus
-            };
-            // We're going to treat the buffer's contents like the big-endian bytes of an
-            // unsigned integer. Now that we've made a note of the sign, set the sign bit
-            // in the buffer to zero.
-            buffer[0] &= 0b0111_1111;
-            let value = BigInt::from_bytes_be(sign, buffer);
-            value.into()
-        };
-
-        Ok(DecodedInt {
-            size_in_bytes: length,
-            value,
-            is_negative,
-        })
-    }
+    // Note: read functionality lives in the `BinaryBuffer` type
 
     /// Encodes the provided `value` as an Int and writes it to the provided `sink`.
     /// Returns the number of bytes written.
@@ -135,7 +59,7 @@ impl DecodedInt {
         Ok(bytes_to_write.len())
     }
 
-    /// Encodes a negative zero as an `Int` and writes it to the privided `sink`.
+    /// Encodes a negative zero as an `Int` and writes it to the provided `sink`.
     /// Returns the number of bytes written.
     ///
     /// This method is similar to [Self::write_i64]. However, because an i64 cannot represent a negative
@@ -207,77 +131,8 @@ impl From<DecodedInt> for Coefficient {
 mod tests {
     use super::*;
     use crate::result::IonResult;
-    use std::io;
-    use std::io::Cursor;
 
     const READ_ERROR_MESSAGE: &str = "Failed to read an Int from the provided cursor.";
-
-    #[test]
-    fn test_read_three_byte_positive_int() {
-        let data = &[0b0011_1100, 0b1000_0111, 0b1000_0001];
-        let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
-        assert_eq!(int.size_in_bytes(), 3);
-        assert_eq!(int.value(), &Int::from(3_966_849i64));
-    }
-
-    #[test]
-    fn test_read_three_byte_negative_int() {
-        let data = &[0b1011_1100, 0b1000_0111, 0b1000_0001];
-        let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
-        assert_eq!(int.size_in_bytes(), 3);
-        assert_eq!(int.value(), &Int::from(-3_966_849i64));
-    }
-
-    #[test]
-    fn test_read_int_negative_zero() {
-        let data = &[0b1000_0000]; // Negative zero
-        let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
-        assert_eq!(int.size_in_bytes(), 1);
-        assert_eq!(int.value(), &Int::from(0i64));
-        assert!(int.is_negative_zero());
-    }
-
-    #[test]
-    fn test_read_int_positive_zero() {
-        let data = &[0b0000_0000]; // Positive zero
-        let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
-        assert_eq!(int.size_in_bytes(), 1);
-        assert_eq!(int.value(), &Int::from(0i64));
-        assert!(!int.is_negative_zero());
-    }
-
-    #[test]
-    fn test_read_two_byte_positive_int() {
-        let data = &[0b0111_1111, 0b1111_1111];
-        let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
-        assert_eq!(int.size_in_bytes(), 2);
-        assert_eq!(int.value(), &Int::from(32_767i64));
-    }
-
-    #[test]
-    fn test_read_two_byte_negative_int() {
-        let data = &[0b1111_1111, 0b1111_1111];
-        let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
-        assert_eq!(int.size_in_bytes(), 2);
-        assert_eq!(int.value(), &Int::from(-32_767i64));
-    }
-
-    #[test]
-    fn test_read_int_length_zero() {
-        let data = &[];
-        let int = DecodedInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
-        assert_eq!(int.size_in_bytes(), 0);
-        assert_eq!(int.value(), &Int::from(0i64));
-    }
-
-    #[test]
-    fn test_read_int_overflow() {
-        // A Vec of bytes that's one beyond the maximum allowable Int size. Each byte is a 1.
-        let buffer = vec![1; MAX_INT_SIZE_IN_BYTES + 1];
-        let data = buffer.as_slice();
-        let _int = DecodedInt::read(&mut Cursor::new(data), data.len())
-            .expect_err("This exceeded the configured max Int size.");
-    }
 
     fn write_int_test(value: i64, expected_bytes: &[u8]) -> IonResult<()> {
         let mut buffer: Vec<u8> = vec![];
@@ -329,8 +184,11 @@ mod tests {
     fn test_write_int_max_i64() -> IonResult<()> {
         let mut buffer: Vec<u8> = vec![];
         let length = DecodedInt::write_i64(&mut buffer, i64::MAX)?;
-        let i = DecodedInt::read(&mut io::Cursor::new(buffer.as_slice()), length)?;
-        assert_eq!(i.value, i64::MAX.into());
+        assert_eq!(length, 8);
+        assert_eq!(
+            buffer.as_slice(),
+            &[0x7fu8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]
+        );
         Ok(())
     }
 }

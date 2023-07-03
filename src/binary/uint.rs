@@ -2,8 +2,7 @@ use num_bigint::BigUint;
 use std::io::Write;
 use std::mem;
 
-use crate::data_source::IonDataSource;
-use crate::result::{IonFailure, IonResult};
+use crate::result::IonResult;
 use crate::types::integer::UIntData;
 use crate::types::{Int, UInt};
 
@@ -45,56 +44,6 @@ impl DecodedUInt {
     /// Interprets all of the bytes in the provided slice as big-endian unsigned integer bytes.
     pub(crate) fn big_uint_from_slice(uint_bytes: &[u8]) -> BigUint {
         BigUint::from_bytes_be(uint_bytes)
-    }
-
-    /// Reads a UInt with `length` bytes from the provided data source.
-    pub fn read<R: IonDataSource>(data_source: &mut R, length: usize) -> IonResult<DecodedUInt> {
-        if length > MAX_UINT_SIZE_IN_BYTES {
-            return IonResult::decoding_error(format!(
-                "Found a {length}-byte UInt. Max supported size is {MAX_UINT_SIZE_IN_BYTES} bytes."
-            ));
-        }
-
-        if length <= UINT_STACK_BUFFER_SIZE {
-            let buffer = &mut [0u8; UINT_STACK_BUFFER_SIZE];
-            DecodedUInt::read_using_buffer(data_source, length, buffer)
-        } else {
-            // We're reading an enormous int. Heap-allocate a Vec to use as storage.
-            let mut buffer = vec![0u8; length];
-            DecodedUInt::read_using_buffer(data_source, length, buffer.as_mut_slice())
-        }
-    }
-
-    fn read_using_buffer<R: IonDataSource>(
-        data_source: &mut R,
-        length: usize,
-        buffer: &mut [u8],
-    ) -> IonResult<DecodedUInt> {
-        // Get a mutable reference to a portion of the buffer just big enough to fit
-        // the requested number of bytes.
-        let buffer = &mut buffer[0..length];
-
-        data_source.read_exact(buffer)?;
-
-        let data = if length <= mem::size_of::<u64>() {
-            // The UInt is small enough to fit in a u64.
-            let mut magnitude: u64 = 0;
-            for &byte in buffer.iter() {
-                let byte = u64::from(byte);
-                magnitude <<= 8;
-                magnitude |= byte;
-            }
-            UIntData::U64(magnitude)
-        } else {
-            // The UInt is too large to fit in a u64; read it as a BigUInt instead
-            let magnitude = BigUint::from_bytes_be(buffer);
-            UIntData::BigUInt(magnitude)
-        };
-
-        Ok(DecodedUInt {
-            size_in_bytes: length,
-            value: UInt { data },
-        })
     }
 
     /// Encodes the provided `magnitude` as a UInt and writes it to the provided `sink`.
@@ -211,55 +160,9 @@ pub fn encode_uint(magnitude: &UInt) -> EncodedUInt {
 mod tests {
     use super::*;
     use num_traits::Num;
-    use std::io::Cursor;
 
     const READ_ERROR_MESSAGE: &str = "Failed to read a UInt from the provided cursor.";
     const WRITE_ERROR_MESSAGE: &str = "Writing a UInt to the provided sink failed.";
-
-    #[test]
-    fn test_read_one_byte_uint() {
-        let data = &[0b1000_0000];
-        let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
-        assert_eq!(uint.size_in_bytes(), 1);
-        assert_eq!(uint.value(), &UInt::from(128u64));
-    }
-
-    #[test]
-    fn test_read_two_byte_uint() {
-        let data = &[0b0111_1111, 0b1111_1111];
-        let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
-        assert_eq!(uint.size_in_bytes(), 2);
-        assert_eq!(uint.value(), &UInt::from(32_767u64));
-    }
-
-    #[test]
-    fn test_read_three_byte_uint() {
-        let data = &[0b0011_1100, 0b1000_0111, 0b1000_0001];
-        let uint = DecodedUInt::read(&mut Cursor::new(data), data.len()).expect(READ_ERROR_MESSAGE);
-        assert_eq!(uint.size_in_bytes(), 3);
-        assert_eq!(uint.value(), &UInt::from(3_966_849u64));
-    }
-
-    #[test]
-    fn test_read_ten_byte_uint() {
-        let data = vec![0xFFu8; 10];
-        let uint = DecodedUInt::read(&mut Cursor::new(data.as_slice()), data.len())
-            .expect(READ_ERROR_MESSAGE);
-        assert_eq!(uint.size_in_bytes(), 10);
-        assert_eq!(
-            uint.value(),
-            &UInt::from(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap())
-        );
-    }
-
-    #[test]
-    fn test_read_uint_too_large() {
-        let mut buffer = Vec::with_capacity(MAX_UINT_SIZE_IN_BYTES + 1);
-        buffer.resize(MAX_UINT_SIZE_IN_BYTES + 1, 1);
-        let data = buffer.as_slice();
-        let _uint = DecodedUInt::read(&mut Cursor::new(data), data.len())
-            .expect_err("This exceeded the configured max UInt size.");
-    }
 
     #[test]
     fn test_write_ten_byte_uint() {

@@ -33,7 +33,7 @@ pub mod reader;
 pub mod writer;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
-use crate::data_source::ToIonDataSource;
+use crate::data_source::IonDataSource;
 use crate::element::writer::ElementWriter;
 use crate::reader::ReaderBuilder;
 pub use crate::types::{Blob, Bytes, Clob};
@@ -576,7 +576,7 @@ impl Element {
     /// Returns an iterator over the Elements in the provided Ion data source.
     /// If the data source cannot be read or contains invalid Ion data, this method
     /// will return an `Err`.
-    pub fn iter<'a, I: ToIonDataSource + 'a>(
+    pub fn iter<'a, I: IonDataSource + 'a>(
         source: I,
     ) -> IonResult<impl Iterator<Item = IonResult<Element>> + 'a> {
         Ok(ReaderBuilder::default().build(source)?.into_elements())

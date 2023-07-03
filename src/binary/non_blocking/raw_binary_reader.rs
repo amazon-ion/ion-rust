@@ -10,7 +10,7 @@ use crate::raw_reader::{BufferedRawReader, Expandable, RawStreamItem};
 use crate::result::IonFailure;
 use crate::types::{Blob, Clob, Decimal, IntAccess, Str, SymbolId};
 use crate::{Int, IonError, IonResult, IonType, RawSymbolToken, Timestamp};
-use bytes::{BigEndian, Buf, ByteOrder};
+use bytes::{BigEndian, ByteOrder};
 use num_bigint::BigUint;
 use num_traits::Zero;
 use std::io::Read;
@@ -1134,13 +1134,13 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of VarUInt symbol IDs.
 struct AnnotationsIterator<'a> {
-    data: std::io::Cursor<&'a [u8]>,
+    data: BinaryBuffer<&'a [u8]>,
 }
 
 impl<'a> AnnotationsIterator<'a> {
     pub(crate) fn new(bytes: &[u8]) -> AnnotationsIterator {
         AnnotationsIterator {
-            data: std::io::Cursor::new(bytes),
+            data: BinaryBuffer::new(bytes),
         }
     }
 }
@@ -1153,11 +1153,10 @@ impl<'a> Iterator for AnnotationsIterator<'a> {
         if remaining == 0 {
             return None;
         }
-        // This iterator cannot be created unless the reader is currently parked on a value.
-        // If the reader is parked on a value, the complete annotations sequence is in the buffer.
-        // Therefore, reading symbol IDs from this byte slice cannot fail. This allows us to safely
-        // unwrap the result of this `read` call.
-        let var_uint = VarUInt::read(&mut self.data).unwrap();
+        let var_uint = match self.data.read_var_uint() {
+            Ok(var_uint) => var_uint,
+            Err(e) => return Some(Err(e)),
+        };
         // If this var_uint was longer than the declared annotations wrapper length, return an error.
         if var_uint.size_in_bytes() > remaining {
             Some(IonResult::decoding_error(

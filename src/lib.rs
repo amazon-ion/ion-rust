@@ -206,8 +206,6 @@ pub mod thunk;
 pub mod tokens;
 
 #[doc(inline)]
-pub use data_source::IonDataSource;
-#[doc(inline)]
 pub use raw_symbol_token::RawSymbolToken;
 #[doc(inline)]
 pub use raw_symbol_token_ref::RawSymbolTokenRef;
