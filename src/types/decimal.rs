@@ -7,7 +7,7 @@ use crate::ion_data::{IonEq, IonOrd};
 use crate::result::{IonError, IonFailure};
 use crate::types::integer::UIntData;
 use crate::types::{Coefficient, Sign, UInt};
-use crate::IonResult;
+use crate::{Int, IonResult};
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};
 use std::convert::{TryFrom, TryInto};
@@ -311,11 +311,7 @@ macro_rules! impl_decimal_from_signed_primitive_integer {
             fn from(value: $t) -> Self {
                 let sign = if value < 0 {Sign::Negative} else {Sign::Positive};
                 // Discard the sign and convert the value to a u64.
-                let magnitude: u64 = value.checked_abs()
-                        .and_then(|v| Some(v.abs() as u64))
-                        // If .abs() fails, it's because <$t>::MIN.abs() cannot be represented
-                        // as a $t. We can handle this case by simply using <$>::MAX + 1
-                        .unwrap_or_else(|| (<$t>::MAX as u64) + 1);
+                let magnitude: u64 = value.unsigned_abs() as u64;
                 let coefficient = Coefficient::new(sign, magnitude);
                 Decimal::new(coefficient, 0)
             }
@@ -323,6 +319,18 @@ macro_rules! impl_decimal_from_signed_primitive_integer {
     )*)
 }
 impl_decimal_from_signed_primitive_integer!(i8, i16, i32, i64, isize);
+
+impl From<Int> for Decimal {
+    fn from(value: Int) -> Self {
+        Decimal::new(value, 0)
+    }
+}
+
+impl From<UInt> for Decimal {
+    fn from(value: UInt) -> Self {
+        Decimal::new(value, 0)
+    }
+}
 
 impl TryFrom<f32> for Decimal {
     type Error = IonError;
@@ -485,9 +493,9 @@ impl TryFrom<Decimal> for BigDecimal {
 #[cfg(test)]
 mod decimal_tests {
     use crate::result::IonResult;
-    use crate::types::{Coefficient, Decimal, Sign, UInt};
+    use crate::types::{Coefficient, Decimal, Int, Sign, UInt};
     use bigdecimal::BigDecimal;
-    use num_bigint::BigUint;
+    use num_bigint::{BigInt, BigUint};
 
     use num_traits::{Float, ToPrimitive};
     use std::cmp::Ordering;
@@ -788,5 +796,24 @@ mod decimal_tests {
     #[case(Decimal::new(BigUint::from(u128::MAX), -2), 39)]
     fn test_precision(#[case] value: Decimal, #[case] expected: u64) {
         assert_eq!(value.precision(), expected);
+    }
+
+    #[rstest]
+    #[case(0, Decimal::new(0, 0))]
+    #[case(1, Decimal::new(1, 0))]
+    #[case(-1, Decimal::new(-1, 0))]
+    #[case(-8675309i64, Decimal::new(-8675309i64, 0))]
+    #[case(8675309u32, Decimal::new(8675309u32, 0))]
+    // mixed coefficient representations
+    #[case(8675309i64, Decimal::new(8675309u32, 0))]
+    #[case(Int::from(-8675309i64), Decimal::new(-8675309i64, 0))]
+    #[case(Int::from(BigInt::from(-8675309i64)), Decimal::new(-8675309i64, 0))]
+    #[case(UInt::from(8675309u64), Decimal::new(8675309u64, 0))]
+    #[case(UInt::from(BigUint::from(8675309u64)), Decimal::new(8675309u64, 0))]
+    fn decimal_from_integers(
+        #[case] coefficient: impl Into<Coefficient>,
+        #[case] expected: Decimal,
+    ) {
+        assert_eq!(Decimal::new(coefficient, 0), expected);
     }
 }
