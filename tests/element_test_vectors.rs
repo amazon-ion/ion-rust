@@ -253,7 +253,7 @@ trait ElementApi {
                         Ok(elem) => {
                             panic!("Did not expect element for duplicates: {elems:?}, {elem:?}")
                         }
-                        Err(IonError::DecodingError(_)) => (),
+                        Err(IonError::Decoding(_)) => (),
                         Err(other) => {
                             panic!("Got an error we did not expect for duplicates: {other:?}")
                         }

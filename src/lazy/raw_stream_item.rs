@@ -27,7 +27,7 @@ impl<'a> RawStreamItem<'a> {
         }
     }
 
-    /// Like [`Self::version_marker`], but returns a [`crate::IonError::DecodingError`] if this item
+    /// Like [`Self::version_marker`], but returns a [`crate::IonError::Decoding`] if this item
     /// is not an IVM.
     pub fn expect_ivm(self) -> IonResult<(u8, u8)> {
         self.version_marker()
@@ -43,7 +43,7 @@ impl<'a> RawStreamItem<'a> {
         }
     }
 
-    /// Like [`Self::value`], but returns a [`crate::IonError::DecodingError`] if this item is not
+    /// Like [`Self::value`], but returns a [`crate::IonError::Decoding`] if this item is not
     /// a value.
     pub fn expect_value(self) -> IonResult<LazyRawValue<'a>> {
         if let Self::Value(value) = self {

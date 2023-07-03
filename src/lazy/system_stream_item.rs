@@ -41,7 +41,7 @@ impl<'top, 'data> SystemStreamItem<'top, 'data> {
         }
     }
 
-    /// Like [`Self::version_marker`], but returns a [`crate::IonError::DecodingError`] if this item
+    /// Like [`Self::version_marker`], but returns a [`crate::IonError::Decoding`] if this item
     /// is not an IVM.
     pub fn expect_ivm(self) -> IonResult<(u8, u8)> {
         self.version_marker()
@@ -58,7 +58,7 @@ impl<'top, 'data> SystemStreamItem<'top, 'data> {
         }
     }
 
-    /// Like [`Self::value`], but returns a [`crate::IonError::DecodingError`] if this item is not
+    /// Like [`Self::value`], but returns a [`crate::IonError::Decoding`] if this item is not
     /// an application-level value.
     pub fn expect_value(self) -> IonResult<LazyValue<'top, 'data>> {
         if let Self::Value(value) = self {

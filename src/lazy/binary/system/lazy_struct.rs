@@ -111,7 +111,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
         Ok(None)
     }
 
-    /// Like [`LazyStruct::find`], but returns an [`IonError::DecodingError`] if no field with the
+    /// Like [`LazyStruct::find`], but returns an [`IonError::Decoding`] if no field with the
     /// specified name is found.
     /// ```
     ///# use ion_rs::IonResult;
@@ -165,7 +165,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
         self.find(name)?.map(|f| f.read()).transpose()
     }
 
-    /// Like [`LazyStruct::get`], but returns an [`IonError::DecodingError`] if no field with the
+    /// Like [`LazyStruct::get`], but returns an [`IonError::Decoding`] if no field with the
     /// specified name is found.
     /// ```
     ///# use ion_rs::IonResult;

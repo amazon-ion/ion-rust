@@ -219,7 +219,7 @@ mod tests {
 
         // TODO: IonResult should have a distinct `IncompleteData` error case
         //       https://github.com/amazon-ion/ion-rust/issues/299
-        assert!(matches!(result, Err(IonError::DecodingError { .. })));
+        assert!(matches!(result, Err(IonError::Decoding { .. })));
     }
 
     #[test]
@@ -237,7 +237,7 @@ mod tests {
 
         // TODO: IonResult should have a distinct `IncompleteData` error case
         //       https://github.com/amazon-ion/ion-rust/issues/299
-        assert!(matches!(result, Err(IonError::DecodingError { .. })));
+        assert!(matches!(result, Err(IonError::Decoding { .. })));
     }
 
     #[test]
@@ -257,7 +257,7 @@ mod tests {
 
         // TODO: IonResult should have a distinct `IncompleteData` error case
         //       https://github.com/amazon-ion/ion-rust/issues/299
-        assert!(matches!(result, Err(IonError::DecodingError { .. })));
+        assert!(matches!(result, Err(IonError::Decoding { .. })));
     }
 }
 

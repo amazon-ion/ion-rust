@@ -25,7 +25,7 @@ pub type IonResult<T> = Result<T, IonError>;
 pub enum IonError {
     /// Indicates that an IO error was encountered while reading or writing.
     #[error("{0}")]
-    IoError(#[from] IoError),
+    Io(#[from] IoError),
 
     /// Indicates that the input buffer did not contain enough data to perform the requested read
     /// operation. If the input source contains more data, the reader can append it to the buffer
@@ -35,11 +35,11 @@ pub enum IonError {
 
     /// Indicates that the writer encountered a problem while serializing a given piece of data.
     #[error("{0}")]
-    EncodingError(#[from] EncodingError),
+    Encoding(#[from] EncodingError),
 
     /// Indicates that the data stream being read contained illegal or otherwise unreadable data.
     #[error("{0}")]
-    DecodingError(#[from] DecodingError),
+    Decoding(#[from] DecodingError),
 
     /// Returned when the user has performed an illegal operation (for example: calling stepOut()
     /// on the cursor at the top level.)

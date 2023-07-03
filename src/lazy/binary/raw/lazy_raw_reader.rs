@@ -26,7 +26,7 @@ impl<'data> LazyRawReader<'data> {
     }
 
     /// Helper method called by [`Self::next`]. Reads the current stream item as an Ion version
-    /// marker. If the version is not 1.0, returns an [`crate::IonError::DecodingError`].
+    /// marker. If the version is not 1.0, returns an [`crate::IonError::Decoding`].
     fn read_ivm(&mut self, buffer: ImmutableBuffer<'data>) -> IonResult<RawStreamItem<'data>> {
         let ((major, minor), _buffer_after_ivm) = buffer.read_ivm()?;
         if (major, minor) != (1, 0) {

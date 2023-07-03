@@ -284,7 +284,7 @@ where
         Ok(self.next().is_none())
     }
 
-    /// Like [`Self::are`], but returns an [`IonError::DecodingError`] if the iterator's annotations
+    /// Like [`Self::are`], but returns an [`IonError::Decoding`] if the iterator's annotations
     /// don't match the provided sequence exactly.
     /// ```
     ///# use ion_rs::IonResult;
