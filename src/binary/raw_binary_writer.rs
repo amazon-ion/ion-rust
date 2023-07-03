@@ -11,7 +11,7 @@ use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
 use crate::ion_writer::IonWriter;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
-use crate::result::{illegal_operation, IonResult};
+use crate::result::{IonFailure, IonResult};
 use crate::types::integer::IntData;
 use crate::types::{ContainerType, Decimal, Int, SymbolId, Timestamp};
 use crate::IonType;
@@ -429,9 +429,9 @@ impl<W: Write> RawBinaryWriter<W> {
     fn expect_field_id(&self) -> IonResult<usize> {
         match self.field_id {
             Some(field_id) => Ok(field_id),
-            None => {
-                illegal_operation("`set_field_id()` must be called before each field in a struct.")
-            }
+            None => IonResult::illegal_operation(
+                "`set_field_id()` must be called before each field in a struct.",
+            ),
         }
     }
 
@@ -517,12 +517,12 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
 
     fn write_ion_version_marker(&mut self, major: u8, minor: u8) -> IonResult<()> {
         if self.depth() > 0 {
-            return illegal_operation("can only write an IVM at the top level");
+            return IonResult::illegal_operation("can only write an IVM at the top level");
         }
         if major == 1 && minor == 0 {
             return Ok(self.out.write_all(&IVM)?);
         }
-        illegal_operation("Only Ion 1.0 is supported.")
+        IonResult::illegal_operation("Only Ion 1.0 is supported.")
     }
 
     fn supports_text_symbol_tokens(&self) -> bool {
@@ -684,7 +684,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         match value.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(sid) => self.write_symbol_id(sid),
             RawSymbolTokenRef::Text(_text) => {
-                illegal_operation("The RawBinaryWriter cannot write text symbols.")
+                IonResult::illegal_operation("The RawBinaryWriter cannot write text symbols.")
             }
         }
     }
@@ -732,7 +732,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
             List => ContainerType::List,
             SExp => ContainerType::SExpression,
             Struct => ContainerType::Struct,
-            _ => return illegal_operation("Cannot step into a scalar Ion type."),
+            _ => return IonResult::illegal_operation("Cannot step into a scalar Ion type."),
         };
 
         // If this is a field in a struct, encode the field ID at the end of the last IO range.
@@ -800,7 +800,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
     /// Ends the current container. If the writer is at the top level, `step_out` will return an Err.
     fn step_out(&mut self) -> IonResult<()> {
         if self.levels.len() <= 1 {
-            return illegal_operation(
+            return IonResult::illegal_operation(
                 "Cannot call step_out() unless the writer is positioned within a container.",
             );
         }
@@ -815,7 +815,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
             List => 0xB0,
             SExpression => 0xC0,
             Struct => 0xD0,
-            _ => return illegal_operation("Cannot step into a scalar Ion type."),
+            _ => return IonResult::illegal_operation("Cannot step into a scalar Ion type."),
         };
 
         // Encode the type descriptor byte, and optional length
@@ -861,7 +861,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
     /// the top level.
     fn flush(&mut self) -> IonResult<()> {
         if self.depth() > 0 {
-            return illegal_operation(
+            return IonResult::illegal_operation(
                 "Cannot call flush() while the writer is positioned within a container.",
             );
         }

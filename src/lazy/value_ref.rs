@@ -1,7 +1,7 @@
 use crate::element::Value;
 use crate::lazy::binary::system::lazy_sequence::LazySequence;
 use crate::lazy::binary::system::lazy_struct::LazyStruct;
-use crate::result::decoding_error;
+use crate::result::IonFailure;
 use crate::{Decimal, Int, IonError, IonResult, IonType, SymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
 
@@ -101,7 +101,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Null(ion_type) = self {
             Ok(ion_type)
         } else {
-            decoding_error("expected a null")
+            IonResult::decoding_error("expected a null")
         }
     }
 
@@ -109,7 +109,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Bool(b) = self {
             Ok(b)
         } else {
-            decoding_error("expected a bool")
+            IonResult::decoding_error("expected a bool")
         }
     }
 
@@ -117,7 +117,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Int(i) = self {
             Ok(i)
         } else {
-            decoding_error("expected an int")
+            IonResult::decoding_error("expected an int")
         }
     }
 
@@ -125,7 +125,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Int(i) = self {
             i.expect_i64()
         } else {
-            decoding_error("expected an int (i64)")
+            IonResult::decoding_error("expected an int (i64)")
         }
     }
 
@@ -133,7 +133,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Float(f) = self {
             Ok(f)
         } else {
-            decoding_error("expected a float")
+            IonResult::decoding_error("expected a float")
         }
     }
 
@@ -141,7 +141,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Decimal(d) = self {
             Ok(d)
         } else {
-            decoding_error("expected a decimal")
+            IonResult::decoding_error("expected a decimal")
         }
     }
 
@@ -149,7 +149,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Timestamp(t) = self {
             Ok(t)
         } else {
-            decoding_error("expected a timestamp")
+            IonResult::decoding_error("expected a timestamp")
         }
     }
 
@@ -157,7 +157,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::String(s) = self {
             Ok(s)
         } else {
-            decoding_error("expected a string")
+            IonResult::decoding_error("expected a string")
         }
     }
 
@@ -165,7 +165,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Symbol(s) = self {
             Ok(s)
         } else {
-            decoding_error("expected a symbol")
+            IonResult::decoding_error("expected a symbol")
         }
     }
 
@@ -173,7 +173,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Blob(b) = self {
             Ok(b)
         } else {
-            decoding_error("expected a blob")
+            IonResult::decoding_error("expected a blob")
         }
     }
 
@@ -181,7 +181,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Clob(c) = self {
             Ok(c)
         } else {
-            decoding_error("expected a clob")
+            IonResult::decoding_error("expected a clob")
         }
     }
 
@@ -189,7 +189,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::List(s) = self {
             Ok(s)
         } else {
-            decoding_error("expected a list")
+            IonResult::decoding_error("expected a list")
         }
     }
 
@@ -197,7 +197,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::SExp(s) = self {
             Ok(s)
         } else {
-            decoding_error("expected a sexp")
+            IonResult::decoding_error("expected a sexp")
         }
     }
 
@@ -205,7 +205,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         if let ValueRef::Struct(s) = self {
             Ok(s)
         } else {
-            decoding_error("expected a struct")
+            IonResult::decoding_error("expected a struct")
         }
     }
 }

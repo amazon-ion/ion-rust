@@ -2,7 +2,7 @@
 
 use super::{ContainerType, Content, Instruction, Token, TokenStream};
 use crate::element::{Annotations, Blob, Clob};
-use crate::result::{illegal_operation, illegal_operation_raw};
+use crate::result::{IonError, IonFailure};
 use crate::tokens::ScalarValue;
 use crate::types::IntAccess;
 use crate::{Decimal, Int, IonReader, IonResult, IonType, Str, StreamItem, Symbol, Timestamp};
@@ -94,16 +94,16 @@ macro_rules! read_method_self {
     ($me:ident, $method:ident, $scalar_type:ty, $variant:ident, $scalar:ident, $scalar_exp:expr) => {
         fn $method(&mut $me) -> IonResult<$scalar_type> {
             match &$me.curr_token_cell {
-                None => illegal_operation(NOT_POSITIONED_ON_ANYTHING_ERROR_TEXT),
+                None => IonResult::illegal_operation(NOT_POSITIONED_ON_ANYTHING_ERROR_TEXT),
                 Some(token_cell) => {
                     let mut token = token_cell.borrow_mut();
                     match token.content_mut().no_memoize_scalar() {
                         Ok(Some(ScalarValue::$variant($scalar))) => Ok($scalar_exp),
-                        Ok(Some(scalar_value)) => illegal_operation(format!(
+                        Ok(Some(scalar_value)) => IonResult::illegal_operation(format!(
                             concat!("Cannot read ", stringify!($scalar_type), " from {}"),
                             scalar_value.scalar_type()
                         )),
-                        Ok(None) => illegal_operation(CANNOT_READ_NON_SCALAR_ERROR_TEXT),
+                        Ok(None) => IonResult::illegal_operation(CANNOT_READ_NON_SCALAR_ERROR_TEXT),
                         Err(e) => Err(e),
                     }
                 }
@@ -208,12 +208,12 @@ where
 
     fn field_name(&self) -> IonResult<Self::Symbol> {
         match &self.curr_token_cell {
-            None => illegal_operation(NO_FIELD_NAME_ERROR_TEXT),
+            None => IonResult::illegal_operation(NO_FIELD_NAME_ERROR_TEXT),
             Some(token_cell) => {
                 let mut token = token_cell.borrow_mut();
                 match token.share_field_name() {
                     Ok(Some(symbol)) => Ok(symbol),
-                    Ok(None) => illegal_operation(NO_FIELD_NAME_ERROR_TEXT),
+                    Ok(None) => IonResult::illegal_operation(NO_FIELD_NAME_ERROR_TEXT),
                     Err(e) => Err(e),
                 }
             }
@@ -228,9 +228,9 @@ where
         match &self.curr_item {
             StreamItem::Null(ion_type) => Ok(*ion_type),
             StreamItem::Value(ion_type) => {
-                illegal_operation(format!("Cannot read null for {} value", ion_type))
+                IonResult::illegal_operation(format!("Cannot read null for {} value", ion_type))
             }
-            StreamItem::Nothing => illegal_operation("Cannot read null on nothing"),
+            StreamItem::Nothing => IonResult::illegal_operation("Cannot read null on nothing"),
         }
     }
 
@@ -242,7 +242,7 @@ where
         integer,
         integer
             .as_i64()
-            .ok_or_else(|| illegal_operation_raw("Integer too large for i64"))?
+            .ok_or_else(|| IonError::illegal_operation("Integer too large for i64"))?
     );
     read_method!(read_int, Int, Int, integer, integer);
     read_method!(read_f32, f32, Float, float, float as f32);
@@ -261,7 +261,7 @@ where
 
     fn step_in(&mut self) -> IonResult<()> {
         match &self.curr_token_cell {
-            None => illegal_operation(STEP_IN_ERROR_TEXT),
+            None => IonResult::illegal_operation(STEP_IN_ERROR_TEXT),
             Some(token_cell) => {
                 let token = token_cell.borrow();
                 match token.content() {
@@ -272,7 +272,7 @@ where
                         self.container_stack.push(*container_type);
                         Ok(())
                     }
-                    _ => illegal_operation(STEP_IN_ERROR_TEXT),
+                    _ => IonResult::illegal_operation(STEP_IN_ERROR_TEXT),
                 }
             }
         }
@@ -293,9 +293,9 @@ where
                                 // no advancement necessary, we're at the end of the container
                                 false
                             }
-                            Content::EndStream => {
-                                illegal_operation("End of stream in the middle of container")?
-                            }
+                            Content::EndStream => IonResult::illegal_operation(
+                                "End of stream in the middle of container",
+                            )?,
                             _ => {
                                 // we are not at the end of the current container
                                 true
@@ -312,7 +312,7 @@ where
                 self.reset_curr_state()?;
                 Ok(())
             }
-            None => illegal_operation(STEP_OUT_ERROR_TEXT),
+            None => IonResult::illegal_operation(STEP_OUT_ERROR_TEXT),
         }
     }
 

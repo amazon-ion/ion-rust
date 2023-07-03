@@ -1,5 +1,6 @@
-use crate::result::{illegal_operation, illegal_operation_raw, IonResult};
+use crate::result::{IonFailure, IonResult};
 use crate::shared_symbol_table::SharedSymbolTable;
+use crate::IonError;
 use std::collections::{BTreeMap, HashMap};
 
 /// A Catalog is a collection of Shared Symbol Tables.
@@ -31,32 +32,36 @@ impl MapCatalog {
 impl Catalog for MapCatalog {
     fn get_table(&self, name: &str) -> IonResult<SharedSymbolTable> {
         if name.is_empty() {
-            return illegal_operation("symbol table with empty name doesn't exists");
+            return IonResult::illegal_operation("symbol table with empty name doesn't exist");
         }
 
         let versions: &BTreeMap<usize, SharedSymbolTable> =
             self.tables_by_name.get(name).ok_or_else(|| {
-                illegal_operation_raw(format!("symbol table with name: {name} does not exist"))
+                IonError::illegal_operation(format!(
+                    "symbol table with name: {name} does not exist"
+                ))
             })?;
 
         let (_highest_version, table) = versions.iter().rev().next().ok_or_else(|| {
-            illegal_operation_raw(format!("symbol table with name: {name} does not exist"))
+            IonError::illegal_operation(format!("symbol table with name: {name} does not exist"))
         })?;
         Ok(table.to_owned())
     }
 
     fn get_table_with_version(&self, name: &str, version: usize) -> IonResult<SharedSymbolTable> {
         if name.is_empty() {
-            return illegal_operation("symbol table with empty name doesn't exists");
+            return IonResult::illegal_operation("symbol table with empty name doesn't exists");
         }
 
         let versions: &BTreeMap<usize, SharedSymbolTable> =
             self.tables_by_name.get(name).ok_or_else(|| {
-                illegal_operation_raw(format!("symbol table with name: {name} does not exist"))
+                IonError::illegal_operation(format!(
+                    "symbol table with name: {name} does not exist"
+                ))
             })?;
 
         let table = versions.get(&version).ok_or_else(|| {
-            illegal_operation_raw(format!("symbol table with name: {name} does not exist"))
+            IonError::illegal_operation(format!("symbol table with name: {name} does not exist"))
         })?;
         Ok(table.to_owned())
     }

@@ -5,7 +5,7 @@ use std::{fmt, io};
 use crate::result::decoding_error::DecodingError;
 use crate::result::encoding_error::EncodingError;
 use crate::result::illegal_operation::IllegalOperation;
-use crate::result::incomplete::Incomplete;
+use crate::result::incomplete::IncompleteError;
 use io_error::IoError;
 use position::Position;
 use thiserror::Error;
@@ -31,7 +31,7 @@ pub enum IonError {
     /// operation. If the input source contains more data, the reader can append it to the buffer
     /// and try again.
     #[error("{0}")]
-    Incomplete(#[from] Incomplete),
+    Incomplete(#[from] IncompleteError),
 
     /// Indicates that the writer encountered a problem while serializing a given piece of data.
     #[error("{0}")]
@@ -68,44 +68,51 @@ impl From<fmt::Error> for IonError {
     }
 }
 
-pub(crate) fn incomplete<T>(label: &'static str, position: impl Into<Position>) -> IonResult<T> {
-    Err(incomplete_error(label, position))
+// Crate-visible convenience methods for constructing error variants and wrapping them in the
+// appropriate type: IonResult<T> or IonError. This is a trait so these methods can be added to
+// `IonResult<T>`, which is just a type alias for `Result<T, IonError>`, whose implementation
+// does not live in this crate.
+pub(crate) trait IonFailure {
+    fn incomplete(label: &'static str, position: impl Into<Position>) -> Self;
+    fn decoding_error<S: Into<String>>(description: S) -> Self;
+    fn encoding_error<S: Into<String>>(description: S) -> Self;
+    fn illegal_operation<S: Into<String>>(operation: S) -> Self;
 }
 
-pub(crate) fn incomplete_error(label: &'static str, position: impl Into<Position>) -> IonError {
-    Incomplete::new(label, position).into()
+impl IonFailure for IonError {
+    fn incomplete(label: &'static str, position: impl Into<Position>) -> Self {
+        IncompleteError::new(label, position).into()
+    }
+
+    fn decoding_error<S: Into<String>>(description: S) -> Self {
+        DecodingError::new(description).into()
+    }
+
+    fn encoding_error<S: Into<String>>(description: S) -> Self {
+        EncodingError::new(description).into()
+    }
+
+    fn illegal_operation<S: Into<String>>(operation: S) -> Self {
+        IllegalOperation::new(operation).into()
+    }
 }
 
-/// A convenience method for creating an IonResult containing an IonError::DecodingError with the
-/// provided description text.
-pub fn decoding_error<T, S: Into<String>>(description: S) -> IonResult<T> {
-    Err(decoding_error_raw(description))
-}
+impl<T> IonFailure for IonResult<T> {
+    fn incomplete(label: &'static str, position: impl Into<Position>) -> Self {
+        Err(IonError::incomplete(label, position))
+    }
 
-/// A convenience method for creating an IonError::DecodingError with the provided operation
-/// text. Useful for calling Option#ok_or_else.
-#[inline(never)]
-pub(crate) fn decoding_error_raw<S: Into<String>>(description: S) -> IonError {
-    DecodingError::new(description).into()
-}
+    fn decoding_error<S: Into<String>>(description: S) -> Self {
+        Err(IonError::decoding_error(description))
+    }
 
-/// A convenience method for creating an IonResult containing an IonError::EncodingError with the
-/// provided description text.
-pub(crate) fn encoding_error<T, S: Into<String>>(description: S) -> IonResult<T> {
-    Err(encoding_error_raw(description))
-}
+    fn encoding_error<S: Into<String>>(description: S) -> Self {
+        Err(IonError::encoding_error(description))
+    }
 
-/// A convenience method for creating an IonError::EncodingError with the provided operation
-/// text. Useful for calling Option#ok_or_else.
-#[inline(never)]
-pub(crate) fn encoding_error_raw<S: Into<String>>(description: S) -> IonError {
-    EncodingError::new(description).into()
-}
-
-/// A convenience method for creating an IonResult containing an IonError::IllegalOperation with the
-/// provided operation text.
-pub fn illegal_operation<T, S: Into<String>>(operation: S) -> IonResult<T> {
-    Err(illegal_operation_raw(operation))
+    fn illegal_operation<S: Into<String>>(operation: S) -> Self {
+        Err(IonError::illegal_operation(operation))
+    }
 }
 
 /// A convenience method for creating an IonError::IllegalOperation with the provided operation

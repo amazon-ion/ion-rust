@@ -8,9 +8,9 @@ use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
-use crate::result::{decoding_error, decoding_error_raw, incomplete, incomplete_error};
+use crate::result::IonFailure;
 use crate::types::UInt;
-use crate::{Int, IonResult, IonType};
+use crate::{Int, IonError, IonResult, IonType};
 use num_bigint::{BigInt, BigUint, Sign};
 use std::fmt::{Debug, Formatter};
 use std::mem;
@@ -133,7 +133,7 @@ impl<'a> ImmutableBuffer<'a> {
     #[inline]
     pub fn peek_type_descriptor(&self) -> IonResult<TypeDescriptor> {
         if self.is_empty() {
-            return incomplete("a type descriptor", self.offset());
+            return IonResult::incomplete("a type descriptor", self.offset());
         }
         let next_byte = self.data[0];
         Ok(ION_1_0_TYPE_DESCRIPTORS[next_byte as usize])
@@ -146,14 +146,14 @@ impl<'a> ImmutableBuffer<'a> {
     pub fn read_ivm(self) -> ParseResult<'a, (u8, u8)> {
         let bytes = self
             .peek_n_bytes(IVM.len())
-            .ok_or_else(|| incomplete_error("an IVM", self.offset()))?;
+            .ok_or_else(|| IonError::incomplete("an IVM", self.offset()))?;
 
         match bytes {
             [0xE0, major, minor, 0xEA] => {
                 let version = (*major, *minor);
                 Ok((version, self.consume(IVM.len())))
             }
-            invalid_ivm => decoding_error(format!("invalid IVM: {invalid_ivm:?}")),
+            invalid_ivm => IonResult::decoding_error(format!("invalid IVM: {invalid_ivm:?}")),
         }
     }
 
@@ -194,7 +194,7 @@ impl<'a> ImmutableBuffer<'a> {
             }
         }
 
-        incomplete("a VarUInt", self.offset() + encoded_size_in_bytes)
+        IonResult::incomplete("a VarUInt", self.offset() + encoded_size_in_bytes)
     }
 
     /// Reads a `VarInt` encoding primitive from the beginning of the buffer. If it is successful,
@@ -218,7 +218,7 @@ impl<'a> ImmutableBuffer<'a> {
         // negative (1).
 
         if self.is_empty() {
-            return incomplete("a VarInt", self.offset());
+            return IonResult::incomplete("a VarInt", self.offset());
         }
         let first_byte: u8 = self.peek_next_byte().unwrap();
         let no_more_bytes: bool = first_byte >= 0b1000_0000; // If the first bit is 1, we're done.
@@ -249,11 +249,11 @@ impl<'a> ImmutableBuffer<'a> {
         }
 
         if !terminated {
-            return incomplete("a VarInt", self.offset() + encoded_size_in_bytes);
+            return IonResult::incomplete("a VarInt", self.offset() + encoded_size_in_bytes);
         }
 
         if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
-            return decoding_error(format!(
+            return IonResult::decoding_error(format!(
                 "Found a {encoded_size_in_bytes}-byte VarInt. Max supported size is {MAX_ENCODED_SIZE_IN_BYTES} bytes."
             ));
         }
@@ -283,7 +283,7 @@ impl<'a> ImmutableBuffer<'a> {
     fn read_small_uint(self, length: usize) -> ParseResult<'a, DecodedUInt> {
         let uint_bytes = self
             .peek_n_bytes(length)
-            .ok_or_else(|| incomplete_error("a UInt", self.offset()))?;
+            .ok_or_else(|| IonError::incomplete("a UInt", self.offset()))?;
         let magnitude = DecodedUInt::small_uint_from_slice(uint_bytes);
         Ok((
             DecodedUInt::new(UInt::from(magnitude), length),
@@ -305,7 +305,7 @@ impl<'a> ImmutableBuffer<'a> {
 
         let uint_bytes = self
             .peek_n_bytes(length)
-            .ok_or_else(|| incomplete_error("a UInt", self.offset()))?;
+            .ok_or_else(|| IonError::incomplete("a UInt", self.offset()))?;
 
         let magnitude = BigUint::from_bytes_be(uint_bytes);
         Ok((
@@ -318,7 +318,7 @@ impl<'a> ImmutableBuffer<'a> {
     // This method is inline(never) because it is rarely invoked and its allocations/formatting
     // compile to a non-trivial number of instructions.
     fn value_too_large<T>(label: &str, length: usize, max_length: usize) -> IonResult<T> {
-        decoding_error(format!(
+        IonResult::decoding_error(format!(
             "found {label} that was too large; size = {length}, max size = {max_length}"
         ))
     }
@@ -332,14 +332,14 @@ impl<'a> ImmutableBuffer<'a> {
         if length == 0 {
             return Ok((DecodedInt::new(0, false, 0), self.consume(0)));
         } else if length > MAX_INT_SIZE_IN_BYTES {
-            return decoding_error(format!(
+            return IonResult::decoding_error(format!(
                 "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
             ));
         }
 
         let int_bytes = self
             .peek_n_bytes(length)
-            .ok_or_else(|| incomplete_error("an Int encoding primitive", self.offset()))?;
+            .ok_or_else(|| IonError::incomplete("an Int encoding primitive", self.offset()))?;
 
         let mut is_negative: bool = false;
 
@@ -407,7 +407,7 @@ impl<'a> ImmutableBuffer<'a> {
 
         // Validate that the annotations sequence is not empty.
         if annotations_length.value() == 0 {
-            return decoding_error("found an annotations wrapper with no annotations");
+            return IonResult::decoding_error("found an annotations wrapper with no annotations");
         }
 
         // Validate that the annotated value is not missing.
@@ -416,7 +416,7 @@ impl<'a> ImmutableBuffer<'a> {
             - annotations_length.value();
 
         if expected_value_length == 0 {
-            return decoding_error("found an annotation wrapper with no value");
+            return IonResult::decoding_error("found an annotation wrapper with no value");
         }
 
         // Skip over the annotations sequence itself; the reader will return to it if/when the
@@ -427,12 +427,14 @@ impl<'a> ImmutableBuffer<'a> {
         // gets us the before-and-after we need to calculate the size of the header.
         let annotations_header_length = final_input.offset() - self.offset();
         let annotations_header_length = u8::try_from(annotations_header_length).map_err(|_e| {
-            decoding_error_raw("found an annotations header greater than 255 bytes long")
+            IonError::decoding_error("found an annotations header greater than 255 bytes long")
         })?;
 
         let annotations_sequence_length =
             u8::try_from(annotations_length.value()).map_err(|_e| {
-                decoding_error_raw("found an annotations sequence greater than 255 bytes long")
+                IonError::decoding_error(
+                    "found an annotations sequence greater than 255 bytes long",
+                )
             })?;
 
         let wrapper = AnnotationsWrapper {
@@ -459,7 +461,7 @@ impl<'a> ImmutableBuffer<'a> {
         // If the type descriptor says we should skip more bytes, skip them.
         let (length, remaining) = remaining.read_length(type_descriptor.length_code)?;
         if remaining.len() < length.value() {
-            return incomplete("a NOP", remaining.offset());
+            return IonResult::incomplete("a NOP", remaining.offset());
         }
         let remaining = remaining.consume(length.value());
         let total_nop_pad_size = 1 + length.size_in_bytes() + length.value();
@@ -513,13 +515,13 @@ impl<'a> ImmutableBuffer<'a> {
         match header.ion_type {
             Float => match header.length_code {
                 0 | 4 | 8 | 15 => {}
-                _ => return decoding_error("found a float with an illegal length code"),
+                _ => return IonResult::decoding_error("found a float with an illegal length code"),
             },
             Timestamp if !header.is_null() && length.value() <= 1 => {
-                return decoding_error("found a timestamp with length <= 1")
+                return IonResult::decoding_error("found a timestamp with length <= 1")
             }
             Struct if header.length_code == 1 && length.value() == 0 => {
-                return decoding_error("found an empty ordered struct")
+                return IonResult::decoding_error("found an empty ordered struct")
             }
             _ => {}
         };
@@ -570,13 +572,15 @@ impl<'a> ImmutableBuffer<'a> {
         let (field_id, field_id_length, mut input) = if has_field {
             let (field_id_var_uint, input_after_field_id) = initial_input.read_var_uint()?;
             if input_after_field_id.is_empty() {
-                return incomplete(
+                return IonResult::incomplete(
                     "found field name but no value",
                     input_after_field_id.offset(),
                 );
             }
-            let field_id_length = u8::try_from(field_id_var_uint.size_in_bytes())
-                .map_err(|_| decoding_error_raw("found a field id with length over 255 bytes"))?;
+            let field_id_length =
+                u8::try_from(field_id_var_uint.size_in_bytes()).map_err(|_| {
+                    IonError::decoding_error("found a field id with length over 255 bytes")
+                })?;
             (
                 Some(field_id_var_uint.value()),
                 field_id_length,
@@ -600,7 +604,7 @@ impl<'a> ImmutableBuffer<'a> {
             input = input_after_annotations;
             type_descriptor = input.peek_type_descriptor()?;
             if type_descriptor.is_annotation_wrapper() {
-                return decoding_error("found an annotations wrapper ");
+                return IonResult::decoding_error("found an annotations wrapper ");
             }
         } else if type_descriptor.is_nop() {
             (_, input) = input.consume_nop_padding(type_descriptor)?;
@@ -608,12 +612,12 @@ impl<'a> ImmutableBuffer<'a> {
 
         let header = type_descriptor
             .to_header()
-            .ok_or_else(|| decoding_error_raw("found a non-value in value position"))?;
+            .ok_or_else(|| IonError::decoding_error("found a non-value in value position"))?;
 
         let header_offset = input.offset();
         let (length, _) = input.consume(1).read_value_length(header)?;
         let length_length = u8::try_from(length.size_in_bytes()).map_err(|_e| {
-            decoding_error_raw("found a value with a header length field over 255 bytes long")
+            IonError::decoding_error("found a value with a header length field over 255 bytes long")
         })?;
         let value_length = length.value(); // ha
         let total_length = field_id_length as usize
@@ -626,7 +630,7 @@ impl<'a> ImmutableBuffer<'a> {
             let actual_value_length = 1 + length_length as usize + value_length;
             if expected_value_length != actual_value_length {
                 println!("{} != {}", expected_value_length, actual_value_length);
-                return decoding_error(
+                return IonResult::decoding_error(
                     "value length did not match length declared by annotations wrapper",
                 );
             }

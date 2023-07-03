@@ -1,5 +1,5 @@
 use crate::data_source::IonDataSource;
-use crate::result::{decoding_error, IonResult};
+use crate::result::{IonFailure, IonResult};
 use std::io::Write;
 use std::mem;
 
@@ -57,7 +57,7 @@ impl VarUInt {
         // compromise allows us to prevent overflows for the cost of a single branch per VarUInt
         // rather than performing extra bookkeeping logic on a per-byte basis.
         if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
-            return decoding_error(format!(
+            return IonResult::decoding_error(format!(
                 "Found a {encoded_size_in_bytes}-byte VarUInt. Max supported size is {MAX_ENCODED_SIZE_IN_BYTES} bytes."
             ));
         }

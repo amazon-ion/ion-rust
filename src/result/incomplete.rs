@@ -3,14 +3,14 @@ use thiserror::Error;
 
 #[derive(Clone, Debug, Error, PartialEq)]
 #[error("ran out of input while reading {label} at offset {position}")]
-pub struct Incomplete {
+pub struct IncompleteError {
     label: &'static str,
     position: Position,
 }
 
-impl Incomplete {
+impl IncompleteError {
     pub(crate) fn new(label: &'static str, position: impl Into<Position>) -> Self {
-        Incomplete {
+        IncompleteError {
             label,
             position: position.into(),
         }

@@ -1,9 +1,10 @@
 use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
 
-use crate::result::{illegal_operation, IonError};
+use crate::result::{IonError, IonFailure};
 use crate::types::integer::UIntData;
 use crate::types::UInt;
+use crate::IonResult;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::ops::{MulAssign, Neg};
@@ -191,7 +192,7 @@ impl TryFrom<Coefficient> for BigInt {
     /// converted is a negative zero, which BigInt cannot represent. Returns Ok otherwise.
     fn try_from(value: Coefficient) -> Result<Self, Self::Error> {
         if value.is_negative_zero() {
-            illegal_operation("Cannot convert negative zero Decimal to BigInt")?;
+            IonResult::illegal_operation("Cannot convert negative zero Decimal to BigInt")?;
         }
         let mut big_int: BigInt = match value.magnitude.data {
             UIntData::U64(m) => m.into(),
@@ -216,7 +217,7 @@ impl TryFrom<BigInt> for Coefficient {
                 if magnitude.is_zero() {
                     Sign::Positive
                 } else {
-                    return illegal_operation(
+                    return IonResult::illegal_operation(
                         "Cannot convert sign-less non-zero BigInt to Decimal.",
                     );
                 }

@@ -4,7 +4,7 @@ use crate::lazy::binary::raw::lazy_raw_struct::{LazyRawStruct, RawStructIterator
 use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
 use crate::lazy::binary::system::lazy_value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
-use crate::result::decoding_error_raw;
+use crate::result::IonFailure;
 use crate::{IonError, IonResult, SymbolRef, SymbolTable};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -133,7 +133,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     pub fn find_expected(&self, name: &str) -> IonResult<LazyValue<'top, 'data>> {
         self.find(name)?
-            .ok_or_else(|| decoding_error_raw(format!("missing required field {}", name)))
+            .ok_or_else(|| IonError::decoding_error(format!("missing required field {}", name)))
     }
 
     /// Like [`LazyStruct::find`], but eagerly calls [`LazyValue::read`] on the first field with a
@@ -189,8 +189,9 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     where
         'data: 'top,
     {
-        self.get(name)?
-            .ok_or_else(move || decoding_error_raw(format!("missing required field {}", name)))
+        self.get(name)?.ok_or_else(move || {
+            IonError::decoding_error(format!("missing required field {}", name))
+        })
     }
 
     /// Returns an iterator over the annotations on this value. If this value has no annotations,
@@ -262,7 +263,9 @@ impl<'top, 'data> LazyField<'top, 'data> {
             .symbol_table
             .symbol_for(field_sid)
             .map(|symbol| symbol.into())
-            .ok_or_else(|| decoding_error_raw("found a symbol ID that was not in the symbol table"))
+            .ok_or_else(|| {
+                IonError::decoding_error("found a symbol ID that was not in the symbol table")
+            })
     }
 
     /// Returns a lazy value representing the value of this field. To access the value's data,

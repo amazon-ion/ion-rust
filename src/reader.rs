@@ -12,7 +12,7 @@ use crate::element::{Blob, Clob};
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{Expandable, RawReader};
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::result::{decoding_error, IonResult};
+use crate::result::{IonFailure, IonResult};
 use crate::symbol_table::SymbolTable;
 use crate::system_reader::SystemReader;
 use crate::types::{Decimal, Int, Symbol, Timestamp};
@@ -74,7 +74,7 @@ impl ReaderBuilder {
             }
             [0xe0, major, minor, 0xea] => {
                 // Binary Ion v{major}.{minor}
-                decoding_error(format!(
+                IonResult::decoding_error(format!(
                     "cannot read Ion v{major}.{minor}; only v1.0 is supported"
                 ))
             }

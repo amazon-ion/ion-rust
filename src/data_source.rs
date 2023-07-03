@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader, Read, StdinLock};
 
-use crate::result::{decoding_error, IonResult};
+use crate::result::{IonFailure, IonResult};
 
 /// Optimized read operations for parsing Ion.
 ///
@@ -30,7 +30,7 @@ pub trait IonDataSource: BufRead {
             if buffer.is_empty() {
                 // TODO: IonResult should have a distinct `IncompleteData` error case
                 //       https://github.com/amazon-ion/ion-rust/issues/299
-                return decoding_error("Unexpected end of stream.");
+                return IonResult::decoding_error("Unexpected end of stream.");
             }
             let bytes_in_buffer = buffer.len();
             let bytes_to_skip = (number_of_bytes - bytes_skipped).min(bytes_in_buffer);
@@ -72,7 +72,7 @@ pub trait IonDataSource: BufRead {
             if number_of_buffered_bytes == 0 {
                 // TODO: IonResult should have a distinct `IncompleteData` error case
                 //       https://github.com/amazon-ion/ion-rust/issues/299
-                return decoding_error("Unexpected end of stream.");
+                return IonResult::decoding_error("Unexpected end of stream.");
             }
 
             // Iterate over the bytes already in the buffer, calling the provided lambda on each
@@ -116,7 +116,7 @@ pub trait IonDataSource: BufRead {
         if buffer.is_empty() && length > 0 {
             // TODO: IonResult should have a distinct `IncompleteData` error case
             //       https://github.com/amazon-ion/ion-rust/issues/299
-            return decoding_error("Unexpected end of stream.");
+            return IonResult::decoding_error("Unexpected end of stream.");
         }
 
         // If the requested value is already in our input buffer, there's no need to copy it out
@@ -147,7 +147,7 @@ pub trait IonDataSource: BufRead {
             // TODO: IonResult should have a distinct `IncompleteData` error case
             //       https://github.com/amazon-ion/ion-rust/issues/299
             {
-                decoding_error("Unexpected end of stream.")
+                IonResult::decoding_error("Unexpected end of stream.")
             }
             Err(io_error) => Err(io_error.into()),
         }

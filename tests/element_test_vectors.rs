@@ -5,7 +5,7 @@
 use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::ElementWriter;
 use ion_rs::element::{Element, Sequence};
-use ion_rs::result::{decoding_error, IonError, IonResult};
+use ion_rs::result::{IonError, IonResult};
 use ion_rs::{BinaryWriterBuilder, Format, IonData, IonWriter, TextKind, TextWriterBuilder};
 
 use std::fs::read;
@@ -219,9 +219,7 @@ trait ElementApi {
                         }
                     }
                 }
-                _ => {
-                    return decoding_error(format!("Expected a sequence for group: {group_list:?}"))
-                }
+                _ => panic!("Expected a sequence for group: {group_list:?}"),
             };
         }
         Ok(())

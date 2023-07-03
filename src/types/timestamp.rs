@@ -1,7 +1,5 @@
 use crate::ion_data::{IonEq, IonOrd};
-use crate::result::{
-    encoding_error, illegal_operation, illegal_operation_raw, IonError, IonResult,
-};
+use crate::result::{IonError, IonFailure, IonResult};
 use crate::types::integer::UIntData;
 use crate::types::Decimal;
 use crate::types::Sign::Negative;
@@ -390,7 +388,9 @@ impl Timestamp {
                     // We know that the coefficient is non-zero (the mantissa was not empty),
                     // so having a positive exponent would result in an illegal fractional
                     // seconds value.
-                    return encoding_error("found fractional seconds decimal that was >= 1.");
+                    return IonResult::encoding_error(
+                        "found fractional seconds decimal that was >= 1.",
+                    );
                 }
 
                 let num_digits = decimal.coefficient.number_of_decimal_digits();
@@ -405,7 +405,7 @@ impl Timestamp {
                 if coefficient.is_negative_zero() {
                     write!(output, "0")?;
                 } else if coefficient.sign == Negative {
-                    return encoding_error(
+                    return IonResult::encoding_error(
                         "fractional seconds cannot have a negative coefficient (other than -0)",
                     );
                 } else {
@@ -854,13 +854,13 @@ impl TimestampBuilder {
         D: Datelike + Timelike + Debug,
     {
         if self.year == 0 || self.year > 9999 {
-            return illegal_operation(format!(
+            return IonResult::illegal_operation(format!(
                 "Timestamp year '{}' out of range (1-9999)",
                 self.year
             ));
         }
         datetime = datetime.with_year(self.year as i32).ok_or_else(|| {
-            illegal_operation_raw(format!("specified year ('{}') is invalid", self.year))
+            IonError::illegal_operation(format!("specified year ('{}') is invalid", self.year))
         })?;
         if self.precision == Precision::Year {
             return Ok(datetime);
@@ -869,7 +869,7 @@ impl TimestampBuilder {
         // If precision >= Month, the month must be set.
         let month = self.month.expect("missing month");
         datetime = datetime.with_month(month as u32).ok_or_else(|| {
-            illegal_operation_raw(format!("specified month ('{month}') is invalid"))
+            IonError::illegal_operation(format!("specified month ('{month}') is invalid"))
         })?;
         if self.precision == Precision::Month {
             return Ok(datetime);
@@ -877,9 +877,9 @@ impl TimestampBuilder {
 
         // If precision >= Day, the day must be set.
         let day = self.day.expect("missing day");
-        datetime = datetime
-            .with_day(day as u32)
-            .ok_or_else(|| illegal_operation_raw(format!("specified day ('{day}') is invalid")))?;
+        datetime = datetime.with_day(day as u32).ok_or_else(|| {
+            IonError::illegal_operation(format!("specified day ('{day}') is invalid"))
+        })?;
         if self.precision == Precision::Day {
             return Ok(datetime);
         }
@@ -887,11 +887,11 @@ impl TimestampBuilder {
         // If precision >= HourAndMinute, the hour and minute must be set.
         let hour = self.hour.expect("missing hour");
         datetime = datetime.with_hour(hour as u32).ok_or_else(|| {
-            illegal_operation_raw(format!("specified hour ('{hour}') is invalid"))
+            IonError::illegal_operation(format!("specified hour ('{hour}') is invalid"))
         })?;
         let minute = self.minute.expect("missing minute");
         datetime = datetime.with_minute(minute as u32).ok_or_else(|| {
-            illegal_operation_raw(format!("specified minute ('{minute}') is invalid"))
+            IonError::illegal_operation(format!("specified minute ('{minute}') is invalid"))
         })?;
         if self.precision == Precision::HourAndMinute {
             return Ok(datetime);
@@ -900,7 +900,7 @@ impl TimestampBuilder {
         // If precision >= Second, the second must be set...
         let second = self.second.expect("missing second");
         datetime = datetime.with_second(second as u32).ok_or_else(|| {
-            illegal_operation_raw(format!("provided second ('{second}') is invalid."))
+            IonError::illegal_operation(format!("provided second ('{second}') is invalid."))
         })?;
 
         // ...along with the fractional seconds.
@@ -911,7 +911,7 @@ impl TimestampBuilder {
         datetime = datetime
             .with_nanosecond(self.nanoseconds.unwrap_or(0))
             .ok_or_else(|| {
-                illegal_operation_raw(format!("provided nanosecond ('{second}') is invalid"))
+                IonError::illegal_operation(format!("provided nanosecond ('{second}') is invalid"))
             })?;
 
         Ok(datetime)
@@ -929,7 +929,7 @@ impl TimestampBuilder {
         const SECONDS_PER_MINUTE: i32 = 60;
         let offset_seconds = offset_minutes * SECONDS_PER_MINUTE;
         let offset = FixedOffset::east_opt(offset_seconds).ok_or_else(|| {
-            illegal_operation_raw(format!(
+            IonError::illegal_operation(format!(
                 "specified offset ({offset_minutes} minutes) is invalid"
             ))
         })?;
@@ -944,7 +944,7 @@ impl TimestampBuilder {
         // DateTime<FixedOffset> is valid.
         match offset.from_local_datetime(&datetime) {
             LocalResult::None => {
-                illegal_operation(
+                IonResult::illegal_operation(
                     format!(
                         "specified offset/datetime pair is invalid (offset={offset_minutes}, datetime={datetime})"
                     )
@@ -952,7 +952,7 @@ impl TimestampBuilder {
             },
             LocalResult::Single(datetime) => Ok(datetime),
             LocalResult::Ambiguous(_min, _max) => {
-                illegal_operation(
+                IonResult::illegal_operation(
                     format!(
                         "specified offset/datetime pair produces an ambiguous timestamp (offset={offset_minutes}, datetime={datetime})"
                     )
@@ -991,12 +991,12 @@ impl TimestampBuilder {
             timestamp.fractional_seconds = self.fractional_seconds;
             if let Some(Mantissa::Arbitrary(ref decimal)) = &timestamp.fractional_seconds {
                 if decimal.is_less_than_zero() {
-                    return illegal_operation(
+                    return IonResult::illegal_operation(
                         "cannot create a timestamp with negative fractional seconds",
                     );
                 }
                 if decimal.is_greater_than_or_equal_to_one() {
-                    return illegal_operation(
+                    return IonResult::illegal_operation(
                         "cannot create a timestamp with a fractional seconds >= 1.0",
                     );
                 }
@@ -1254,7 +1254,7 @@ impl TryInto<NaiveDateTime> for Timestamp {
 
     fn try_into(self) -> Result<NaiveDateTime, Self::Error> {
         if self.offset.is_some() {
-            return illegal_operation(
+            return IonResult::illegal_operation(
                 "cannot convert a Timestamp with a known offset into a NaiveDateTime",
             );
         }
@@ -1267,7 +1267,7 @@ impl TryInto<DateTime<FixedOffset>> for Timestamp {
 
     fn try_into(self) -> Result<DateTime<FixedOffset>, Self::Error> {
         if self.offset.is_none() {
-            return illegal_operation(
+            return IonResult::illegal_operation(
                 "cannot convert a Timestamp with an unknown offset into a DateTime<FixedOffset>",
             );
         }
