@@ -114,10 +114,3 @@ impl<T> IonFailure for IonResult<T> {
         Err(IonError::illegal_operation(operation))
     }
 }
-
-/// A convenience method for creating an IonError::IllegalOperation with the provided operation
-/// text. Useful for calling Option#ok_or_else.
-#[inline(never)]
-pub(crate) fn illegal_operation_raw<S: Into<String>>(operation: S) -> IonError {
-    IllegalOperation::new(operation).into()
-}

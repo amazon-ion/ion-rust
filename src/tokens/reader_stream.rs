@@ -349,7 +349,6 @@ mod tests {
     use super::*;
     use crate::data_source::ToIonDataSource;
     use crate::element::{Blob as ElemBlob, Clob as ElemClob};
-    use crate::result::illegal_operation_raw;
     use crate::tokens::{ContainerType, ScalarValue, Value};
     use crate::{Decimal, IonError, IonResult, ReaderBuilder, Symbol};
     use rstest::rstest;
