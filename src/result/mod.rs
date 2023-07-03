@@ -21,7 +21,7 @@ pub mod position;
 pub type IonResult<T> = Result<T, IonError>;
 
 /// Represents the different types of high-level failures that might occur when reading Ion data.
-#[derive(Clone, Debug, Error)]
+#[derive(Clone, Debug, Error, PartialEq)]
 pub enum IonError {
     /// Indicates that an IO error was encountered while reading or writing.
     #[error("{0}")]
@@ -65,24 +65,6 @@ impl From<io::ErrorKind> for IonError {
 impl From<fmt::Error> for IonError {
     fn from(error: Error) -> Self {
         EncodingError::new(error.to_string()).into()
-    }
-}
-
-// io::Error does not implement PartialEq, which precludes us from simply deriving an implementation.
-// Providing an implementation of PartialEq allows IonResult values to be the left or right side in
-// an assert_eq!() statement.
-impl PartialEq for IonError {
-    fn eq(&self, other: &Self) -> bool {
-        use IonError::*;
-        match (self, other) {
-            // We can compare the io::Errors' ErrorKinds, offering a weak definition of equality.
-            (IoError(e1), IoError(e2)) => e1 == e2,
-            (Incomplete(e1), Incomplete(e2)) => e1 == e2,
-            (EncodingError(e1), EncodingError(e2)) => e1 == e2,
-            (DecodingError(e1), DecodingError(e2)) => e1 == e2,
-            (IllegalOperation(e1), IllegalOperation(e2)) => e1 == e2,
-            _ => false,
-        }
     }
 }
 
