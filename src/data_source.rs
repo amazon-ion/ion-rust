@@ -261,10 +261,8 @@ mod tests {
     }
 }
 
-#[doc = r##"
-Types that implement this trait can be converted into an implementation of [BufRead], allowing
-users to deserialize Ion from a variety of types that might not define I/O operations on their own.
-"##]
+/// Types that implement this trait can be converted into an implementation of [BufRead], allowing
+/// users to deserialize Ion from a variety of types that might not define I/O operations on their own.
 pub trait ToIonDataSource {
     type DataSource: IonDataSource;
     fn to_ion_data_source(self) -> Self::DataSource;
