@@ -73,6 +73,10 @@ impl From<fmt::Error> for IonError {
 // `IonResult<T>`, which is just a type alias for `Result<T, IonError>`, whose implementation
 // does not live in this crate.
 pub(crate) trait IonFailure {
+    // Note: this trait does not have an `io(...)` method because the only way we ever construct
+    // an `IonError::Io` is by converting a `std::io::IoError` with the ? operator.
+    // Because this trait is only crate-visible, methods can be added/changed as needed in
+    // the future.
     fn incomplete(label: &'static str, position: impl Into<Position>) -> Self;
     fn decoding_error<S: Into<String>>(description: S) -> Self;
     fn encoding_error<S: Into<String>>(description: S) -> Self;
