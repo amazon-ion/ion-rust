@@ -1,4 +1,4 @@
-use crate::result::illegal_operation;
+use crate::result::IonFailure;
 use crate::IonResult;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,7 +16,9 @@ impl SharedSymbolTable {
         // As per Ion Specification, the name field should be a string with length at least one.
         // If the field has any other value, then materialization of this symbol table must fail.
         if name.is_empty() {
-            return illegal_operation("shared symbol table with empty name is not allowed");
+            return IonResult::illegal_operation(
+                "shared symbol table with empty name is not allowed",
+            );
         }
 
         Ok(Self {

@@ -4,7 +4,7 @@ use super::{
     AnnotationsThunk, ContainerType, Content, FieldNameThunk, Instruction, ScalarThunk, ScalarType,
     ScalarValue, Token, TokenStream,
 };
-use crate::result::illegal_operation;
+use crate::result::IonFailure;
 use crate::thunk::Thunk;
 use crate::{IonReader, IonResult, IonType, StreamItem, Symbol};
 use std::cell::RefCell;
@@ -38,7 +38,7 @@ where
         use UnderlyingReader::*;
         match self {
             Active(reader) => Ok(reader),
-            Inactive => illegal_operation(INVALID_TOKEN_ERR_TEXT),
+            Inactive => IonResult::illegal_operation(INVALID_TOKEN_ERR_TEXT),
         }
     }
 
@@ -46,7 +46,7 @@ where
         use UnderlyingReader::*;
         match self {
             Active(reader) => Ok(reader),
-            Inactive => illegal_operation(INVALID_TOKEN_ERR_TEXT),
+            Inactive => IonResult::illegal_operation(INVALID_TOKEN_ERR_TEXT),
         }
     }
 
@@ -255,9 +255,11 @@ where
                             Content::Null(ion_type)
                         } else {
                             match self.ion_type() {
-                                None => illegal_operation("No type for value from reader")?,
+                                None => {
+                                    IonResult::illegal_operation("No type for value from reader")?
+                                }
                                 Some(IonType::Null) => {
-                                    illegal_operation("Null type for value from reader")?
+                                    IonResult::illegal_operation("Null type for value from reader")?
                                 }
                                 Some(IonType::Bool) => self.bool_token(),
                                 Some(IonType::Int) => self.int_token(),
@@ -291,7 +293,7 @@ where
                             self.step_out()?;
                             Content::EndContainer(ContainerType::Struct).into()
                         }
-                        Some(ion_type) => illegal_operation(format!(
+                        Some(ion_type) => IonResult::illegal_operation(format!(
                             "Unexpected non-container type: {}",
                             ion_type
                         ))?,
@@ -306,7 +308,7 @@ where
                     Content::EndContainer(container_type)
                 }
                 _ => match self.parent_type() {
-                    None => illegal_operation("Cannot skip to next end at top-level")?,
+                    None => IonResult::illegal_operation("Cannot skip to next end at top-level")?,
                     Some(ion_type) => {
                         self.step_out()?;
 
@@ -314,7 +316,7 @@ where
                             IonType::List => Content::EndContainer(ContainerType::List),
                             IonType::SExp => Content::EndContainer(ContainerType::SExp),
                             IonType::Struct => Content::EndContainer(ContainerType::Struct),
-                            _ => illegal_operation(format!(
+                            _ => IonResult::illegal_operation(format!(
                                 "Unexpected container type: {}",
                                 ion_type
                             ))?,
@@ -347,7 +349,6 @@ mod tests {
     use super::*;
     use crate::data_source::ToIonDataSource;
     use crate::element::{Blob as ElemBlob, Clob as ElemClob};
-    use crate::result::{illegal_operation, illegal_operation_raw};
     use crate::tokens::{ContainerType, ScalarValue, Value};
     use crate::{Decimal, IonError, IonResult, ReaderBuilder, Symbol};
     use rstest::rstest;
@@ -387,9 +388,9 @@ mod tests {
 
     fn last_next_end(contents: IonResult<Srcs>) -> IonResult<Srcs> {
         let mut srcs = contents?;
-        let (_, token) = srcs
-            .pop()
-            .ok_or(illegal_operation_raw("No last element in stream to change"))?;
+        let (_, token) = srcs.pop().ok_or(IonError::illegal_operation(
+            "No last element in stream to change",
+        ))?;
         srcs.push((NextEnd, token));
         Ok(srcs)
     }
@@ -420,7 +421,7 @@ mod tests {
     {
         let mut srcs = srcs_res?;
         if srcs.is_empty() {
-            return illegal_operation("Cannot annotate nothing");
+            return IonResult::illegal_operation("Cannot annotate nothing");
         }
 
         // not exactly efficient, but that's fine here
@@ -539,8 +540,8 @@ mod tests {
 
             // make sure the token is invalid (annotations/field name on start container)
             match invalid_token.materialize() {
-                Err(IonError::IllegalOperation { operation }) => {
-                    assert_eq!(INVALID_TOKEN_ERR_TEXT, operation)
+                Err(IonError::IllegalOperation(e)) => {
+                    assert_eq!(INVALID_TOKEN_ERR_TEXT, e.operation())
                 }
                 Err(e) => panic!("Unexpected Error: {}", e),
                 _ => panic!("Should not be able to materialize"),

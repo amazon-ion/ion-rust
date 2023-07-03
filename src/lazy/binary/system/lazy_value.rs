@@ -2,7 +2,7 @@ use crate::element::{Annotations, Element, IntoAnnotatedElement, Value};
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
 use crate::lazy::value_ref::ValueRef;
-use crate::result::decoding_error;
+use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTable};
 
@@ -166,7 +166,6 @@ impl<'top, 'data> LazyValue<'top, 'data> {
         use crate::lazy::binary::system::lazy_sequence::LazySequence;
         use crate::lazy::binary::system::lazy_struct::LazyStruct;
         use crate::lazy::raw_value_ref::RawValueRef::*;
-        use crate::result::decoding_error_raw;
 
         let value_ref = match self.raw_value.read()? {
             Null(ion_type) => ValueRef::Null(ion_type),
@@ -182,7 +181,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
                         .symbol_table
                         .symbol_for(sid)
                         .ok_or_else(|| {
-                            decoding_error_raw(format!(
+                            IonError::decoding_error(format!(
                                 "found a symbol ID (${}) that was not in the symbol table",
                                 sid
                             ))
@@ -284,7 +283,7 @@ where
         Ok(self.next().is_none())
     }
 
-    /// Like [`Self::are`], but returns an [`IonError::DecodingError`] if the iterator's annotations
+    /// Like [`Self::are`], but returns an [`IonError::Decoding`] if the iterator's annotations
     /// don't match the provided sequence exactly.
     /// ```
     ///# use ion_rs::IonResult;
@@ -318,7 +317,7 @@ where
         if self.are(annotations_to_match)? {
             Ok(())
         } else {
-            decoding_error("value annotations did not match expected sequence")
+            IonResult::decoding_error("value annotations did not match expected sequence")
         }
     }
 }
@@ -333,7 +332,7 @@ where
         let raw_annotation = self.raw_annotations.next()?;
         match raw_annotation {
             Ok(RawSymbolTokenRef::SymbolId(sid)) => match self.symbol_table.symbol_for(sid) {
-                None => Some(decoding_error(
+                None => Some(IonResult::decoding_error(
                     "found a symbol ID that was not in the symbol table",
                 )),
                 Some(symbol) => Some(Ok(symbol.into())),

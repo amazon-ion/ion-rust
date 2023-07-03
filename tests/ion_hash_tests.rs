@@ -5,9 +5,10 @@ use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
 use ion_rs::element::{Element, Sequence, Struct};
 use ion_rs::ion_hash::IonHasher;
-use ion_rs::result::{illegal_operation, IonResult};
+use ion_rs::result::IonResult;
 use ion_rs::types::IntAccess;
 
+use ion_rs::IonError;
 use std::convert::From;
 use std::fmt::Debug;
 use std::fs::read;
@@ -119,7 +120,7 @@ fn ion_hash_tests() -> IonHashTestResult<()> {
 }
 
 fn test_file(file_name: &str) -> IonHashTestResult<()> {
-    let data = read(file_name).map_err(|source| ion_rs::IonError::IoError { source })?;
+    let data = read(file_name).map_err(IonError::from)?;
     let elems = Element::read_all(data)?;
     test_all(elems)
 }
@@ -224,7 +225,7 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
     let identity = if let Some(identity) = struct_.get("identity") {
         identity.as_sequence().expect("`identity` should be a sexp")
     } else {
-        illegal_operation("only identity tests are implemented")?
+        todo!("only identity tests are implemented")
     };
 
     if let Some(expectation) = identity.elements().last() {
@@ -240,10 +241,10 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
 
         match method {
             "digest" | "final_digest" => Ok(bytes),
-            _ => illegal_operation(format!("unknown expectation `{}`", method))?,
+            _ => panic!("unknown expectation `{}`", method),
         }
     } else {
-        illegal_operation("expected at least expectation!")?
+        panic!("expected at least expectation!")
     }
 }
 

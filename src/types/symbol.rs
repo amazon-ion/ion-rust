@@ -1,5 +1,5 @@
 use crate::ion_data::{IonEq, IonOrd};
-use crate::result::decoding_error;
+use crate::result::IonFailure;
 use crate::{IonResult, SymbolRef};
 use std::borrow::Borrow;
 use std::cmp::Ordering;
@@ -117,7 +117,7 @@ impl Symbol {
     pub fn text_or_error(&self) -> IonResult<&str> {
         match self.text() {
             Some(text) => Ok(text),
-            None => decoding_error("symbol has unknown text"),
+            None => IonResult::decoding_error("symbol has unknown text"),
         }
     }
 }

@@ -7,12 +7,9 @@ use crate::binary::var_uint::VarUInt;
 use crate::binary::IonTypeCode;
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{BufferedRawReader, Expandable, RawStreamItem};
-use crate::result::{
-    decoding_error, decoding_error_raw, illegal_operation, illegal_operation_raw,
-    incomplete_data_error,
-};
+use crate::result::IonFailure;
 use crate::types::{Blob, Clob, Decimal, IntAccess, Str, SymbolId};
-use crate::{Int, IonResult, IonType, RawSymbolToken, Timestamp};
+use crate::{Int, IonError, IonResult, IonType, RawSymbolToken, Timestamp};
 use bytes::{BigEndian, Buf, ByteOrder};
 use num_bigint::BigUint;
 use num_traits::Zero;
@@ -413,7 +410,7 @@ impl<A: AsRef<[u8]> + Expandable> RawBinaryReader<A> {
         } else {
             self.buffer.consume(bytes_available);
             self.state = Skipping(bytes_to_skip - bytes_available);
-            incomplete_data_error("ahead to next item", self.buffer.total_consumed())
+            IonResult::incomplete("ahead to next item", self.buffer.total_consumed())
         }
     }
 
@@ -460,7 +457,7 @@ impl<A: AsRef<[u8]> + Expandable> RawBinaryReader<A> {
     // It will only be called as a result of user error; making it `inline(never)` keeps the
     // compiler from bloating functions on the hot path with its (rarely used) expansion.
     fn expected<T>(&self, expected: IonType) -> IonResult<T> {
-        illegal_operation(format!(
+        IonResult::illegal_operation(format!(
             "type mismatch: expected a(n) {} but positioned over a(n) {}",
             expected,
             self.current()
@@ -487,7 +484,7 @@ impl<A: AsRef<[u8]> + Expandable> RawBinaryReader<A> {
 
         let value_total_length = encoded_value.total_length();
         if self.buffer.remaining() < value_total_length {
-            return incomplete_data_error(
+            return IonResult::incomplete(
                 "only part of the requested value is available in the buffer",
                 self.buffer.total_consumed(),
             );
@@ -518,7 +515,9 @@ impl<A: AsRef<[u8]> + Expandable> RawBinaryReader<A> {
     pub fn read_symbol_id(&mut self) -> IonResult<SymbolId> {
         let (_encoded_value, bytes) = self.value_and_bytes(IonType::Symbol)?;
         if bytes.len() > mem::size_of::<usize>() {
-            return decoding_error("found a symbol Id that was too large to fit in a usize");
+            return IonResult::decoding_error(
+                "found a symbol Id that was too large to fit in a usize",
+            );
         }
         let magnitude = DecodedUInt::small_uint_from_slice(bytes);
         // This cast is safe because we've confirmed the value was small enough to fit in a usize.
@@ -536,7 +535,9 @@ impl<A: AsRef<[u8]> + Expandable> RawBinaryReader<A> {
         if let Ok(sid) = big_uint.try_into() {
             Ok(sid)
         } else {
-            decoding_error("found a big_uint symbol ID that was too large to fit in a usize")
+            IonResult::decoding_error(
+                "found a big_uint symbol ID that was too large to fit in a usize",
+            )
         }
     }
 
@@ -718,7 +719,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
     fn next(&mut self) -> IonResult<Self::Item> {
         if let ReaderState::WaitingForData(value) = self.state {
             if self.buffer.remaining() < value.total_length() {
-                return incomplete_data_error("ahead to next item", self.buffer.total_consumed());
+                return IonResult::incomplete("ahead to next item", self.buffer.total_consumed());
             } else {
                 self.state = ReaderState::OnValue(value);
                 if value.header.is_null() {
@@ -754,7 +755,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
                     if self.is_eos {
                         return Ok(RawStreamItem::Nothing);
                     } else {
-                        return incomplete_data_error(
+                        return IonResult::incomplete(
                             "ahead to next item",
                             self.buffer.total_consumed(),
                         );
@@ -784,7 +785,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
             {
                 *tx_reader.state = ReaderState::WaitingForData(*encoded_value);
                 self.buffer.consume(nop_bytes_count);
-                return incomplete_data_error("ahead to next item", self.buffer.total_consumed());
+                return IonResult::incomplete("ahead to next item", self.buffer.total_consumed());
             }
         }
 
@@ -828,13 +829,13 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
     fn field_name(&self) -> IonResult<Self::Symbol> {
         // If the reader is parked on a value...
         self.encoded_value()
-            .ok_or_else(|| illegal_operation_raw("the reader is not positioned on a value"))
+            .ok_or_else(|| IonError::illegal_operation("the reader is not positioned on a value"))
             // and that value has a field ID (because it's inside a struct)...
             .and_then(|ev|
                 // ...then convert that field ID into a RawSymbolToken.
                 ev.field_id
                 .map(RawSymbolToken::SymbolId)
-                .ok_or_else(|| illegal_operation_raw("the current value is not inside a struct")))
+                .ok_or_else(|| IonError::illegal_operation("the current value is not inside a struct")))
     }
 
     fn is_null(&self) -> bool {
@@ -850,12 +851,12 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
             return if value.header.is_null() {
                 Ok(ion_type)
             } else {
-                illegal_operation(format!(
+                IonResult::illegal_operation(format!(
                     "cannot read null; reader is currently positioned on a non-null {ion_type}"
                 ))
             };
         }
-        Err(illegal_operation_raw(
+        Err(IonError::illegal_operation(
             "the reader is not currently positioned on a value",
         ))
     }
@@ -867,7 +868,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
         match representation {
             0 => Ok(false),
             1 => Ok(true),
-            _ => decoding_error(
+            _ => IonResult::decoding_error(
                 "found a boolean value with an illegal representation (must be 0 or 1): {}",
             ),
         }
@@ -876,7 +877,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
     fn read_i64(&mut self) -> IonResult<i64> {
         self.read_int().and_then(|i| {
             i.as_i64()
-                .ok_or_else(|| decoding_error_raw("integer was too large to fit in an i64"))
+                .ok_or_else(|| IonError::decoding_error("integer was too large to fit in an i64"))
         })
     }
 
@@ -892,10 +893,12 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
         let value = match (encoded_value.header.ion_type_code, value) {
             (PositiveInteger, integer) => integer,
             (NegativeInteger, integer) if integer.is_zero() => {
-                return decoding_error("found a negative integer (typecode=3) with a value of 0");
+                return IonResult::decoding_error(
+                    "found a negative integer (typecode=3) with a value of 0",
+                );
             }
             (NegativeInteger, integer) => -integer,
-            _itc => return decoding_error("unexpected ion type code"),
+            _itc => return IonResult::decoding_error("unexpected ion type code"),
         };
 
         Ok(value)
@@ -912,7 +915,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
             0 => 0f64,
             4 => f64::from(BigEndian::read_f32(bytes)),
             8 => BigEndian::read_f64(bytes),
-            _ => return decoding_error("encountered a float with an illegal length"),
+            _ => return IonResult::decoding_error("encountered a float with an illegal length"),
         };
         Ok(value)
     }
@@ -945,8 +948,9 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
     /// If the reader is currently positioned on a string, returns a [&str] containing its text.
     fn read_str(&mut self) -> IonResult<&str> {
         self.read_str_bytes().and_then(|bytes| {
-            std::str::from_utf8(bytes)
-                .map_err(|_| decoding_error_raw("encountered a string with invalid utf-8 data"))
+            std::str::from_utf8(bytes).map_err(|_| {
+                IonError::decoding_error("encountered a string with invalid utf-8 data")
+            })
         })
     }
 
@@ -1000,7 +1004,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
 
         let hour = buffer.read_var_uint()?.value() as u32;
         if buffer.is_empty() {
-            return decoding_error("timestamps with an hour must also specify a minute");
+            return IonResult::decoding_error("timestamps with an hour must also specify a minute");
         }
         let minute = buffer.read_var_uint()?.value() as u32;
         let builder = builder.with_hour_and_minute(hour, minute);
@@ -1050,7 +1054,9 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
 
     fn step_in(&mut self) -> IonResult<()> {
         let value = self.encoded_value().ok_or_else(|| {
-            illegal_operation_raw("cannot step in; the reader is not positioned over a container")
+            IonError::illegal_operation(
+                "cannot step in; the reader is not positioned over a container",
+            )
         })?;
 
         let container_type = match value.header.ion_type {
@@ -1058,7 +1064,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
             IonType::SExp => ContainerType::SExpression,
             IonType::Struct => ContainerType::Struct,
             _other => {
-                return illegal_operation(
+                return IonResult::illegal_operation(
                     "cannot step in; the reader is not positioned over a container",
                 )
             }
@@ -1089,7 +1095,11 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
     fn step_out(&mut self) -> IonResult<()> {
         let parent = match self.parents.pop() {
             Some(parent) => parent,
-            None => return illegal_operation("reader cannot step out at the top level (depth=0)"),
+            None => {
+                return IonResult::illegal_operation(
+                    "reader cannot step out at the top level (depth=0)",
+                )
+            }
         };
 
         // We need to advance the reader to the first byte beyond the end of the parent container.
@@ -1109,7 +1119,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
             self.state = ReaderState::Skipping(bytes_left_to_skip);
             // Skip what we can; and return `Incomplete` so more data can be added.
             self.buffer.consume(bytes_left_to_skip);
-            incomplete_data_error("ahead to next item", self.buffer.total_consumed())
+            IonResult::incomplete("ahead to next item", self.buffer.total_consumed())
         }
     }
 
@@ -1150,7 +1160,7 @@ impl<'a> Iterator for AnnotationsIterator<'a> {
         let var_uint = VarUInt::read(&mut self.data).unwrap();
         // If this var_uint was longer than the declared annotations wrapper length, return an error.
         if var_uint.size_in_bytes() > remaining {
-            Some(decoding_error(
+            Some(IonResult::decoding_error(
                 "found an annotation that exceeded the wrapper's declared length",
             ))
         } else {
@@ -1247,7 +1257,11 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
                 // Record its length and offset information.
                 self.encoded_value.field_id_length = match u8::try_from(field_id.size_in_bytes()) {
                     Ok(length) => length,
-                    Err(_e) => return decoding_error("found a field ID with more than 255 bytes"),
+                    Err(_e) => {
+                        return IonResult::decoding_error(
+                            "found a field ID with more than 255 bytes",
+                        )
+                    }
                 };
                 self.encoded_value.field_id = Some(field_id.value());
                 return if type_descriptor.is_annotation_wrapper() {
@@ -1283,7 +1297,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         // `IonType` instead of an `Option<IonType>`.
         let header: Header = type_descriptor
             .to_header()
-            .ok_or_else(|| decoding_error_raw("found a non-value in value position"))?;
+            .ok_or_else(|| IonError::decoding_error("found a non-value in value position"))?;
 
         // Add the header to the encoded value we're constructing
         self.encoded_value.header = header;
@@ -1296,7 +1310,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         // Record the header's offset/length information.
         let length: VarUInt = self.tx_buffer.read_value_length(header)?;
         self.encoded_value.header_length = u8::try_from(length.size_in_bytes()).map_err(|_e| {
-            decoding_error_raw("found a value with a header length field over 255 bytes long")
+            IonError::decoding_error("found a value with a header length field over 255 bytes long")
         })?;
         self.encoded_value.value_length = length.value();
         self.encoded_value.total_length = self.encoded_value.field_id_length as usize
@@ -1310,7 +1324,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
             if expected_length
                 != self.encoded_value.header_length() + self.encoded_value.value_length()
             {
-                return decoding_error(
+                return IonResult::decoding_error(
                     "annotations wrapper length did not align with value length",
                 );
             }
@@ -1372,7 +1386,7 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
 
         // Validate that the annotations sequence is not empty.
         if annotations_length.value() == 0 {
-            return decoding_error("found an annotations wrapper with no annotations");
+            return IonResult::decoding_error("found an annotations wrapper with no annotations");
         }
 
         // Validate that the annotated value is not missing.
@@ -1381,11 +1395,11 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
             - annotations_length.value();
 
         if expected_value_length == 0 {
-            return decoding_error("found an annotation wrapper with no value");
+            return IonResult::decoding_error("found an annotation wrapper with no value");
         }
 
         if annotations_length.value() > self.tx_buffer.remaining() {
-            return incomplete_data_error("an annotation wrapper", self.tx_buffer.total_consumed());
+            return IonResult::incomplete("an annotation wrapper", self.tx_buffer.total_consumed());
         }
 
         // Skip over the annotations sequence itself; the reader will return to it if/when the
@@ -1395,11 +1409,11 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         // Record the important offsets/lengths so we can revisit the annotations sequence later.
         self.encoded_value.annotations_header_length =
             u8::try_from(self.tx_buffer.total_consumed() - initial_consumed).map_err(|_e| {
-                decoding_error_raw("found an annotations header greater than 255 bytes long")
+                IonError::decoding_error("found an annotations header greater than 255 bytes long")
             })?;
         self.encoded_value.annotations_sequence_length = u8::try_from(annotations_length.value())
             .map_err(|_e| {
-            decoding_error_raw("found an annotations sequence greater than 255 bytes long")
+            IonError::decoding_error("found an annotations sequence greater than 255 bytes long")
         })?;
 
         Ok(expected_value_length)
@@ -1409,13 +1423,15 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
     #[inline(never)]
     fn read_ivm(&mut self) -> IonResult<RawStreamItem> {
         if let Some(container) = self.parent {
-            return decoding_error(format!(
+            return IonResult::decoding_error(format!(
                 "found an Ion version marker inside a {container:?}"
             ));
         };
         let (major, minor) = self.tx_buffer.read_ivm()?;
         if !matches!((major, minor), (1, 0)) {
-            return decoding_error(format!("unsupported Ion version {major:X}.{minor:X}"));
+            return IonResult::decoding_error(format!(
+                "unsupported Ion version {major:X}.{minor:X}"
+            ));
         }
         *self.state = ReaderState::OnIvm;
         Ok(RawStreamItem::VersionMarker(major, minor))

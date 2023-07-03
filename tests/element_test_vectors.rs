@@ -5,7 +5,7 @@
 use ion_rs::element::reader::ElementReader;
 use ion_rs::element::writer::ElementWriter;
 use ion_rs::element::{Element, Sequence};
-use ion_rs::result::{decoding_error, IonError, IonResult};
+use ion_rs::result::{IonError, IonResult};
 use ion_rs::{BinaryWriterBuilder, Format, IonData, IonWriter, TextKind, TextWriterBuilder};
 
 use std::fs::read;
@@ -219,9 +219,7 @@ trait ElementApi {
                         }
                     }
                 }
-                _ => {
-                    return decoding_error(format!("Expected a sequence for group: {group_list:?}"))
-                }
+                _ => panic!("Expected a sequence for group: {group_list:?}"),
             };
         }
         Ok(())
@@ -253,12 +251,10 @@ trait ElementApi {
                         Ok(elem) => {
                             panic!("Did not expect element for duplicates: {elems:?}, {elem:?}")
                         }
-                        Err(e) => match e {
-                            IonError::DecodingError { description: _ } => (),
-                            other => {
-                                panic!("Got an error we did not expect for duplicates: {other:?}")
-                            }
-                        },
+                        Err(IonError::Decoding(_)) => (),
+                        Err(other) => {
+                            panic!("Got an error we did not expect for duplicates: {other:?}")
+                        }
                     }
                 }
             }

@@ -4,9 +4,10 @@ use bigdecimal::{BigDecimal, Signed};
 use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};
 
 use crate::ion_data::{IonEq, IonOrd};
-use crate::result::{illegal_operation, illegal_operation_raw, IonError};
+use crate::result::{IonError, IonFailure};
 use crate::types::integer::UIntData;
 use crate::types::{Coefficient, Sign, UInt};
+use crate::IonResult;
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};
 use std::convert::{TryFrom, TryInto};
@@ -351,12 +352,16 @@ impl TryFrom<f64> for Decimal {
     fn try_from(value: f64) -> Result<Self, Self::Error> {
         if value.is_infinite() {
             if value.is_sign_negative() {
-                return illegal_operation("Cannot convert f64 negative infinity to Decimal.");
+                return IonResult::illegal_operation(
+                    "Cannot convert f64 negative infinity to Decimal.",
+                );
             } else {
-                return illegal_operation("Cannot convert f64 infinity to Decimal.");
+                return IonResult::illegal_operation("Cannot convert f64 infinity to Decimal.");
             }
         } else if value.is_nan() {
-            return illegal_operation("Cannot convert f64 NaN (not-a-number) to Decimal.");
+            return IonResult::illegal_operation(
+                "Cannot convert f64 NaN (not-a-number) to Decimal.",
+            );
         }
 
         // You can't use the `log10` operation on a zero value, so check for these cases explicitly.
@@ -371,16 +376,17 @@ impl TryFrom<f64> for Decimal {
 
         fn try_convert(coefficient: f64, exponent: i64) -> Result<Decimal, IonError> {
             // prefer a compact representation for the coefficient; fallback to bigint
-            let coefficient: Coefficient = if !coefficient.trunc().is_zero()
-                && coefficient.abs() <= i64::MAX as f64
-            {
-                (coefficient as i64).into()
-            } else {
-                coefficient
-                    .to_bigint()
-                    .ok_or_else(|| illegal_operation_raw("Cannot convert large f64 to Decimal."))?
-                    .try_into()?
-            };
+            let coefficient: Coefficient =
+                if !coefficient.trunc().is_zero() && coefficient.abs() <= i64::MAX as f64 {
+                    (coefficient as i64).into()
+                } else {
+                    coefficient
+                        .to_bigint()
+                        .ok_or_else(|| {
+                            IonError::illegal_operation("Cannot convert large f64 to Decimal.")
+                        })?
+                        .try_into()?
+                };
 
             Ok(Decimal::new(coefficient, exponent))
         }

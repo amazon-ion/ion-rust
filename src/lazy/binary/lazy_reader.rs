@@ -3,8 +3,8 @@ use crate::element::reader::ElementReader;
 use crate::element::Element;
 use crate::lazy::binary::system::lazy_system_reader::LazySystemReader;
 use crate::lazy::binary::system::lazy_value::LazyValue;
-use crate::result::{decoding_error, decoding_error_raw};
-use crate::IonResult;
+use crate::result::IonFailure;
+use crate::{IonError, IonResult};
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -61,9 +61,9 @@ pub struct LazyReader<'data> {
 impl<'data> LazyReader<'data> {
     pub fn new(ion_data: &'data [u8]) -> IonResult<LazyReader<'data>> {
         if ion_data.len() < IVM.len() {
-            return decoding_error("input is too short to be recognized as Ion");
+            return IonResult::decoding_error("input is too short to be recognized as Ion");
         } else if ion_data[..IVM.len()] != IVM {
-            return decoding_error("input does not begin with an Ion version marker");
+            return IonResult::decoding_error("input does not begin with an Ion version marker");
         }
 
         let system_reader = LazySystemReader::new(ion_data);
@@ -81,7 +81,7 @@ impl<'data> LazyReader<'data> {
     /// Like [`Self::next`], but returns an `IonError` if there are no more values in the stream.
     pub fn expect_next<'top>(&'top mut self) -> IonResult<LazyValue<'top, 'data>> {
         self.next()?
-            .ok_or_else(|| decoding_error_raw("expected another top-level value"))
+            .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::lazy::binary::raw::lazy_raw_sequence::LazyRawSequence;
 use crate::lazy::binary::raw::lazy_raw_struct::LazyRawStruct;
-use crate::result::decoding_error;
+use crate::result::IonFailure;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use std::fmt::{Debug, Formatter};
 
@@ -50,7 +50,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::Null(ion_type) = self {
             Ok(ion_type)
         } else {
-            decoding_error("expected a null")
+            IonResult::decoding_error("expected a null")
         }
     }
 
@@ -58,7 +58,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::Bool(b) = self {
             Ok(b)
         } else {
-            decoding_error("expected a bool")
+            IonResult::decoding_error("expected a bool")
         }
     }
 
@@ -66,7 +66,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::Int(i) = self {
             Ok(i)
         } else {
-            decoding_error("expected an int")
+            IonResult::decoding_error("expected an int")
         }
     }
 
@@ -74,7 +74,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::Float(f) = self {
             Ok(f)
         } else {
-            decoding_error("expected a float")
+            IonResult::decoding_error("expected a float")
         }
     }
 
@@ -82,7 +82,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::Decimal(d) = self {
             Ok(d)
         } else {
-            decoding_error("expected a decimal")
+            IonResult::decoding_error("expected a decimal")
         }
     }
 
@@ -90,7 +90,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::Timestamp(t) = self {
             Ok(t)
         } else {
-            decoding_error("expected a timestamp")
+            IonResult::decoding_error("expected a timestamp")
         }
     }
 
@@ -98,7 +98,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::String(s) = self {
             Ok(s)
         } else {
-            decoding_error("expected a string")
+            IonResult::decoding_error("expected a string")
         }
     }
 
@@ -106,7 +106,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::Symbol(s) = self {
             Ok(s.clone())
         } else {
-            decoding_error("expected a symbol")
+            IonResult::decoding_error("expected a symbol")
         }
     }
 
@@ -114,7 +114,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::Blob(b) = self {
             Ok(b)
         } else {
-            decoding_error("expected a blob")
+            IonResult::decoding_error("expected a blob")
         }
     }
 
@@ -122,7 +122,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::Clob(c) = self {
             Ok(c)
         } else {
-            decoding_error("expected a clob")
+            IonResult::decoding_error("expected a clob")
         }
     }
 
@@ -130,7 +130,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::List(s) = self {
             Ok(s)
         } else {
-            decoding_error("expected a list")
+            IonResult::decoding_error("expected a list")
         }
     }
 
@@ -138,7 +138,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::SExp(s) = self {
             Ok(s)
         } else {
-            decoding_error("expected a sexp")
+            IonResult::decoding_error("expected a sexp")
         }
     }
 
@@ -146,7 +146,7 @@ impl<'a> RawValueRef<'a> {
         if let RawValueRef::Struct(s) = self {
             Ok(s)
         } else {
-            decoding_error("expected a struct")
+            IonResult::decoding_error("expected a struct")
         }
     }
 }

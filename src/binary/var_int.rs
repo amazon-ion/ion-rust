@@ -1,5 +1,5 @@
 use crate::data_source::IonDataSource;
-use crate::result::{decoding_error, IonResult};
+use crate::result::{IonFailure, IonResult};
 use std::io::Write;
 use std::mem;
 
@@ -76,7 +76,7 @@ impl VarInt {
         let encoded_size_in_bytes = 1 + data_source.read_next_byte_while(&mut byte_processor)?;
 
         if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
-            return decoding_error(format!(
+            return IonResult::decoding_error(format!(
                 "Found a {encoded_size_in_bytes}-byte VarInt. Max supported size is {MAX_ENCODED_SIZE_IN_BYTES} bytes."
             ));
         }

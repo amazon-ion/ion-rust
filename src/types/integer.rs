@@ -1,6 +1,6 @@
 use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
-use crate::result::decoding_error;
+use crate::result::IonFailure;
 use crate::IonResult;
 use num_bigint::{BigInt, BigUint, ToBigUint};
 use num_traits::{CheckedAdd, Signed, ToPrimitive, Zero};
@@ -322,12 +322,12 @@ impl Int {
     }
 
     /// If this value is small enough to fit in an `i64`, returns `Ok(i64)`. Otherwise,
-    /// returns a [`DecodingError`](crate::IonError::DecodingError).
+    /// returns a [`DecodingError`](crate::IonError::Decoding).
     pub fn expect_i64(&self) -> IonResult<i64> {
         match &self.data {
             IntData::I64(i) => Ok(*i),
             IntData::BigInt(_) => {
-                decoding_error(format!("Int {self} is too large to fit in an i64."))
+                IonResult::decoding_error(format!("Int {self} is too large to fit in an i64."))
             }
         }
     }

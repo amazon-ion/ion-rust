@@ -6,7 +6,7 @@
 use crate::element::{Annotations, Element, Sequence, Struct, Value};
 use crate::ion_reader::IonReader;
 use crate::reader::StreamItem;
-use crate::result::{decoding_error, IonResult};
+use crate::result::{IonFailure, IonResult};
 use crate::Symbol;
 
 /// Reads Ion data into [`Element`] instances.
@@ -45,17 +45,19 @@ pub trait ElementReader {
         let only_element = match iter.next() {
             Some(Ok(element)) => element,
             Some(Err(e)) => return Err(e),
-            None => return decoding_error("expected 1 value, found 0"),
+            None => return IonResult::decoding_error("expected 1 value, found 0"),
         };
         // See if there is a second, unexpected value.
         match iter.next() {
             Some(Ok(element)) => {
-                return decoding_error(format!(
+                return IonResult::decoding_error(format!(
                     "found more than one value; second value: {}",
                     element
                 ))
             }
-            Some(Err(e)) => return decoding_error(format!("error after expected value: {}", e)),
+            Some(Err(e)) => {
+                return IonResult::decoding_error(format!("error after expected value: {}", e))
+            }
             None => {}
         };
         Ok(only_element)

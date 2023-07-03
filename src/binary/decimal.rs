@@ -10,7 +10,7 @@ use crate::binary::raw_binary_writer::MAX_INLINE_LENGTH;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::ion_data::IonEq;
-use crate::result::IonResult;
+use crate::result::{IonFailure, IonResult};
 use crate::types::integer::UIntData;
 use crate::types::{Coefficient, Decimal, Sign, UInt};
 use crate::IonError;
@@ -111,12 +111,9 @@ where
         // We need to know its encoded length before we can write out
         // the preceding type descriptor.
         let mut encoded: ArrayVec<u8, DECIMAL_BUFFER_SIZE> = ArrayVec::new();
-        encoded
-            .encode_decimal(decimal)
-            .map_err(|_e| IonError::EncodingError {
-                description: "found a decimal that was too large for the configured buffer"
-                    .to_string(),
-            })?;
+        encoded.encode_decimal(decimal).map_err(|_e| {
+            IonError::encoding_error("found a decimal that was too large for the configured buffer")
+        })?;
 
         // Now that we have the value's encoded bytes, we can encode its header
         // and write it to the output stream.

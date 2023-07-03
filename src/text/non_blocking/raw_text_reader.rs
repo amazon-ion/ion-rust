@@ -7,10 +7,8 @@ use nom::Err::{Error, Failure, Incomplete};
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{BufferedRawReader, Expandable, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::result::{
-    decoding_error, illegal_operation, illegal_operation_raw, incomplete_text_error, IonError,
-    IonResult, Position,
-};
+use crate::result::position::Position;
+use crate::result::{IonError, IonFailure, IonResult};
 use crate::text::non_blocking::text_buffer::TextBuffer;
 use crate::text::parent_container::ParentContainer;
 use crate::text::parse_result::IonParseResult;
@@ -229,7 +227,7 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
         // still exhaust the elements of our current container.
         if !find_parent {
             if self.parents.is_empty() {
-                return illegal_operation(
+                return IonResult::illegal_operation(
                     "Cannot call `step_out()` when the reader is at the top level.",
                 );
             }
@@ -311,7 +309,7 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
                 Ok(())
             }
             RootParseResult::Ok(RawTextStreamItem::IonVersionMarker(major, minor)) => {
-                decoding_error(format!(
+                IonResult::decoding_error(format!(
                     "Unsupported Ion version: v{major}.{minor}. Only 1.0 is supported."
                 ))
             }
@@ -320,10 +318,10 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
                 self.current_value = Some(value);
                 Ok(())
             }
-            RootParseResult::Incomplete(line, column) => incomplete_text_error(
+            RootParseResult::Incomplete(line, column) => IonResult::incomplete(
                 "text",
                 Position::with_offset(self.buffer.bytes_consumed())
-                    .with_text_position(line, column),
+                    .with_line_and_column(line, column),
             ),
             RootParseResult::Eof => {
                 // We are only concerned with EOF behaviors when we are at the end of the stream,
@@ -342,7 +340,7 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
                     self.process_stream_item(item)
                 } else {
                     // If we are not at the end of the stream, we need to get more data.
-                    incomplete_text_error("text", self.buffer.get_position())
+                    IonResult::incomplete("text", self.buffer.get_position())
                 }
             }
             RootParseResult::NoMatch => {
@@ -353,12 +351,12 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
                     self.buffer.lines_loaded(),
                     self.buffer.remaining_text(),
                 );
-                decoding_error(error_message)
+                IonResult::decoding_error(error_message)
             }
             RootParseResult::Failure(error_message) => {
                 // A fatal error occurred while reading the next value.
                 // This could be an I/O error, malformed utf-8 data, or an invalid value.
-                decoding_error(error_message)
+                IonResult::decoding_error(error_message)
             }
         }
     }
@@ -405,9 +403,9 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
             Ok(Some(value)) => Ok(value),
             Ok(None) => {
                 if !self.is_eos {
-                    incomplete_text_error("text", self.buffer.get_position())
+                    IonResult::incomplete("text", self.buffer.get_position())
                 } else {
-                    decoding_error(format!(
+                    IonResult::decoding_error(format!(
                         "unexpected end of input while reading {} on line {}: '{}'",
                         entity_name,
                         self.buffer.lines_loaded(),
@@ -416,7 +414,7 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
                 }
             }
             Err(err @ IonError::Incomplete { .. }) => Err(err),
-            Err(e) => decoding_error(format!(
+            Err(e) => IonResult::decoding_error(format!(
                 "Parsing error occurred while parsing {} near line {}:\n'{}'\n{}",
                 entity_name,
                 self.buffer.lines_loaded(),
@@ -432,10 +430,10 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
     {
         match self.parse_next_nom(parser) {
             RootParseResult::Ok(item) => Ok(Some(item)),
-            RootParseResult::Incomplete(line, column) => incomplete_text_error(
+            RootParseResult::Incomplete(line, column) => IonResult::incomplete(
                 "text",
                 Position::with_offset(self.buffer.bytes_consumed())
-                    .with_text_position(line, column),
+                    .with_line_and_column(line, column),
             ),
             RootParseResult::Eof => Ok(None),
             RootParseResult::NoMatch => {
@@ -449,12 +447,12 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
                         self.buffer.lines_loaded(),
                         self.buffer.remaining_text(),
                     );
-                    decoding_error(error_message)
+                    IonResult::decoding_error(error_message)
                 } else {
-                    incomplete_text_error("text", self.buffer.get_position())
+                    IonResult::incomplete("text", self.buffer.get_position())
                 }
             }
-            RootParseResult::Failure(error_message) => decoding_error(error_message),
+            RootParseResult::Failure(error_message) => IonResult::decoding_error(error_message),
         }
     }
 
@@ -627,7 +625,7 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
     /// perform an action that is only allowed when it is positioned over the item type described
     /// by the parameter `expected`.
     fn expected<E: Display>(&self, expected: E) -> IonError {
-        illegal_operation_raw(format!(
+        IonError::illegal_operation(format!(
             "type mismatch: expected a(n) {} but positioned over a(n) {}",
             expected,
             self.current()
@@ -638,7 +636,7 @@ impl<A: AsRef<[u8]> + Expandable> RawTextReader<A> {
 impl BufferedRawReader for RawTextReader<Vec<u8>> {
     fn append_bytes(&mut self, bytes: &[u8]) -> IonResult<()> {
         match self.buffer.append_bytes(bytes) {
-            Err(e) => decoding_error(e.to_string()),
+            Err(e) => IonResult::decoding_error(e.to_string()),
             Ok(()) => {
                 self.is_eof = false;
                 Ok(())
@@ -765,7 +763,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawTextReader<A> {
     fn field_name(&self) -> IonResult<Self::Symbol> {
         match self.current_field_name.as_ref() {
             Some(name) => Ok(name.clone()),
-            None => illegal_operation(
+            None => IonResult::illegal_operation(
                 "field_name() can only be called when the reader is positioned inside a struct",
             ),
         }
@@ -870,10 +868,11 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawTextReader<A> {
                 self.current_value = None;
                 Ok(())
             }
-            Some(value) => {
-                illegal_operation(format!("Cannot step_in() to a {:?}", value.ion_type()))
-            }
-            None => illegal_operation(format!(
+            Some(value) => IonResult::illegal_operation(format!(
+                "Cannot step_in() to a {:?}",
+                value.ion_type()
+            )),
+            None => IonResult::illegal_operation(format!(
                 "{} {}",
                 "Cannot `step_in`: the reader is not positioned on a value.",
                 "Try calling `next()` to advance first."
@@ -948,7 +947,7 @@ mod reader_tests {
     use crate::raw_reader::RawStreamItem;
     use crate::raw_reader::RawStreamItem::Nothing;
     use crate::raw_symbol_token::{local_sid_token, text_token, RawSymbolToken};
-    use crate::result::{IonResult, Position};
+    use crate::result::IonResult;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoRawAnnotations, TextValue};
     use crate::types::{Decimal, Timestamp};
@@ -988,16 +987,9 @@ mod reader_tests {
         assert_eq!(reader.read_i64()?, 2);
         match reader.next() {
             // the failure occurs after reading the \n after 3, so it is identified on line 3.
-            Err(IonError::Incomplete {
-                position:
-                    Position {
-                        line_column: Some((line, column)),
-                        ..
-                    },
-                ..
-            }) => {
-                assert_eq!(line, 2);
-                assert_eq!(column, 0);
+            Err(IonError::Incomplete(e)) => {
+                assert_eq!(e.position().line(), Some(2));
+                assert_eq!(e.position().column(), Some(0));
             }
             Err(e) => panic!("unexpected error when parsing partial data: {e}"),
             Ok(item) => panic!("unexpected successful parsing of partial data: {item:?}"),
@@ -1022,16 +1014,9 @@ mod reader_tests {
         let mut reader = RawTextReader::new(source[0..18].to_owned());
 
         match reader.next() {
-            Err(IonError::Incomplete {
-                position:
-                    Position {
-                        line_column: Some((line, column)),
-                        ..
-                    },
-                ..
-            }) => {
-                assert_eq!(line, 0); // Line is still 0 since we haven't actually seen a '\n' yet.
-                assert_eq!(column, 14); // failure at start of multi-byte sequence.
+            Err(IonError::Incomplete(e)) => {
+                assert_eq!(e.position().line(), Some(0)); // Line is still 0 since we haven't actually seen a '\n' yet.
+                assert_eq!(e.position().column(), Some(14)); // failure at start of multi-byte sequence.
             }
             Err(e) => panic!("unexpected error after partial utf-8 data: {e}"),
             Ok(item) => panic!("unexpected successful parsing of partial utf-8 data: {item:?}"),
@@ -1779,16 +1764,9 @@ mod reader_tests {
         let mut reader = RawTextReader::new(source.as_bytes()[..10].to_owned());
 
         match reader.next() {
-            Err(IonError::Incomplete {
-                position:
-                    Position {
-                        line_column: Some((line, column)),
-                        ..
-                    },
-                ..
-            }) => {
-                assert_eq!(line, 0); // Line is still 0 since we haven't actually seen a '\n' yet.
-                assert_eq!(column, 0); // start of the string; the value being parsed.
+            Err(IonError::Incomplete(e)) => {
+                assert_eq!(e.position().line(), Some(0)); // Line is still 0 since we haven't actually seen a '\n' yet.
+                assert_eq!(e.position().column(), Some(0)); // start of the string; the value being parsed.
             }
             Err(e) => panic!("unexpected error after partial escaped sequence: {e}"),
             Ok(item) => {

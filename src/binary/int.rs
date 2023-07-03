@@ -1,7 +1,7 @@
 use std::mem;
 
 use crate::data_source::IonDataSource;
-use crate::result::{decoding_error, IonResult};
+use crate::result::{IonFailure, IonResult};
 use crate::types;
 use crate::types::integer::Int;
 use crate::types::Coefficient;
@@ -48,7 +48,7 @@ impl DecodedInt {
                 is_negative: false,
             });
         } else if length > MAX_INT_SIZE_IN_BYTES {
-            return decoding_error(format!(
+            return IonResult::decoding_error(format!(
                 "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
             ));
         }

@@ -7,7 +7,7 @@ use crate::element::{Blob, Clob};
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{Expandable, RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::result::{decoding_error, decoding_error_raw, illegal_operation, IonError, IonResult};
+use crate::result::{IonError, IonFailure, IonResult};
 use crate::system_reader::LstPosition::*;
 use crate::types::{Decimal, Int, Str, Symbol, Timestamp};
 use crate::{IonType, SymbolTable};
@@ -235,7 +235,7 @@ impl<R: RawReader> SystemReader<R> {
                     Ok(field_name_token) => {
                         if field_name_token.matches(system_symbol_ids::IMPORTS, "imports") {
                             if self.lst.has_found_imports {
-                                return decoding_error(
+                                return IonResult::decoding_error(
                                     "symbol table had multiple `imports` fields",
                                 );
                             }
@@ -243,7 +243,7 @@ impl<R: RawReader> SystemReader<R> {
                             self.move_to_lst_imports_field(ion_type)?;
                         } else if field_name_token.matches(system_symbol_ids::SYMBOLS, "symbols") {
                             if self.lst.has_found_symbols {
-                                return decoding_error(
+                                return IonResult::decoding_error(
                                     "symbol table had multiple `symbols` fields",
                                 );
                             }
@@ -265,7 +265,9 @@ impl<R: RawReader> SystemReader<R> {
                 }
             }
             ProcessingLstImports => {
-                return decoding_error("Importing shared symbol tables is not yet supported.");
+                return IonResult::decoding_error(
+                    "Importing shared symbol tables is not yet supported.",
+                );
             }
             ProcessingLstSymbols => {
                 // We're in the `symbols` list.
@@ -310,7 +312,9 @@ impl<R: RawReader> SystemReader<R> {
                 // be processed when the user steps into/through it or when they try to skip over
                 // it, not when it's first encountered. For now though, we fail because this
                 // feature is not yet supported.
-                return decoding_error("Shared symbol table imports are not yet supported.");
+                return IonResult::decoding_error(
+                    "Shared symbol table imports are not yet supported.",
+                );
             }
             _ => {
                 // Non-list, non-symbol values for the `imports` field are ignored.
@@ -321,7 +325,7 @@ impl<R: RawReader> SystemReader<R> {
 
     fn process_ivm(&mut self, major: u8, minor: u8) -> IonResult<SystemStreamItem> {
         if self.depth() > 0 {
-            return decoding_error("Encountered an IVM at a depth > 0");
+            return IonResult::decoding_error("Encountered an IVM at a depth > 0");
         }
 
         self.lst.state = NotReadingAnLst;
@@ -385,7 +389,7 @@ impl<R: RawReader> SystemReader<R> {
         loop {
             match self.next()? {
                 VersionMarker(major, minor) => {
-                    return decoding_error(format!(
+                    return IonResult::decoding_error(format!(
                         "Encountered an IVM for v{major}.{minor} inside an LST."
                     ))
                 }
@@ -435,7 +439,9 @@ impl<R: RawReader> SystemReader<R> {
         }
         // Otherwise, delegate to the raw reader
         if self.raw_reader.current() == RawStreamItem::Nothing {
-            return illegal_operation("called `read_raw_symbol`, but reader is not over a value");
+            return IonResult::illegal_operation(
+                "called `read_raw_symbol`, but reader is not over a value",
+            );
         }
         self.raw_reader.read_symbol()
     }
@@ -529,7 +535,9 @@ impl<R: RawReader> IonReader for SystemReader<R> {
             }
             AtLstStart => {
                 // Symbol tables are always at the top level.
-                return illegal_operation("Cannot step out when the reader is at the top level.");
+                return IonResult::illegal_operation(
+                    "Cannot step out when the reader is at the top level.",
+                );
             }
             BetweenLstFields | AtLstSymbols | AtLstImports | AtLstOpenContent => {
                 // We're stepping out of the local symbol table altogether. Finish processing the
@@ -563,7 +571,9 @@ impl<R: RawReader> IonReader for SystemReader<R> {
         match self.raw_reader.field_name() {
             Ok(RawSymbolToken::SymbolId(sid)) => {
                 self.symbol_table.symbol_for(sid).cloned().ok_or_else(|| {
-                    decoding_error_raw(format!("encountered field ID with undefined text: ${sid}"))
+                    IonError::decoding_error(format!(
+                        "encountered field ID with undefined text: ${sid}"
+                    ))
                 })
             }
             Ok(RawSymbolToken::Text(text)) => Ok(Symbol::owned(text)),
@@ -579,7 +589,9 @@ impl<R: RawReader> IonReader for SystemReader<R> {
                 // If the annotation was a symbol ID, try to resolve it
                 Ok(RawSymbolToken::SymbolId(sid)) => {
                     self.symbol_table.symbol_for(sid).cloned().ok_or_else(|| {
-                        decoding_error_raw(format!("Found annotation with undefined symbol ${sid}"))
+                        IonError::decoding_error(format!(
+                            "Found annotation with undefined symbol ${sid}"
+                        ))
                     })
                 }
                 // If the annotation was a text literal, turn it into a `Symbol`
@@ -599,9 +611,9 @@ impl<R: RawReader> IonReader for SystemReader<R> {
             // Make a cheap clone of the Arc<str> in the symbol table
             Ok(symbol.clone())
         } else if !self.symbol_table.sid_is_valid(sid) {
-            decoding_error(format!("Symbol ID ${sid} is out of range."))
+            IonResult::decoding_error(format!("Symbol ID ${sid} is out of range."))
         } else {
-            decoding_error(format!("Symbol ID ${sid} has unknown text."))
+            IonResult::decoding_error(format!("Symbol ID ${sid} has unknown text."))
         }
     }
 

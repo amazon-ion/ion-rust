@@ -3,7 +3,7 @@
 //! Provides simple support for controlling lazy/strict evaluation.
 //! See [`Thunk`] for details.
 
-use crate::result::illegal_operation;
+use crate::result::IonFailure;
 use crate::IonResult;
 use std::fmt::{Debug, Formatter};
 
@@ -117,7 +117,10 @@ impl<'a, T> Thunk<'a, T> {
     pub fn remove(&mut self) -> IonResult<T> {
         use ThunkVal::*;
         // move out the current value
-        let thunk_res = std::mem::replace(&mut self.0, illegal_operation(EMPTY_THUNK_ERROR_TEXT));
+        let thunk_res = std::mem::replace(
+            &mut self.0,
+            IonResult::illegal_operation(EMPTY_THUNK_ERROR_TEXT),
+        );
         // attempt to evaluate (if possible/needed)
         match thunk_res {
             Ok(Deferred(mut func)) => func(),
@@ -174,6 +177,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::result::IonFailure;
     use crate::IonResult;
 
     #[test]
@@ -217,7 +221,7 @@ mod tests {
     fn test_memoize_error() -> IonResult<()> {
         #[inline]
         fn expected<T>() -> IonResult<T> {
-            illegal_operation("Oops!!!")
+            IonResult::illegal_operation("Oops!!!")
         }
 
         let mut thunk: Thunk<i32> = Thunk::defer(expected);
@@ -233,7 +237,7 @@ mod tests {
     fn test_remove() -> IonResult<()> {
         #[inline]
         fn expected_err<T>() -> IonResult<T> {
-            illegal_operation(EMPTY_THUNK_ERROR_TEXT)
+            IonResult::illegal_operation(EMPTY_THUNK_ERROR_TEXT)
         }
         let mut thunk = Thunk::defer(|| Ok(999));
         assert_eq!(ThunkState::Deferred, thunk.thunk_state());

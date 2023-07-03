@@ -1,8 +1,9 @@
-use crate::result::Position;
-use crate::{IonError, IonResult};
+use crate::result::position::Position;
+use crate::IonResult;
 
 use std::io::Read;
 
+use crate::result::IonFailure;
 use thiserror::Error;
 
 /// Represents a span of bytes that have been validated as UTF-8 strings.
@@ -114,7 +115,7 @@ impl<A: AsRef<[u8]>> TextBuffer<A> {
 
     pub fn get_position(&self) -> Position {
         Position::with_offset(self.bytes_consumed)
-            .with_text_position(self.line_number, self.line_offset)
+            .with_line_and_column(self.line_number, self.line_offset)
     }
 
     /// Save a checkpoint that can be rolled back to.
@@ -354,9 +355,7 @@ impl TextBuffer<Vec<u8>> {
 
         // We have new data, so we need to ensure that it is valid UTF-8.
         if self.validate_data().is_err() {
-            Err(IonError::DecodingError {
-                description: "Invalid UTF-8 sequence in data".to_owned(),
-            })?
+            return IonResult::decoding_error("Invalid UTF-8 sequence in data");
         }
 
         self.data_exhausted = self.data_end == 0;

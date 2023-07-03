@@ -1,6 +1,7 @@
+use crate::IonResult;
 use std::convert::TryFrom;
 
-use crate::result::{decoding_error, IonError};
+use crate::result::{IonError, IonFailure};
 use crate::types::IonType;
 
 /// Represents the type information found in the header byte of each binary Ion value.
@@ -55,7 +56,7 @@ impl TryFrom<IonTypeCode> for IonType {
             SExpression => IonType::SExp,
             Struct => IonType::Struct,
             _ => {
-                return decoding_error(format!(
+                return IonResult::decoding_error(format!(
                     "Attempted to make an IonType from an invalid type code: {ion_type_code:?}"
                 ));
             }
@@ -89,7 +90,9 @@ impl TryFrom<u8> for IonTypeCode {
             14 => AnnotationOrIvm,
             15 => Reserved,
             _ => {
-                return decoding_error(format!("{type_code:?} is not a valid header type code."));
+                return IonResult::decoding_error(format!(
+                    "{type_code:?} is not a valid header type code."
+                ));
             }
         };
         Ok(ion_type_code)
