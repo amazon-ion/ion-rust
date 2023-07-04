@@ -3,7 +3,7 @@ use num_traits::Zero;
 
 use crate::result::{IonError, IonFailure};
 use crate::types::integer::UIntData;
-use crate::types::UInt;
+use crate::types::{Int, UInt};
 use crate::IonResult;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
@@ -169,7 +169,7 @@ macro_rules! impl_coefficient_from_unsigned_int_types {
         }
     )*)
 }
-impl_coefficient_from_unsigned_int_types!(u8, u16, u32, u64, u128, usize, BigUint);
+impl_coefficient_from_unsigned_int_types!(u8, u16, u32, u64, u128, usize, UInt, BigUint);
 
 // This macro makes it possible to turn signed integers into a Coefficient using `.into()`.
 macro_rules! impl_coefficient_from_signed_int_types {
@@ -182,7 +182,7 @@ macro_rules! impl_coefficient_from_signed_int_types {
         }
     )*)
 }
-impl_coefficient_from_signed_int_types!(i8, i16, i32, i64, i128, isize);
+impl_coefficient_from_signed_int_types!(i8, i16, i32, i64, i128, isize, Int);
 
 // `BigInt` can't represent -0, so this is technically a lossy operation.
 impl TryFrom<Coefficient> for BigInt {
