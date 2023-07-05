@@ -139,7 +139,7 @@ fn timestamp_precision_ymd_hms_fractional(input: &str) -> IonParseResult<TextVal
     Ok((remaining, TextValue::Timestamp(timestamp)))
 }
 
-/// Parses the fractional seconds and stores it in the [FractionalSecondSetter].
+/// Parses the fractional seconds and stores it in the [TimestampBuilder].
 fn assign_fractional_seconds(
     fractional_text: &str,
     setter: TimestampBuilder<HasSeconds>,
