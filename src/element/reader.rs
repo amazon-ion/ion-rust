@@ -216,16 +216,13 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol> + ?Sized> ElementLoade
 #[cfg(test)]
 mod reader_tests {
     use super::*;
-    use crate::element::Value::*;
     use crate::element::{Element, IntoAnnotatedElement};
     use crate::ion_data::IonEq;
-    use crate::types::{Int, Timestamp as TS};
+    use crate::types::{Decimal, Timestamp};
     use crate::{ion_list, ion_seq, ion_sexp, ion_struct};
     use crate::{IonType, Symbol};
-    use bigdecimal::BigDecimal;
     use num_bigint::BigInt;
     use rstest::*;
-    use std::str::FromStr;
 
     #[rstest]
     #[case::nulls(
@@ -245,20 +242,22 @@ mod reader_tests {
            null.struct
         "#,
         vec![
-            Null(IonType::Null),
-            Null(IonType::Bool),
-            Null(IonType::Int),
-            Null(IonType::Float),
-            Null(IonType::Decimal),
-            Null(IonType::Timestamp),
-            Null(IonType::Symbol),
-            Null(IonType::String),
-            Null(IonType::Clob),
-            Null(IonType::Blob),
-            Null(IonType::List),
-            Null(IonType::SExp),
-            Null(IonType::Struct),
-        ].into_iter().map(|v| v.into()).collect(),
+            IonType::Null,
+            IonType::Bool,
+            IonType::Int,
+            IonType::Float,
+            IonType::Decimal,
+            IonType::Timestamp,
+            IonType::Symbol,
+            IonType::String,
+            IonType::Clob,
+            IonType::Blob,
+            IonType::List,
+            IonType::SExp,
+            IonType::Struct,
+        ].into_iter()
+        .map(Element::from)
+        .collect(),
     )]
     #[case::ints(
         br#"
@@ -274,27 +273,35 @@ mod reader_tests {
             -65536, 65535,
             -4294967296, 4294967295,
             -9007199254740992, 9007199254740991,
-        ].into_iter().map(Int::from).chain(
-        vec![
+        ].into_iter()
+        .map(Element::from)
+        .chain(
+            vec![
                 "-18446744073709551616", "18446744073709551615",
                 "-79228162514264337593543950336", "79228162514264337593543950335",
             ].into_iter()
-            .map(|v| Int::from(BigInt::parse_bytes(v.as_bytes(), 10).unwrap()))
-        ).map(|ai| Int(ai).into()).collect(),
+            .map(|v| BigInt::parse_bytes(v.as_bytes(), 10).unwrap())
+            .map(Element::from)
+        )
+        .collect(),
     )]
     #[case::int64_threshold_as_big_int(
         &[0xE0, 0x01, 0x00, 0xEA, 0x28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         vec![
             "18446744073709551615",
         ].into_iter()
-        .map(|v| Int::from(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Int(ai).into()).collect(),
+        .map(|v| BigInt::parse_bytes(v.as_bytes(), 10).unwrap())
+        .map(Element::from)
+        .collect(),
     )]
     #[case::int64_threshold_as_int64(
         &[0xE0, 0x01, 0x00, 0xEA, 0x38, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
         vec![
             "-9223372036854775808",
         ].into_iter()
-        .map(|v| Int::from(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Int(ai).into()).collect(),
+        .map(|v| BigInt::parse_bytes(v.as_bytes(), 10).unwrap())
+        .map(Element::from)
+        .collect(),
     )]
     #[case::floats(
         br#"
@@ -302,15 +309,21 @@ mod reader_tests {
         "#,
         vec![
             1f64, f64::INFINITY, f64::NEG_INFINITY, f64::NAN
-        ].into_iter().map(|v| Float(v).into()).collect(),
+        ].into_iter()
+        .map(Element::from)
+        .collect(),
     )]
     #[case::decimals(
         br#"
             1d0 100d10 -2.1234567d-100
         "#,
         vec![
-            "1e0", "100e10", "-2.1234567e-100",
-        ].into_iter().map(|s| Decimal(BigDecimal::from_str(s).unwrap().into()).into()).collect(),
+            Decimal::new(1, 0),
+            Decimal::new(100, 10),
+            Decimal::new(-21234567, -107),
+        ].into_iter()
+        .map(Element::from)
+        .collect(),
     )]
     #[case::timestamps(
         br#"
@@ -320,16 +333,19 @@ mod reader_tests {
             2020-02-27T14:16:33.123Z
         "#,
         vec![
-            TS::with_year(2020).build(),
-            TS::with_ymd(2020, 2, 27).build(),
-            TS::with_ymd(2020, 2, 27)
+            Timestamp::with_year(2020).build(),
+            Timestamp::with_ymd(2020, 2, 27).build(),
+            Timestamp::with_ymd(2020, 2, 27)
                 .with_hms(14, 16, 33)
                 .build_at_unknown_offset(),
-            TS::with_ymd(2020, 2, 27)
+            Timestamp::with_ymd(2020, 2, 27)
                 .with_hms(14, 16, 33)
                 .with_milliseconds(123)
                 .build_at_offset(0),
-        ].into_iter().map(|ts_res| Timestamp(ts_res.unwrap()).into()).collect(),
+        ].into_iter()
+        .map(Result::unwrap)
+        .map(Element::from)
+        .collect(),
     )]
     #[case::text_symbols(
         br#"
@@ -338,7 +354,9 @@ mod reader_tests {
         "#,
         vec![
             "foo", "bar",
-        ].into_iter().map(|s| Symbol(s.into()).into()).collect(),
+        ].into_iter()
+        .map(Element::symbol)
+        .collect(),
     )]
     #[case::strings(
         br#"
@@ -347,7 +365,9 @@ mod reader_tests {
         "#,
         vec![
             "hello", "world",
-        ].into_iter().map(|s| String(s.into()).into()).collect(),
+        ].into_iter()
+        .map(Element::from)
+        .collect(),
     )]
     #[case::clobs(
         br#"
@@ -360,7 +380,9 @@ mod reader_tests {
                 b"goodbye", b"moon",
             ];
             lobs
-        }.into_iter().map(|b| Clob(b.into()).into()).collect(),
+        }.into_iter()
+        .map(Element::clob)
+        .collect(),
     )]
     #[case::blobs(
         br#"
@@ -372,7 +394,9 @@ mod reader_tests {
                 b"moo",
             ];
             lobs
-        }.into_iter().map(|b| Blob(b.into()).into()).collect(),
+        }.into_iter()
+        .map(Element::blob)
+        .collect(),
     )]
     #[case::lists(
         br#"
