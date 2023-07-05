@@ -246,9 +246,7 @@ pub use result::{IonError, IonResult};
 /// Re-exports of third party dependencies that are part of our public API.
 ///
 /// See also: <https://github.com/amazon-ion/ion-rust/issues/302>
-pub mod external {
-    pub use bigdecimal;
-}
+pub mod external {}
 
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

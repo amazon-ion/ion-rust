@@ -59,7 +59,6 @@ experimental-lazy-reader = []
 
 [dependencies]
 base64 = "0.12"
-bigdecimal = "0.3.0"
 bytes = "0.4"
 # chrono < 0.5 brings in a deprecated version of the `time` crate via `oldtime` feature by default
 # this makes it explicitly not do this as there is an advisory warning against this:

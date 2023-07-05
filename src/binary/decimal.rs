@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use arrayvec::ArrayVec;
-use bigdecimal::Zero;
+use num_traits::Zero;
 
 use crate::binary::int::DecodedInt;
 use crate::binary::raw_binary_writer::MAX_INLINE_LENGTH;

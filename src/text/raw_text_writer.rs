@@ -1,6 +1,5 @@
 use std::io::{BufWriter, Write};
 
-use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 
 use crate::ion_writer::IonWriter;
@@ -380,14 +379,6 @@ impl<W: Write> RawTextWriter<W> {
         Ok(())
     }
 
-    /// Writes the provided BigDecimal value as an Ion decimal.
-    pub fn write_big_decimal(&mut self, value: &BigDecimal) -> IonResult<()> {
-        self.write_scalar(|output| {
-            write!(output, "{}", &value)?;
-            Ok(())
-        })
-    }
-
     /// Writes the provided DateTime value as an Ion timestamp.
     #[deprecated(
         since = "0.6.1",
@@ -746,9 +737,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
 #[cfg(test)]
 mod tests {
     use std::str;
-    use std::str::FromStr;
 
-    use bigdecimal::BigDecimal;
     use chrono::{FixedOffset, NaiveDate, TimeZone};
 
     use crate::ion_writer::IonWriter;
@@ -855,15 +844,6 @@ mod tests {
                 w.write_i64(7)
             },
             "foo::bar::'baz quux'::7",
-        );
-    }
-
-    #[test]
-    fn write_decimal() {
-        let decimal_text = "731221.9948";
-        write_scalar_test(
-            |w| w.write_big_decimal(&BigDecimal::from_str(decimal_text).unwrap()),
-            decimal_text,
         );
     }
 
