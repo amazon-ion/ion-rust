@@ -19,6 +19,9 @@ mod magnitude;
 
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
 ///
+/// A `Decimal` can be thought of as a `(coefficient, exponent)` pair, and its value can be
+/// calculated using the formula `coefficient * 10^exponent`.
+///
 /// ```
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
@@ -59,8 +62,7 @@ impl Decimal {
         &self.coefficient
     }
 
-    /// Returns the decimal's exponent, which can be combined with the coefficient to calculate
-    /// the complete decimal value using this formula: `coefficient * 10^exponent`
+    /// Returns this `Decimal`'s exponent.
     pub fn exponent(&self) -> i64 {
         self.exponent
     }

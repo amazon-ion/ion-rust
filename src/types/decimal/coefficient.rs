@@ -340,7 +340,7 @@ mod coefficient_tests {
         );
         assert_eq!(
             Int::try_from(Coefficient::new(Sign::Negative, enormous_int.clone())),
-            Ok(Int::from(enormous_int.clone().neg()))
+            Ok(Int::from(enormous_int.neg()))
         );
 
         // Zeros
