@@ -14,7 +14,28 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
 
+pub(crate) mod coefficient;
+mod magnitude;
+
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
+///
+/// ```
+/// # use ion_rs::IonResult;
+/// # fn main() -> IonResult<()> {
+/// use ion_rs::types::{Int, Decimal, Sign, UInt};
+/// // Equivalent to: 1225 * 10^-2, or 12.25
+/// let decimal = Decimal::new(1225, -2);
+/// // The coefficient can be viewed as a sign/magnitude pair...
+/// assert_eq!(decimal.coefficient().sign(), Sign::Positive);
+/// assert_eq!(decimal.coefficient().magnitude(), &UInt::from(1225u64));
+/// // ...or, if it is not negative zero, by converting it into an Int.
+/// let coefficient: Int = decimal.coefficient().try_into().expect("`decimal` is not negative zero");
+/// assert_eq!(coefficient, Int::from(1225));
+///
+/// assert_eq!(decimal.exponent(), -2);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone, Debug)]
 pub struct Decimal {
     // A Coefficient is a `(Sign, UInt)` pair supporting integers of arbitrary size
@@ -31,6 +52,17 @@ impl Decimal {
             coefficient,
             exponent,
         }
+    }
+
+    /// Returns this `Decimal`'s coefficient.
+    pub fn coefficient(&self) -> &Coefficient {
+        &self.coefficient
+    }
+
+    /// Returns the decimal's exponent, which can be combined with the coefficient to calculate
+    /// the complete decimal value using this formula: `coefficient * 10^exponent`
+    pub fn exponent(&self) -> i64 {
+        self.exponent
     }
 
     /// Returns scale of the Decimal value
