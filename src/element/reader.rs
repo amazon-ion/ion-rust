@@ -218,7 +218,7 @@ mod reader_tests {
     use super::*;
     use crate::element::{Element, IntoAnnotatedElement};
     use crate::ion_data::IonEq;
-    use crate::types::{Decimal, Int, Timestamp};
+    use crate::types::{Decimal, Timestamp};
     use crate::{ion_list, ion_seq, ion_sexp, ion_struct};
     use crate::{IonType, Symbol};
     use num_bigint::BigInt;
@@ -255,7 +255,9 @@ mod reader_tests {
             IonType::List,
             IonType::SExp,
             IonType::Struct,
-        ].into_iter().map(|v| v.into()).collect(),
+        ].into_iter()
+        .map(Element::from)
+        .collect(),
     )]
     #[case::ints(
         br#"
@@ -271,27 +273,35 @@ mod reader_tests {
             -65536, 65535,
             -4294967296, 4294967295,
             -9007199254740992, 9007199254740991,
-        ].into_iter().map(Int::from).chain(
-        vec![
+        ].into_iter()
+        .map(Element::from)
+        .chain(
+            vec![
                 "-18446744073709551616", "18446744073709551615",
                 "-79228162514264337593543950336", "79228162514264337593543950335",
             ].into_iter()
-            .map(|v| Int::from(BigInt::parse_bytes(v.as_bytes(), 10).unwrap()))
-        ).map(|ai| Value::Int(ai).into()).collect(),
+            .map(|v| BigInt::parse_bytes(v.as_bytes(), 10).unwrap())
+            .map(Element::from)
+        )
+        .collect(),
     )]
     #[case::int64_threshold_as_big_int(
         &[0xE0, 0x01, 0x00, 0xEA, 0x28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         vec![
             "18446744073709551615",
         ].into_iter()
-        .map(|v| Int::from(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Value::Int(ai).into()).collect(),
+        .map(|v| BigInt::parse_bytes(v.as_bytes(), 10).unwrap())
+        .map(Element::from)
+        .collect(),
     )]
     #[case::int64_threshold_as_int64(
         &[0xE0, 0x01, 0x00, 0xEA, 0x38, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
         vec![
             "-9223372036854775808",
         ].into_iter()
-        .map(|v| Int::from(BigInt::parse_bytes(v.as_bytes(), 10).unwrap())).map(|ai| Value::Int(ai).into()).collect(),
+        .map(|v| BigInt::parse_bytes(v.as_bytes(), 10).unwrap())
+        .map(Element::from)
+        .collect(),
     )]
     #[case::floats(
         br#"
@@ -299,7 +309,9 @@ mod reader_tests {
         "#,
         vec![
             1f64, f64::INFINITY, f64::NEG_INFINITY, f64::NAN
-        ].into_iter().map(|v| Value::Float(v).into()).collect(),
+        ].into_iter()
+        .map(Element::from)
+        .collect(),
     )]
     #[case::decimals(
         br#"
@@ -309,7 +321,9 @@ mod reader_tests {
             Decimal::new(1, 0),
             Decimal::new(100, 10),
             Decimal::new(-21234567, -107),
-        ].into_iter().map(|d| Value::Decimal(d).into()).collect(),
+        ].into_iter()
+        .map(Element::from)
+        .collect(),
     )]
     #[case::timestamps(
         br#"
@@ -328,7 +342,10 @@ mod reader_tests {
                 .with_hms(14, 16, 33)
                 .with_milliseconds(123)
                 .build_at_offset(0),
-        ].into_iter().map(|ts_res| Value::Timestamp(ts_res.unwrap()).into()).collect(),
+        ].into_iter()
+        .map(Result::unwrap)
+        .map(Element::from)
+        .collect(),
     )]
     #[case::text_symbols(
         br#"
@@ -337,7 +354,9 @@ mod reader_tests {
         "#,
         vec![
             "foo", "bar",
-        ].into_iter().map(|s| Value::Symbol(s.into()).into()).collect(),
+        ].into_iter()
+        .map(Element::symbol)
+        .collect(),
     )]
     #[case::strings(
         br#"
@@ -346,7 +365,9 @@ mod reader_tests {
         "#,
         vec![
             "hello", "world",
-        ].into_iter().map(|s| Value::String(s.into()).into()).collect(),
+        ].into_iter()
+        .map(Element::from)
+        .collect(),
     )]
     #[case::clobs(
         br#"
@@ -359,7 +380,9 @@ mod reader_tests {
                 b"goodbye", b"moon",
             ];
             lobs
-        }.into_iter().map(|b| Value::Clob(b.into()).into()).collect(),
+        }.into_iter()
+        .map(Element::clob)
+        .collect(),
     )]
     #[case::blobs(
         br#"
@@ -371,7 +394,9 @@ mod reader_tests {
                 b"moo",
             ];
             lobs
-        }.into_iter().map(|b| Value::Blob(b.into()).into()).collect(),
+        }.into_iter()
+        .map(Element::blob)
+        .collect(),
     )]
     #[case::lists(
         br#"
