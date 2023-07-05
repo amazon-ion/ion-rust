@@ -213,7 +213,7 @@ pub use raw_symbol_token_ref::RawSymbolTokenRef;
 pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
 
-pub use types::{Decimal, Int, IonType, Str, Symbol, Timestamp};
+pub use types::{decimal::Decimal, Int, IonType, Str, Symbol, Timestamp};
 
 pub use ion_data::IonData;
 
