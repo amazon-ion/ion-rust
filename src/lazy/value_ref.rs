@@ -247,7 +247,7 @@ mod tests {
         );
         assert_eq!(
             reader.expect_next()?.read()?.expect_timestamp()?,
-            Timestamp::with_ymd(2023, 4, 29).build()?
+            Timestamp::builder().with_ymd(2023, 4, 29).build()?
         );
         assert_eq!(
             reader.expect_next()?.read()?.expect_symbol()?,
@@ -298,7 +298,7 @@ mod tests {
         );
         assert_eq!(
             reader.expect_next()?.read()?,
-            ValueRef::Timestamp(Timestamp::with_ymd(2023, 4, 29).build()?)
+            ValueRef::Timestamp(Timestamp::builder().with_ymd(2023, 4, 29).build()?)
         );
         assert_eq!(
             reader.expect_next()?.read()?,

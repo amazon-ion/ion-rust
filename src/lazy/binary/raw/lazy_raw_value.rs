@@ -250,7 +250,7 @@ impl<'data> LazyRawValue<'data> {
 
         // Year precision
 
-        let builder = Timestamp::with_year(year);
+        let builder = Timestamp::builder().with_year(year);
         if input.is_empty() {
             let timestamp = builder.build()?;
             return Ok(RawValueRef::Timestamp(timestamp));
@@ -290,7 +290,7 @@ impl<'data> LazyRawValue<'data> {
             let timestamp = if is_known_offset {
                 builder.build_utc_fields_at_offset(offset_minutes)
             } else {
-                builder.build_at_unknown_offset()
+                builder.build()
             }?;
             return Ok(RawValueRef::Timestamp(timestamp));
         }
@@ -304,7 +304,7 @@ impl<'data> LazyRawValue<'data> {
             let timestamp = if is_known_offset {
                 builder.build_utc_fields_at_offset(offset_minutes)
             } else {
-                builder.build_at_unknown_offset()
+                builder.build()
             }?;
             return Ok(RawValueRef::Timestamp(timestamp));
         }
@@ -326,7 +326,7 @@ impl<'data> LazyRawValue<'data> {
         let timestamp = if is_known_offset {
             builder.build_utc_fields_at_offset(offset_minutes)
         } else {
-            builder.build_at_unknown_offset()
+            builder.build()
         }?;
 
         Ok(RawValueRef::Timestamp(timestamp))

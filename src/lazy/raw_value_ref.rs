@@ -201,7 +201,12 @@ mod tests {
         );
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_timestamp()?,
-            Timestamp::with_ymd_hms_millis(2023, 4, 29, 13, 45, 38, 281).build_at_offset(0)?
+            Timestamp::builder()
+                .with_ymd(2023, 4, 29)
+                .with_hms(13, 45, 38)
+                .with_milliseconds(281)
+                .with_offset(0)
+                .build()?
         );
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_symbol()?,

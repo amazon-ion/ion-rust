@@ -33,7 +33,8 @@ pub(crate) fn parse_timestamp(input: &str) -> IonParseResult<TextValue> {
 /// returns the resulting Timestamp as a [TextValue::Timestamp].
 fn timestamp_precision_y(input: &str) -> IonParseResult<TextValue> {
     let (remaining, year) = terminated(year, pair(tag("T"), stop_character))(input)?;
-    let timestamp = Timestamp::with_year(year)
+    let timestamp = Timestamp::builder()
+        .with_year(year)
         .build()
         .or_fatal_parse_error(input, "could not create timestamp")?
         .1;
@@ -45,7 +46,8 @@ fn timestamp_precision_y(input: &str) -> IonParseResult<TextValue> {
 fn timestamp_precision_ym(input: &str) -> IonParseResult<TextValue> {
     let (remaining, (year, month)) =
         terminated(pair(year, month), pair(tag("T"), stop_character))(input)?;
-    let timestamp = Timestamp::with_year(year)
+    let timestamp = Timestamp::builder()
+        .with_year(year)
         .with_month(month)
         .build()
         .or_fatal_parse_error(input, "could not create timestamp")?
@@ -60,7 +62,8 @@ fn timestamp_precision_ymd(input: &str) -> IonParseResult<TextValue> {
         tuple((year, month, day)),
         pair(opt(tag("T")), stop_character),
     )(input)?;
-    let timestamp = Timestamp::with_ymd(year, month, day)
+    let timestamp = Timestamp::builder()
+        .with_ymd(year, month, day)
         .build()
         .or_fatal_parse_error(input, "could not create timestamp")?
         .1;
@@ -75,11 +78,13 @@ fn timestamp_precision_ymd_hm(input: &str) -> IonParseResult<TextValue> {
         pair(tuple((year, month, day, hour_and_minute)), timezone_offset),
         stop_character,
     )(input)?;
-    let builder = Timestamp::with_ymd(year, month, day).with_hour_and_minute(hour, minute);
+    let builder = Timestamp::builder()
+        .with_ymd(year, month, day)
+        .with_hour_and_minute(hour, minute);
     let timestamp = if let Some(minutes) = offset {
-        builder.build_at_offset(minutes)
+        builder.with_offset(minutes).build()
     } else {
-        builder.build_at_unknown_offset()
+        builder.build()
     }
     .or_fatal_parse_error(input, "could not create timestamp")?
     .1;
@@ -97,11 +102,13 @@ fn timestamp_precision_ymd_hms(input: &str) -> IonParseResult<TextValue> {
         ),
         stop_character,
     )(input)?;
-    let builder = Timestamp::with_ymd(year, month, day).with_hms(hour, minute, second);
+    let builder = Timestamp::builder()
+        .with_ymd(year, month, day)
+        .with_hms(hour, minute, second);
     let timestamp = if let Some(minutes) = offset {
-        builder.build_at_offset(minutes)
+        builder.with_offset(minutes).build()
     } else {
-        builder.build_at_unknown_offset()
+        builder.build()
     }
     .or_fatal_parse_error(input, "could not create timestamp")?
     .1;
@@ -127,12 +134,14 @@ fn timestamp_precision_ymd_hms_fractional(input: &str) -> IonParseResult<TextVal
             ),
             stop_character,
         )(input)?;
-    let builder = Timestamp::with_ymd(year, month, day).with_hms(hour, minute, second);
+    let builder = Timestamp::builder()
+        .with_ymd(year, month, day)
+        .with_hms(hour, minute, second);
     let (_, builder) = assign_fractional_seconds(fractional_text, builder)?;
     let timestamp = if let Some(minutes) = offset {
-        builder.build_at_offset(minutes)
+        builder.with_offset(minutes).build()
     } else {
-        builder.build_at_unknown_offset()
+        builder.build()
     }
     .or_fatal_parse_error(input, "could not create timestamp")?
     .1;
@@ -293,9 +302,9 @@ mod reader_tests {
 
     #[test]
     fn test_parse_timestamp_y() -> IonResult<()> {
-        parse_equals("0001T ", Timestamp::with_year(1).build()?);
-        parse_equals("1997T ", Timestamp::with_year(1997).build()?);
-        parse_equals("2021T ", Timestamp::with_year(2021).build()?);
+        parse_equals("0001T ", Timestamp::builder().with_year(1).build()?);
+        parse_equals("1997T ", Timestamp::builder().with_year(1997).build()?);
+        parse_equals("2021T ", Timestamp::builder().with_year(2021).build()?);
 
         // Leading whitespace
         parse_fails(" 1997T ");
@@ -310,11 +319,11 @@ mod reader_tests {
     fn test_parse_timestamp_ym() -> IonResult<()> {
         parse_equals(
             "2021-01T ",
-            Timestamp::with_year(2021).with_month(1).build()?,
+            Timestamp::builder().with_year(2021).with_month(1).build()?,
         );
         parse_equals(
             "2021-09T ",
-            Timestamp::with_year(2021).with_month(9).build()?,
+            Timestamp::builder().with_year(2021).with_month(9).build()?,
         );
 
         // Leading whitespace
@@ -330,8 +339,14 @@ mod reader_tests {
 
     #[test]
     fn test_parse_timestamp_ymd() -> IonResult<()> {
-        parse_equals("2021-09-01 ", Timestamp::with_ymd(2021, 9, 1).build()?);
-        parse_equals("2021-09-30T ", Timestamp::with_ymd(2021, 9, 30).build()?);
+        parse_equals(
+            "2021-09-01 ",
+            Timestamp::builder().with_ymd(2021, 9, 1).build()?,
+        );
+        parse_equals(
+            "2021-09-30T ",
+            Timestamp::builder().with_ymd(2021, 9, 30).build()?,
+        );
 
         // Wrong delimiter
         parse_fails("2021/09/30 ");
@@ -349,33 +364,34 @@ mod reader_tests {
 
     #[test]
     fn test_parse_timestamp_ymd_hm() -> IonResult<()> {
-        let builder = Timestamp::with_ymd(2021, 9, 30);
+        let builder = Timestamp::builder().with_ymd(2021, 9, 30);
         parse_equals(
             "2021-09-30T00:00Z ",
             builder
                 .clone()
                 .with_hour_and_minute(0, 0)
-                .build_at_offset(0)?,
+                .with_offset(0)
+                .build()?,
         );
         parse_equals(
             "2021-09-30T23:11+00:00 ",
             builder
                 .clone()
                 .with_hour_and_minute(23, 11)
-                .build_at_offset(0)?,
+                .with_offset(0)
+                .build()?,
         );
         parse_equals(
             "2021-09-30T23:11-05:00 ",
             builder
                 .clone()
                 .with_hour_and_minute(23, 11)
-                .build_at_offset(-300)?,
+                .with_offset(-300)
+                .build()?,
         );
         parse_equals(
             "2021-09-30T21:47-00:00 ",
-            builder
-                .with_hour_and_minute(21, 47)
-                .build_at_unknown_offset()?,
+            builder.with_hour_and_minute(21, 47).build()?,
         );
 
         // Missing offset
@@ -385,59 +401,67 @@ mod reader_tests {
 
     #[test]
     fn test_parse_timestamp_ymd_hms() -> IonResult<()> {
-        let builder = Timestamp::with_ymd(2021, 12, 25);
+        let builder = Timestamp::builder().with_ymd(2021, 12, 25);
         parse_equals(
             "2021-12-25T00:00:00Z ",
-            builder.clone().with_hms(0, 0, 0).build_at_offset(0)?,
+            builder.clone().with_hms(0, 0, 0).with_offset(0).build()?,
         );
         parse_equals(
             "2021-12-25T17:00:38+00:00 ",
-            builder.clone().with_hms(17, 0, 38).build_at_offset(0)?,
+            builder.clone().with_hms(17, 0, 38).with_offset(0).build()?,
         );
         parse_equals(
             "2021-12-25T08:35:07-05:30 ",
-            builder.clone().with_hms(8, 35, 7).build_at_offset(-330)?,
+            builder
+                .clone()
+                .with_hms(8, 35, 7)
+                .with_offset(-330)
+                .build()?,
         );
         parse_equals(
             "2021-12-25T12:25:59-00:00 ",
-            builder.with_hms(12, 25, 59).build_at_unknown_offset()?,
+            builder.with_hms(12, 25, 59).build()?,
         );
         Ok(())
     }
 
     #[test]
     fn test_parse_timestamp_ymd_hms_f() -> IonResult<()> {
-        let builder = Timestamp::with_ymd(2021, 12, 25).with_hms(14, 30, 31);
+        let builder = Timestamp::builder()
+            .with_ymd(2021, 12, 25)
+            .with_hms(14, 30, 31);
         parse_equals(
             "2021-12-25T14:30:31.193+00:00 ",
-            builder.clone().with_milliseconds(193).build_at_offset(0)?,
+            builder
+                .clone()
+                .with_milliseconds(193)
+                .with_offset(0)
+                .build()?,
         );
         parse_equals(
             "2021-12-25T14:30:31.193193-05:00 ",
             builder
                 .clone()
                 .with_microseconds(193193)
-                .build_at_offset(-300)?,
+                .with_offset(-300)
+                .build()?,
         );
         parse_equals(
             "2021-12-25T14:30:31.193193193-00:00 ",
-            builder
-                .clone()
-                .with_nanoseconds(193193193)
-                .build_at_unknown_offset()?,
+            builder.clone().with_nanoseconds(193193193).build()?,
         );
         parse_equals(
             "2021-12-25T14:30:31.19319319319-00:00 ",
             builder
                 .clone()
                 .with_fractional_seconds(Decimal::new(19319319319i64, -11))
-                .build_at_unknown_offset()?,
+                .build()?,
         );
         parse_equals(
             "2021-12-25T14:30:31.193193193193193-00:00 ",
             builder
                 .with_fractional_seconds(Decimal::new(193193193193193i64, -15))
-                .build_at_unknown_offset()?,
+                .build()?,
         );
         Ok(())
     }

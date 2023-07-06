@@ -504,7 +504,8 @@ mod formatter_test {
 
     #[test]
     fn test_format_timestamp() -> IonResult<()> {
-        let timestamp = Timestamp::with_year(2000)
+        let timestamp = Timestamp::builder()
+            .with_year(2000)
             .with_month(8)
             .build()
             .expect("building timestamp failed");

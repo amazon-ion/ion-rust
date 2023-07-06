@@ -434,13 +434,15 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_year() {
-        let timestamp = Timestamp::with_year(2000)
+        let timestamp = Timestamp::builder()
+            .with_year(2000)
             .build()
             .expect("building timestamp failed");
         writer_scalar_test(
             |w| w.write_timestamp(&timestamp),
             Value::Timestamp(
-                Timestamp::with_year(2000)
+                Timestamp::builder()
+                    .with_year(2000)
                     .build()
                     .expect("timestamp expected value"),
             ),
@@ -449,14 +451,16 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_month() {
-        let timestamp = Timestamp::with_year(2000)
+        let timestamp = Timestamp::builder()
+            .with_year(2000)
             .with_month(8)
             .build()
             .expect("building timestamp failed");
         writer_scalar_test(
             |w| w.write_timestamp(&timestamp),
             Value::Timestamp(
-                Timestamp::with_year(2000)
+                Timestamp::builder()
+                    .with_year(2000)
                     .with_month(8)
                     .build()
                     .expect("timestamp expected value"),
@@ -466,13 +470,15 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd() {
-        let timestamp = Timestamp::with_ymd(2000, 8, 22)
+        let timestamp = Timestamp::builder()
+            .with_ymd(2000, 8, 22)
             .build()
             .expect("building timestamp failed");
         writer_scalar_test(
             |w| w.write_timestamp(&timestamp),
             Value::Timestamp(
-                Timestamp::with_year(2000)
+                Timestamp::builder()
+                    .with_year(2000)
                     .with_month(8)
                     .with_day(22)
                     .build()
@@ -483,18 +489,22 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms() {
-        let timestamp = Timestamp::with_ymd(2000, 8, 22)
+        let timestamp = Timestamp::builder()
+            .with_ymd(2000, 8, 22)
             .with_hms(15, 45, 11)
-            .build_at_offset(2 * 60)
+            .with_offset(2 * 60)
+            .build()
             .expect("building timestamp failed");
         writer_scalar_test(
             |w| w.write_timestamp(&timestamp),
             Value::Timestamp(
-                Timestamp::with_year(2000)
+                Timestamp::builder()
+                    .with_year(2000)
                     .with_month(8)
                     .with_day(22)
                     .with_hms(15, 45, 11)
-                    .build_at_offset(120)
+                    .with_offset(120)
+                    .build()
                     .expect("timestamp expected value"),
             ),
         );
@@ -502,18 +512,24 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms_millis() {
-        let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
-            .build_at_offset(-5 * 60)
+        let timestamp = Timestamp::builder()
+            .with_ymd(2000, 8, 22)
+            .with_hms(15, 45, 11)
+            .with_milliseconds(931)
+            .with_offset(-5 * 60)
+            .build()
             .expect("building timestamp failed");
         writer_scalar_test(
             |w| w.write_timestamp(&timestamp),
             Value::Timestamp(
-                Timestamp::with_year(2000)
+                Timestamp::builder()
+                    .with_year(2000)
                     .with_month(8)
                     .with_day(22)
                     .with_hms(15, 45, 11)
                     .with_milliseconds(931)
-                    .build_at_offset(-300)
+                    .with_offset(-300)
+                    .build()
                     .expect("timestamp expected value"),
             ),
         );
@@ -521,18 +537,22 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms_millis_unknown_offset() {
-        let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
-            .build_at_unknown_offset()
+        let timestamp = Timestamp::builder()
+            .with_ymd(2000, 8, 22)
+            .with_hms(15, 45, 11)
+            .with_milliseconds(931)
+            .build()
             .expect("building timestamp failed");
         writer_scalar_test(
             |w| w.write_timestamp(&timestamp),
             Value::Timestamp(
-                Timestamp::with_year(2000)
+                Timestamp::builder()
+                    .with_year(2000)
                     .with_month(8)
                     .with_day(22)
                     .with_hms(15, 45, 11)
                     .with_milliseconds(931)
-                    .build_at_unknown_offset()
+                    .build()
                     .expect("timestamp expected value"),
             ),
         );

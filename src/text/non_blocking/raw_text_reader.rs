@@ -1131,7 +1131,7 @@ mod reader_tests {
     #[case(" 738 ", TextValue::Int(738.into()))]
     #[case(" 2.5e0 ", TextValue::Float(2.5))]
     #[case(" 2.5 ", TextValue::Decimal(Decimal::new(25, -1)))]
-    #[case(" 2007-07-12T ", TextValue::Timestamp(Timestamp::with_ymd(2007, 7, 12).build().unwrap()))]
+    #[case(" 2007-07-12T ", TextValue::Timestamp(Timestamp::builder().with_ymd(2007, 7, 12).build().unwrap()))]
     #[case(" foo ", TextValue::Symbol(text_token("foo")))]
     #[case(" \"hi!\" ", TextValue::String("hi!".to_owned()))]
     #[case(" {{ZW5jb2RlZA==}} ", TextValue::Blob(Vec::from("encoded".as_bytes())))]
@@ -1185,7 +1185,7 @@ mod reader_tests {
         next_type(reader, IonType::Timestamp, false);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::with_ymd(2021, 9, 25).build().unwrap()
+            Timestamp::builder().with_ymd(2021, 9, 25).build().unwrap()
         );
 
         next_type(reader, IonType::Symbol, false);
@@ -1260,7 +1260,7 @@ mod reader_tests {
         next_type(reader, IonType::Timestamp, false);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::with_ymd(2014, 6, 26).build()?
+            Timestamp::builder().with_ymd(2014, 6, 26).build()?
         );
         // TODO: Check for 'km' annotation after change to OwnedSymbolToken
         next_type(reader, IonType::Int, false);
@@ -1308,7 +1308,7 @@ mod reader_tests {
         next_type(reader, IonType::Timestamp, false);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::with_ymd(2021, 9, 25).build().unwrap()
+            Timestamp::builder().with_ymd(2021, 9, 25).build().unwrap()
         );
         annotations_eq(reader, [100, 200, 300]);
 

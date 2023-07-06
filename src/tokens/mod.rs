@@ -441,7 +441,7 @@ mod tests {
 
     /// An arbitrary timestamp as a filler for testing purposes.
     fn sample_timestamp() -> crate::Timestamp {
-        crate::Timestamp::with_year(2023).build().unwrap()
+        crate::Timestamp::builder().with_year(2023).build().unwrap()
     }
 
     #[rstest]
