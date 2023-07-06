@@ -31,7 +31,7 @@ use crate::{Element, Sequence, Struct};
 /// ```
 /// Building a [SExp]:
 /// ```
-/// use ion_rs::types::{Element, SExp, Sequence};
+/// use ion_rs::{Element, SExp, Sequence};
 /// let actual: SExp = Sequence::builder()
 ///     .push(1)
 ///     .push(true)
