@@ -16,7 +16,7 @@ use std::fmt::{Debug, Formatter};
 /// ```
 ///# use ion_rs::IonResult;
 ///# fn main() -> IonResult<()> {
-/// use ion_rs::element::Element;
+/// use ion_rs::Element;
 /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
 ///
 /// let ion_data = r#"{foo: 1, bar: 2, foo: 3, bar: 4}"#;
@@ -79,7 +79,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
+    /// use ion_rs::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -117,7 +117,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
+    /// use ion_rs::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
@@ -142,8 +142,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
+    /// use ion_rs::{Element, IonType};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///

@@ -3,14 +3,14 @@ pub use crate::types::bytes::Bytes;
 /// An in-memory representation of an Ion blob.
 ///
 /// ```rust
-/// use ion_rs::types::Blob;
+/// use ion_rs::Blob;
 /// let ivm: &[u8] = &[0xEA_u8, 0x01, 0x00, 0xE0]; // Ion 1.0 version marker
 /// let blob: Blob = ivm.into();
 /// assert_eq!(&blob, ivm);
 /// assert_eq!(blob.as_slice().len(), 4);
 /// ```
 /// ```rust
-/// use ion_rs::types::Blob;
+/// use ion_rs::Blob;
 /// let blob: Blob = "hello".into();
 /// assert_eq!(&blob, "hello".as_bytes());
 /// assert_eq!(blob.as_slice().len(), 5);
@@ -27,7 +27,7 @@ impl Blob {
 /// An in-memory representation of an Ion clob.
 ///
 /// ```rust
-/// use ion_rs::types::Clob;
+/// use ion_rs::Clob;
 /// let clob: Clob = "hello".into();
 /// assert_eq!(&clob, "hello".as_bytes());
 /// assert_eq!(clob.as_slice().len(), 5);

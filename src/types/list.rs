@@ -8,8 +8,7 @@ use std::fmt::{Display, Formatter};
 
 /// An in-memory representation of an Ion list.
 /// ```
-/// use ion_rs::element::Element;
-/// use ion_rs::ion_list;
+/// use ion_rs::{ion_list, Element};
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
 /// let list = ion_list![1, 2, 3];
@@ -85,17 +84,17 @@ impl From<List> for Sequence {
 
 #[cfg(test)]
 mod tests {
-    use crate::ion_list;
-    use crate::types::IntAccess;
+    use crate::{ion_list, IonResult};
 
     #[test]
-    fn for_element_in_list() {
+    fn for_element_in_list() -> IonResult<()> {
         // Simple example to exercise List's implementation of IntoIterator
         let list = ion_list![1, 2, 3];
         let mut sum = 0;
         for element in &list {
-            sum += element.as_i64().unwrap();
+            sum += element.expect_int()?.expect_i64()?;
         }
         assert_eq!(sum, 6i64);
+        Ok(())
     }
 }

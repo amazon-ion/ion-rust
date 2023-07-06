@@ -4,7 +4,6 @@ use super::{ContainerType, Content, Instruction, Token, TokenStream};
 use crate::element::Annotations;
 use crate::result::{IonError, IonFailure};
 use crate::tokens::ScalarValue;
-use crate::types::IntAccess;
 use crate::{
     Blob, Clob, Decimal, Int, IonReader, IonResult, IonType, Str, StreamItem, Symbol, Timestamp,
 };

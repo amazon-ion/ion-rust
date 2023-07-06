@@ -24,7 +24,7 @@ mod magnitude;
 /// ```
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
-/// use ion_rs::types::{Int, Decimal, Sign, UInt};
+/// use ion_rs::{Int, Decimal, Sign, UInt};
 /// // Equivalent to: 1225 * 10^-2, or 12.25
 /// let decimal = Decimal::new(1225, -2);
 /// // The coefficient can be viewed as a sign/magnitude pair...

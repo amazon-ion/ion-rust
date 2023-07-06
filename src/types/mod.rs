@@ -19,7 +19,7 @@ pub use crate::element::Sequence;
 pub use crate::types::bytes::Bytes;
 pub use decimal::coefficient::{Coefficient, Sign};
 pub use decimal::Decimal;
-pub use integer::{Int, IntAccess, UInt};
+pub use integer::{Int, UInt};
 pub use list::List;
 pub use lob::{Blob, Clob};
 pub use r#struct::Struct;

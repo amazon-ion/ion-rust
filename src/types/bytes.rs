@@ -3,18 +3,18 @@ use std::cmp::Ordering;
 
 /// An owned, immutable byte array.
 /// ```rust
-/// use ion_rs::types::Bytes;
+/// use ion_rs::Bytes;
 /// let ivm: &[u8] = &[0xEA_u8, 0x01, 0x00, 0xE0]; // Ion 1.0 version marker
 /// let bytes: Bytes = ivm.into();
 /// assert_eq!(&bytes, ivm);
 /// ```
 /// ```rust
-/// use ion_rs::types::Bytes;
+/// use ion_rs::Bytes;
 /// let bytes: Bytes = "hello".into();
 /// assert_eq!(&bytes, "hello".as_bytes());
 /// ```
 /// ```rust
-/// use ion_rs::types::Bytes;
+/// use ion_rs::Bytes;
 /// let bytes: Bytes = b"world".into();
 /// assert_eq!(&bytes, b"world".as_slice());
 /// ```

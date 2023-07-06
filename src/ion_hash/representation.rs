@@ -12,7 +12,6 @@ use crate::binary::{self};
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
 use crate::result::IonResult;
-use crate::types::IntAccess;
 use crate::{Decimal, Int, IonType, Struct, Symbol, Timestamp};
 use crate::{Element, Sequence};
 use digest::{FixedOutput, Output, Reset, Update};

@@ -109,8 +109,7 @@ having to first drop the writer.
         feature = "experimental-writer",
         doc = r##"
 ```
-use ion_rs::element::Element;
-use ion_rs::{IonResult, IonWriter, TextWriterBuilder};
+use ion_rs::{Element, IonResult, IonWriter, TextWriterBuilder};
 # fn roundtrip() -> IonResult<()> {
 // Set up our output buffer
 let mut buffer: Vec<u8> = Vec::new();

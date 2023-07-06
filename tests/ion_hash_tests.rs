@@ -3,10 +3,9 @@
 
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
-use ion_rs::element::{Element, Sequence};
 use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::IonResult;
-use ion_rs::types::{IntAccess, Struct};
+use ion_rs::{Element, Sequence, Struct};
 
 use ion_rs::IonError;
 use std::convert::From;

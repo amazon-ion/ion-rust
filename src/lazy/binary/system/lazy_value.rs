@@ -17,8 +17,7 @@ use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTa
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
-/// use ion_rs::element::Element;
-/// use ion_rs::ion_list;
+/// use ion_rs::{Element, ion_list};
 /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
@@ -70,8 +69,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
+    /// use ion_rs::{Element, IonType};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element: Element = "hello".into();
@@ -100,7 +98,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::{Element, IntoAnnotatedElement};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
@@ -138,7 +136,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::{Element, IntoAnnotatedElement};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///

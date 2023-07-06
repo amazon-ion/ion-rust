@@ -21,8 +21,7 @@
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::Element;
-//! use ion_rs::IonType;
+//! use ion_rs::{Element, IonType};
 //! let ion_data = "[1, 2, 3]";
 //! let element = Element::read_one(ion_data)?;
 //! assert_eq!(element.ion_type(), IonType::List);
@@ -41,7 +40,7 @@
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::Element;
+//! use ion_rs::Element;
 //!
 //! let int: Element = 5.into();
 //! assert_eq!(Element::read_one("5")?, int);
@@ -67,8 +66,7 @@
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::Element;
-//! use ion_rs::{ion_list, ion_sexp, ion_struct};
+//! use ion_rs::{Element, ion_list, ion_sexp, ion_struct};
 //!
 //! // Variable names are allowed
 //! let six = 6i64;
@@ -95,7 +93,7 @@
 //! ```no_run
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::Element;
+//! use ion_rs::Element;
 //! use std::fs::File;
 //! let ion_file = File::open("/foo/bar/baz.ion").unwrap();
 //! // A simple pretty-printer
@@ -111,8 +109,7 @@
 //! ```
 //! use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::{Element, Value};
-//! use ion_rs::{ion_list, ion_struct};
+//! use ion_rs::{Element, Value, ion_list, ion_struct};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
 //!   "bar": true,
@@ -139,8 +136,7 @@
 //! ```
 //! use ion_rs::{Format, IonResult, TextKind};
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::Element;
-//! use ion_rs::{ion_list, ion_struct};
+//! use ion_rs::{Element, ion_list, ion_struct};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
 //!   "bar": true,
@@ -201,7 +197,7 @@ pub mod thunk;
 #[cfg(feature = "experimental-streaming")]
 pub mod tokens;
 
-pub use element::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
+pub use element::{Annotations, Element, IntoAnnotatedElement, IntoAnnotations, Sequence, Value};
 pub use ion_data::IonData;
 pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;

@@ -217,7 +217,7 @@ impl IonReader for ElementStreamReader {
 
     fn read_i64(&mut self) -> IonResult<i64> {
         match self.current_value.as_ref() {
-            Some(element) if element.as_int().is_some() => element.as_int().unwrap().expect_i64(),
+            Some(element) if element.as_int().is_some() => element.expect_i64(),
             _ => Err(self.expected("int value")),
         }
     }
