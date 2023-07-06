@@ -101,9 +101,9 @@ impl DecodedInt {
 }
 
 impl From<DecodedInt> for Int {
-    /// Note that if the DecodedInt represents -0, converting it to an Integer will result in a 0.
-    /// If negative zero is significant to your use case, check it using [DecodedInt::is_negative_zero]
-    /// before converting it to an Integer.
+    // Note that if the DecodedInt represents -0, converting it to an Integer will result in a 0.
+    // If negative zero is significant to your use case, check it using [DecodedInt::is_negative_zero]
+    // before converting it to an Integer.
     fn from(uint: DecodedInt) -> Self {
         let DecodedInt {
             value,
