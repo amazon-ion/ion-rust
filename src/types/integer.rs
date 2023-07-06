@@ -254,13 +254,13 @@ macro_rules! impl_small_signed_int_try_from_int {
     )*)
 }
 
+impl_small_signed_int_try_from_int!(i8, i16, i32, i64, i128, isize);
+
 impl From<&Int> for BigInt {
     fn from(value: &Int) -> Self {
         value.clone().into()
     }
 }
-
-impl_small_signed_int_try_from_int!(i8, i16, i32, i64, i128, isize);
 
 #[inline(never)]
 fn big_integer_from_u64(value: u64) -> Int {

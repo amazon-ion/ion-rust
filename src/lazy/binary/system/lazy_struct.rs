@@ -4,9 +4,9 @@ use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
 use crate::lazy::binary::system::lazy_value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
-use crate::types::Struct;
-use crate::{Annotations, Element, IntoAnnotatedElement};
-use crate::{IonError, IonResult, SymbolRef, SymbolTable};
+use crate::{
+    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Struct, SymbolRef, SymbolTable,
+};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 

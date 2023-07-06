@@ -535,8 +535,8 @@ mod tests {
     }
 
     /// An arbitrary empty struct for testing the wrapper types.
-    fn empty_struct() -> crate::types::Struct {
-        crate::types::Struct::builder().build()
+    fn empty_struct() -> crate::Struct {
+        crate::Struct::builder().build()
     }
 
     #[rstest]

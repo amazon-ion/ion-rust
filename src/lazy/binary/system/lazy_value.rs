@@ -3,8 +3,10 @@ use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{Annotations, Element, IntoAnnotatedElement, Value};
-use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTable};
+use crate::{
+    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, IonType, RawSymbolTokenRef,
+    SymbolRef, SymbolTable, Value,
+};
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
 /// not. A `LazyValue` is immutable; its data can be read any number of times.
