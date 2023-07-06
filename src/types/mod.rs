@@ -9,13 +9,13 @@ pub(crate) mod decimal;
 pub(crate) mod integer;
 mod list;
 mod lob;
-mod sequence;
 mod sexp;
 mod string;
 mod r#struct;
 mod symbol;
 mod timestamp;
 
+pub use crate::element::Sequence;
 pub use crate::types::bytes::Bytes;
 pub use decimal::coefficient::{Coefficient, Sign};
 pub use decimal::Decimal;
@@ -23,13 +23,12 @@ pub use integer::{Int, IntAccess, UInt};
 pub use list::List;
 pub use lob::{Blob, Clob};
 pub use r#struct::Struct;
-pub use sequence::Sequence;
 pub use sexp::SExp;
 pub use string::Str;
 pub use symbol::Symbol;
 pub use timestamp::{
-    DaySetter, FractionalSecondSetter, HourAndMinuteSetter, Mantissa, MonthSetter, Precision,
-    SecondSetter, Timestamp,
+    DaySetter, FractionalSecondSetter, HourAndMinuteSetter, Mantissa, MonthSetter, SecondSetter,
+    Timestamp, TimestampPrecision,
 };
 
 use crate::ion_data::IonOrd;

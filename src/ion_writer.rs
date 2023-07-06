@@ -1,6 +1,6 @@
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonResult;
-use crate::types::{Decimal, Int, IonType, Timestamp};
+use crate::{Decimal, Int, IonType, Timestamp};
 
 /**
  * This trait captures the format-agnostic encoding functionality needed to write native Rust types

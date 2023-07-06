@@ -4,8 +4,8 @@ use num_traits::Zero;
 use crate::result::{IonError, IonFailure};
 use crate::types::decimal::magnitude::Magnitude;
 use crate::types::integer::UIntData;
-use crate::types::{Int, UInt};
 use crate::IonResult;
+use crate::{Int, UInt};
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::ops::{MulAssign, Neg};
@@ -233,7 +233,7 @@ mod coefficient_tests {
     use std::ops::Neg;
     use std::str::FromStr;
 
-    use crate::types::{Coefficient, Decimal, Sign, UInt};
+    use crate::{Coefficient, Decimal, Sign, UInt};
 
     fn eq_test<I1, I2>(c1: I1, c2: I2)
     where

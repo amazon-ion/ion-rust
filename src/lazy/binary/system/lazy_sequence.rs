@@ -1,7 +1,7 @@
-use crate::element::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
 use crate::lazy::binary::raw::lazy_raw_sequence::{LazyRawSequence, RawSequenceIterator};
 use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
 use crate::lazy::binary::system::lazy_value::LazyValue;
+use crate::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
 use crate::{IonError, IonResult, IonType, SymbolTable};
 use std::fmt;
 use std::fmt::{Debug, Formatter};

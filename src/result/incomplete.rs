@@ -1,4 +1,4 @@
-use crate::result::position::Position;
+use crate::position::Position;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Error, PartialEq)]

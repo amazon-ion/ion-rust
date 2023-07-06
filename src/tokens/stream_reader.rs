@@ -1,11 +1,13 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 use super::{ContainerType, Content, Instruction, Token, TokenStream};
-use crate::element::{Annotations, Blob, Clob};
+use crate::element::Annotations;
 use crate::result::{IonError, IonFailure};
 use crate::tokens::ScalarValue;
 use crate::types::IntAccess;
-use crate::{Decimal, Int, IonReader, IonResult, IonType, Str, StreamItem, Symbol, Timestamp};
+use crate::{
+    Blob, Clob, Decimal, Int, IonReader, IonResult, IonType, Str, StreamItem, Symbol, Timestamp,
+};
 use std::cell::RefCell;
 
 /// Adapts any [`TokenStream`] into an [`IonReader`].

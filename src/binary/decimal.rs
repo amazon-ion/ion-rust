@@ -12,8 +12,8 @@ use crate::binary::var_uint::VarUInt;
 use crate::ion_data::IonEq;
 use crate::result::{IonFailure, IonResult};
 use crate::types::integer::UIntData;
-use crate::types::{Coefficient, Decimal, Sign, UInt};
 use crate::IonError;
+use crate::{Coefficient, Decimal, Sign, UInt};
 
 const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {

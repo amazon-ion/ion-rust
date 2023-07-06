@@ -1,9 +1,9 @@
-use crate::element::{Annotations, Element, IntoAnnotatedElement, Value};
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
+use crate::{Annotations, Element, IntoAnnotatedElement, Value};
 use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTable};
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
@@ -359,10 +359,10 @@ impl<'top, 'data> TryFrom<AnnotationsIterator<'top, 'data>> for Annotations {
 
 #[cfg(test)]
 mod tests {
-    use crate::element::{Element, IntoAnnotatedElement};
     use crate::lazy::binary::lazy_reader::LazyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::{ion_list, ion_sexp, ion_struct, Decimal, IonResult, IonType, Symbol, Timestamp};
+    use crate::{Element, IntoAnnotatedElement};
     use num_traits::Float;
     use rstest::*;
 

@@ -14,7 +14,8 @@ use crate::text::parse_result::{
 };
 use crate::text::parsers::{stop_character, trim_zeros_and_parse_i32, trim_zeros_and_parse_u32};
 use crate::text::text_value::TextValue;
-use crate::types::{Decimal, FractionalSecondSetter, Timestamp};
+use crate::types::FractionalSecondSetter;
+use crate::{Decimal, Timestamp};
 
 /// Matches the text representation of a timestamp value and returns the resulting Timestamp
 /// as a [TextValue::Timestamp].
@@ -281,7 +282,7 @@ mod reader_tests {
     use crate::text::parsers::timestamp::parse_timestamp;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::text_value::TextValue;
-    use crate::types::{Decimal, Timestamp};
+    use crate::{Decimal, Timestamp};
 
     fn parse_equals(text: &str, expected: Timestamp) {
         parse_test_ok(parse_timestamp, text, TextValue::Timestamp(expected))

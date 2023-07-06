@@ -1,12 +1,9 @@
 use crate::element::builders::StructBuilder;
-use crate::element::{Annotations, Element, IntoAnnotatedElement, Value};
 use crate::ion_writer::IonWriter;
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::IonFailure;
-use crate::types::Bytes;
-use crate::{
-    Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Str, Symbol, SymbolTable, Timestamp,
-};
+use crate::{Annotations, Element, IntoAnnotatedElement, Value};
+use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolTable, Timestamp};
 
 // Represents a level into which the writer has stepped.
 // A writer that has not yet called step_in() is at the top level.
@@ -300,13 +297,13 @@ where
 mod tests {
 
     use crate::element::element_stream_writer::ElementStreamWriter;
-    use crate::element::{Element, IntoAnnotatedElement, Value};
+    use crate::{Element, IntoAnnotatedElement, Value};
 
     use crate::element::builders::{SequenceBuilder, StructBuilder};
     use crate::result::IonResult;
 
     use crate::ion_writer::IonWriter;
-    use crate::types::{Bytes, Timestamp};
+    use crate::{Bytes, Timestamp};
     use crate::{Decimal, IonType, Symbol};
 
     #[track_caller]

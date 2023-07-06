@@ -25,21 +25,26 @@ use std::fmt::{Display, Formatter};
 use std::io;
 
 mod annotations;
-pub mod builders;
-pub mod element_stream_reader;
-pub mod element_stream_writer;
 pub(crate) mod iterators;
+
+pub mod builders;
 pub mod reader;
 pub mod writer;
+
+#[cfg(feature = "experimental-reader")]
+pub mod element_stream_reader;
+#[cfg(feature = "experimental-writer")]
+pub mod element_stream_writer;
+mod sequence;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::data_source::IonDataSource;
 use crate::element::writer::ElementWriter;
 use crate::reader::ReaderBuilder;
-pub use crate::types::{Blob, Bytes, Clob};
-pub use annotations::{Annotations, IntoAnnotations};
+use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 
-pub use crate::types::{List, SExp, Sequence, Struct};
+pub use annotations::{Annotations, IntoAnnotations};
+pub use sequence::Sequence;
 
 impl IonEq for Value {
     fn ion_eq(&self, other: &Self) -> bool {
@@ -1045,8 +1050,8 @@ mod tests {
         }
     }
 
-    use crate::element::{Annotations, Element, IntoAnnotatedElement, Struct};
     use crate::types::IntAccess;
+    use crate::{Annotations, Element, IntoAnnotatedElement, Struct};
     use num_bigint::BigInt;
     use std::collections::HashSet;
     use std::str::FromStr;

@@ -5,11 +5,11 @@
 
 use crate::result::IonResult;
 
-use crate::element::{Element, Value};
 use crate::ion_writer::IonWriter;
 pub use crate::Format::*;
 use crate::IonType;
 pub use crate::TextKind::*;
+use crate::{Element, Value};
 
 /// Serializes [`Element`] instances into some kind of output sink.
 pub trait ElementWriter {
@@ -91,9 +91,9 @@ where
 #[cfg(test)]
 mod tests {
     use crate::element::writer::ElementWriter;
-    use crate::element::{Element, List};
     use crate::ion_data::IonEq;
     use crate::text::text_writer::TextWriterBuilder;
+    use crate::{Element, List};
 
     use crate::ion_writer::IonWriter;
     use crate::{IonResult, IonType};

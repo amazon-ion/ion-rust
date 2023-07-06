@@ -165,57 +165,51 @@
 #[allow(clippy::single_component_path_imports)]
 use rstest_reuse;
 
-// This import is used in the doc comments and test code above. Clippy incorrectly
-// declares it an unused import.
-#[allow(unused_imports)]
-use element::Element;
-
-pub mod binary;
-pub mod result;
-// Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
-pub mod constants;
-pub mod data_source;
-pub mod element;
-pub(crate) mod raw_reader;
-pub mod text;
-pub mod types;
-
-mod ion_data;
-#[cfg(feature = "ion-hash")]
-pub mod ion_hash;
-
-pub(crate) mod blocking_reader;
+// Private modules that serve to organize implementation details.
+mod binary;
+mod blocking_reader;
 mod catalog;
-
+mod constants;
+mod data_source;
+mod ion_data;
 mod ion_reader;
 mod ion_writer;
+mod raw_reader;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
-pub(crate) mod reader;
+mod reader;
 mod shared_symbol_table;
 mod symbol_ref;
 mod symbol_table;
 mod system_reader;
+mod text;
+
+// Publicly-visible modules with nested items which users may choose to import
+pub mod element;
+pub mod result;
+pub mod types;
+
+#[cfg(feature = "ion-hash")]
+pub mod ion_hash;
 
 #[cfg(feature = "experimental-lazy-reader")]
 pub mod lazy;
 // Experimental Streaming APIs
+mod position;
 #[cfg(feature = "experimental-streaming")]
 pub mod thunk;
 #[cfg(feature = "experimental-streaming")]
 pub mod tokens;
 
-#[doc(inline)]
-pub use raw_symbol_token::RawSymbolToken;
-#[doc(inline)]
-pub use raw_symbol_token_ref::RawSymbolTokenRef;
-
+pub use element::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
+pub use ion_data::IonData;
 pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
-
-pub use types::{decimal::Decimal, Int, IonType, Str, Symbol, Timestamp};
-
-pub use ion_data::IonData;
+#[doc(inline)]
+pub use types::{
+    decimal::Decimal, Blob, Bytes, Clob, Coefficient, Int, IonType, List, SExp, Sign, Str, Struct,
+    Symbol, SymbolId, Timestamp, TimestampPrecision, UInt,
+};
 
 // These re-exports are only visible if the "experimental-reader" feature is enabled.
 #[cfg(feature = "experimental-reader")]
@@ -224,6 +218,8 @@ pub use {
     blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader},
     ion_reader::IonReader,
     raw_reader::{BufferedRawReader, RawReader, RawStreamItem},
+    raw_symbol_token::RawSymbolToken,
+    raw_symbol_token_ref::RawSymbolTokenRef,
     // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
     reader::integration_testing,
     reader::{Reader, ReaderBuilder, StreamItem, UserReader},

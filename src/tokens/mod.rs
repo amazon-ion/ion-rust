@@ -8,10 +8,11 @@
 //! It pulls in parts of the [element crate](crate::element) API to make it easier to work
 //! with values without fully materializing the tree.
 
-use crate::element::{Annotations, Bytes, Value};
 use crate::result::IonFailure;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::thunk::{Thunk, ThunkState};
+use crate::types::Bytes;
+use crate::{Annotations, Value};
 use crate::{Decimal, Int, IonError, IonResult, IonType, Str, Symbol, Timestamp};
 use std::fmt::{Display, Formatter};
 
@@ -534,8 +535,8 @@ mod tests {
     }
 
     /// An arbitrary empty struct for testing the wrapper types.
-    fn empty_struct() -> crate::element::Struct {
-        crate::element::Struct::builder().build()
+    fn empty_struct() -> crate::types::Struct {
+        crate::types::Struct::builder().build()
     }
 
     #[rstest]

@@ -1,10 +1,11 @@
 use crate::element::builders::StructBuilder;
-use crate::element::{Annotations, Element, IntoAnnotatedElement, Struct};
 use crate::lazy::binary::raw::lazy_raw_struct::{LazyRawStruct, RawStructIterator};
 use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
 use crate::lazy::binary::system::lazy_value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
+use crate::types::Struct;
+use crate::{Annotations, Element, IntoAnnotatedElement};
 use crate::{IonError, IonResult, SymbolRef, SymbolTable};
 use std::fmt;
 use std::fmt::{Debug, Formatter};

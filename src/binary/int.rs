@@ -2,8 +2,7 @@ use std::mem;
 
 use crate::result::IonResult;
 use crate::types;
-use crate::types::integer::Int;
-use crate::types::Coefficient;
+use crate::{Coefficient, Int};
 use num_traits::Zero;
 use std::io::Write;
 

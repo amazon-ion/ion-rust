@@ -1,5 +1,5 @@
-use crate::element::{Element, Sequence, Struct};
 use crate::Symbol;
+use crate::{Element, Sequence, Struct};
 
 /// Constructs [Sequence], [List], and [SExp] values incrementally.
 ///
@@ -16,7 +16,8 @@ use crate::Symbol;
 /// ```
 /// Building a [List]:
 /// ```
-/// use ion_rs::element::{Element, List, Sequence};
+/// use ion_rs::element::{Element, Sequence};
+/// use ion_rs::types::List;
 /// let actual: List = Sequence::builder()
 ///     .push(1)
 ///     .push(true)
@@ -31,7 +32,8 @@ use crate::Symbol;
 /// ```
 /// Building a [SExp]:
 /// ```
-/// use ion_rs::element::{Element, SExp, Sequence};
+/// use ion_rs::element::Element;
+/// use ion_rs::types::{SExp, Sequence};
 /// let actual: SExp = Sequence::builder()
 ///     .push(1)
 ///     .push(true)
@@ -110,7 +112,8 @@ impl SequenceBuilder {
 /// ```
 ///
 /// ```
-/// use ion_rs::element::{Element, Struct};
+/// use ion_rs::element::Element;
+/// use ion_rs::types::Struct;
 /// use ion_rs::ion_struct;
 /// let base_struct: Struct = ion_struct! {
 ///     "foo": 1,
@@ -340,7 +343,7 @@ macro_rules! ion_sexp {
 #[macro_export]
 macro_rules! ion_struct {
     ($($field_name:tt : $element:expr),* $(,)?) => {{
-        use $crate::element::Struct;
+        use $crate::types::Struct;
         Struct::builder()$(.with_field($field_name, $element))*.build()
     }};
 }
@@ -376,7 +379,7 @@ macro_rules! ion_seq {
     }};
 }
 
-use crate::types::{List, SExp};
+use crate::{List, SExp};
 pub use {ion_list, ion_sexp, ion_struct};
 
 #[cfg(test)]

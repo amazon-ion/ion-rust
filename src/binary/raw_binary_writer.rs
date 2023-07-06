@@ -13,8 +13,8 @@ use crate::ion_writer::IonWriter;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{IonFailure, IonResult};
 use crate::types::integer::IntData;
-use crate::types::{ContainerType, Decimal, Int, SymbolId, Timestamp};
-use crate::IonType;
+use crate::types::ContainerType;
+use crate::{Decimal, Int, IonType, SymbolId, Timestamp};
 
 use super::decimal::DecimalBinaryEncoder;
 use super::timestamp::TimestampBinaryEncoder;
@@ -910,7 +910,7 @@ mod writer_tests {
     use crate::ion_reader::IonReader;
     use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
     use crate::reader::{Reader, ReaderBuilder, StreamItem};
-    use crate::types::{Blob, Clob, Symbol};
+    use crate::{Blob, Clob, Symbol};
     use num_bigint::BigInt;
     use num_traits::Float;
     use std::convert::TryInto;

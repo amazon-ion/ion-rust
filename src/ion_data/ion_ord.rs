@@ -61,7 +61,8 @@ pub(crate) fn ion_cmp_bool(this: &bool, that: &bool) -> Ordering {
 #[cfg(test)]
 mod ord_tests {
     use super::*;
-    use crate::element::{List, Sequence};
+    use crate::element::Sequence;
+    use crate::types::List;
     use crate::{Element, IonData};
     use rstest::*;
 
