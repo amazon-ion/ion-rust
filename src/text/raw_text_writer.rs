@@ -859,8 +859,7 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_year() {
-        let timestamp = Timestamp::builder()
-            .with_year(2000)
+        let timestamp = Timestamp::with_year(2000)
             .build()
             .expect("building timestamp failed");
         write_scalar_test(|w| w.write_timestamp(&timestamp), "2000T");
@@ -868,8 +867,7 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_month() {
-        let timestamp = Timestamp::builder()
-            .with_year(2000)
+        let timestamp = Timestamp::with_year(2000)
             .with_month(8)
             .build()
             .expect("building timestamp failed");
@@ -878,8 +876,7 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd() {
-        let timestamp = Timestamp::builder()
-            .with_ymd(2000, 8, 22)
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
             .build()
             .expect("building timestamp failed");
         write_scalar_test(|w| w.write_timestamp(&timestamp), "2000-08-22T");
@@ -887,8 +884,7 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms() {
-        let timestamp = Timestamp::builder()
-            .with_ymd(2000, 8, 22)
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
             .with_hms(15, 45, 11)
             .with_offset(2 * 60)
             .build()
@@ -901,8 +897,7 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms_millis() {
-        let timestamp = Timestamp::builder()
-            .with_ymd(2000, 8, 22)
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
             .with_hms(15, 45, 11)
             .with_milliseconds(931)
             .with_offset(-5 * 60)
@@ -916,8 +911,7 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms_millis_unknown_offset() {
-        let timestamp = Timestamp::builder()
-            .with_ymd(2000, 8, 22)
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
             .with_hms(15, 45, 11)
             .with_milliseconds(931)
             .build()

@@ -408,7 +408,7 @@ mod tests {
     #[case::float("2.5e0", 2.5f64)]
     #[case::special_float("-inf", f64::neg_infinity())]
     #[case::decimal("3.14159", Decimal::new(314159, -5))]
-    #[case::timestamp("2023-04-29T", Timestamp::builder().with_ymd(2023, 4, 29).build()?)]
+    #[case::timestamp("2023-04-29T", Timestamp::with_ymd(2023, 4, 29).build()?)]
     #[case::symbol("foo", Symbol::owned("foo"))]
     #[case::string("\"hello\"", "hello")]
     #[case::blob("{{Blob}}", Element::blob([0x06, 0x5A, 0x1B]))]

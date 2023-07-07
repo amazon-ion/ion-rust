@@ -201,8 +201,7 @@ mod tests {
         );
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_timestamp()?,
-            Timestamp::builder()
-                .with_ymd(2023, 4, 29)
+            Timestamp::with_ymd(2023, 4, 29)
                 .with_hms(13, 45, 38)
                 .with_milliseconds(281)
                 .with_offset(0)

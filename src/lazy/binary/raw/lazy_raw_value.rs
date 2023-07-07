@@ -250,7 +250,7 @@ impl<'data> LazyRawValue<'data> {
 
         // Year precision
 
-        let builder = Timestamp::builder().with_year(year);
+        let builder = Timestamp::with_year(year);
         if input.is_empty() {
             let timestamp = builder.build()?;
             return Ok(RawValueRef::Timestamp(timestamp));

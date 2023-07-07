@@ -487,7 +487,7 @@ mod reader_tests {
         next_type(reader, IonType::Timestamp, false);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::builder().with_ymd(2007, 7, 12).build().unwrap()
+            Timestamp::with_ymd(2007, 7, 12).build().unwrap()
         );
         next_type(reader, IonType::Symbol, false);
         assert_eq!(reader.read_symbol()?, Symbol::owned("foo"));
@@ -505,7 +505,7 @@ mod reader_tests {
     #[case(" 738 ", 738)]
     #[case(" 2.5e0 ", 2.5)]
     #[case(" 2.5 ", Decimal::new(25, -1))]
-    #[case(" 2007-07-12T ", Timestamp::builder().with_ymd(2007, 7, 12).build().unwrap())]
+    #[case(" 2007-07-12T ", Timestamp::with_ymd(2007, 7, 12).build().unwrap())]
     #[case(" foo ", Symbol::owned("foo"))]
     #[case(" \"hi!\" ", "hi!".to_owned())]
     #[case(" {{ZW5jb2RlZA==}} ", Blob::from("encoded"))]

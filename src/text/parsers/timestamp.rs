@@ -33,8 +33,7 @@ pub(crate) fn parse_timestamp(input: &str) -> IonParseResult<TextValue> {
 /// returns the resulting Timestamp as a [TextValue::Timestamp].
 fn timestamp_precision_y(input: &str) -> IonParseResult<TextValue> {
     let (remaining, year) = terminated(year, pair(tag("T"), stop_character))(input)?;
-    let timestamp = Timestamp::builder()
-        .with_year(year)
+    let timestamp = Timestamp::with_year(year)
         .build()
         .or_fatal_parse_error(input, "could not create timestamp")?
         .1;
@@ -46,8 +45,7 @@ fn timestamp_precision_y(input: &str) -> IonParseResult<TextValue> {
 fn timestamp_precision_ym(input: &str) -> IonParseResult<TextValue> {
     let (remaining, (year, month)) =
         terminated(pair(year, month), pair(tag("T"), stop_character))(input)?;
-    let timestamp = Timestamp::builder()
-        .with_year(year)
+    let timestamp = Timestamp::with_year(year)
         .with_month(month)
         .build()
         .or_fatal_parse_error(input, "could not create timestamp")?
@@ -62,8 +60,7 @@ fn timestamp_precision_ymd(input: &str) -> IonParseResult<TextValue> {
         tuple((year, month, day)),
         pair(opt(tag("T")), stop_character),
     )(input)?;
-    let timestamp = Timestamp::builder()
-        .with_ymd(year, month, day)
+    let timestamp = Timestamp::with_ymd(year, month, day)
         .build()
         .or_fatal_parse_error(input, "could not create timestamp")?
         .1;
@@ -78,9 +75,7 @@ fn timestamp_precision_ymd_hm(input: &str) -> IonParseResult<TextValue> {
         pair(tuple((year, month, day, hour_and_minute)), timezone_offset),
         stop_character,
     )(input)?;
-    let builder = Timestamp::builder()
-        .with_ymd(year, month, day)
-        .with_hour_and_minute(hour, minute);
+    let builder = Timestamp::with_ymd(year, month, day).with_hour_and_minute(hour, minute);
     let timestamp = if let Some(minutes) = offset {
         builder.with_offset(minutes).build()
     } else {
@@ -102,9 +97,7 @@ fn timestamp_precision_ymd_hms(input: &str) -> IonParseResult<TextValue> {
         ),
         stop_character,
     )(input)?;
-    let builder = Timestamp::builder()
-        .with_ymd(year, month, day)
-        .with_hms(hour, minute, second);
+    let builder = Timestamp::with_ymd(year, month, day).with_hms(hour, minute, second);
     let timestamp = if let Some(minutes) = offset {
         builder.with_offset(minutes).build()
     } else {
@@ -134,9 +127,7 @@ fn timestamp_precision_ymd_hms_fractional(input: &str) -> IonParseResult<TextVal
             ),
             stop_character,
         )(input)?;
-    let builder = Timestamp::builder()
-        .with_ymd(year, month, day)
-        .with_hms(hour, minute, second);
+    let builder = Timestamp::with_ymd(year, month, day).with_hms(hour, minute, second);
     let (_, builder) = assign_fractional_seconds(fractional_text, builder)?;
     let timestamp = if let Some(minutes) = offset {
         builder.with_offset(minutes).build()
@@ -302,9 +293,9 @@ mod reader_tests {
 
     #[test]
     fn test_parse_timestamp_y() -> IonResult<()> {
-        parse_equals("0001T ", Timestamp::builder().with_year(1).build()?);
-        parse_equals("1997T ", Timestamp::builder().with_year(1997).build()?);
-        parse_equals("2021T ", Timestamp::builder().with_year(2021).build()?);
+        parse_equals("0001T ", Timestamp::with_year(1).build()?);
+        parse_equals("1997T ", Timestamp::with_year(1997).build()?);
+        parse_equals("2021T ", Timestamp::with_year(2021).build()?);
 
         // Leading whitespace
         parse_fails(" 1997T ");
@@ -319,11 +310,11 @@ mod reader_tests {
     fn test_parse_timestamp_ym() -> IonResult<()> {
         parse_equals(
             "2021-01T ",
-            Timestamp::builder().with_year(2021).with_month(1).build()?,
+            Timestamp::with_year(2021).with_month(1).build()?,
         );
         parse_equals(
             "2021-09T ",
-            Timestamp::builder().with_year(2021).with_month(9).build()?,
+            Timestamp::with_year(2021).with_month(9).build()?,
         );
 
         // Leading whitespace
@@ -339,14 +330,8 @@ mod reader_tests {
 
     #[test]
     fn test_parse_timestamp_ymd() -> IonResult<()> {
-        parse_equals(
-            "2021-09-01 ",
-            Timestamp::builder().with_ymd(2021, 9, 1).build()?,
-        );
-        parse_equals(
-            "2021-09-30T ",
-            Timestamp::builder().with_ymd(2021, 9, 30).build()?,
-        );
+        parse_equals("2021-09-01 ", Timestamp::with_ymd(2021, 9, 1).build()?);
+        parse_equals("2021-09-30T ", Timestamp::with_ymd(2021, 9, 30).build()?);
 
         // Wrong delimiter
         parse_fails("2021/09/30 ");
@@ -364,7 +349,7 @@ mod reader_tests {
 
     #[test]
     fn test_parse_timestamp_ymd_hm() -> IonResult<()> {
-        let builder = Timestamp::builder().with_ymd(2021, 9, 30);
+        let builder = Timestamp::with_ymd(2021, 9, 30);
         parse_equals(
             "2021-09-30T00:00Z ",
             builder
@@ -401,7 +386,7 @@ mod reader_tests {
 
     #[test]
     fn test_parse_timestamp_ymd_hms() -> IonResult<()> {
-        let builder = Timestamp::builder().with_ymd(2021, 12, 25);
+        let builder = Timestamp::with_ymd(2021, 12, 25);
         parse_equals(
             "2021-12-25T00:00:00Z ",
             builder.clone().with_hms(0, 0, 0).with_offset(0).build()?,
@@ -427,9 +412,7 @@ mod reader_tests {
 
     #[test]
     fn test_parse_timestamp_ymd_hms_f() -> IonResult<()> {
-        let builder = Timestamp::builder()
-            .with_ymd(2021, 12, 25)
-            .with_hms(14, 30, 31);
+        let builder = Timestamp::with_ymd(2021, 12, 25).with_hms(14, 30, 31);
         parse_equals(
             "2021-12-25T14:30:31.193+00:00 ",
             builder

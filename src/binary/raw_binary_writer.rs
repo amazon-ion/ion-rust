@@ -1038,17 +1038,17 @@ mod writer_tests {
     }
 
     #[rstest]
-    #[case::year(Timestamp::builder().with_year(2021).build().unwrap())]
-    #[case::year_month(Timestamp::builder().with_year(2021).with_month(1).build().unwrap())]
-    #[case::year_month_day(Timestamp::builder().with_ymd(2021, 1, 8).build().unwrap())]
-    #[case::ymd_hm_unknown(Timestamp::builder().with_ymd(2021, 1, 8).with_hour_and_minute(14, 12).build().unwrap())]
-    #[case::ymd_hm_est(Timestamp::builder().with_ymd(2021, 1, 8).with_hour_and_minute(14, 12).with_offset(-5 * 60).build().unwrap())]
-    #[case::ymd_hms_unknown(Timestamp::builder().with_ymd(2021, 1, 8).with_hms(14, 12, 36).build().unwrap())]
-    #[case::ymd_hms_est(Timestamp::builder().with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_offset(-5 * 60).build().unwrap())]
-    #[case::ymd_hms_millis_unknown(Timestamp::builder().with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_milliseconds(888).build().unwrap())]
-    #[case::ymd_hms_millis_est(Timestamp::builder().with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_milliseconds(888).with_offset(-5 * 60).build().unwrap())]
-    #[case::ymd_hms_nanos_unknown(Timestamp::builder().with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_nanoseconds(888888888).build().unwrap())]
-    #[case::ymd_hms_nanos_est(Timestamp::builder().with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_nanoseconds(888888888).with_offset(-5 * 60).build().unwrap())]
+    #[case::year(Timestamp::with_year(2021).build().unwrap())]
+    #[case::year_month(Timestamp::with_year(2021).with_month(1).build().unwrap())]
+    #[case::year_month_day(Timestamp::with_ymd(2021, 1, 8).build().unwrap())]
+    #[case::ymd_hm_unknown(Timestamp::with_ymd(2021, 1, 8).with_hour_and_minute(14, 12).build().unwrap())]
+    #[case::ymd_hm_est(Timestamp::with_ymd(2021, 1, 8).with_hour_and_minute(14, 12).with_offset(-5 * 60).build().unwrap())]
+    #[case::ymd_hms_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).build().unwrap())]
+    #[case::ymd_hms_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_offset(-5 * 60).build().unwrap())]
+    #[case::ymd_hms_millis_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_milliseconds(888).build().unwrap())]
+    #[case::ymd_hms_millis_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_milliseconds(888).with_offset(-5 * 60).build().unwrap())]
+    #[case::ymd_hms_nanos_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_nanoseconds(888888888).build().unwrap())]
+    #[case::ymd_hms_nanos_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_nanoseconds(888888888).with_offset(-5 * 60).build().unwrap())]
     fn binary_writer_timestamps(#[case] timestamp: Timestamp) -> IonResult<()> {
         binary_writer_scalar_test(
             &[timestamp],

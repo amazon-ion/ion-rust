@@ -333,12 +333,12 @@ mod reader_tests {
             2020-02-27T14:16:33.123Z
         "#,
         vec![
-            Timestamp::builder().with_year(2020).build(),
-            Timestamp::builder().with_ymd(2020, 2, 27).build(),
-            Timestamp::builder().with_ymd(2020, 2, 27)
+            Timestamp::with_year(2020).build(),
+            Timestamp::with_ymd(2020, 2, 27).build(),
+            Timestamp::with_ymd(2020, 2, 27)
                 .with_hms(14, 16, 33)
                 .build(),
-            Timestamp::builder().with_ymd(2020, 2, 27)
+            Timestamp::with_ymd(2020, 2, 27)
                 .with_hms(14, 16, 33)
                 .with_milliseconds(123)
                 .with_offset(0).build(),

@@ -355,7 +355,7 @@ mod tests {
 
     /// An arbitrary timestamp as a filler for testing purposes.
     fn sample_timestamp() -> crate::Timestamp {
-        crate::Timestamp::builder().with_year(1999).build().unwrap()
+        crate::Timestamp::with_year(1999).build().unwrap()
     }
 
     type Src = (Instruction, Token<'static>);

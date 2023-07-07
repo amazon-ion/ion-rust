@@ -976,7 +976,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
 
         // Year precision
 
-        let builder = Timestamp::builder().with_year(year);
+        let builder = Timestamp::with_year(year);
         if buffer.is_empty() {
             let timestamp = builder.build()?;
             return Ok(timestamp);
@@ -1648,23 +1648,22 @@ mod tests {
         expect_value(reader.next(), IonType::Timestamp);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::builder().with_year(2022).build()?
+            Timestamp::with_year(2022).build()?
         );
         expect_value(reader.next(), IonType::Timestamp);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::builder().with_year(2022).with_month(6).build()?
+            Timestamp::with_year(2022).with_month(6).build()?
         );
         expect_value(reader.next(), IonType::Timestamp);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::builder().with_ymd(2022, 6, 18).build()?
+            Timestamp::with_ymd(2022, 6, 18).build()?
         );
         expect_value(reader.next(), IonType::Timestamp);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::builder()
-                .with_ymd(2022, 6, 18)
+            Timestamp::with_ymd(2022, 6, 18)
                 .with_hour_and_minute(11, 30)
                 .with_offset(0)
                 .build()?
@@ -1672,8 +1671,7 @@ mod tests {
         expect_value(reader.next(), IonType::Timestamp);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::builder()
-                .with_ymd(2022, 6, 18)
+            Timestamp::with_ymd(2022, 6, 18)
                 .with_hms(11, 30, 51)
                 .with_milliseconds(115)
                 .with_offset(-5 * 60)
@@ -1683,8 +1681,7 @@ mod tests {
         expect_value(reader.next(), IonType::Timestamp);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::builder()
-                .with_ymd(2022, 6, 9)
+            Timestamp::with_ymd(2022, 6, 9)
                 .with_hms(23, 0, 59)
                 .with_milliseconds(45)
                 .with_offset(0)
@@ -1694,8 +1691,7 @@ mod tests {
         expect_value(reader.next(), IonType::Timestamp);
         assert_eq!(
             reader.read_timestamp()?,
-            Timestamp::builder()
-                .with_ymd(2022, 6, 9)
+            Timestamp::with_ymd(2022, 6, 9)
                 .with_hms(22, 59, 59)
                 .with_milliseconds(0)
                 .with_offset(0)
