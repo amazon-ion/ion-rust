@@ -1,4 +1,4 @@
-use crate::result::position::Position;
+use crate::position::Position;
 use crate::IonResult;
 
 use std::io::Read;

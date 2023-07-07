@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 /// things (including [`&str`] and [`String`]) into this sequence.
 ///
 /// ```
-/// use ion_rs::element::{Annotations, IntoAnnotations};
+/// use ion_rs::{Annotations, IntoAnnotations};
 /// let annotations: Annotations = ["foo", "bar", "baz"].into_annotations();
 /// for annotation in &annotations {
 ///     assert_eq!(annotation.text().map(|s| s.len()), Some(3));

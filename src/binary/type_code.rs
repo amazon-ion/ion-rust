@@ -2,7 +2,7 @@ use crate::IonResult;
 use std::convert::TryFrom;
 
 use crate::result::{IonError, IonFailure};
-use crate::types::IonType;
+use crate::IonType;
 
 /// Represents the type information found in the header byte of each binary Ion value.
 /// While this value can be readily mapped to a user-level [`IonType`], it is a distinct concept.

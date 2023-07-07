@@ -1,6 +1,5 @@
-use crate::element::{Blob, Clob};
 use crate::result::IonResult;
-use crate::types::{Decimal, Int, IonType, Str, Timestamp};
+use crate::{Blob, Clob, Decimal, Int, IonType, Str, Timestamp};
 
 /**
  * This trait captures the format-agnostic parser functionality needed to navigate within an Ion

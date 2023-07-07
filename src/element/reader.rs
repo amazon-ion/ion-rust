@@ -3,11 +3,11 @@
 //! Provides APIs to read Ion data into [Element] from different sources such
 //! as slices or files.
 
-use crate::element::{Annotations, Element, Sequence, Struct, Value};
 use crate::ion_reader::IonReader;
 use crate::reader::StreamItem;
 use crate::result::{IonFailure, IonResult};
 use crate::Symbol;
+use crate::{Annotations, Element, Sequence, Struct, Value};
 
 /// Reads Ion data into [`Element`] instances.
 ///
@@ -216,10 +216,10 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol> + ?Sized> ElementLoade
 #[cfg(test)]
 mod reader_tests {
     use super::*;
-    use crate::element::{Element, IntoAnnotatedElement};
     use crate::ion_data::IonEq;
-    use crate::types::{Decimal, Timestamp};
     use crate::{ion_list, ion_seq, ion_sexp, ion_struct};
+    use crate::{Decimal, Timestamp};
+    use crate::{Element, IntoAnnotatedElement};
     use crate::{IonType, Symbol};
     use num_bigint::BigInt;
     use rstest::*;

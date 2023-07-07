@@ -1,6 +1,7 @@
-use crate::element::{Annotations, Sequence, Struct};
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
+use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
+use crate::{Annotations, Sequence};
+use crate::{Decimal, Int, Struct, Timestamp};
+use crate::{IonResult, IonType};
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
 

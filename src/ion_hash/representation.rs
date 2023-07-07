@@ -9,12 +9,11 @@
 use crate::binary::decimal::DecimalBinaryEncoder;
 use crate::binary::timestamp::TimestampBinaryEncoder;
 use crate::binary::{self};
-use crate::element::{Element, Sequence, Struct};
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
 use crate::result::IonResult;
-use crate::types::{Decimal, Int, IntAccess, Timestamp};
-use crate::{IonType, Symbol};
+use crate::{Decimal, Int, IonType, Struct, Symbol, Timestamp};
+use crate::{Element, Sequence};
 use digest::{FixedOutput, Output, Reset, Update};
 use num_bigint::BigInt;
 

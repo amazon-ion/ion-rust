@@ -1,15 +1,14 @@
 use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::SequenceIterator;
-use crate::element::{Element, Sequence};
 use crate::ion_data::IonEq;
 use crate::text::text_formatter::IonValueFormatter;
+use crate::{Element, Sequence};
 use delegate::delegate;
 use std::fmt::{Display, Formatter};
 
 /// An in-memory representation of an Ion s-expression
 /// ```
-/// use ion_rs::element::Element;
-/// use ion_rs::ion_sexp;
+/// use ion_rs::{Element, ion_sexp};
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
 /// let sexp = ion_sexp!(1 2 3);
@@ -85,17 +84,17 @@ impl From<SExp> for Sequence {
 
 #[cfg(test)]
 mod tests {
-    use crate::ion_sexp;
-    use crate::types::IntAccess;
+    use crate::{ion_sexp, IonResult};
 
     #[test]
-    fn for_element_in_sexp() {
+    fn for_element_in_sexp() -> IonResult<()> {
         // Simple example to exercise SExp's implementation of IntoIterator
         let sexp = ion_sexp!(1 2 3);
         let mut sum = 0;
         for element in &sexp {
-            sum += element.as_i64().unwrap();
+            sum += element.expect_int()?.expect_i64()?;
         }
         assert_eq!(sum, 6i64);
+        Ok(())
     }
 }

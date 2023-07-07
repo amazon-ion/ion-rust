@@ -19,27 +19,35 @@ use crate::ion_data::{IonEq, IonOrd};
 use crate::ion_writer::IonWriter;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::text::text_writer::TextWriterBuilder;
-use crate::{ion_data, Decimal, Format, Int, IonResult, IonType, Str, Symbol, TextKind, Timestamp};
+use crate::{
+    ion_data, Decimal, Format, Int, IonError, IonResult, IonType, Str, Symbol, TextKind, Timestamp,
+};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::io;
 
 mod annotations;
-pub mod builders;
-pub mod element_stream_reader;
-pub mod element_stream_writer;
 pub(crate) mod iterators;
+
+pub mod builders;
 pub mod reader;
 pub mod writer;
+
+#[cfg(feature = "experimental-reader")]
+pub mod element_stream_reader;
+#[cfg(feature = "experimental-writer")]
+pub mod element_stream_writer;
+mod sequence;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::data_source::IonDataSource;
 use crate::element::writer::ElementWriter;
 use crate::reader::ReaderBuilder;
-pub use crate::types::{Blob, Bytes, Clob};
-pub use annotations::{Annotations, IntoAnnotations};
+use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 
-pub use crate::types::{List, SExp, Sequence, Struct};
+use crate::result::IonFailure;
+pub use annotations::{Annotations, IntoAnnotations};
+pub use sequence::Sequence;
 
 impl IonEq for Value {
     fn ion_eq(&self, other: &Self) -> bool {
@@ -368,6 +376,14 @@ impl Element {
         }
     }
 
+    fn expected(&self, expected: IonType) -> IonError {
+        IonError::decoding_error(format!(
+            "expected a(n) {}, found a(n) {}",
+            expected,
+            self.ion_type()
+        ))
+    }
+
     /// Returns a reference to this [Element]'s [Value].
     ///
     /// ```
@@ -459,11 +475,33 @@ impl Element {
         }
     }
 
+    pub fn expect_int(&self) -> IonResult<&Int> {
+        self.as_int().ok_or_else(|| self.expected(IonType::Int))
+    }
+
+    pub fn as_i64(&self) -> Option<i64> {
+        match &self.value {
+            Value::Int(i) => i.as_i64(),
+            _ => None,
+        }
+    }
+
+    pub fn expect_i64(&self) -> IonResult<i64> {
+        match &self.value {
+            Value::Int(i) => i.expect_i64(),
+            _ => Err(self.expected(IonType::Int)),
+        }
+    }
+
     pub fn as_float(&self) -> Option<f64> {
         match &self.value {
             Value::Float(f) => Some(*f),
             _ => None,
         }
+    }
+
+    pub fn expect_float(&self) -> IonResult<f64> {
+        self.as_float().ok_or_else(|| self.expected(IonType::Float))
     }
 
     pub fn as_decimal(&self) -> Option<&Decimal> {
@@ -473,11 +511,21 @@ impl Element {
         }
     }
 
+    pub fn expect_decimal(&self) -> IonResult<&Decimal> {
+        self.as_decimal()
+            .ok_or_else(|| self.expected(IonType::Decimal))
+    }
+
     pub fn as_timestamp(&self) -> Option<&Timestamp> {
         match &self.value {
             Value::Timestamp(t) => Some(t),
             _ => None,
         }
+    }
+
+    pub fn expect_timestamp(&self) -> IonResult<&Timestamp> {
+        self.as_timestamp()
+            .ok_or_else(|| self.expected(IonType::Timestamp))
     }
 
     pub fn as_text(&self) -> Option<&str> {
@@ -488,11 +536,25 @@ impl Element {
         }
     }
 
+    pub fn expect_text(&self) -> IonResult<&str> {
+        self.as_text().ok_or_else(|| {
+            IonError::decoding_error(format!(
+                "expected a text value, found a(n) {}",
+                self.ion_type()
+            ))
+        })
+    }
+
     pub fn as_string(&self) -> Option<&str> {
         match &self.value {
             Value::String(text) => Some(text.as_ref()),
             _ => None,
         }
+    }
+
+    pub fn expect_string(&self) -> IonResult<&str> {
+        self.as_string()
+            .ok_or_else(|| self.expected(IonType::String))
     }
 
     pub fn as_symbol(&self) -> Option<&Symbol> {
@@ -502,11 +564,20 @@ impl Element {
         }
     }
 
+    pub fn expect_symbol(&self) -> IonResult<&Symbol> {
+        self.as_symbol()
+            .ok_or_else(|| self.expected(IonType::Symbol))
+    }
+
     pub fn as_bool(&self) -> Option<bool> {
         match &self.value {
             Value::Bool(b) => Some(*b),
             _ => None,
         }
+    }
+
+    pub fn expect_bool(&self) -> IonResult<bool> {
+        self.as_bool().ok_or_else(|| self.expected(IonType::Bool))
     }
 
     pub fn as_lob(&self) -> Option<&[u8]> {
@@ -516,11 +587,24 @@ impl Element {
         }
     }
 
+    pub fn expect_lob(&self) -> IonResult<&[u8]> {
+        self.as_lob().ok_or_else(|| {
+            IonError::decoding_error(format!(
+                "expected a lob value, found a(n) {}",
+                self.ion_type()
+            ))
+        })
+    }
+
     pub fn as_blob(&self) -> Option<&[u8]> {
         match &self.value {
             Value::Blob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
+    }
+
+    pub fn expect_blob(&self) -> IonResult<&[u8]> {
+        self.as_blob().ok_or_else(|| self.expected(IonType::Blob))
     }
 
     pub fn as_clob(&self) -> Option<&[u8]> {
@@ -530,6 +614,10 @@ impl Element {
         }
     }
 
+    pub fn expect_clob(&self) -> IonResult<&[u8]> {
+        self.as_clob().ok_or_else(|| self.expected(IonType::Clob))
+    }
+
     pub fn as_sequence(&self) -> Option<&Sequence> {
         match &self.value {
             Value::SExp(s) | Value::List(s) => Some(s),
@@ -537,11 +625,47 @@ impl Element {
         }
     }
 
+    pub fn expect_sequence(&self) -> IonResult<&Sequence> {
+        self.as_sequence().ok_or_else(|| {
+            IonError::decoding_error(format!(
+                "expected a sequence value, found a(n) {}",
+                self.ion_type()
+            ))
+        })
+    }
+
+    pub fn as_list(&self) -> Option<&Sequence> {
+        match &self.value {
+            Value::List(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn expect_list(&self) -> IonResult<&Sequence> {
+        self.as_list().ok_or_else(|| self.expected(IonType::List))
+    }
+
+    pub fn as_sexp(&self) -> Option<&Sequence> {
+        match &self.value {
+            Value::SExp(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn expect_sexp(&self) -> IonResult<&Sequence> {
+        self.as_sexp().ok_or_else(|| self.expected(IonType::SExp))
+    }
+
     pub fn as_struct(&self) -> Option<&Struct> {
         match &self.value {
             Value::Struct(structure) => Some(structure),
             _ => None,
         }
+    }
+
+    pub fn expect_struct(&self) -> IonResult<&Struct> {
+        self.as_struct()
+            .ok_or_else(|| self.expected(IonType::Struct))
     }
 
     /// Reads a single Ion [`Element`] from the provided data source.
@@ -1045,8 +1169,7 @@ mod tests {
         }
     }
 
-    use crate::element::{Annotations, Element, IntoAnnotatedElement, Struct};
-    use crate::types::IntAccess;
+    use crate::{Annotations, Element, IntoAnnotatedElement, Struct};
     use num_bigint::BigInt;
     use std::collections::HashSet;
     use std::str::FromStr;
@@ -1092,7 +1215,7 @@ mod tests {
                 let expected: Element = 100i64.into();
                 assert_eq!(Some(&Int::from(100i64)), e.as_int());
                 assert_eq!(Some(100), e.as_i64());
-                assert_eq!(None, e.as_big_int());
+                assert_eq!(BigInt::from(100), BigInt::from(e.as_int().unwrap()));
                 assert_eq!(&expected, e);
             }),
         }
@@ -1106,7 +1229,10 @@ mod tests {
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = BigInt::from(100).into();
                 assert_eq!(Some(&Int::from(BigInt::from(100))), e.as_int());
-                assert_eq!(BigInt::from_str("100").unwrap(), *e.as_big_int().unwrap());
+                assert_eq!(
+                    BigInt::from_str("100").unwrap(),
+                    BigInt::from(e.as_int().unwrap())
+                );
                 assert_eq!(&expected, e);
             }),
         }
@@ -1275,7 +1401,6 @@ mod tests {
                 Box::new(|e| {
                     assert_eq!(None, e.as_int());
                     assert_eq!(None, e.as_i64());
-                    assert_eq!(None, e.as_big_int());
                 }),
             ),
             (AsF64, Box::new(|e| assert_eq!(None, e.as_float()))),
@@ -1482,6 +1607,6 @@ mod value_tests {
     fn element_from_int(#[case] source_int: impl Into<Int>) {
         let int: Int = source_int.into();
         let element: Element = int.clone().into();
-        assert_eq!(element.as_int().unwrap().expect_i64(), int.expect_i64())
+        assert_eq!(element.expect_i64(), int.expect_i64())
     }
 }

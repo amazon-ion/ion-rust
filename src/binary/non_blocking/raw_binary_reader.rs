@@ -7,9 +7,9 @@ use crate::binary::var_uint::VarUInt;
 use crate::binary::IonTypeCode;
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{BufferedRawReader, Expandable, RawStreamItem};
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::IonFailure;
-use crate::types::{Blob, Clob, Decimal, IntAccess, Str, SymbolId};
-use crate::{Int, IonError, IonResult, IonType, RawSymbolToken, Timestamp};
+use crate::{Blob, Clob, Decimal, Int, IonError, IonResult, IonType, Str, SymbolId, Timestamp};
 use bytes::{BigEndian, ByteOrder};
 use num_bigint::BigUint;
 use num_traits::Zero;
@@ -876,8 +876,8 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
 
     fn read_i64(&mut self) -> IonResult<i64> {
         self.read_int().and_then(|i| {
-            i.as_i64()
-                .ok_or_else(|| IonError::decoding_error("integer was too large to fit in an i64"))
+            i64::try_from(i)
+                .map_err(|_| IonError::decoding_error("integer was too large to fit in an i64"))
         })
     }
 

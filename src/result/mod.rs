@@ -2,20 +2,21 @@ use std::convert::From;
 use std::fmt::{Debug, Error};
 use std::{fmt, io};
 
-use crate::result::decoding_error::DecodingError;
-use crate::result::encoding_error::EncodingError;
-use crate::result::illegal_operation::IllegalOperation;
-use crate::result::incomplete::IncompleteError;
-use io_error::IoError;
-use position::Position;
 use thiserror::Error;
 
-pub mod decoding_error;
-pub mod encoding_error;
-pub mod illegal_operation;
-pub mod incomplete;
-pub mod io_error;
-pub mod position;
+mod decoding_error;
+mod encoding_error;
+mod illegal_operation;
+mod incomplete;
+mod io_error;
+
+pub use decoding_error::DecodingError;
+pub use encoding_error::EncodingError;
+pub use illegal_operation::IllegalOperation;
+pub use incomplete::IncompleteError;
+pub use io_error::IoError;
+
+use crate::position::Position;
 
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;

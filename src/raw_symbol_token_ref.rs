@@ -1,6 +1,5 @@
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::types::SymbolId;
-use crate::Symbol;
+use crate::{Symbol, SymbolId};
 
 /// Like RawSymbolToken, but the Text variant holds a borrowed reference instead of a String.
 #[derive(Debug, Clone, PartialEq, Eq)]

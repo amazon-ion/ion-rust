@@ -3,12 +3,11 @@ use std::ops::Range;
 
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
 use crate::data_source::IonDataSource;
-use crate::element::{Blob, Clob};
 use crate::ion_reader::IonReader;
 use crate::raw_reader::BufferedRawReader;
 use crate::result::IonResult;
 use crate::text::non_blocking::raw_text_reader::RawTextReader;
-use crate::types::Timestamp;
+use crate::{Blob, Clob, Timestamp};
 use crate::{Decimal, Int, IonError, IonType, Str};
 
 pub type BlockingRawTextReader<T> = BlockingRawReader<RawTextReader<Vec<u8>>, T>;

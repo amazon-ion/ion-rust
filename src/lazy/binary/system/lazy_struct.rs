@@ -1,11 +1,12 @@
 use crate::element::builders::StructBuilder;
-use crate::element::{Annotations, Element, IntoAnnotatedElement, Struct};
 use crate::lazy::binary::raw::lazy_raw_struct::{LazyRawStruct, RawStructIterator};
 use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
 use crate::lazy::binary::system::lazy_value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult, SymbolRef, SymbolTable};
+use crate::{
+    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Struct, SymbolRef, SymbolTable,
+};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
@@ -15,7 +16,7 @@ use std::fmt::{Debug, Formatter};
 /// ```
 ///# use ion_rs::IonResult;
 ///# fn main() -> IonResult<()> {
-/// use ion_rs::element::Element;
+/// use ion_rs::Element;
 /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
 ///
 /// let ion_data = r#"{foo: 1, bar: 2, foo: 3, bar: 4}"#;
@@ -78,7 +79,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
+    /// use ion_rs::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -116,7 +117,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
+    /// use ion_rs::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
@@ -141,8 +142,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
+    /// use ion_rs::{Element, IonType};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///

@@ -3,8 +3,8 @@
 //!
 //! [spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html.
 use crate::binary::IonTypeCode;
-use crate::element::{Element, Sequence, Struct};
-use crate::{Decimal, Int, IonType, Symbol, Timestamp};
+use crate::{Decimal, Int, IonType, Struct, Symbol, Timestamp};
+use crate::{Element, Sequence};
 
 use std::slice;
 
