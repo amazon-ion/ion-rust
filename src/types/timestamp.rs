@@ -786,12 +786,13 @@ pub struct TimestampBuilder<T> {
     fields_are_utc: bool,
     precision: Precision,
     offset: Option<i32>,
+    // year..second are always set. Default is the implied value for the field if precision is less than that field.
     year: u32,
-    month: Option<u32>,
-    day: Option<u32>,
-    hour: Option<u32>,
-    minute: Option<u32>,
-    second: Option<u32>,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: u32,
     fractional_seconds: Option<Mantissa>,
     nanoseconds: Option<u32>,
 }
@@ -837,7 +838,7 @@ impl<T> TimestampBuilder<T> {
         }
 
         // If precision >= Month, the month must be set.
-        let month = self.month.expect("missing month");
+        let month = self.month;
         datetime = datetime.with_month(month).ok_or_else(|| {
             IonError::illegal_operation(format!("specified month ('{month}') is invalid"))
         })?;
@@ -846,7 +847,7 @@ impl<T> TimestampBuilder<T> {
         }
 
         // If precision >= Day, the day must be set.
-        let day = self.day.expect("missing day");
+        let day = self.day;
         datetime = datetime.with_day(day).ok_or_else(|| {
             IonError::illegal_operation(format!("specified day ('{day}') is invalid"))
         })?;
@@ -855,11 +856,11 @@ impl<T> TimestampBuilder<T> {
         }
 
         // If precision >= HourAndMinute, the hour and minute must be set.
-        let hour = self.hour.expect("missing hour");
+        let hour = self.hour;
         datetime = datetime.with_hour(hour).ok_or_else(|| {
             IonError::illegal_operation(format!("specified hour ('{hour}') is invalid"))
         })?;
-        let minute = self.minute.expect("missing minute");
+        let minute = self.minute;
         datetime = datetime.with_minute(minute).ok_or_else(|| {
             IonError::illegal_operation(format!("specified minute ('{minute}') is invalid"))
         })?;
@@ -868,7 +869,7 @@ impl<T> TimestampBuilder<T> {
         }
 
         // If precision >= Second, the second must be set...
-        let second = self.second.expect("missing second");
+        let second = self.second;
         datetime = datetime.with_second(second).ok_or_else(|| {
             IonError::illegal_operation(format!("provided second ('{second}') is invalid."))
         })?;
@@ -1002,11 +1003,11 @@ impl TimestampBuilder<HasYear> {
             precision: Precision::Year,
             offset: None,
             year,
-            month: None,
-            day: None,
-            hour: None,
-            minute: None,
-            second: None,
+            month: 1,
+            day: 1,
+            hour: 0,
+            minute: 0,
+            second: 0,
             fractional_seconds: None,
             nanoseconds: None,
         }
@@ -1028,7 +1029,7 @@ impl TimestampBuilder<HasYear> {
     // 1-indexed month
     pub fn with_month(mut self, month: u32) -> TimestampBuilder<HasMonth> {
         self.precision = Precision::Month;
-        self.month = Some(month);
+        self.month = month;
         self.change_state()
     }
 }
@@ -1048,7 +1049,7 @@ impl TimestampBuilder<HasMonth> {
     // 1-indexed day
     pub fn with_day(mut self, day: u32) -> TimestampBuilder<HasDay> {
         self.precision = Precision::Day;
-        self.day = Some(day);
+        self.day = day;
         self.change_state()
     }
 }
@@ -1062,15 +1063,14 @@ impl TimestampBuilder<HasDay> {
 
     pub fn with_hour_and_minute(mut self, hour: u32, minute: u32) -> TimestampBuilder<HasMinute> {
         self.precision = Precision::HourAndMinute;
-        self.hour = Some(hour);
-        self.minute = Some(minute);
+        self.hour = hour;
+        self.minute = minute;
         self.change_state()
     }
 
     pub fn with_hour(mut self, hour: u32) -> TimestampBuilder<HasHour> {
         self.precision = Precision::HourAndMinute;
-        self.hour = Some(hour);
-        self.minute = Some(0);
+        self.hour = hour;
         self.change_state()
     }
 }
@@ -1094,7 +1094,7 @@ pub struct HasHour;
 impl TimestampBuilder<HasHour> {
     pub fn with_minute(mut self, minute: u32) -> TimestampBuilder<HasMinute> {
         self.precision = Precision::HourAndMinute;
-        self.minute = Some(minute);
+        self.minute = minute;
         self.change_state()
     }
 
@@ -1106,7 +1106,7 @@ pub struct HasMinute;
 impl TimestampBuilder<HasMinute> {
     pub fn with_second(mut self, second: u32) -> TimestampBuilder<HasSeconds> {
         self.precision = Precision::Second;
-        self.second = Some(second);
+        self.second = second;
         self.change_state()
     }
 
