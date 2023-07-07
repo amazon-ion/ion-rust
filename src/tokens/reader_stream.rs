@@ -348,9 +348,9 @@ mod tests {
     use super::Instruction::*;
     use super::*;
     use crate::data_source::IonDataSource;
-    use crate::element::{Blob as ElemBlob, Clob as ElemClob};
     use crate::tokens::{ContainerType, ScalarValue, Value};
-    use crate::{Decimal, IonError, IonResult, ReaderBuilder, Symbol};
+    use crate::{Blob as ElemBlob, Clob as ElemClob, Decimal, Symbol};
+    use crate::{IonError, IonResult, ReaderBuilder};
     use rstest::rstest;
 
     /// An arbitrary timestamp as a filler for testing purposes.

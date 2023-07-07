@@ -5,7 +5,7 @@ use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};
 use crate::ion_data::{IonEq, IonOrd};
 use crate::result::{IonError, IonFailure};
 use crate::types::integer::UIntData;
-use crate::types::{Coefficient, Sign, UInt};
+use crate::{Coefficient, Sign, UInt};
 use crate::{Int, IonResult};
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};
@@ -24,7 +24,7 @@ mod magnitude;
 /// ```
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
-/// use ion_rs::types::{Int, Decimal, Sign, UInt};
+/// use ion_rs::{Int, Decimal, Sign, UInt};
 /// // Equivalent to: 1225 * 10^-2, or 12.25
 /// let decimal = Decimal::new(1225, -2);
 /// // The coefficient can be viewed as a sign/magnitude pair...
@@ -496,7 +496,7 @@ impl Display for Decimal {
 #[cfg(test)]
 mod decimal_tests {
     use crate::result::IonResult;
-    use crate::types::{Coefficient, Decimal, Int, Sign, UInt};
+    use crate::{Coefficient, Decimal, Int, Sign, UInt};
     use num_bigint::{BigInt, BigUint};
 
     use num_traits::Float;

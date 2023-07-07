@@ -38,8 +38,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
-/// use ion_rs::element::Element;
-/// use ion_rs::ion_list;
+/// use ion_rs::{Element, ion_list};
 /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();

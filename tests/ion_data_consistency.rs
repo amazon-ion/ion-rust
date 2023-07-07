@@ -1,7 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-use ion_rs::element::{Element, Sequence};
-use ion_rs::IonData;
+use ion_rs::{Element, IonData, Sequence};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 

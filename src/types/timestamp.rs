@@ -15,7 +15,7 @@ use std::ops::Div;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default)]
-pub enum Precision {
+pub enum TimestampPrecision {
     /// Year-level precision (e.g. `2020T`)
     #[default]
     Year,
@@ -153,27 +153,27 @@ fn datetime_at_offset(utc_datetime: &NaiveDateTime, seconds_east: i32) -> DateTi
 pub struct Timestamp {
     pub(crate) date_time: NaiveDateTime,
     pub(crate) offset: Option<FixedOffset>,
-    pub(crate) precision: Precision,
+    pub(crate) precision: TimestampPrecision,
     pub(crate) fractional_seconds: Option<Mantissa>,
 }
 
 impl Timestamp {
     /// Converts a [`NaiveDateTime`] or [`DateTime<FixedOffset>`] to a Timestamp with the specified
-    /// precision. If the precision is [`Precision::Second`], nanosecond precision (the maximum
+    /// precision. If the precision is [`TimestampPrecision::Second`], nanosecond precision (the maximum
     /// supported by a [`Timelike`]) is assumed.
-    pub fn from_datetime<D>(datetime: D, precision: Precision) -> Timestamp
+    pub fn from_datetime<D>(datetime: D, precision: TimestampPrecision) -> Timestamp
     where
         D: Datelike + Timelike + Into<Timestamp>,
     {
         let mut timestamp: Timestamp = datetime.into();
-        if precision < Precision::Second {
+        if precision < TimestampPrecision::Second {
             timestamp.fractional_seconds = None;
         }
         timestamp.precision = precision;
         timestamp
     }
 
-    /// If the precision is [Precision::Second], returns the Decimal scale of this Timestamp's
+    /// If the precision is [TimestampPrecision::Second], returns the Decimal scale of this Timestamp's
     /// fractional seconds; otherwise, returns None.
     ///
     /// For example, a Timestamp with 553 milliseconds would return a Decimal scale of 3.
@@ -192,7 +192,7 @@ impl Timestamp {
         }
     }
 
-    /// If the precision is [Precision::Second], returns a Decimal representation of this Timestamp's
+    /// If the precision is [TimestampPrecision::Second], returns a Decimal representation of this Timestamp's
     /// fractional seconds; otherwise, returns None.
     ///
     /// For example, a Timestamp with 553 milliseconds would return a Decimal with
@@ -223,7 +223,7 @@ impl Timestamp {
         }
     }
 
-    /// If the precision is [Precision::Second], returns a u32 representing
+    /// If the precision is [TimestampPrecision::Second], returns a u32 representing
     /// this Timestamp's fractional seconds in nanoseconds; otherwise, returns None.
     ///
     /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
@@ -269,7 +269,7 @@ impl Timestamp {
     }
 
     /// Tests the fractional seconds fields of two timestamps for ordering. This function will
-    /// only be called if both Timestamps have a precision of [Precision::Second].
+    /// only be called if both Timestamps have a precision of [TimestampPrecision::Second].
     fn fractional_seconds_compare(&self, other: &Timestamp) -> Ordering {
         use Mantissa::*;
         match (
@@ -305,7 +305,7 @@ impl Timestamp {
     }
 
     /// Tests the fractional seconds fields of two timestamps for equality. This function will
-    /// only be called if both Timestamps have a precision of [Precision::Second].
+    /// only be called if both Timestamps have a precision of [TimestampPrecision::Second].
     fn fractional_seconds_equal(&self, other: &Timestamp) -> bool {
         use Mantissa::*;
 
@@ -433,21 +433,21 @@ impl Timestamp {
 
         write!(output, "{:0>4}", datetime.year())?;
         //                  ^-- 0-padded, right aligned, 4-digit year
-        if self.precision == Precision::Year {
+        if self.precision == TimestampPrecision::Year {
             write!(output, "T")?;
             return Ok(());
         }
 
         write!(output, "-{:0>2}", datetime.month())?;
         //                   ^-- delimiting hyphen and 0-padded, right aligned, 2-digit month
-        if self.precision == Precision::Month {
+        if self.precision == TimestampPrecision::Month {
             write!(output, "T")?;
             return Ok(());
         }
 
         write!(output, "-{:0>2}", datetime.day())?;
         //                   ^-- delimiting hyphen and 0-padded, right aligned, 2-digit day
-        if self.precision == Precision::Day {
+        if self.precision == TimestampPrecision::Day {
             write!(output, "T")?;
             return Ok(());
         }
@@ -459,7 +459,7 @@ impl Timestamp {
             datetime.hour(),
             datetime.minute()
         )?;
-        if self.precision == Precision::HourAndMinute {
+        if self.precision == TimestampPrecision::HourAndMinute {
             self.format_offset(offset_minutes, output)?;
             return Ok(());
         }
@@ -502,7 +502,7 @@ impl Timestamp {
     //
     // See [TimestampBuilder]'s documentation for more details.
 
-    /// Creates a TimestampBuilder with the specified year and [Precision::Year].
+    /// Creates a TimestampBuilder with the specified year and [TimestampPrecision::Year].
     pub fn with_year(year: u32) -> MonthSetter {
         let builder: TimestampBuilder = TimestampBuilder {
             year: year as u16,
@@ -512,7 +512,7 @@ impl Timestamp {
     }
 
     /// Creates a TimestampBuilder with the specified year, month, and day. Its precision is
-    /// set to [Precision::Day].
+    /// set to [TimestampPrecision::Day].
     pub fn with_ymd(year: u32, month: u32, day: u32) -> HourAndMinuteSetter {
         let builder = Timestamp::with_year(year)
             .with_month(month)
@@ -522,7 +522,7 @@ impl Timestamp {
     }
 
     /// Creates a TimestampBuilder with the specified year, month, day, hour, minute, and second.
-    /// Its precision is set to [Precision::Second].
+    /// Its precision is set to [TimestampPrecision::Second].
     pub fn with_ymd_hms(
         year: u32,
         month: u32,
@@ -538,7 +538,7 @@ impl Timestamp {
     }
 
     /// Creates a TimestampBuilder with the specified year, month, day, hour, minute, second and
-    /// milliseconds. Its precision is set to [Precision::Second].
+    /// milliseconds. Its precision is set to [TimestampPrecision::Second].
     pub fn with_ymd_hms_millis(
         year: u32,
         month: u32,
@@ -562,7 +562,7 @@ impl Timestamp {
     }
 
     /// Returns the precision that has been specified in the [Timestamp].
-    pub fn precision(&self) -> Precision {
+    pub fn precision(&self) -> TimestampPrecision {
         self.precision
     }
 
@@ -763,18 +763,18 @@ impl IonEq for Timestamp {
         if self_dt.year() != other_dt.year() {
             return false;
         }
-        if self.precision >= Precision::Month && self_dt.month() != other_dt.month() {
+        if self.precision >= TimestampPrecision::Month && self_dt.month() != other_dt.month() {
             return false;
         }
-        if self.precision >= Precision::Day && self_dt.day() != other_dt.day() {
+        if self.precision >= TimestampPrecision::Day && self_dt.day() != other_dt.day() {
             return false;
         }
-        if self.precision >= Precision::HourAndMinute
+        if self.precision >= TimestampPrecision::HourAndMinute
             && (self_dt.hour() != other_dt.hour() || self_dt.minute() != other_dt.minute())
         {
             return false;
         }
-        if self.precision <= Precision::HourAndMinute {
+        if self.precision <= TimestampPrecision::HourAndMinute {
             return true;
         }
 
@@ -833,7 +833,7 @@ impl IonOrd for Timestamp {
 #[derive(Debug, Clone, Default)]
 struct TimestampBuilder {
     fields_are_utc: bool,
-    precision: Precision,
+    precision: TimestampPrecision,
     offset: Option<i32>,
     year: u16,
     month: Option<u8>,
@@ -848,7 +848,7 @@ struct TimestampBuilder {
 impl TimestampBuilder {
     /// Sets all of the fields on the given [`NaiveDateTime`] or [`DateTime<FixedOffset>`] using the
     /// values from the TimestampBuilder. Only those fields required by the TimestampBuilder's
-    /// configured [`Precision`] will be set.
+    /// configured [`TimestampPrecision`] will be set.
     fn configure_datetime<D>(&mut self, mut datetime: D) -> IonResult<D>
     where
         D: Datelike + Timelike + Debug,
@@ -862,7 +862,7 @@ impl TimestampBuilder {
         datetime = datetime.with_year(self.year as i32).ok_or_else(|| {
             IonError::illegal_operation(format!("specified year ('{}') is invalid", self.year))
         })?;
-        if self.precision == Precision::Year {
+        if self.precision == TimestampPrecision::Year {
             return Ok(datetime);
         }
 
@@ -871,7 +871,7 @@ impl TimestampBuilder {
         datetime = datetime.with_month(month as u32).ok_or_else(|| {
             IonError::illegal_operation(format!("specified month ('{month}') is invalid"))
         })?;
-        if self.precision == Precision::Month {
+        if self.precision == TimestampPrecision::Month {
             return Ok(datetime);
         }
 
@@ -880,7 +880,7 @@ impl TimestampBuilder {
         datetime = datetime.with_day(day as u32).ok_or_else(|| {
             IonError::illegal_operation(format!("specified day ('{day}') is invalid"))
         })?;
-        if self.precision == Precision::Day {
+        if self.precision == TimestampPrecision::Day {
             return Ok(datetime);
         }
 
@@ -893,7 +893,7 @@ impl TimestampBuilder {
         datetime = datetime.with_minute(minute as u32).ok_or_else(|| {
             IonError::illegal_operation(format!("specified minute ('{minute}') is invalid"))
         })?;
-        if self.precision == Precision::HourAndMinute {
+        if self.precision == TimestampPrecision::HourAndMinute {
             return Ok(datetime);
         }
 
@@ -987,7 +987,7 @@ impl TimestampBuilder {
         };
 
         // Copy the fractional seconds from the builder to the Timestamp.
-        if self.precision == Precision::Second {
+        if self.precision == TimestampPrecision::Second {
             timestamp.fractional_seconds = self.fractional_seconds;
             if let Some(Mantissa::Arbitrary(ref decimal)) = &timestamp.fractional_seconds {
                 if decimal.is_less_than_zero() {
@@ -1030,7 +1030,7 @@ impl MonthSetter {
     // 1-indexed month
     pub fn with_month(self, month: u32) -> DaySetter {
         let mut builder = self.builder;
-        builder.precision = Precision::Month;
+        builder.precision = TimestampPrecision::Month;
         builder.month = Some(month as u8);
         DaySetter { builder }
     }
@@ -1061,7 +1061,7 @@ impl DaySetter {
     // 1-indexed day
     pub fn with_day(self, day: u32) -> HourAndMinuteSetter {
         let mut builder = self.builder;
-        builder.precision = Precision::Day;
+        builder.precision = TimestampPrecision::Day;
         builder.day = Some(day as u8);
         HourAndMinuteSetter { builder }
     }
@@ -1085,13 +1085,13 @@ impl HourAndMinuteSetter {
         builder.hour = Some(hour as u8);
         builder.minute = Some(minute as u8);
         builder.second = Some(second as u8);
-        builder.precision = Precision::Second;
+        builder.precision = TimestampPrecision::Second;
         FractionalSecondSetter { builder }
     }
 
     pub fn with_hour_and_minute(self, hour: u32, minute: u32) -> SecondSetter {
         let mut builder = self.builder;
-        builder.precision = Precision::HourAndMinute;
+        builder.precision = TimestampPrecision::HourAndMinute;
         builder.hour = Some(hour as u8);
         builder.minute = Some(minute as u8);
         SecondSetter { builder }
@@ -1114,7 +1114,7 @@ pub struct SecondSetter {
 impl SecondSetter {
     pub fn with_second(self, second: u32) -> FractionalSecondSetter {
         let mut builder = self.builder;
-        builder.precision = Precision::Second;
+        builder.precision = TimestampPrecision::Second;
         builder.second = Some(second as u8);
         FractionalSecondSetter { builder }
     }
@@ -1233,7 +1233,7 @@ impl_time_unit_setter_for!(SecondSetter);
 impl_time_unit_setter_for!(FractionalSecondSetter);
 
 fn downconvert_to_naive_datetime_with_nanoseconds(timestamp: &Timestamp) -> NaiveDateTime {
-    if timestamp.precision == Precision::Second {
+    if timestamp.precision == TimestampPrecision::Second {
         // DateTime always uses nanosecond precision. If our Timestamp uses a Decimal for
         // its fractional seconds, attempt to convert it to a number of nanoseconds.
         // This operation may add or lose precision, but is necessary to conform with
@@ -1282,7 +1282,7 @@ impl From<NaiveDateTime> for Timestamp {
         Timestamp {
             date_time,
             offset: None,
-            precision: Precision::Second,
+            precision: TimestampPrecision::Second,
             fractional_seconds: Some(Mantissa::Digits(9)),
         }
     }
@@ -1295,7 +1295,7 @@ impl From<DateTime<FixedOffset>> for Timestamp {
         let date_time = fixed_offset_date_time.naive_utc();
         // Get a copy of the offset to store separately
         let offset = Some(*fixed_offset_date_time.offset());
-        let precision = Precision::Second;
+        let precision = TimestampPrecision::Second;
         let fractional_seconds = Some(Mantissa::Digits(9));
         Timestamp {
             date_time,
@@ -1311,7 +1311,8 @@ mod timestamp_tests {
     use super::*;
     use crate::ion_data::IonEq;
     use crate::result::IonResult;
-    use crate::types::{Decimal, Mantissa, Precision, Timestamp};
+    use crate::types::Mantissa;
+    use crate::{Decimal, Timestamp, TimestampPrecision};
     use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
     use rstest::*;
     use std::cmp::Ordering;
@@ -1682,7 +1683,7 @@ mod timestamp_tests {
             .build_at_offset(-4 * 60)
             .unwrap_or_else(|e| panic!("Couldn't build timestamp: {e:?}"));
 
-        assert_eq!(timestamp1.precision, Precision::Second);
+        assert_eq!(timestamp1.precision, TimestampPrecision::Second);
         assert_eq!(timestamp1.fractional_seconds, Some(Mantissa::Digits(3)));
         assert_eq!(timestamp1, timestamp2);
         assert_eq!(timestamp2, timestamp3);
@@ -1707,7 +1708,7 @@ mod timestamp_tests {
     #[test]
     fn test_timestamp_precision() -> IonResult<()> {
         let timestamp = Timestamp::with_year(2021).with_month(2).build()?;
-        assert_eq!(timestamp.precision(), Precision::Month);
+        assert_eq!(timestamp.precision(), TimestampPrecision::Month);
         Ok(())
     }
 
@@ -1885,7 +1886,7 @@ mod timestamp_tests {
                 .build_at_offset(-5 * 60)?;
         assert_eq!(
             timestamp_with_redundant_fractional_seconds.precision,
-            Precision::Second
+            TimestampPrecision::Second
         );
         assert_eq!(
             timestamp_with_redundant_fractional_seconds.fractional_seconds_scale(),
@@ -1964,13 +1965,13 @@ mod timestamp_tests {
         let t1 = Timestamp {
             date_time: NaiveDateTime::from_str("1857-05-29T19:25:59.100").unwrap(),
             offset: Some(offset_east(60 * 60 * 23 + 60 * 59)),
-            precision: Precision::Second,
+            precision: TimestampPrecision::Second,
             fractional_seconds: Some(Mantissa::Digits(1)),
         };
         let t2 = Timestamp {
             date_time: NaiveDateTime::from_str("1857-05-29T19:25:59").unwrap(),
             offset: Some(offset_east(60 * 60 * 23 + 60 * 59)),
-            precision: Precision::Second,
+            precision: TimestampPrecision::Second,
             fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(1u64, -1))),
         };
         assert_eq!(t1, t2);
@@ -1982,13 +1983,13 @@ mod timestamp_tests {
         let t1 = Timestamp {
             date_time: NaiveDateTime::from_str("2001-08-01T18:18:49.006").unwrap(),
             offset: Some(offset_east(60 * 60 + 60)),
-            precision: Precision::Second,
+            precision: TimestampPrecision::Second,
             fractional_seconds: Some(Mantissa::Digits(5)),
         };
         let t2 = Timestamp {
             date_time: NaiveDateTime::from_str("2001-08-01T18:18:49").unwrap(),
             offset: Some(offset_east(60 * 60 + 60)),
-            precision: Precision::Second,
+            precision: TimestampPrecision::Second,
             fractional_seconds: Some(Mantissa::Arbitrary(Decimal::new(600u64, -5))),
         };
         assert_eq!(t1, t2);

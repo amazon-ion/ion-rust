@@ -8,15 +8,14 @@ use crate::binary::constants::v1_0::IVM;
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
 use crate::blocking_reader::{BlockingRawBinaryReader, BlockingRawTextReader};
 use crate::data_source::IonDataSource;
-use crate::element::{Blob, Clob};
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{Expandable, RawReader};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{IonFailure, IonResult};
 use crate::symbol_table::SymbolTable;
 use crate::system_reader::SystemReader;
-use crate::types::{Decimal, Int, Symbol, Timestamp};
 use crate::IonType;
+use crate::{Blob, Clob, Decimal, Int, Symbol, Timestamp};
 use std::fmt::{Display, Formatter};
 
 use crate::types::Str;
@@ -131,6 +130,8 @@ impl<R: RawReader> UserReader<R> {
 pub mod integration_testing {
     use crate::raw_reader::RawReader;
     use crate::reader::{Reader, UserReader};
+
+    pub use crate::binary::constants::v1_0::IVM;
 
     pub fn new_reader<'a, R: 'a + RawReader>(raw_reader: R) -> Reader<'a> {
         UserReader::new(Box::new(raw_reader))

@@ -2,10 +2,11 @@ use crate::result::IonFailure;
 use crate::text::parent_container::ParentContainer;
 
 use crate::element::iterators::SymbolsIterator;
-use crate::element::{Blob, Clob, Element};
+use crate::element::Element;
 use crate::ion_reader::IonReader;
 use crate::reader::StreamItem;
-use crate::{Decimal, Int, IonError, IonResult, IonType, Str, Symbol, Timestamp};
+use crate::{Blob, Clob, Decimal, Int, Str, Symbol, Timestamp};
+use crate::{IonError, IonResult, IonType};
 use std::fmt::Display;
 use std::mem;
 
@@ -216,7 +217,7 @@ impl IonReader for ElementStreamReader {
 
     fn read_i64(&mut self) -> IonResult<i64> {
         match self.current_value.as_ref() {
-            Some(element) if element.as_int().is_some() => element.as_int().unwrap().expect_i64(),
+            Some(element) if element.as_int().is_some() => element.expect_i64(),
             _ => Err(self.expected("int value")),
         }
     }
@@ -357,7 +358,7 @@ mod reader_tests {
     use super::*;
     use crate::ion_reader::IonReader;
     use crate::result::IonResult;
-    use crate::types::{Decimal, Timestamp};
+    use crate::{Decimal, Timestamp};
 
     use crate::IonType;
 

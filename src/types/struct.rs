@@ -131,8 +131,7 @@ impl<'a> Iterator for FieldValuesIterator<'a> {
 
 /// An in-memory representation of an Ion Struct
 /// ```
-/// use ion_rs::element::Element;
-/// use ion_rs::ion_struct;
+/// use ion_rs::{Element, ion_struct};
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
 /// let struct_ = ion_struct! {

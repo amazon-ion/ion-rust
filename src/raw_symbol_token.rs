@@ -1,4 +1,4 @@
-use crate::types::SymbolId;
+use crate::SymbolId;
 
 /// A symbol token encountered in a text or binary Ion stream.
 /// [RawSymbolToken]s do not store import source information for the token encountered. Similarly,

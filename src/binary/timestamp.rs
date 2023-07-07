@@ -11,7 +11,8 @@ use crate::binary::raw_binary_writer::MAX_INLINE_LENGTH;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::result::IonResult;
-use crate::types::{Decimal, Mantissa, Precision, Timestamp};
+use crate::types::{Mantissa, TimestampPrecision};
+use crate::{Decimal, Timestamp};
 
 const MAX_TIMESTAMP_LENGTH: usize = 32;
 
@@ -62,14 +63,14 @@ where
         bytes_written += VarUInt::write_u64(self, utc.year() as u64)?;
 
         // So far, we've written required fields. The rest are optional!
-        if timestamp.precision > Precision::Year {
+        if timestamp.precision > TimestampPrecision::Year {
             bytes_written += VarUInt::write_u64(self, utc.month() as u64)?;
-            if timestamp.precision > Precision::Month {
+            if timestamp.precision > TimestampPrecision::Month {
                 bytes_written += VarUInt::write_u64(self, utc.day() as u64)?;
-                if timestamp.precision > Precision::Day {
+                if timestamp.precision > TimestampPrecision::Day {
                     bytes_written += VarUInt::write_u64(self, utc.hour() as u64)?;
                     bytes_written += VarUInt::write_u64(self, utc.minute() as u64)?;
-                    if timestamp.precision > Precision::HourAndMinute {
+                    if timestamp.precision > TimestampPrecision::HourAndMinute {
                         bytes_written += VarUInt::write_u64(self, utc.second() as u64)?;
                         if let Some(ref mantissa) = timestamp.fractional_seconds {
                             // TODO: Both branches encode directly due to one

@@ -1,13 +1,12 @@
 use std::fmt::Display;
 
-use crate::element::{Blob, Clob};
 use crate::types::Str;
 use nom::Err::{Error, Failure, Incomplete};
 
 use crate::ion_reader::IonReader;
+use crate::position::Position;
 use crate::raw_reader::{BufferedRawReader, Expandable, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::result::position::Position;
 use crate::result::{IonError, IonFailure, IonResult};
 use crate::text::non_blocking::text_buffer::TextBuffer;
 use crate::text::parent_container::ParentContainer;
@@ -18,8 +17,8 @@ use crate::text::parsers::containers::{
 };
 use crate::text::parsers::top_level::{stream_item, RawTextStreamItem};
 use crate::text::text_value::{AnnotatedTextValue, TextValue};
-use crate::types::{Decimal, Int, Timestamp};
 use crate::IonType;
+use crate::{Blob, Clob, Decimal, Int, Timestamp};
 
 const INITIAL_PARENTS_CAPACITY: usize = 16;
 
@@ -950,8 +949,8 @@ mod reader_tests {
     use crate::result::IonResult;
     use crate::text::non_blocking::raw_text_reader::RawTextReader;
     use crate::text::text_value::{IntoRawAnnotations, TextValue};
-    use crate::types::{Decimal, Timestamp};
     use crate::IonType;
+    use crate::{Decimal, Timestamp};
 
     fn next_type<T: AsRef<[u8]> + Expandable>(
         reader: &mut RawTextReader<T>,

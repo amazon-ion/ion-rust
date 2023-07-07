@@ -4,7 +4,7 @@ use std::mem;
 
 use crate::result::IonResult;
 use crate::types::integer::UIntData;
-use crate::types::{Int, UInt};
+use crate::{Int, UInt};
 
 // This limit is used for stack-allocating buffer space to encode/decode UInts.
 const UINT_STACK_BUFFER_SIZE: usize = 16;
@@ -116,16 +116,6 @@ impl AsRef<[u8]> for EncodedUInt {
 }
 
 /// Returns the magnitude as big-endian bytes.
-///
-/// ```
-/// use ion_rs::binary::uint;
-///
-/// let repr = uint::encode_u64(5u64);
-/// assert_eq!(&[0x05], repr.as_bytes());
-///
-/// let two_bytes = uint::encode_u64(256u64);
-/// assert_eq!(&[0x01, 0x00], two_bytes.as_bytes());
-/// ```
 pub fn encode_u64(magnitude: u64) -> EncodedUInt {
     // We can divide the number of leading zero bits by 8
     // to to get the number of leading zero bytes.

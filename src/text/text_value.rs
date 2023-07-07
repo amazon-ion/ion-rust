@@ -1,6 +1,6 @@
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::types::{Decimal, Int, Timestamp};
 use crate::IonType;
+use crate::{Decimal, Int, Timestamp};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct AnnotatedTextValue {

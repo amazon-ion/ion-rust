@@ -1,10 +1,12 @@
-use crate::element::{Annotations, Element, IntoAnnotatedElement, Value};
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTable};
+use crate::{
+    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, IonType, RawSymbolTokenRef,
+    SymbolRef, SymbolTable, Value,
+};
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
 /// not. A `LazyValue` is immutable; its data can be read any number of times.
@@ -17,8 +19,7 @@ use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTa
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
-/// use ion_rs::element::Element;
-/// use ion_rs::ion_list;
+/// use ion_rs::{Element, ion_list};
 /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
@@ -70,8 +71,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
+    /// use ion_rs::{Element, IonType};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element: Element = "hello".into();
@@ -100,7 +100,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::{Element, IntoAnnotatedElement};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
@@ -138,7 +138,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::{Element, IntoAnnotatedElement};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -359,10 +359,10 @@ impl<'top, 'data> TryFrom<AnnotationsIterator<'top, 'data>> for Annotations {
 
 #[cfg(test)]
 mod tests {
-    use crate::element::{Element, IntoAnnotatedElement};
     use crate::lazy::binary::lazy_reader::LazyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::{ion_list, ion_sexp, ion_struct, Decimal, IonResult, IonType, Symbol, Timestamp};
+    use crate::{Element, IntoAnnotatedElement};
     use num_traits::Float;
     use rstest::*;
 
