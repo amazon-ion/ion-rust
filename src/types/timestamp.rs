@@ -658,7 +658,7 @@ impl Ord for Timestamp {
 }
 
 /// Two Timestamps are considered equal (though not necessarily IonEq) if they represent the same
-/// instant in time. Precision is ignored. Offsets do not have to match as long as the instants
+/// instant in time. TimestampPrecision is ignored. Offsets do not have to match as long as the instants
 /// being represented match. Examples:
 /// * `2022T` == `2022T-01`
 /// * `2022T` == `2022T-01-01T00:00:00.000+00:00`
@@ -1001,7 +1001,7 @@ impl TimestampBuilder<HasYear> {
         TimestampBuilder {
             _state: Default::default(),
             fields_are_utc: false,
-            precision: Precision::Year,
+            precision: TimestampPrecision::Year,
             offset: None,
             year,
             month: 1,
@@ -1063,7 +1063,7 @@ impl TimestampBuilder<HasDay> {
     }
 
     pub fn with_hour_and_minute(mut self, hour: u32, minute: u32) -> TimestampBuilder<HasMinute> {
-        self.precision = Precision::HourAndMinute;
+        self.precision = TimestampPrecision::HourAndMinute;
         self.hour = hour;
         self.minute = minute;
         self.change_state()
@@ -1094,7 +1094,7 @@ macro_rules! with_offset {
 pub struct HasHour;
 impl TimestampBuilder<HasHour> {
     pub fn with_minute(mut self, minute: u32) -> TimestampBuilder<HasMinute> {
-        self.precision = Precision::HourAndMinute;
+        self.precision = TimestampPrecision::HourAndMinute;
         self.minute = minute;
         self.change_state()
     }
@@ -1106,7 +1106,7 @@ impl TimestampBuilder<HasHour> {
 pub struct HasMinute;
 impl TimestampBuilder<HasMinute> {
     pub fn with_second(mut self, second: u32) -> TimestampBuilder<HasSeconds> {
-        self.precision = Precision::Second;
+        self.precision = TimestampPrecision::Second;
         self.second = second;
         self.change_state()
     }
@@ -1119,7 +1119,7 @@ pub struct HasSeconds;
 impl TimestampBuilder<HasSeconds> {
     // Note that in order to create a `FractionalSecondSetter`, the user will have had to first
     // create a `SecondSetter`. Because of this, the builder's precision is already set to
-    // `Precision::Second`.
+    // `TimestampPrecision::Second`.
     pub fn with_nanoseconds(mut self, nanosecond: u32) -> TimestampBuilder<HasFractionalSeconds> {
         self.fractional_seconds = Some(Mantissa::Digits(9));
         self.nanoseconds = Some(nanosecond);
@@ -1678,7 +1678,7 @@ mod timestamp_tests {
             .build()
             .unwrap_or_else(|e| panic!("Couldn't build timestamp: {e:?}"));
 
-        assert_eq!(timestamp1.precision, Precision::HourAndMinute);
+        assert_eq!(timestamp1.precision, TimestampPrecision::HourAndMinute);
         assert_eq!(timestamp1, timestamp2)
     }
 
