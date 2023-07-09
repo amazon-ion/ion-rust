@@ -11,6 +11,7 @@ use num_traits::ToPrimitive;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomData;
 use std::ops::Div;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
@@ -493,66 +494,17 @@ impl Timestamp {
         Ok(())
     }
 
-    // ============================================================================
-    // ====== The below methods are public entry points for the builder API. ======
-    // ============================================================================
-    //
-    // These methods names are inspired by those of the chrono crate, the most
-    // widely used datetime library in the Rust ecosystem.
-    //
-    // See [TimestampBuilder]'s documentation for more details.
-
     /// Creates a TimestampBuilder with the specified year and [TimestampPrecision::Year].
-    pub fn with_year(year: u32) -> MonthSetter {
-        let builder: TimestampBuilder = TimestampBuilder {
-            year: year as u16,
-            ..Default::default()
-        };
-        MonthSetter { builder }
+    pub fn with_year(year: u32) -> TimestampBuilder<HasYear> {
+        TimestampBuilder::with_year(year)
     }
 
     /// Creates a TimestampBuilder with the specified year, month, and day. Its precision is
     /// set to [TimestampPrecision::Day].
-    pub fn with_ymd(year: u32, month: u32, day: u32) -> HourAndMinuteSetter {
-        let builder = Timestamp::with_year(year)
+    pub fn with_ymd(year: u32, month: u32, day: u32) -> TimestampBuilder<HasDay> {
+        TimestampBuilder::with_year(year)
             .with_month(month)
             .with_day(day)
-            .into_builder();
-        HourAndMinuteSetter { builder }
-    }
-
-    /// Creates a TimestampBuilder with the specified year, month, day, hour, minute, and second.
-    /// Its precision is set to [TimestampPrecision::Second].
-    pub fn with_ymd_hms(
-        year: u32,
-        month: u32,
-        day: u32,
-        hour: u32,
-        minute: u32,
-        second: u32,
-    ) -> FractionalSecondSetter {
-        let builder = Timestamp::with_ymd(year, month, day)
-            .with_hms(hour, minute, second)
-            .into_builder();
-        FractionalSecondSetter { builder }
-    }
-
-    /// Creates a TimestampBuilder with the specified year, month, day, hour, minute, second and
-    /// milliseconds. Its precision is set to [TimestampPrecision::Second].
-    pub fn with_ymd_hms_millis(
-        year: u32,
-        month: u32,
-        day: u32,
-        hour: u32,
-        minute: u32,
-        second: u32,
-        milliseconds: u32,
-    ) -> FractionalSecondSetter {
-        let builder = Timestamp::with_ymd(year, month, day)
-            .with_hms(hour, minute, second)
-            .with_milliseconds(milliseconds)
-            .into_builder();
-        FractionalSecondSetter { builder }
     }
 
     /// Returns the offset in minutes that has been specified in the [Timestamp].
@@ -567,15 +519,15 @@ impl Timestamp {
     }
 
     /// Returns the year that has been specified in the [Timestamp].
-    pub fn year(&self) -> i32 {
+    pub fn year(&self) -> u32 {
         // verify if the timestamp has an offset
         if let Some(offset) = self.offset {
             // `NaiveDateTime#hours()` returns hours normalized as per UTC
             // for local time we need to +/- the difference
             let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
-            return local_date_time.year();
+            return local_date_time.year() as u32;
         }
-        self.date_time.year()
+        self.date_time.year() as u32
     }
 
     /// Returns the month that has been specified in the [Timestamp].
@@ -706,7 +658,7 @@ impl Ord for Timestamp {
 }
 
 /// Two Timestamps are considered equal (though not necessarily IonEq) if they represent the same
-/// instant in time. Precision is ignored. Offsets do not have to match as long as the instants
+/// instant in time. TimestampPrecision is ignored. Offsets do not have to match as long as the instants
 /// being represented match. Examples:
 /// * `2022T` == `2022T-01`
 /// * `2022T` == `2022T-01-01T00:00:00.000+00:00`
@@ -825,27 +777,47 @@ impl IonOrd for Timestamp {
 }
 
 /// A Builder object for incrementally configuring and finally instantiating a [Timestamp].
-/// For the time being, this type is not publicly visible. Users are expected to use any of the
-/// [TimeUnitSetter] implementations that wrap it. These wrappers expose only those methods which
-/// can result in a valid Timestamp. For example, it is not possible to set the `day` field
-/// without first setting the `year` and `month` fields.
+/// This builder uses the type-state pattern to expose only those methods which can result in a
+/// valid Timestamp. For example, it is not possible to set the `day` field without first setting
+/// the `year` and `month` fields.
 // See the unit tests for usage examples.
-#[derive(Debug, Clone, Default)]
-struct TimestampBuilder {
+#[derive(Debug, Clone)]
+pub struct TimestampBuilder<T> {
+    _state: PhantomData<T>,
     fields_are_utc: bool,
     precision: TimestampPrecision,
     offset: Option<i32>,
-    year: u16,
-    month: Option<u8>,
-    day: Option<u8>,
-    hour: Option<u8>,
-    minute: Option<u8>,
-    second: Option<u8>,
+    // year..second are always set. Default is the implied value for the field if precision is less than that field.
+    year: u32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: u32,
     fractional_seconds: Option<Mantissa>,
     nanoseconds: Option<u32>,
 }
 
-impl TimestampBuilder {
+impl<T> TimestampBuilder<T> {
+    fn change_state<U>(self) -> TimestampBuilder<U> {
+        // If we ever discover a performance difference, this entire function could be replaced with one line.
+        // unsafe { std::mem::transmute(self) }
+        TimestampBuilder {
+            _state: PhantomData::default(),
+            fields_are_utc: self.fields_are_utc,
+            precision: self.precision,
+            offset: self.offset,
+            year: self.year,
+            month: self.month,
+            day: self.day,
+            hour: self.hour,
+            minute: self.minute,
+            second: self.second,
+            fractional_seconds: self.fractional_seconds,
+            nanoseconds: self.nanoseconds,
+        }
+    }
+
     /// Sets all of the fields on the given [`NaiveDateTime`] or [`DateTime<FixedOffset>`] using the
     /// values from the TimestampBuilder. Only those fields required by the TimestampBuilder's
     /// configured [`TimestampPrecision`] will be set.
@@ -867,8 +839,8 @@ impl TimestampBuilder {
         }
 
         // If precision >= Month, the month must be set.
-        let month = self.month.expect("missing month");
-        datetime = datetime.with_month(month as u32).ok_or_else(|| {
+        let month = self.month;
+        datetime = datetime.with_month(month).ok_or_else(|| {
             IonError::illegal_operation(format!("specified month ('{month}') is invalid"))
         })?;
         if self.precision == TimestampPrecision::Month {
@@ -876,8 +848,8 @@ impl TimestampBuilder {
         }
 
         // If precision >= Day, the day must be set.
-        let day = self.day.expect("missing day");
-        datetime = datetime.with_day(day as u32).ok_or_else(|| {
+        let day = self.day;
+        datetime = datetime.with_day(day).ok_or_else(|| {
             IonError::illegal_operation(format!("specified day ('{day}') is invalid"))
         })?;
         if self.precision == TimestampPrecision::Day {
@@ -885,12 +857,12 @@ impl TimestampBuilder {
         }
 
         // If precision >= HourAndMinute, the hour and minute must be set.
-        let hour = self.hour.expect("missing hour");
-        datetime = datetime.with_hour(hour as u32).ok_or_else(|| {
+        let hour = self.hour;
+        datetime = datetime.with_hour(hour).ok_or_else(|| {
             IonError::illegal_operation(format!("specified hour ('{hour}') is invalid"))
         })?;
-        let minute = self.minute.expect("missing minute");
-        datetime = datetime.with_minute(minute as u32).ok_or_else(|| {
+        let minute = self.minute;
+        datetime = datetime.with_minute(minute).ok_or_else(|| {
             IonError::illegal_operation(format!("specified minute ('{minute}') is invalid"))
         })?;
         if self.precision == TimestampPrecision::HourAndMinute {
@@ -898,8 +870,8 @@ impl TimestampBuilder {
         }
 
         // If precision >= Second, the second must be set...
-        let second = self.second.expect("missing second");
-        datetime = datetime.with_second(second as u32).ok_or_else(|| {
+        let second = self.second;
+        datetime = datetime.with_second(second).ok_or_else(|| {
             IonError::illegal_operation(format!("provided second ('{second}') is invalid."))
         })?;
 
@@ -965,7 +937,7 @@ impl TimestampBuilder {
     /// If any of the individual fields are invalid (for example, a `month` value that is greater
     /// than `12`) or if the resulting timestamp would represent a non-existent point in time
     /// (like those bypassed by daylight saving time), this method will return an `Err(IonError)`.
-    fn build(mut self) -> IonResult<Timestamp> {
+    pub fn build(mut self) -> IonResult<Timestamp> {
         // Start with a clean slate NaiveDateTime that we can configure. (These are cheap to copy.)
         let mut datetime: NaiveDateTime = NaiveDate::from_ymd_opt(0, 1, 1)
             .unwrap()
@@ -1007,230 +979,196 @@ impl TimestampBuilder {
         }
         Ok(timestamp)
     }
+
+    /// Like [Self::build], but the fields provided for each time unit are understood
+    /// to be in UTC rather than in the local time of the specified offset (if there is one).
+    pub(crate) fn build_utc_fields_at_offset(
+        mut self,
+        offset_minutes: i32,
+    ) -> IonResult<Timestamp> {
+        self.fields_are_utc = true;
+        self.offset = Some(offset_minutes);
+        self.build()
+    }
 }
 
-/// Allows the user to set the `month` field on a builder that has already had its `year`
-/// field set. Or, if `Year` is the desired precision, they may build the [Timestamp] with an
-/// unknown offset instead.
+// The type states (HasYear, HasMonth, etc.) are pub in this module, but they do not appear as types
+// in the documentation, they cannot be imported, and they are not nameable from outside this crate.
 #[derive(Debug, Clone)]
-pub struct MonthSetter {
-    builder: TimestampBuilder,
-}
+pub struct HasYear;
+impl TimestampBuilder<HasYear> {
+    pub fn with_year(year: u32) -> Self {
+        TimestampBuilder {
+            _state: Default::default(),
+            fields_are_utc: false,
+            precision: TimestampPrecision::Year,
+            offset: None,
+            year,
+            month: 1,
+            day: 1,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            fractional_seconds: None,
+            nanoseconds: None,
+        }
+    }
 
-impl MonthSetter {
+    pub fn with_ymd(year: u32, month: u32, day: u32) -> TimestampBuilder<HasDay> {
+        Self::with_year(year).with_month(month).with_day(day)
+    }
+
     // Libraries have conflicting opinions about whether months should be
     // 0- or 1-indexed, so Timestamp follows chrono's lead and provides
     // convenient ways to do both. Internally, it uses a 1-based representation.
 
     // 0-indexed month
-    pub fn with_month0(self, year: u32) -> DaySetter {
-        self.with_month(year + 1)
+    pub fn with_month0(self, month: u32) -> TimestampBuilder<HasMonth> {
+        self.with_month(month + 1)
     }
 
     // 1-indexed month
-    pub fn with_month(self, month: u32) -> DaySetter {
-        let mut builder = self.builder;
-        builder.precision = TimestampPrecision::Month;
-        builder.month = Some(month as u8);
-        DaySetter { builder }
-    }
-
-    pub fn build(self) -> IonResult<Timestamp> {
-        self.into_builder().build()
+    pub fn with_month(mut self, month: u32) -> TimestampBuilder<HasMonth> {
+        self.precision = TimestampPrecision::Month;
+        self.month = month;
+        self.change_state()
     }
 }
 
-/// Allows the user to set the `day` field on a builder that has already had its `year`
-/// and `month` fields set. Or, if `Month` is the desired precision, they may build the [Timestamp]
-/// with an unknown offset instead.
 #[derive(Debug, Clone)]
-pub struct DaySetter {
-    builder: TimestampBuilder,
-}
-
-impl DaySetter {
+pub struct HasMonth;
+impl TimestampBuilder<HasMonth> {
     // Libraries have conflicting opinions about whether days should be
     // 0- or 1-indexed, so Timestamp follows chrono's lead and provides
     // convenient ways to do both. Internally, it uses a 1-based representation.
 
     // 0-indexed day
-    pub fn with_day0(self, day: u32) -> HourAndMinuteSetter {
+    pub fn with_day0(self, day: u32) -> TimestampBuilder<HasDay> {
         self.with_day(day + 1)
     }
 
     // 1-indexed day
-    pub fn with_day(self, day: u32) -> HourAndMinuteSetter {
-        let mut builder = self.builder;
-        builder.precision = TimestampPrecision::Day;
-        builder.day = Some(day as u8);
-        HourAndMinuteSetter { builder }
-    }
-
-    pub fn build(self) -> IonResult<Timestamp> {
-        self.into_builder().build()
+    pub fn with_day(mut self, day: u32) -> TimestampBuilder<HasDay> {
+        self.precision = TimestampPrecision::Day;
+        self.day = day;
+        self.change_state()
     }
 }
 
-/// Allows the user to set the `hour` and `minute` fields on a builder that has already
-/// had its `year`, `month`, and `day` fields set. Or, if `Day` is the desired precision,
-/// they may build the [Timestamp] with an unknown offset instead.
 #[derive(Debug, Clone)]
-pub struct HourAndMinuteSetter {
-    builder: TimestampBuilder,
-}
-
-impl HourAndMinuteSetter {
-    pub fn with_hms(self, hour: u32, minute: u32, second: u32) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.hour = Some(hour as u8);
-        builder.minute = Some(minute as u8);
-        builder.second = Some(second as u8);
-        builder.precision = TimestampPrecision::Second;
-        FractionalSecondSetter { builder }
+pub struct HasDay;
+impl TimestampBuilder<HasDay> {
+    pub fn with_hms(self, hour: u32, minute: u32, second: u32) -> TimestampBuilder<HasSeconds> {
+        self.with_hour(hour).with_minute(minute).with_second(second)
     }
 
-    pub fn with_hour_and_minute(self, hour: u32, minute: u32) -> SecondSetter {
-        let mut builder = self.builder;
-        builder.precision = TimestampPrecision::HourAndMinute;
-        builder.hour = Some(hour as u8);
-        builder.minute = Some(minute as u8);
-        SecondSetter { builder }
+    pub fn with_hour_and_minute(mut self, hour: u32, minute: u32) -> TimestampBuilder<HasMinute> {
+        self.precision = TimestampPrecision::HourAndMinute;
+        self.hour = hour;
+        self.minute = minute;
+        self.change_state()
     }
 
-    pub fn build(self) -> IonResult<Timestamp> {
-        self.into_builder().build()
+    pub fn with_hour(mut self, hour: u32) -> TimestampBuilder<HasHour> {
+        self.precision = TimestampPrecision::HourAndMinute;
+        self.hour = hour;
+        self.change_state()
     }
 }
 
-/// Allows the user to set the `second` field on a builder that has already
-/// had its `year`, `month`, `day`, `hour`, and `minute` fields set. Or, if `HourAndMinute` is the
-/// desired precision, they may build the [Timestamp] instead, optionally specifying an offset if
-/// known.
-#[derive(Debug, Clone)]
-pub struct SecondSetter {
-    builder: TimestampBuilder,
-}
-
-impl SecondSetter {
-    pub fn with_second(self, second: u32) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.precision = TimestampPrecision::Second;
-        builder.second = Some(second as u8);
-        FractionalSecondSetter { builder }
-    }
-
-    /// Sets the difference, in minutes, from UTC. A positive value indicates
-    /// Eastern Hemisphere, while a negative value indicates Western Hemisphere.
-    // The unit (minutes) could be seconds (which is what the chrono crate uses
-    // internally), but Ion uses minutes in its binary representation, so it
-    // makes sense to be consistent.
-    pub fn build_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
-        self.builder.offset = Some(offset_minutes);
-        self.into_builder().build()
-    }
-
-    /// Like [Self::build_at_offset], but the fields provided for each time unit are understood
-    /// to be in UTC rather than in the local time of the specified offset.
-    pub fn build_utc_fields_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
-        self.builder.fields_are_utc = true;
-        self.build_at_offset(offset_minutes)
-    }
-
-    pub fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
-        self.builder.offset = None;
-        self.into_builder().build()
-    }
-}
-
-/// Allows the user to set the `fractional_seconds` field on a builder that has already
-/// had its `year`, `month`, `day`, `hour`, `minute`, and `second` fields set. Or, if
-/// `Second` is the desired precision, they may build the [Timestamp] instead, optionally
-/// specifying an offset if known.
-#[derive(Debug, Clone)]
-pub struct FractionalSecondSetter {
-    builder: TimestampBuilder,
-}
-
-impl FractionalSecondSetter {
-    // Note that in order to create a `FractionalSecondSetter`, the user will have had to first
-    // create a `SecondSetter`. Because of this, the builder's precision is already set to
-    // `Precision::Second`.
-    pub fn with_nanoseconds(self, nanosecond: u32) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.fractional_seconds = Some(Mantissa::Digits(9));
-        builder.nanoseconds = Some(nanosecond);
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn with_microseconds(self, microsecond: u32) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.fractional_seconds = Some(Mantissa::Digits(6));
-        builder.nanoseconds = Some(microsecond * 1000);
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn with_milliseconds(self, millisecond: u32) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.fractional_seconds = Some(Mantissa::Digits(3));
-        builder.nanoseconds = Some(millisecond * 1_000_000);
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn with_nanoseconds_and_precision(
-        self,
-        nanoseconds: u32,
-        precision_digits: u32,
-    ) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.fractional_seconds = Some(Mantissa::Digits(precision_digits));
-        builder.nanoseconds = Some(nanoseconds);
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn with_fractional_seconds(self, fractional_seconds: Decimal) -> FractionalSecondSetter {
-        let mut builder = self.builder;
-        builder.fractional_seconds = Some(Mantissa::Arbitrary(fractional_seconds));
-        builder.nanoseconds = None;
-        FractionalSecondSetter { builder }
-    }
-
-    pub fn build_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
-        self.builder.offset = Some(offset_minutes);
-        self.into_builder().build()
-    }
-
-    /// Like [Self::build_at_offset], but the fields provided for each time unit are understood
-    /// to be in UTC rather than in the local time of the specified offset.
-    pub fn build_utc_fields_at_offset(mut self, offset_minutes: i32) -> IonResult<Timestamp> {
-        self.builder.fields_are_utc = true;
-        self.build_at_offset(offset_minutes)
-    }
-
-    pub fn build_at_unknown_offset(mut self) -> IonResult<Timestamp> {
-        self.builder.offset = None;
-        self.into_builder().build()
-    }
-}
-
-trait TimeUnitSetter {
-    fn into_builder(self) -> TimestampBuilder;
-}
-
-macro_rules! impl_time_unit_setter_for {
-    ($type_name:ty) => {
-        impl TimeUnitSetter for $type_name {
-            fn into_builder(self) -> TimestampBuilder {
-                self.builder
-            }
+macro_rules! with_offset {
+    () => {
+        /// Sets the difference, in minutes, from UTC. A positive value indicates
+        /// Eastern Hemisphere, while a negative value indicates Western Hemisphere.
+        // The unit (minutes) could be seconds (which is what the chrono crate uses
+        // internally), but Ion uses minutes in its binary representation, so it
+        // makes sense to be consistent.
+        pub fn with_offset(mut self, offset_minutes: i32) -> TimestampBuilder<HasOffset> {
+            self.offset = Some(offset_minutes);
+            self.change_state()
         }
     };
 }
 
-impl_time_unit_setter_for!(MonthSetter);
-impl_time_unit_setter_for!(DaySetter);
-impl_time_unit_setter_for!(HourAndMinuteSetter);
-impl_time_unit_setter_for!(SecondSetter);
-impl_time_unit_setter_for!(FractionalSecondSetter);
+#[derive(Debug, Clone)]
+pub struct HasHour;
+impl TimestampBuilder<HasHour> {
+    pub fn with_minute(mut self, minute: u32) -> TimestampBuilder<HasMinute> {
+        self.precision = TimestampPrecision::HourAndMinute;
+        self.minute = minute;
+        self.change_state()
+    }
+
+    with_offset!();
+}
+
+#[derive(Debug, Clone)]
+pub struct HasMinute;
+impl TimestampBuilder<HasMinute> {
+    pub fn with_second(mut self, second: u32) -> TimestampBuilder<HasSeconds> {
+        self.precision = TimestampPrecision::Second;
+        self.second = second;
+        self.change_state()
+    }
+
+    with_offset!();
+}
+
+#[derive(Debug, Clone)]
+pub struct HasSeconds;
+impl TimestampBuilder<HasSeconds> {
+    // Note that in order to create a `FractionalSecondSetter`, the user will have had to first
+    // create a `SecondSetter`. Because of this, the builder's precision is already set to
+    // `TimestampPrecision::Second`.
+    pub fn with_nanoseconds(mut self, nanosecond: u32) -> TimestampBuilder<HasFractionalSeconds> {
+        self.fractional_seconds = Some(Mantissa::Digits(9));
+        self.nanoseconds = Some(nanosecond);
+        self.change_state()
+    }
+
+    pub fn with_microseconds(mut self, microsecond: u32) -> TimestampBuilder<HasFractionalSeconds> {
+        self.fractional_seconds = Some(Mantissa::Digits(6));
+        self.nanoseconds = Some(microsecond * 1000);
+        self.change_state()
+    }
+
+    pub fn with_milliseconds(mut self, millisecond: u32) -> TimestampBuilder<HasFractionalSeconds> {
+        self.fractional_seconds = Some(Mantissa::Digits(3));
+        self.nanoseconds = Some(millisecond * 1_000_000);
+        self.change_state()
+    }
+
+    pub fn with_nanoseconds_and_precision(
+        mut self,
+        nanoseconds: u32,
+        precision_digits: u32,
+    ) -> TimestampBuilder<HasFractionalSeconds> {
+        self.fractional_seconds = Some(Mantissa::Digits(precision_digits));
+        self.nanoseconds = Some(nanoseconds);
+        self.change_state()
+    }
+
+    pub fn with_fractional_seconds(
+        mut self,
+        fractional_seconds: Decimal,
+    ) -> TimestampBuilder<HasFractionalSeconds> {
+        self.fractional_seconds = Some(Mantissa::Arbitrary(fractional_seconds));
+        self.nanoseconds = None;
+        self.change_state()
+    }
+
+    with_offset!();
+}
+
+#[derive(Debug, Clone)]
+pub struct HasFractionalSeconds;
+impl TimestampBuilder<HasFractionalSeconds> {
+    with_offset!();
+}
+
+#[derive(Debug, Clone)]
+pub struct HasOffset;
+// No impl for TimestampBuilder<HasOffset> because `build()` is included in TimestampBuilder<T>
 
 fn downconvert_to_naive_datetime_with_nanoseconds(timestamp: &Timestamp) -> NaiveDateTime {
     if timestamp.precision == TimestampPrecision::Second {
@@ -1322,9 +1260,11 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_same_ymd_hms_millis_at_known_offset_are_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd_hms_millis(2021, 2, 5, 16, 43, 51, 192);
-        let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
-        let timestamp2 = builder.build_at_offset(5 * 60)?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5)
+            .with_hms(16, 43, 51)
+            .with_milliseconds(192);
+        let timestamp1 = builder.clone().with_offset(5 * 60).build()?;
+        let timestamp2 = builder.with_offset(5 * 60).build()?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1333,18 +1273,22 @@ mod timestamp_tests {
     #[test]
     fn test_timestamps_with_same_ymd_hms_millis_at_known_offset_are_equal_ordering() -> IonResult<()>
     {
-        let builder = Timestamp::with_ymd_hms_millis(2021, 2, 5, 16, 43, 51, 192);
-        let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
-        let timestamp2 = builder.build_at_offset(5 * 60)?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5)
+            .with_hms(16, 43, 51)
+            .with_milliseconds(192);
+        let timestamp1 = builder.clone().with_offset(5 * 60).build()?;
+        let timestamp2 = builder.with_offset(5 * 60).build()?;
         assert!(timestamp1 == timestamp2);
         Ok(())
     }
 
     #[test]
     fn test_timestamps_with_same_ymd_hms_millis_at_unknown_offset_are_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd_hms_millis(2021, 2, 5, 16, 43, 51, 192);
-        let timestamp1 = builder.clone().build_at_unknown_offset()?;
-        let timestamp2 = builder.build_at_unknown_offset()?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5)
+            .with_hms(16, 43, 51)
+            .with_milliseconds(192);
+        let timestamp1 = builder.clone().build()?;
+        let timestamp2 = builder.build()?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1352,9 +1296,9 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_same_ymd_hms_at_known_offset_are_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd_hms(2021, 2, 5, 16, 43, 51);
-        let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
-        let timestamp2 = builder.build_at_offset(5 * 60)?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5).with_hms(16, 43, 51);
+        let timestamp1 = builder.clone().with_offset(5 * 60).build()?;
+        let timestamp2 = builder.with_offset(5 * 60).build()?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1363,10 +1307,10 @@ mod timestamp_tests {
     #[test]
     fn test_timestamps_from_utc_and_local_hm_fields_at_same_offset_are_equal() -> IonResult<()> {
         // Builder 1 specifies its time fields in the local time of the specified offset
-        let builder1 = Timestamp::with_ymd(2021, 2, 5).with_hour_and_minute(11, 43);
-        let timestamp1 = builder1.build_at_offset(-5 * 60)?;
+        let builder1 = TimestampBuilder::with_ymd(2021, 2, 5).with_hour_and_minute(11, 43);
+        let timestamp1 = builder1.with_offset(-5 * 60).build()?;
         // Builder 2 specifies its time fields in UTC and expects the offset to be applied afterwards
-        let builder2 = Timestamp::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
+        let builder2 = TimestampBuilder::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
         let timestamp2 = builder2.build_utc_fields_at_offset(-5 * 60)?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
@@ -1376,10 +1320,10 @@ mod timestamp_tests {
     #[test]
     fn test_timestamps_from_utc_and_local_hms_fields_at_same_offset_are_equal() -> IonResult<()> {
         // Builder 1 specifies its time fields in the local time of the specified offset
-        let builder1 = Timestamp::with_ymd_hms(2021, 2, 5, 11, 43, 51);
-        let timestamp1 = builder1.build_at_offset(-5 * 60)?;
+        let builder1 = TimestampBuilder::with_ymd(2021, 2, 5).with_hms(11, 43, 51);
+        let timestamp1 = builder1.with_offset(-5 * 60).build()?;
         // Builder 2 specifies its time fields in UTC and expects the offset to be applied afterwards
-        let builder2 = Timestamp::with_ymd_hms(2021, 2, 5, 16, 43, 51);
+        let builder2 = TimestampBuilder::with_ymd(2021, 2, 5).with_hms(16, 43, 51);
         let timestamp2 = builder2.build_utc_fields_at_offset(-5 * 60)?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
@@ -1388,9 +1332,9 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_same_ymd_hms_at_unknown_offset_are_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd_hms(2021, 2, 5, 16, 43, 51);
-        let timestamp1 = builder.clone().build_at_unknown_offset()?;
-        let timestamp2 = builder.build_at_unknown_offset()?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5).with_hms(16, 43, 51);
+        let timestamp1 = builder.clone().build()?;
+        let timestamp2 = builder.build()?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1398,9 +1342,9 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_same_ymd_hm_at_known_offset_are_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
-        let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
-        let timestamp2 = builder.build_at_offset(5 * 60)?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
+        let timestamp1 = builder.clone().with_offset(5 * 60).build()?;
+        let timestamp2 = builder.with_offset(5 * 60).build()?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1408,9 +1352,9 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_same_ymd_hm_at_unknown_offset_are_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
-        let timestamp1 = builder.clone().build_at_unknown_offset()?;
-        let timestamp2 = builder.build_at_unknown_offset()?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
+        let timestamp1 = builder.clone().build()?;
+        let timestamp2 = builder.build()?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1418,7 +1362,7 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_same_ymd_at_unknown_offset_are_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd(2021, 2, 5);
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5);
         let timestamp1 = builder.clone().build()?;
         let timestamp2 = builder.build()?;
         assert_eq!(timestamp1, timestamp2);
@@ -1428,7 +1372,7 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_same_ym_at_unknown_offset_are_equal() -> IonResult<()> {
-        let builder = Timestamp::with_year(2021).with_month(2);
+        let builder = TimestampBuilder::with_year(2021).with_month(2);
         let timestamp1 = builder.clone().build()?;
         let timestamp2 = builder.build()?;
         assert_eq!(timestamp1, timestamp2);
@@ -1438,7 +1382,7 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_same_year_at_unknown_offset_are_equal() -> IonResult<()> {
-        let builder = Timestamp::with_year(2021);
+        let builder = TimestampBuilder::with_year(2021);
         let timestamp1 = builder.clone().build()?;
         let timestamp2 = builder.build()?;
         assert_eq!(timestamp1, timestamp2);
@@ -1448,9 +1392,11 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_at_different_offsets_are_not_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd_hms_millis(2021, 2, 5, 16, 43, 51, 192);
-        let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
-        let timestamp2 = builder.build_at_offset(4 * 60)?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5)
+            .with_hms(16, 43, 51)
+            .with_milliseconds(192);
+        let timestamp1 = builder.clone().with_offset(5 * 60).build()?;
+        let timestamp2 = builder.with_offset(4 * 60).build()?;
         assert_ne!(timestamp1, timestamp2);
         assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1458,9 +1404,11 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_known_and_unknown_offsets_are_not_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd_hms_millis(2021, 2, 5, 16, 43, 51, 192);
-        let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
-        let timestamp2 = builder.build_at_unknown_offset()?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5)
+            .with_hms(16, 43, 51)
+            .with_milliseconds(192);
+        let timestamp1 = builder.clone().with_offset(5 * 60).build()?;
+        let timestamp2 = builder.build()?;
         assert_ne!(timestamp1, timestamp2);
         assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1468,9 +1416,9 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_different_precisions_are_not_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd_hms(2021, 2, 5, 16, 43, 51);
-        let timestamp1 = builder.clone().build_at_offset(5 * 60)?;
-        let timestamp2 = builder.with_milliseconds(192).build_at_offset(5 * 60)?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5).with_hms(16, 43, 51);
+        let timestamp1 = builder.clone().with_offset(5 * 60).build()?;
+        let timestamp2 = builder.with_milliseconds(192).with_offset(5 * 60).build()?;
         assert_ne!(timestamp1, timestamp2);
         assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1478,15 +1426,17 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_different_fractional_second_precision_are_not_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd_hms(2021, 2, 5, 16, 43, 51);
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5).with_hms(16, 43, 51);
         let timestamp1 = builder
             .clone()
             .with_milliseconds(192)
-            .build_at_offset(5 * 60)?;
+            .with_offset(5 * 60)
+            .build()?;
         // The microseconds field has the same amount of time, but a different precision.
         let timestamp2 = builder
             .with_microseconds(193 * 1_000)
-            .build_at_offset(5 * 60)?;
+            .with_offset(5 * 60)
+            .build()?;
         assert_ne!(timestamp1, timestamp2);
         assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1494,12 +1444,13 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_different_fractional_seconds_are_not_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd_hms(2021, 2, 5, 16, 43, 51);
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5).with_hms(16, 43, 51);
         let timestamp1 = builder
             .clone()
             .with_milliseconds(192)
-            .build_at_offset(5 * 60)?;
-        let timestamp2 = builder.with_milliseconds(193).build_at_offset(5 * 60)?;
+            .with_offset(5 * 60)
+            .build()?;
+        let timestamp2 = builder.with_milliseconds(193).with_offset(5 * 60).build()?;
         assert_ne!(timestamp1, timestamp2);
         assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1507,9 +1458,13 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_different_seconds_are_not_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
-        let timestamp1 = builder.clone().with_second(12).build_at_offset(5 * 60)?;
-        let timestamp2 = builder.with_second(13).build_at_offset(5 * 60)?;
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
+        let timestamp1 = builder
+            .clone()
+            .with_second(12)
+            .with_offset(5 * 60)
+            .build()?;
+        let timestamp2 = builder.with_second(13).with_offset(5 * 60).build()?;
         assert_ne!(timestamp1, timestamp2);
         assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1517,14 +1472,16 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_different_minutes_are_not_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd(2021, 2, 5);
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5);
         let timestamp1 = builder
             .clone()
             .with_hour_and_minute(16, 42)
-            .build_at_offset(5 * 60)?;
+            .with_offset(5 * 60)
+            .build()?;
         let timestamp2 = builder
             .with_hour_and_minute(16, 43)
-            .build_at_offset(5 * 60)?;
+            .with_offset(5 * 60)
+            .build()?;
         assert_ne!(timestamp1, timestamp2);
         assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1532,14 +1489,16 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_different_hours_are_not_equal() -> IonResult<()> {
-        let builder = Timestamp::with_ymd(2021, 2, 5);
+        let builder = TimestampBuilder::with_ymd(2021, 2, 5);
         let timestamp1 = builder
             .clone()
             .with_hour_and_minute(16, 42)
-            .build_at_offset(5 * 60)?;
+            .with_offset(5 * 60)
+            .build()?;
         let timestamp2 = builder
             .with_hour_and_minute(17, 42)
-            .build_at_offset(5 * 60)?;
+            .with_offset(5 * 60)
+            .build()?;
         assert_ne!(timestamp1, timestamp2);
         assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1547,7 +1506,7 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_different_days_are_not_equal() -> IonResult<()> {
-        let builder = Timestamp::with_year(2021).with_month(2);
+        let builder = TimestampBuilder::with_year(2021).with_month(2);
         let timestamp1 = builder.clone().with_day(5).build()?;
         let timestamp2 = builder.with_day(6).build()?;
         assert_ne!(timestamp1, timestamp2);
@@ -1557,7 +1516,7 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_different_months_are_not_equal() -> IonResult<()> {
-        let builder = Timestamp::with_year(2021);
+        let builder = TimestampBuilder::with_year(2021);
         let timestamp1 = builder.clone().with_month(2).build()?;
         let timestamp2 = builder.with_month(3).build()?;
         assert_ne!(timestamp1, timestamp2);
@@ -1567,8 +1526,8 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamps_with_different_years_are_not_equal() -> IonResult<()> {
-        let timestamp1 = Timestamp::with_year(2021).build()?;
-        let timestamp2 = Timestamp::with_year(2022).build()?;
+        let timestamp1 = TimestampBuilder::with_year(2021).build()?;
+        let timestamp2 = TimestampBuilder::with_year(2022).build()?;
         assert_ne!(timestamp1, timestamp2);
         assert!(!timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1576,7 +1535,9 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_try_into_naive_datetime() -> IonResult<()> {
-        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset()?;
+        let timestamp = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 0)
+            .build()?;
         let naive_datetime: NaiveDateTime = timestamp.try_into()?;
         let expected = NaiveDate::from_ymd_opt(2021, 4, 6)
             .unwrap()
@@ -1588,9 +1549,10 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_try_into_naive_datetime_fractional_seconds() -> IonResult<()> {
-        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+        let timestamp = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 0)
             .with_milliseconds(449)
-            .build_at_unknown_offset()?;
+            .build()?;
         let datetime: NaiveDateTime = timestamp.try_into()?;
         let naive_datetime = NaiveDate::from_ymd_opt(2021, 4, 6)
             .unwrap()
@@ -1604,7 +1566,10 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_try_into_naive_datetime_error() -> IonResult<()> {
-        let timestamp = Timestamp::with_ymd_hms(2021, 1, 1, 0, 0, 0).build_at_offset(0)?;
+        let timestamp = TimestampBuilder::with_ymd(2021, 1, 1)
+            .with_hms(0, 0, 0)
+            .with_offset(0)
+            .build()?;
         //     ^---- This timestamp has a known offset, so we cannot convert it into a NaiveDateTime
         let result: IonResult<NaiveDateTime> = timestamp.try_into();
         assert!(result.is_err());
@@ -1613,7 +1578,10 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_try_into_fixed_offset_datetime() -> IonResult<()> {
-        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60)?;
+        let timestamp = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 0)
+            .with_offset(-5 * 60)
+            .build()?;
         //                    ^-- Timestamp's offset API takes minutes
         let datetime: DateTime<FixedOffset> = timestamp.try_into()?;
         // chrono's FixedOffset takes seconds ----------v
@@ -1631,9 +1599,11 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_try_into_fixed_offset_datetime_fractional_seconds() -> IonResult<()> {
-        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+        let timestamp = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 0)
             .with_milliseconds(449)
-            .build_at_offset(-5 * 60)?;
+            .with_offset(-5 * 60)
+            .build()?;
         //                    ^-- Timestamp's offset API takes minutes
         let datetime: DateTime<FixedOffset> = timestamp.try_into()?;
         // chrono's FixedOffset takes seconds ----------v
@@ -1653,7 +1623,9 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_try_into_datetime_fixedoffset_error() -> IonResult<()> {
-        let timestamp = Timestamp::with_ymd_hms(2021, 1, 1, 0, 0, 0).build_at_unknown_offset()?;
+        let timestamp = TimestampBuilder::with_ymd(2021, 1, 1)
+            .with_hms(0, 0, 0)
+            .build()?;
         //     ^---- This timestamp has an unknown offset, so we cannot convert it into a DateTime<FixedOffset>
         let result: IonResult<DateTime<FixedOffset>> = timestamp.try_into();
         assert!(result.is_err());
@@ -1664,39 +1636,59 @@ mod timestamp_tests {
     fn test_timestamp_builder() {
         // Using individual field setters produces the same Timestamp as using setters
         // for common combinations of fields (with_ymd, with_hms).
-        let timestamp1 = Timestamp::with_year(2021)
+        let timestamp1 = TimestampBuilder::with_year(2021)
             .with_month(2)
             .with_day(5)
-            .with_hour_and_minute(17, 39)
+            .with_hour(17)
+            .with_minute(39)
             .with_second(51)
             .with_milliseconds(194)
-            .build_at_offset(-4 * 60)
+            .with_offset(-4 * 60)
+            .build()
             .unwrap_or_else(|e| panic!("Couldn't build timestamp: {e:?}"));
 
-        let timestamp2 = Timestamp::with_ymd(2021, 2, 5)
+        let timestamp2 = TimestampBuilder::with_ymd(2021, 2, 5)
             .with_hms(17, 39, 51)
             .with_milliseconds(194)
-            .build_at_offset(-4 * 60)
-            .unwrap_or_else(|e| panic!("Couldn't build timestamp: {e:?}"));
-
-        let timestamp3 = Timestamp::with_ymd_hms_millis(2021, 2, 5, 17, 39, 51, 194)
-            .build_at_offset(-4 * 60)
+            .with_offset(-4 * 60)
+            .build()
             .unwrap_or_else(|e| panic!("Couldn't build timestamp: {e:?}"));
 
         assert_eq!(timestamp1.precision, TimestampPrecision::Second);
         assert_eq!(timestamp1.fractional_seconds, Some(Mantissa::Digits(3)));
         assert_eq!(timestamp1, timestamp2);
-        assert_eq!(timestamp2, timestamp3);
 
         assert!(timestamp1.ion_eq(&timestamp2));
-        assert!(timestamp1.ion_eq(&timestamp3));
+    }
+
+    #[test]
+    fn test_timestamp_builder_without_minutes() {
+        // Even though we set hour and not minute, this should still have a precision of HourAndMinute.
+        let timestamp1 = TimestampBuilder::with_year(2021)
+            .with_month(2)
+            .with_day(5)
+            .with_hour(17)
+            .with_offset(60)
+            .build()
+            .unwrap_or_else(|e| panic!("Couldn't build timestamp: {e:?}"));
+
+        let timestamp2 = TimestampBuilder::with_ymd(2021, 2, 5)
+            .with_hour_and_minute(17, 0)
+            .with_offset(60)
+            .build()
+            .unwrap_or_else(|e| panic!("Couldn't build timestamp: {e:?}"));
+
+        assert_eq!(timestamp1.precision, TimestampPrecision::HourAndMinute);
+        assert_eq!(timestamp1, timestamp2)
     }
 
     #[test]
     fn test_timestamp_fixed_offset() -> IonResult<()> {
-        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+        let timestamp = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 0)
             .with_milliseconds(449)
-            .build_at_offset(-5 * 60)?;
+            .with_offset(-5 * 60)
+            .build()?;
         //                    ^-- Timestamp's offset API takes minutes
         // expected offset in minutes
         let expected_offset = -5 * 60;
@@ -1714,16 +1706,20 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_year() -> IonResult<()> {
-        let timestamp_1 = Timestamp::with_year(2021).with_month(2).build()?;
+        let timestamp_1 = TimestampBuilder::with_year(2021).with_month(2).build()?;
         assert_eq!(timestamp_1.year(), 2021);
 
-        let timestamp_2 =
-            Timestamp::with_ymd_hms(2021, 12, 31, 10, 15, 30).build_at_offset(-11 * 60)?;
+        let timestamp_2 = TimestampBuilder::with_ymd(2021, 12, 31)
+            .with_hms(10, 15, 30)
+            .with_offset(-11 * 60)
+            .build()?;
 
         assert_eq!(timestamp_2.year(), 2021);
 
-        let timestamp_3 =
-            Timestamp::with_ymd_hms(2021, 12, 31, 15, 15, 30).build_at_offset(10 * 60)?;
+        let timestamp_3 = TimestampBuilder::with_ymd(2021, 12, 31)
+            .with_hms(15, 15, 30)
+            .with_offset(10 * 60)
+            .build()?;
 
         assert_eq!(timestamp_3.year(), 2021);
 
@@ -1732,16 +1728,20 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_month() -> IonResult<()> {
-        let timestamp_1 = Timestamp::with_year(2021).with_month(2).build()?;
+        let timestamp_1 = TimestampBuilder::with_year(2021).with_month(2).build()?;
         assert_eq!(timestamp_1.month(), 2);
 
-        let timestamp_2 =
-            Timestamp::with_ymd_hms(2021, 1, 31, 10, 15, 30).build_at_offset(-11 * 60)?;
+        let timestamp_2 = TimestampBuilder::with_ymd(2021, 1, 31)
+            .with_hms(10, 15, 30)
+            .with_offset(-11 * 60)
+            .build()?;
 
         assert_eq!(timestamp_2.month(), 1);
 
-        let timestamp_3 =
-            Timestamp::with_ymd_hms(2021, 1, 31, 15, 15, 30).build_at_offset(10 * 60)?;
+        let timestamp_3 = TimestampBuilder::with_ymd(2021, 1, 31)
+            .with_hms(15, 15, 30)
+            .with_offset(10 * 60)
+            .build()?;
 
         assert_eq!(timestamp_3.month(), 1);
 
@@ -1750,23 +1750,27 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_day() -> IonResult<()> {
-        let timestamp_1 = Timestamp::with_year(2021).with_month(2).build()?;
+        let timestamp_1 = TimestampBuilder::with_year(2021).with_month(2).build()?;
         assert_eq!(timestamp_1.day(), 1);
 
-        let timestamp_2 = Timestamp::with_year(2021)
+        let timestamp_2 = TimestampBuilder::with_year(2021)
             .with_month(2)
             .with_day(4)
             .build()?;
 
         assert_eq!(timestamp_2.day(), 4);
 
-        let timestamp_3 =
-            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-11 * 60)?;
+        let timestamp_3 = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 30)
+            .with_offset(-11 * 60)
+            .build()?;
 
         assert_eq!(timestamp_3.day(), 6);
 
-        let timestamp_4 =
-            Timestamp::with_ymd_hms(2021, 4, 6, 15, 15, 30).build_at_offset(10 * 60)?;
+        let timestamp_4 = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(15, 15, 30)
+            .with_offset(10 * 60)
+            .build()?;
 
         assert_eq!(timestamp_4.day(), 6);
 
@@ -1774,17 +1778,17 @@ mod timestamp_tests {
     }
 
     #[rstest]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-90), 10)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-5 * 60), 10)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(5 * 60), 10)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(15), 10)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(30), 10)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(0), 10)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 0, 15, 30).build_at_offset(5 * 60), 0)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 23, 15, 30).build_at_offset(-5 * 60), 23)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 0, 15, 30).build_at_offset(23 * 60), 0)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-11 * 60), 10)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 15, 15, 30).build_at_offset(10 * 60), 15)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(-90).build(), 10)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(-5 * 60).build(), 10)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(5 * 60).build(), 10)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(15).build(), 10)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(30).build(), 10)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(0).build(), 10)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(0, 15, 30).with_offset(5 * 60).build(), 0)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(23, 15, 30).with_offset(-5 * 60).build(), 23)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(0, 15, 30).with_offset(23 * 60).build(), 0)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(-11 * 60).build(), 10)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(15, 15, 30).with_offset(10 * 60).build(), 15)]
     fn test_timestamp_hour(
         #[case] timestamp: IonResult<Timestamp>,
         #[case] expected_hours: u32,
@@ -1794,14 +1798,14 @@ mod timestamp_tests {
     }
 
     #[rstest]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-90), 15)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-5 * 60), 15)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(5 * 60), 15)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(0), 15)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 0, 30).build_at_offset(5 * 60), 0)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 59, 30).build_at_offset(5 * 60), 59)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-11 * 60), 15)]
-    #[case(Timestamp::with_ymd_hms(2021, 4, 6, 15, 15, 30).build_at_offset(10 * 60), 15)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(-90).build(), 15)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(-5 * 60).build(), 15)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(5 * 60).build(), 15)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(0).build(), 15)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 0, 30).with_offset(5 * 60).build(), 0)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 59, 30).with_offset(5 * 60).build(), 59)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 30).with_offset(-11 * 60).build(), 15)]
+    #[case(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(15, 15, 30).with_offset(10 * 60).build(), 15)]
     fn test_timestamp_minute(
         #[case] timestamp: IonResult<Timestamp>,
         #[case] expected_minutes: u32,
@@ -1812,25 +1816,34 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_second() -> IonResult<()> {
-        let timestamp = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-5 * 60)?;
+        let timestamp = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 30)
+            .with_offset(-5 * 60)
+            .build()?;
         assert_eq!(timestamp.second(), 30);
         Ok(())
     }
 
     #[test]
     fn test_timestamp_nanoseconds() -> IonResult<()> {
-        let timestamp_1 = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30)
+        let timestamp_1 = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 30)
             .with_nanoseconds(192)
-            .build_at_offset(-5 * 60)?;
+            .with_offset(-5 * 60)
+            .build()?;
         assert_eq!(timestamp_1.nanoseconds(), 192);
 
-        let timestamp_2 = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30)
+        let timestamp_2 = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 30)
             .with_milliseconds(192)
-            .build_at_offset(-5 * 60)?;
+            .with_offset(-5 * 60)
+            .build()?;
         assert_eq!(timestamp_2.nanoseconds(), 192000000);
 
-        let timestamp_3 =
-            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-5 * 60)?;
+        let timestamp_3 = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 30)
+            .with_offset(-5 * 60)
+            .build()?;
         assert_eq!(timestamp_3.nanoseconds(), 0);
 
         Ok(())
@@ -1838,21 +1851,27 @@ mod timestamp_tests {
 
     #[test]
     fn test_timestamp_milliseconds() -> IonResult<()> {
-        let timestamp_1 = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30)
+        let timestamp_1 = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 30)
             .with_milliseconds(192)
-            .build_at_offset(-5 * 60)?;
+            .with_offset(-5 * 60)
+            .build()?;
         assert_eq!(timestamp_1.milliseconds(), 192);
 
-        let timestamp_2 =
-            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 30).build_at_offset(-5 * 60)?;
+        let timestamp_2 = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 30)
+            .with_offset(-5 * 60)
+            .build()?;
         assert_eq!(timestamp_2.milliseconds(), 0);
         Ok(())
     }
 
     #[test]
     fn test_timestamp_to_utc() -> IonResult<()> {
-        let new_years_eve_nyc =
-            Timestamp::with_ymd_hms(2022, 12, 31, 23, 59, 00).build_at_offset(-5 * 60)?;
+        let new_years_eve_nyc = TimestampBuilder::with_ymd(2022, 12, 31)
+            .with_hms(23, 59, 00)
+            .with_offset(-5 * 60)
+            .build()?;
 
         let london = new_years_eve_nyc.to_utc();
         assert_eq!(london.year(), 2023);
@@ -1867,9 +1886,11 @@ mod timestamp_tests {
     #[test]
     fn test_timestamp_fractional_seconds_scale() -> IonResult<()> {
         // Set fractional seconds as Decimal
-        let timestamp_with_micro_seconds = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+        let timestamp_with_micro_seconds = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 0)
             .with_fractional_seconds(Decimal::new(553u64, -6))
-            .build_at_offset(-5 * 60)?;
+            .with_offset(-5 * 60)
+            .build()?;
 
         assert_eq!(
             timestamp_with_micro_seconds
@@ -1880,10 +1901,11 @@ mod timestamp_tests {
 
         // Set fractional seconds as Decimal with 0 coefficient and non-negative exponent
         // "Fractions whose coefficient is zero and exponent is greater than -1 are ignored."
-        let timestamp_with_redundant_fractional_seconds =
-            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
-                .with_fractional_seconds(Decimal::new(0, 6))
-                .build_at_offset(-5 * 60)?;
+        let timestamp_with_redundant_fractional_seconds = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 0)
+            .with_fractional_seconds(Decimal::new(0, 6))
+            .with_offset(-5 * 60)
+            .build()?;
         assert_eq!(
             timestamp_with_redundant_fractional_seconds.precision,
             TimestampPrecision::Second
@@ -1894,9 +1916,11 @@ mod timestamp_tests {
         );
 
         // Set fractional seconds with milliseconds
-        let timestamp_with_milliseconds = Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0)
+        let timestamp_with_milliseconds = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 0)
             .with_milliseconds(449)
-            .build_at_offset(-5 * 60)?;
+            .with_offset(-5 * 60)
+            .build()?;
 
         assert_eq!(
             timestamp_with_milliseconds
@@ -1906,8 +1930,10 @@ mod timestamp_tests {
         );
 
         // Set a fractional seconds as Decimal with low precision
-        let timestamp_with_seconds =
-            Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60)?;
+        let timestamp_with_seconds = TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 0)
+            .with_offset(-5 * 60)
+            .build()?;
 
         // For low precision fractional_seconds_scale should return a None
         assert_eq!(timestamp_with_seconds.fractional_seconds_scale(), None);
@@ -1940,18 +1966,18 @@ mod timestamp_tests {
     }
 
     #[rstest]
-    #[case::timestamp_with_same_year(Timestamp::with_year(2020).build().unwrap(), Timestamp::with_year(2020).build().unwrap(), Ordering::Equal)]
-    #[case::timestamp_with_different_year(Timestamp::with_year(2020).build().unwrap(), Timestamp::with_year(2021).build().unwrap(), Ordering::Less)]
-    #[case::timestamp_with_milliseconds(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_milliseconds(449).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_milliseconds(449).build_at_offset(5 * 60).unwrap(), Ordering::Equal)]
-    #[case::timestamp_with_milliseconds_nanoseconds(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_milliseconds(449).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_nanoseconds(449000005).build_at_offset(5 * 60).unwrap(), Ordering::Less)]
-    #[case::timestamp_with_fractional_seconds(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_fractional_seconds(Decimal::new(449u64, -3)).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_nanoseconds(449000000).build_at_offset(5 * 60).unwrap(), Ordering::Equal)]
-    #[case::timestamp_with_different_precision(Timestamp::with_year(2020).with_month(3).build().unwrap(), Timestamp::with_year(2020).build().unwrap(), Ordering::Greater)]
-    #[case::timestamp_with_same_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Equal)]
-    #[case::timestamp_with_different_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(5 * 60).unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
-    #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_offset(-5 * 60).unwrap(), Ordering::Less)]
-    #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_nanoseconds(0).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Ordering::Equal)]
-    #[case::timestamp_with_unknown_offset(Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).with_nanoseconds(449000005).build_at_unknown_offset().unwrap(), Timestamp::with_ymd_hms(2021, 4, 6, 10, 15, 0).build_at_unknown_offset().unwrap(), Ordering::Greater)]
-    #[case::timestamp_with_second_precison_and_year_precision(Timestamp::with_ymd(2001, 1, 1).build().unwrap(), Timestamp::with_ymd_hms(2001, 1, 1, 0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000u128, -20)).build_at_unknown_offset().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_same_year(TimestampBuilder::with_year(2020).build().unwrap(), TimestampBuilder::with_year(2020).build().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_different_year(TimestampBuilder::with_year(2020).build().unwrap(), TimestampBuilder::with_year(2021).build().unwrap(), Ordering::Less)]
+    #[case::timestamp_with_milliseconds(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_milliseconds(449).with_offset(5 * 60).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_milliseconds(449).with_offset(5 * 60).build().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_milliseconds_nanoseconds(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_milliseconds(449).with_offset(5 * 60).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_nanoseconds(449000005).with_offset(5 * 60).build().unwrap(), Ordering::Less)]
+    #[case::timestamp_with_fractional_seconds(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_fractional_seconds(Decimal::new(449u64, -3)).with_offset(5 * 60).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_nanoseconds(449000000).with_offset(5 * 60).build().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_different_precision(TimestampBuilder::with_year(2020).with_month(3).build().unwrap(), TimestampBuilder::with_year(2020).build().unwrap(), Ordering::Greater)]
+    #[case::timestamp_with_same_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_offset(-5 * 60).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_offset(-5 * 60).build().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_different_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_offset(5 * 60).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_offset(-5 * 60).build().unwrap(), Ordering::Less)]
+    #[case::timestamp_with_unknown_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_offset(-5 * 60).build().unwrap(), Ordering::Less)]
+    #[case::timestamp_with_unknown_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_nanoseconds(0).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).build().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_unknown_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_nanoseconds(449000005).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).build().unwrap(), Ordering::Greater)]
+    #[case::timestamp_with_second_precison_and_year_precision(TimestampBuilder::with_ymd(2001, 1, 1).build().unwrap(), TimestampBuilder::with_ymd(2001, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000u128, -20)).build().unwrap(), Ordering::Equal)]
     fn timestamp_ordering_tests(
         #[case] this: Timestamp,
         #[case] other: Timestamp,
@@ -1997,17 +2023,17 @@ mod timestamp_tests {
     }
 
     #[rstest]
-    #[case(Timestamp::with_year(3030).build().unwrap(), "3030T")]
-    #[case(Timestamp::with_year(3030).with_month(11).build().unwrap(), "3030-11T")]
-    #[case(Timestamp::with_ymd(3030, 3, 31).build().unwrap(), "3030-03-31T")]
-    #[case(Timestamp::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).build_at_unknown_offset().unwrap(), "3030-03-31T17:31-00:00")]
-    #[case(Timestamp::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).build_at_offset(-420).unwrap(), "3030-03-31T17:31-07:00")]
-    #[case(Timestamp::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).build_utc_fields_at_offset(-420).unwrap(), "3030-03-31T10:31-07:00")]
-    #[case(Timestamp::with_ymd_hms(3030, 3, 31, 17, 31, 57).build_at_offset(0).unwrap(), "3030-03-31T17:31:57+00:00")]
-    #[case(Timestamp::with_ymd_hms(3030, 3, 31, 17, 31, 57).with_milliseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.027+00:00")]
-    #[case(Timestamp::with_ymd_hms(3030, 3, 31, 17, 31, 57).with_microseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000027+00:00")]
-    #[case(Timestamp::with_ymd_hms(3030, 3, 31, 17, 31, 57).with_nanoseconds(27).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000000027+00:00")]
-    #[case(Timestamp::with_ymd_hms(3030, 3, 31, 17, 31, 57).with_fractional_seconds(Decimal::new(27, -12)).build_at_offset(0).unwrap(), "3030-03-31T17:31:57.000000000027+00:00")]
+    #[case(TimestampBuilder::with_year(3030).build().unwrap(), "3030T")]
+    #[case(TimestampBuilder::with_year(3030).with_month(11).build().unwrap(), "3030-11T")]
+    #[case(TimestampBuilder::with_ymd(3030, 3, 31).build().unwrap(), "3030-03-31T")]
+    #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).build().unwrap(), "3030-03-31T17:31-00:00")]
+    #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).with_offset(-420).build().unwrap(), "3030-03-31T17:31-07:00")]
+    #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).build_utc_fields_at_offset(-420).unwrap(), "3030-03-31T10:31-07:00")]
+    #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_offset(0).build().unwrap(), "3030-03-31T17:31:57+00:00")]
+    #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_milliseconds(27).with_offset(0).build().unwrap(), "3030-03-31T17:31:57.027+00:00")]
+    #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_microseconds(27).with_offset(0).build().unwrap(), "3030-03-31T17:31:57.000027+00:00")]
+    #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_nanoseconds(27).with_offset(0).build().unwrap(), "3030-03-31T17:31:57.000000027+00:00")]
+    #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_fractional_seconds(Decimal::new(27, -12)).with_offset(0).build().unwrap(), "3030-03-31T17:31:57.000000000027+00:00")]
     fn test_display(#[case] ts: Timestamp, #[case] expect: String) {
         let mut buf = Vec::new();
         write!(&mut buf, "{ts}").unwrap();

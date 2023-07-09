@@ -1012,7 +1012,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
             let timestamp = if is_known_offset {
                 builder.build_utc_fields_at_offset(offset_minutes)
             } else {
-                builder.build_at_unknown_offset()
+                builder.build()
             }?;
             return Ok(timestamp);
         }
@@ -1025,7 +1025,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
             let timestamp = if is_known_offset {
                 builder.build_utc_fields_at_offset(offset_minutes)
             } else {
-                builder.build_at_unknown_offset()
+                builder.build()
             }?;
             return Ok(timestamp);
         }
@@ -1046,7 +1046,7 @@ impl<A: AsRef<[u8]> + Expandable> IonReader for RawBinaryReader<A> {
         let timestamp = if is_known_offset {
             builder.build_utc_fields_at_offset(offset_minutes)
         } else {
-            builder.build_at_unknown_offset()
+            builder.build()
         }?;
 
         Ok(timestamp)
@@ -1665,7 +1665,8 @@ mod tests {
             reader.read_timestamp()?,
             Timestamp::with_ymd(2022, 6, 18)
                 .with_hour_and_minute(11, 30)
-                .build_at_offset(0)?
+                .with_offset(0)
+                .build()?
         );
         expect_value(reader.next(), IonType::Timestamp);
         assert_eq!(
@@ -1673,7 +1674,8 @@ mod tests {
             Timestamp::with_ymd(2022, 6, 18)
                 .with_hms(11, 30, 51)
                 .with_milliseconds(115)
-                .build_at_offset(-5 * 60)?
+                .with_offset(-5 * 60)
+                .build()?
         );
         // 2022-06-09T23:00:59.045+00:00
         expect_value(reader.next(), IonType::Timestamp);
@@ -1682,7 +1684,8 @@ mod tests {
             Timestamp::with_ymd(2022, 6, 9)
                 .with_hms(23, 0, 59)
                 .with_milliseconds(45)
-                .build_at_offset(0)?
+                .with_offset(0)
+                .build()?
         );
         // 2022-06-09T22:59:59.000+00:00
         expect_value(reader.next(), IonType::Timestamp);
@@ -1691,7 +1694,8 @@ mod tests {
             Timestamp::with_ymd(2022, 6, 9)
                 .with_hms(22, 59, 59)
                 .with_milliseconds(0)
-                .build_at_offset(0)?
+                .with_offset(0)
+                .build()?
         );
         // Nothing else in the buffer
         expect_eof(reader.next());

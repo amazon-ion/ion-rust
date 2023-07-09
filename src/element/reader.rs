@@ -337,11 +337,11 @@ mod reader_tests {
             Timestamp::with_ymd(2020, 2, 27).build(),
             Timestamp::with_ymd(2020, 2, 27)
                 .with_hms(14, 16, 33)
-                .build_at_unknown_offset(),
+                .build(),
             Timestamp::with_ymd(2020, 2, 27)
                 .with_hms(14, 16, 33)
                 .with_milliseconds(123)
-                .build_at_offset(0),
+                .with_offset(0).build(),
         ].into_iter()
         .map(Result::unwrap)
         .map(Element::from)

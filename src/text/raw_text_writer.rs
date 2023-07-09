@@ -886,7 +886,8 @@ mod tests {
     fn write_timestamp_with_ymd_hms() {
         let timestamp = Timestamp::with_ymd(2000, 8, 22)
             .with_hms(15, 45, 11)
-            .build_at_offset(2 * 60)
+            .with_offset(2 * 60)
+            .build()
             .expect("building timestamp failed");
         write_scalar_test(
             |w| w.write_timestamp(&timestamp),
@@ -896,8 +897,11 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms_millis() {
-        let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
-            .build_at_offset(-5 * 60)
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
+            .with_hms(15, 45, 11)
+            .with_milliseconds(931)
+            .with_offset(-5 * 60)
+            .build()
             .expect("building timestamp failed");
         write_scalar_test(
             |w| w.write_timestamp(&timestamp),
@@ -907,8 +911,10 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms_millis_unknown_offset() {
-        let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
-            .build_at_unknown_offset()
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
+            .with_hms(15, 45, 11)
+            .with_milliseconds(931)
+            .build()
             .expect("building timestamp failed");
         write_scalar_test(
             |w| w.write_timestamp(&timestamp),
