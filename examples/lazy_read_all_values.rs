@@ -14,7 +14,7 @@ fn main() -> IonResult<()> {
 #[cfg(feature = "experimental-lazy-reader")]
 mod lazy_reader_example {
 
-    use ion_rs::lazy::binary::lazy_reader::{LazyBinaryReader, LazyReader};
+    use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
     use ion_rs::lazy::binary::system::lazy_sequence::LazyBinarySequence;
     use ion_rs::lazy::binary::system::lazy_struct::LazyBinaryStruct;
     use ion_rs::lazy::binary::system::lazy_value::LazyBinaryValue;
