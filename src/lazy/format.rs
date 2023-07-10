@@ -21,13 +21,8 @@ pub trait LazyRawReader<'data, F: LazyFormat<'data>> {
     fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, F>>;
 }
 
-// TODO: Doc
-pub trait LazyRawValuePrivate<'data> {
-    fn field_name(&self) -> Option<RawSymbolTokenRef<'data>>;
-}
-
 pub trait LazyRawValue<'data, F: LazyFormat<'data>>:
-    LazyRawValuePrivate<'data> + Clone + Debug
+    private::LazyRawValuePrivate<'data> + Clone + Debug
 {
     fn ion_type(&self) -> IonType;
     fn annotations(&self) -> F::AnnotationsIterator;
@@ -35,7 +30,7 @@ pub trait LazyRawValue<'data, F: LazyFormat<'data>>:
 }
 
 pub trait LazyRawSequence<'data, F: LazyFormat<'data>>:
-    LazyContainerPrivate<'data, F> + Debug
+    private::LazyContainerPrivate<'data, F> + Debug
 {
     type Iterator: Iterator<Item = IonResult<F::Value>>;
     fn annotations(&self) -> F::AnnotationsIterator;
@@ -45,7 +40,7 @@ pub trait LazyRawSequence<'data, F: LazyFormat<'data>>:
 }
 
 pub trait LazyRawStruct<'data, F: LazyFormat<'data>>:
-    LazyContainerPrivate<'data, F> + Debug
+    private::LazyContainerPrivate<'data, F> + Debug
 {
     type Field: LazyRawField<'data, F>;
     type Iterator: Iterator<Item = IonResult<Self::Field>>;
@@ -56,17 +51,31 @@ pub trait LazyRawStruct<'data, F: LazyFormat<'data>>:
     fn iter(&self) -> Self::Iterator;
 }
 
-pub trait LazyContainerPrivate<'data, F: LazyFormat<'data>> {
-    fn from_value(value: F::Value) -> Self;
-}
-
-pub trait LazyRawField<'data, F: LazyFormat<'data>>: LazyRawFieldPrivate<'data, F> + Debug {
+pub trait LazyRawField<'data, F: LazyFormat<'data>>:
+    private::LazyRawFieldPrivate<'data, F> + Debug
+{
     fn name(&self) -> RawSymbolTokenRef<'data>;
     fn value(&self) -> &F::Value;
 }
 
-pub trait LazyRawFieldPrivate<'data, F: LazyFormat<'data>> {
-    fn into_value(self) -> F::Value;
+// This private module houses public traits. This allows the traits above to depend on them,
+// but keeps users from being able to use them.
+pub(crate) mod private {
+    use super::LazyFormat;
+    use crate::RawSymbolTokenRef;
+
+    pub trait LazyRawFieldPrivate<'data, F: LazyFormat<'data>> {
+        fn into_value(self) -> F::Value;
+    }
+
+    pub trait LazyContainerPrivate<'data, F: LazyFormat<'data>> {
+        fn from_value(value: F::Value) -> Self;
+    }
+
+    // TODO: Doc
+    pub trait LazyRawValuePrivate<'data> {
+        fn field_name(&self) -> Option<RawSymbolTokenRef<'data>>;
+    }
 }
 
 // == Impl for binary ==

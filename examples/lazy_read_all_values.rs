@@ -15,9 +15,9 @@ fn main() -> IonResult<()> {
 mod lazy_reader_example {
 
     use ion_rs::lazy::binary::lazy_reader::{LazyBinaryReader, LazyReader};
-    use ion_rs::lazy::binary::system::lazy_sequence::{LazyBinarySequence, LazySequence};
-    use ion_rs::lazy::binary::system::lazy_struct::{LazyBinaryStruct, LazyStruct};
-    use ion_rs::lazy::binary::system::lazy_value::{LazyBinaryValue, LazyValue};
+    use ion_rs::lazy::binary::system::lazy_sequence::LazyBinarySequence;
+    use ion_rs::lazy::binary::system::lazy_struct::LazyBinaryStruct;
+    use ion_rs::lazy::binary::system::lazy_value::LazyBinaryValue;
     use ion_rs::lazy::value_ref::ValueRef;
     use ion_rs::IonResult;
     use memmap::MmapOptions;

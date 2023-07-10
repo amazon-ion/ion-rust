@@ -1,9 +1,8 @@
 use crate::element::builders::StructBuilder;
 use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
 use crate::lazy::binary::system::lazy_value::LazyValue;
-use crate::lazy::format::{
-    BinaryFormat, LazyFormat, LazyRawFieldPrivate, LazyRawStruct, LazyRawValuePrivate,
-};
+use crate::lazy::format::private::{LazyRawFieldPrivate, LazyRawValuePrivate};
+use crate::lazy::format::{BinaryFormat, LazyFormat, LazyRawStruct};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::{

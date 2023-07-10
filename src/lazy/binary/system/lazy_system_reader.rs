@@ -2,12 +2,11 @@ use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
 
 use crate::lazy::binary::raw::lazy_raw_reader::LazyRawBinaryReader;
-use crate::lazy::format::{
-    LazyContainerPrivate, LazyRawField, LazyRawReader, LazyRawStruct, LazyRawValue,
-};
+use crate::lazy::format::{LazyRawField, LazyRawReader, LazyRawStruct, LazyRawValue};
 
 use crate::lazy::binary::system::lazy_struct::LazyStruct;
 use crate::lazy::binary::system::lazy_value::LazyValue;
+use crate::lazy::format::private::LazyContainerPrivate;
 use crate::lazy::format::LazyRawSequence;
 use crate::lazy::format::{BinaryFormat, LazyFormat};
 use crate::lazy::raw_stream_item::RawStreamItem;
