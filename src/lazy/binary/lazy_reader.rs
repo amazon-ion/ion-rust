@@ -15,7 +15,7 @@ use crate::{IonError, IonResult};
 /// which may contain either a scalar value or a lazy container that may itself be traversed.
 ///
 /// The values that the reader yields ([`LazyValue`],
-/// [`LazyBinarySequence`](crate::lazy::binary::system::lazy_sequence::LazyRawBinarySequence), and
+/// [`LazyBinarySequence`](crate::lazy::binary::system::lazy_sequence::LazyBinarySequence), and
 /// [`LazyBinaryStruct`](crate::lazy::binary::system::lazy_struct::LazyStruct)) are
 /// immutable references to the data stream, and remain valid until [`LazyReader::next`] is called
 /// again to advance the reader to the next top level value. This means that these references can

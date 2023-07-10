@@ -31,7 +31,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 /// which may contain either a scalar value or a lazy container that may itself be traversed.
 ///
 /// The values that the reader yields ([`LazyValue`],
-/// [`crate::lazy::binary::system::lazy_sequence::LazyRawBinarySequence`], and [`LazyStruct`]) are immutable
+/// [`crate::lazy::binary::system::lazy_sequence::LazyBinarySequence`], and [`LazyStruct`]) are immutable
 /// references to the data stream, and remain valid until [`LazySystemReader::next_item`] is
 /// called again to advance the reader to the next top level value. This means that these references
 /// can be stored, read, and re-read as long as the reader remains on the same top-level value.

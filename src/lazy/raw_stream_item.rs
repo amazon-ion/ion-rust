@@ -10,7 +10,7 @@ pub enum RawStreamItem<'data, F: LazyFormat<'data>> {
     VersionMarker(u8, u8),
     /// An Ion value whose data has not yet been read. For more information about how to read its
     /// data and (in the case of containers) access any nested values, see the documentation
-    /// for [`LazyRawBinaryValue`].
+    /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::lazy_raw_value::LazyRawBinaryValue).
     Value(F::Value),
     /// The end of the stream
     EndOfStream,
