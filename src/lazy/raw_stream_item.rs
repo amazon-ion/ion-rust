@@ -1,22 +1,22 @@
-use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
+use crate::lazy::format::LazyFormat;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
 
 #[derive(Debug)]
 /// Raw stream components that a RawReader may encounter.
-pub enum RawStreamItem<'data> {
+pub enum RawStreamItem<'data, F: LazyFormat<'data>> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(u8, u8),
     /// An Ion value whose data has not yet been read. For more information about how to read its
     /// data and (in the case of containers) access any nested values, see the documentation
-    /// for [`LazyRawValue`].
-    Value(LazyRawValue<'data>),
+    /// for [`LazyRawBinaryValue`].
+    Value(F::Value),
     /// The end of the stream
     EndOfStream,
 }
 
-impl<'a> RawStreamItem<'a> {
+impl<'data, F: LazyFormat<'data>> RawStreamItem<'data, F> {
     /// If this item is an Ion version marker (IVM), returns `Some((major, minor))` indicating the
     /// version. Otherwise, returns `None`.
     pub fn version_marker(&self) -> Option<(u8, u8)> {
@@ -27,7 +27,7 @@ impl<'a> RawStreamItem<'a> {
         }
     }
 
-    /// Like [`Self::version_marker`], but returns a [`crate::IonError::Decoding`] if this item
+    /// Like [`Self::version_marker`], but returns a [`IonError::Decoding`] if this item
     /// is not an IVM.
     pub fn expect_ivm(self) -> IonResult<(u8, u8)> {
         self.version_marker()
@@ -35,7 +35,7 @@ impl<'a> RawStreamItem<'a> {
     }
 
     /// If this item is a value, returns `Some(&LazyValue)`. Otherwise, returns `None`.
-    pub fn value(&self) -> Option<&LazyRawValue<'a>> {
+    pub fn value(&self) -> Option<&F::Value> {
         if let Self::Value(value) = self {
             Some(value)
         } else {
@@ -43,9 +43,9 @@ impl<'a> RawStreamItem<'a> {
         }
     }
 
-    /// Like [`Self::value`], but returns a [`crate::IonError::Decoding`] if this item is not
+    /// Like [`Self::value`], but returns a [`IonError::Decoding`] if this item is not
     /// a value.
-    pub fn expect_value(self) -> IonResult<LazyRawValue<'a>> {
+    pub fn expect_value(self) -> IonResult<F::Value> {
         if let Self::Value(value) = self {
             Ok(value)
         } else {

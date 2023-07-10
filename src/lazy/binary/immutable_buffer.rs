@@ -7,7 +7,7 @@ use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
+use crate::lazy::binary::raw::lazy_raw_value::LazyRawBinaryValue;
 use crate::result::IonFailure;
 use crate::types::UInt;
 use crate::{Int, IonError, IonResult, IonType};
@@ -551,12 +551,12 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Reads a field ID and a value from the buffer.
-    pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawValue<'a>>> {
+    pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawBinaryValue<'a>>> {
         self.peek_value(true)
     }
 
     /// Reads a value from the buffer.
-    pub(crate) fn peek_value_without_field_id(self) -> IonResult<Option<LazyRawValue<'a>>> {
+    pub(crate) fn peek_value_without_field_id(self) -> IonResult<Option<LazyRawBinaryValue<'a>>> {
         self.peek_value(false)
     }
 
@@ -564,7 +564,7 @@ impl<'a> ImmutableBuffer<'a> {
     // This method consumes leading NOP bytes, but leaves the header representation in the buffer.
     // The resulting LazyRawValue's buffer slice always starts with the first non-NOP byte in the
     // header, which can be either a field ID, an annotations wrapper, or a type descriptor.
-    fn peek_value(self, has_field: bool) -> IonResult<Option<LazyRawValue<'a>>> {
+    fn peek_value(self, has_field: bool) -> IonResult<Option<LazyRawBinaryValue<'a>>> {
         let initial_input = self;
         if initial_input.is_empty() {
             return Ok(None);
@@ -647,7 +647,7 @@ impl<'a> ImmutableBuffer<'a> {
             value_length,
             total_length,
         };
-        let lazy_value = LazyRawValue {
+        let lazy_value = LazyRawBinaryValue {
             encoded_value,
             input: initial_input,
         };

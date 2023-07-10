@@ -1,24 +1,30 @@
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::lazy_raw_reader::DataSource;
-use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
+use crate::lazy::binary::raw::lazy_raw_value::LazyRawBinaryValue;
+use crate::lazy::binary::raw::raw_annotations_iterator::RawBinaryAnnotationsIterator;
+use crate::lazy::format::{
+    BinaryFormat, LazyContainerPrivate, LazyRawField, LazyRawFieldPrivate, LazyRawStruct,
+};
+use crate::lazy::raw_value_ref::RawValueRef;
+use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{IonResult, RawSymbolTokenRef};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
-pub struct LazyRawStruct<'data> {
-    pub(crate) value: LazyRawValue<'data>,
+pub struct LazyRawBinaryStruct<'data> {
+    pub(crate) value: LazyRawBinaryValue<'data>,
 }
 
-impl<'a, 'data> IntoIterator for &'a LazyRawStruct<'data> {
-    type Item = IonResult<LazyRawField<'data>>;
-    type IntoIter = RawStructIterator<'data>;
+impl<'a, 'data> IntoIterator for &'a LazyRawBinaryStruct<'data> {
+    type Item = IonResult<LazyRawBinaryField<'data>>;
+    type IntoIter = RawBinaryStructIterator<'data>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a> Debug for LazyRawStruct<'a> {
+impl<'a> Debug for LazyRawBinaryStruct<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {
@@ -33,46 +39,93 @@ impl<'a> Debug for LazyRawStruct<'a> {
     }
 }
 
-impl<'data> LazyRawStruct<'data> {
-    pub fn iter(&self) -> RawStructIterator<'data> {
+impl<'data> LazyRawBinaryStruct<'data> {
+    fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {
+        self.value.annotations()
+    }
+
+    fn find(&self, name: &str) -> IonResult<Option<LazyRawBinaryValue<'data>>> {
+        let name: RawSymbolTokenRef = name.as_raw_symbol_token_ref();
+        for field in self {
+            let field = field?;
+            if field.name() == name {
+                let value = field.value;
+                return Ok(Some(value));
+            }
+        }
+        Ok(None)
+    }
+
+    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, BinaryFormat>>> {
+        self.find(name)?.map(|f| f.read()).transpose()
+    }
+
+    pub fn iter(&self) -> RawBinaryStructIterator<'data> {
         // Get as much of the struct's body as is available in the input buffer.
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
-        RawStructIterator::new(buffer_slice)
+        RawBinaryStructIterator::new(buffer_slice)
     }
 }
 
-pub struct RawStructIterator<'data> {
+impl<'data> LazyContainerPrivate<'data, BinaryFormat> for LazyRawBinaryStruct<'data> {
+    fn from_value(value: LazyRawBinaryValue<'data>) -> Self {
+        LazyRawBinaryStruct { value }
+    }
+}
+
+impl<'data> LazyRawStruct<'data, BinaryFormat> for LazyRawBinaryStruct<'data> {
+    type Field = LazyRawBinaryField<'data>;
+    type Iterator = RawBinaryStructIterator<'data>;
+
+    fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {
+        self.annotations()
+    }
+
+    fn find(&self, name: &str) -> IonResult<Option<LazyRawBinaryValue<'data>>> {
+        self.find(name)
+    }
+
+    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, BinaryFormat>>> {
+        self.get(name)
+    }
+
+    fn iter(&self) -> Self::Iterator {
+        self.iter()
+    }
+}
+
+pub struct RawBinaryStructIterator<'data> {
     source: DataSource<'data>,
 }
 
-impl<'data> RawStructIterator<'data> {
-    pub(crate) fn new(input: ImmutableBuffer<'data>) -> RawStructIterator<'data> {
-        RawStructIterator {
+impl<'data> RawBinaryStructIterator<'data> {
+    pub(crate) fn new(input: ImmutableBuffer<'data>) -> RawBinaryStructIterator<'data> {
+        RawBinaryStructIterator {
             source: DataSource::new(input),
         }
     }
 }
 
-impl<'data> Iterator for RawStructIterator<'data> {
-    type Item = IonResult<LazyRawField<'data>>;
+impl<'data> Iterator for RawBinaryStructIterator<'data> {
+    type Item = IonResult<LazyRawBinaryField<'data>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.source.try_parse_next(ImmutableBuffer::peek_field) {
-            Ok(Some(lazy_raw_value)) => Some(Ok(LazyRawField::new(lazy_raw_value))),
+            Ok(Some(lazy_raw_value)) => Some(Ok(LazyRawBinaryField::new(lazy_raw_value))),
             Ok(None) => None,
             Err(e) => Some(Err(e)),
         }
     }
 }
 
-pub struct LazyRawField<'data> {
-    pub(crate) value: LazyRawValue<'data>,
+pub struct LazyRawBinaryField<'data> {
+    pub(crate) value: LazyRawBinaryValue<'data>,
 }
 
-impl<'data> LazyRawField<'data> {
-    pub(crate) fn new(value: LazyRawValue<'data>) -> Self {
-        LazyRawField { value }
+impl<'data> LazyRawBinaryField<'data> {
+    pub(crate) fn new(value: LazyRawBinaryValue<'data>) -> Self {
+        LazyRawBinaryField { value }
     }
 
     pub fn name(&self) -> RawSymbolTokenRef<'data> {
@@ -81,16 +134,32 @@ impl<'data> LazyRawField<'data> {
         RawSymbolTokenRef::SymbolId(field_id)
     }
 
-    pub fn value(&self) -> &LazyRawValue<'data> {
+    pub fn value(&self) -> &LazyRawBinaryValue<'data> {
         &self.value
     }
 
-    pub(crate) fn into_value(self) -> LazyRawValue<'data> {
+    pub(crate) fn into_value(self) -> LazyRawBinaryValue<'data> {
         self.value
     }
 }
 
-impl<'a> Debug for LazyRawField<'a> {
+impl<'data> LazyRawFieldPrivate<'data, BinaryFormat> for LazyRawBinaryField<'data> {
+    fn into_value(self) -> LazyRawBinaryValue<'data> {
+        self.value
+    }
+}
+
+impl<'data> LazyRawField<'data, BinaryFormat> for LazyRawBinaryField<'data> {
+    fn name(&self) -> RawSymbolTokenRef<'data> {
+        LazyRawBinaryField::name(self)
+    }
+
+    fn value(&self) -> &LazyRawBinaryValue<'data> {
+        LazyRawBinaryField::value(self)
+    }
+}
+
+impl<'a> Debug for LazyRawBinaryField<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,

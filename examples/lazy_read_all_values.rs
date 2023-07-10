@@ -14,10 +14,10 @@ fn main() -> IonResult<()> {
 #[cfg(feature = "experimental-lazy-reader")]
 mod lazy_reader_example {
 
-    use ion_rs::lazy::binary::lazy_reader::LazyReader;
-    use ion_rs::lazy::binary::system::lazy_sequence::LazySequence;
-    use ion_rs::lazy::binary::system::lazy_struct::LazyStruct;
-    use ion_rs::lazy::binary::system::lazy_value::LazyValue;
+    use ion_rs::lazy::binary::lazy_reader::{LazyBinaryReader, LazyReader};
+    use ion_rs::lazy::binary::system::lazy_sequence::{LazyBinarySequence, LazySequence};
+    use ion_rs::lazy::binary::system::lazy_struct::{LazyBinaryStruct, LazyStruct};
+    use ion_rs::lazy::binary::system::lazy_value::{LazyBinaryValue, LazyValue};
     use ion_rs::lazy::value_ref::ValueRef;
     use ion_rs::IonResult;
     use memmap::MmapOptions;
@@ -41,7 +41,7 @@ mod lazy_reader_example {
         // We're going to recursively visit and read every value in the input stream, counting
         // them as we go.
         let mut count = 0;
-        let mut reader = LazyReader::new(ion_data)?;
+        let mut reader = LazyBinaryReader::new(ion_data)?;
         while let Some(lazy_value) = reader.next()? {
             count += count_value_and_children(&lazy_value)?;
         }
@@ -50,7 +50,7 @@ mod lazy_reader_example {
     }
 
     // Counts scalar values as 1 and container values as (the number of children) + 1.
-    fn count_value_and_children(lazy_value: &LazyValue) -> IonResult<usize> {
+    fn count_value_and_children(lazy_value: &LazyBinaryValue) -> IonResult<usize> {
         use ValueRef::*;
         let child_count = match lazy_value.read()? {
             List(s) | SExp(s) => count_sequence_children(&s)?,
@@ -60,7 +60,7 @@ mod lazy_reader_example {
         Ok(1 + child_count)
     }
 
-    fn count_sequence_children(lazy_sequence: &LazySequence) -> IonResult<usize> {
+    fn count_sequence_children(lazy_sequence: &LazyBinarySequence) -> IonResult<usize> {
         let mut count = 0;
         for value in lazy_sequence {
             count += count_value_and_children(&value?)?;
@@ -68,7 +68,7 @@ mod lazy_reader_example {
         Ok(count)
     }
 
-    fn count_struct_children(lazy_struct: &LazyStruct) -> IonResult<usize> {
+    fn count_struct_children(lazy_struct: &LazyBinaryStruct) -> IonResult<usize> {
         let mut count = 0;
         for field in lazy_struct {
             count += count_value_and_children(field?.value())?;

@@ -1,5 +1,4 @@
-use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
-use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
+use crate::lazy::format::{BinaryFormat, LazyFormat, LazyRawValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
@@ -20,12 +19,12 @@ use crate::{
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+/// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;
 ///
-/// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+/// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
@@ -49,16 +48,18 @@ use crate::{
 ///# }
 /// ```
 #[derive(Clone)]
-pub struct LazyValue<'top, 'data> {
-    pub(crate) raw_value: LazyRawValue<'data>,
+pub struct LazyValue<'top, 'data, F: LazyFormat<'data>> {
+    pub(crate) raw_value: F::Value,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-impl<'top, 'data> LazyValue<'top, 'data> {
+pub type LazyBinaryValue<'top, 'data> = LazyValue<'top, 'data, BinaryFormat>;
+
+impl<'top, 'data, F: LazyFormat<'data>> LazyValue<'top, 'data, F> {
     pub(crate) fn new(
         symbol_table: &'top SymbolTable,
-        raw_value: LazyRawValue<'data>,
-    ) -> LazyValue<'top, 'data> {
+        raw_value: F::Value,
+    ) -> LazyValue<'top, 'data, F> {
         LazyValue {
             raw_value,
             symbol_table,
@@ -72,12 +73,12 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IonType};
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
     ///
     /// let element: Element = "hello".into();
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -101,12 +102,12 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IntoAnnotatedElement};
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
     ///
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -120,15 +121,10 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data> {
+    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, F> {
         AnnotationsIterator {
             raw_annotations: self.raw_value.annotations(),
             symbol_table: self.symbol_table,
-            initial_offset: self
-                .raw_value
-                .encoded_value
-                .annotations_offset()
-                .unwrap_or(self.raw_value.encoded_value.header_offset),
         }
     }
 
@@ -139,13 +135,13 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IntoAnnotatedElement};
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -159,7 +155,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn read(&self) -> IonResult<ValueRef<'top, 'data>>
+    pub fn read(&self) -> IonResult<ValueRef<'top, 'data, F>>
     where
         'data: 'top,
     {
@@ -219,10 +215,10 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     }
 }
 
-impl<'top, 'data> TryFrom<LazyValue<'top, 'data>> for Element {
+impl<'top, 'data, F: LazyFormat<'data>> TryFrom<LazyValue<'top, 'data, F>> for Element {
     type Error = IonError;
 
-    fn try_from(value: LazyValue<'top, 'data>) -> Result<Self, Self::Error> {
+    fn try_from(value: LazyValue<'top, 'data, F>) -> Result<Self, Self::Error> {
         let annotations: Annotations = value.annotations().try_into()?;
         let value: Value = value.read()?.try_into()?;
         Ok(value.with_annotations(annotations))
@@ -230,13 +226,12 @@ impl<'top, 'data> TryFrom<LazyValue<'top, 'data>> for Element {
 }
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of VarUInt symbol IDs.
-pub struct AnnotationsIterator<'top, 'data> {
+pub struct AnnotationsIterator<'top, 'data, F: LazyFormat<'data>> {
     pub(crate) symbol_table: &'top SymbolTable,
-    pub(crate) raw_annotations: RawAnnotationsIterator<'data>,
-    pub(crate) initial_offset: usize,
+    pub(crate) raw_annotations: F::AnnotationsIterator,
 }
 
-impl<'top, 'data> AnnotationsIterator<'top, 'data>
+impl<'top, 'data, F: LazyFormat<'data>> AnnotationsIterator<'top, 'data, F>
 where
     'data: 'top,
 {
@@ -249,11 +244,11 @@ where
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::element::Element;
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
     /// let binary_ion = element.to_binary()?;
-    /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
     ///
     /// // Get the first value from the stream
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -291,11 +286,11 @@ where
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::element::Element;
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
     /// let binary_ion = element.to_binary()?;
-    /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
     ///
     /// // Get the first value from the stream
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -322,7 +317,7 @@ where
     }
 }
 
-impl<'top, 'data> Iterator for AnnotationsIterator<'top, 'data>
+impl<'top, 'data, F: LazyFormat<'data>> Iterator for AnnotationsIterator<'top, 'data, F>
 where
     'data: 'top,
 {
@@ -343,10 +338,12 @@ where
     }
 }
 
-impl<'top, 'data> TryFrom<AnnotationsIterator<'top, 'data>> for Annotations {
+impl<'top, 'data, F: LazyFormat<'data>> TryFrom<AnnotationsIterator<'top, 'data, F>>
+    for Annotations
+{
     type Error = IonError;
 
-    fn try_from(iter: AnnotationsIterator<'top, 'data>) -> Result<Self, Self::Error> {
+    fn try_from(iter: AnnotationsIterator<'top, 'data, F>) -> Result<Self, Self::Error> {
         let annotations = iter
             .map(|symbol_ref| match symbol_ref {
                 Ok(symbol_ref) => Ok(symbol_ref.to_owned()),
@@ -359,7 +356,7 @@ impl<'top, 'data> TryFrom<AnnotationsIterator<'top, 'data>> for Annotations {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::lazy_reader::LazyReader;
+    use crate::lazy::binary::lazy_reader::LazyBinaryReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::{ion_list, ion_sexp, ion_struct, Decimal, IonResult, IonType, Symbol, Timestamp};
     use crate::{Element, IntoAnnotatedElement};
@@ -369,7 +366,7 @@ mod tests {
     #[test]
     fn annotations_are() -> IonResult<()> {
         let ion_data = to_binary_ion("foo::bar::baz::5")?;
-        let mut reader = LazyReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(&ion_data)?;
         let first = reader.expect_next()?;
         assert!(first.annotations().are(["foo", "bar", "baz"])?);
 
@@ -388,7 +385,7 @@ mod tests {
 
     fn lazy_value_equals(ion_text: &str, expected: impl Into<Element>) -> IonResult<()> {
         let binary_ion = &to_binary_ion(ion_text)?;
-        let mut reader = LazyReader::new(binary_ion)?;
+        let mut reader = LazyBinaryReader::new(binary_ion)?;
         let value = reader.expect_next()?;
         let actual: Element = value.try_into()?;
         let expected = expected.into();
@@ -441,7 +438,7 @@ mod tests {
     fn try_into_element_error(#[case] ion_text: &str) -> IonResult<()> {
         let mut binary_ion = to_binary_ion(ion_text)?;
         let _oops_i_lost_a_byte = binary_ion.pop().unwrap();
-        let mut reader = LazyReader::new(&binary_ion)?;
+        let mut reader = LazyBinaryReader::new(&binary_ion)?;
         let value = reader.expect_next()?;
         let result: IonResult<Element> = value.try_into();
         assert!(result.is_err());
