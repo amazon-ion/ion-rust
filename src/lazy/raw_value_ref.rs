@@ -1,5 +1,4 @@
-use crate::lazy::binary::raw::lazy_raw_sequence::LazyRawSequence;
-use crate::lazy::binary::raw::lazy_raw_struct::LazyRawStruct;
+use crate::lazy::decoder::LazyDecoder;
 use crate::result::IonFailure;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use std::fmt::{Debug, Formatter};
@@ -9,23 +8,23 @@ use std::fmt::{Debug, Formatter};
 /// or text literal). If it is a symbol ID, a symbol table will be needed to find its associated text.
 ///
 /// For a resolved version of this type, see [crate::lazy::value_ref::ValueRef].
-pub enum RawValueRef<'a> {
+pub enum RawValueRef<'data, D: LazyDecoder<'data>> {
     Null(IonType),
     Bool(bool),
     Int(Int),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
-    String(&'a str),
-    Symbol(RawSymbolTokenRef<'a>),
-    Blob(&'a [u8]),
-    Clob(&'a [u8]),
-    SExp(LazyRawSequence<'a>),
-    List(LazyRawSequence<'a>),
-    Struct(LazyRawStruct<'a>),
+    String(&'data str),
+    Symbol(RawSymbolTokenRef<'data>),
+    Blob(&'data [u8]),
+    Clob(&'data [u8]),
+    SExp(D::Sequence),
+    List(D::Sequence),
+    Struct(D::Struct),
 }
 
-impl<'a> Debug for RawValueRef<'a> {
+impl<'data, D: LazyDecoder<'data>> Debug for RawValueRef<'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             RawValueRef::Null(ion_type) => write!(f, "null.{}", ion_type),
@@ -45,7 +44,7 @@ impl<'a> Debug for RawValueRef<'a> {
     }
 }
 
-impl<'a> RawValueRef<'a> {
+impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
     pub fn expect_null(self) -> IonResult<IonType> {
         if let RawValueRef::Null(ion_type) = self {
             Ok(ion_type)
@@ -94,7 +93,7 @@ impl<'a> RawValueRef<'a> {
         }
     }
 
-    pub fn expect_string(self) -> IonResult<&'a str> {
+    pub fn expect_string(self) -> IonResult<&'data str> {
         if let RawValueRef::String(s) = self {
             Ok(s)
         } else {
@@ -102,7 +101,7 @@ impl<'a> RawValueRef<'a> {
         }
     }
 
-    pub fn expect_symbol(self) -> IonResult<RawSymbolTokenRef<'a>> {
+    pub fn expect_symbol(self) -> IonResult<RawSymbolTokenRef<'data>> {
         if let RawValueRef::Symbol(s) = self {
             Ok(s.clone())
         } else {
@@ -110,7 +109,7 @@ impl<'a> RawValueRef<'a> {
         }
     }
 
-    pub fn expect_blob(self) -> IonResult<&'a [u8]> {
+    pub fn expect_blob(self) -> IonResult<&'data [u8]> {
         if let RawValueRef::Blob(b) = self {
             Ok(b)
         } else {
@@ -118,7 +117,7 @@ impl<'a> RawValueRef<'a> {
         }
     }
 
-    pub fn expect_clob(self) -> IonResult<&'a [u8]> {
+    pub fn expect_clob(self) -> IonResult<&'data [u8]> {
         if let RawValueRef::Clob(c) = self {
             Ok(c)
         } else {
@@ -126,7 +125,7 @@ impl<'a> RawValueRef<'a> {
         }
     }
 
-    pub fn expect_list(self) -> IonResult<LazyRawSequence<'a>> {
+    pub fn expect_list(self) -> IonResult<D::Sequence> {
         if let RawValueRef::List(s) = self {
             Ok(s)
         } else {
@@ -134,7 +133,7 @@ impl<'a> RawValueRef<'a> {
         }
     }
 
-    pub fn expect_sexp(self) -> IonResult<LazyRawSequence<'a>> {
+    pub fn expect_sexp(self) -> IonResult<D::Sequence> {
         if let RawValueRef::SExp(s) = self {
             Ok(s)
         } else {
@@ -142,7 +141,7 @@ impl<'a> RawValueRef<'a> {
         }
     }
 
-    pub fn expect_struct(self) -> IonResult<LazyRawStruct<'a>> {
+    pub fn expect_struct(self) -> IonResult<D::Struct> {
         if let RawValueRef::Struct(s) = self {
             Ok(s)
         } else {
@@ -153,7 +152,7 @@ impl<'a> RawValueRef<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::raw::lazy_raw_reader::LazyRawReader;
+    use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::{Decimal, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 
@@ -176,7 +175,7 @@ mod tests {
             {this: is, a: struct}
         "#,
         )?;
-        let mut reader = LazyRawReader::new(&ion_data);
+        let mut reader = LazyRawBinaryReader::new(&ion_data);
         // IVM
         reader.next()?.expect_ivm()?;
         // Symbol table
@@ -243,7 +242,7 @@ mod tests {
             null.bool
         "#,
         )?;
-        let mut reader = LazyRawReader::new(&ion_data);
+        let mut reader = LazyRawBinaryReader::new(&ion_data);
         // IVM
         reader.next()?.expect_ivm()?;
 
