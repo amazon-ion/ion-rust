@@ -1,19 +1,43 @@
 use std::cmp::{max, Ordering};
 
-use bigdecimal::{BigDecimal, Signed};
 use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};
 
 use crate::ion_data::{IonEq, IonOrd};
-use crate::result::{illegal_operation, illegal_operation_raw, IonError};
+use crate::result::{IonError, IonFailure};
 use crate::types::integer::UIntData;
-use crate::types::{Coefficient, Sign, UInt};
+use crate::{Coefficient, Sign, UInt};
+use crate::{Int, IonResult};
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
 
+pub(crate) mod coefficient;
+mod magnitude;
+
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
+///
+/// A `Decimal` can be thought of as a `(coefficient, exponent)` pair, and its value can be
+/// calculated using the formula `coefficient * 10^exponent`.
+///
+/// ```
+/// # use ion_rs::IonResult;
+/// # fn main() -> IonResult<()> {
+/// use ion_rs::{Int, Decimal, Sign, UInt};
+/// // Equivalent to: 1225 * 10^-2, or 12.25
+/// let decimal = Decimal::new(1225, -2);
+/// // The coefficient can be viewed as a sign/magnitude pair...
+/// assert_eq!(decimal.coefficient().sign(), Sign::Positive);
+/// assert_eq!(decimal.coefficient().magnitude(), &UInt::from(1225u64));
+/// // ...or, if it is not negative zero, by converting it into an Int.
+/// let coefficient: Int = decimal.coefficient().try_into().expect("`decimal` is not negative zero");
+/// assert_eq!(coefficient, Int::from(1225));
+///
+/// assert_eq!(decimal.exponent(), -2);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone, Debug)]
 pub struct Decimal {
     // A Coefficient is a `(Sign, UInt)` pair supporting integers of arbitrary size
@@ -30,6 +54,16 @@ impl Decimal {
             coefficient,
             exponent,
         }
+    }
+
+    /// Returns this `Decimal`'s coefficient.
+    pub fn coefficient(&self) -> &Coefficient {
+        &self.coefficient
+    }
+
+    /// Returns this `Decimal`'s exponent.
+    pub fn exponent(&self) -> i64 {
+        self.exponent
     }
 
     /// Returns scale of the Decimal value
@@ -310,11 +344,7 @@ macro_rules! impl_decimal_from_signed_primitive_integer {
             fn from(value: $t) -> Self {
                 let sign = if value < 0 {Sign::Negative} else {Sign::Positive};
                 // Discard the sign and convert the value to a u64.
-                let magnitude: u64 = value.checked_abs()
-                        .and_then(|v| Some(v.abs() as u64))
-                        // If .abs() fails, it's because <$t>::MIN.abs() cannot be represented
-                        // as a $t. We can handle this case by simply using <$>::MAX + 1
-                        .unwrap_or_else(|| (<$t>::MAX as u64) + 1);
+                let magnitude: u64 = value.unsigned_abs() as u64;
                 let coefficient = Coefficient::new(sign, magnitude);
                 Decimal::new(coefficient, 0)
             }
@@ -322,6 +352,18 @@ macro_rules! impl_decimal_from_signed_primitive_integer {
     )*)
 }
 impl_decimal_from_signed_primitive_integer!(i8, i16, i32, i64, isize);
+
+impl From<Int> for Decimal {
+    fn from(value: Int) -> Self {
+        Decimal::new(value, 0)
+    }
+}
+
+impl From<UInt> for Decimal {
+    fn from(value: UInt) -> Self {
+        Decimal::new(value, 0)
+    }
+}
 
 impl TryFrom<f32> for Decimal {
     type Error = IonError;
@@ -351,12 +393,16 @@ impl TryFrom<f64> for Decimal {
     fn try_from(value: f64) -> Result<Self, Self::Error> {
         if value.is_infinite() {
             if value.is_sign_negative() {
-                return illegal_operation("Cannot convert f64 negative infinity to Decimal.");
+                return IonResult::illegal_operation(
+                    "Cannot convert f64 negative infinity to Decimal.",
+                );
             } else {
-                return illegal_operation("Cannot convert f64 infinity to Decimal.");
+                return IonResult::illegal_operation("Cannot convert f64 infinity to Decimal.");
             }
         } else if value.is_nan() {
-            return illegal_operation("Cannot convert f64 NaN (not-a-number) to Decimal.");
+            return IonResult::illegal_operation(
+                "Cannot convert f64 NaN (not-a-number) to Decimal.",
+            );
         }
 
         // You can't use the `log10` operation on a zero value, so check for these cases explicitly.
@@ -371,16 +417,17 @@ impl TryFrom<f64> for Decimal {
 
         fn try_convert(coefficient: f64, exponent: i64) -> Result<Decimal, IonError> {
             // prefer a compact representation for the coefficient; fallback to bigint
-            let coefficient: Coefficient = if !coefficient.trunc().is_zero()
-                && coefficient.abs() <= i64::MAX as f64
-            {
-                (coefficient as i64).into()
-            } else {
-                coefficient
-                    .to_bigint()
-                    .ok_or_else(|| illegal_operation_raw("Cannot convert large f64 to Decimal."))?
-                    .try_into()?
-            };
+            let coefficient: Coefficient =
+                if !coefficient.trunc().is_zero() && coefficient.abs() <= i64::MAX as f64 {
+                    (coefficient as i64).into()
+                } else {
+                    coefficient
+                        .to_bigint()
+                        .ok_or_else(|| {
+                            IonError::illegal_operation("Cannot convert large f64 to Decimal.")
+                        })?
+                        .try_into()?
+                };
 
             Ok(Decimal::new(coefficient, exponent))
         }
@@ -446,44 +493,13 @@ impl Display for Decimal {
     }
 }
 
-/// Make a Decimal from a BigDecimal. This is a lossless operation.
-impl From<BigDecimal> for Decimal {
-    fn from(value: BigDecimal) -> Self {
-        let sign = if value.sign() == num_bigint::Sign::Minus {
-            Sign::Negative
-        } else {
-            Sign::Positive
-        };
-        let (big_int_coefficient, negative_exponent) = value.as_bigint_and_exponent();
-        // Discard the BigInt coefficient's sign before converting it to a BigUint to ensure
-        // the conversion succeeds.
-        let magnitude: BigUint = big_int_coefficient.abs().to_biguint().unwrap();
-        // From the BigInt docs: "Note that a positive exponent indicates a negative power of 10."
-        let exponent = -negative_exponent;
-
-        Decimal::new(Coefficient::new(sign, magnitude), exponent)
-    }
-}
-
-impl TryFrom<Decimal> for BigDecimal {
-    type Error = IonError;
-    /// Attempts to create a BigDecimal from a Decimal. Returns an Error if the Decimal being
-    /// converted is a negative zero, which BigDecimal cannot represent. Returns Ok otherwise.
-    fn try_from(value: Decimal) -> Result<Self, Self::Error> {
-        // The Coefficient type cannot be converted to a BigInt if it is a negative zero.
-        let coefficient_big_int: BigInt = value.coefficient.try_into()?;
-        Ok(BigDecimal::new(coefficient_big_int, -value.exponent))
-    }
-}
-
 #[cfg(test)]
 mod decimal_tests {
     use crate::result::IonResult;
-    use crate::types::{Coefficient, Decimal, Sign, UInt};
-    use bigdecimal::BigDecimal;
-    use num_bigint::BigUint;
+    use crate::{Coefficient, Decimal, Int, Sign, UInt};
+    use num_bigint::{BigInt, BigUint};
 
-    use num_traits::{Float, ToPrimitive};
+    use num_traits::Float;
     use std::cmp::Ordering;
     use std::convert::TryInto;
     use std::fmt::Write;
@@ -732,36 +748,6 @@ mod decimal_tests {
         assert!(conversion_result.is_err());
     }
 
-    #[test]
-    fn test_convert_to_big_decimal() {
-        let decimal = Decimal::new(-24601, -3);
-        let big_decimal: BigDecimal = decimal.try_into().unwrap();
-        let double = big_decimal.to_f64().unwrap();
-        assert_eq!(-24.601, double);
-
-        // Any form of negative zero will fail to be converted.
-
-        let decimal = Decimal::negative_zero();
-        let conversion_result: IonResult<BigDecimal> = decimal.try_into();
-        assert!(conversion_result.is_err());
-
-        let decimal = Decimal::negative_zero_with_exponent(6);
-        let conversion_result: IonResult<BigDecimal> = decimal.try_into();
-        assert!(conversion_result.is_err());
-
-        let decimal = Decimal::negative_zero_with_exponent(-6);
-        let conversion_result: IonResult<BigDecimal> = decimal.try_into();
-        assert!(conversion_result.is_err());
-    }
-
-    #[test]
-    fn test_convert_from_big_decimal() {
-        let big_decimal: BigDecimal = BigDecimal::new((-24601).into(), 3);
-        let actual: Decimal = big_decimal.into();
-        let expected = Decimal::new(-24601, -3);
-        assert_eq!(actual, expected);
-    }
-
     #[rstest]
     #[case(Decimal::new(-24601, -3), 3)]
     #[case(Decimal::new(u64::MAX, -5), 5)]
@@ -782,5 +768,24 @@ mod decimal_tests {
     #[case(Decimal::new(BigUint::from(u128::MAX), -2), 39)]
     fn test_precision(#[case] value: Decimal, #[case] expected: u64) {
         assert_eq!(value.precision(), expected);
+    }
+
+    #[rstest]
+    #[case(0, Decimal::new(0, 0))]
+    #[case(1, Decimal::new(1, 0))]
+    #[case(-1, Decimal::new(-1, 0))]
+    #[case(-8675309i64, Decimal::new(-8675309i64, 0))]
+    #[case(8675309u32, Decimal::new(8675309u32, 0))]
+    // mixed coefficient representations
+    #[case(8675309i64, Decimal::new(8675309u32, 0))]
+    #[case(Int::from(-8675309i64), Decimal::new(-8675309i64, 0))]
+    #[case(Int::from(BigInt::from(-8675309i64)), Decimal::new(-8675309i64, 0))]
+    #[case(UInt::from(8675309u64), Decimal::new(8675309u64, 0))]
+    #[case(UInt::from(BigUint::from(8675309u64)), Decimal::new(8675309u64, 0))]
+    fn decimal_from_integers(
+        #[case] coefficient: impl Into<Coefficient>,
+        #[case] expected: Decimal,
+    ) {
+        assert_eq!(Decimal::new(coefficient, 0), expected);
     }
 }

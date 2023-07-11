@@ -1,15 +1,14 @@
 use std::io::{BufWriter, Write};
 
-use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset};
 
-use crate::element::writer::TextKind;
+use crate::ion_writer::IonWriter;
+use crate::raw_symbol_token::RawSymbolToken;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
-use crate::result::{illegal_operation, IonResult};
+use crate::result::{IonFailure, IonResult};
 use crate::text::text_formatter::STRING_ESCAPE_CODES;
-use crate::types::{ContainerType, Decimal, Timestamp};
-use crate::writer::IonWriter;
-use crate::{Int, IonType, RawSymbolToken};
+use crate::types::ContainerType;
+use crate::{Decimal, Int, IonType, TextKind, Timestamp};
 
 pub struct RawTextWriterBuilder {
     whitespace_config: WhitespaceConfig,
@@ -350,7 +349,7 @@ impl<W: Write> RawTextWriter<W> {
                 self.whitespace_config.space_after_field_name
             )?;
         } else if self.is_in_struct() {
-            return illegal_operation("Values inside a struct must have a field name.");
+            return IonResult::illegal_operation("Values inside a struct must have a field name.");
         }
 
         if !self.annotations.is_empty() {
@@ -378,14 +377,6 @@ impl<W: Write> RawTextWriter<W> {
         // We just wrote another value; bump the child count.
         self.increment_child_count();
         Ok(())
-    }
-
-    /// Writes the provided BigDecimal value as an Ion decimal.
-    pub fn write_big_decimal(&mut self, value: &BigDecimal) -> IonResult<()> {
-        self.write_scalar(|output| {
-            write!(output, "{}", &value)?;
-            Ok(())
-        })
     }
 
     /// Writes the provided DateTime value as an Ion timestamp.
@@ -662,7 +653,9 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
                 write!(self.output, "(")?;
                 ContainerType::SExpression
             }
-            _ => return illegal_operation(format!("Cannot step into a(n) {ion_type:?}")),
+            _ => {
+                return IonResult::illegal_operation(format!("Cannot step into a(n) {ion_type:?}"))
+            }
         };
         self.containers.push(EncodingLevel {
             container_type,
@@ -704,7 +697,7 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
             Struct => "}",
             List => "]",
             SExpression => ")",
-            TopLevel => return illegal_operation("cannot step out of the top level"),
+            TopLevel => return IonResult::illegal_operation("cannot step out of the top level"),
         };
         // Wait to pop() the encoding level until after we've confirmed it wasn't TopLevel
         let popped_encoding_level = self.containers.pop().unwrap();
@@ -744,15 +737,13 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
 #[cfg(test)]
 mod tests {
     use std::str;
-    use std::str::FromStr;
 
-    use bigdecimal::BigDecimal;
     use chrono::{FixedOffset, NaiveDate, TimeZone};
 
+    use crate::ion_writer::IonWriter;
     use crate::result::IonResult;
     use crate::text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder};
     use crate::types::Timestamp;
-    use crate::writer::IonWriter;
     use crate::IonType;
 
     fn writer_test_with_builder<F>(builder: RawTextWriterBuilder, mut commands: F, expected: &str)
@@ -857,15 +848,6 @@ mod tests {
     }
 
     #[test]
-    fn write_decimal() {
-        let decimal_text = "731221.9948";
-        write_scalar_test(
-            |w| w.write_big_decimal(&BigDecimal::from_str(decimal_text).unwrap()),
-            decimal_text,
-        );
-    }
-
-    #[test]
     fn write_datetime_epoch() {
         #![allow(deprecated)] // `write_datetime` is deprecated
         let naive_datetime =
@@ -904,7 +886,8 @@ mod tests {
     fn write_timestamp_with_ymd_hms() {
         let timestamp = Timestamp::with_ymd(2000, 8, 22)
             .with_hms(15, 45, 11)
-            .build_at_offset(2 * 60)
+            .with_offset(2 * 60)
+            .build()
             .expect("building timestamp failed");
         write_scalar_test(
             |w| w.write_timestamp(&timestamp),
@@ -914,8 +897,11 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms_millis() {
-        let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
-            .build_at_offset(-5 * 60)
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
+            .with_hms(15, 45, 11)
+            .with_milliseconds(931)
+            .with_offset(-5 * 60)
+            .build()
             .expect("building timestamp failed");
         write_scalar_test(
             |w| w.write_timestamp(&timestamp),
@@ -925,8 +911,10 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms_millis_unknown_offset() {
-        let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
-            .build_at_unknown_offset()
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
+            .with_hms(15, 45, 11)
+            .with_milliseconds(931)
+            .build()
             .expect("building timestamp failed");
         write_scalar_test(
             |w| w.write_timestamp(&timestamp),

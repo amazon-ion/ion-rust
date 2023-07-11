@@ -18,7 +18,7 @@ jobs:
         # See https://github.com/amazon-ion/ion-rust/issues/353
         os: [ubuntu-latest, windows-2019, macos-latest]
         # build and test for different and interesting crate features
-        features: ['default', 'all', 'ion-hash', 'experimental', 'ion-hash,experimental']
+        features: ['default', 'all', 'experimental-ion-hash', 'experimental']
     permissions:
       checks: write
 

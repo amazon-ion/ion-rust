@@ -1,12 +1,9 @@
 use crate::element::builders::StructBuilder;
-use crate::element::{Annotations, Element, IntoAnnotatedElement, Value};
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::result::illegal_operation;
-use crate::types::Bytes;
-use crate::{
-    Decimal, Int, IonResult, IonType, IonWriter, RawSymbolTokenRef, Str, Symbol, SymbolTable,
-    Timestamp,
-};
+use crate::ion_writer::IonWriter;
+use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
+use crate::result::IonFailure;
+use crate::{Annotations, Element, IntoAnnotatedElement, Value};
+use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolTable, Timestamp};
 
 // Represents a level into which the writer has stepped.
 // A writer that has not yet called step_in() is at the top level.
@@ -85,7 +82,7 @@ where
 
     fn pop_container(&mut self) -> IonResult<ContainerContext> {
         if self.containers.len() <= 1 {
-            return illegal_operation("cannot step out of the top level");
+            return IonResult::illegal_operation("cannot step out of the top level");
         }
         // `self.containers` is never empty; it always has at least the top level.
         Ok(self.containers.pop().unwrap())
@@ -111,7 +108,9 @@ where
                 if let Some(field_name) = field_name {
                     fields.push((field_name, element));
                 } else {
-                    return illegal_operation("Values inside a struct must have a field name.");
+                    return IonResult::illegal_operation(
+                        "Values inside a struct must have a field name.",
+                    );
                 }
             }
         };
@@ -131,7 +130,7 @@ where
                         .cloned()
                         .unwrap_or(Symbol::unknown_text()))
                 } else {
-                    illegal_operation(format!("Symbol ID ${symbol_id} is undefined."))
+                    IonResult::illegal_operation(format!("Symbol ID ${symbol_id} is undefined."))
                 }
             }
             RawSymbolTokenRef::Text(txt) => Ok(Symbol::owned(txt)),
@@ -230,7 +229,9 @@ where
             IonType::Struct => Container::Struct(vec![]),
             IonType::List => Container::List(vec![]),
             IonType::SExp => Container::SExpression(vec![]),
-            _ => return illegal_operation(format!("Cannot step into a(n) {ion_type:?}")),
+            _ => {
+                return IonResult::illegal_operation(format!("Cannot step into a(n) {ion_type:?}"))
+            }
         };
         self.push_container(container)
     }
@@ -265,7 +266,9 @@ where
             container,
         } = self.pop_container()?;
         let value = match container {
-            Container::TopLevel => return illegal_operation("cannot step out of the top level"),
+            Container::TopLevel => {
+                return IonResult::illegal_operation("cannot step out of the top level")
+            }
             Container::SExpression(seq) => Value::SExp(seq.into()),
             Container::List(seq) => Value::List(seq.into()),
             Container::Struct(fields) => {
@@ -294,13 +297,13 @@ where
 mod tests {
 
     use crate::element::element_stream_writer::ElementStreamWriter;
-    use crate::element::{Element, IntoAnnotatedElement, Value};
+    use crate::{Element, IntoAnnotatedElement, Value};
 
     use crate::element::builders::{SequenceBuilder, StructBuilder};
     use crate::result::IonResult;
 
-    use crate::types::{Bytes, Timestamp};
-    use crate::writer::IonWriter;
+    use crate::ion_writer::IonWriter;
+    use crate::{Bytes, Timestamp};
     use crate::{Decimal, IonType, Symbol};
 
     #[track_caller]
@@ -479,7 +482,8 @@ mod tests {
     fn write_timestamp_with_ymd_hms() {
         let timestamp = Timestamp::with_ymd(2000, 8, 22)
             .with_hms(15, 45, 11)
-            .build_at_offset(2 * 60)
+            .with_offset(2 * 60)
+            .build()
             .expect("building timestamp failed");
         writer_scalar_test(
             |w| w.write_timestamp(&timestamp),
@@ -488,7 +492,8 @@ mod tests {
                     .with_month(8)
                     .with_day(22)
                     .with_hms(15, 45, 11)
-                    .build_at_offset(120)
+                    .with_offset(120)
+                    .build()
                     .expect("timestamp expected value"),
             ),
         );
@@ -496,8 +501,11 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms_millis() {
-        let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
-            .build_at_offset(-5 * 60)
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
+            .with_hms(15, 45, 11)
+            .with_milliseconds(931)
+            .with_offset(-5 * 60)
+            .build()
             .expect("building timestamp failed");
         writer_scalar_test(
             |w| w.write_timestamp(&timestamp),
@@ -507,7 +515,8 @@ mod tests {
                     .with_day(22)
                     .with_hms(15, 45, 11)
                     .with_milliseconds(931)
-                    .build_at_offset(-300)
+                    .with_offset(-300)
+                    .build()
                     .expect("timestamp expected value"),
             ),
         );
@@ -515,8 +524,10 @@ mod tests {
 
     #[test]
     fn write_timestamp_with_ymd_hms_millis_unknown_offset() {
-        let timestamp = Timestamp::with_ymd_hms_millis(2000, 8, 22, 15, 45, 11, 931)
-            .build_at_unknown_offset()
+        let timestamp = Timestamp::with_ymd(2000, 8, 22)
+            .with_hms(15, 45, 11)
+            .with_milliseconds(931)
+            .build()
             .expect("building timestamp failed");
         writer_scalar_test(
             |w| w.write_timestamp(&timestamp),
@@ -526,7 +537,7 @@ mod tests {
                     .with_day(22)
                     .with_hms(15, 45, 11)
                     .with_milliseconds(931)
-                    .build_at_unknown_offset()
+                    .build()
                     .expect("timestamp expected value"),
             ),
         );

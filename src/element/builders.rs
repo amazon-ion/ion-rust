@@ -1,11 +1,11 @@
-use crate::element::{Element, Sequence, Struct};
 use crate::Symbol;
+use crate::{Element, Sequence, Struct};
 
 /// Constructs [Sequence], [List], and [SExp] values incrementally.
 ///
 /// Building a [Sequence]:
 /// ```
-/// use ion_rs::element::{Element, Sequence};
+/// use ion_rs::{Element, Sequence};
 /// let actual: Sequence = Sequence::builder().push(1).push(true).push("foo").build();
 /// let expected: Sequence = Sequence::new([
 ///     Element::integer(1),
@@ -16,7 +16,7 @@ use crate::Symbol;
 /// ```
 /// Building a [List]:
 /// ```
-/// use ion_rs::element::{Element, List, Sequence};
+/// use ion_rs::{Element, Sequence, List};
 /// let actual: List = Sequence::builder()
 ///     .push(1)
 ///     .push(true)
@@ -31,7 +31,7 @@ use crate::Symbol;
 /// ```
 /// Building a [SExp]:
 /// ```
-/// use ion_rs::element::{Element, SExp, Sequence};
+/// use ion_rs::{Element, SExp, Sequence};
 /// let actual: SExp = Sequence::builder()
 ///     .push(1)
 ///     .push(true)
@@ -97,8 +97,7 @@ impl SequenceBuilder {
 /// Constructs [Struct] values incrementally.
 ///
 /// ```
-/// use ion_rs::element::Element;
-/// use ion_rs::ion_struct;
+/// use ion_rs::{Element, ion_struct};
 /// let actual: Element = ion_struct! {
 ///     "a": 1,
 ///     "b": true,
@@ -110,8 +109,7 @@ impl SequenceBuilder {
 /// ```
 ///
 /// ```
-/// use ion_rs::element::{Element, Struct};
-/// use ion_rs::ion_struct;
+/// use ion_rs::{Element, ion_struct, Struct};
 /// let base_struct: Struct = ion_struct! {
 ///     "foo": 1,
 ///     "bar": 2,
@@ -160,8 +158,7 @@ impl StructBuilder {
     /// Adds all of the provided `(name, value)` pairs to the [`Struct`] being constructed.
     ///
     /// ```
-    /// use ion_rs::element::{Element, Struct};
-    /// use ion_rs::ion_struct;
+    /// use ion_rs::{Element, ion_struct};
     ///
     /// let struct1 = ion_struct! {
     ///     "foo": 1,
@@ -219,8 +216,7 @@ impl StructBuilder {
 /// Constructs a list [`Element`] with the specified child values.
 ///
 /// ```
-/// use ion_rs::element::Element;
-/// use ion_rs::ion_list;
+/// use ion_rs::{Element, ion_list};
 /// // Construct a list Element from Rust values
 /// let actual: Element = ion_list!["foo", 7, false, ion_list![1.5f64, -8.25f64]].into();
 /// // Construct an Element from serialized Ion data
@@ -234,8 +230,7 @@ impl StructBuilder {
 ///
 /// ```
 /// // Construct a list Element from existing Elements
-/// use ion_rs::element::{Element, IntoAnnotatedElement};
-/// use ion_rs::ion_list;
+/// use ion_rs::{Element, ion_list, IntoAnnotatedElement};
 ///
 /// let string_element: Element = "foo".into();
 /// let bool_element: Element = true.into();
@@ -256,7 +251,7 @@ impl StructBuilder {
 #[macro_export]
 macro_rules! ion_list {
     ($($element:expr),* $(,)?) => {{
-        use $crate::element::Sequence;
+        use $crate::Sequence;
         Sequence::builder()$(.push($element))*.build_list()
     }};
 }
@@ -264,8 +259,7 @@ macro_rules! ion_list {
 /// Constructs an s-expression [`Element`] with the specified child values.
 ///
 /// ```
-/// use ion_rs::ion_sexp;
-/// use ion_rs::element::Element;
+/// use ion_rs::{Element, ion_sexp};
 /// // Construct an s-expression Element from Rust values
 /// let actual: Element = ion_sexp!("foo" 7 false ion_sexp!(1.5f64 8.25f64)).into();
 /// // Construct an Element from serialized Ion data
@@ -279,8 +273,7 @@ macro_rules! ion_list {
 ///
 /// ```
 /// // Construct a s-expression Element from existing Elements
-/// use ion_rs::ion_sexp;
-/// use ion_rs::element::{Element, IntoAnnotatedElement};
+/// use ion_rs::{Element, ion_sexp, IntoAnnotatedElement};
 ///
 /// let string_element: Element = "foo".into();
 /// let bool_element: Element = true.into();
@@ -300,7 +293,7 @@ macro_rules! ion_list {
 #[macro_export]
 macro_rules! ion_sexp {
     ($($element:expr)*) => {{
-        use $crate::element::Sequence;
+        use $crate::Sequence;
         Sequence::builder()$(.push($element))*.build_sexp()
     }};
 }
@@ -311,8 +304,7 @@ macro_rules! ion_sexp {
 /// `Into<Element>`.
 ///
 /// ```
-/// use ion_rs::element::Element;
-/// use ion_rs::{ion_struct, IonType};
+/// use ion_rs::{Element, ion_struct, IonType};
 /// let field_name_2 = "x";
 /// let prefix = "abc";
 /// let suffix = "def";
@@ -340,7 +332,7 @@ macro_rules! ion_sexp {
 #[macro_export]
 macro_rules! ion_struct {
     ($($field_name:tt : $element:expr),* $(,)?) => {{
-        use $crate::element::Struct;
+        use $crate::Struct;
         Struct::builder()$(.with_field($field_name, $element))*.build()
     }};
 }
@@ -351,8 +343,7 @@ macro_rules! ion_struct {
 /// `List` or `SExp`.
 ///
 /// ```
-/// use ion_rs::element::{Element, Sequence};
-/// use ion_rs::{ion_seq, ion_list};
+/// use ion_rs::{Element, ion_seq, ion_list, Sequence};
 /// // Construct a Sequence from serialized Ion data
 /// let expected: Sequence = Element::read_all(r#" "foo" 7 false [1.5e0, -8.25e0] "#).unwrap();
 /// // Construct a Sequence from Rust values
@@ -367,16 +358,16 @@ macro_rules! ion_struct {
 #[macro_export]
 macro_rules! ion_seq {
     ($($element:expr),* $(,)?) => {{
-        use $crate::element::Sequence;
+        use $crate::Sequence;
         Sequence::builder()$(.push($element))*.build()
     }};
     ($($element:expr)*) => {{
-        use $crate::element::Sequence;
+        use $crate::Sequence;
         Sequence::builder()$(.push($element))*.build()
     }};
 }
 
-use crate::types::{List, SExp};
+use crate::{List, SExp};
 pub use {ion_list, ion_sexp, ion_struct};
 
 #[cfg(test)]

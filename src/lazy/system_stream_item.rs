@@ -1,7 +1,7 @@
 use crate::lazy::binary::system::lazy_struct::LazyStruct;
 use crate::lazy::binary::system::lazy_value::LazyValue;
-use crate::result::{decoding_error, decoding_error_raw};
-use crate::IonResult;
+use crate::result::IonFailure;
+use crate::{IonError, IonResult};
 use std::fmt::{Debug, Formatter};
 
 /// System stream elements that a SystemReader may encounter.
@@ -41,11 +41,11 @@ impl<'top, 'data> SystemStreamItem<'top, 'data> {
         }
     }
 
-    /// Like [`Self::version_marker`], but returns a [`crate::IonError::DecodingError`] if this item
+    /// Like [`Self::version_marker`], but returns a [`crate::IonError::Decoding`] if this item
     /// is not an IVM.
     pub fn expect_ivm(self) -> IonResult<(u8, u8)> {
         self.version_marker()
-            .ok_or_else(|| decoding_error_raw(format!("expected IVM, found {:?}", self)))
+            .ok_or_else(|| IonError::decoding_error(format!("expected IVM, found {:?}", self)))
     }
 
     /// If this item is a application-level value, returns `Some(&LazyValue)`. Otherwise,
@@ -58,13 +58,13 @@ impl<'top, 'data> SystemStreamItem<'top, 'data> {
         }
     }
 
-    /// Like [`Self::value`], but returns a [`crate::IonError::DecodingError`] if this item is not
+    /// Like [`Self::value`], but returns a [`crate::IonError::Decoding`] if this item is not
     /// an application-level value.
     pub fn expect_value(self) -> IonResult<LazyValue<'top, 'data>> {
         if let Self::Value(value) = self {
             Ok(value)
         } else {
-            decoding_error(format!("expected value, found {:?}", self))
+            IonResult::decoding_error(format!("expected value, found {:?}", self))
         }
     }
 }

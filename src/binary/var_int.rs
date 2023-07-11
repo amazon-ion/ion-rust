@@ -1,5 +1,4 @@
-use crate::data_source::IonDataSource;
-use crate::result::{decoding_error, IonResult};
+use crate::result::IonResult;
 use std::io::Write;
 use std::mem;
 
@@ -44,48 +43,6 @@ impl VarInt {
             value,
             is_negative,
         }
-    }
-
-    /// Reads a VarInt from the provided data source.
-    pub fn read<R: IonDataSource>(data_source: &mut R) -> IonResult<VarInt> {
-        // Unlike VarUInt's encoding, the first byte in a VarInt is a special case because
-        // bit #6 (0-indexed, from the right) indicates whether the value is positive (0) or
-        // negative (1).
-
-        let first_byte: u8 = data_source.next_byte()?.unwrap();
-        let no_more_bytes: bool = first_byte >= 0b1000_0000; // If the first bit is 1, we're done.
-        let is_positive: bool = (first_byte & 0b0100_0000) == 0;
-        let sign: VarIntStorage = if is_positive { 1 } else { -1 };
-        let mut magnitude = (first_byte & 0b0011_1111) as VarIntStorage;
-
-        if no_more_bytes {
-            return Ok(VarInt {
-                size_in_bytes: 1,
-                value: magnitude * sign,
-                is_negative: !is_positive,
-            });
-        }
-
-        let mut byte_processor = |byte: u8| {
-            let lower_seven = (0b0111_1111 & byte) as VarIntStorage;
-            magnitude <<= 7;
-            magnitude |= lower_seven;
-            byte < 0b1000_0000
-        };
-
-        let encoded_size_in_bytes = 1 + data_source.read_next_byte_while(&mut byte_processor)?;
-
-        if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
-            return decoding_error(format!(
-                "Found a {encoded_size_in_bytes}-byte VarInt. Max supported size is {MAX_ENCODED_SIZE_IN_BYTES} bytes."
-            ));
-        }
-
-        Ok(VarInt {
-            size_in_bytes: encoded_size_in_bytes,
-            value: magnitude * sign,
-            is_negative: !is_positive,
-        })
     }
 
     /// Writes an `i64` to `sink`, returning the number of bytes written.
@@ -189,77 +146,6 @@ impl VarInt {
 mod tests {
     use super::VarInt;
     use crate::result::IonResult;
-    use std::io::{BufReader, Cursor};
-
-    const ERROR_MESSAGE: &str = "Failed to read a VarUInt from the provided data.";
-
-    #[test]
-    fn test_read_negative_var_int() {
-        let var_int = VarInt::read(&mut Cursor::new(&[0b0111_1001, 0b0000_1111, 0b1000_0001]))
-            .expect(ERROR_MESSAGE);
-        assert_eq!(var_int.size_in_bytes(), 3);
-        assert_eq!(var_int.value(), -935_809);
-    }
-
-    #[test]
-    fn test_read_positive_var_int() {
-        let var_int = VarInt::read(&mut Cursor::new(&[0b0011_1001, 0b0000_1111, 0b1000_0001]))
-            .expect(ERROR_MESSAGE);
-        assert_eq!(var_int.size_in_bytes(), 3);
-        assert_eq!(var_int.value(), 935_809);
-    }
-
-    #[test]
-    fn test_read_var_uint_small_buffer() {
-        let var_uint = VarInt::read(
-            // Construct a BufReader whose input buffer cannot hold all of the data at once
-            // to ensure that reads that span multiple I/O operations work as expected
-            &mut BufReader::with_capacity(1, Cursor::new(&[0b0111_1001, 0b0000_1111, 0b1000_0001])),
-        )
-        .expect(ERROR_MESSAGE);
-        assert_eq!(var_uint.size_in_bytes(), 3);
-        assert_eq!(var_uint.value(), -935_809);
-    }
-
-    #[test]
-    fn test_read_var_int_zero() {
-        let var_int = VarInt::read(&mut Cursor::new(&[0b1000_0000])).expect(ERROR_MESSAGE);
-        assert_eq!(var_int.size_in_bytes(), 1);
-        assert_eq!(var_int.value(), 0);
-    }
-
-    #[test]
-    fn test_read_var_int_min_negative_two_byte_encoding() {
-        let var_int =
-            VarInt::read(&mut Cursor::new(&[0b0111_1111, 0b1111_1111])).expect(ERROR_MESSAGE);
-        assert_eq!(var_int.size_in_bytes(), 2);
-        assert_eq!(var_int.value(), -8_191);
-    }
-
-    #[test]
-    fn test_read_var_int_max_positive_two_byte_encoding() {
-        let var_int =
-            VarInt::read(&mut Cursor::new(&[0b0011_1111, 0b1111_1111])).expect(ERROR_MESSAGE);
-        assert_eq!(var_int.size_in_bytes(), 2);
-        assert_eq!(var_int.value(), 8_191);
-    }
-
-    #[test]
-    fn test_read_var_int_overflow_detection() {
-        let _var_uint = VarInt::read(&mut Cursor::new(&[
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b1111_1111,
-        ]))
-        .expect_err("This should have failed due to overflow.");
-    }
 
     fn var_int_encoding_test(value: i64, expected_encoding: &[u8]) -> IonResult<()> {
         let mut buffer = vec![];

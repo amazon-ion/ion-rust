@@ -1,11 +1,12 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 #![cfg(feature = "experimental-reader")]
+#![cfg(feature = "experimental-writer")]
 
 use ion_rs::element::reader::ElementReader;
-use ion_rs::element::writer::{ElementWriter, Format, TextKind};
+use ion_rs::element::writer::ElementWriter;
 use ion_rs::element::{Element, Sequence};
-use ion_rs::result::{decoding_error, IonError, IonResult};
-use ion_rs::{BinaryWriterBuilder, IonData, IonWriter, TextWriterBuilder};
+use ion_rs::result::{IonError, IonResult};
+use ion_rs::{BinaryWriterBuilder, Format, IonData, IonWriter, TextKind, TextWriterBuilder};
 
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
@@ -51,6 +52,7 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
                 TextKind::Compact => TextWriterBuilder::default().build(&mut buffer),
                 TextKind::Lines => TextWriterBuilder::lines().build(&mut buffer),
                 TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
+                _ => unimplemented!("No text writer available for requested TextKind {:?}", kind),
             }?;
             writer.write_elements(elements)?;
             writer.flush()?;
@@ -60,6 +62,7 @@ fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
             binary_writer.write_elements(elements)?;
             binary_writer.flush()?;
         }
+        _ => unimplemented!("requested format '{:?}' is not supported", format),
     };
     Ok(buffer)
 }
@@ -216,9 +219,7 @@ trait ElementApi {
                         }
                     }
                 }
-                _ => {
-                    return decoding_error(format!("Expected a sequence for group: {group_list:?}"))
-                }
+                _ => panic!("Expected a sequence for group: {group_list:?}"),
             };
         }
         Ok(())
@@ -250,12 +251,10 @@ trait ElementApi {
                         Ok(elem) => {
                             panic!("Did not expect element for duplicates: {elems:?}, {elem:?}")
                         }
-                        Err(e) => match e {
-                            IonError::DecodingError { description: _ } => (),
-                            other => {
-                                panic!("Got an error we did not expect for duplicates: {other:?}")
-                            }
-                        },
+                        Err(IonError::Decoding(_)) => (),
+                        Err(other) => {
+                            panic!("Got an error we did not expect for duplicates: {other:?}")
+                        }
                     }
                 }
             }
@@ -540,9 +539,7 @@ mod native_element_tests {
 #[cfg(test)]
 mod non_blocking_native_element_tests {
     use super::*;
-    use ion_rs::binary::non_blocking::raw_binary_reader::RawBinaryReader;
-    use ion_rs::text::non_blocking::raw_text_reader::RawTextReader;
-    use ion_rs::Reader;
+    use ion_rs::{RawBinaryReader, RawTextReader, Reader};
 
     struct NonBlockingNativeElementApi;
 
@@ -552,8 +549,7 @@ mod non_blocking_native_element_tests {
         fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
             // These imports are visible as a temporary workaround.
             // See: https://github.com/amazon-ion/ion-rust/issues/484
-            use ion_rs::binary::constants::v1_0::IVM;
-            use ion_rs::integration_testing::new_reader;
+            use ion_rs::integration_testing::{new_reader, IVM};
             // If the data is binary, create a non-blocking binary reader.
             if data.starts_with(&IVM) {
                 let raw_reader = RawBinaryReader::new(data);

@@ -1,10 +1,12 @@
-use crate::element::{Annotations, Element, IntoAnnotatedElement, Value};
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
 use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
 use crate::lazy::value_ref::ValueRef;
-use crate::result::decoding_error;
+use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTable};
+use crate::{
+    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, IonType, RawSymbolTokenRef,
+    SymbolRef, SymbolTable, Value,
+};
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
 /// not. A `LazyValue` is immutable; its data can be read any number of times.
@@ -17,8 +19,7 @@ use crate::{IonError, IonResult, IonType, RawSymbolTokenRef, SymbolRef, SymbolTa
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
-/// use ion_rs::element::Element;
-/// use ion_rs::ion_list;
+/// use ion_rs::{Element, ion_list};
 /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
@@ -70,8 +71,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
+    /// use ion_rs::{Element, IonType};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element: Element = "hello".into();
@@ -100,8 +100,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
-    /// use ion_rs::IonType;
+    /// use ion_rs::{Element, IntoAnnotatedElement};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
@@ -139,8 +138,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
-    /// use ion_rs::IonType;
+    /// use ion_rs::{Element, IntoAnnotatedElement};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -168,7 +166,6 @@ impl<'top, 'data> LazyValue<'top, 'data> {
         use crate::lazy::binary::system::lazy_sequence::LazySequence;
         use crate::lazy::binary::system::lazy_struct::LazyStruct;
         use crate::lazy::raw_value_ref::RawValueRef::*;
-        use crate::result::decoding_error_raw;
 
         let value_ref = match self.raw_value.read()? {
             Null(ion_type) => ValueRef::Null(ion_type),
@@ -184,7 +181,7 @@ impl<'top, 'data> LazyValue<'top, 'data> {
                         .symbol_table
                         .symbol_for(sid)
                         .ok_or_else(|| {
-                            decoding_error_raw(format!(
+                            IonError::decoding_error(format!(
                                 "found a symbol ID (${}) that was not in the symbol table",
                                 sid
                             ))
@@ -251,7 +248,7 @@ where
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::element::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
@@ -286,14 +283,14 @@ where
         Ok(self.next().is_none())
     }
 
-    /// Like [`Self::are`], but returns an [`IonError::DecodingError`] if the iterator's annotations
+    /// Like [`Self::are`], but returns an [`IonError::Decoding`] if the iterator's annotations
     /// don't match the provided sequence exactly.
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::element::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
@@ -320,7 +317,7 @@ where
         if self.are(annotations_to_match)? {
             Ok(())
         } else {
-            decoding_error("value annotations did not match expected sequence")
+            IonResult::decoding_error("value annotations did not match expected sequence")
         }
     }
 }
@@ -335,7 +332,7 @@ where
         let raw_annotation = self.raw_annotations.next()?;
         match raw_annotation {
             Ok(RawSymbolTokenRef::SymbolId(sid)) => match self.symbol_table.symbol_for(sid) {
-                None => Some(decoding_error(
+                None => Some(IonResult::decoding_error(
                     "found a symbol ID that was not in the symbol table",
                 )),
                 Some(symbol) => Some(Ok(symbol.into())),
@@ -362,10 +359,10 @@ impl<'top, 'data> TryFrom<AnnotationsIterator<'top, 'data>> for Annotations {
 
 #[cfg(test)]
 mod tests {
-    use crate::element::{Element, IntoAnnotatedElement};
     use crate::lazy::binary::lazy_reader::LazyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::{ion_list, ion_sexp, ion_struct, Decimal, IonResult, IonType, Symbol, Timestamp};
+    use crate::{Element, IntoAnnotatedElement};
     use num_traits::Float;
     use rstest::*;
 

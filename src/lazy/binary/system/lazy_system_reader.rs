@@ -1,4 +1,4 @@
-use crate::result::decoding_error;
+use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
 
 use crate::lazy::binary::raw::lazy_raw_reader::LazyRawReader;
@@ -38,8 +38,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
-/// use ion_rs::element::Element;
-/// use ion_rs::ion_list;
+/// use ion_rs::{Element, ion_list};
 /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
@@ -206,14 +205,18 @@ impl<'data> LazySystemReader<'data> {
             let field = field_result?;
             if field.name() == SYMBOLS {
                 if found_symbols_field {
-                    return decoding_error("found symbol table with multiple 'symbols' fields");
+                    return IonResult::decoding_error(
+                        "found symbol table with multiple 'symbols' fields",
+                    );
                 }
                 found_symbols_field = true;
                 Self::process_symbols(pending_lst, field.value())?;
             }
             if field.name() == IMPORTS {
                 if found_imports_field {
-                    return decoding_error("found symbol table with multiple 'imports' fields");
+                    return IonResult::decoding_error(
+                        "found symbol table with multiple 'imports' fields",
+                    );
                 }
                 found_imports_field = true;
                 Self::process_imports(pending_lst, field.value())?;
@@ -249,7 +252,7 @@ impl<'data> LazySystemReader<'data> {
             }
             // TODO: Implement shared symbol table imports
             RawValueRef::List(_) => {
-                return decoding_error(
+                return IonResult::decoding_error(
                     "This implementation does not yet support shared symbol table imports",
                 );
             }

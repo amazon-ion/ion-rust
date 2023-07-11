@@ -6,9 +6,8 @@ use crate::binary::non_blocking::type_descriptor::{
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::result::{decoding_error, incomplete_data_error, incomplete_data_error_raw};
-use crate::types::Int;
-use crate::{IonResult, IonType};
+use crate::result::IonFailure;
+use crate::{Int, IonError, IonResult, IonType};
 use num_bigint::{BigInt, BigUint, Sign};
 use std::io::Read;
 use std::mem;
@@ -127,7 +126,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     /// [TypeDescriptor].
     pub fn peek_type_descriptor(&self) -> IonResult<TypeDescriptor> {
         if self.is_empty() {
-            return incomplete_data_error("a type descriptor", self.total_consumed());
+            return IonResult::incomplete("a type descriptor", self.total_consumed());
         }
         let next_byte = self.data.as_ref()[self.start];
         Ok(ION_1_0_TYPE_DESCRIPTORS[next_byte as usize])
@@ -141,7 +140,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     pub fn read_ivm(&mut self) -> IonResult<(u8, u8)> {
         let bytes = self
             .peek_n_bytes(IVM.len())
-            .ok_or_else(|| incomplete_data_error_raw("an IVM", self.total_consumed()))?;
+            .ok_or_else(|| IonError::incomplete("an IVM", self.total_consumed()))?;
 
         match bytes {
             [0xE0, major, minor, 0xEA] => {
@@ -149,7 +148,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
                 self.consume(IVM.len());
                 Ok(version)
             }
-            invalid_ivm => decoding_error(format!("invalid IVM: {invalid_ivm:?}")),
+            invalid_ivm => IonResult::decoding_error(format!("invalid IVM: {invalid_ivm:?}")),
         }
     }
 
@@ -188,7 +187,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
             }
         }
 
-        incomplete_data_error("a VarUInt", self.total_consumed() + encoded_size_in_bytes)
+        IonResult::incomplete("a VarUInt", self.total_consumed() + encoded_size_in_bytes)
     }
 
     /// Reads a `VarInt` encoding primitive from the beginning of the buffer. If it is successful,
@@ -212,7 +211,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         // negative (1).
 
         if self.is_empty() {
-            return incomplete_data_error("a VarInt", self.total_consumed());
+            return IonResult::incomplete("a VarInt", self.total_consumed());
         }
         let first_byte: u8 = self.peek_next_byte().unwrap();
         let no_more_bytes: bool = first_byte >= 0b1000_0000; // If the first bit is 1, we're done.
@@ -241,14 +240,14 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         }
 
         if !terminated {
-            return incomplete_data_error(
+            return IonResult::incomplete(
                 "a VarInt",
                 self.total_consumed() + encoded_size_in_bytes,
             );
         }
 
         if encoded_size_in_bytes > MAX_ENCODED_SIZE_IN_BYTES {
-            return decoding_error(format!(
+            return IonResult::decoding_error(format!(
                 "Found a {encoded_size_in_bytes}-byte VarInt. Max supported size is {MAX_ENCODED_SIZE_IN_BYTES} bytes."
             ));
         }
@@ -281,7 +280,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     fn read_small_uint(&mut self, length: usize) -> IonResult<DecodedUInt> {
         let uint_bytes = self
             .peek_n_bytes(length)
-            .ok_or_else(|| incomplete_data_error_raw("a UInt", self.total_consumed()))?;
+            .ok_or_else(|| IonError::incomplete("a UInt", self.total_consumed()))?;
         let magnitude = DecodedUInt::small_uint_from_slice(uint_bytes);
         self.consume(length);
         Ok(DecodedUInt::new(magnitude.into(), length))
@@ -301,7 +300,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
 
         let uint_bytes = self
             .peek_n_bytes(length)
-            .ok_or_else(|| incomplete_data_error_raw("a UInt", self.total_consumed()))?;
+            .ok_or_else(|| IonError::incomplete("a UInt", self.total_consumed()))?;
 
         let magnitude = BigUint::from_bytes_be(uint_bytes);
         self.consume(length);
@@ -312,7 +311,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
     // This method is inline(never) because it is rarely invoked and its allocations/formatting
     // compile to a non-trivial number of instructions.
     fn value_too_large<T>(label: &str, length: usize, max_length: usize) -> IonResult<T> {
-        decoding_error(format!(
+        IonResult::decoding_error(format!(
             "found {label} that was too large; size = {length}, max size = {max_length}"
         ))
     }
@@ -326,13 +325,13 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         if length == 0 {
             return Ok(DecodedInt::new(0i64, false, 0));
         } else if length > MAX_INT_SIZE_IN_BYTES {
-            return decoding_error(format!(
+            return IonResult::decoding_error(format!(
                 "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
             ));
         }
 
         let int_bytes = self.peek_n_bytes(length).ok_or_else(|| {
-            incomplete_data_error_raw("an Int encoding primitive", self.total_consumed())
+            IonError::incomplete("an Int encoding primitive", self.total_consumed())
         })?;
 
         let mut is_negative: bool = false;
@@ -388,7 +387,7 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         // If the type descriptor says we should skip more bytes, skip them.
         let length = self.read_length(type_descriptor.length_code)?;
         if self.remaining() < length.value() {
-            return incomplete_data_error("a NOP", self.total_consumed());
+            return IonResult::incomplete("a NOP", self.total_consumed());
         }
         self.consume(length.value());
         Ok(1 + length.size_in_bytes() + length.value())
@@ -422,13 +421,13 @@ impl<A: AsRef<[u8]>> BinaryBuffer<A> {
         match header.ion_type {
             Float => match header.length_code {
                 0 | 4 | 8 | 15 => {}
-                _ => return decoding_error("found a float with an illegal length code"),
+                _ => return IonResult::decoding_error("found a float with an illegal length code"),
             },
             Timestamp if !header.is_null() && length.value() <= 1 => {
-                return decoding_error("found a timestamp with length <= 1")
+                return IonResult::decoding_error("found a timestamp with length <= 1")
             }
             Struct if header.length_code == 1 && length.value() == 0 => {
-                return decoding_error("found an empty ordered struct")
+                return IonResult::decoding_error("found an empty ordered struct")
             }
             _ => {}
         };

@@ -1,6 +1,7 @@
 use crate::element::{Element, Sequence};
-use crate::result::{illegal_operation, illegal_operation_raw};
-use crate::{Int, IonError, IonResult, Symbol};
+use crate::result::IonFailure;
+use crate::IonResult;
+use crate::{Int, IonError, Symbol};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Stores [`SharedSymbolTable`] with the table name, version and imports
@@ -17,7 +18,9 @@ impl SharedSymbolTable {
         // As per Ion Specification, the name field should be a string with length at least one.
         // If the field has any other value, then materialization of this symbol table must fail.
         if name.is_empty() {
-            return illegal_operation("shared symbol table with empty name is not allowed");
+            return IonResult::illegal_operation(
+                "shared symbol table with empty name is not allowed",
+            );
         }
 
         Ok(Self {
@@ -69,16 +72,16 @@ impl TryFrom<Element> for SharedSymbolTable {
     fn try_from(sst_element: Element) -> Result<Self, Self::Error> {
         let sst_struct = sst_element
             .as_struct()
-            .ok_or(illegal_operation_raw(format!(
+            .ok_or(IonError::illegal_operation(format!(
                 "expected a struct, but found a(n) {}",
                 sst_element.ion_type()
             )))?
             .to_owned();
         let name_field = sst_struct
             .get("name")
-            .ok_or_else(|| illegal_operation_raw("missing a 'name' field"))?;
+            .ok_or_else(|| IonError::illegal_operation("missing a 'name' field"))?;
         let name = name_field.as_string().ok_or_else(|| {
-            illegal_operation_raw(format!(
+            IonError::illegal_operation(format!(
                 "expected the 'name' field to be a string, but found a(n) {}",
                 name_field
             ))

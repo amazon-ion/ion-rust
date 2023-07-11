@@ -12,34 +12,42 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
+use crate::binary::binary_writer::BinaryWriterBuilder;
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
 use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_writer::IonWriter;
 use crate::text::text_formatter::IonValueFormatter;
+use crate::text::text_writer::TextWriterBuilder;
 use crate::{
-    ion_data, BinaryWriterBuilder, Decimal, Int, IonResult, IonType, IonWriter, Str, Symbol,
-    TextWriterBuilder, Timestamp,
+    ion_data, Decimal, Format, Int, IonError, IonResult, IonType, Str, Symbol, TextKind, Timestamp,
 };
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::io;
 
 mod annotations;
-pub mod builders;
-pub mod element_stream_reader;
-pub mod element_stream_writer;
 pub(crate) mod iterators;
+
+pub mod builders;
 pub mod reader;
 pub mod writer;
 
-// Re-export the Value variant types and traits so they can be accessed directly from this module.
-use crate::data_source::ToIonDataSource;
-use crate::element::writer::{ElementWriter, Format, TextKind};
-use crate::reader::ReaderBuilder;
-pub use crate::types::{Blob, Bytes, Clob};
-pub use annotations::{Annotations, IntoAnnotations};
+#[cfg(feature = "experimental-reader")]
+pub mod element_stream_reader;
+#[cfg(feature = "experimental-writer")]
+pub mod element_stream_writer;
+mod sequence;
 
-pub use crate::types::{List, SExp, Sequence, Struct};
+// Re-export the Value variant types and traits so they can be accessed directly from this module.
+use crate::data_source::IonDataSource;
+use crate::element::writer::ElementWriter;
+use crate::reader::ReaderBuilder;
+use crate::{Blob, Bytes, Clob, List, SExp, Struct};
+
+use crate::result::IonFailure;
+pub use annotations::{Annotations, IntoAnnotations};
+pub use sequence::Sequence;
 
 impl IonEq for Value {
     fn ion_eq(&self, other: &Self) -> bool {
@@ -302,7 +310,6 @@ impl From<crate::tokens::ScalarValue> for Value {
 ///
 /// ```
 /// use ion_rs::element::{Element, IntoAnnotatedElement, Value};
-/// use ion_rs::ion_list;
 ///
 /// // Explicit conversion of a Rust bool (`true`) into a `Value`...
 /// let boolean_value: Value = true.into();
@@ -367,6 +374,14 @@ impl Element {
             annotations,
             value: value.into(),
         }
+    }
+
+    fn expected(&self, expected: IonType) -> IonError {
+        IonError::decoding_error(format!(
+            "expected a(n) {}, found a(n) {}",
+            expected,
+            self.ion_type()
+        ))
     }
 
     /// Returns a reference to this [Element]'s [Value].
@@ -460,11 +475,33 @@ impl Element {
         }
     }
 
+    pub fn expect_int(&self) -> IonResult<&Int> {
+        self.as_int().ok_or_else(|| self.expected(IonType::Int))
+    }
+
+    pub fn as_i64(&self) -> Option<i64> {
+        match &self.value {
+            Value::Int(i) => i.as_i64(),
+            _ => None,
+        }
+    }
+
+    pub fn expect_i64(&self) -> IonResult<i64> {
+        match &self.value {
+            Value::Int(i) => i.expect_i64(),
+            _ => Err(self.expected(IonType::Int)),
+        }
+    }
+
     pub fn as_float(&self) -> Option<f64> {
         match &self.value {
             Value::Float(f) => Some(*f),
             _ => None,
         }
+    }
+
+    pub fn expect_float(&self) -> IonResult<f64> {
+        self.as_float().ok_or_else(|| self.expected(IonType::Float))
     }
 
     pub fn as_decimal(&self) -> Option<&Decimal> {
@@ -474,11 +511,21 @@ impl Element {
         }
     }
 
+    pub fn expect_decimal(&self) -> IonResult<&Decimal> {
+        self.as_decimal()
+            .ok_or_else(|| self.expected(IonType::Decimal))
+    }
+
     pub fn as_timestamp(&self) -> Option<&Timestamp> {
         match &self.value {
             Value::Timestamp(t) => Some(t),
             _ => None,
         }
+    }
+
+    pub fn expect_timestamp(&self) -> IonResult<&Timestamp> {
+        self.as_timestamp()
+            .ok_or_else(|| self.expected(IonType::Timestamp))
     }
 
     pub fn as_text(&self) -> Option<&str> {
@@ -489,11 +536,25 @@ impl Element {
         }
     }
 
+    pub fn expect_text(&self) -> IonResult<&str> {
+        self.as_text().ok_or_else(|| {
+            IonError::decoding_error(format!(
+                "expected a text value, found a(n) {}",
+                self.ion_type()
+            ))
+        })
+    }
+
     pub fn as_string(&self) -> Option<&str> {
         match &self.value {
             Value::String(text) => Some(text.as_ref()),
             _ => None,
         }
+    }
+
+    pub fn expect_string(&self) -> IonResult<&str> {
+        self.as_string()
+            .ok_or_else(|| self.expected(IonType::String))
     }
 
     pub fn as_symbol(&self) -> Option<&Symbol> {
@@ -503,11 +564,20 @@ impl Element {
         }
     }
 
+    pub fn expect_symbol(&self) -> IonResult<&Symbol> {
+        self.as_symbol()
+            .ok_or_else(|| self.expected(IonType::Symbol))
+    }
+
     pub fn as_bool(&self) -> Option<bool> {
         match &self.value {
             Value::Bool(b) => Some(*b),
             _ => None,
         }
+    }
+
+    pub fn expect_bool(&self) -> IonResult<bool> {
+        self.as_bool().ok_or_else(|| self.expected(IonType::Bool))
     }
 
     pub fn as_lob(&self) -> Option<&[u8]> {
@@ -517,11 +587,24 @@ impl Element {
         }
     }
 
+    pub fn expect_lob(&self) -> IonResult<&[u8]> {
+        self.as_lob().ok_or_else(|| {
+            IonError::decoding_error(format!(
+                "expected a lob value, found a(n) {}",
+                self.ion_type()
+            ))
+        })
+    }
+
     pub fn as_blob(&self) -> Option<&[u8]> {
         match &self.value {
             Value::Blob(bytes) => Some(bytes.as_ref()),
             _ => None,
         }
+    }
+
+    pub fn expect_blob(&self) -> IonResult<&[u8]> {
+        self.as_blob().ok_or_else(|| self.expected(IonType::Blob))
     }
 
     pub fn as_clob(&self) -> Option<&[u8]> {
@@ -531,6 +614,10 @@ impl Element {
         }
     }
 
+    pub fn expect_clob(&self) -> IonResult<&[u8]> {
+        self.as_clob().ok_or_else(|| self.expected(IonType::Clob))
+    }
+
     pub fn as_sequence(&self) -> Option<&Sequence> {
         match &self.value {
             Value::SExp(s) | Value::List(s) => Some(s),
@@ -538,11 +625,47 @@ impl Element {
         }
     }
 
+    pub fn expect_sequence(&self) -> IonResult<&Sequence> {
+        self.as_sequence().ok_or_else(|| {
+            IonError::decoding_error(format!(
+                "expected a sequence value, found a(n) {}",
+                self.ion_type()
+            ))
+        })
+    }
+
+    pub fn as_list(&self) -> Option<&Sequence> {
+        match &self.value {
+            Value::List(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn expect_list(&self) -> IonResult<&Sequence> {
+        self.as_list().ok_or_else(|| self.expected(IonType::List))
+    }
+
+    pub fn as_sexp(&self) -> Option<&Sequence> {
+        match &self.value {
+            Value::SExp(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn expect_sexp(&self) -> IonResult<&Sequence> {
+        self.as_sexp().ok_or_else(|| self.expected(IonType::SExp))
+    }
+
     pub fn as_struct(&self) -> Option<&Struct> {
         match &self.value {
             Value::Struct(structure) => Some(structure),
             _ => None,
         }
+    }
+
+    pub fn expect_struct(&self) -> IonResult<&Struct> {
+        self.as_struct()
+            .ok_or_else(|| self.expected(IonType::Struct))
     }
 
     /// Reads a single Ion [`Element`] from the provided data source.
@@ -577,7 +700,7 @@ impl Element {
     /// Returns an iterator over the Elements in the provided Ion data source.
     /// If the data source cannot be read or contains invalid Ion data, this method
     /// will return an `Err`.
-    pub fn iter<'a, I: ToIonDataSource + 'a>(
+    pub fn iter<'a, I: IonDataSource + 'a>(
         source: I,
     ) -> IonResult<impl Iterator<Item = IonResult<Element>> + 'a> {
         Ok(ReaderBuilder::default().build(source)?.into_elements())
@@ -589,7 +712,7 @@ impl Element {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::element::Element;
-    /// use ion_rs::{ion_list, IonType, IonWriter, TextWriterBuilder};
+    /// use ion_rs::{ion_list, IonWriter, TextWriterBuilder};
     ///
     /// // Construct an Element
     /// let element_before: Element = ion_list! [1, 2, 3].into();
@@ -607,117 +730,146 @@ impl Element {
     ///# Ok(())
     ///# }
     /// ```
+    #[cfg(feature = "experimental-writer")]
     pub fn write_to<W: ElementWriter>(&self, writer: &mut W) -> IonResult<()> {
+        Self::write_element_to(self, writer)
+    }
+
+    // This method performs the logic of the `write_to` method above, but is always limited to
+    // crate visibility. The `write_to` method can be exposed publicly by enabling the
+    // "experimental-writer" feature.
+    pub(crate) fn write_element_to<W: ElementWriter>(&self, writer: &mut W) -> IonResult<()> {
         writer.write_element(self)?;
         Ok(())
     }
 
-    /// Serializes this [`Element`] as Ion, writing the resulting bytes to the provided [`io::Write`].
-    /// The caller must verify that `output` is either empty or only contains Ion of the same
-    /// format (text or binary) before writing begins.
-    ///
-    /// This method constructs a new writer for each invocation, which means that there will only be a single
-    /// top level value in the output stream. Writing several values to the same stream is preferable to
-    /// maximize encoding efficiency. To reuse a writer and have greater control over resource
-    /// management, see [`Element::write_to`].
-    /// ```
-    ///# use ion_rs::IonResult;
-    ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
-    /// use ion_rs::{ion_list, IonType, IonWriter, TextWriterBuilder};
-    /// use ion_rs::element::writer::{Format, TextKind};
-    ///
-    /// // Construct an Element
-    /// let element_before: Element = ion_list! [1, 2, 3].into();
-    ///
-    /// // Write the Element to a buffer using a specified format
-    /// let mut buffer = Vec::new();
-    /// element_before.write_as(Format::Text(TextKind::Pretty), &mut buffer)?;
-    ///
-    /// // Read the Element back from the serialized form
-    /// let element_after = Element::read_one(&buffer)?;
-    ///
-    /// // Confirm that no data was lost
-    /// assert_eq!(element_before, element_after);
-    ///# Ok(())
-    ///# }
-    /// ```
+    #[doc = r##"
+Serializes this [`Element`] as Ion, writing the resulting bytes to the provided [`io::Write`].
+The caller must verify that `output` is either empty or only contains Ion of the same
+format (text or binary) before writing begins.
+
+This method constructs a new writer for each invocation, which means that there will only be a single
+top level value in the output stream. Writing several values to the same stream is preferable to
+maximize encoding efficiency."##]
+    #[cfg_attr(
+        feature = "experimental-writer",
+        doc = r##"
+To reuse a writer and have greater control over resource
+management, see [`Element::write_to`].
+```
+# use ion_rs::{Format, IonResult, TextKind};
+# fn main() -> IonResult<()> {
+use ion_rs::element::Element;
+use ion_rs::ion_list;
+
+// Construct an Element
+let element_before: Element = ion_list! [1, 2, 3].into();
+
+// Write the Element to a buffer using a specified format
+let mut buffer = Vec::new();
+element_before.write_as(Format::Text(TextKind::Pretty), &mut buffer)?;
+
+// Read the Element back from the serialized form
+let element_after = Element::read_one(&buffer)?;
+
+// Confirm that no data was lost
+assert_eq!(element_before, element_after);
+# Ok(())
+# }
+```
+"##
+    )]
     pub fn write_as<W: io::Write>(&self, format: Format, output: W) -> IonResult<()> {
         match format {
             Format::Text(text_kind) => {
                 let mut text_writer = TextWriterBuilder::new(text_kind).build(output)?;
-                self.write_to(&mut text_writer)?;
+                Element::write_element_to(self, &mut text_writer)?;
                 text_writer.flush()
             }
             Format::Binary => {
                 let mut binary_writer = BinaryWriterBuilder::default().build(output)?;
-                self.write_to(&mut binary_writer)?;
+                Element::write_element_to(self, &mut binary_writer)?;
                 binary_writer.flush()
             }
         }
     }
 
-    /// Serializes this [`Element`] as binary Ion, returning the output as a `Vec<u8>`.
-    ///
-    /// This is a convenience method; it is less efficient than [`Element::write_to`] because:
-    /// 1. It must allocate a new `Vec<u8>` to fill and return.
-    /// 2. It encodes this [`Element`] as its own binary Ion stream, limiting the benefit of the
-    ///    symbol table.
-    ///
-    /// ```
-    ///# use ion_rs::IonResult;
-    ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
-    /// use ion_rs::{ion_list, IonType, IonWriter, TextWriterBuilder};
-    /// use ion_rs::element::writer::{Format, TextKind};
-    ///
-    /// // Construct an Element
-    /// let element_before: Element = ion_list! [1, 2, 3].into();
-    ///
-    /// // Write the Element to a buffer as binary Ion
-    /// let binary_ion: Vec<u8> = element_before.to_binary()?;
-    ///
-    /// // Read the Element back from the serialized form
-    /// let element_after = Element::read_one(&binary_ion)?;
-    ///
-    /// // Confirm that no data was lost
-    /// assert_eq!(element_before, element_after);
-    ///# Ok(())
-    ///# }
-    /// ```
+    #[doc = r##"
+Serializes this [`Element`] as binary Ion, returning the output as a `Vec<u8>`.
+"##]
+    #[cfg_attr(
+        feature = "experimental-writer",
+        doc = r##"
+This is a convenience method; it is less efficient than [`Element::write_to`] because:
+1. It must allocate a new `Vec<u8>` to fill and return.
+2. It encodes this [`Element`] as its own binary Ion stream, limiting the benefit of the
+   symbol table.
+"##
+    )]
+    #[doc = r##"
+```
+# use ion_rs::IonResult;
+# fn main() -> IonResult<()> {
+use ion_rs::element::Element;
+use ion_rs::ion_list;
+
+// Construct an Element
+let element_before: Element = ion_list! [1, 2, 3].into();
+
+// Write the Element to a buffer as binary Ion
+let binary_ion: Vec<u8> = element_before.to_binary()?;
+
+// Read the Element back from the serialized form
+let element_after = Element::read_one(&binary_ion)?;
+
+// Confirm that no data was lost
+assert_eq!(element_before, element_after);
+# Ok(())
+# }
+```
+"##]
     pub fn to_binary(&self) -> IonResult<Vec<u8>> {
         let mut buffer = Vec::new();
         self.write_as(Format::Binary, &mut buffer)?;
         Ok(buffer)
     }
 
-    /// Serializes this [`Element`] as text Ion using the requested [`TextKind`] and returning the
-    /// output as a `String`.
+    #[doc = r##"
+Serializes this [`Element`] as text Ion using the requested [`TextKind`] and returning the
+output as a `String`.
+"##]
+    #[cfg_attr(
+        feature = "experimental-writer",
+        doc = r##"
+This is a convenience method; to provide your own buffer instead of allocating a `String`
+on each call, see [`Element::write_as`]. To provide your own writer instead of constructing
+a new `String` and writer on each call, see [`Element::write_to`].
+    "##
+    )]
     ///
-    /// This is a convenience method; to provide your own buffer instead of allocating a `String`
-    /// on each call, see [`Element::write_as`]. To provide your own writer instead of constructing
-    /// a new `String` and writer on each call, see [`Element::write_to`].
-    ///
-    /// ```
-    ///# use ion_rs::IonResult;
-    ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
-    /// use ion_rs::{ion_list, IonType, IonWriter, TextWriterBuilder};
-    /// use ion_rs::element::writer::{Format, TextKind};
-    ///
-    /// // Construct an Element
-    /// let element_before: Element = ion_list! [1, 2, 3].into();
-    ///
-    /// let text_ion: String = element_before.to_text(TextKind::Pretty)?;
-    ///
-    /// // Read the Element back from the serialized form
-    /// let element_after = Element::read_one(&text_ion)?;
-    ///
-    /// // Confirm that no data was lost
-    /// assert_eq!(element_before, element_after);
-    ///# Ok(())
-    ///# }
-    /// ```
+
+    #[doc = r##"
+```
+# use ion_rs::IonResult;
+# fn main() -> IonResult<()> {
+use ion_rs::ion_list;
+use ion_rs::element::Element;
+use ion_rs::TextKind;
+
+// Construct an Element
+let element_before: Element = ion_list! [1, 2, 3].into();
+
+let text_ion: String = element_before.to_text(TextKind::Pretty)?;
+
+// Read the Element back from the serialized form
+let element_after = Element::read_one(&text_ion)?;
+
+// Confirm that no data was lost
+assert_eq!(element_before, element_after);
+# Ok(())
+# }
+```
+    "##]
     pub fn to_text(&self, text_kind: TextKind) -> IonResult<String> {
         let mut buffer = Vec::new();
         self.write_as(Format::Text(text_kind), &mut buffer)?;
@@ -1017,8 +1169,7 @@ mod tests {
         }
     }
 
-    use crate::element::{Annotations, Element, IntoAnnotatedElement, Struct};
-    use crate::types::IntAccess;
+    use crate::{Annotations, Element, IntoAnnotatedElement, Struct};
     use num_bigint::BigInt;
     use std::collections::HashSet;
     use std::str::FromStr;
@@ -1064,7 +1215,7 @@ mod tests {
                 let expected: Element = 100i64.into();
                 assert_eq!(Some(&Int::from(100i64)), e.as_int());
                 assert_eq!(Some(100), e.as_i64());
-                assert_eq!(None, e.as_big_int());
+                assert_eq!(BigInt::from(100), BigInt::from(e.as_int().unwrap()));
                 assert_eq!(&expected, e);
             }),
         }
@@ -1078,7 +1229,10 @@ mod tests {
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = BigInt::from(100).into();
                 assert_eq!(Some(&Int::from(BigInt::from(100))), e.as_int());
-                assert_eq!(BigInt::from_str("100").unwrap(), *e.as_big_int().unwrap());
+                assert_eq!(
+                    BigInt::from_str("100").unwrap(),
+                    BigInt::from(e.as_int().unwrap())
+                );
                 assert_eq!(&expected, e);
             }),
         }
@@ -1247,7 +1401,6 @@ mod tests {
                 Box::new(|e| {
                     assert_eq!(None, e.as_int());
                     assert_eq!(None, e.as_i64());
-                    assert_eq!(None, e.as_big_int());
                 }),
             ),
             (AsF64, Box::new(|e| assert_eq!(None, e.as_float()))),
@@ -1454,6 +1607,6 @@ mod value_tests {
     fn element_from_int(#[case] source_int: impl Into<Int>) {
         let int: Int = source_int.into();
         let element: Element = int.clone().into();
-        assert_eq!(element.as_int().unwrap().expect_i64(), int.expect_i64())
+        assert_eq!(element.expect_i64(), int.expect_i64())
     }
 }

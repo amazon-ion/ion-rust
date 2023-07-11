@@ -1,66 +1,11 @@
-use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
-use crate::result::decoding_error;
-use crate::IonResult;
+use crate::result::IonFailure;
+use crate::{IonError, IonResult};
 use num_bigint::{BigInt, BigUint, ToBigUint};
 use num_traits::{CheckedAdd, Signed, ToPrimitive, Zero};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::{Add, Neg};
-
-/// Provides convenient integer accessors for integer values that are like [`Int`]
-pub trait IntAccess {
-    /// Returns the value as an `i64` if it can be represented as such.
-    ///
-    /// ## Usage
-    /// ```
-    /// # use ion_rs::element::*;
-    /// # use ion_rs::element::*;
-    /// # use ion_rs::types::*;
-    /// # use num_bigint::*;
-    /// let big_int = Int::from(BigInt::from(100));
-    /// let i64_int = Int::from(100);
-    /// assert_eq!(big_int.as_i64(), i64_int.as_i64());
-    ///
-    /// // works on element too
-    /// let big_elem: Element = big_int.into();
-    /// let i64_elem: Element = i64_int.into();
-    ///
-    /// assert_eq!(big_elem.as_i64(), i64_elem.as_i64());
-    /// ```
-    fn as_i64(&self) -> Option<i64>;
-
-    /// Returns a reference as a [`BigInt`] if it is represented as such.  Note that this
-    /// method may return `None` if the underlying representation *is not* stored in a [`BigInt`]
-    /// such as if it is represented as an `i64` so it is somewhat asymmetric with respect
-    /// to [`IntAccess::as_i64`].
-    ///
-    /// ## Usage
-    /// ```
-    /// # use ion_rs::element::*;
-    /// # use ion_rs::element::*;
-    /// # use ion_rs::types::*;
-    /// # use num_bigint::*;
-    /// # use std::str::FromStr;
-    /// let big_int = Int::from(BigInt::from(100));
-    /// assert_eq!(
-    ///     BigInt::from_str("100").unwrap(),
-    ///     *big_int.as_big_int().unwrap()
-    /// );
-    /// let i64_int = Int::from(100);
-    /// assert_eq!(None, i64_int.as_big_int());
-    ///
-    /// // works on element too
-    /// let big_elem: Element = big_int.into();
-    /// assert_eq!(
-    ///     BigInt::from_str("100").unwrap(),
-    ///     *big_elem.as_big_int().unwrap()
-    /// );
-    /// let i64_elem: Element = i64_int.into();
-    /// assert_eq!(None, i64_elem.as_big_int());
-    /// ```
-    fn as_big_int(&self) -> Option<&BigInt>;
-}
 
 /// Represents a UInt of any size. Used for reading binary integers and symbol Ids.
 /// Used to represent the unsigned magnitude of Decimal values and fractional seconds.
@@ -202,13 +147,10 @@ impl_uint_from_small_unsigned_int_types!(u8, u16, u32, u64, usize);
 macro_rules! impl_uint_try_from_small_signed_int_types {
     ($($t:ty),*) => ($(
         impl TryFrom<$t> for UInt {
-            // If conversion fails, we discard the error. `TryFromIntError` provides no
-            // additional context and cannot be constructed outside of `std`. We'll return
-            // the unit type, `()`.
-            type Error = ();
+            type Error = IonError;
             fn try_from(value: $t) -> Result<Self, Self::Error> {
                 if value < 0 {
-                    return Err(());
+                    return IonResult::illegal_operation("cannot convert a negative number to a UInt");
                 }
                 Ok((value.unsigned_abs() as u64).into())
             }
@@ -227,15 +169,20 @@ impl From<u128> for UInt {
 macro_rules! impl_int_types_try_from_uint {
     ($($t:ty),*) => ($(
         impl TryFrom<&UInt> for $t {
-            // If conversion fails, we discard the error. `TryFromIntError` provides no
-            // additional context and cannot be constructed outside of `std`. We'll return
-            // the unit type, `()`.
-            type Error = ();
+            type Error = IonError;
 
             fn try_from(value: &UInt) -> Result<Self, Self::Error> {
                 match &value.data {
-                    UIntData::U64(value) => <$t>::try_from(*value).map_err(|_|()),
-                    UIntData::BigUInt(value) => <$t>::try_from(value).map_err(|_|()),
+                    UIntData::U64(value) => <$t>::try_from(*value).map_err(|_| {
+                        IonError::illegal_operation(
+                            concat!("UInt was too large to fit in a ", stringify!($t))
+                        )
+                    }),
+                    UIntData::BigUInt(value) => <$t>::try_from(value).map_err(|_| {
+                        IonError::illegal_operation(
+                            concat!("UInt was too large to fit in a ", stringify!($t))
+                        )
+                    }),
                 }
             }
         }
@@ -246,11 +193,11 @@ impl_int_types_try_from_uint!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64,
 
 impl TryFrom<i128> for UInt {
     // If the i128 is negative, this will return the unit type.
-    type Error = ();
+    type Error = IonError;
 
     fn try_from(value: i128) -> Result<Self, Self::Error> {
         if value < 0 {
-            Err(())
+            IonResult::illegal_operation("UInt was too large to fit in an i128")
         } else {
             Ok(value.unsigned_abs().to_biguint().unwrap().into())
         }
@@ -259,13 +206,17 @@ impl TryFrom<i128> for UInt {
 
 impl TryFrom<Int> for UInt {
     // Returns the unit type if the input `Int` is negative.
-    type Error = ();
+    type Error = IonError;
 
     fn try_from(value: Int) -> Result<Self, Self::Error> {
         match value.data {
-            IntData::I64(i) if i < 0 => Err(()),
+            IntData::I64(i) if i < 0 => {
+                IonResult::illegal_operation("cannot convert negative Int to a UInt")
+            }
             IntData::I64(i) => Ok(i.unsigned_abs().into()),
-            IntData::BigInt(i) if i.sign() == num_bigint::Sign::Minus => Err(()),
+            IntData::BigInt(i) if i.sign() == num_bigint::Sign::Minus => {
+                IonResult::illegal_operation("cannot convert negative Int to a UInt")
+            }
             IntData::BigInt(i) => {
                 // num_bigint::BigInt's `into_parts` consumes the BigInt and returns a
                 // (sign: Sign, magnitude: BigUint) tuple.
@@ -273,6 +224,41 @@ impl TryFrom<Int> for UInt {
                 Ok(magnitude.into())
             }
         }
+    }
+}
+
+impl TryFrom<&Int> for UInt {
+    type Error = IonError;
+
+    fn try_from(value: &Int) -> Result<Self, Self::Error> {
+        value.clone().try_into()
+    }
+}
+
+macro_rules! impl_small_signed_int_try_from_int {
+    ($($t:ty),*) => ($(
+        impl TryFrom<Int> for $t {
+            type Error = IonError;
+
+            fn try_from(value: Int) -> Result<Self, Self::Error> {
+                match value.data {
+                    IntData::I64(small_int) => <$t>::try_from(small_int).map_err(|_| {
+                        IonError::illegal_operation(concat!("Int was too large to be converted to a(n) ", stringify!($t)))
+                    }),
+                    IntData::BigInt(big_int) => big_int.try_into().map_err(|_| {
+                        IonError::illegal_operation(concat!("Int was too large to be converted to a(n) ", stringify!($t)))
+                    }),
+                }
+            }
+        }
+    )*)
+}
+
+impl_small_signed_int_try_from_int!(i8, i16, i32, i64, i128, isize);
+
+impl From<&Int> for BigInt {
+    fn from(value: &Int) -> Self {
+        value.clone().into()
     }
 }
 
@@ -284,6 +270,11 @@ fn big_integer_from_u64(value: u64) -> Int {
 #[inline(never)]
 fn big_integer_from_big_uint(value: BigUint) -> Int {
     IntData::BigInt(BigInt::from(value)).into()
+}
+
+#[inline(never)]
+fn big_integer_from_big_uint_ref(value: &BigUint) -> Int {
+    big_integer_from_big_uint(value.clone())
 }
 
 /// Container for either an integer that can fit in a 64-bit word or an arbitrarily sized
@@ -324,13 +315,19 @@ impl Int {
     }
 
     /// If this value is small enough to fit in an `i64`, returns `Ok(i64)`. Otherwise,
-    /// returns a [`DecodingError`](crate::IonError::DecodingError).
+    /// returns a [`DecodingError`](IonError::Decoding).
     pub fn expect_i64(&self) -> IonResult<i64> {
+        self.as_i64().ok_or_else(|| {
+            IonError::decoding_error(format!("Int {self} is too large to fit in an i64."))
+        })
+    }
+
+    /// If this value is small enough to fit in an `i64`, returns `Some(i64)`. Otherwise, returns
+    /// `None`.
+    pub fn as_i64(&self) -> Option<i64> {
         match &self.data {
-            IntData::I64(i) => Ok(*i),
-            IntData::BigInt(_) => {
-                decoding_error(format!("Int {self} is too large to fit in an i64."))
-            }
+            IntData::I64(i) => Some(*i),
+            IntData::BigInt(big_int) => big_int.to_i64(),
         }
     }
 
@@ -352,24 +349,6 @@ impl Int {
         }
         // Otherwise, the BigUint must be larger than the u64.
         Ordering::Less
-    }
-}
-
-impl IntAccess for Int {
-    #[inline]
-    fn as_i64(&self) -> Option<i64> {
-        match &self.data {
-            IntData::I64(i) => Some(*i),
-            IntData::BigInt(big) => big.to_i64(),
-        }
-    }
-
-    #[inline]
-    fn as_big_int(&self) -> Option<&BigInt> {
-        match &self.data {
-            IntData::I64(_) => None,
-            IntData::BigInt(big) => Some(big),
-        }
     }
 }
 
@@ -521,6 +500,12 @@ impl From<UInt> for Int {
     }
 }
 
+impl From<&UInt> for Int {
+    fn from(value: &UInt) -> Self {
+        value.clone().into()
+    }
+}
+
 impl From<BigUint> for Int {
     fn from(value: BigUint) -> Self {
         let big_int = BigInt::from(value);
@@ -539,22 +524,6 @@ impl From<Int> for BigInt {
         match value.data {
             IntData::I64(i) => i.into(),
             IntData::BigInt(i) => i,
-        }
-    }
-}
-
-impl IntAccess for Element {
-    fn as_i64(&self) -> Option<i64> {
-        match self.as_int() {
-            Some(any) => any.as_i64(),
-            _ => None,
-        }
-    }
-
-    fn as_big_int(&self) -> Option<&BigInt> {
-        match self.as_int() {
-            Some(any) => any.as_big_int(),
-            _ => None,
         }
     }
 }

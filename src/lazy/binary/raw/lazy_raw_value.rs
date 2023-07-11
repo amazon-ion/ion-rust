@@ -6,9 +6,9 @@ use crate::lazy::binary::raw::lazy_raw_sequence::LazyRawSequence;
 use crate::lazy::binary::raw::lazy_raw_struct::LazyRawStruct;
 use crate::lazy::binary::raw::raw_annotations_iterator::RawAnnotationsIterator;
 use crate::lazy::raw_value_ref::RawValueRef;
-use crate::result::{decoding_error, decoding_error_raw, incomplete_data_error};
+use crate::result::IonFailure;
 use crate::types::SymbolId;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
+use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use bytes::{BigEndian, ByteOrder};
 use std::fmt::{Debug, Formatter};
 use std::{fmt, mem};
@@ -122,7 +122,7 @@ impl<'data> LazyRawValue<'data> {
         let value_total_length = self.encoded_value.total_length();
         if self.input.len() < value_total_length {
             eprintln!("[value_body] Incomplete {:?}", self);
-            return incomplete_data_error(
+            return IonResult::incomplete(
                 "only part of the requested value is available in the buffer",
                 self.input.offset(),
             );
@@ -159,7 +159,7 @@ impl<'data> LazyRawValue<'data> {
             0 => false,
             1 => true,
             invalid => {
-                return decoding_error(format!(
+                return IonResult::decoding_error(format!(
                     "found a boolean value with an illegal representation (must be 0 or 1): {}",
                     invalid
                 ))
@@ -185,10 +185,12 @@ impl<'data> LazyRawValue<'data> {
         let value = match (self.encoded_value.header.ion_type_code, magnitude) {
             (PositiveInteger, integer) => integer,
             (NegativeInteger, integer) if integer.is_zero() => {
-                return decoding_error("found a negative integer (typecode=3) with a value of 0");
+                return IonResult::decoding_error(
+                    "found a negative integer (typecode=3) with a value of 0",
+                );
             }
             (NegativeInteger, integer) => -integer,
-            _itc => return decoding_error("unexpected ion type code"),
+            _itc => return IonResult::decoding_error("unexpected ion type code"),
         };
         Ok(RawValueRef::Int(value))
     }
@@ -202,7 +204,7 @@ impl<'data> LazyRawValue<'data> {
             0 => 0f64,
             4 => f64::from(BigEndian::read_f32(ieee_bytes)),
             8 => BigEndian::read_f64(ieee_bytes),
-            _ => return decoding_error("encountered a float with an illegal length"),
+            _ => return IonResult::decoding_error("encountered a float with an illegal length"),
         };
         Ok(RawValueRef::Float(value))
     }
@@ -279,7 +281,7 @@ impl<'data> LazyRawValue<'data> {
         let (hour_var_uint, input) = input.read_var_uint()?;
         let hour = hour_var_uint.value() as u32;
         if input.is_empty() {
-            return decoding_error("timestamps with an hour must also specify a minute");
+            return IonResult::decoding_error("timestamps with an hour must also specify a minute");
         }
         let (minute_var_uint, input) = input.read_var_uint()?;
         let minute = minute_var_uint.value() as u32;
@@ -288,7 +290,7 @@ impl<'data> LazyRawValue<'data> {
             let timestamp = if is_known_offset {
                 builder.build_utc_fields_at_offset(offset_minutes)
             } else {
-                builder.build_at_unknown_offset()
+                builder.build()
             }?;
             return Ok(RawValueRef::Timestamp(timestamp));
         }
@@ -302,7 +304,7 @@ impl<'data> LazyRawValue<'data> {
             let timestamp = if is_known_offset {
                 builder.build_utc_fields_at_offset(offset_minutes)
             } else {
-                builder.build_at_unknown_offset()
+                builder.build()
             }?;
             return Ok(RawValueRef::Timestamp(timestamp));
         }
@@ -324,7 +326,7 @@ impl<'data> LazyRawValue<'data> {
         let timestamp = if is_known_offset {
             builder.build_utc_fields_at_offset(offset_minutes)
         } else {
-            builder.build_at_unknown_offset()
+            builder.build()
         }?;
 
         Ok(RawValueRef::Timestamp(timestamp))
@@ -335,7 +337,9 @@ impl<'data> LazyRawValue<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         let uint_bytes = self.value_body()?;
         if uint_bytes.len() > mem::size_of::<usize>() {
-            return decoding_error("found a symbol ID that was too large to fit in a usize");
+            return IonResult::decoding_error(
+                "found a symbol ID that was too large to fit in a usize",
+            );
         }
         let magnitude = DecodedUInt::small_uint_from_slice(uint_bytes);
         // This cast is safe because we've confirmed the value was small enough to fit in a usize.
@@ -354,7 +358,7 @@ impl<'data> LazyRawValue<'data> {
         debug_assert!(self.encoded_value.ion_type() == IonType::String);
         let raw_bytes = self.value_body()?;
         let text = std::str::from_utf8(raw_bytes)
-            .map_err(|_| decoding_error_raw("found a string with invalid utf-8 data"))?;
+            .map_err(|_| IonError::decoding_error("found a string with invalid utf-8 data"))?;
         Ok(RawValueRef::String(text))
     }
 

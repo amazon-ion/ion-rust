@@ -9,12 +9,12 @@ use num_traits::Zero;
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
+use crate::ion_writer::IonWriter;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
-use crate::result::{illegal_operation, IonResult};
+use crate::result::{IonFailure, IonResult};
 use crate::types::integer::IntData;
-use crate::types::{ContainerType, Decimal, Int, SymbolId, Timestamp};
-use crate::writer::IonWriter;
-use crate::IonType;
+use crate::types::ContainerType;
+use crate::{Decimal, Int, IonType, SymbolId, Timestamp};
 
 use super::decimal::DecimalBinaryEncoder;
 use super::timestamp::TimestampBinaryEncoder;
@@ -429,9 +429,9 @@ impl<W: Write> RawBinaryWriter<W> {
     fn expect_field_id(&self) -> IonResult<usize> {
         match self.field_id {
             Some(field_id) => Ok(field_id),
-            None => {
-                illegal_operation("`set_field_id()` must be called before each field in a struct.")
-            }
+            None => IonResult::illegal_operation(
+                "`set_field_id()` must be called before each field in a struct.",
+            ),
         }
     }
 
@@ -517,12 +517,12 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
 
     fn write_ion_version_marker(&mut self, major: u8, minor: u8) -> IonResult<()> {
         if self.depth() > 0 {
-            return illegal_operation("can only write an IVM at the top level");
+            return IonResult::illegal_operation("can only write an IVM at the top level");
         }
         if major == 1 && minor == 0 {
             return Ok(self.out.write_all(&IVM)?);
         }
-        illegal_operation("Only Ion 1.0 is supported.")
+        IonResult::illegal_operation("Only Ion 1.0 is supported.")
     }
 
     fn supports_text_symbol_tokens(&self) -> bool {
@@ -684,7 +684,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         match value.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(sid) => self.write_symbol_id(sid),
             RawSymbolTokenRef::Text(_text) => {
-                illegal_operation("The RawBinaryWriter cannot write text symbols.")
+                IonResult::illegal_operation("The RawBinaryWriter cannot write text symbols.")
             }
         }
     }
@@ -732,7 +732,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
             List => ContainerType::List,
             SExp => ContainerType::SExpression,
             Struct => ContainerType::Struct,
-            _ => return illegal_operation("Cannot step into a scalar Ion type."),
+            _ => return IonResult::illegal_operation("Cannot step into a scalar Ion type."),
         };
 
         // If this is a field in a struct, encode the field ID at the end of the last IO range.
@@ -800,7 +800,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
     /// Ends the current container. If the writer is at the top level, `step_out` will return an Err.
     fn step_out(&mut self) -> IonResult<()> {
         if self.levels.len() <= 1 {
-            return illegal_operation(
+            return IonResult::illegal_operation(
                 "Cannot call step_out() unless the writer is positioned within a container.",
             );
         }
@@ -815,7 +815,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
             List => 0xB0,
             SExpression => 0xC0,
             Struct => 0xD0,
-            _ => return illegal_operation("Cannot step into a scalar Ion type."),
+            _ => return IonResult::illegal_operation("Cannot step into a scalar Ion type."),
         };
 
         // Encode the type descriptor byte, and optional length
@@ -861,7 +861,7 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
     /// the top level.
     fn flush(&mut self) -> IonResult<()> {
         if self.depth() > 0 {
-            return illegal_operation(
+            return IonResult::illegal_operation(
                 "Cannot call flush() while the writer is positioned within a container.",
             );
         }
@@ -910,7 +910,7 @@ mod writer_tests {
     use crate::ion_reader::IonReader;
     use crate::raw_symbol_token::{local_sid_token, RawSymbolToken};
     use crate::reader::{Reader, ReaderBuilder, StreamItem};
-    use crate::types::{Blob, Clob, Symbol};
+    use crate::{Blob, Clob, Symbol};
     use num_bigint::BigInt;
     use num_traits::Float;
     use std::convert::TryInto;
@@ -1041,14 +1041,14 @@ mod writer_tests {
     #[case::year(Timestamp::with_year(2021).build().unwrap())]
     #[case::year_month(Timestamp::with_year(2021).with_month(1).build().unwrap())]
     #[case::year_month_day(Timestamp::with_ymd(2021, 1, 8).build().unwrap())]
-    #[case::ymd_hm_unknown(Timestamp::with_ymd(2021, 1, 8).with_hour_and_minute(14, 12).build_at_unknown_offset().unwrap())]
-    #[case::ymd_hm_est(Timestamp::with_ymd(2021, 1, 8).with_hour_and_minute(14, 12).build_at_offset(-5 * 60).unwrap())]
-    #[case::ymd_hms_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).build_at_unknown_offset().unwrap())]
-    #[case::ymd_hms_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).build_at_offset(-5 * 60).unwrap())]
-    #[case::ymd_hms_millis_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_milliseconds(888).build_at_unknown_offset().unwrap())]
-    #[case::ymd_hms_millis_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_milliseconds(888).build_at_offset(-5 * 60).unwrap())]
-    #[case::ymd_hms_nanos_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_nanoseconds(888888888).build_at_unknown_offset().unwrap())]
-    #[case::ymd_hms_nanos_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_nanoseconds(888888888).build_at_offset(-5 * 60).unwrap())]
+    #[case::ymd_hm_unknown(Timestamp::with_ymd(2021, 1, 8).with_hour_and_minute(14, 12).build().unwrap())]
+    #[case::ymd_hm_est(Timestamp::with_ymd(2021, 1, 8).with_hour_and_minute(14, 12).with_offset(-5 * 60).build().unwrap())]
+    #[case::ymd_hms_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).build().unwrap())]
+    #[case::ymd_hms_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_offset(-5 * 60).build().unwrap())]
+    #[case::ymd_hms_millis_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_milliseconds(888).build().unwrap())]
+    #[case::ymd_hms_millis_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_milliseconds(888).with_offset(-5 * 60).build().unwrap())]
+    #[case::ymd_hms_nanos_unknown(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_nanoseconds(888888888).build().unwrap())]
+    #[case::ymd_hms_nanos_est(Timestamp::with_ymd(2021, 1, 8).with_hms(14, 12, 36).with_nanoseconds(888888888).with_offset(-5 * 60).build().unwrap())]
     fn binary_writer_timestamps(#[case] timestamp: Timestamp) -> IonResult<()> {
         binary_writer_scalar_test(
             &[timestamp],

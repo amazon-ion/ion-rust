@@ -2,6 +2,8 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::private_intra_doc_links)]
 #![deny(rustdoc::bare_urls)]
+// Warn if example code in the doc tests contains unused imports/variables
+#![doc(test(attr(warn(unused))))]
 //! # Reading and writing `Element`s
 //!
 //! The [Element] API offers a convenient way to read and write Ion data when its exact shape is
@@ -19,8 +21,7 @@
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::Element;
-//! use ion_rs::IonType;
+//! use ion_rs::{Element, IonType};
 //! let ion_data = "[1, 2, 3]";
 //! let element = Element::read_one(ion_data)?;
 //! assert_eq!(element.ion_type(), IonType::List);
@@ -39,7 +40,7 @@
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::Element;
+//! use ion_rs::Element;
 //!
 //! let int: Element = 5.into();
 //! assert_eq!(Element::read_one("5")?, int);
@@ -65,8 +66,7 @@
 //! ```
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::Element;
-//! use ion_rs::{ion_list, ion_sexp, ion_struct};
+//! use ion_rs::{Element, ion_list, ion_sexp, ion_struct};
 //!
 //! // Variable names are allowed
 //! let six = 6i64;
@@ -93,7 +93,7 @@
 //! ```no_run
 //! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::Element;
+//! use ion_rs::Element;
 //! use std::fs::File;
 //! let ion_file = File::open("/foo/bar/baz.ion").unwrap();
 //! // A simple pretty-printer
@@ -109,8 +109,7 @@
 //! ```
 //! use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::{Element, IntoAnnotatedElement, Value};
-//! use ion_rs::{ion_list, ion_struct};
+//! use ion_rs::{Element, Value, ion_list, ion_struct};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
 //!   "bar": true,
@@ -135,11 +134,9 @@
 //! ## Writing an `Element` to an `io::Write`
 //!
 //! ```
-//! use ion_rs::IonResult;
+//! use ion_rs::{Format, IonResult, TextKind};
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::element::writer::ElementWriter;
-//! use ion_rs::element::{Element, IntoAnnotatedElement, Value};
-//! use ion_rs::{ion_list, ion_struct, IonWriter, TextWriterBuilder};
+//! use ion_rs::{Element, ion_list, ion_struct};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
 //!   "bar": true,
@@ -148,12 +145,10 @@
 //! .into();
 //!
 //! let mut buffer: Vec<u8> = Vec::new();
-//! let mut writer = TextWriterBuilder::default().build(&mut buffer)?;
-//! writer.write_element(&element)?;
-//! writer.flush()?;
+//! element.write_as(Format::Text(TextKind::Compact), &mut buffer)?;
 //! assert_eq!(
 //!     "{foo: \"hello\", bar: true, baz: [4, 5, 6]}".as_bytes(),
-//!     writer.output().as_slice()
+//!     buffer.as_slice()
 //! );
 //! # Ok(())
 //! # }
@@ -166,85 +161,94 @@
 #[allow(clippy::single_component_path_imports)]
 use rstest_reuse;
 
-// This import is used in the doc comments and test code above. Clippy incorrectly
-// declares it an unused import.
-#[allow(unused_imports)]
-use element::Element;
-
-pub mod result;
-
-pub mod binary;
-pub mod constants;
-pub mod data_source;
-pub mod element;
-pub(crate) mod raw_reader;
-pub mod text;
-pub mod types;
-
-mod ion_data;
-#[cfg(feature = "ion-hash")]
-pub mod ion_hash;
-
-pub(crate) mod blocking_reader;
+// Private modules that serve to organize implementation details.
+mod binary;
+mod blocking_reader;
 pub mod catalog;
-
+mod constants;
+mod data_source;
+mod ion_data;
 mod ion_reader;
+mod ion_writer;
+mod raw_reader;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
-// Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
-pub(crate) mod reader;
+mod reader;
 mod shared_symbol_table;
 mod symbol_ref;
 mod symbol_table;
 mod system_reader;
-mod writer;
+mod text;
+
+// Publicly-visible modules with nested items which users may choose to import
+pub mod element;
+pub mod result;
+pub mod types;
+
+#[cfg(feature = "experimental-ion-hash")]
+pub mod ion_hash;
 
 #[cfg(feature = "experimental-lazy-reader")]
 pub mod lazy;
 // Experimental Streaming APIs
+mod position;
 #[cfg(feature = "experimental-streaming")]
 pub mod thunk;
 #[cfg(feature = "experimental-streaming")]
 pub mod tokens;
 
-#[doc(inline)]
-pub use data_source::IonDataSource;
-#[doc(inline)]
-pub use raw_symbol_token::RawSymbolToken;
-#[doc(inline)]
-pub use raw_symbol_token_ref::RawSymbolTokenRef;
-
+pub use element::{Annotations, Element, IntoAnnotatedElement, IntoAnnotations, Sequence, Value};
+pub use ion_data::IonData;
 pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
-
-pub use types::{Decimal, Int, IonType, Str, Symbol, Timestamp};
-
-pub use ion_data::IonData;
-
-pub use binary::binary_writer::{BinaryWriter, BinaryWriterBuilder};
-pub use text::text_writer::{TextWriter, TextWriterBuilder};
-pub use writer::IonWriter;
-
-pub use binary::raw_binary_writer::RawBinaryWriter;
-pub use text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder};
+#[doc(inline)]
+pub use types::{
+    decimal::Decimal, Blob, Bytes, Clob, Coefficient, Int, IonType, List, SExp, Sign, Str, Struct,
+    Symbol, SymbolId, Timestamp, TimestampPrecision, UInt,
+};
 
 // These re-exports are only visible if the "experimental-reader" feature is enabled.
 #[cfg(feature = "experimental-reader")]
 pub use {
+    binary::non_blocking::raw_binary_reader::RawBinaryReader,
     blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader},
     ion_reader::IonReader,
     raw_reader::{BufferedRawReader, RawReader, RawStreamItem},
+    raw_symbol_token::RawSymbolToken,
+    raw_symbol_token_ref::RawSymbolTokenRef,
     // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
     reader::integration_testing,
     reader::{Reader, ReaderBuilder, StreamItem, UserReader},
     system_reader::{SystemReader, SystemStreamItem},
+    text::non_blocking::raw_text_reader::RawTextReader,
+    text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder},
+};
+
+// These re-exports are only visible if the "experimental-writer" feature is enabled.
+#[cfg(feature = "experimental-writer")]
+pub use {
+    binary::binary_writer::{BinaryWriter, BinaryWriterBuilder},
+    binary::raw_binary_writer::RawBinaryWriter,
+    ion_writer::IonWriter,
+    text::text_writer::{TextWriter, TextWriterBuilder},
 };
 
 pub use result::{IonError, IonResult};
 
-/// Re-exports of third party dependencies that are part of our public API.
-///
-/// See also: <https://github.com/amazon-ion/ion-rust/issues/302>
-pub mod external {
-    pub use bigdecimal;
+/// Whether or not the text spacing is generous/human-friendly or something more compact.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum TextKind {
+    Compact,
+    Lines,
+    Pretty,
+}
+
+/// Supported Ion encodings.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum Format {
+    Text(TextKind),
+    Binary,
+    // TODO: Json(TextKind)
 }

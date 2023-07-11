@@ -1,6 +1,6 @@
 use crate::lazy::binary::raw::lazy_raw_value::LazyRawValue;
-use crate::result::{decoding_error, decoding_error_raw};
-use crate::IonResult;
+use crate::result::IonFailure;
+use crate::{IonError, IonResult};
 
 #[derive(Debug)]
 /// Raw stream components that a RawReader may encounter.
@@ -27,11 +27,11 @@ impl<'a> RawStreamItem<'a> {
         }
     }
 
-    /// Like [`Self::version_marker`], but returns a [`crate::IonError::DecodingError`] if this item
+    /// Like [`Self::version_marker`], but returns a [`crate::IonError::Decoding`] if this item
     /// is not an IVM.
     pub fn expect_ivm(self) -> IonResult<(u8, u8)> {
         self.version_marker()
-            .ok_or_else(|| decoding_error_raw(format!("expected IVM, found {:?}", self)))
+            .ok_or_else(|| IonError::decoding_error(format!("expected IVM, found {:?}", self)))
     }
 
     /// If this item is a value, returns `Some(&LazyValue)`. Otherwise, returns `None`.
@@ -43,13 +43,13 @@ impl<'a> RawStreamItem<'a> {
         }
     }
 
-    /// Like [`Self::value`], but returns a [`crate::IonError::DecodingError`] if this item is not
+    /// Like [`Self::value`], but returns a [`crate::IonError::Decoding`] if this item is not
     /// a value.
     pub fn expect_value(self) -> IonResult<LazyRawValue<'a>> {
         if let Self::Value(value) = self {
             Ok(value)
         } else {
-            decoding_error(format!("expected value, found {:?}", self))
+            IonResult::decoding_error(format!("expected value, found {:?}", self))
         }
     }
 }

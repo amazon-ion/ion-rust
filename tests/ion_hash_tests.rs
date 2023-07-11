@@ -1,15 +1,13 @@
 // Copyright Amazon.com, Inc. or its affiliates.
-#![cfg(feature = "ion-hash")]
+#![cfg(feature = "experimental-ion-hash")]
 
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
-use ion_rs::element::writer::ElementWriter;
-use ion_rs::element::{Element, Sequence, Struct};
 use ion_rs::ion_hash::IonHasher;
-use ion_rs::result::{illegal_operation, IonResult};
-use ion_rs::types::IntAccess;
+use ion_rs::result::IonResult;
+use ion_rs::{Element, Sequence, Struct};
 
-use ion_rs::IonWriter;
+use ion_rs::IonError;
 use std::convert::From;
 use std::fmt::Debug;
 use std::fs::read;
@@ -121,7 +119,7 @@ fn ion_hash_tests() -> IonHashTestResult<()> {
 }
 
 fn test_file(file_name: &str) -> IonHashTestResult<()> {
-    let data = read(file_name).map_err(|source| ion_rs::IonError::IoError { source })?;
+    let data = read(file_name).map_err(IonError::from)?;
     let elems = Element::read_all(data)?;
     test_all(elems)
 }
@@ -187,14 +185,7 @@ fn test_case(
 ) -> IonHashTestResult<()> {
     let test_case_name = match test_case_name {
         Some(name) => name,
-        None => test_case_name_from_value(input).map_err(|e| IonHashTestError::TestError {
-            test_case_name: None,
-            message: Some(format!(
-                "Unable to determine test case name for {:?}",
-                input
-            )),
-            cause: Some(Box::new(e)),
-        })?,
+        None => input.to_string(),
     };
 
     if should_ignore(&test_case_name) {
@@ -233,7 +224,7 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
     let identity = if let Some(identity) = struct_.get("identity") {
         identity.as_sequence().expect("`identity` should be a sexp")
     } else {
-        illegal_operation("only identity tests are implemented")?
+        todo!("only identity tests are implemented")
     };
 
     if let Some(expectation) = identity.elements().last() {
@@ -249,23 +240,11 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
 
         match method {
             "digest" | "final_digest" => Ok(bytes),
-            _ => illegal_operation(format!("unknown expectation `{}`", method))?,
+            _ => panic!("unknown expectation `{}`", method),
         }
     } else {
-        illegal_operation("expected at least expectation!")?
+        panic!("expected at least expectation!")
     }
-}
-
-/// Test cases may be annotated with a test name. Or, not! If they aren't, the
-/// name of the test is the Ion text representation of the input value.
-fn test_case_name_from_value(test_input_ion: &Element) -> IonResult<String> {
-    let mut buf = Vec::new();
-    let mut text_writer = ion_rs::TextWriterBuilder::default().build(&mut buf)?;
-    text_writer.write_element(test_input_ion)?;
-    text_writer.flush()?;
-    drop(text_writer);
-
-    Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
 fn test_case_name_from_annotation(test_case_ion: &Element) -> Option<String> {

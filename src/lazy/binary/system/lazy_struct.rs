@@ -1,11 +1,12 @@
 use crate::element::builders::StructBuilder;
-use crate::element::{Annotations, Element, IntoAnnotatedElement, Struct};
 use crate::lazy::binary::raw::lazy_raw_struct::{LazyRawStruct, RawStructIterator};
 use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
 use crate::lazy::binary::system::lazy_value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
-use crate::result::decoding_error_raw;
-use crate::{IonError, IonResult, SymbolRef, SymbolTable};
+use crate::result::IonFailure;
+use crate::{
+    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Struct, SymbolRef, SymbolTable,
+};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
@@ -15,11 +16,8 @@ use std::fmt::{Debug, Formatter};
 /// ```
 ///# use ion_rs::IonResult;
 ///# fn main() -> IonResult<()> {
-/// use nom::AsBytes;
-/// use ion_rs::{BinaryWriterBuilder, ion_struct, IonType};
-/// use ion_rs::element::Element;
+/// use ion_rs::Element;
 /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
-/// use ion_rs::lazy::value_ref::ValueRef;
 ///
 /// let ion_data = r#"{foo: 1, bar: 2, foo: 3, bar: 4}"#;
 /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
@@ -81,8 +79,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
+    /// use ion_rs::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -115,15 +112,13 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
         Ok(None)
     }
 
-    /// Like [`LazyStruct::find`], but returns an [`IonError::DecodingError`] if no field with the
+    /// Like [`LazyStruct::find`], but returns an [`IonError::Decoding`] if no field with the
     /// specified name is found.
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
+    /// use ion_rs::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
-    /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
     /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
@@ -139,7 +134,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     pub fn find_expected(&self, name: &str) -> IonResult<LazyValue<'top, 'data>> {
         self.find(name)?
-            .ok_or_else(|| decoding_error_raw(format!("missing required field {}", name)))
+            .ok_or_else(|| IonError::decoding_error(format!("missing required field {}", name)))
     }
 
     /// Like [`LazyStruct::find`], but eagerly calls [`LazyValue::read`] on the first field with a
@@ -147,8 +142,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
+    /// use ion_rs::{Element, IonType};
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -171,13 +165,12 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
         self.find(name)?.map(|f| f.read()).transpose()
     }
 
-    /// Like [`LazyStruct::get`], but returns an [`IonError::DecodingError`] if no field with the
+    /// Like [`LazyStruct::get`], but returns an [`IonError::Decoding`] if no field with the
     /// specified name is found.
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::element::Element;
-    /// use ion_rs::IonType;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -196,8 +189,9 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     where
         'data: 'top,
     {
-        self.get(name)?
-            .ok_or_else(move || decoding_error_raw(format!("missing required field {}", name)))
+        self.get(name)?.ok_or_else(move || {
+            IonError::decoding_error(format!("missing required field {}", name))
+        })
     }
 
     /// Returns an iterator over the annotations on this value. If this value has no annotations,
@@ -209,7 +203,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::element::{Element, IntoAnnotatedElement};
-    /// use ion_rs::{ion_struct, IonType};
+    /// use ion_rs::ion_struct;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element: Element = ion_struct! {"foo": 1, "bar": 2}.with_annotations(["foo", "bar", "baz"]);
@@ -269,7 +263,9 @@ impl<'top, 'data> LazyField<'top, 'data> {
             .symbol_table
             .symbol_for(field_sid)
             .map(|symbol| symbol.into())
-            .ok_or_else(|| decoding_error_raw("found a symbol ID that was not in the symbol table"))
+            .ok_or_else(|| {
+                IonError::decoding_error("found a symbol ID that was not in the symbol table")
+            })
     }
 
     /// Returns a lazy value representing the value of this field. To access the value's data,

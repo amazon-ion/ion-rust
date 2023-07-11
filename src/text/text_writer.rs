@@ -1,10 +1,11 @@
-use crate::element::writer::TextKind;
+use crate::ion_writer::IonWriter;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::IonResult;
 use crate::text::raw_text_writer::RawTextWriter;
-use crate::types::{Decimal, Timestamp};
-use crate::writer::IonWriter;
-use crate::{Int, IonType, RawTextWriterBuilder, SymbolTable};
+use crate::text::raw_text_writer::RawTextWriterBuilder;
+use crate::TextKind;
+use crate::{Decimal, Timestamp};
+use crate::{Int, IonType, SymbolTable};
 use delegate::delegate;
 use std::io::Write;
 

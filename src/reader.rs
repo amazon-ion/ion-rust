@@ -7,16 +7,15 @@ use delegate::delegate;
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
 use crate::blocking_reader::{BlockingRawBinaryReader, BlockingRawTextReader};
-use crate::data_source::ToIonDataSource;
-use crate::element::{Blob, Clob};
+use crate::data_source::IonDataSource;
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{Expandable, RawReader};
 use crate::raw_symbol_token::RawSymbolToken;
-use crate::result::{decoding_error, IonResult};
+use crate::result::{IonFailure, IonResult};
 use crate::symbol_table::SymbolTable;
 use crate::system_reader::SystemReader;
-use crate::types::{Decimal, Int, Symbol, Timestamp};
 use crate::IonType;
+use crate::{Blob, Clob, Decimal, Int, Symbol, Timestamp};
 use std::fmt::{Display, Formatter};
 
 use crate::types::Str;
@@ -35,7 +34,7 @@ impl ReaderBuilder {
     /// reading some data from the beginning of `input` to detect whether its content is
     /// text or binary Ion. If this read operation fails, `build` will return an `Err`
     /// describing the problem it encountered.
-    pub fn build<'a, I: 'a + ToIonDataSource>(self, input: I) -> IonResult<Reader<'a>> {
+    pub fn build<'a, I: 'a + IonDataSource>(self, input: I) -> IonResult<Reader<'a>> {
         // Convert the provided input into an implementation of `BufRead`
         let mut input = input.to_ion_data_source();
         // Stack-allocated buffer to hold the first four bytes from input
@@ -74,7 +73,7 @@ impl ReaderBuilder {
             }
             [0xe0, major, minor, 0xea] => {
                 // Binary Ion v{major}.{minor}
-                decoding_error(format!(
+                IonResult::decoding_error(format!(
                     "cannot read Ion v{major}.{minor}; only v1.0 is supported"
                 ))
             }
@@ -86,12 +85,12 @@ impl ReaderBuilder {
         }
     }
 
-    fn make_text_reader<'a, I: 'a + ToIonDataSource>(data: I) -> IonResult<Reader<'a>> {
+    fn make_text_reader<'a, I: 'a + IonDataSource>(data: I) -> IonResult<Reader<'a>> {
         let raw_reader = Box::new(BlockingRawTextReader::new(data)?);
         Ok(Reader::new(raw_reader))
     }
 
-    fn make_binary_reader<'a, I: 'a + ToIonDataSource>(data: I) -> IonResult<Reader<'a>> {
+    fn make_binary_reader<'a, I: 'a + IonDataSource>(data: I) -> IonResult<Reader<'a>> {
         let raw_reader = Box::new(BlockingRawBinaryReader::new(data)?);
         Ok(Reader::new(raw_reader))
     }
@@ -131,6 +130,8 @@ impl<R: RawReader> UserReader<R> {
 pub mod integration_testing {
     use crate::raw_reader::RawReader;
     use crate::reader::{Reader, UserReader};
+
+    pub use crate::binary::constants::v1_0::IVM;
 
     pub fn new_reader<'a, R: 'a + RawReader>(raw_reader: R) -> Reader<'a> {
         UserReader::new(Box::new(raw_reader))

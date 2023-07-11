@@ -14,7 +14,8 @@ use crate::text::parse_result::{
 };
 use crate::text::parsers::{stop_character, trim_zeros_and_parse_i32, trim_zeros_and_parse_u32};
 use crate::text::text_value::TextValue;
-use crate::types::{Decimal, FractionalSecondSetter, Timestamp};
+use crate::types::{HasFractionalSeconds, HasSeconds, TimestampBuilder};
+use crate::{Decimal, Timestamp};
 
 /// Matches the text representation of a timestamp value and returns the resulting Timestamp
 /// as a [TextValue::Timestamp].
@@ -77,9 +78,9 @@ fn timestamp_precision_ymd_hm(input: &str) -> IonParseResult<TextValue> {
     )(input)?;
     let builder = Timestamp::with_ymd(year, month, day).with_hour_and_minute(hour, minute);
     let timestamp = if let Some(minutes) = offset {
-        builder.build_at_offset(minutes)
+        builder.with_offset(minutes).build()
     } else {
-        builder.build_at_unknown_offset()
+        builder.build()
     }
     .or_fatal_parse_error(input, "could not create timestamp")?
     .1;
@@ -99,9 +100,9 @@ fn timestamp_precision_ymd_hms(input: &str) -> IonParseResult<TextValue> {
     )(input)?;
     let builder = Timestamp::with_ymd(year, month, day).with_hms(hour, minute, second);
     let timestamp = if let Some(minutes) = offset {
-        builder.build_at_offset(minutes)
+        builder.with_offset(minutes).build()
     } else {
-        builder.build_at_unknown_offset()
+        builder.build()
     }
     .or_fatal_parse_error(input, "could not create timestamp")?
     .1;
@@ -130,28 +131,28 @@ fn timestamp_precision_ymd_hms_fractional(input: &str) -> IonParseResult<TextVal
     let builder = Timestamp::with_ymd(year, month, day).with_hms(hour, minute, second);
     let (_, builder) = assign_fractional_seconds(fractional_text, builder)?;
     let timestamp = if let Some(minutes) = offset {
-        builder.build_at_offset(minutes)
+        builder.with_offset(minutes).build()
     } else {
-        builder.build_at_unknown_offset()
+        builder.build()
     }
     .or_fatal_parse_error(input, "could not create timestamp")?
     .1;
     Ok((remaining, TextValue::Timestamp(timestamp)))
 }
 
-/// Parses the fractional seconds and stores it in the [FractionalSecondSetter].
+/// Parses the fractional seconds and stores it in the [TimestampBuilder].
 fn assign_fractional_seconds(
     fractional_text: &str,
-    mut setter: FractionalSecondSetter,
-) -> IonParseResult<FractionalSecondSetter> {
+    setter: TimestampBuilder<HasSeconds>,
+) -> IonParseResult<TimestampBuilder<HasFractionalSeconds>> {
     let number_of_digits = fractional_text.len();
     // If the precision is less than or equal to nanoseconds...
-    if number_of_digits <= 9 {
+    let setter = if number_of_digits <= 9 {
         // Convert the number to nanoseconds and make a note of its original precision.
         let power = 9 - number_of_digits;
         let (_, fractional) = trim_zeros_and_parse_u32(fractional_text, "fractional seconds")?;
         let nanoseconds = fractional * 10u32.pow(power as u32);
-        setter = setter.with_nanoseconds_and_precision(nanoseconds, number_of_digits as u32);
+        setter.with_nanoseconds_and_precision(nanoseconds, number_of_digits as u32)
     } else {
         // Otherwise, the number's precision is great enough that we'll need to construct a Decimal
         // to store it without loss of fidelity.
@@ -162,8 +163,8 @@ fn assign_fractional_seconds(
             )?
             .1;
         let decimal = Decimal::new(coefficient, -(number_of_digits as i64));
-        setter = setter.with_fractional_seconds(decimal);
-    }
+        setter.with_fractional_seconds(decimal)
+    };
     Ok(("", setter))
 }
 
@@ -281,7 +282,7 @@ mod reader_tests {
     use crate::text::parsers::timestamp::parse_timestamp;
     use crate::text::parsers::unit_test_support::{parse_test_err, parse_test_ok};
     use crate::text::text_value::TextValue;
-    use crate::types::{Decimal, Timestamp};
+    use crate::{Decimal, Timestamp};
 
     fn parse_equals(text: &str, expected: Timestamp) {
         parse_test_ok(parse_timestamp, text, TextValue::Timestamp(expected))
@@ -355,27 +356,28 @@ mod reader_tests {
             builder
                 .clone()
                 .with_hour_and_minute(0, 0)
-                .build_at_offset(0)?,
+                .with_offset(0)
+                .build()?,
         );
         parse_equals(
             "2021-09-30T23:11+00:00 ",
             builder
                 .clone()
                 .with_hour_and_minute(23, 11)
-                .build_at_offset(0)?,
+                .with_offset(0)
+                .build()?,
         );
         parse_equals(
             "2021-09-30T23:11-05:00 ",
             builder
                 .clone()
                 .with_hour_and_minute(23, 11)
-                .build_at_offset(-300)?,
+                .with_offset(-300)
+                .build()?,
         );
         parse_equals(
             "2021-09-30T21:47-00:00 ",
-            builder
-                .with_hour_and_minute(21, 47)
-                .build_at_unknown_offset()?,
+            builder.with_hour_and_minute(21, 47).build()?,
         );
 
         // Missing offset
@@ -388,19 +390,23 @@ mod reader_tests {
         let builder = Timestamp::with_ymd(2021, 12, 25);
         parse_equals(
             "2021-12-25T00:00:00Z ",
-            builder.clone().with_hms(0, 0, 0).build_at_offset(0)?,
+            builder.clone().with_hms(0, 0, 0).with_offset(0).build()?,
         );
         parse_equals(
             "2021-12-25T17:00:38+00:00 ",
-            builder.clone().with_hms(17, 0, 38).build_at_offset(0)?,
+            builder.clone().with_hms(17, 0, 38).with_offset(0).build()?,
         );
         parse_equals(
             "2021-12-25T08:35:07-05:30 ",
-            builder.clone().with_hms(8, 35, 7).build_at_offset(-330)?,
+            builder
+                .clone()
+                .with_hms(8, 35, 7)
+                .with_offset(-330)
+                .build()?,
         );
         parse_equals(
             "2021-12-25T12:25:59-00:00 ",
-            builder.with_hms(12, 25, 59).build_at_unknown_offset()?,
+            builder.with_hms(12, 25, 59).build()?,
         );
         Ok(())
     }
@@ -410,34 +416,36 @@ mod reader_tests {
         let builder = Timestamp::with_ymd(2021, 12, 25).with_hms(14, 30, 31);
         parse_equals(
             "2021-12-25T14:30:31.193+00:00 ",
-            builder.clone().with_milliseconds(193).build_at_offset(0)?,
+            builder
+                .clone()
+                .with_milliseconds(193)
+                .with_offset(0)
+                .build()?,
         );
         parse_equals(
             "2021-12-25T14:30:31.193193-05:00 ",
             builder
                 .clone()
                 .with_microseconds(193193)
-                .build_at_offset(-300)?,
+                .with_offset(-300)
+                .build()?,
         );
         parse_equals(
             "2021-12-25T14:30:31.193193193-00:00 ",
-            builder
-                .clone()
-                .with_nanoseconds(193193193)
-                .build_at_unknown_offset()?,
+            builder.clone().with_nanoseconds(193193193).build()?,
         );
         parse_equals(
             "2021-12-25T14:30:31.19319319319-00:00 ",
             builder
                 .clone()
                 .with_fractional_seconds(Decimal::new(19319319319i64, -11))
-                .build_at_unknown_offset()?,
+                .build()?,
         );
         parse_equals(
             "2021-12-25T14:30:31.193193193193193-00:00 ",
             builder
                 .with_fractional_seconds(Decimal::new(193193193193193i64, -15))
-                .build_at_unknown_offset()?,
+                .build()?,
         );
         Ok(())
     }
