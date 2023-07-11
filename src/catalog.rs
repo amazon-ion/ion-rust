@@ -27,6 +27,12 @@ impl MapCatalog {
     }
 }
 
+impl Default for MapCatalog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Catalog for MapCatalog {
     fn get_table(&self, name: &str) -> Option<&SharedSymbolTable> {
         if name.is_empty() {
