@@ -8,7 +8,7 @@
 
 A Rust implementation of the [Amazon Ion][spec] data format.
 
-Includes the feature `ion-hash` which is an implementation of [Ion Hash][ion-hash-spec].
+Includes the feature `experimental-ion-hash` which is an implementation of [Ion Hash][ion-hash-spec].
 
 ***This package is considered experimental, under active/early development, and the API is subject to change.***
 
