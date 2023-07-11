@@ -22,14 +22,9 @@ edition = "2021"
 # https://blog.rust-lang.org/2022/11/03/Rust-1.65.0.html
 rust-version = "1.65"
 
-[workspace]
-members = [
-  "ion-hash"
-]
-
 [features]
 default = []
-ion-hash = ["digest"]
+experimental-ion-hash = ["digest"]
 
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
 # These are not guaranteed any sort of API stability and may also have non-standard

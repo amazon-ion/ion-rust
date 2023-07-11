@@ -185,7 +185,7 @@ pub mod element;
 pub mod result;
 pub mod types;
 
-#[cfg(feature = "ion-hash")]
+#[cfg(feature = "experimental-ion-hash")]
 pub mod ion_hash;
 
 #[cfg(feature = "experimental-lazy-reader")]
