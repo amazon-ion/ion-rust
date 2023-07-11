@@ -7,7 +7,7 @@ use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::raw::lazy_raw_value::LazyRawBinaryValue;
+use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::result::IonFailure;
 use crate::types::UInt;
 use crate::{Int, IonError, IonResult, IonType};

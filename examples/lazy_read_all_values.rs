@@ -14,10 +14,10 @@ fn main() -> IonResult<()> {
 #[cfg(feature = "experimental-lazy-reader")]
 mod lazy_reader_example {
 
-    use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
-    use ion_rs::lazy::binary::system::lazy_sequence::LazyBinarySequence;
-    use ion_rs::lazy::binary::system::lazy_struct::LazyBinaryStruct;
-    use ion_rs::lazy::binary::system::lazy_value::LazyBinaryValue;
+    use ion_rs::lazy::r#struct::LazyBinaryStruct;
+    use ion_rs::lazy::reader::LazyBinaryReader;
+    use ion_rs::lazy::sequence::LazyBinarySequence;
+    use ion_rs::lazy::value::LazyBinaryValue;
     use ion_rs::lazy::value_ref::ValueRef;
     use ion_rs::IonResult;
     use memmap::MmapOptions;

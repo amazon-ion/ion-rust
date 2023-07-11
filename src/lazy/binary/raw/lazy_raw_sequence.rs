@@ -1,9 +1,10 @@
+use crate::lazy::binary::format::BinaryFormat;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
-use crate::lazy::binary::raw::lazy_raw_reader::DataSource;
-use crate::lazy::binary::raw::lazy_raw_value::LazyRawBinaryValue;
-use crate::lazy::binary::raw::raw_annotations_iterator::RawBinaryAnnotationsIterator;
+use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
+use crate::lazy::binary::raw::reader::DataSource;
+use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::format::private::LazyContainerPrivate;
-use crate::lazy::format::{BinaryFormat, LazyRawSequence};
+use crate::lazy::format::LazyRawSequence;
 use crate::{IonResult, IonType};
 use std::fmt;
 use std::fmt::{Debug, Formatter};

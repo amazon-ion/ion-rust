@@ -1,17 +1,18 @@
+use crate::lazy::binary::format::BinaryFormat;
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
 
-use crate::lazy::binary::raw::lazy_raw_reader::LazyRawBinaryReader;
+use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
 use crate::lazy::format::{LazyRawField, LazyRawReader, LazyRawStruct, LazyRawValue};
 
-use crate::lazy::binary::system::lazy_struct::LazyStruct;
-use crate::lazy::binary::system::lazy_value::LazyValue;
 use crate::lazy::format::private::LazyContainerPrivate;
+use crate::lazy::format::LazyFormat;
 use crate::lazy::format::LazyRawSequence;
-use crate::lazy::format::{BinaryFormat, LazyFormat};
+use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::system_stream_item::SystemStreamItem;
+use crate::lazy::value::LazyValue;
 
 // Symbol IDs used for processing symbol table structs
 const ION_SYMBOL_TABLE: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(3);
@@ -41,7 +42,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
+/// use ion_rs::lazy::reader::LazyBinaryReader;;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;

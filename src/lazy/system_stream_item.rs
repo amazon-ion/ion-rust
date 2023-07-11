@@ -1,6 +1,6 @@
-use crate::lazy::binary::system::lazy_struct::LazyStruct;
-use crate::lazy::binary::system::lazy_value::LazyValue;
 use crate::lazy::format::LazyFormat;
+use crate::lazy::r#struct::LazyStruct;
+use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
 use std::fmt::{Debug, Formatter};

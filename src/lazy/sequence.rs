@@ -1,6 +1,6 @@
-use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
-use crate::lazy::binary::system::lazy_value::LazyValue;
-use crate::lazy::format::{BinaryFormat, LazyFormat, LazyRawSequence, LazyRawValue};
+use crate::lazy::binary::format::BinaryFormat;
+use crate::lazy::format::{LazyFormat, LazyRawSequence, LazyRawValue};
+use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
 use crate::{IonError, IonResult, IonType, SymbolTable};
 use std::fmt;
@@ -16,7 +16,7 @@ use std::fmt::{Debug, Formatter};
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
+/// use ion_rs::lazy::reader::LazyBinaryReader;;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;
@@ -77,7 +77,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazySequence<'top, 'data, F> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{ion_sexp, Element, IntoAnnotatedElement};
-    /// use ion_rs::lazy::binary::lazy_reader::{LazyBinaryReader, LazyReader};
+    /// use ion_rs::lazy::reader::LazyBinaryReader;
     ///
     /// let element: Element = ion_sexp!(true false).with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
@@ -206,8 +206,8 @@ impl<'top, 'data, F: LazyFormat<'data>> Debug for LazySequence<'top, 'data, F> {
 #[cfg(test)]
 mod tests {
     use crate::element::Element;
-    use crate::lazy::binary::lazy_reader::LazyBinaryReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::reader::LazyBinaryReader;
     use crate::IonResult;
 
     #[test]

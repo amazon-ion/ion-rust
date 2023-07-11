@@ -1,8 +1,8 @@
 use crate::element::builders::StructBuilder;
-use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
-use crate::lazy::binary::system::lazy_value::LazyValue;
+use crate::lazy::binary::format::BinaryFormat;
 use crate::lazy::format::private::{LazyRawFieldPrivate, LazyRawValuePrivate};
-use crate::lazy::format::{BinaryFormat, LazyFormat, LazyRawStruct};
+use crate::lazy::format::{LazyFormat, LazyRawStruct};
+use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::{
@@ -19,7 +19,7 @@ use std::fmt::{Debug, Formatter};
 ///# use ion_rs::IonResult;
 ///# fn main() -> IonResult<()> {
 /// use ion_rs::Element;
-/// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
+/// use ion_rs::lazy::reader::LazyBinaryReader;;
 ///
 /// let ion_data = r#"{foo: 1, bar: 2, foo: 3, bar: 4}"#;
 /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
@@ -84,7 +84,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::Element;
-    /// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
@@ -122,7 +122,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::Element;
-    /// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
     ///
     /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
     /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
@@ -147,7 +147,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::{Element, IonType};
-    /// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let ion_data = r#"{foo: "hello", bar: null.list, baz: 3, bar: 4}"#;
@@ -175,7 +175,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::element::Element;
-    /// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let ion_data = r#"{foo: "hello", bar: null.list, baz: 3, bar: 4}"#;
@@ -208,7 +208,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::element::{Element, IntoAnnotatedElement};
     /// use ion_rs::ion_struct;
-    /// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
     ///
     /// let element: Element = ion_struct! {"foo": 1, "bar": 2}.with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
@@ -345,8 +345,8 @@ impl<'a, 'top, 'data, F: LazyFormat<'data>> IntoIterator for &'a LazyStruct<'top
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lazy::binary::lazy_reader::LazyBinaryReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::reader::LazyBinaryReader;
 
     #[test]
     fn find() -> IonResult<()> {

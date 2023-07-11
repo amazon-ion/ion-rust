@@ -152,7 +152,7 @@ impl<'data, F: LazyFormat<'data>> RawValueRef<'data, F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::raw::lazy_raw_reader::LazyRawBinaryReader;
+    use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::{Decimal, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 

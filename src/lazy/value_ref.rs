@@ -1,7 +1,7 @@
 use crate::element::Value;
-use crate::lazy::binary::system::lazy_sequence::LazySequence;
-use crate::lazy::binary::system::lazy_struct::LazyStruct;
 use crate::lazy::format::LazyFormat;
+use crate::lazy::r#struct::LazyStruct;
+use crate::lazy::sequence::LazySequence;
 use crate::result::IonFailure;
 use crate::{Decimal, Int, IonError, IonResult, IonType, SymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
@@ -24,8 +24,6 @@ pub enum ValueRef<'top, 'data, F: LazyFormat<'data>> {
     Symbol(SymbolRef<'top>),
     Blob(&'data [u8]),
     Clob(&'data [u8]),
-    // As ValueRef represents a reference to a value in the streaming APIs, the container variants
-    // simply indicate their Ion type. To access their nested data, the reader would need to step in.
     SExp(LazySequence<'top, 'data, F>),
     List(LazySequence<'top, 'data, F>),
     Struct(LazyStruct<'top, 'data, F>),
@@ -213,8 +211,8 @@ impl<'top, 'data, F: LazyFormat<'data>> ValueRef<'top, 'data, F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::lazy_reader::LazyBinaryReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::reader::LazyBinaryReader;
     use crate::lazy::value_ref::ValueRef;
     use crate::{Decimal, IonResult, IonType, SymbolRef, Timestamp};
 

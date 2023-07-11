@@ -1,12 +1,13 @@
 use crate::binary::int::DecodedInt;
 use crate::binary::uint::DecodedUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
+use crate::lazy::binary::format::BinaryFormat;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
+use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::lazy_raw_sequence::LazyRawBinarySequence;
-use crate::lazy::binary::raw::lazy_raw_struct::LazyRawBinaryStruct;
-use crate::lazy::binary::raw::raw_annotations_iterator::RawBinaryAnnotationsIterator;
+use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct;
 use crate::lazy::format::private::LazyRawValuePrivate;
-use crate::lazy::format::{BinaryFormat, LazyRawValue};
+use crate::lazy::format::LazyRawValue;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
@@ -23,7 +24,7 @@ use std::{fmt, mem};
 /// `LazyRawValue`s are "unresolved," which is to say that symbol values, annotations, and
 /// struct field names may or may not include a text definition. For a resolved lazy value that
 /// includes a text definition for these items whenever one exists, see
-/// [`crate::lazy::binary::system::lazy_value::LazyValue`].
+/// [`crate::lazy::LazyValue`].
 #[derive(Clone)]
 pub struct LazyRawBinaryValue<'data> {
     pub(crate) encoded_value: EncodedValue,
@@ -434,7 +435,7 @@ impl<'data> LazyRawBinaryValue<'data> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::raw::lazy_raw_reader::LazyRawBinaryReader;
+    use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::IonResult;
 

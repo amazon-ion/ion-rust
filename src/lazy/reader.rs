@@ -1,9 +1,10 @@
 use crate::binary::constants::v1_0::IVM;
 use crate::element::reader::ElementReader;
 use crate::element::Element;
-use crate::lazy::binary::system::lazy_system_reader::LazySystemReader;
-use crate::lazy::binary::system::lazy_value::LazyValue;
-use crate::lazy::format::{BinaryFormat, LazyFormat};
+use crate::lazy::binary::format::BinaryFormat;
+use crate::lazy::format::LazyFormat;
+use crate::lazy::system_reader::LazySystemReader;
+use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
 
@@ -16,7 +17,7 @@ use crate::{IonError, IonResult};
 ///
 /// The values that the reader yields ([`LazyValue`],
 /// [`LazyBinarySequence`](crate::lazy::binary::system::lazy_sequence::LazyBinarySequence), and
-/// [`LazyBinaryStruct`](crate::lazy::binary::system::lazy_struct::LazyStruct)) are
+/// [`LazyBinaryStruct`](crate::lazy::struct::LazyStruct)) are
 /// immutable references to the data stream, and remain valid until [`LazyReader::next`] is called
 /// again to advance the reader to the next top level value. This means that these references can
 /// be stored, read, and re-read as long as the reader remains on the same top-level value.
@@ -26,7 +27,7 @@ use crate::{IonError, IonResult};
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::lazy::binary::lazy_reader::LazyBinaryReader;
+/// use ion_rs::lazy::reader::LazyBinaryReader;;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;

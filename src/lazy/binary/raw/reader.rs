@@ -1,6 +1,7 @@
+use crate::lazy::binary::format::BinaryFormat;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
-use crate::lazy::binary::raw::lazy_raw_value::LazyRawBinaryValue;
-use crate::lazy::format::{BinaryFormat, LazyRawReader};
+use crate::lazy::binary::raw::value::LazyRawBinaryValue;
+use crate::lazy::format::LazyRawReader;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::result::IonFailure;
 use crate::IonResult;
@@ -149,7 +150,7 @@ impl<'data> DataSource<'data> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::raw::lazy_raw_reader::LazyRawBinaryReader;
+    use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::raw_stream_item::RawStreamItem;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
