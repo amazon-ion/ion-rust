@@ -1,10 +1,10 @@
-use crate::lazy::binary::format::BinaryFormat;
+use crate::lazy::binary::encoding::BinaryEncoding;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
-use crate::lazy::format::private::LazyContainerPrivate;
-use crate::lazy::format::LazyRawSequence;
+use crate::lazy::decoder::private::LazyContainerPrivate;
+use crate::lazy::decoder::LazyRawSequence;
 use crate::{IonResult, IonType};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -26,13 +26,13 @@ impl<'data> LazyRawBinarySequence<'data> {
     }
 }
 
-impl<'data> LazyContainerPrivate<'data, BinaryFormat> for LazyRawBinarySequence<'data> {
+impl<'data> LazyContainerPrivate<'data, BinaryEncoding> for LazyRawBinarySequence<'data> {
     fn from_value(value: LazyRawBinaryValue<'data>) -> Self {
         LazyRawBinarySequence { value }
     }
 }
 
-impl<'data> LazyRawSequence<'data, BinaryFormat> for LazyRawBinarySequence<'data> {
+impl<'data> LazyRawSequence<'data, BinaryEncoding> for LazyRawBinarySequence<'data> {
     type Iterator = RawSequenceIterator<'data>;
 
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {

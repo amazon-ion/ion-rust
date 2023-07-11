@@ -6,7 +6,7 @@ use std::fmt::Debug;
 /// A family of types that collectively comprise the lazy reader API for an Ion serialization
 /// format. These types operate at the 'raw' level; they do not attempt to resolve symbols
 /// using the active symbol table.
-pub trait LazyFormat<'data>: Sized + Debug + Clone {
+pub trait LazyDecoder<'data>: Sized + Debug + Clone {
     /// A lazy reader that yields [`Self::Value`]s representing the top level values in its input.
     type Reader: LazyRawReader<'data, Self>;
     /// A value (at any depth) in the input. This can be further inspected to access either its
@@ -29,21 +29,21 @@ pub trait LazyFormat<'data>: Sized + Debug + Clone {
 // internal code that is defined in terms of `LazyRawField` to call the private `into_value()`
 // function while also preventing users from seeing or depending on it.
 pub(crate) mod private {
-    use super::LazyFormat;
+    use super::LazyDecoder;
     use crate::RawSymbolTokenRef;
 
-    pub trait LazyRawFieldPrivate<'data, F: LazyFormat<'data>> {
+    pub trait LazyRawFieldPrivate<'data, D: LazyDecoder<'data>> {
         /// Converts the `LazyRawField` impl to a `LazyRawValue` impl.
         // At the moment, `LazyRawField`s are just thin wrappers around a `LazyRawValue` that can
         // safely assume that the value has a field name associated with it. This method allows
         // us to convert from one to the other when needed.
-        fn into_value(self) -> F::Value;
+        fn into_value(self) -> D::Value;
     }
 
-    pub trait LazyContainerPrivate<'data, F: LazyFormat<'data>> {
+    pub trait LazyContainerPrivate<'data, D: LazyDecoder<'data>> {
         /// Constructs a new lazy raw container from a lazy raw value that has been confirmed to be
         /// of the correct type.
-        fn from_value(value: F::Value) -> Self;
+        fn from_value(value: D::Value) -> Self;
     }
 
     pub trait LazyRawValuePrivate<'data> {
@@ -53,44 +53,44 @@ pub(crate) mod private {
     }
 }
 
-pub trait LazyRawReader<'data, F: LazyFormat<'data>> {
+pub trait LazyRawReader<'data, D: LazyDecoder<'data>> {
     fn new(data: &'data [u8]) -> Self;
-    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, F>>;
+    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, D>>;
 }
 
-pub trait LazyRawValue<'data, F: LazyFormat<'data>>:
+pub trait LazyRawValue<'data, D: LazyDecoder<'data>>:
     private::LazyRawValuePrivate<'data> + Clone + Debug
 {
     fn ion_type(&self) -> IonType;
-    fn annotations(&self) -> F::AnnotationsIterator;
-    fn read(&self) -> IonResult<RawValueRef<'data, F>>;
+    fn annotations(&self) -> D::AnnotationsIterator;
+    fn read(&self) -> IonResult<RawValueRef<'data, D>>;
 }
 
-pub trait LazyRawSequence<'data, F: LazyFormat<'data>>:
-    private::LazyContainerPrivate<'data, F> + Debug
+pub trait LazyRawSequence<'data, D: LazyDecoder<'data>>:
+    private::LazyContainerPrivate<'data, D> + Debug
 {
-    type Iterator: Iterator<Item = IonResult<F::Value>>;
-    fn annotations(&self) -> F::AnnotationsIterator;
+    type Iterator: Iterator<Item = IonResult<D::Value>>;
+    fn annotations(&self) -> D::AnnotationsIterator;
     fn ion_type(&self) -> IonType;
     fn iter(&self) -> Self::Iterator;
-    fn as_value(&self) -> &F::Value;
+    fn as_value(&self) -> &D::Value;
 }
 
-pub trait LazyRawStruct<'data, F: LazyFormat<'data>>:
-    private::LazyContainerPrivate<'data, F> + Debug
+pub trait LazyRawStruct<'data, D: LazyDecoder<'data>>:
+    private::LazyContainerPrivate<'data, D> + Debug
 {
-    type Field: LazyRawField<'data, F>;
+    type Field: LazyRawField<'data, D>;
     type Iterator: Iterator<Item = IonResult<Self::Field>>;
 
-    fn annotations(&self) -> F::AnnotationsIterator;
-    fn find(&self, name: &str) -> IonResult<Option<F::Value>>;
-    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, F>>>;
+    fn annotations(&self) -> D::AnnotationsIterator;
+    fn find(&self, name: &str) -> IonResult<Option<D::Value>>;
+    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, D>>>;
     fn iter(&self) -> Self::Iterator;
 }
 
-pub trait LazyRawField<'data, F: LazyFormat<'data>>:
-    private::LazyRawFieldPrivate<'data, F> + Debug
+pub trait LazyRawField<'data, D: LazyDecoder<'data>>:
+    private::LazyRawFieldPrivate<'data, D> + Debug
 {
     fn name(&self) -> RawSymbolTokenRef<'data>;
-    fn value(&self) -> &F::Value;
+    fn value(&self) -> &D::Value;
 }

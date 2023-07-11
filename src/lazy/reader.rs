@@ -1,8 +1,8 @@
 use crate::binary::constants::v1_0::IVM;
 use crate::element::reader::ElementReader;
 use crate::element::Element;
-use crate::lazy::binary::format::BinaryFormat;
-use crate::lazy::format::LazyFormat;
+use crate::lazy::binary::encoding::BinaryEncoding;
+use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::system_reader::LazySystemReader;
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
@@ -55,27 +55,27 @@ use crate::{IonError, IonResult};
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazyReader<'data, F: LazyFormat<'data>> {
-    system_reader: LazySystemReader<'data, F>,
+pub struct LazyReader<'data, D: LazyDecoder<'data>> {
+    system_reader: LazySystemReader<'data, D>,
 }
 
-impl<'data, F: LazyFormat<'data>> LazyReader<'data, F> {
+impl<'data, D: LazyDecoder<'data>> LazyReader<'data, D> {
     /// Returns the next top-level value in the input stream as `Ok(Some(lazy_value))`.
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
     /// If the next value is incomplete (that is: only part of it is in the input buffer) or if the
     /// input buffer contains invalid data, returns `Err(ion_error)`.
-    pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data, F>>> {
+    pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data, D>>> {
         self.system_reader.next_value()
     }
 
     /// Like [`Self::next`], but returns an `IonError` if there are no more values in the stream.
-    pub fn expect_next<'top>(&'top mut self) -> IonResult<LazyValue<'top, 'data, F>> {
+    pub fn expect_next<'top>(&'top mut self) -> IonResult<LazyValue<'top, 'data, D>> {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
     }
 }
 
-pub type LazyBinaryReader<'data> = LazyReader<'data, BinaryFormat>;
+pub type LazyBinaryReader<'data> = LazyReader<'data, BinaryEncoding>;
 
 impl<'data> LazyBinaryReader<'data> {
     pub fn new(ion_data: &'data [u8]) -> IonResult<LazyBinaryReader<'data>> {
@@ -90,11 +90,11 @@ impl<'data> LazyBinaryReader<'data> {
     }
 }
 
-pub struct LazyElementIterator<'iter, 'data, F: LazyFormat<'data>> {
-    lazy_reader: &'iter mut LazyReader<'data, F>,
+pub struct LazyElementIterator<'iter, 'data, D: LazyDecoder<'data>> {
+    lazy_reader: &'iter mut LazyReader<'data, D>,
 }
 
-impl<'iter, 'data, F: LazyFormat<'data>> Iterator for LazyElementIterator<'iter, 'data, F> {
+impl<'iter, 'data, D: LazyDecoder<'data>> Iterator for LazyElementIterator<'iter, 'data, D> {
     type Item = IonResult<Element>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -106,8 +106,8 @@ impl<'iter, 'data, F: LazyFormat<'data>> Iterator for LazyElementIterator<'iter,
     }
 }
 
-impl<'data, F: LazyFormat<'data>> ElementReader for LazyReader<'data, F> {
-    type ElementIterator<'a> = LazyElementIterator<'a, 'data, F> where Self: 'a,;
+impl<'data, D: LazyDecoder<'data>> ElementReader for LazyReader<'data, D> {
+    type ElementIterator<'a> = LazyElementIterator<'a, 'data, D> where Self: 'a,;
 
     fn read_next_element(&mut self) -> IonResult<Option<Element>> {
         let lazy_value = match self.next()? {

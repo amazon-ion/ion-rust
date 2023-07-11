@@ -1,4 +1,4 @@
-use crate::lazy::format::LazyFormat;
+use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
@@ -6,19 +6,19 @@ use crate::{IonError, IonResult};
 use std::fmt::{Debug, Formatter};
 
 /// System stream elements that a SystemReader may encounter.
-pub enum SystemStreamItem<'top, 'data, F: LazyFormat<'data>> {
+pub enum SystemStreamItem<'top, 'data, D: LazyDecoder<'data>> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(u8, u8),
     /// An Ion symbol table encoded as a struct annotated with `$ion_symbol_table`.
-    SymbolTable(LazyStruct<'top, 'data, F>),
+    SymbolTable(LazyStruct<'top, 'data, D>),
     /// An application-level Ion value
-    Value(LazyValue<'top, 'data, F>),
+    Value(LazyValue<'top, 'data, D>),
     /// The end of the stream
     EndOfStream,
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> Debug for SystemStreamItem<'top, 'data, F> {
+impl<'top, 'data, D: LazyDecoder<'data>> Debug for SystemStreamItem<'top, 'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             SystemStreamItem::VersionMarker(major, minor) => {
@@ -31,7 +31,7 @@ impl<'top, 'data, F: LazyFormat<'data>> Debug for SystemStreamItem<'top, 'data, 
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> SystemStreamItem<'top, 'data, F> {
+impl<'top, 'data, D: LazyDecoder<'data>> SystemStreamItem<'top, 'data, D> {
     /// If this item is an Ion version marker (IVM), returns `Some((major, minor))` indicating the
     /// version. Otherwise, returns `None`.
     pub fn version_marker(&self) -> Option<(u8, u8)> {
@@ -51,7 +51,7 @@ impl<'top, 'data, F: LazyFormat<'data>> SystemStreamItem<'top, 'data, F> {
 
     /// If this item is a application-level value, returns `Some(&LazyValue)`. Otherwise,
     /// returns `None`.
-    pub fn value(&self) -> Option<&LazyValue<'top, 'data, F>> {
+    pub fn value(&self) -> Option<&LazyValue<'top, 'data, D>> {
         if let Self::Value(value) = self {
             Some(value)
         } else {
@@ -61,7 +61,7 @@ impl<'top, 'data, F: LazyFormat<'data>> SystemStreamItem<'top, 'data, F> {
 
     /// Like [`Self::value`], but returns a [`IonError::Decoding`] if this item is not
     /// an application-level value.
-    pub fn expect_value(self) -> IonResult<LazyValue<'top, 'data, F>> {
+    pub fn expect_value(self) -> IonResult<LazyValue<'top, 'data, D>> {
         if let Self::Value(value) = self {
             Ok(value)
         } else {

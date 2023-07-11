@@ -1,5 +1,5 @@
-use crate::lazy::binary::format::BinaryFormat;
-use crate::lazy::format::{LazyFormat, LazyRawValue};
+use crate::lazy::binary::encoding::BinaryEncoding;
+use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::LazySequence;
 use crate::lazy::value_ref::ValueRef;
@@ -51,18 +51,18 @@ use crate::{
 ///# }
 /// ```
 #[derive(Clone)]
-pub struct LazyValue<'top, 'data, F: LazyFormat<'data>> {
-    pub(crate) raw_value: F::Value,
+pub struct LazyValue<'top, 'data, D: LazyDecoder<'data>> {
+    pub(crate) raw_value: D::Value,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-pub type LazyBinaryValue<'top, 'data> = LazyValue<'top, 'data, BinaryFormat>;
+pub type LazyBinaryValue<'top, 'data> = LazyValue<'top, 'data, BinaryEncoding>;
 
-impl<'top, 'data, F: LazyFormat<'data>> LazyValue<'top, 'data, F> {
+impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
     pub(crate) fn new(
         symbol_table: &'top SymbolTable,
-        raw_value: F::Value,
-    ) -> LazyValue<'top, 'data, F> {
+        raw_value: D::Value,
+    ) -> LazyValue<'top, 'data, D> {
         LazyValue {
             raw_value,
             symbol_table,
@@ -124,7 +124,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyValue<'top, 'data, F> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, F> {
+    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
         AnnotationsIterator {
             raw_annotations: self.raw_value.annotations(),
             symbol_table: self.symbol_table,
@@ -158,7 +158,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyValue<'top, 'data, F> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn read(&self) -> IonResult<ValueRef<'top, 'data, F>>
+    pub fn read(&self) -> IonResult<ValueRef<'top, 'data, D>>
     where
         'data: 'top,
     {
@@ -216,10 +216,10 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyValue<'top, 'data, F> {
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> TryFrom<LazyValue<'top, 'data, F>> for Element {
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyValue<'top, 'data, D>> for Element {
     type Error = IonError;
 
-    fn try_from(value: LazyValue<'top, 'data, F>) -> Result<Self, Self::Error> {
+    fn try_from(value: LazyValue<'top, 'data, D>) -> Result<Self, Self::Error> {
         let annotations: Annotations = value.annotations().try_into()?;
         let value: Value = value.read()?.try_into()?;
         Ok(value.with_annotations(annotations))
@@ -227,12 +227,12 @@ impl<'top, 'data, F: LazyFormat<'data>> TryFrom<LazyValue<'top, 'data, F>> for E
 }
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of VarUInt symbol IDs.
-pub struct AnnotationsIterator<'top, 'data, F: LazyFormat<'data>> {
+pub struct AnnotationsIterator<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) symbol_table: &'top SymbolTable,
-    pub(crate) raw_annotations: F::AnnotationsIterator,
+    pub(crate) raw_annotations: D::AnnotationsIterator,
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> AnnotationsIterator<'top, 'data, F>
+impl<'top, 'data, D: LazyDecoder<'data>> AnnotationsIterator<'top, 'data, D>
 where
     'data: 'top,
 {
@@ -318,7 +318,7 @@ where
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> Iterator for AnnotationsIterator<'top, 'data, F>
+impl<'top, 'data, D: LazyDecoder<'data>> Iterator for AnnotationsIterator<'top, 'data, D>
 where
     'data: 'top,
 {
@@ -339,12 +339,12 @@ where
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> TryFrom<AnnotationsIterator<'top, 'data, F>>
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<AnnotationsIterator<'top, 'data, D>>
     for Annotations
 {
     type Error = IonError;
 
-    fn try_from(iter: AnnotationsIterator<'top, 'data, F>) -> Result<Self, Self::Error> {
+    fn try_from(iter: AnnotationsIterator<'top, 'data, D>) -> Result<Self, Self::Error> {
         let annotations = iter
             .map(|symbol_ref| match symbol_ref {
                 Ok(symbol_ref) => Ok(symbol_ref.to_owned()),

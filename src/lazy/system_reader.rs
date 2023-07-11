@@ -1,13 +1,13 @@
-use crate::lazy::binary::format::BinaryFormat;
+use crate::lazy::binary::encoding::BinaryEncoding;
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
 
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
-use crate::lazy::format::{LazyRawField, LazyRawReader, LazyRawStruct, LazyRawValue};
+use crate::lazy::decoder::{LazyRawField, LazyRawReader, LazyRawStruct, LazyRawValue};
 
-use crate::lazy::format::private::LazyContainerPrivate;
-use crate::lazy::format::LazyFormat;
-use crate::lazy::format::LazyRawSequence;
+use crate::lazy::decoder::private::LazyContainerPrivate;
+use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::LazyRawSequence;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
@@ -70,13 +70,13 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazySystemReader<'data, F: LazyFormat<'data>> {
-    raw_reader: F::Reader,
+pub struct LazySystemReader<'data, D: LazyDecoder<'data>> {
+    raw_reader: D::Reader,
     symbol_table: SymbolTable,
     pending_lst: PendingLst,
 }
 
-pub type LazyBinarySystemReader<'data> = LazySystemReader<'data, BinaryFormat>;
+pub type LazyBinarySystemReader<'data> = LazySystemReader<'data, BinaryEncoding>;
 
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
 // the table defines in this structure so that they may be applied when the reader next advances.
@@ -99,10 +99,10 @@ impl<'data> LazyBinarySystemReader<'data> {
     }
 }
 
-impl<'data, F: LazyFormat<'data>> LazySystemReader<'data, F> {
+impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     // Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
     // `$ion_symbol_table`.
-    fn is_symbol_table_struct(lazy_value: &F::Value) -> IonResult<bool> {
+    fn is_symbol_table_struct(lazy_value: &D::Value) -> IonResult<bool> {
         if lazy_value.ion_type() != IonType::Struct {
             return Ok(false);
         }
@@ -114,7 +114,7 @@ impl<'data, F: LazyFormat<'data>> LazySystemReader<'data, F> {
 
     /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
     /// [`SystemStreamItem`].
-    pub fn next_item<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, 'data, F>> {
+    pub fn next_item<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, 'data, D>> {
         let LazySystemReader {
             raw_reader,
             symbol_table,
@@ -131,7 +131,7 @@ impl<'data, F: LazyFormat<'data>> LazySystemReader<'data, F> {
         if Self::is_symbol_table_struct(&lazy_raw_value)? {
             Self::process_symbol_table(pending_lst, &lazy_raw_value)?;
             let lazy_struct = LazyStruct {
-                raw_struct: F::Struct::from_value(lazy_raw_value),
+                raw_struct: D::Struct::from_value(lazy_raw_value),
                 symbol_table,
             };
             return Ok(SystemStreamItem::SymbolTable(lazy_struct));
@@ -148,7 +148,7 @@ impl<'data, F: LazyFormat<'data>> LazySystemReader<'data, F> {
     // scope is safe. Rust's experimental borrow checker, Polonius, is able to understand it.
     // Until Polonius is available, the method will live here instead.
     // [1]: https://github.com/rust-lang/rust/issues/70255
-    pub fn next_value<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data, F>>> {
+    pub fn next_value<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data, D>>> {
         let LazySystemReader {
             raw_reader,
             symbol_table,
@@ -196,7 +196,7 @@ impl<'data, F: LazyFormat<'data>> LazySystemReader<'data, F> {
     // populate the `PendingLst`.
     fn process_symbol_table(
         pending_lst: &mut PendingLst,
-        symbol_table: &F::Value,
+        symbol_table: &D::Value,
     ) -> IonResult<()> {
         // We've already confirmed this is an annotated struct
         let symbol_table = symbol_table.read()?.expect_struct()?;
@@ -232,7 +232,7 @@ impl<'data, F: LazyFormat<'data>> LazySystemReader<'data, F> {
     }
 
     // Store any strings defined in the `symbols` field in the `PendingLst` for future application.
-    fn process_symbols(pending_lst: &mut PendingLst, symbols: &F::Value) -> IonResult<()> {
+    fn process_symbols(pending_lst: &mut PendingLst, symbols: &D::Value) -> IonResult<()> {
         if let RawValueRef::List(list) = symbols.read()? {
             for symbol_text in list.iter() {
                 if let RawValueRef::String(text) = symbol_text?.read()? {
@@ -247,7 +247,7 @@ impl<'data, F: LazyFormat<'data>> LazySystemReader<'data, F> {
     }
 
     // Check for `imports: $ion_symbol_table`.
-    fn process_imports(pending_lst: &mut PendingLst, imports: &F::Value) -> IonResult<()> {
+    fn process_imports(pending_lst: &mut PendingLst, imports: &D::Value) -> IonResult<()> {
         match imports.read()? {
             RawValueRef::Symbol(symbol_ref) => {
                 if symbol_ref == RawSymbolTokenRef::SymbolId(3) {

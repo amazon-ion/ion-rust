@@ -1,7 +1,7 @@
-use crate::lazy::binary::format::BinaryFormat;
+use crate::lazy::binary::encoding::BinaryEncoding;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
-use crate::lazy::format::LazyRawReader;
+use crate::lazy::decoder::LazyRawReader;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::result::IonFailure;
 use crate::IonResult;
@@ -32,7 +32,7 @@ impl<'data> LazyRawBinaryReader<'data> {
     fn read_ivm(
         &mut self,
         buffer: ImmutableBuffer<'data>,
-    ) -> IonResult<RawStreamItem<'data, BinaryFormat>> {
+    ) -> IonResult<RawStreamItem<'data, BinaryEncoding>> {
         let ((major, minor), _buffer_after_ivm) = buffer.read_ivm()?;
         if (major, minor) != (1, 0) {
             return IonResult::decoding_error(format!(
@@ -48,7 +48,7 @@ impl<'data> LazyRawBinaryReader<'data> {
     fn read_value(
         &mut self,
         buffer: ImmutableBuffer<'data>,
-    ) -> IonResult<RawStreamItem<'data, BinaryFormat>> {
+    ) -> IonResult<RawStreamItem<'data, BinaryEncoding>> {
         let lazy_value = match ImmutableBuffer::peek_value_without_field_id(buffer)? {
             Some(lazy_value) => lazy_value,
             None => return Ok(RawStreamItem::EndOfStream),
@@ -58,7 +58,7 @@ impl<'data> LazyRawBinaryReader<'data> {
         Ok(RawStreamItem::Value(lazy_value))
     }
 
-    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, BinaryFormat>>
+    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, BinaryEncoding>>
     where
         'data: 'top,
     {
@@ -77,12 +77,12 @@ impl<'data> LazyRawBinaryReader<'data> {
     }
 }
 
-impl<'data> LazyRawReader<'data, BinaryFormat> for LazyRawBinaryReader<'data> {
+impl<'data> LazyRawReader<'data, BinaryEncoding> for LazyRawBinaryReader<'data> {
     fn new(data: &'data [u8]) -> Self {
         LazyRawBinaryReader::new(data)
     }
 
-    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, BinaryFormat>> {
+    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, BinaryEncoding>> {
         self.next()
     }
 }

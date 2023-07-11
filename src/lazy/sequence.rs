@@ -1,5 +1,5 @@
-use crate::lazy::binary::format::BinaryFormat;
-use crate::lazy::format::{LazyFormat, LazyRawSequence, LazyRawValue};
+use crate::lazy::binary::encoding::BinaryEncoding;
+use crate::lazy::decoder::{LazyDecoder, LazyRawSequence, LazyRawValue};
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
 use crate::{IonError, IonResult, IonType, SymbolTable};
@@ -44,14 +44,14 @@ use std::fmt::{Debug, Formatter};
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazySequence<'top, 'data, F: LazyFormat<'data>> {
-    pub(crate) raw_sequence: F::Sequence,
+pub struct LazySequence<'top, 'data, D: LazyDecoder<'data>> {
+    pub(crate) raw_sequence: D::Sequence,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-pub type LazyBinarySequence<'top, 'data> = LazySequence<'top, 'data, BinaryFormat>;
+pub type LazyBinarySequence<'top, 'data> = LazySequence<'top, 'data, BinaryEncoding>;
 
-impl<'top, 'data, F: LazyFormat<'data>> LazySequence<'top, 'data, F> {
+impl<'top, 'data, D: LazyDecoder<'data>> LazySequence<'top, 'data, D> {
     /// Returns the [`IonType`] of this sequence.
     ///
     /// This will always be either [`IonType::List`] or [`IonType::SExp`].
@@ -61,7 +61,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazySequence<'top, 'data, F> {
     }
 
     /// Returns an iterator over the values in this sequence. See: [`LazyValue`].
-    pub fn iter(&self) -> SequenceIterator<'top, 'data, F> {
+    pub fn iter(&self) -> SequenceIterator<'top, 'data, D> {
         SequenceIterator {
             raw_sequence_iter: self.raw_sequence.iter(),
             symbol_table: self.symbol_table,
@@ -96,7 +96,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazySequence<'top, 'data, F> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, F> {
+    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
         AnnotationsIterator {
             raw_annotations: self.raw_sequence.as_value().annotations(),
             symbol_table: self.symbol_table,
@@ -104,10 +104,10 @@ impl<'top, 'data, F: LazyFormat<'data>> LazySequence<'top, 'data, F> {
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> TryFrom<LazySequence<'top, 'data, F>> for Sequence {
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazySequence<'top, 'data, D>> for Sequence {
     type Error = IonError;
 
-    fn try_from(lazy_sequence: LazySequence<'top, 'data, F>) -> Result<Self, Self::Error> {
+    fn try_from(lazy_sequence: LazySequence<'top, 'data, D>) -> Result<Self, Self::Error> {
         let sequence: Sequence = lazy_sequence
             .iter()
             .map(|v| Element::try_from(v?))
@@ -117,10 +117,10 @@ impl<'top, 'data, F: LazyFormat<'data>> TryFrom<LazySequence<'top, 'data, F>> fo
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> TryFrom<LazySequence<'top, 'data, F>> for Element {
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazySequence<'top, 'data, D>> for Element {
     type Error = IonError;
 
-    fn try_from(lazy_sequence: LazySequence<'top, 'data, F>) -> Result<Self, Self::Error> {
+    fn try_from(lazy_sequence: LazySequence<'top, 'data, D>) -> Result<Self, Self::Error> {
         let ion_type = lazy_sequence.ion_type();
         let annotations: Annotations = lazy_sequence.annotations().try_into()?;
         let sequence: Sequence = lazy_sequence.try_into()?;
@@ -133,22 +133,22 @@ impl<'top, 'data, F: LazyFormat<'data>> TryFrom<LazySequence<'top, 'data, F>> fo
     }
 }
 
-impl<'a, 'top, 'data, F: LazyFormat<'data>> IntoIterator for &'a LazySequence<'top, 'data, F> {
-    type Item = IonResult<LazyValue<'top, 'data, F>>;
-    type IntoIter = SequenceIterator<'top, 'data, F>;
+impl<'a, 'top, 'data, D: LazyDecoder<'data>> IntoIterator for &'a LazySequence<'top, 'data, D> {
+    type Item = IonResult<LazyValue<'top, 'data, D>>;
+    type IntoIter = SequenceIterator<'top, 'data, D>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-pub struct SequenceIterator<'top, 'data, F: LazyFormat<'data>> {
-    raw_sequence_iter: <F::Sequence as LazyRawSequence<'data, F>>::Iterator,
+pub struct SequenceIterator<'top, 'data, D: LazyDecoder<'data>> {
+    raw_sequence_iter: <D::Sequence as LazyRawSequence<'data, D>>::Iterator,
     symbol_table: &'top SymbolTable,
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> Iterator for SequenceIterator<'top, 'data, F> {
-    type Item = IonResult<LazyValue<'top, 'data, F>>;
+impl<'top, 'data, D: LazyDecoder<'data>> Iterator for SequenceIterator<'top, 'data, D> {
+    type Item = IonResult<LazyValue<'top, 'data, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let raw_value = match self.raw_sequence_iter.next() {
@@ -165,7 +165,7 @@ impl<'top, 'data, F: LazyFormat<'data>> Iterator for SequenceIterator<'top, 'dat
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> Debug for LazySequence<'top, 'data, F> {
+impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazySequence<'top, 'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self.ion_type() {
             IonType::SExp => {

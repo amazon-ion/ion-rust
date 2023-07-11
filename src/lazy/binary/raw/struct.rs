@@ -1,10 +1,10 @@
-use crate::lazy::binary::format::BinaryFormat;
+use crate::lazy::binary::encoding::BinaryEncoding;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
-use crate::lazy::format::private::{LazyContainerPrivate, LazyRawFieldPrivate};
-use crate::lazy::format::{LazyRawField, LazyRawStruct};
+use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawFieldPrivate};
+use crate::lazy::decoder::{LazyRawField, LazyRawStruct};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{IonResult, RawSymbolTokenRef};
@@ -56,7 +56,7 @@ impl<'data> LazyRawBinaryStruct<'data> {
         Ok(None)
     }
 
-    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, BinaryFormat>>> {
+    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, BinaryEncoding>>> {
         self.find(name)?.map(|f| f.read()).transpose()
     }
 
@@ -68,13 +68,13 @@ impl<'data> LazyRawBinaryStruct<'data> {
     }
 }
 
-impl<'data> LazyContainerPrivate<'data, BinaryFormat> for LazyRawBinaryStruct<'data> {
+impl<'data> LazyContainerPrivate<'data, BinaryEncoding> for LazyRawBinaryStruct<'data> {
     fn from_value(value: LazyRawBinaryValue<'data>) -> Self {
         LazyRawBinaryStruct { value }
     }
 }
 
-impl<'data> LazyRawStruct<'data, BinaryFormat> for LazyRawBinaryStruct<'data> {
+impl<'data> LazyRawStruct<'data, BinaryEncoding> for LazyRawBinaryStruct<'data> {
     type Field = LazyRawBinaryField<'data>;
     type Iterator = RawBinaryStructIterator<'data>;
 
@@ -86,7 +86,7 @@ impl<'data> LazyRawStruct<'data, BinaryFormat> for LazyRawBinaryStruct<'data> {
         self.find(name)
     }
 
-    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, BinaryFormat>>> {
+    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, BinaryEncoding>>> {
         self.get(name)
     }
 
@@ -143,13 +143,13 @@ impl<'data> LazyRawBinaryField<'data> {
     }
 }
 
-impl<'data> LazyRawFieldPrivate<'data, BinaryFormat> for LazyRawBinaryField<'data> {
+impl<'data> LazyRawFieldPrivate<'data, BinaryEncoding> for LazyRawBinaryField<'data> {
     fn into_value(self) -> LazyRawBinaryValue<'data> {
         self.value
     }
 }
 
-impl<'data> LazyRawField<'data, BinaryFormat> for LazyRawBinaryField<'data> {
+impl<'data> LazyRawField<'data, BinaryEncoding> for LazyRawBinaryField<'data> {
     fn name(&self) -> RawSymbolTokenRef<'data> {
         LazyRawBinaryField::name(self)
     }

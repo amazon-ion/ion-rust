@@ -1,4 +1,4 @@
-use crate::lazy::format::LazyFormat;
+use crate::lazy::decoder::LazyDecoder;
 use crate::result::IonFailure;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use std::fmt::{Debug, Formatter};
@@ -8,7 +8,7 @@ use std::fmt::{Debug, Formatter};
 /// or text literal). If it is a symbol ID, a symbol table will be needed to find its associated text.
 ///
 /// For a resolved version of this type, see [crate::lazy::value_ref::ValueRef].
-pub enum RawValueRef<'data, F: LazyFormat<'data>> {
+pub enum RawValueRef<'data, D: LazyDecoder<'data>> {
     Null(IonType),
     Bool(bool),
     Int(Int),
@@ -19,12 +19,12 @@ pub enum RawValueRef<'data, F: LazyFormat<'data>> {
     Symbol(RawSymbolTokenRef<'data>),
     Blob(&'data [u8]),
     Clob(&'data [u8]),
-    SExp(F::Sequence),
-    List(F::Sequence),
-    Struct(F::Struct),
+    SExp(D::Sequence),
+    List(D::Sequence),
+    Struct(D::Struct),
 }
 
-impl<'data, F: LazyFormat<'data>> Debug for RawValueRef<'data, F> {
+impl<'data, D: LazyDecoder<'data>> Debug for RawValueRef<'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             RawValueRef::Null(ion_type) => write!(f, "null.{}", ion_type),
@@ -44,7 +44,7 @@ impl<'data, F: LazyFormat<'data>> Debug for RawValueRef<'data, F> {
     }
 }
 
-impl<'data, F: LazyFormat<'data>> RawValueRef<'data, F> {
+impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
     pub fn expect_null(self) -> IonResult<IonType> {
         if let RawValueRef::Null(ion_type) = self {
             Ok(ion_type)
@@ -125,7 +125,7 @@ impl<'data, F: LazyFormat<'data>> RawValueRef<'data, F> {
         }
     }
 
-    pub fn expect_list(self) -> IonResult<F::Sequence> {
+    pub fn expect_list(self) -> IonResult<D::Sequence> {
         if let RawValueRef::List(s) = self {
             Ok(s)
         } else {
@@ -133,7 +133,7 @@ impl<'data, F: LazyFormat<'data>> RawValueRef<'data, F> {
         }
     }
 
-    pub fn expect_sexp(self) -> IonResult<F::Sequence> {
+    pub fn expect_sexp(self) -> IonResult<D::Sequence> {
         if let RawValueRef::SExp(s) = self {
             Ok(s)
         } else {
@@ -141,7 +141,7 @@ impl<'data, F: LazyFormat<'data>> RawValueRef<'data, F> {
         }
     }
 
-    pub fn expect_struct(self) -> IonResult<F::Struct> {
+    pub fn expect_struct(self) -> IonResult<D::Struct> {
         if let RawValueRef::Struct(s) = self {
             Ok(s)
         } else {

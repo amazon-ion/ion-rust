@@ -2,7 +2,7 @@
 //! top level value.
 
 pub mod binary;
-pub mod format;
+pub mod decoder;
 pub mod raw_stream_item;
 pub mod raw_value_ref;
 pub mod reader;

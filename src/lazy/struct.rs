@@ -1,7 +1,7 @@
 use crate::element::builders::StructBuilder;
-use crate::lazy::binary::format::BinaryFormat;
-use crate::lazy::format::private::{LazyRawFieldPrivate, LazyRawValuePrivate};
-use crate::lazy::format::{LazyFormat, LazyRawStruct};
+use crate::lazy::binary::encoding::BinaryEncoding;
+use crate::lazy::decoder::private::{LazyRawFieldPrivate, LazyRawValuePrivate};
+use crate::lazy::decoder::{LazyDecoder, LazyRawStruct};
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
@@ -41,16 +41,16 @@ use std::fmt::{Debug, Formatter};
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazyStruct<'top, 'data, F: LazyFormat<'data>> {
-    pub(crate) raw_struct: F::Struct,
+pub struct LazyStruct<'top, 'data, D: LazyDecoder<'data>> {
+    pub(crate) raw_struct: D::Struct,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-pub type LazyBinaryStruct<'top, 'data> = LazyStruct<'top, 'data, BinaryFormat>;
+pub type LazyBinaryStruct<'top, 'data> = LazyStruct<'top, 'data, BinaryEncoding>;
 
 // Best-effort debug formatting for LazyStruct. Any failures that occur during reading will result
 // in the output being silently truncated.
-impl<'top, 'data, F: LazyFormat<'data>> Debug for LazyStruct<'top, 'data, F> {
+impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazyStruct<'top, 'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {
@@ -65,9 +65,9 @@ impl<'top, 'data, F: LazyFormat<'data>> Debug for LazyStruct<'top, 'data, F> {
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
+impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     /// Returns an iterator over this struct's fields. See [`LazyField`].
-    pub fn iter(&self) -> StructIterator<'top, 'data, F> {
+    pub fn iter(&self) -> StructIterator<'top, 'data, D> {
         StructIterator {
             raw_struct_iter: self.raw_struct.iter(),
             symbol_table: self.symbol_table,
@@ -105,7 +105,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn find(&self, name: &str) -> IonResult<Option<LazyValue<'top, 'data, F>>> {
+    pub fn find(&self, name: &str) -> IonResult<Option<LazyValue<'top, 'data, D>>> {
         for field in self {
             let field = field?;
             if field.name()? == name {
@@ -136,7 +136,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn find_expected(&self, name: &str) -> IonResult<LazyValue<'top, 'data, F>> {
+    pub fn find_expected(&self, name: &str) -> IonResult<LazyValue<'top, 'data, D>> {
         self.find(name)?
             .ok_or_else(|| IonError::decoding_error(format!("missing required field {}", name)))
     }
@@ -162,7 +162,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn get(&self, name: &str) -> IonResult<Option<ValueRef<'top, 'data, F>>>
+    pub fn get(&self, name: &str) -> IonResult<Option<ValueRef<'top, 'data, D>>>
     where
         'data: 'top,
     {
@@ -189,7 +189,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn get_expected(&self, name: &str) -> IonResult<ValueRef<'top, 'data, F>>
+    pub fn get_expected(&self, name: &str) -> IonResult<ValueRef<'top, 'data, D>>
     where
         'data: 'top,
     {
@@ -227,7 +227,7 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, F> {
+    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
         AnnotationsIterator {
             raw_annotations: self.raw_struct.annotations(),
             symbol_table: self.symbol_table,
@@ -236,11 +236,11 @@ impl<'top, 'data, F: LazyFormat<'data>> LazyStruct<'top, 'data, F> {
 }
 
 /// A single field within a [`LazyStruct`].
-pub struct LazyField<'top, 'data, F: LazyFormat<'data>> {
-    pub(crate) value: LazyValue<'top, 'data, F>,
+pub struct LazyField<'top, 'data, D: LazyDecoder<'data>> {
+    pub(crate) value: LazyValue<'top, 'data, D>,
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> Debug for LazyField<'top, 'data, F> {
+impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazyField<'top, 'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -251,7 +251,7 @@ impl<'top, 'data, F: LazyFormat<'data>> Debug for LazyField<'top, 'data, F> {
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> LazyField<'top, 'data, F>
+impl<'top, 'data, D: LazyDecoder<'data>> LazyField<'top, 'data, D>
 where
     'data: 'top,
 {
@@ -274,27 +274,27 @@ where
 
     /// Returns a lazy value representing the value of this field. To access the value's data,
     /// see [`LazyValue::read`].
-    pub fn value(&self) -> &LazyValue<'top, 'data, F> {
+    pub fn value(&self) -> &LazyValue<'top, 'data, D> {
         &self.value
     }
 }
 
-pub struct StructIterator<'top, 'data, F: LazyFormat<'data>> {
+pub struct StructIterator<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) raw_struct_iter:
-        <<F as LazyFormat<'data>>::Struct as LazyRawStruct<'data, F>>::Iterator,
+        <<D as LazyDecoder<'data>>::Struct as LazyRawStruct<'data, D>>::Iterator,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> Iterator for StructIterator<'top, 'data, F> {
-    type Item = IonResult<LazyField<'top, 'data, F>>;
+impl<'top, 'data, D: LazyDecoder<'data>> Iterator for StructIterator<'top, 'data, D> {
+    type Item = IonResult<LazyField<'top, 'data, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         StructIterator::next_field(self).transpose()
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> StructIterator<'top, 'data, F> {
-    pub fn next_field(&mut self) -> IonResult<Option<LazyField<'top, 'data, F>>> {
+impl<'top, 'data, D: LazyDecoder<'data>> StructIterator<'top, 'data, D> {
+    pub fn next_field(&mut self) -> IonResult<Option<LazyField<'top, 'data, D>>> {
         let raw_field = match self.raw_struct_iter.next() {
             Some(raw_field) => raw_field?,
             None => return Ok(None),
@@ -309,10 +309,10 @@ impl<'top, 'data, F: LazyFormat<'data>> StructIterator<'top, 'data, F> {
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> TryFrom<LazyStruct<'top, 'data, F>> for Struct {
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyStruct<'top, 'data, D>> for Struct {
     type Error = IonError;
 
-    fn try_from(lazy_struct: LazyStruct<'top, 'data, F>) -> Result<Self, Self::Error> {
+    fn try_from(lazy_struct: LazyStruct<'top, 'data, D>) -> Result<Self, Self::Error> {
         let mut builder = StructBuilder::new();
         for field in &lazy_struct {
             let field = field?;
@@ -323,19 +323,19 @@ impl<'top, 'data, F: LazyFormat<'data>> TryFrom<LazyStruct<'top, 'data, F>> for 
     }
 }
 
-impl<'top, 'data, F: LazyFormat<'data>> TryFrom<LazyStruct<'top, 'data, F>> for Element {
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyStruct<'top, 'data, D>> for Element {
     type Error = IonError;
 
-    fn try_from(lazy_struct: LazyStruct<'top, 'data, F>) -> Result<Self, Self::Error> {
+    fn try_from(lazy_struct: LazyStruct<'top, 'data, D>) -> Result<Self, Self::Error> {
         let annotations: Annotations = lazy_struct.annotations().try_into()?;
         let struct_: Struct = lazy_struct.try_into()?;
         Ok(struct_.with_annotations(annotations))
     }
 }
 
-impl<'a, 'top, 'data, F: LazyFormat<'data>> IntoIterator for &'a LazyStruct<'top, 'data, F> {
-    type Item = IonResult<LazyField<'top, 'data, F>>;
-    type IntoIter = StructIterator<'top, 'data, F>;
+impl<'a, 'top, 'data, D: LazyDecoder<'data>> IntoIterator for &'a LazyStruct<'top, 'data, D> {
+    type Item = IonResult<LazyField<'top, 'data, D>>;
+    type IntoIter = StructIterator<'top, 'data, D>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
