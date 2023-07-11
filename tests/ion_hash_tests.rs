@@ -1,5 +1,5 @@
 // Copyright Amazon.com, Inc. or its affiliates.
-#![cfg(feature = "ion-hash")]
+#![cfg(feature = "experimental-ion-hash")]
 
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
