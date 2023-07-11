@@ -21,7 +21,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
-/// Unlike [`crate::lazy::binary::lazy_reader::LazyReader`], which only exposes values that are part
+/// Unlike [`crate::lazy::reader::LazyReader`], which only exposes values that are part
 /// of the application data model, [`LazySystemReader`] also yields Ion version markers
 /// (as [`SystemStreamItem::VersionMarker`]) and structs representing a symbol table (as
 /// [`SystemStreamItem::SymbolTable`]).
@@ -32,7 +32,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 /// which may contain either a scalar value or a lazy container that may itself be traversed.
 ///
 /// The values that the reader yields ([`LazyValue`],
-/// [`crate::lazy::binary::system::lazy_sequence::LazyBinarySequence`], and [`LazyStruct`]) are immutable
+/// [`crate::lazy::sequence::LazyBinarySequence`], and [`LazyStruct`]) are immutable
 /// references to the data stream, and remain valid until [`LazySystemReader::next_item`] is
 /// called again to advance the reader to the next top level value. This means that these references
 /// can be stored, read, and re-read as long as the reader remains on the same top-level value.

@@ -24,7 +24,7 @@ use std::{fmt, mem};
 /// `LazyRawValue`s are "unresolved," which is to say that symbol values, annotations, and
 /// struct field names may or may not include a text definition. For a resolved lazy value that
 /// includes a text definition for these items whenever one exists, see
-/// [`crate::lazy::LazyValue`].
+/// [`crate::lazy::value::LazyValue`].
 #[derive(Clone)]
 pub struct LazyRawBinaryValue<'data> {
     pub(crate) encoded_value: EncodedValue,
@@ -115,7 +115,7 @@ impl<'data> LazyRawBinaryValue<'data> {
 
     /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,
     /// calling this method will not read additional data; the `RawValueRef` will provide a
-    /// [`LazyRawBinarySequence`] or [`LazyStruct`](crate::lazy::binary::system::lazy_struct::LazyStruct)
+    /// [`LazyRawBinarySequence`] or [`LazyStruct`](crate::lazy::struct::LazyStruct)
     /// that can be traversed to access the container's contents.
     pub fn read(&self) -> ValueParseResult<'data, BinaryFormat> {
         if self.encoded_value.header().is_null() {
