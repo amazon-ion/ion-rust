@@ -44,7 +44,7 @@ impl Annotations {
 
     /// Returns the number of annotations in this sequence.
     /// ```
-    /// use ion_rs::element::{Annotations, IntoAnnotations};
+    /// use ion_rs::{Annotations, IntoAnnotations};
     /// let annotations: Annotations = ["foo", "bar", "baz"].into_annotations();
     /// assert_eq!(annotations.len(), 3);
     /// ```
@@ -54,7 +54,7 @@ impl Annotations {
 
     /// Returns `true` if this sequence contains zero annotations. Otherwise, returns `false`.
     /// ```
-    /// use ion_rs::element::{Annotations, IntoAnnotations};
+    /// use ion_rs::{Annotations, IntoAnnotations};
     /// let annotations: Annotations = ["foo", "bar", "baz"].into_annotations();
     /// assert!(!annotations.is_empty());
     /// ```
@@ -65,7 +65,7 @@ impl Annotations {
     /// Returns `true` if any symbol in this annotations sequence is equal to the provided text.
     /// Otherwise, returns `false`.
     /// ```
-    /// use ion_rs::element::{Annotations, IntoAnnotations};
+    /// use ion_rs::{Annotations, IntoAnnotations};
     /// let annotations: Annotations = ["foo", "bar", "baz"].into_annotations();
     /// assert!(annotations.contains("foo"));
     /// assert!(annotations.contains("bar"));
@@ -88,7 +88,7 @@ impl Annotations {
     /// To view the first annotation as a [Symbol] rather than a `&str`, use
     /// `annotations.iter().next()`.
     /// ```
-    /// use ion_rs::element::{Annotations, IntoAnnotations};
+    /// use ion_rs::{Annotations, IntoAnnotations};
     /// use ion_rs::Symbol;
     /// let annotations: Annotations = ["foo", "bar", "baz"].into_annotations();
     /// assert_eq!(annotations.first(), Some("foo"));

@@ -22,6 +22,7 @@ use crate::position::Position;
 pub type IonResult<T> = Result<T, IonError>;
 
 /// Represents the different types of high-level failures that might occur when reading Ion data.
+#[non_exhaustive]
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum IonError {
     /// Indicates that an IO error was encountered while reading or writing.

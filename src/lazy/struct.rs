@@ -174,7 +174,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
+    /// use ion_rs::Element;
     /// use ion_rs::lazy::reader::LazyBinaryReader;;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
@@ -206,7 +206,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::{Element, IntoAnnotatedElement};
     /// use ion_rs::ion_struct;
     /// use ion_rs::lazy::reader::LazyBinaryReader;;
     ///

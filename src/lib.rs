@@ -181,9 +181,9 @@ mod system_reader;
 mod text;
 
 // Publicly-visible modules with nested items which users may choose to import
-pub mod element;
+mod element;
 pub mod result;
-pub mod types;
+mod types;
 
 #[cfg(feature = "experimental-ion-hash")]
 pub mod ion_hash;
@@ -197,7 +197,11 @@ pub mod thunk;
 #[cfg(feature = "experimental-streaming")]
 pub mod tokens;
 
-pub use element::{Annotations, Element, IntoAnnotatedElement, IntoAnnotations, Sequence, Value};
+pub use element::builders::{SequenceBuilder, StructBuilder};
+pub use element::{
+    reader::ElementReader, writer::ElementWriter, Annotations, Element, IntoAnnotatedElement,
+    IntoAnnotations, Sequence, Value,
+};
 pub use ion_data::IonData;
 pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
@@ -233,6 +237,7 @@ pub use {
     text::text_writer::{TextWriter, TextWriterBuilder},
 };
 
+#[doc(inline)]
 pub use result::{IonError, IonResult};
 
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
