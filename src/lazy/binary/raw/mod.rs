@@ -1,5 +1,5 @@
-pub mod lazy_raw_reader;
+pub mod annotations_iterator;
 pub mod lazy_raw_sequence;
-pub mod lazy_raw_struct;
-pub mod lazy_raw_value;
-pub mod raw_annotations_iterator;
+pub mod reader;
+pub mod r#struct;
+pub mod value;
