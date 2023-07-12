@@ -21,6 +21,32 @@ pub(crate) enum UIntData {
 }
 
 impl UInt {
+    /// Attempts to convert this `UInt` to a `usize`. If the value is too large to fit,
+    /// returns `None`.
+    pub fn as_usize(&self) -> Option<usize> {
+        usize::try_from(self).ok()
+    }
+
+    /// Attempts to convert this `UInt` to a `u64`. If the value is too large to fit,
+    /// returns `None`.
+    pub fn as_u64(&self) -> Option<u64> {
+        u64::try_from(self).ok()
+    }
+
+    /// Attempts to convert this `UInt` to a `usize`. If the value is too large to fit,
+    /// returns an [`IonError`].
+    pub fn expect_usize(&self) -> IonResult<usize> {
+        usize::try_from(self)
+            .map_err(|_| IonError::decoding_error("UInt was too large to convert to a usize"))
+    }
+
+    /// Attempts to convert this `UInt` to a `u64`. If the value is too large to fit,
+    /// returns an [`IonError`].
+    pub fn expect_u64(&self) -> IonResult<u64> {
+        u64::try_from(self)
+            .map_err(|_| IonError::decoding_error("UInt was too large to convert to a u64"))
+    }
+
     /// Compares a [u64] integer with a [BigUint] to see if they are equal. This method never
     /// allocates. It will always prefer to downgrade a BigUint and compare the two integers as
     /// u64 values. If this is not possible, then the two numbers cannot be equal anyway.
@@ -150,7 +176,7 @@ macro_rules! impl_uint_try_from_small_signed_int_types {
             type Error = IonError;
             fn try_from(value: $t) -> Result<Self, Self::Error> {
                 if value < 0 {
-                    return IonResult::illegal_operation("cannot convert a negative number to a UInt");
+                    return IonResult::decoding_error("cannot convert a negative number to a UInt");
                 }
                 Ok((value.unsigned_abs() as u64).into())
             }
@@ -174,12 +200,12 @@ macro_rules! impl_int_types_try_from_uint {
             fn try_from(value: &UInt) -> Result<Self, Self::Error> {
                 match &value.data {
                     UIntData::U64(value) => <$t>::try_from(*value).map_err(|_| {
-                        IonError::illegal_operation(
+                        IonError::decoding_error(
                             concat!("UInt was too large to fit in a ", stringify!($t))
                         )
                     }),
                     UIntData::BigUInt(value) => <$t>::try_from(value).map_err(|_| {
-                        IonError::illegal_operation(
+                        IonError::decoding_error(
                             concat!("UInt was too large to fit in a ", stringify!($t))
                         )
                     }),
@@ -197,7 +223,7 @@ impl TryFrom<i128> for UInt {
 
     fn try_from(value: i128) -> Result<Self, Self::Error> {
         if value < 0 {
-            IonResult::illegal_operation("UInt was too large to fit in an i128")
+            IonResult::decoding_error("UInt was too large to fit in an i128")
         } else {
             Ok(value.unsigned_abs().to_biguint().unwrap().into())
         }
@@ -211,11 +237,11 @@ impl TryFrom<Int> for UInt {
     fn try_from(value: Int) -> Result<Self, Self::Error> {
         match value.data {
             IntData::I64(i) if i < 0 => {
-                IonResult::illegal_operation("cannot convert negative Int to a UInt")
+                IonResult::decoding_error("cannot convert negative Int to a UInt")
             }
             IntData::I64(i) => Ok(i.unsigned_abs().into()),
             IntData::BigInt(i) if i.sign() == num_bigint::Sign::Minus => {
-                IonResult::illegal_operation("cannot convert negative Int to a UInt")
+                IonResult::decoding_error("cannot convert negative Int to a UInt")
             }
             IntData::BigInt(i) => {
                 // num_bigint::BigInt's `into_parts` consumes the BigInt and returns a
@@ -243,10 +269,10 @@ macro_rules! impl_small_signed_int_try_from_int {
             fn try_from(value: Int) -> Result<Self, Self::Error> {
                 match value.data {
                     IntData::I64(small_int) => <$t>::try_from(small_int).map_err(|_| {
-                        IonError::illegal_operation(concat!("Int was too large to be converted to a(n) ", stringify!($t)))
+                        IonError::decoding_error(concat!("Int was too large to be converted to a(n) ", stringify!($t)))
                     }),
                     IntData::BigInt(big_int) => big_int.try_into().map_err(|_| {
-                        IonError::illegal_operation(concat!("Int was too large to be converted to a(n) ", stringify!($t)))
+                        IonError::decoding_error(concat!("Int was too large to be converted to a(n) ", stringify!($t)))
                     }),
                 }
             }
@@ -255,6 +281,27 @@ macro_rules! impl_small_signed_int_try_from_int {
 }
 
 impl_small_signed_int_try_from_int!(i8, i16, i32, i64, i128, isize);
+
+macro_rules! impl_small_unsigned_int_try_from_uint {
+    ($($t:ty),*) => ($(
+        impl TryFrom<UInt> for $t {
+            type Error = IonError;
+
+            fn try_from(value: UInt) -> Result<Self, Self::Error> {
+                match value.data {
+                    UIntData::U64(small_uint) => <$t>::try_from(small_uint).map_err(|_| {
+                        IonError::decoding_error(concat!("UInt was too large to be converted to a(n) ", stringify!($t)))
+                    }),
+                    UIntData::BigUInt(big_uint) => big_uint.try_into().map_err(|_| {
+                        IonError::decoding_error(concat!("UInt was too large to be converted to a(n) ", stringify!($t)))
+                    }),
+                }
+            }
+        }
+    )*)
+}
+
+impl_small_unsigned_int_try_from_uint!(u8, u16, u32, u64, u128, usize);
 
 impl From<&Int> for BigInt {
     fn from(value: &Int) -> Self {
