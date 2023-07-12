@@ -595,6 +595,7 @@ mod integer_tests {
     use num_traits::Zero;
     use rstest::*;
     use std::cmp::Ordering;
+    use std::str::FromStr;
 
     #[test]
     fn is_zero() {
@@ -705,5 +706,123 @@ mod integer_tests {
         let mut buf = Vec::new();
         write!(&mut buf, "{value}").unwrap();
         assert_eq!(expect, String::from_utf8(buf).unwrap());
+    }
+
+    #[test]
+    fn u8_from_uint() {
+        assert_eq!(u8::try_from(UInt::from(0u64)), Ok(0u8));
+        assert_eq!(u8::try_from(UInt::from(21u64)), Ok(21u8));
+        assert_eq!(u8::try_from(UInt::from(255u64)), Ok(255u8));
+        assert_eq!(u8::try_from(UInt::from(BigUint::from(255u64))), Ok(255u8));
+        assert!(u8::try_from(UInt::from(999u64)).is_err())
+    }
+
+    #[test]
+    fn u16_from_uint() {
+        assert_eq!(u16::try_from(UInt::from(0u64)), Ok(0u16));
+        assert_eq!(u16::try_from(UInt::from(999u64)), Ok(999u16));
+        assert_eq!(u16::try_from(UInt::from(16500u64)), Ok(16500u16));
+        assert_eq!(
+            u16::try_from(UInt::from(BigUint::from(16500u64))),
+            Ok(16500u16)
+        );
+        assert!(u16::try_from(UInt::from(128_000u64)).is_err())
+    }
+
+    #[test]
+    fn u32_from_uint() {
+        assert_eq!(u32::try_from(UInt::from(0u64)), Ok(0u32));
+        assert_eq!(u32::try_from(UInt::from(16500u64)), Ok(16500u32));
+        assert_eq!(u32::try_from(UInt::from(128_000u64)), Ok(128_000u32));
+        assert_eq!(
+            u32::try_from(UInt::from(BigUint::from(128_000u64))),
+            Ok(128_000u32)
+        );
+        assert!(u32::try_from(UInt::from(5_000_000_000u64)).is_err())
+    }
+
+    #[test]
+    fn u64_from_uint() {
+        assert_eq!(u64::try_from(UInt::from(0u64)), Ok(0u64));
+        assert_eq!(u64::try_from(UInt::from(128_000u64)), Ok(128_000u64));
+        assert_eq!(
+            u64::try_from(UInt::from(5_000_000_000u64)),
+            Ok(5_000_000_000u64)
+        );
+        assert!(u64::try_from(UInt::from(
+            BigUint::from_str("1_000_000_000_000_000_000_000_000_000_000").unwrap()
+        ))
+        .is_err())
+    }
+
+    #[test]
+    fn usize_from_uint() {
+        assert_eq!(usize::try_from(UInt::from(0u64)), Ok(0usize));
+        assert_eq!(usize::try_from(UInt::from(16500u64)), Ok(16500usize));
+        assert_eq!(usize::try_from(UInt::from(128_000u64)), Ok(128_000usize));
+        assert_eq!(
+            usize::try_from(UInt::from(BigUint::from(128_000u64))),
+            Ok(128_000usize)
+        );
+        assert!(usize::try_from(UInt::from(
+            BigUint::from_str("1_000_000_000_000_000_000_000_000_000_000").unwrap()
+        ))
+        .is_err())
+    }
+
+    #[test]
+    fn as_usize() {
+        assert_eq!(UInt::from(128_000u64).as_usize(), Some(128_000usize));
+        assert_eq!(
+            UInt::from(BigUint::from(128_000u64)).as_usize(),
+            Some(128_000usize)
+        );
+        assert!(
+            UInt::from(BigUint::from_str("1_000_000_000_000_000_000_000_000_000_000").unwrap())
+                .as_usize()
+                .is_none()
+        )
+    }
+
+    #[test]
+    fn expect_usize() {
+        assert_eq!(UInt::from(128_000u64).expect_usize(), Ok(128_000usize));
+        assert_eq!(
+            UInt::from(BigUint::from(128_000u64)).expect_usize(),
+            Ok(128_000usize)
+        );
+        assert!(
+            UInt::from(BigUint::from_str("1_000_000_000_000_000_000_000_000_000_000").unwrap())
+                .expect_usize()
+                .is_err()
+        )
+    }
+
+    #[test]
+    fn as_u64() {
+        assert_eq!(UInt::from(128_000u64).as_u64(), Some(128_000u64));
+        assert_eq!(
+            UInt::from(BigUint::from(128_000u64)).as_u64(),
+            Some(128_000u64)
+        );
+        assert!(
+            UInt::from(BigUint::from_str("1_000_000_000_000_000_000_000_000_000_000").unwrap())
+                .as_u64()
+                .is_none()
+        )
+    }
+
+    #[test]
+    fn expect_u64() {
+        assert_eq!(UInt::from(128_000u64).expect_u64(), Ok(128_000u64));
+        assert_eq!(
+            UInt::from(BigUint::from(128_000u64)).expect_u64(),
+            Ok(128_000u64)
+        );
+        assert!(
+            UInt::from(BigUint::from_str("1_000_000_000_000_000_000_000_000_000_000").unwrap())
+                .expect_u64()
+                .is_err()
+        )
     }
 }
