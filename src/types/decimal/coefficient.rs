@@ -233,7 +233,8 @@ mod coefficient_tests {
     use std::ops::Neg;
     use std::str::FromStr;
 
-    use crate::{Coefficient, Decimal, Sign, UInt};
+    use super::*;
+    use crate::{Decimal, UInt};
 
     fn eq_test<I1, I2>(c1: I1, c2: I2)
     where

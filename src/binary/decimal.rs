@@ -9,11 +9,11 @@ use crate::binary::int::DecodedInt;
 use crate::binary::raw_binary_writer::MAX_INLINE_LENGTH;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
+use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::ion_data::IonEq;
 use crate::result::{IonFailure, IonResult};
 use crate::types::integer::UIntData;
-use crate::IonError;
-use crate::{Coefficient, Decimal, Sign, UInt};
+use crate::{Decimal, IonError, UInt};
 
 const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
