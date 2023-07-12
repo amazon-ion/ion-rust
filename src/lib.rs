@@ -207,9 +207,12 @@ pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
 #[doc(inline)]
 pub use types::{
-    decimal::Decimal, Blob, Bytes, Clob, Coefficient, Int, IonType, List, SExp, Sign, Str, Struct,
-    Symbol, SymbolId, Timestamp, TimestampPrecision, UInt,
+    decimal::Decimal, Blob, Bytes, Clob, Int, IonType, List, SExp, Str, Struct, Symbol, SymbolId,
+    Timestamp, TimestampPrecision, UInt,
 };
+
+// Allow access to less commonly used types like decimal::coefficient::{Coefficient, Sign}
+pub use types::decimal;
 
 // These re-exports are only visible if the "experimental-reader" feature is enabled.
 #[cfg(feature = "experimental-reader")]

@@ -2,18 +2,18 @@ use std::cmp::{max, Ordering};
 
 use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};
 
+use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::ion_data::{IonEq, IonOrd};
 use crate::result::{IonError, IonFailure};
 use crate::types::integer::UIntData;
-use crate::{Coefficient, Sign, UInt};
-use crate::{Int, IonResult};
+use crate::{Int, IonResult, UInt};
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
 
-pub(crate) mod coefficient;
+pub mod coefficient;
 mod magnitude;
 
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
@@ -24,7 +24,8 @@ mod magnitude;
 /// ```
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
-/// use ion_rs::{Int, Decimal, Sign, UInt};
+/// use ion_rs::{Int, Decimal, UInt};
+/// use ion_rs::decimal::coefficient::Sign;
 /// // Equivalent to: 1225 * 10^-2, or 12.25
 /// let decimal = Decimal::new(1225, -2);
 /// // The coefficient can be viewed as a sign/magnitude pair...
@@ -495,8 +496,9 @@ impl Display for Decimal {
 
 #[cfg(test)]
 mod decimal_tests {
+    use crate::decimal::coefficient::{Coefficient, Sign};
     use crate::result::IonResult;
-    use crate::{Coefficient, Decimal, Int, Sign, UInt};
+    use crate::{Decimal, Int, UInt};
     use num_bigint::{BigInt, BigUint};
 
     use num_traits::Float;

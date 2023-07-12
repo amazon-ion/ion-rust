@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
-//! Provides utility to serialize Ion data from [`Element`](super::Element) into common targets
+//! Provides utility to serialize Ion data from [`Element`] into common targets
 //! such as byte buffers or files.
 
 use crate::result::IonResult;
@@ -13,12 +13,11 @@ use crate::{Element, Value};
 
 /// Serializes [`Element`] instances into some kind of output sink.
 pub trait ElementWriter {
+    /// Serializes a single [`Value`] at the current depth of the writer.
+    fn write_value(&mut self, value: &Value) -> IonResult<()>;
+
     /// Serializes a single [`Element`] at the current depth of the writer.
     fn write_element(&mut self, element: &Element) -> IonResult<()>;
-
-    /// Serializes a single [`Value`] at the current depth of the writer.
-    // TODO: consider extracting this to a ValueWriter trait.
-    fn write_value(&mut self, value: &Value) -> IonResult<()>;
 
     /// Serializes a collection of [`Element`].
     ///

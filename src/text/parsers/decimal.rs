@@ -8,12 +8,13 @@ use nom::combinator::{map, opt};
 use nom::sequence::{pair, preceded, terminated};
 use num_bigint::BigUint;
 
+use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::text::parsers::numeric_support::{
     digits_before_dot, exponent_digits, floating_point_number_components,
 };
 use crate::text::parsers::stop_character;
 use crate::text::text_value::TextValue;
-use crate::{Coefficient, Decimal, Sign, UInt};
+use crate::{Decimal, UInt};
 
 /// Matches the text representation of a decimal value and returns the resulting [Decimal]
 /// as a [TextValue::Decimal].

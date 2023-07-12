@@ -5,7 +5,7 @@
 pub type SymbolId = usize;
 
 mod bytes;
-pub(crate) mod decimal;
+pub mod decimal;
 pub(crate) mod integer;
 mod list;
 mod lob;
@@ -17,7 +17,6 @@ mod timestamp;
 
 pub use crate::element::Sequence;
 pub use crate::types::bytes::Bytes;
-pub use decimal::coefficient::{Coefficient, Sign};
 pub use decimal::Decimal;
 pub use integer::{Int, UInt};
 pub use list::List;
