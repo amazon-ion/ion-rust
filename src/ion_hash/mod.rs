@@ -4,7 +4,7 @@
 //!
 //! ## Examples
 //! ```rust
-//! use ion_rs::element::Element;
+//! use ion_rs::Element;
 //! use ion_rs::result::IonResult;
 //! use ion_rs::ion_hash;
 //!

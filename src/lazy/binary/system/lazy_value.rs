@@ -248,7 +248,7 @@ where
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::Element;
+    /// use ion_rs::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
@@ -290,7 +290,7 @@ where
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::Element;
+    /// use ion_rs::Element;
     /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;

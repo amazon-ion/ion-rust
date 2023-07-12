@@ -198,7 +198,10 @@ pub mod thunk;
 pub mod tokens;
 
 pub use element::builders::{SequenceBuilder, StructBuilder};
-pub use element::{Annotations, Element, IntoAnnotatedElement, IntoAnnotations, Sequence, Value};
+pub use element::{
+    reader::ElementReader, writer::ElementWriter, Annotations, Element, IntoAnnotatedElement,
+    IntoAnnotations, Sequence, Value,
+};
 pub use ion_data::IonData;
 pub use symbol_ref::SymbolRef;
 pub use symbol_table::SymbolTable;
@@ -234,6 +237,7 @@ pub use {
     text::text_writer::{TextWriter, TextWriterBuilder},
 };
 
+#[doc(inline)]
 pub use result::{IonError, IonResult};
 
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
