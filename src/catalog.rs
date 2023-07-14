@@ -42,7 +42,7 @@ impl Catalog for MapCatalog {
                 ))
             })?;
 
-        let (_highest_version, table) = versions.iter().rev().next().ok_or_else(|| {
+        let (_highest_version, table) = versions.iter().next_back().ok_or_else(|| {
             IonError::illegal_operation(format!("symbol table with name: {name} does not exist"))
         })?;
         Ok(table.to_owned())
