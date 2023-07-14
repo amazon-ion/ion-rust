@@ -403,7 +403,7 @@ mod tests {
     {
         names
             .into_iter()
-            .zip(srcs?.into_iter())
+            .zip(srcs?)
             .map(|(name, (insn, a_tok))| {
                 Ok((
                     insn,
