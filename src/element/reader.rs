@@ -209,7 +209,7 @@ impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol> + ?Sized> ElementLoade
             child_elements.push((field_name, value));
         }
         self.reader.step_out()?;
-        Ok(Struct::from_iter(child_elements.into_iter()))
+        Ok(Struct::from_iter(child_elements))
     }
 }
 
