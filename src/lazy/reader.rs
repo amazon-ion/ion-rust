@@ -1,8 +1,8 @@
 use crate::binary::constants::v1_0::IVM;
 use crate::element::reader::ElementReader;
 use crate::element::Element;
-use crate::lazy::binary::encoding::BinaryEncoding;
 use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::encoding::BinaryEncoding;
 use crate::lazy::system_reader::LazySystemReader;
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;

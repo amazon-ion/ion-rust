@@ -1,13 +1,13 @@
 use crate::binary::int::DecodedInt;
 use crate::binary::uint::DecodedUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::encoding::BinaryEncoding;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
-use crate::lazy::binary::raw::lazy_raw_sequence::LazyRawBinarySequence;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct;
+use crate::lazy::binary::raw::sequence::LazyRawBinarySequence;
 use crate::lazy::decoder::private::LazyRawValuePrivate;
 use crate::lazy::decoder::LazyRawValue;
+use crate::lazy::encoding::BinaryEncoding;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
@@ -35,7 +35,7 @@ impl<'a> Debug for LazyRawBinaryValue<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "LazyRawValue {{\n  val={:?},\n  buf={:?}\n}}\n",
+            "LazyRawBinaryValue {{\n  val={:?},\n  buf={:?}\n}}\n",
             self.encoded_value, self.input
         )
     }
@@ -54,6 +54,10 @@ impl<'data> LazyRawValue<'data, BinaryEncoding> for LazyRawBinaryValue<'data> {
         self.ion_type()
     }
 
+    fn is_null(&self) -> bool {
+        self.is_null()
+    }
+
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {
         self.annotations()
     }
@@ -68,6 +72,10 @@ impl<'data> LazyRawBinaryValue<'data> {
     /// parsing of the input stream.
     pub fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.encoded_value.header().is_null()
     }
 
     /// Returns `true` if this value has a non-empty annotations sequence; otherwise, returns `false`.
@@ -118,7 +126,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     /// [`LazyRawBinarySequence`] or [`LazyStruct`](crate::lazy::struct::LazyStruct)
     /// that can be traversed to access the container's contents.
     pub fn read(&self) -> ValueParseResult<'data, BinaryEncoding> {
-        if self.encoded_value.header().is_null() {
+        if self.is_null() {
             let raw_value_ref = RawValueRef::Null(self.ion_type());
             return Ok(raw_value_ref);
         }

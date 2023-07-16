@@ -1,4 +1,5 @@
 use crate::position::Position;
+use std::borrow::Cow;
 use thiserror::Error;
 
 /// For non-blocking readers, indicates that there was not enough data available in the input buffer
@@ -6,14 +7,14 @@ use thiserror::Error;
 #[derive(Clone, Debug, Error, PartialEq)]
 #[error("ran out of input while reading {label} at offset {position}")]
 pub struct IncompleteError {
-    label: &'static str,
+    label: Cow<'static, str>,
     position: Position,
 }
 
 impl IncompleteError {
-    pub(crate) fn new(label: &'static str, position: impl Into<Position>) -> Self {
+    pub(crate) fn new(label: impl Into<Cow<'static, str>>, position: impl Into<Position>) -> Self {
         IncompleteError {
-            label,
+            label: label.into(),
             position: position.into(),
         }
     }

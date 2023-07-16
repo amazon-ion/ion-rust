@@ -1,5 +1,5 @@
-use crate::lazy::binary::encoding::BinaryEncoding;
 use crate::lazy::decoder::{LazyDecoder, LazyRawSequence, LazyRawValue};
+use crate::lazy::encoding::BinaryEncoding;
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
 use crate::{IonError, IonResult, IonType, SymbolTable};

@@ -62,6 +62,7 @@ pub trait LazyRawValue<'data, D: LazyDecoder<'data>>:
     private::LazyRawValuePrivate<'data> + Clone + Debug
 {
     fn ion_type(&self) -> IonType;
+    fn is_null(&self) -> bool;
     fn annotations(&self) -> D::AnnotationsIterator;
     fn read(&self) -> IonResult<RawValueRef<'data, D>>;
 }

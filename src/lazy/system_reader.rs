@@ -1,4 +1,4 @@
-use crate::lazy::binary::encoding::BinaryEncoding;
+use crate::lazy::encoding::BinaryEncoding;
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
 

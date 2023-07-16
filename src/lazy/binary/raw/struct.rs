@@ -1,10 +1,10 @@
-use crate::lazy::binary::encoding::BinaryEncoding;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawFieldPrivate};
 use crate::lazy::decoder::{LazyRawField, LazyRawStruct};
+use crate::lazy::encoding::BinaryEncoding;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{IonResult, RawSymbolTokenRef};

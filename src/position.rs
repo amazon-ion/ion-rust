@@ -7,6 +7,7 @@ use std::fmt::{Display, Error};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Position {
     pub(crate) byte_offset: usize,
+    pub(crate) byte_length: Option<usize>,
     pub(crate) line_column: Option<(usize, usize)>,
 }
 
@@ -16,16 +17,20 @@ impl Position {
     pub fn with_offset(offset: usize) -> Self {
         Position {
             byte_offset: offset,
+            byte_length: None,
             line_column: None,
         }
     }
 
+    pub fn with_length(mut self, length: usize) -> Self {
+        self.byte_length = Some(length);
+        self
+    }
+
     /// Add line and column information to the current Position.
-    pub fn with_line_and_column(&self, line: usize, column: usize) -> Self {
-        Position {
-            line_column: Some((line, column)),
-            ..*self
-        }
+    pub fn with_line_and_column(mut self, line: usize, column: usize) -> Self {
+        self.line_column = Some((line, column));
+        self
     }
 
     /// Returns the offset from the start of the Ion stream in bytes.
@@ -33,17 +38,22 @@ impl Position {
         self.byte_offset
     }
 
-    /// If available returns the text position as line and column offsets.
+    /// If available, returns the length of the input slice in question.
+    pub fn byte_length(&self) -> Option<usize> {
+        self.byte_length
+    }
+
+    /// If available, returns the text position as line and column offsets.
     pub fn line_and_column(&self) -> Option<(usize, usize)> {
         self.line_column
     }
 
-    /// If available returns the line component of the text position.
+    /// If available, returns the line component of the text position.
     pub fn line(&self) -> Option<usize> {
         self.line_column.map(|(line, _column)| line)
     }
 
-    /// If available returns the column component of the text position.
+    /// If available, returns the column component of the text position.
     pub fn column(&self) -> Option<usize> {
         self.line_column.map(|(_line, column)| column)
     }
