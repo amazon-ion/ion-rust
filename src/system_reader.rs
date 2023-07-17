@@ -903,11 +903,7 @@ mod tests {
     #[test]
     fn shared_symbol_table() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table",
-            1,
-            [Symbol::owned("foo")],
-        )?);
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table", 1, ["foo"])?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
             r#"
@@ -930,11 +926,7 @@ mod tests {
     #[test]
     fn shared_symbol_table_import_with_max_id() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table",
-            1,
-            [Symbol::owned("foo")],
-        )?);
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table", 1, ["foo"])?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
             r#"
@@ -959,11 +951,7 @@ mod tests {
     #[test]
     fn shared_symbol_table_step_in() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table",
-            1,
-            [Symbol::owned("foo")],
-        )?);
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table", 1, ["foo"])?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
             r#"
@@ -1000,11 +988,7 @@ mod tests {
     #[test]
     fn shared_symbol_table_partial_read() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table",
-            1,
-            [Symbol::owned("foo")],
-        )?);
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table", 1, ["foo"])?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
             r#"
@@ -1037,11 +1021,7 @@ mod tests {
     #[test]
     fn shared_and_local_symbols() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table",
-            1,
-            [Symbol::owned("foo")],
-        )?);
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table", 1, ["foo"])?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
             r#"
@@ -1068,16 +1048,8 @@ mod tests {
     #[test]
     fn multiple_shared_symbol_table_imports() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table_1",
-            1,
-            [Symbol::owned("foo")],
-        )?);
-        map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table_2",
-            1,
-            [Symbol::owned("bar")],
-        )?);
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table_1", 1, ["foo"])?);
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table_2", 1, ["bar"])?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
             r#"
@@ -1107,16 +1079,8 @@ mod tests {
     #[test]
     fn non_existing_shared_symbol_table_imports() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
-        map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table_1",
-            1,
-            [Symbol::owned("foo")],
-        )?);
-        map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table_2",
-            1,
-            [Symbol::owned("bar")],
-        )?);
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table_1", 1, ["foo"])?);
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table_2", 1, ["bar"])?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
             r#"

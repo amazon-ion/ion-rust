@@ -36,7 +36,7 @@ impl Catalog for MapCatalog {
 
         let versions: &BTreeMap<usize, SharedSymbolTable> = self.tables_by_name.get(name)?;
 
-        let (_highest_version, table) = versions.iter().rev().next()?;
+        let (_highest_version, table) = versions.iter().next_back()?;
         Some(table)
     }
 

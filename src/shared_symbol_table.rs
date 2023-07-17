@@ -54,7 +54,8 @@ impl SharedSymbolTable {
 }
 
 /// Tries to construct a [shared symbol table](https://amazon-ion.github.io/ion-docs/docs/symbols.html#shared-symbol-tables)
-/// from an [`Element`] representing its serialized form./// Below is an example of a shared symbol table:
+/// from an [`Element`] representing its serialized form.
+/// Below is an example of a shared symbol table:
 ///
 /// ```ignore
 /// $ion_shared_symbol_table::
