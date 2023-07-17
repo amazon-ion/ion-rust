@@ -1,8 +1,8 @@
+use crate::decimal::coefficient::Sign;
 use crate::ion_data::{IonEq, IonOrd};
 use crate::result::{IonError, IonFailure, IonResult};
 use crate::types::integer::UIntData;
 use crate::types::Decimal;
-use crate::types::Sign::Negative;
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
 };
@@ -405,7 +405,7 @@ impl Timestamp {
                 }
                 if coefficient.is_negative_zero() {
                     write!(output, "0")?;
-                } else if coefficient.sign == Negative {
+                } else if coefficient.sign == Sign::Negative {
                     return IonResult::encoding_error(
                         "fractional seconds cannot have a negative coefficient (other than -0)",
                     );

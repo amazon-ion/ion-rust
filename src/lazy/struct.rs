@@ -1,11 +1,13 @@
 use crate::element::builders::StructBuilder;
-use crate::lazy::binary::raw::lazy_raw_struct::{LazyRawStruct, RawStructIterator};
-use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
-use crate::lazy::binary::system::lazy_value::LazyValue;
+use crate::lazy::binary::encoding::BinaryEncoding;
+use crate::lazy::decoder::private::{LazyRawFieldPrivate, LazyRawValuePrivate};
+use crate::lazy::decoder::{LazyDecoder, LazyRawStruct};
+use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::{
-    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Struct, SymbolRef, SymbolTable,
+    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, RawSymbolTokenRef, Struct,
+    SymbolRef, SymbolTable,
 };
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -17,11 +19,11 @@ use std::fmt::{Debug, Formatter};
 ///# use ion_rs::IonResult;
 ///# fn main() -> IonResult<()> {
 /// use ion_rs::Element;
-/// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+/// use ion_rs::lazy::reader::LazyBinaryReader;;
 ///
 /// let ion_data = r#"{foo: 1, bar: 2, foo: 3, bar: 4}"#;
 /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
-/// let mut reader = LazyReader::new(&ion_bytes)?;
+/// let mut reader = LazyBinaryReader::new(&ion_bytes)?;
 ///
 /// // Advance the reader to the first value and confirm it's a struct
 /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
@@ -39,14 +41,16 @@ use std::fmt::{Debug, Formatter};
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazyStruct<'top, 'data> {
-    pub(crate) raw_struct: LazyRawStruct<'data>,
+pub struct LazyStruct<'top, 'data, D: LazyDecoder<'data>> {
+    pub(crate) raw_struct: D::Struct,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
+pub type LazyBinaryStruct<'top, 'data> = LazyStruct<'top, 'data, BinaryEncoding>;
+
 // Best-effort debug formatting for LazyStruct. Any failures that occur during reading will result
 // in the output being silently truncated.
-impl<'top, 'data> Debug for LazyStruct<'top, 'data> {
+impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazyStruct<'top, 'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {
@@ -61,9 +65,9 @@ impl<'top, 'data> Debug for LazyStruct<'top, 'data> {
     }
 }
 
-impl<'top, 'data> LazyStruct<'top, 'data> {
+impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     /// Returns an iterator over this struct's fields. See [`LazyField`].
-    pub fn iter(&self) -> StructIterator<'top, 'data> {
+    pub fn iter(&self) -> StructIterator<'top, 'data, D> {
         StructIterator {
             raw_struct_iter: self.raw_struct.iter(),
             symbol_table: self.symbol_table,
@@ -80,12 +84,12 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::Element;
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
     /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
-    /// let mut reader = LazyReader::new(&ion_bytes)?;
+    /// let mut reader = LazyBinaryReader::new(&ion_bytes)?;
     ///
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
@@ -101,7 +105,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn find(&self, name: &str) -> IonResult<Option<LazyValue<'top, 'data>>> {
+    pub fn find(&self, name: &str) -> IonResult<Option<LazyValue<'top, 'data, D>>> {
         for field in self {
             let field = field?;
             if field.name()? == name {
@@ -118,11 +122,11 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::Element;
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
     ///
     /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
     /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
-    /// let mut reader = LazyReader::new(&ion_bytes)?;
+    /// let mut reader = LazyBinaryReader::new(&ion_bytes)?;
     ///
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
@@ -132,7 +136,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn find_expected(&self, name: &str) -> IonResult<LazyValue<'top, 'data>> {
+    pub fn find_expected(&self, name: &str) -> IonResult<LazyValue<'top, 'data, D>> {
         self.find(name)?
             .ok_or_else(|| IonError::decoding_error(format!("missing required field {}", name)))
     }
@@ -143,12 +147,12 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::{Element, IonType};
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let ion_data = r#"{foo: "hello", bar: null.list, baz: 3, bar: 4}"#;
     /// let ion_bytes = Element::read_one(ion_data)?.to_binary()?;
-    /// let mut reader = LazyReader::new(&ion_bytes)?;
+    /// let mut reader = LazyBinaryReader::new(&ion_bytes)?;
     ///
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
@@ -158,7 +162,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn get(&self, name: &str) -> IonResult<Option<ValueRef<'top, 'data>>>
+    pub fn get(&self, name: &str) -> IonResult<Option<ValueRef<'top, 'data, D>>>
     where
         'data: 'top,
     {
@@ -170,13 +174,13 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::Element;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let ion_data = r#"{foo: "hello", bar: null.list, baz: 3, bar: 4}"#;
     /// let ion_bytes = Element::read_one(ion_data)?.to_binary()?;
-    /// let mut reader = LazyReader::new(&ion_bytes)?;
+    /// let mut reader = LazyBinaryReader::new(&ion_bytes)?;
     ///
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
@@ -185,7 +189,7 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn get_expected(&self, name: &str) -> IonResult<ValueRef<'top, 'data>>
+    pub fn get_expected(&self, name: &str) -> IonResult<ValueRef<'top, 'data, D>>
     where
         'data: 'top,
     {
@@ -202,14 +206,14 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::element::{Element, IntoAnnotatedElement};
+    /// use ion_rs::{Element, IntoAnnotatedElement};
     /// use ion_rs::ion_struct;
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
     ///
     /// let element: Element = ion_struct! {"foo": 1, "bar": 2}.with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_struct = lazy_reader.expect_next()?.read()?.expect_struct()?;
@@ -223,26 +227,20 @@ impl<'top, 'data> LazyStruct<'top, 'data> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data> {
+    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
         AnnotationsIterator {
-            raw_annotations: self.raw_struct.value.annotations(),
+            raw_annotations: self.raw_struct.annotations(),
             symbol_table: self.symbol_table,
-            initial_offset: self
-                .raw_struct
-                .value
-                .encoded_value
-                .annotations_offset()
-                .unwrap_or(self.raw_struct.value.encoded_value.header_offset),
         }
     }
 }
 
 /// A single field within a [`LazyStruct`].
-pub struct LazyField<'top, 'data> {
-    pub(crate) value: LazyValue<'top, 'data>,
+pub struct LazyField<'top, 'data, D: LazyDecoder<'data>> {
+    pub(crate) value: LazyValue<'top, 'data, D>,
 }
 
-impl<'top, 'data> Debug for LazyField<'top, 'data> {
+impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazyField<'top, 'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -253,15 +251,21 @@ impl<'top, 'data> Debug for LazyField<'top, 'data> {
     }
 }
 
-impl<'top, 'data> LazyField<'top, 'data> {
+impl<'top, 'data, D: LazyDecoder<'data>> LazyField<'top, 'data, D>
+where
+    'data: 'top,
+{
     /// Returns a symbol representing the name of this field.
     pub fn name(&self) -> IonResult<SymbolRef<'top>> {
-        // This is a LazyField (not a LazyValue), so the field name is defined.
-        debug_assert!(self.value.raw_value.field_name().is_some());
-        let field_sid = self.value.raw_value.field_name().unwrap();
+        // This is a LazyField (not a LazyValue), so the field name must be defined.
+        let field_name = self.value.raw_value.field_name().unwrap();
+        let field_id = match field_name {
+            RawSymbolTokenRef::SymbolId(sid) => sid,
+            RawSymbolTokenRef::Text(text) => return Ok(SymbolRef::with_text(text)),
+        };
         self.value
             .symbol_table
-            .symbol_for(field_sid)
+            .symbol_for(field_id)
             .map(|symbol| symbol.into())
             .ok_or_else(|| {
                 IonError::decoding_error("found a symbol ID that was not in the symbol table")
@@ -270,26 +274,27 @@ impl<'top, 'data> LazyField<'top, 'data> {
 
     /// Returns a lazy value representing the value of this field. To access the value's data,
     /// see [`LazyValue::read`].
-    pub fn value(&self) -> &LazyValue<'top, 'data> {
+    pub fn value(&self) -> &LazyValue<'top, 'data, D> {
         &self.value
     }
 }
 
-pub struct StructIterator<'top, 'data> {
-    pub(crate) raw_struct_iter: RawStructIterator<'data>,
+pub struct StructIterator<'top, 'data, D: LazyDecoder<'data>> {
+    pub(crate) raw_struct_iter:
+        <<D as LazyDecoder<'data>>::Struct as LazyRawStruct<'data, D>>::Iterator,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-impl<'top, 'data> Iterator for StructIterator<'top, 'data> {
-    type Item = IonResult<LazyField<'top, 'data>>;
+impl<'top, 'data, D: LazyDecoder<'data>> Iterator for StructIterator<'top, 'data, D> {
+    type Item = IonResult<LazyField<'top, 'data, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         StructIterator::next_field(self).transpose()
     }
 }
 
-impl<'top, 'data> StructIterator<'top, 'data> {
-    pub fn next_field(&mut self) -> IonResult<Option<LazyField<'top, 'data>>> {
+impl<'top, 'data, D: LazyDecoder<'data>> StructIterator<'top, 'data, D> {
+    pub fn next_field(&mut self) -> IonResult<Option<LazyField<'top, 'data, D>>> {
         let raw_field = match self.raw_struct_iter.next() {
             Some(raw_field) => raw_field?,
             None => return Ok(None),
@@ -304,32 +309,33 @@ impl<'top, 'data> StructIterator<'top, 'data> {
     }
 }
 
-impl<'top, 'data> TryFrom<LazyStruct<'top, 'data>> for Struct {
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyStruct<'top, 'data, D>> for Struct {
     type Error = IonError;
 
-    fn try_from(lazy_struct: LazyStruct<'top, 'data>) -> Result<Self, Self::Error> {
+    fn try_from(lazy_struct: LazyStruct<'top, 'data, D>) -> Result<Self, Self::Error> {
         let mut builder = StructBuilder::new();
         for field in &lazy_struct {
             let field = field?;
-            builder = builder.with_field(field.name()?, Element::try_from(field.value().clone())?);
+            builder =
+                builder.with_field(field.name()?, Element::try_from((*field.value()).clone())?);
         }
         Ok(builder.build())
     }
 }
 
-impl<'top, 'data> TryFrom<LazyStruct<'top, 'data>> for Element {
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyStruct<'top, 'data, D>> for Element {
     type Error = IonError;
 
-    fn try_from(lazy_struct: LazyStruct<'top, 'data>) -> Result<Self, Self::Error> {
+    fn try_from(lazy_struct: LazyStruct<'top, 'data, D>) -> Result<Self, Self::Error> {
         let annotations: Annotations = lazy_struct.annotations().try_into()?;
         let struct_: Struct = lazy_struct.try_into()?;
         Ok(struct_.with_annotations(annotations))
     }
 }
 
-impl<'a, 'top, 'data> IntoIterator for &'a LazyStruct<'top, 'data> {
-    type Item = IonResult<LazyField<'top, 'data>>;
-    type IntoIter = StructIterator<'top, 'data>;
+impl<'a, 'top, 'data, D: LazyDecoder<'data>> IntoIterator for &'a LazyStruct<'top, 'data, D> {
+    type Item = IonResult<LazyField<'top, 'data, D>>;
+    type IntoIter = StructIterator<'top, 'data, D>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -339,13 +345,13 @@ impl<'a, 'top, 'data> IntoIterator for &'a LazyStruct<'top, 'data> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lazy::binary::lazy_reader::LazyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::reader::LazyBinaryReader;
 
     #[test]
     fn find() -> IonResult<()> {
         let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
-        let mut reader = LazyReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(&ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         let baz = struct_.find("baz")?;
         assert!(baz.is_some());
@@ -358,7 +364,7 @@ mod tests {
     #[test]
     fn find_expected() -> IonResult<()> {
         let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
-        let mut reader = LazyReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(&ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         let baz = struct_.find_expected("baz");
         assert!(baz.is_ok());
@@ -371,7 +377,7 @@ mod tests {
     #[test]
     fn get() -> IonResult<()> {
         let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
-        let mut reader = LazyReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(&ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         let baz = struct_.get("baz")?;
         assert_eq!(baz, Some(ValueRef::Int(3.into())));
@@ -383,7 +389,7 @@ mod tests {
     #[test]
     fn get_expected() -> IonResult<()> {
         let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
-        let mut reader = LazyReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(&ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         let baz = struct_.get_expected("baz");
         assert_eq!(baz, Ok(ValueRef::Int(3.into())));
@@ -395,7 +401,7 @@ mod tests {
     #[test]
     fn annotations() -> IonResult<()> {
         let ion_data = to_binary_ion("a::b::c::{foo: 1, bar: 2, baz: quux::quuz::3}")?;
-        let mut reader = LazyReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(&ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         assert!(struct_.annotations().are(["a", "b", "c"])?);
         let baz = struct_.find_expected("baz")?;
@@ -407,7 +413,7 @@ mod tests {
     fn try_into_element() -> IonResult<()> {
         let ion_text = "foo::baz::baz::{a: 1, b: 2, c: 3}";
         let binary_ion = to_binary_ion(ion_text)?;
-        let mut reader = LazyReader::new(&binary_ion)?;
+        let mut reader = LazyBinaryReader::new(&binary_ion)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         let result: IonResult<Element> = struct_.try_into();
         assert!(result.is_ok());
@@ -419,7 +425,7 @@ mod tests {
     fn try_into_element_error() -> IonResult<()> {
         let mut binary_ion = to_binary_ion("foo::baz::baz::{a: 1, b: 2, c: 3}")?;
         let _oops_i_lost_a_byte = binary_ion.pop().unwrap();
-        let mut reader = LazyReader::new(&binary_ion)?;
+        let mut reader = LazyBinaryReader::new(&binary_ion)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         // Conversion will fail because the reader will encounter an unexpected end of input
         let result: IonResult<Element> = struct_.try_into();

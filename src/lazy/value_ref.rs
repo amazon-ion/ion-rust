@@ -1,6 +1,7 @@
 use crate::element::Value;
-use crate::lazy::binary::system::lazy_sequence::LazySequence;
-use crate::lazy::binary::system::lazy_struct::LazyStruct;
+use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::r#struct::LazyStruct;
+use crate::lazy::sequence::LazySequence;
 use crate::result::IonFailure;
 use crate::{Decimal, Int, IonError, IonResult, IonType, SymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
@@ -12,7 +13,7 @@ use std::fmt::{Debug, Formatter};
 /// Unlike a [Value], a `ValueRef` avoids heap allocation whenever possible, choosing to point instead
 /// to existing resources. Numeric values and timestamps are stored within the `ValueRef` itself.
 /// Text values and lobs hold references to either a slice of input data or text in the symbol table.
-pub enum ValueRef<'top, 'data> {
+pub enum ValueRef<'top, 'data, D: LazyDecoder<'data>> {
     Null(IonType),
     Bool(bool),
     Int(Int),
@@ -23,14 +24,12 @@ pub enum ValueRef<'top, 'data> {
     Symbol(SymbolRef<'top>),
     Blob(&'data [u8]),
     Clob(&'data [u8]),
-    // As ValueRef represents a reference to a value in the streaming APIs, the container variants
-    // simply indicate their Ion type. To access their nested data, the reader would need to step in.
-    SExp(LazySequence<'top, 'data>),
-    List(LazySequence<'top, 'data>),
-    Struct(LazyStruct<'top, 'data>),
+    SExp(LazySequence<'top, 'data, D>),
+    List(LazySequence<'top, 'data, D>),
+    Struct(LazyStruct<'top, 'data, D>),
 }
 
-impl<'top, 'data> PartialEq for ValueRef<'top, 'data> {
+impl<'top, 'data, D: LazyDecoder<'data>> PartialEq for ValueRef<'top, 'data, D> {
     fn eq(&self, other: &Self) -> bool {
         use ValueRef::*;
         match (self, other) {
@@ -51,7 +50,7 @@ impl<'top, 'data> PartialEq for ValueRef<'top, 'data> {
     }
 }
 
-impl<'top, 'data> Debug for ValueRef<'top, 'data> {
+impl<'top, 'data, D: LazyDecoder<'data>> Debug for ValueRef<'top, 'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ValueRef::*;
         match self {
@@ -72,10 +71,10 @@ impl<'top, 'data> Debug for ValueRef<'top, 'data> {
     }
 }
 
-impl<'top, 'data> TryFrom<ValueRef<'top, 'data>> for Value {
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<ValueRef<'top, 'data, D>> for Value {
     type Error = IonError;
 
-    fn try_from(value: ValueRef<'top, 'data>) -> Result<Self, Self::Error> {
+    fn try_from(value: ValueRef<'top, 'data, D>) -> Result<Self, Self::Error> {
         use ValueRef::*;
         let value = match value {
             Null(ion_type) => Value::Null(ion_type),
@@ -96,7 +95,7 @@ impl<'top, 'data> TryFrom<ValueRef<'top, 'data>> for Value {
     }
 }
 
-impl<'top, 'data> ValueRef<'top, 'data> {
+impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
     pub fn expect_null(self) -> IonResult<IonType> {
         if let ValueRef::Null(ion_type) = self {
             Ok(ion_type)
@@ -185,7 +184,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         }
     }
 
-    pub fn expect_list(self) -> IonResult<LazySequence<'top, 'data>> {
+    pub fn expect_list(self) -> IonResult<LazySequence<'top, 'data, D>> {
         if let ValueRef::List(s) = self {
             Ok(s)
         } else {
@@ -193,7 +192,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         }
     }
 
-    pub fn expect_sexp(self) -> IonResult<LazySequence<'top, 'data>> {
+    pub fn expect_sexp(self) -> IonResult<LazySequence<'top, 'data, D>> {
         if let ValueRef::SExp(s) = self {
             Ok(s)
         } else {
@@ -201,7 +200,7 @@ impl<'top, 'data> ValueRef<'top, 'data> {
         }
     }
 
-    pub fn expect_struct(self) -> IonResult<LazyStruct<'top, 'data>> {
+    pub fn expect_struct(self) -> IonResult<LazyStruct<'top, 'data, D>> {
         if let ValueRef::Struct(s) = self {
             Ok(s)
         } else {
@@ -212,8 +211,8 @@ impl<'top, 'data> ValueRef<'top, 'data> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::lazy_reader::LazyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::reader::LazyBinaryReader;
     use crate::lazy::value_ref::ValueRef;
     use crate::{Decimal, IonResult, IonType, SymbolRef, Timestamp};
 
@@ -236,7 +235,7 @@ mod tests {
             {this: is, a: struct}
         "#,
         )?;
-        let mut reader = LazyReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(&ion_data)?;
         assert_eq!(reader.expect_next()?.read()?.expect_null()?, IonType::Null);
         assert!(reader.expect_next()?.read()?.expect_bool()?);
         assert_eq!(reader.expect_next()?.read()?.expect_i64()?, 1);
@@ -285,7 +284,7 @@ mod tests {
             {{"Clob"}}
         "#,
         )?;
-        let mut reader = LazyReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(&ion_data)?;
         let first_value = reader.expect_next()?.read()?;
         assert_ne!(first_value, ValueRef::String("it's not a string"));
         assert_eq!(first_value, ValueRef::Null(IonType::Null));

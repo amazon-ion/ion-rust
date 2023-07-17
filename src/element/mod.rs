@@ -309,7 +309,7 @@ impl From<crate::tokens::ScalarValue> for Value {
 /// an [Element].
 ///
 /// ```
-/// use ion_rs::element::{Element, IntoAnnotatedElement, Value};
+/// use ion_rs::{Element, IntoAnnotatedElement, Value};
 ///
 /// // Explicit conversion of a Rust bool (`true`) into a `Value`...
 /// let boolean_value: Value = true.into();
@@ -387,7 +387,7 @@ impl Element {
     /// Returns a reference to this [Element]'s [Value].
     ///
     /// ```
-    /// use ion_rs::element::{Element, Value};
+    /// use ion_rs::{Element, Value};
     /// let element: Element = true.into();
     /// if let Value::Bool(b) = element.value() {
     ///     println!("It was a boolean: {b}");
@@ -711,7 +711,7 @@ impl Element {
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::element::Element;
+    /// use ion_rs::Element;
     /// use ion_rs::{ion_list, IonWriter, TextWriterBuilder};
     ///
     /// // Construct an Element
@@ -759,7 +759,7 @@ management, see [`Element::write_to`].
 ```
 # use ion_rs::{Format, IonResult, TextKind};
 # fn main() -> IonResult<()> {
-use ion_rs::element::Element;
+use ion_rs::Element;
 use ion_rs::ion_list;
 
 // Construct an Element
@@ -810,7 +810,7 @@ This is a convenience method; it is less efficient than [`Element::write_to`] be
 ```
 # use ion_rs::IonResult;
 # fn main() -> IonResult<()> {
-use ion_rs::element::Element;
+use ion_rs::Element;
 use ion_rs::ion_list;
 
 // Construct an Element
@@ -853,7 +853,7 @@ a new `String` and writer on each call, see [`Element::write_to`].
 # use ion_rs::IonResult;
 # fn main() -> IonResult<()> {
 use ion_rs::ion_list;
-use ion_rs::element::Element;
+use ion_rs::Element;
 use ion_rs::TextKind;
 
 // Construct an Element

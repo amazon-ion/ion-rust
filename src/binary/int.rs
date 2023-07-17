@@ -1,8 +1,8 @@
 use std::mem;
 
+use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::result::IonResult;
-use crate::types;
-use crate::{Coefficient, Int};
+use crate::Int;
 use num_traits::Zero;
 use std::io::Write;
 
@@ -120,8 +120,11 @@ impl From<DecodedInt> for Coefficient {
             is_negative,
             .. // ignore `size_in_bytes`
         } = int;
-        use types::Sign::{Negative, Positive};
-        let sign = if is_negative { Negative } else { Positive };
+        let sign = if is_negative {
+            Sign::Negative
+        } else {
+            Sign::Positive
+        };
         Coefficient::new(sign, value.unsigned_abs())
     }
 }

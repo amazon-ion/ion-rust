@@ -1,6 +1,6 @@
-use crate::lazy::binary::raw::lazy_raw_sequence::{LazyRawSequence, RawSequenceIterator};
-use crate::lazy::binary::system::lazy_value::AnnotationsIterator;
-use crate::lazy::binary::system::lazy_value::LazyValue;
+use crate::lazy::binary::encoding::BinaryEncoding;
+use crate::lazy::decoder::{LazyDecoder, LazyRawSequence, LazyRawValue};
+use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
 use crate::{IonError, IonResult, IonType, SymbolTable};
 use std::fmt;
@@ -16,12 +16,12 @@ use std::fmt::{Debug, Formatter};
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+/// use ion_rs::lazy::reader::LazyBinaryReader;;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;
 ///
-/// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+/// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
@@ -44,12 +44,14 @@ use std::fmt::{Debug, Formatter};
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazySequence<'top, 'data> {
-    pub(crate) raw_sequence: LazyRawSequence<'data>,
+pub struct LazySequence<'top, 'data, D: LazyDecoder<'data>> {
+    pub(crate) raw_sequence: D::Sequence,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-impl<'top, 'data> LazySequence<'top, 'data> {
+pub type LazyBinarySequence<'top, 'data> = LazySequence<'top, 'data, BinaryEncoding>;
+
+impl<'top, 'data, D: LazyDecoder<'data>> LazySequence<'top, 'data, D> {
     /// Returns the [`IonType`] of this sequence.
     ///
     /// This will always be either [`IonType::List`] or [`IonType::SExp`].
@@ -59,7 +61,7 @@ impl<'top, 'data> LazySequence<'top, 'data> {
     }
 
     /// Returns an iterator over the values in this sequence. See: [`LazyValue`].
-    pub fn iter(&self) -> SequenceIterator<'top, 'data> {
+    pub fn iter(&self) -> SequenceIterator<'top, 'data, D> {
         SequenceIterator {
             raw_sequence_iter: self.raw_sequence.iter(),
             symbol_table: self.symbol_table,
@@ -75,12 +77,12 @@ impl<'top, 'data> LazySequence<'top, 'data> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{ion_sexp, Element, IntoAnnotatedElement};
-    /// use ion_rs::lazy::binary::lazy_reader::LazyReader;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;
     ///
     /// let element: Element = ion_sexp!(true false).with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_sexp = lazy_reader.expect_next()?.read()?.expect_sexp()?;
@@ -94,24 +96,18 @@ impl<'top, 'data> LazySequence<'top, 'data> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data> {
+    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
         AnnotationsIterator {
-            raw_annotations: self.raw_sequence.value.annotations(),
+            raw_annotations: self.raw_sequence.as_value().annotations(),
             symbol_table: self.symbol_table,
-            initial_offset: self
-                .raw_sequence
-                .value
-                .encoded_value
-                .annotations_offset()
-                .unwrap_or(self.raw_sequence.value.encoded_value.header_offset),
         }
     }
 }
 
-impl<'top, 'data> TryFrom<LazySequence<'top, 'data>> for Sequence {
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazySequence<'top, 'data, D>> for Sequence {
     type Error = IonError;
 
-    fn try_from(lazy_sequence: LazySequence<'top, 'data>) -> Result<Self, Self::Error> {
+    fn try_from(lazy_sequence: LazySequence<'top, 'data, D>) -> Result<Self, Self::Error> {
         let sequence: Sequence = lazy_sequence
             .iter()
             .map(|v| Element::try_from(v?))
@@ -121,10 +117,10 @@ impl<'top, 'data> TryFrom<LazySequence<'top, 'data>> for Sequence {
     }
 }
 
-impl<'top, 'data> TryFrom<LazySequence<'top, 'data>> for Element {
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazySequence<'top, 'data, D>> for Element {
     type Error = IonError;
 
-    fn try_from(lazy_sequence: LazySequence<'top, 'data>) -> Result<Self, Self::Error> {
+    fn try_from(lazy_sequence: LazySequence<'top, 'data, D>) -> Result<Self, Self::Error> {
         let ion_type = lazy_sequence.ion_type();
         let annotations: Annotations = lazy_sequence.annotations().try_into()?;
         let sequence: Sequence = lazy_sequence.try_into()?;
@@ -137,22 +133,22 @@ impl<'top, 'data> TryFrom<LazySequence<'top, 'data>> for Element {
     }
 }
 
-impl<'a, 'top, 'data> IntoIterator for &'a LazySequence<'top, 'data> {
-    type Item = IonResult<LazyValue<'top, 'data>>;
-    type IntoIter = SequenceIterator<'top, 'data>;
+impl<'a, 'top, 'data, D: LazyDecoder<'data>> IntoIterator for &'a LazySequence<'top, 'data, D> {
+    type Item = IonResult<LazyValue<'top, 'data, D>>;
+    type IntoIter = SequenceIterator<'top, 'data, D>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-pub struct SequenceIterator<'top, 'data> {
-    raw_sequence_iter: RawSequenceIterator<'data>,
+pub struct SequenceIterator<'top, 'data, D: LazyDecoder<'data>> {
+    raw_sequence_iter: <D::Sequence as LazyRawSequence<'data, D>>::Iterator,
     symbol_table: &'top SymbolTable,
 }
 
-impl<'top, 'data> Iterator for SequenceIterator<'top, 'data> {
-    type Item = IonResult<LazyValue<'top, 'data>>;
+impl<'top, 'data, D: LazyDecoder<'data>> Iterator for SequenceIterator<'top, 'data, D> {
+    type Item = IonResult<LazyValue<'top, 'data, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let raw_value = match self.raw_sequence_iter.next() {
@@ -169,7 +165,7 @@ impl<'top, 'data> Iterator for SequenceIterator<'top, 'data> {
     }
 }
 
-impl<'top, 'data> Debug for LazySequence<'top, 'data> {
+impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazySequence<'top, 'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self.ion_type() {
             IonType::SExp => {
@@ -210,14 +206,14 @@ impl<'top, 'data> Debug for LazySequence<'top, 'data> {
 #[cfg(test)]
 mod tests {
     use crate::element::Element;
-    use crate::lazy::binary::lazy_reader::LazyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::reader::LazyBinaryReader;
     use crate::IonResult;
 
     #[test]
     fn annotations() -> IonResult<()> {
         let binary_ion = to_binary_ion("foo::bar::baz::[1, 2, 3]")?;
-        let mut reader = LazyReader::new(&binary_ion)?;
+        let mut reader = LazyBinaryReader::new(&binary_ion)?;
         let list = reader.expect_next()?.read()?.expect_list()?;
         assert!(list.annotations().are(["foo", "bar", "baz"])?);
         list.annotations().expect(["foo", "bar", "baz"])?;
@@ -228,7 +224,7 @@ mod tests {
     fn try_into_element() -> IonResult<()> {
         let ion_text = "foo::baz::baz::[1, 2, 3]";
         let binary_ion = to_binary_ion(ion_text)?;
-        let mut reader = LazyReader::new(&binary_ion)?;
+        let mut reader = LazyBinaryReader::new(&binary_ion)?;
         let list = reader.expect_next()?.read()?.expect_list()?;
         let result: IonResult<Element> = list.try_into();
         assert!(result.is_ok());
@@ -240,7 +236,7 @@ mod tests {
     fn try_into_element_error() -> IonResult<()> {
         let mut binary_ion = to_binary_ion("foo::baz::baz::[1, 2, 3]")?;
         let _oops_i_lost_a_byte = binary_ion.pop().unwrap();
-        let mut reader = LazyReader::new(&binary_ion)?;
+        let mut reader = LazyBinaryReader::new(&binary_ion)?;
         let list = reader.expect_next()?.read()?.expect_list()?;
         // Conversion will fail because the reader will encounter an unexpected end of input
         let result: IonResult<Element> = list.try_into();

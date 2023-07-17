@@ -5,7 +5,7 @@
 //! Conceptually [`TokenStream`] can be thought of as a continuation of the computation of
 //! an Ion data stream.  This is useful for composing and transforming over streams of Ion data.
 //!
-//! It pulls in parts of the [element crate](crate::element) API to make it easier to work
+//! It pulls in parts of the `crate::element` module's API to make it easier to work
 //! with values without fully materializing the tree.
 
 use crate::result::IonFailure;

@@ -2,11 +2,10 @@
 #![cfg(feature = "experimental-reader")]
 #![cfg(feature = "experimental-writer")]
 
-use ion_rs::element::reader::ElementReader;
-use ion_rs::element::writer::ElementWriter;
-use ion_rs::element::{Element, Sequence};
-use ion_rs::result::{IonError, IonResult};
-use ion_rs::{BinaryWriterBuilder, Format, IonData, IonWriter, TextKind, TextWriterBuilder};
+use ion_rs::{
+    BinaryWriterBuilder, Element, ElementReader, ElementWriter, Format, IonData, IonError,
+    IonResult, IonWriter, Sequence, TextKind, TextWriterBuilder,
+};
 
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
