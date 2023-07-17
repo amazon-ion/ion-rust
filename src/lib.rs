@@ -164,7 +164,7 @@ use rstest_reuse;
 // Private modules that serve to organize implementation details.
 mod binary;
 mod blocking_reader;
-mod catalog;
+pub mod catalog;
 mod constants;
 mod data_source;
 mod ion_data;

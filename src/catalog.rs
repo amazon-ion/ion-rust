@@ -1,6 +1,4 @@
-use crate::result::{IonFailure, IonResult};
 use crate::shared_symbol_table::SharedSymbolTable;
-use crate::IonError;
 use std::collections::{BTreeMap, HashMap};
 
 /// A Catalog is a collection of Shared Symbol Tables.
@@ -9,15 +7,16 @@ use std::collections::{BTreeMap, HashMap};
 pub trait Catalog {
     /// Returns the Shared Symbol Table with given table name
     /// If a table with the given name doesn't exists or if the table name is an empty string
-    /// then returns an error
+    /// then returns None
     /// If a table with multiple versions exists for the given name then it will return the latest version of table
-    fn get_table(&self, name: &str) -> IonResult<SharedSymbolTable>;
+    fn get_table(&self, name: &str) -> Option<&SharedSymbolTable>;
     /// Returns the Shared Symbol Table with given table name and version
-    /// If a table with given name and version doesn't exists then it returns an error
-    fn get_table_with_version(&self, name: &str, version: usize) -> IonResult<SharedSymbolTable>;
+    /// If a table with given name and version doesn't exists then it returns None
+    fn get_table_with_version(&self, name: &str, version: usize) -> Option<&SharedSymbolTable>;
 }
 
-struct MapCatalog {
+#[derive(Default)]
+pub struct MapCatalog {
     tables_by_name: HashMap<String, BTreeMap<usize, SharedSymbolTable>>,
 }
 
@@ -30,46 +29,31 @@ impl MapCatalog {
 }
 
 impl Catalog for MapCatalog {
-    fn get_table(&self, name: &str) -> IonResult<SharedSymbolTable> {
+    fn get_table(&self, name: &str) -> Option<&SharedSymbolTable> {
         if name.is_empty() {
-            return IonResult::illegal_operation("symbol table with empty name doesn't exist");
+            return None;
         }
 
-        let versions: &BTreeMap<usize, SharedSymbolTable> =
-            self.tables_by_name.get(name).ok_or_else(|| {
-                IonError::illegal_operation(format!(
-                    "symbol table with name: {name} does not exist"
-                ))
-            })?;
+        let versions: &BTreeMap<usize, SharedSymbolTable> = self.tables_by_name.get(name)?;
 
-        let (_highest_version, table) = versions.iter().rev().next().ok_or_else(|| {
-            IonError::illegal_operation(format!("symbol table with name: {name} does not exist"))
-        })?;
-        Ok(table.to_owned())
+        let (_highest_version, table) = versions.iter().next_back()?;
+        Some(table)
     }
 
-    fn get_table_with_version(&self, name: &str, version: usize) -> IonResult<SharedSymbolTable> {
+    fn get_table_with_version(&self, name: &str, version: usize) -> Option<&SharedSymbolTable> {
         if name.is_empty() {
-            return IonResult::illegal_operation("symbol table with empty name doesn't exists");
+            return None;
         }
 
-        let versions: &BTreeMap<usize, SharedSymbolTable> =
-            self.tables_by_name.get(name).ok_or_else(|| {
-                IonError::illegal_operation(format!(
-                    "symbol table with name: {name} does not exist"
-                ))
-            })?;
+        let versions: &BTreeMap<usize, SharedSymbolTable> = self.tables_by_name.get(name)?;
 
-        let table = versions.get(&version).ok_or_else(|| {
-            IonError::illegal_operation(format!("symbol table with name: {name} does not exist"))
-        })?;
-        Ok(table.to_owned())
+        versions.get(&version)
     }
 }
 
 impl MapCatalog {
     /// Adds a Shared Symbol Table with name into the Catalog
-    fn put_table(&mut self, table: SharedSymbolTable) {
+    pub fn insert_table(&mut self, table: SharedSymbolTable) {
         match self.tables_by_name.get_mut(table.name()) {
             None => {
                 let mut versions: BTreeMap<usize, SharedSymbolTable> = BTreeMap::new();
@@ -84,27 +68,40 @@ impl MapCatalog {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct EmptyCatalog {}
+
+impl Catalog for EmptyCatalog {
+    fn get_table(&self, _name: &str) -> Option<&SharedSymbolTable> {
+        None
+    }
+
+    fn get_table_with_version(&self, _name: &str, _version: usize) -> Option<&SharedSymbolTable> {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::catalog::{Catalog, MapCatalog};
     use crate::shared_symbol_table::SharedSymbolTable;
-    use crate::IonResult;
+    use crate::{IonResult, Symbol};
 
     #[test]
     fn get_table_with_name_test() -> IonResult<()> {
         let sst = SharedSymbolTable::new(
             "T".to_string(),
             1,
-            vec![Some("true".to_string()), Some("false".to_string())],
+            vec![Symbol::owned("foo"), Symbol::owned("bar")],
         )?;
         let mut catalog = MapCatalog::new();
-        catalog.put_table(sst);
+        catalog.insert_table(sst);
 
         // get table with name "T"
-        assert!(catalog.get_table("T").is_ok());
+        assert!(catalog.get_table("T").is_some());
 
         // verify that table with name "S" doesn't exist
-        assert!(catalog.get_table("S").is_err());
+        assert!(catalog.get_table("S").is_none());
         Ok(())
     }
 
@@ -113,16 +110,16 @@ mod tests {
         let sst = SharedSymbolTable::new(
             "T".to_string(),
             1,
-            vec![Some("true".to_string()), Some("false".to_string())],
+            vec![Symbol::owned("foo"), Symbol::owned("bar")],
         )?;
         let mut catalog = MapCatalog::new();
-        catalog.put_table(sst);
+        catalog.insert_table(sst);
 
         // get table with name "T" and version 1
-        assert!(catalog.get_table_with_version("T", 1).is_ok());
+        assert!(catalog.get_table_with_version("T", 1).is_some());
 
         // verify that table with name "T" and version 2 doesn't exist
-        assert!(catalog.get_table_with_version("T", 2).is_err());
+        assert!(catalog.get_table_with_version("T", 2).is_none());
         Ok(())
     }
 }

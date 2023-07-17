@@ -803,7 +803,7 @@ impl<T> TimestampBuilder<T> {
         // If we ever discover a performance difference, this entire function could be replaced with one line.
         // unsafe { std::mem::transmute(self) }
         TimestampBuilder {
-            _state: PhantomData::default(),
+            _state: PhantomData,
             fields_are_utc: self.fields_are_utc,
             precision: self.precision,
             offset: self.offset,
