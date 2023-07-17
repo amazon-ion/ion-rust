@@ -369,9 +369,6 @@ mod impl_display_for_element_tests {
     const TO_STRING_SKIP_LIST: &[&str] = &[
         // These tests have shared symbol table imports in them, which the Reader does not
         // yet support.
-        "ion-tests/iontestdata/good/subfieldInt.ion",
-        "ion-tests/iontestdata/good/subfieldUInt.ion",
-        "ion-tests/iontestdata/good/subfieldVarInt.ion",
         "ion-tests/iontestdata/good/subfieldVarUInt.ion",
         "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
         "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
@@ -423,9 +420,6 @@ const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
     // ROUND TRIP
     // These tests have shared symbol table imports in them, which the Reader does not
     // yet support.
-    "ion-tests/iontestdata/good/subfieldInt.ion",
-    "ion-tests/iontestdata/good/subfieldUInt.ion",
-    "ion-tests/iontestdata/good/subfieldVarInt.ion",
     "ion-tests/iontestdata/good/subfieldVarUInt.ion",
     "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
     "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
