@@ -33,7 +33,6 @@ impl Catalog for MapCatalog {
         if name.is_empty() {
             return None;
         }
-      
         let versions: &BTreeMap<usize, SharedSymbolTable> = self.tables_by_name.get(name)?;
 
         let (_highest_version, table) = versions.iter().next_back()?;
