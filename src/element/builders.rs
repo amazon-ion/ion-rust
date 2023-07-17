@@ -209,7 +209,7 @@ impl StructBuilder {
 
     /// Builds a [`Struct`] with the previously specified fields.
     pub fn build(self) -> Struct {
-        Struct::from_iter(self.fields.into_iter())
+        Struct::from_iter(self.fields)
     }
 }
 

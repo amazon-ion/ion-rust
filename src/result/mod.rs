@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::convert::From;
 use std::fmt::{Debug, Error};
 use std::{fmt, io};
@@ -80,9 +81,9 @@ pub(crate) trait IonFailure {
     // Because this trait is only crate-visible, methods can be added/changed as needed in
     // the future.
     fn incomplete(label: &'static str, position: impl Into<Position>) -> Self;
-    fn decoding_error<S: Into<String>>(description: S) -> Self;
-    fn encoding_error<S: Into<String>>(description: S) -> Self;
-    fn illegal_operation<S: Into<String>>(operation: S) -> Self;
+    fn decoding_error<S: Into<Cow<'static, str>>>(description: S) -> Self;
+    fn encoding_error<S: Into<Cow<'static, str>>>(description: S) -> Self;
+    fn illegal_operation<S: Into<Cow<'static, str>>>(operation: S) -> Self;
 }
 
 impl IonFailure for IonError {
@@ -90,15 +91,15 @@ impl IonFailure for IonError {
         IncompleteError::new(label, position).into()
     }
 
-    fn decoding_error<S: Into<String>>(description: S) -> Self {
+    fn decoding_error<S: Into<Cow<'static, str>>>(description: S) -> Self {
         DecodingError::new(description).into()
     }
 
-    fn encoding_error<S: Into<String>>(description: S) -> Self {
+    fn encoding_error<S: Into<Cow<'static, str>>>(description: S) -> Self {
         EncodingError::new(description).into()
     }
 
-    fn illegal_operation<S: Into<String>>(operation: S) -> Self {
+    fn illegal_operation<S: Into<Cow<'static, str>>>(operation: S) -> Self {
         IllegalOperation::new(operation).into()
     }
 }
@@ -108,15 +109,15 @@ impl<T> IonFailure for IonResult<T> {
         Err(IonError::incomplete(label, position))
     }
 
-    fn decoding_error<S: Into<String>>(description: S) -> Self {
+    fn decoding_error<S: Into<Cow<'static, str>>>(description: S) -> Self {
         Err(IonError::decoding_error(description))
     }
 
-    fn encoding_error<S: Into<String>>(description: S) -> Self {
+    fn encoding_error<S: Into<Cow<'static, str>>>(description: S) -> Self {
         Err(IonError::encoding_error(description))
     }
 
-    fn illegal_operation<S: Into<String>>(operation: S) -> Self {
+    fn illegal_operation<S: Into<Cow<'static, str>>>(operation: S) -> Self {
         Err(IonError::illegal_operation(operation))
     }
 }

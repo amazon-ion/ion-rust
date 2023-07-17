@@ -197,7 +197,7 @@ mod string_parsing_tests {
         // Leading whitespace not accepted
         parse_fails(" \"Hello, world\" ");
         // Unicode escape producing invalid surrogate
-        parse_fails(r#"'''\ud800'''\n"#);
+        parse_fails(r"'''\ud800'''\n");
     }
 
     #[test]
@@ -217,7 +217,7 @@ mod string_parsing_tests {
 
     #[test]
     fn long_string_escapes() {
-        parse_equals(r#"'''foo\nbar''' '''\nbaz\n''' 1"#, "foo\nbar\nbaz\n");
+        parse_equals(r"'''foo\nbar''' '''\nbaz\n''' 1", "foo\nbar\nbaz\n");
         parse_equals("'''foo\\\r\nbar''' 1", "foobar"); // Escaped newline
     }
 }

@@ -88,7 +88,7 @@ impl IntoIterator for Sequence {
 
 impl FromIterator<Element> for Sequence {
     fn from_iter<T: IntoIterator<Item = Element>>(iter: T) -> Self {
-        Vec::from_iter(iter.into_iter()).into()
+        Vec::from_iter(iter).into()
     }
 }
 
