@@ -1,6 +1,6 @@
-use crate::element::{Element, Sequence};
+use crate::element::Element;
 use crate::result::IonFailure;
-use crate::IonResult;
+use crate::{ion_seq, IonResult};
 use crate::{Int, IonError, Symbol};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,7 +14,14 @@ pub struct SharedSymbolTable {
 }
 
 impl SharedSymbolTable {
-    pub fn new(name: String, version: usize, imports: Vec<Symbol>) -> IonResult<Self> {
+    pub fn new<A: Into<String>, B: IntoIterator<Item = T>, T: Into<Symbol>>(
+        name: A,
+        version: usize,
+        symbols: B,
+    ) -> IonResult<Self> {
+        let name = name.into();
+        let symbols = symbols.into_iter().map(|s| s.into()).collect();
+
         // As per Ion Specification, the name field should be a string with length at least one.
         // If the field has any other value, then materialization of this symbol table must fail.
         if name.is_empty() {
@@ -26,7 +33,7 @@ impl SharedSymbolTable {
         Ok(Self {
             name,
             version,
-            symbols: imports,
+            symbols,
         })
     }
 
@@ -46,8 +53,8 @@ impl SharedSymbolTable {
     }
 }
 
-/// Constructs a [shared symbol table]( https://amazon-ion.github.io/ion-docs/docs/symbols.html#shared-symbol-tables) using Ion reader.
-/// Below is an example of a shared symbol table:
+/// Tries to construct a [shared symbol table](https://amazon-ion.github.io/ion-docs/docs/symbols.html#shared-symbol-tables)
+/// from an [`Element`] representing its serialized form./// Below is an example of a shared symbol table:
 ///
 /// ```ignore
 /// $ion_shared_symbol_table::
@@ -70,18 +77,12 @@ impl TryFrom<Element> for SharedSymbolTable {
     type Error = IonError;
 
     fn try_from(sst_element: Element) -> Result<Self, Self::Error> {
-        let sst_struct = sst_element
-            .as_struct()
-            .ok_or(IonError::illegal_operation(format!(
-                "expected a struct, but found a(n) {}",
-                sst_element.ion_type()
-            )))?
-            .to_owned();
+        let sst_struct = sst_element.expect_struct()?.to_owned();
         let name_field = sst_struct
             .get("name")
-            .ok_or_else(|| IonError::illegal_operation("missing a 'name' field"))?;
+            .ok_or_else(|| IonError::decoding_error("missing a 'name' field"))?;
         let name = name_field.as_string().ok_or_else(|| {
-            IonError::illegal_operation(format!(
+            IonError::decoding_error(format!(
                 "expected the 'name' field to be a string, but found a(n) {}",
                 name_field
             ))
@@ -90,19 +91,25 @@ impl TryFrom<Element> for SharedSymbolTable {
             .get("version")
             .and_then(|i| i.as_int())
             .unwrap_or(&Int::from(1))
-            .expect_i64()? as usize;
+            .expect_i64()
+            .map(usize::try_from)?
+            .map_err(|_| {
+                IonError::decoding_error(
+                    "shared symbol table version was too large to fit in a usize",
+                )
+            })?;
         if version < 1 {
             version = 1;
         }
         let symbols: Vec<Symbol> = sst_struct
             .get("symbols")
             .and_then(|s| s.as_sequence())
-            .unwrap_or(&Sequence::from(vec![])) // If the `symbols` field is missing or has any other type, it is treated as if it were an empty list.
+            .unwrap_or(&ion_seq!()) // If the `symbols` field is missing or has any other type, it is treated as if it were an empty list.
             .elements()
             .map(|sym| {
                 sym.as_string()
                     .map(Symbol::owned)
-                    .unwrap_or(Symbol::unknown_text()) // adds undefined symbol IDs("gaps) for null or non symbol elements
+                    .unwrap_or(Symbol::unknown_text()) // adds undefined symbol IDs("gaps") for null or non-symbol elements
             })
             .collect();
         SharedSymbolTable::new(name.to_string(), version, symbols)
@@ -130,7 +137,7 @@ mod shared_symbol_table_tests {
              ]
             }
         "#;
-        let sst: SharedSymbolTable = Element::read_one(ion_data.as_bytes())?.try_into()?;
+        let sst: SharedSymbolTable = Element::read_one(ion_data)?.try_into()?;
         assert_eq!(sst.name(), "com.amazon.test.symbols");
         assert_eq!(sst.version(), 1);
         assert_eq!(sst.symbols().len(), 3);

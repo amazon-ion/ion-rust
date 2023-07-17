@@ -46,13 +46,13 @@ enum LstPosition {
     /// * after the reader has stepped out of a field in the LST import and is back at depth 2
     BetweenLstImportFields,
 
-    /// Positioned on an name field of an import
+    /// Positioned on the name field of an import
     AtImportName,
 
-    /// Positioned on an version field of an import
+    /// Positioned on the version field of an import
     AtImportVersion,
 
-    /// Positioned on an max_id field of an import
+    /// Positioned on the max_id field of an import
     AtImportMaxId,
 
     /// Inside an $ion_symbol_table and positioned at the `symbols` field but have not yet stepped in
@@ -172,8 +172,14 @@ impl<R: RawReader> SystemReader<R> {
         }
     }
 
-    pub fn with_catalog(self, catalog: Box<dyn Catalog>) -> SystemReader<R> {
-        SystemReader { catalog, ..self }
+    pub fn with_catalog(raw_reader: R, catalog: Box<dyn Catalog>) -> SystemReader<R> {
+        SystemReader {
+            raw_reader,
+            symbol_table: SymbolTable::new(),
+            lst: LstData::new(),
+            current_item: SystemStreamItem::Nothing,
+            catalog,
+        }
     }
 
     // Returns true if the raw reader is positioned over a top-level struct whose first annotation
@@ -250,11 +256,6 @@ impl<R: RawReader> SystemReader<R> {
             AtImportMaxId => {
                 // We're inside a shared symbol table import processing either `max_id` otherwise do nothing for open content.
                 match self.raw_reader.ion_type() {
-                    None => {
-                        return IonResult::decoding_error(
-                            "symbol table import's max_id should be a non null integer.",
-                        );
-                    }
                     Some(IonType::Int) => {
                         let max_id = self.raw_reader.read_i64()?;
                         if max_id < 0 {
@@ -265,9 +266,7 @@ impl<R: RawReader> SystemReader<R> {
                         self.lst.current_import_max_id = Some(max_id as usize);
                     }
                     _ => {
-                        return IonResult::decoding_error(
-                            "symbol table import's max_id should be a non null integer.",
-                        );
+                        // ignore all the other types as open content
                     }
                 }
                 self.lst.state = BetweenLstImportFields;
@@ -367,43 +366,6 @@ impl<R: RawReader> SystemReader<R> {
                     ),
                 }
             }
-            AtImportName => {
-                // We're inside a shared symbol table import processing `name`, otherwise do nothing for open content.
-                if let (IonType::String, false) = (ion_type, is_null) {
-                    self.lst.current_import_name = Some(self.raw_reader.read_str()?.to_string());
-                }
-                self.lst.state = BetweenLstImportFields;
-            }
-            AtImportVersion => {
-                // We're inside a shared symbol table import processing either `version` otherwise do nothing for open content.
-                if let IonType::Int = ion_type {
-                    self.lst.current_import_version = Some(self.raw_reader.read_i64()? as usize);
-                }
-                self.lst.state = BetweenLstImportFields;
-            }
-            AtImportMaxId => {
-                // We're inside a shared symbol table import processing either `max_id` otherwise do nothing for open content.
-                if let IonType::Int = ion_type {
-                    if is_null {
-                        return IonResult::decoding_error(
-                            "symbol table import's max_id should be a non null integer.",
-                        );
-                    }
-                    let max_id = self.raw_reader.read_i64()?;
-                    if max_id < 0 {
-                        return IonResult::decoding_error(
-                            "symbol table import should have max_id greater than or equal to zero.",
-                        );
-                    }
-                    self.lst.current_import_max_id = Some(max_id as usize);
-                }
-                if ion_type != IonType::Int {
-                    return IonResult::decoding_error(
-                        "symbol table import's max_id should be a non null integer.",
-                    );
-                }
-                self.lst.state = BetweenLstImportFields;
-            }
             ProcessingLstSymbols => {
                 // We're in the `symbols` list.
                 if let (IonType::String, false) = (ion_type, is_null) {
@@ -417,6 +379,9 @@ impl<R: RawReader> SystemReader<R> {
             }
             ProcessingLstOpenContent => {
                 // We were in open content before and haven't stepped out yet. Do nothing.
+            }
+            _ => {
+                // For all the other states that process an import; do nothing as they are already processed in before_next()
             }
         };
 
@@ -718,16 +683,14 @@ impl<R: RawReader> IonReader for SystemReader<R> {
                     && self.lst.current_import_version.is_some()
                 {
                     let catalog = self.catalog.as_ref();
+                    let version = self.lst.current_import_version.unwrap();
                     let import_name = self.lst.current_import_name.clone().unwrap();
                     // TODO: add a fallback mechanism that always returns a shared symbol table i.e. provides dummy table when it doesn't exist.
                     let sst = catalog
-                        .get_table_with_version(
-                            &import_name,
-                            self.lst.current_import_version.unwrap(),
-                        )
-                        .ok_or(IonError::illegal_operation(format!(
-                            "symbol table with name {import_name} doesn't exist"
-                        )))?;
+                        .get_table_with_version(&import_name, version)
+                        .ok_or(IonError::decoding_error(format!(
+                        "symbol table with name {import_name} doesn't exist for version {version}"
+                    )))?;
                     for sym in sst.symbols() {
                         self.lst
                             .imported_symbols
@@ -914,7 +877,7 @@ mod tests {
         catalog: Box<dyn Catalog>,
     ) -> SystemReader<BlockingRawTextReader<&str>> {
         let raw_reader = BlockingRawTextReader::new(ion).expect("unable to initialize reader");
-        SystemReader::new(raw_reader).with_catalog(catalog)
+        SystemReader::with_catalog(raw_reader, catalog)
     }
 
     #[test]
@@ -947,9 +910,9 @@ mod tests {
     fn shared_symbol_table() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
         map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table".to_string(),
+            "shared_table",
             1,
-            vec![Symbol::owned("foo")],
+            [Symbol::owned("foo")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -974,9 +937,9 @@ mod tests {
     fn shared_symbol_table_import_with_max_id() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
         map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table".to_string(),
+            "shared_table",
             1,
-            vec![Symbol::owned("foo")],
+            [Symbol::owned("foo")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -1003,9 +966,9 @@ mod tests {
     fn shared_symbol_table_step_in() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
         map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table".to_string(),
+            "shared_table",
             1,
-            vec![Symbol::owned("foo")],
+            [Symbol::owned("foo")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -1044,9 +1007,9 @@ mod tests {
     fn shared_symbol_table_partial_read() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
         map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table".to_string(),
+            "shared_table",
             1,
-            vec![Symbol::owned("foo")],
+            [Symbol::owned("foo")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -1081,9 +1044,9 @@ mod tests {
     fn shared_and_local_symbols() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
         map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table".to_string(),
+            "shared_table",
             1,
-            vec![Symbol::owned("foo")],
+            [Symbol::owned("foo")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -1112,14 +1075,14 @@ mod tests {
     fn multiple_shared_symbol_table_imports() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
         map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table_1".to_string(),
+            "shared_table_1",
             1,
-            vec![Symbol::owned("foo")],
+            [Symbol::owned("foo")],
         )?);
         map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table_2".to_string(),
+            "shared_table_2",
             1,
-            vec![Symbol::owned("bar")],
+            [Symbol::owned("bar")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(
@@ -1151,14 +1114,14 @@ mod tests {
     fn non_existing_shared_symbol_table_imports() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
         map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table_1".to_string(),
+            "shared_table_1",
             1,
-            vec![Symbol::owned("foo")],
+            [Symbol::owned("foo")],
         )?);
         map_catalog.insert_table(SharedSymbolTable::new(
-            "shared_table_2".to_string(),
+            "shared_table_2",
             1,
-            vec![Symbol::owned("bar")],
+            [Symbol::owned("bar")],
         )?);
         // The stream contains a local symbol table that is not an append.
         let mut reader = system_reader_with_catalog_for(

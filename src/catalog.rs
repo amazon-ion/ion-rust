@@ -15,6 +15,7 @@ pub trait Catalog {
     fn get_table_with_version(&self, name: &str, version: usize) -> Option<&SharedSymbolTable>;
 }
 
+#[derive(Default)]
 pub struct MapCatalog {
     tables_by_name: HashMap<String, BTreeMap<usize, SharedSymbolTable>>,
 }
@@ -24,12 +25,6 @@ impl MapCatalog {
         Self {
             tables_by_name: HashMap::new(),
         }
-    }
-}
-
-impl Default for MapCatalog {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -97,7 +92,7 @@ mod tests {
         let sst = SharedSymbolTable::new(
             "T".to_string(),
             1,
-            vec![Symbol::owned("true"), Symbol::owned("false")],
+            vec![Symbol::owned("foo"), Symbol::owned("bar")],
         )?;
         let mut catalog = MapCatalog::new();
         catalog.insert_table(sst);
@@ -115,7 +110,7 @@ mod tests {
         let sst = SharedSymbolTable::new(
             "T".to_string(),
             1,
-            vec![Symbol::owned("true"), Symbol::owned("false")],
+            vec![Symbol::owned("foo"), Symbol::owned("bar")],
         )?;
         let mut catalog = MapCatalog::new();
         catalog.insert_table(sst);
