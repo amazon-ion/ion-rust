@@ -255,21 +255,15 @@ impl<R: RawReader> SystemReader<R> {
             }
             AtImportMaxId => {
                 // We're inside a shared symbol table import processing either `max_id` otherwise do nothing for open content.
-                match self.raw_reader.ion_type() {
-                    Some(IonType::Int) => {
-                        let max_id = self.raw_reader.read_i64()?;
-                        if max_id < 0 {
-                            return IonResult::decoding_error(
-                                        "symbol table import should have max_id greater than or equal to zero.",
-                                    );
-                        }
-                        self.lst.current_import_max_id = Some(max_id as usize);
+                if let Some(IonType::Int) = self.raw_reader.ion_type() {
+                    let max_id = self.raw_reader.read_i64()?;
+                    if max_id < 0 {
+                        return IonResult::decoding_error(
+                            "symbol table import should have max_id greater than or equal to zero.",
+                        );
                     }
-                    _ => {
-                        // ignore all the other types as open content
-                    }
+                    self.lst.current_import_max_id = Some(max_id as usize);
                 }
-                self.lst.state = BetweenLstImportFields;
             }
             _ => {
                 // Allow values at depths > 1 to be skipped.
