@@ -417,7 +417,7 @@ impl Element {
         symbol.into()
     }
 
-    pub fn integer<I: Into<Int>>(integer: I) -> Element {
+    pub fn int<I: Into<Int>>(integer: I) -> Element {
         let integer: Int = integer.into();
         integer.into()
     }
@@ -691,7 +691,7 @@ impl Element {
 
     /// Reads all available [`Element`]s from the provided data source.
     ///
-    /// If the input has valid data, returns `Ok(Vec<Element>)`.
+    /// If the input has valid data, returns `Ok(Sequence)`.
     /// If the input has invalid data, returns `Err(IonError)`.
     pub fn read_all<A: AsRef<[u8]>>(data: A) -> IonResult<Sequence> {
         Element::iter(data.as_ref())?.collect()
@@ -750,12 +750,16 @@ format (text or binary) before writing begins.
 
 This method constructs a new writer for each invocation, which means that there will only be a single
 top level value in the output stream. Writing several values to the same stream is preferable to
-maximize encoding efficiency."##]
+maximize encoding efficiency. See [`write_all_as`](Self::write_all_as) for details.
+"##]
     #[cfg_attr(
         feature = "experimental-writer",
         doc = r##"
 To reuse a writer and have greater control over resource
 management, see [`Element::write_to`].
+"##
+    )]
+    #[doc = r##"    
 ```
 # use ion_rs::{Format, IonResult, TextKind};
 # fn main() -> IonResult<()> {
@@ -777,8 +781,7 @@ assert_eq!(element_before, element_after);
 # Ok(())
 # }
 ```
-"##
-    )]
+"##]
     pub fn write_as<W: io::Write>(&self, format: Format, output: W) -> IonResult<()> {
         match format {
             Format::Text(text_kind) => {
@@ -789,6 +792,50 @@ assert_eq!(element_before, element_after);
             Format::Binary => {
                 let mut binary_writer = BinaryWriterBuilder::default().build(output)?;
                 Element::write_element_to(self, &mut binary_writer)?;
+                binary_writer.flush()
+            }
+        }
+    }
+
+    /// Serializes each of the provided [`Element`]s as Ion, writing the resulting bytes to the
+    /// provided [`io::Write`]. The caller must verify that `output` is either empty or only
+    /// contains Ion of the same format (text or binary) before writing begins.
+    ///
+    /// This method is preferable to [`write_as`](Self::write_as) when writing streams consisting
+    /// of more than one top-level value; the writer can re-use the same symbol table definition
+    /// to encode each value, resulting in a more compact representation.
+    ///
+    /// ```
+    ///# use ion_rs::IonResult;
+    ///# fn main() -> IonResult<()> {
+    /// use ion_rs::{Element, Format, ion_seq};
+    ///
+    /// let elements = ion_seq!("foo", "bar", "baz");
+    /// let mut buffer: Vec<u8> = Vec::new();
+    /// Element::write_all_as(&elements, Format::Binary, &mut buffer)?;
+    /// let roundtrip_elements = Element::read_all(buffer)?;
+    /// assert_eq!(elements, roundtrip_elements);
+    ///# Ok(())
+    ///# }
+    /// ```
+    pub fn write_all_as<'a, W: io::Write, I: IntoIterator<Item = &'a Element>>(
+        elements: I,
+        format: Format,
+        output: W,
+    ) -> IonResult<()> {
+        match format {
+            Format::Text(text_kind) => {
+                let mut text_writer = TextWriterBuilder::new(text_kind).build(output)?;
+                for element in elements {
+                    Element::write_element_to(element, &mut text_writer)?;
+                }
+                text_writer.flush()
+            }
+            Format::Binary => {
+                let mut binary_writer = BinaryWriterBuilder::default().build(output)?;
+                for element in elements {
+                    Element::write_element_to(element, &mut binary_writer)?;
+                }
                 binary_writer.flush()
             }
         }

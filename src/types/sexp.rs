@@ -13,7 +13,7 @@ use std::fmt::{Display, Formatter};
 /// # fn main() -> IonResult<()> {
 /// let sexp = ion_sexp!(1 2 3);
 /// assert_eq!(sexp.len(), 3);
-/// assert_eq!(sexp.get(1), Some(&Element::integer(2)));
+/// assert_eq!(sexp.get(1), Some(&Element::int(2)));
 /// # Ok(())
 /// # }
 /// ```

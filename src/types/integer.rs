@@ -7,8 +7,7 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::{Add, Neg};
 
-/// Represents a UInt of any size. Used for reading binary integers and symbol Ids.
-/// Used to represent the unsigned magnitude of Decimal values and fractional seconds.
+/// Represents an unsigned integer of any size.
 #[derive(Debug, Clone)]
 pub struct UInt {
     pub(crate) data: UIntData,
@@ -339,6 +338,26 @@ impl From<IntData> for Int {
 }
 
 #[derive(Debug, Clone)]
+/// A signed integer of arbitrary size.
+/// ```
+/// # use ion_rs::IonResult;
+/// # fn main() -> IonResult<()> {
+/// use ion_rs::{Element, Int};
+///
+/// let element = Element::read_one("-42")?;
+///
+/// // Access the element's integer value...
+/// let int: &Int = element.expect_int()?;
+/// // ...and convert it to an i64. `as_i64()` will return `None` if
+/// // the Int is too large to fit in an i64.
+/// assert_eq!(int.as_i64(), Some(-42i64));
+///
+/// // The `expect_i64()` is similar to `as_i64()`, but returns an
+/// // `IonError` instead of `None` if the conversion cannot be completed.
+/// assert_eq!(element.expect_i64()?, -42i64);
+/// # Ok(())
+/// # }
+/// ```
 pub struct Int {
     pub(crate) data: IntData,
 }
