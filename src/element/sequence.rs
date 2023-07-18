@@ -5,6 +5,9 @@ use crate::ion_data::{IonEq, IonOrd};
 use std::cmp::Ordering;
 
 /// An iterable, addressable series of Ion [`Element`]s.
+///
+/// A `Sequence` is not itself an Ion value type, but can represent a series of Ion values appearing
+/// in a [`List`], a [`SExp`], or at the top level.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sequence {
     elements: Vec<Element>,

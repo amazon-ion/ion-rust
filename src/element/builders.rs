@@ -6,7 +6,11 @@ use crate::{Element, Sequence, Struct};
 /// Building a [Sequence]:
 /// ```
 /// use ion_rs::{Element, Sequence};
-/// let actual: Sequence = Sequence::builder().push(1).push(true).push("foo").build();
+/// let actual: Sequence = Sequence::builder()
+///     .push(1)
+///     .push(true)
+///     .push("foo")
+///     .build();
 /// let expected: Sequence = Sequence::new([
 ///     Element::int(1),
 ///     Element::boolean(true),
