@@ -20,7 +20,7 @@ impl Default for SymbolTable {
 
 impl SymbolTable {
     /// Constructs a new symbol table pre-populated with the system symbols defined in the spec.
-    pub fn new() -> SymbolTable {
+    pub(crate) fn new() -> SymbolTable {
         let mut symbol_table = SymbolTable {
             symbols_by_id: Vec::with_capacity(v1_0::SYSTEM_SYMBOLS.len()),
             ids_by_text: HashMap::new(),
@@ -30,13 +30,13 @@ impl SymbolTable {
     }
 
     // Interns the v1.0 system symbols
-    fn initialize(&mut self) {
+    pub(crate) fn initialize(&mut self) {
         for &text in v1_0::SYSTEM_SYMBOLS.iter() {
             self.intern_or_add_placeholder(text);
         }
     }
 
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.symbols_by_id.clear();
         self.ids_by_text.clear();
         self.initialize();
@@ -44,7 +44,7 @@ impl SymbolTable {
 
     /// If `text` is already in the symbol table, returns the corresponding [SymbolId].
     /// Otherwise, adds `text` to the symbol table and returns the newly assigned [SymbolId].
-    pub fn intern<A: AsRef<str>>(&mut self, text: A) -> SymbolId {
+    pub(crate) fn intern<A: AsRef<str>>(&mut self, text: A) -> SymbolId {
         let text = text.as_ref();
         // If the text is already in the symbol table, return the ID associated with it.
         if let Some(id) = self.ids_by_text.get(text) {
@@ -62,7 +62,7 @@ impl SymbolTable {
 
     /// Assigns unknown text to the next available symbol ID. This is used when an Ion reader
     /// encounters null or non-string values in a stream's symbol table.
-    pub fn add_placeholder(&mut self) -> SymbolId {
+    pub(crate) fn add_placeholder(&mut self) -> SymbolId {
         let sid = self.symbols_by_id.len();
         self.symbols_by_id.push(Symbol::unknown_text());
         sid
@@ -70,7 +70,10 @@ impl SymbolTable {
 
     /// If `maybe_text` is `Some(text)`, this method is equivalent to `intern(text)`.
     /// If `maybe_text` is `None`, this method is equivalent to `add_placeholder()`.
-    pub fn intern_or_add_placeholder<A: AsRef<str>>(&mut self, maybe_text: Option<A>) -> SymbolId {
+    pub(crate) fn intern_or_add_placeholder<A: AsRef<str>>(
+        &mut self,
+        maybe_text: Option<A>,
+    ) -> SymbolId {
         match maybe_text {
             Some(text) => self.intern(text),
             None => self.add_placeholder(),
@@ -123,7 +126,8 @@ impl SymbolTable {
     ///
     /// The symbol table can contain symbols with unknown text; see the documentation for
     /// [Symbol] for more information.
-    pub fn symbols_tail(&self, start: usize) -> &[Symbol] {
+    // TODO: Is this necessary vs just taking a slice of the `symbols()` method above?
+    pub(crate) fn symbols_tail(&self, start: usize) -> &[Symbol] {
         &self.symbols_by_id[start..]
     }
 

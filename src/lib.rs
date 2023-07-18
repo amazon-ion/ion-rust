@@ -164,7 +164,7 @@ use rstest_reuse;
 // Private modules that serve to organize implementation details.
 mod binary;
 mod blocking_reader;
-pub mod catalog;
+mod catalog;
 mod constants;
 mod data_source;
 mod ion_data;
@@ -204,7 +204,6 @@ pub use element::{
 };
 pub use ion_data::IonData;
 pub use symbol_ref::SymbolRef;
-pub use symbol_table::SymbolTable;
 #[doc(inline)]
 pub use types::{
     decimal::Decimal, Blob, Bytes, Clob, Int, IonType, List, SExp, Str, Struct, Symbol, SymbolId,
@@ -226,6 +225,7 @@ pub use {
     // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
     reader::integration_testing,
     reader::{Reader, ReaderBuilder, StreamItem, UserReader},
+    symbol_table::SymbolTable,
     system_reader::{SystemReader, SystemStreamItem},
     text::non_blocking::raw_text_reader::RawTextReader,
     text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder},

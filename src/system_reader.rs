@@ -8,9 +8,10 @@ use crate::ion_reader::IonReader;
 use crate::raw_reader::{Expandable, RawReader, RawStreamItem};
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::result::{IonError, IonFailure, IonResult};
+use crate::symbol_table::SymbolTable;
 use crate::system_reader::LstPosition::*;
+use crate::IonType;
 use crate::{Blob, Clob, Decimal, Int, Str, Symbol, Timestamp};
-use crate::{IonType, SymbolTable};
 
 /// Tracks where the [SystemReader] is in the process of reading a local symbol table.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
