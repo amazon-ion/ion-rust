@@ -109,7 +109,7 @@ impl<'a> Iterator for FieldIterator<'a> {
 }
 
 /// Iterates over the values associated with a given field name in a Struct.
-pub struct FieldValuesIterator<'a> {
+pub(crate) struct FieldValuesIterator<'a> {
     current: usize,
     indexes: Option<&'a IndexVec>,
     by_index: &'a Vec<(Symbol, Element)>,
@@ -220,11 +220,17 @@ impl Struct {
         FieldIterator::new(&self.fields.by_index)
     }
 
+    /// Returns the value associated with the specified field name.
+    ///
+    /// If more than one field in this struct has that name, this method will return the value of
+    /// the _last_ field with that name. To access other fields with the same name, see
+    /// [`get_all`](Self::get_all).
     pub fn get<A: AsSymbolRef>(&self, field_name: A) -> Option<&Element> {
         self.fields.get_last(field_name)
     }
 
-    pub fn get_all<A: AsSymbolRef>(&self, field_name: A) -> FieldValuesIterator<'_> {
+    /// Returns an iterator over all of the values associated with the specified field name.
+    pub fn get_all<A: AsSymbolRef>(&self, field_name: A) -> impl Iterator<Item = &Element> {
         self.fields.get_all(field_name)
     }
 }
