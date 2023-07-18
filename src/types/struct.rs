@@ -332,6 +332,6 @@ mod tests {
                 baz_value = Some(value);
             }
         }
-        assert_eq!(baz_value, Some(&Element::integer(3)));
+        assert_eq!(baz_value, Some(&Element::int(3)));
     }
 }

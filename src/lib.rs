@@ -107,7 +107,7 @@
 //! ## Traversing an `Element`
 //!
 //! ```
-//! use ion_rs::IonResult;
+//! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
 //! use ion_rs::{Element, Value, ion_list, ion_struct};
 //! let element: Element = ion_struct! {
@@ -134,9 +134,9 @@
 //! ## Writing an `Element` to an `io::Write`
 //!
 //! ```
-//! use ion_rs::{Format, IonResult, TextKind};
+//! # use ion_rs::IonResult;
 //! # fn main() -> IonResult<()> {
-//! use ion_rs::{Element, ion_list, ion_struct};
+//! use ion_rs::{Element, Format, TextKind, ion_list, ion_struct};
 //! let element: Element = ion_struct! {
 //!   "foo": "hello",
 //!   "bar": true,

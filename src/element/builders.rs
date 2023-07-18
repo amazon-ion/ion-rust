@@ -8,7 +8,7 @@ use crate::{Element, Sequence, Struct};
 /// use ion_rs::{Element, Sequence};
 /// let actual: Sequence = Sequence::builder().push(1).push(true).push("foo").build();
 /// let expected: Sequence = Sequence::new([
-///     Element::integer(1),
+///     Element::int(1),
 ///     Element::boolean(true),
 ///     Element::string("foo"),
 /// ]);
@@ -23,7 +23,7 @@ use crate::{Element, Sequence, Struct};
 ///     .push("foo")
 ///     .build_list();
 /// let expected: List = List(Sequence::new([
-///     Element::integer(1),
+///     Element::int(1),
 ///     Element::boolean(true),
 ///     Element::string("foo"),
 /// ]));
@@ -38,7 +38,7 @@ use crate::{Element, Sequence, Struct};
 ///     .push("foo")
 ///     .build_sexp();
 /// let expected: SExp = SExp(Sequence::new([
-///     Element::integer(1),
+///     Element::int(1),
 ///     Element::boolean(true),
 ///     Element::string("foo"),
 /// ]));

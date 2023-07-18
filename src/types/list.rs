@@ -13,7 +13,7 @@ use std::fmt::{Display, Formatter};
 /// # fn main() -> IonResult<()> {
 /// let list = ion_list![1, 2, 3];
 /// assert_eq!(list.len(), 3);
-/// assert_eq!(list.get(1), Some(&Element::integer(2)));
+/// assert_eq!(list.get(1), Some(&Element::int(2)));
 /// # Ok(())
 /// # }
 /// ```
