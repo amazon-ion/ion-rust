@@ -1,3 +1,5 @@
+//! Types for reporting various modes of success or failure.
+
 use std::borrow::Cow;
 use std::convert::From;
 use std::fmt::{Debug, Error};

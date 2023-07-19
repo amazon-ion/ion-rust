@@ -1,3 +1,5 @@
+//! Types related to [`Decimal`], the in-memory representation of an Ion decimal value.
+
 use std::cmp::{max, Ordering};
 
 use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};

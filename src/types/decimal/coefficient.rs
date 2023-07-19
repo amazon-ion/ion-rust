@@ -1,3 +1,5 @@
+//! A representation of a decimal value's coefficient.
+
 use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
 
@@ -10,18 +12,16 @@ use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::ops::{MulAssign, Neg};
 
-/// Indicates whether the Coefficient's magnitude is less than 0 (negative) or not (positive).
-/// When the magnitude is zero, the Sign can be used to distinguish between -0 and 0.
+/// Indicates whether the `Coefficient`'s magnitude is less than 0 (negative) or not (positive).
+/// When the magnitude is zero, the `Sign` can be used to distinguish between -0 and 0.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Sign {
     Negative,
     Positive,
 }
 
-/// A signed integer that can be used as the coefficient of a Decimal value. This type does not
+/// A signed integer that can be used as the coefficient of a [`Decimal`] value. This type does not
 /// consider `0` and `-0` to be equal and supports magnitudes of arbitrary size.
-// These trait derivations rely closely on the manual implementations of PartialEq and Ord on
-// [Magnitude].
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Coefficient {
     pub(crate) sign: Sign,
