@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use thiserror::Error;
 
+/// Indicates that a read operation failed due to invalid input.
 #[derive(Clone, Debug, Error, PartialEq)]
 #[error("{description}")]
 pub struct DecodingError {

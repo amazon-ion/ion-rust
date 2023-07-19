@@ -1,6 +1,7 @@
 use std::io;
 use thiserror::Error;
 
+/// Indicates that a read or write operation failed due to an I/O error.
 #[derive(Debug, Error)]
 #[error("{source:?}")]
 pub struct IoError {
