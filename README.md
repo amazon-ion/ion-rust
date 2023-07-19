@@ -14,6 +14,7 @@ For more information, please see our [official documentation](https://docs.rs/io
 
 ```rust
 use ion_rs::{Element, IonResult, IonType, ion_seq};
+
 fn main() -> IonResult<()> {
 
     // Read a single value from a string/slice/Vec
