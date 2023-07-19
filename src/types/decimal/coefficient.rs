@@ -20,8 +20,8 @@ pub enum Sign {
     Positive,
 }
 
-/// A signed integer that can be used as the coefficient of a [`Decimal`] value. This type does not
-/// consider `0` and `-0` to be equal and supports magnitudes of arbitrary size.
+/// A signed integer that can be used as the coefficient of a [`Decimal`](crate::Decimal) value.
+/// This type does not consider `0` and `-0` to be equal and supports magnitudes of arbitrary size.
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Coefficient {
     pub(crate) sign: Sign,
