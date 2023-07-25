@@ -31,6 +31,7 @@ use std::num::IntErrorKind;
 /// A partially parsed Ion value.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum MatchedValue {
+    // `Null` and `Bool` are fully parsed because they only involve matching a keyword.
     Null(IonType),
     Bool(bool),
     Int(MatchedInt),

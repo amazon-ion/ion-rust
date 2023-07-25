@@ -58,11 +58,10 @@ const WHITESPACE_CHARACTERS_AS_STR: &str = " \t\r\n\x09\x0B\x0C";
 /// A slice of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a text Ion stream.
 ///
-/// Upon success, each parsing method on the `TextBufferView` will return the value that was read
-/// and a new copy of the `TextBufferView` that starts _after_ the bytes that were parsed.
-///
-/// Methods that begin with `match_` return the input slice that they matched OR a `MatchedValue`
-/// that retains additional information found during the matching process.
+/// Parsing methods have names that begin with `match_` and each return a `(match, remaining_input)`
+/// pair. The `match` may be either the slice of the input that was matched (represented as another
+/// `TextBufferView`) or a `MatchedValue` that retains information discovered during parsing that
+/// will be useful if the match is later fully materialized into a value.
 #[derive(PartialEq, Clone, Copy)]
 pub(crate) struct TextBufferView<'a> {
     // `data` is a slice of remaining data in the larger input stream.
@@ -79,17 +78,21 @@ pub(crate) struct TextBufferView<'a> {
 pub(crate) type ParseResult<'a, T> = IonResult<(T, TextBufferView<'a>)>;
 
 impl<'data> TextBufferView<'data> {
-    /// Constructs a new `TextBufferView` that wraps `data`.
+    /// Constructs a new `TextBufferView` that wraps `data`, setting the view's `offset` to zero.
     #[inline]
     pub fn new(data: &[u8]) -> TextBufferView {
         Self::new_with_offset(data, 0)
     }
 
+    /// Constructs a new `TextBufferView` that wraps `data`, setting the view's `offset` to the
+    /// specified value. This is useful when `data` is a slice from the middle of a larger stream.
+    /// Note that `offset` is the index of the larger stream at which `data` begins and not an
+    /// offset _into_ `data`.
     pub fn new_with_offset(data: &[u8], offset: usize) -> TextBufferView {
         TextBufferView { data, offset }
     }
 
-    /// Returns a subslice copy of the [`TextBufferView`] that starts at `offset` and continues for
+    /// Returns a subslice of the [`TextBufferView`] that starts at `offset` and continues for
     /// `length` bytes.
     ///
     /// Note that `offset` is relative to the beginning of the buffer, not the beginning of the
@@ -101,7 +104,7 @@ impl<'data> TextBufferView<'data> {
         }
     }
 
-    /// Returns a subslice copy of the [`TextBufferView`] that starts at `offset` and continues
+    /// Returns a subslice of the [`TextBufferView`] that starts at `offset` and continues
     /// to the end.
     ///
     /// Note that `offset` is relative to the beginning of the buffer, not the beginning of the
@@ -134,40 +137,35 @@ impl<'data> TextBufferView<'data> {
         self.data.is_empty()
     }
 
-    /// Creates a copy of this `TextBufferView` that begins `num_bytes_to_consume` further into the
-    /// slice.
-    #[inline]
-    pub fn consume(&self, num_bytes_to_consume: usize) -> Self {
-        // This assertion is always run during testing but is removed in the release build.
-        debug_assert!(num_bytes_to_consume <= self.len());
-        Self {
-            data: &self.data[num_bytes_to_consume..],
-            offset: self.offset + num_bytes_to_consume,
-        }
-    }
-
-    // An adapter for nom::combinator::success.
-    // Always succeeds and consumes none of the input. Returns an empty slice of the buffer.
-    pub fn match_nothing(self) -> IonMatchResult<'data> {
-        // Return an empty slice from the head position
-        success(self.slice(0, 0))(self)
-    }
-
     pub fn match_whitespace(self) -> IonMatchResult<'data> {
         is_a(WHITESPACE_CHARACTERS_AS_STR)(self)
     }
 
+    /// Always succeeds and consumes none of the input. Returns an empty slice of the buffer.
+    // This method is useful for parsers that need to match an optional construct but don't want
+    // to return an Option<_>. For an example, see its use in `match_optional_whitespace`.
+    fn match_nothing(self) -> IonMatchResult<'data> {
+        // Use nom's `success` parser to return an empty slice from the head position
+        success(self.slice(0, 0))(self)
+    }
+
+    /// Matches zero or more whitespace characters.
     pub fn match_optional_whitespace(self) -> IonMatchResult<'data> {
         // Either match whitespace and return what follows or just return the input as-is.
-        // This will always return `Ok`, but is packaged as an IonMatchResult for compatability
+        // This will always return `Ok`, but it is packaged as an IonMatchResult for compatability
+        // with other parsers.
         alt((Self::match_whitespace, Self::match_nothing))(self)
     }
 
-    pub fn read_top_level(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
-        let (remaining, value) = match self.read_value() {
+    /// Matches a single top-level scalar value, the beginning of a container, or an IVM.
+    pub fn match_top_level(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
+        let (remaining, value) = match self.match_value() {
             Ok(value) => value,
             Err(e) => return Err(e),
         };
+
+        // TODO: Augment this method to take an `is_complete` flag that indicates whether the absence
+        //       of further values should return an `Incomplete` or a `RawStreamItem::EndOfStream`.
 
         // TODO: Check to see if `value` is actually an IVM.
         //       => If it's a symbol, try the IVM parser on it and see if it succeeds.
@@ -175,7 +173,8 @@ impl<'data> TextBufferView<'data> {
         Ok((remaining, RawStreamItem::Value(value)))
     }
 
-    pub fn read_value(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
+    /// Matches a single scalar value or the beginning of a container.
+    pub fn match_value(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
         alt((
             // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
             // parsing to be done.
@@ -202,10 +201,12 @@ impl<'data> TextBufferView<'data> {
         .parse(self)
     }
 
+    /// Matches a boolean value.
     pub fn match_bool(self) -> IonMatchResult<'data> {
         recognize(Self::read_bool)(self)
     }
 
+    /// Matches and returns a boolean value.
     pub fn read_bool(self) -> IonParseResult<'data, bool> {
         terminated(
             alt((value(true, tag("true")), value(false, tag("false")))),
@@ -213,10 +214,12 @@ impl<'data> TextBufferView<'data> {
         )(self)
     }
 
+    /// Matches any type of null. (`null`, `null.null`, `null.int`, etc)
     pub fn match_null(self) -> IonMatchResult<'data> {
         recognize(Self::read_null)(self)
     }
 
+    /// Matches and returns a null value.
     pub fn read_null(self) -> IonParseResult<'data, IonType> {
         delimited(
             tag("null"),
@@ -227,10 +230,7 @@ impl<'data> TextBufferView<'data> {
         .parse(self)
     }
 
-    fn match_ion_type(self) -> IonMatchResult<'data> {
-        recognize(Self::read_ion_type)(self)
-    }
-
+    /// Matches and returns an Ion type.
     fn read_ion_type(self) -> IonParseResult<'data, IonType> {
         alt((
             value(IonType::Null, tag("null")),
@@ -249,10 +249,12 @@ impl<'data> TextBufferView<'data> {
         ))(self)
     }
 
+    /// Matches any one of Ion's stop characters.
     fn match_stop_character(self) -> IonMatchResult<'data> {
         recognize(one_of("{}[](),\"' \t\n\r\u{0b}\u{0c}")).parse(self)
     }
 
+    /// Matches--but does not consume--any one of Ion's stop characters.
     fn peek_stop_character(self) -> IonMatchResult<'data> {
         peek(Self::match_stop_character).parse(self)
     }

@@ -3,75 +3,17 @@ use crate::lazy::encoding::TextEncoding;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
-use crate::lazy::text::value::LazyRawTextValue;
 use crate::result::IonFailure;
 use crate::IonResult;
 
-/// Wraps a [`TextBufferView`], allowing the reader to advance each time an item is successfully
-/// parsed from it.
-pub(crate) struct DataSource<'data> {
-    // The buffer we're reading from
-    buffer: TextBufferView<'data>,
-    // Each time something is parsed from the buffer successfully, the caller will mark the number
-    // of bytes that may be skipped the next time `advance_to_next_item` is called.
-    bytes_to_skip: usize,
-}
-
-impl<'data> DataSource<'data> {
-    pub(crate) fn new(buffer: TextBufferView<'data>) -> DataSource<'data> {
-        DataSource {
-            buffer,
-            bytes_to_skip: 0,
-        }
-    }
-
-    pub(crate) fn buffer(&self) -> TextBufferView<'data> {
-        self.buffer
-    }
-
-    fn advance_to_next_item(&mut self) -> IonResult<TextBufferView<'data>> {
-        if self.buffer.len() < self.bytes_to_skip {
-            return IonResult::incomplete(
-                "cannot advance to next item, insufficient data in buffer",
-                self.buffer.offset(),
-            );
-        }
-
-        if self.bytes_to_skip > 0 {
-            Ok(self.buffer.consume(self.bytes_to_skip))
-        } else {
-            Ok(self.buffer)
-        }
-    }
-
-    /// Runs the provided parsing function on this DataSource's buffer.
-    /// If it succeeds, marks the `DataSource` as ready to advance by the 'n' bytes
-    /// that were consumed and returns `Some(value)`.
-    /// If it does not succeed, the `DataSource` remains unchanged.
-    pub(crate) fn try_parse_next<
-        F: Fn(TextBufferView<'data>) -> IonResult<Option<LazyRawTextValue<'data>>>,
-    >(
-        &mut self,
-        parser: F,
-    ) -> IonResult<Option<LazyRawTextValue<'data>>> {
-        let buffer_after = self.advance_to_next_item()?;
-
-        let lazy_value = match parser(buffer_after) {
-            Ok(Some(output)) => output,
-            Ok(None) => return Ok(None),
-            Err(e) => return Err(e),
-        };
-
-        self.buffer = buffer_after;
-        self.bytes_to_skip = lazy_value.encoded_value.total_length();
-        Ok(Some(lazy_value))
-    }
-}
-
-/// A text Ion 1.0 reader that yields [`LazyRawTextValue`]s representing the top level values found
+/// A text Ion 1.0 reader that yields [`RawStreamItem`]s representing the top level values found
 /// in the provided input stream.
 pub struct LazyRawTextReader<'data> {
-    data: DataSource<'data>,
+    // The current view of the data we're reading from.
+    buffer: TextBufferView<'data>,
+    // Each time something is parsed from the buffer successfully, the caller will mark the number
+    // of bytes that may be skipped the next time the reader advances.
+    bytes_to_skip: usize,
 }
 
 impl<'data> LazyRawTextReader<'data> {
@@ -85,15 +27,17 @@ impl<'data> LazyRawTextReader<'data> {
     /// of a larger data stream. This offset is used for reporting the absolute (stream-level)
     /// position of values encountered in `data`.
     fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawTextReader<'data> {
-        let data = DataSource::new(TextBufferView::new_with_offset(data, offset));
-        LazyRawTextReader { data }
+        LazyRawTextReader {
+            buffer: TextBufferView::new_with_offset(data, offset),
+            bytes_to_skip: 0,
+        }
     }
 
     pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, TextEncoding>>
     where
         'data: 'top,
     {
-        let buffer = self.data.buffer;
+        let buffer = self.buffer;
         if buffer.is_empty() {
             return IonResult::incomplete("reading a top-level value", buffer.offset());
         }
@@ -101,10 +45,10 @@ impl<'data> LazyRawTextReader<'data> {
             .match_optional_whitespace()
             .with_context("skipping whitespace between top-level values", buffer)?;
         let (remaining, matched) = buffer_after_whitespace
-            .read_top_level()
+            .match_top_level()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
         // If we successfully moved to the next value, store the remaining buffer view
-        self.data.buffer = remaining;
+        self.buffer = remaining;
         Ok(matched)
     }
 }
