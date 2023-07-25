@@ -14,20 +14,20 @@ pub(crate) trait AsUtf8 {
 
 impl<const N: usize> AsUtf8 for SmallVec<[u8; N]> {
     fn as_utf8(&self, position: impl Into<Position>) -> IonResult<&str> {
-        std::str::from_utf8(self.as_ref()).map_err(|_| {
-            let decoding_error =
-                DecodingError::new("encountered invalid UTF-8").with_position(position);
-            IonError::Decoding(decoding_error)
-        })
+        bytes_as_utf8(self.as_ref(), position)
     }
 }
 
 impl<'data> AsUtf8 for TextBufferView<'data> {
     fn as_utf8(&self, position: impl Into<Position>) -> IonResult<&str> {
-        std::str::from_utf8(self.bytes()).map_err(|_| {
-            let decoding_error =
-                DecodingError::new("encountered invalid UTF-8").with_position(position);
-            IonError::Decoding(decoding_error)
-        })
+        bytes_as_utf8(self.bytes(), position)
     }
+}
+
+fn bytes_as_utf8(bytes: &[u8], position: impl Into<Position>) -> IonResult<&str> {
+    std::str::from_utf8(bytes).map_err(|_| {
+        let decoding_error =
+            DecodingError::new("encountered invalid UTF-8").with_position(position);
+        IonError::Decoding(decoding_error)
+    })
 }
