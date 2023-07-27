@@ -42,8 +42,11 @@ impl<'data> LazyRawTextReader<'data> {
             return IonResult::incomplete("reading a top-level value", buffer.offset());
         }
         let (buffer_after_whitespace, _whitespace) = buffer
-            .match_optional_whitespace()
-            .with_context("skipping whitespace between top-level values", buffer)?;
+            .match_optional_comments_and_whitespace()
+            .with_context(
+                "skipping comments and whitespace between top-level values",
+                buffer,
+            )?;
         let (remaining, matched) = buffer_after_whitespace
             .match_top_level()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
@@ -72,14 +75,27 @@ mod tests {
     #[test]
     fn test_top_level() -> IonResult<()> {
         let data = r#"
+        /*
+            This test demonstrates lazily reading top-level values
+            of various Ion types. The values are interspersed with
+            different kinds of comments and whitespace.
+        */
+        
+        // Typed nulls
             null
             null.bool
             null.int
+            
+        // Booleans
             false
             true
+        
+        // Integers
             500
             0x20
             0b0101
+        
+        // Floats
             +inf
             -inf
             nan
