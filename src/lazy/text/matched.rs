@@ -19,14 +19,17 @@
 //! use the previously recorded information to minimize the amount of information that needs to be
 //! re-discovered.
 
-use crate::lazy::text::as_utf8::AsUtf8;
-use crate::lazy::text::buffer::TextBufferView;
-use crate::result::IonFailure;
-use crate::{Int, IonResult, IonType};
+use std::num::IntErrorKind;
+
 use num_bigint::BigInt;
 use num_traits::Num;
 use smallvec::SmallVec;
-use std::num::IntErrorKind;
+
+use crate::lazy::text::as_utf8::AsUtf8;
+use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::parse_result::InvalidInputError;
+use crate::result::IonFailure;
+use crate::{Int, IonError, IonResult, IonType};
 
 /// A partially parsed Ion value.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -35,6 +38,7 @@ pub(crate) enum MatchedValue {
     Null(IonType),
     Bool(bool),
     Int(MatchedInt),
+    Float(MatchedFloat),
     // TODO: ...the other types
 }
 
@@ -105,5 +109,48 @@ impl MatchedInt {
         };
 
         Ok(int)
+    }
+}
+
+/// A partially parsed Ion float.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) enum MatchedFloat {
+    /// `+inf`
+    PositiveInfinity,
+    /// `-inf`
+    NegativeInfinity,
+    /// `nan`
+    NotANumber,
+    /// Any numeric float value
+    Numeric,
+}
+
+impl MatchedFloat {
+    // Floats that take more than 32 bytes of text to represent will heap allocate a larger buffer.
+    const STACK_ALLOC_BUFFER_CAPACITY: usize = 32;
+
+    pub fn read(&self, matched_input: TextBufferView) -> IonResult<f64> {
+        use std::str::FromStr;
+
+        match self {
+            MatchedFloat::PositiveInfinity => return Ok(f64::INFINITY),
+            MatchedFloat::NegativeInfinity => return Ok(f64::NEG_INFINITY),
+            MatchedFloat::NotANumber => return Ok(f64::NAN),
+            MatchedFloat::Numeric => {} // fall through
+        };
+
+        let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
+            SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
+        sanitized.extend(matched_input.bytes().iter().copied().filter(|b| *b != b'_'));
+
+        let text = sanitized.as_utf8(matched_input.offset())?;
+        let float = f64::from_str(text).map_err(|e| {
+            let error: IonError = InvalidInputError::new(matched_input)
+                .with_description(format!("encountered an unexpected error ({:?})", e))
+                .with_label("parsing a float")
+                .into();
+            error
+        })?;
+        Ok(float)
     }
 }

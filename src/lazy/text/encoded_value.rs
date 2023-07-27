@@ -114,6 +114,7 @@ impl EncodedTextValue {
             MatchedValue::Null(ion_type) => ion_type,
             MatchedValue::Bool(_) => IonType::Bool,
             MatchedValue::Int(_) => IonType::Int,
+            MatchedValue::Float(_) => IonType::Float,
         }
     }
 
