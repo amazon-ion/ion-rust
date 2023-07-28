@@ -1,4 +1,5 @@
 use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use std::fmt::{Debug, Formatter};
@@ -15,13 +16,35 @@ pub enum RawValueRef<'data, D: LazyDecoder<'data>> {
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
-    String(&'data str),
+    String(StrRef<'data>),
     Symbol(RawSymbolTokenRef<'data>),
     Blob(&'data [u8]),
     Clob(&'data [u8]),
     SExp(D::Sequence),
     List(D::Sequence),
     Struct(D::Struct),
+}
+
+// Provides equality for scalar types, but not containers.
+impl<'data, D: LazyDecoder<'data>> PartialEq for RawValueRef<'data, D> {
+    fn eq(&self, other: &Self) -> bool {
+        use RawValueRef::*;
+        match (self, other) {
+            (Null(i1), Null(i2)) => i1 == i2,
+            (Bool(b1), Bool(b2)) => b1 == b2,
+            (Int(i1), Int(i2)) => i1 == i2,
+            (Float(f1), Float(f2)) => f1 == f2,
+            (Decimal(d1), Decimal(d2)) => d1 == d2,
+            (Timestamp(t1), Timestamp(t2)) => t1 == t2,
+            (String(s1), String(s2)) => s1 == s2,
+            (Symbol(s1), Symbol(s2)) => s1 == s2,
+            (Blob(b1), Blob(b2)) => b1 == b2,
+            (Clob(c1), Clob(c2)) => c1 == c2,
+            // We cannot compare lazy containers as we cannot guarantee that their complete contents
+            // are available in the buffer. Is `{foo: bar}` equal to `{foo: b`?
+            _ => false,
+        }
+    }
 }
 
 impl<'data, D: LazyDecoder<'data>> Debug for RawValueRef<'data, D> {
@@ -101,7 +124,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_string(self) -> IonResult<&'data str> {
+    pub fn expect_string(self) -> IonResult<StrRef<'data>> {
         if let RawValueRef::String(s) = self {
             Ok(s)
         } else {

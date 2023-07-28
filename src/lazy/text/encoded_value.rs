@@ -8,7 +8,7 @@ use std::ops::Range;
 /// Each [`LazyRawTextValue`](crate::lazy::text::value::LazyRawTextValue) contains an `EncodedValue`,
 /// allowing a user to re-read (that is: parse) the body of the value as many times as necessary
 /// without re-parsing its header information each time.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct EncodedTextValue {
     // Each encoded text value has up to three components, appearing in the following order:
     //
@@ -115,6 +115,7 @@ impl EncodedTextValue {
             MatchedValue::Bool(_) => IonType::Bool,
             MatchedValue::Int(_) => IonType::Int,
             MatchedValue::Float(_) => IonType::Float,
+            MatchedValue::String(_) => IonType::String,
         }
     }
 
@@ -163,8 +164,8 @@ impl EncodedTextValue {
         self.data_length + u32::max(self.annotations_offset, self.field_name_offset) as usize
     }
 
-    pub fn matched(&self) -> MatchedValue {
-        self.matched_value
+    pub fn matched(&self) -> &MatchedValue {
+        &self.matched_value
     }
 }
 

@@ -2,6 +2,7 @@ use crate::element::Value;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::LazySequence;
+use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::{Decimal, Int, IonError, IonResult, IonType, SymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
@@ -20,7 +21,7 @@ pub enum ValueRef<'top, 'data, D: LazyDecoder<'data>> {
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
-    String(&'data str),
+    String(StrRef<'data>),
     Symbol(SymbolRef<'top>),
     Blob(&'data [u8]),
     Clob(&'data [u8]),
@@ -152,7 +153,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_string(self) -> IonResult<&'data str> {
+    pub fn expect_string(self) -> IonResult<StrRef<'data>> {
         if let ValueRef::String(s) = self {
             Ok(s)
         } else {
@@ -286,7 +287,7 @@ mod tests {
         )?;
         let mut reader = LazyBinaryReader::new(&ion_data)?;
         let first_value = reader.expect_next()?.read()?;
-        assert_ne!(first_value, ValueRef::String("it's not a string"));
+        assert_ne!(first_value, ValueRef::String("it's not a string".into()));
         assert_eq!(first_value, ValueRef::Null(IonType::Null));
         assert_eq!(reader.expect_next()?.read()?, ValueRef::Bool(true));
         assert_eq!(reader.expect_next()?.read()?, ValueRef::Int(1.into()));
@@ -303,7 +304,10 @@ mod tests {
             reader.expect_next()?.read()?,
             ValueRef::Symbol(SymbolRef::from("foo"))
         );
-        assert_eq!(reader.expect_next()?.read()?, ValueRef::String("hello"));
+        assert_eq!(
+            reader.expect_next()?.read()?,
+            ValueRef::String("hello".into())
+        );
         assert_eq!(
             reader.expect_next()?.read()?,
             ValueRef::Blob(&[0x06, 0x5A, 0x1B]) // Base64-decoded "Blob"

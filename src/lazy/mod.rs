@@ -8,6 +8,7 @@ pub mod raw_stream_item;
 pub mod raw_value_ref;
 pub mod reader;
 pub mod sequence;
+pub mod str_ref;
 pub mod r#struct;
 pub mod system_reader;
 pub mod system_stream_item;

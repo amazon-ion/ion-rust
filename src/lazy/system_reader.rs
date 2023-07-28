@@ -235,8 +235,8 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     fn process_symbols(pending_lst: &mut PendingLst, symbols: &D::Value) -> IonResult<()> {
         if let RawValueRef::List(list) = symbols.read()? {
             for symbol_text in list.iter() {
-                if let RawValueRef::String(text) = symbol_text?.read()? {
-                    pending_lst.symbols.push(Some(text.to_owned()))
+                if let RawValueRef::String(str_ref) = symbol_text?.read()? {
+                    pending_lst.symbols.push(Some(str_ref.text().to_owned()))
                 } else {
                     pending_lst.symbols.push(None)
                 }
