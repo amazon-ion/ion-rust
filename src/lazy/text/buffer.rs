@@ -148,7 +148,7 @@ impl<'data> TextBufferView<'data> {
         // However, this one returns a `&'data str` instead of a `&'a str`, which is to say
         // that the string that's returned lives as long as the data itself, not just the duration
         // of the lifetime introduced by this method call.
-        std::str::from_utf8(&self.data).map_err(move |_| {
+        std::str::from_utf8(self.data).map_err(move |_| {
             let decoding_error =
                 DecodingError::new("encountered invalid UTF-8").with_position(self.offset());
             IonError::Decoding(decoding_error)

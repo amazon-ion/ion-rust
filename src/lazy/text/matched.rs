@@ -196,18 +196,15 @@ impl MatchedString {
     // Strings longer than 64 bytes will allocate a larger space on the heap.
     const STACK_ALLOC_BUFFER_CAPACITY: usize = 64;
 
-    pub fn read<'a, 'data>(
-        &'a self,
-        matched_input: TextBufferView<'data>,
-    ) -> IonResult<StrRef<'data>> {
+    pub fn read<'data>(&self, matched_input: TextBufferView<'data>) -> IonResult<StrRef<'data>> {
         match self {
             MatchedString::Short(short) => self.read_short_string(*short, matched_input),
             MatchedString::Long(_) => todo!("long-form strings"),
         }
     }
 
-    fn read_short_string<'a, 'data>(
-        &'a self,
+    fn read_short_string<'data>(
+        &self,
         short: MatchedShortString,
         matched_input: TextBufferView<'data>,
     ) -> IonResult<StrRef<'data>> {
@@ -301,10 +298,10 @@ impl MatchedString {
         Ok(input_after_escape)
     }
 
-    fn hex_digits_code_point<'a, 'data>(
+    fn hex_digits_code_point<'data>(
         num_digits: usize,
         input: TextBufferView<'data>,
-        sanitized: &'a mut Vec<u8>,
+        sanitized: &mut Vec<u8>,
     ) -> IonResult<TextBufferView<'data>> {
         if input.len() < num_digits {
             return Err(IonError::Decoding(

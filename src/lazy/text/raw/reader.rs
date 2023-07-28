@@ -130,8 +130,8 @@ mod tests {
         // Escaped newlines are discarded
         data.push_str("\"Hello,\\\n world!\"");
 
-        fn expect_next<'a, 'data>(
-            reader: &'a mut LazyRawTextReader<'data>,
+        fn expect_next<'data>(
+            reader: &mut LazyRawTextReader<'data>,
             expected: RawValueRef<'data, TextEncoding>,
         ) {
             let lazy_value = reader
