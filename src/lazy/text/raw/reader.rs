@@ -110,7 +110,7 @@ mod tests {
         -inf
         nan
         3.6e0
-        2.5e23
+        2.5e008
         -318e-2
             
         // Strings
@@ -183,7 +183,7 @@ mod tests {
         // 3.6e0
         expect_next(reader, RawValueRef::Float(3.6f64));
         // 2.25e23
-        expect_next(reader, RawValueRef::Float(2.5f64 * 10f64.powi(23)));
+        expect_next(reader, RawValueRef::Float(2.5f64 * 10f64.powi(8)));
         // -3.18
         expect_next(reader, RawValueRef::Float(-3.18f64));
         // "Hello"
