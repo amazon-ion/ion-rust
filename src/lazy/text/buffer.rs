@@ -6,7 +6,7 @@ use std::slice::Iter;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1};
 use nom::character::streaming::{char, digit1, one_of};
-use nom::combinator::{map, opt, peek, recognize, success, value};
+use nom::combinator::{fail, map, opt, peek, recognize, success, value};
 use nom::error::{ErrorKind, ParseError};
 use nom::multi::many0_count;
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
@@ -601,7 +601,9 @@ impl<'data> TextBufferView<'data> {
     }
 
     fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
-        todo!()
+        // TODO: implement long string matching
+        //       The `fail` parser is a nom builtin that never matches.
+        fail(self)
     }
 }
 
@@ -1015,6 +1017,8 @@ mod tests {
             MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_string));
         }
 
+        // These inputs have leading/trailing whitespace to make them more readable, but the string
+        // matcher doesn't accept whitespace. We'll trim each one before testing it.
         let good_inputs = &[
             r#"
             "hello"
@@ -1027,7 +1031,7 @@ mod tests {
             "#,
         ];
         for input in good_inputs {
-            match_string(input);
+            match_string(input.trim());
         }
 
         let bad_inputs = &[

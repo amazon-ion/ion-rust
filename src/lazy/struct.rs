@@ -147,7 +147,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::{Element, IonType};
-    /// use ion_rs::lazy::reader::LazyBinaryReader;;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let ion_data = r#"{foo: "hello", bar: null.list, baz: 3, bar: 4}"#;
@@ -156,7 +156,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     ///
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
-    /// assert_eq!(lazy_struct.get("foo")?, Some(ValueRef::String("hello")));
+    /// assert_eq!(lazy_struct.get("foo")?, Some(ValueRef::String("hello".into())));
     /// assert_eq!(lazy_struct.get("baz")?, Some(ValueRef::Int(3.into())));
     /// assert_eq!(lazy_struct.get("bar")?, Some(ValueRef::Null(IonType::List)));
     ///# Ok(())
@@ -175,7 +175,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::Element;
-    /// use ion_rs::lazy::reader::LazyBinaryReader;;
+    /// use ion_rs::lazy::reader::LazyBinaryReader;
     /// use ion_rs::lazy::value_ref::ValueRef;
     ///
     /// let ion_data = r#"{foo: "hello", bar: null.list, baz: 3, bar: 4}"#;
@@ -184,7 +184,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     ///
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
-    /// assert_eq!(lazy_struct.get_expected("foo")?, ValueRef::String("hello"));
+    /// assert_eq!(lazy_struct.get_expected("foo")?, ValueRef::String("hello".into()));
     /// assert!(dbg!(lazy_struct.get_expected("Ontario")).is_err());
     ///# Ok(())
     ///# }
