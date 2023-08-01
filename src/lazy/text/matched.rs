@@ -20,8 +20,10 @@
 //! re-discovered.
 
 use nom::character::is_hex_digit;
+use std::borrow::Cow;
 use std::num::IntErrorKind;
 use std::ops::Range;
+use std::str::FromStr;
 
 use num_bigint::BigInt;
 use num_traits::Num;
@@ -32,7 +34,7 @@ use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::InvalidInputError;
 use crate::result::{DecodingError, IonFailure};
-use crate::{Int, IonError, IonResult, IonType};
+use crate::{Int, IonError, IonResult, IonType, RawSymbolTokenRef};
 
 /// A partially parsed Ion value.
 #[derive(Clone, Debug, PartialEq)]
@@ -43,6 +45,7 @@ pub(crate) enum MatchedValue {
     Int(MatchedInt),
     Float(MatchedFloat),
     String(MatchedString),
+    Symbol(MatchedSymbol),
     // TODO: ...the other types
 }
 
@@ -134,8 +137,6 @@ impl MatchedFloat {
     const STACK_ALLOC_BUFFER_CAPACITY: usize = 32;
 
     pub fn read(&self, matched_input: TextBufferView) -> IonResult<f64> {
-        use std::str::FromStr;
-
         match self {
             MatchedFloat::PositiveInfinity => return Ok(f64::INFINITY),
             MatchedFloat::NegativeInfinity => return Ok(f64::NEG_INFINITY),
@@ -220,140 +221,137 @@ impl MatchedString {
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
 
-        Self::escape_short_string(body, &mut sanitized)?;
+        escape_text(body, &mut sanitized)?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text.to_string()))
     }
+}
 
-    fn escape_short_string(
-        matched_input: TextBufferView,
-        sanitized: &mut Vec<u8>,
-    ) -> IonResult<()> {
-        let mut remaining = matched_input;
-        while !remaining.is_empty() {
-            let next_escape = remaining.bytes().iter().position(|byte| *byte == b'\\');
-            remaining = if let Some(escape_offset) = next_escape {
-                // Everything up to the '\' is already clean. Write that slice to 'sanitized'.
-                let already_clean = remaining.slice(0, escape_offset);
-                sanitized.extend_from_slice(already_clean.bytes());
-                // Everything starting from the '\' needs to be evaluated.
-                let contains_escapes = remaining.slice_to_end(escape_offset);
-                Self::write_escaped(contains_escapes, sanitized)?
-            } else {
-                sanitized.extend_from_slice(remaining.bytes());
-                // 'remaining' is now empty
-                remaining.slice_to_end(remaining.len())
-            };
-        }
-
-        Ok(())
-    }
-
-    fn write_escaped<'data>(
-        input: TextBufferView<'data>,
-        sanitized: &mut Vec<u8>,
-    ) -> IonResult<TextBufferView<'data>> {
-        // Note that by the time this method has been called, the parser has already confirmed that
-        // there is an appropriate closing delimiter. Thus, if any of the branches below run out of
-        // data, it means that it's a fatal error and not just an Incomplete.
-        debug_assert!(!input.is_empty());
-        debug_assert!(input.bytes()[0] == b'\\');
-        if input.len() == 1 {
-            return Err(IonError::Decoding(
-                DecodingError::new("found an escape ('\\') with no subsequent character")
-                    .with_position(input.offset()),
-            ));
-        }
-        let input_after_escape = input.slice_to_end(2); // After (e.g.) '\x'
-        let escape_id = input.bytes()[1];
-        let substitute = match escape_id {
-            b'n' => b'\n',
-            b'r' => b'\r',
-            b't' => b'\t',
-            b'\\' => b'\\',
-            b'/' => b'/',
-            b'"' => b'"',
-            b'\'' => b'\'',
-            b'?' => b'?',
-            b'0' => 0x00u8, // NUL
-            b'a' => 0x07u8, // alert BEL
-            b'b' => 0x08u8, // backspace
-            b'v' => 0x0Bu8, // vertical tab
-            b'f' => 0x0Cu8, // form feed
-            // If the byte following the '\' is a real newline (that is: 0x0A), we discard it.
-            b'\n' => return Ok(input_after_escape),
-            // These cases require more sophisticated parsing, not just a 1-to-1 mapping of bytes
-            b'x' => return Self::hex_digits_code_point(2, input_after_escape, sanitized),
-            b'u' => return Self::hex_digits_code_point(4, input_after_escape, sanitized),
-            b'U' => return Self::hex_digits_code_point(8, input_after_escape, sanitized),
-            _ => {
-                return Err(IonError::Decoding(
-                    DecodingError::new(format!("invalid escape sequence '\\{}", escape_id))
-                        .with_position(input.offset()),
-                ))
-            }
+fn escape_text(matched_input: TextBufferView, sanitized: &mut Vec<u8>) -> IonResult<()> {
+    let mut remaining = matched_input;
+    while !remaining.is_empty() {
+        let next_escape = remaining.bytes().iter().position(|byte| *byte == b'\\');
+        remaining = if let Some(escape_offset) = next_escape {
+            // Everything up to the '\' is already clean. Write that slice to 'sanitized'.
+            let already_clean = remaining.slice(0, escape_offset);
+            sanitized.extend_from_slice(already_clean.bytes());
+            // Everything starting from the '\' needs to be evaluated.
+            let contains_escapes = remaining.slice_to_end(escape_offset);
+            write_escaped(contains_escapes, sanitized)?
+        } else {
+            sanitized.extend_from_slice(remaining.bytes());
+            // 'remaining' is now empty
+            remaining.slice_to_end(remaining.len())
         };
-
-        sanitized.push(substitute);
-        Ok(input_after_escape)
     }
 
-    fn hex_digits_code_point<'data>(
-        num_digits: usize,
-        input: TextBufferView<'data>,
-        sanitized: &mut Vec<u8>,
-    ) -> IonResult<TextBufferView<'data>> {
-        if input.len() < num_digits {
-            return Err(IonError::Decoding(
-                DecodingError::new(format!(
-                    "found a {}-hex-digit escape sequence with only {} digits",
-                    num_digits,
-                    input.len()
-                ))
+    Ok(())
+}
+
+fn write_escaped<'data>(
+    input: TextBufferView<'data>,
+    sanitized: &mut Vec<u8>,
+) -> IonResult<TextBufferView<'data>> {
+    // Note that by the time this method has been called, the parser has already confirmed that
+    // there is an appropriate closing delimiter. Thus, if any of the branches below run out of
+    // data, it means that it's a fatal error and not just an Incomplete.
+    debug_assert!(!input.is_empty());
+    debug_assert!(input.bytes()[0] == b'\\');
+    if input.len() == 1 {
+        return Err(IonError::Decoding(
+            DecodingError::new("found an escape ('\\') with no subsequent character")
                 .with_position(input.offset()),
-            ));
-        }
-
-        let hex_digit_bytes = &input.bytes()[..num_digits];
-
-        let all_are_hex_digits = hex_digit_bytes
-            .iter()
-            .take(num_digits)
-            .copied()
-            .all(is_hex_digit);
-        if !all_are_hex_digits {
-            return Err(IonError::Decoding(
-                DecodingError::new(format!(
-                    "found a {}-hex-digit escape sequence that contained an invalid hex digit",
-                    num_digits,
-                ))
-                .with_position(input.offset()),
-            ));
-        }
-        // We just confirmed all of the digits are ASCII hex digits, so these steps cannot fail.
-        let hex_digits = std::str::from_utf8(hex_digit_bytes).unwrap();
-        let code_point = u32::from_str_radix(hex_digits, 16).unwrap();
-
-        // Check to see if this is a high surrogate; if it is, our code point isn't complete. Another
-        // unicode escape representing the low surrogate has to be next in the input to complete it.
-        // See the docs for this helper function for details. (Note: this will only ever be true for
-        // 4- and 8-digit escape sequences. `\x` escapes don't have enough digits to represent a
-        // high surrogate.)
-        if code_point_is_a_high_surrogate(code_point) {
-            todo!("support surrogate pairs")
-        }
-
-        // A Rust `char` can represent any Unicode scalar value--a code point that is not part of a
-        // surrogate pair. If the value we found isn't a high surrogate, then it's a complete scalar
-        // value. We can safely convert it to a `char`.
-        let character = char::from_u32(code_point).unwrap();
-        let utf8_buffer: &mut [u8; 4] = &mut [0; 4];
-        let utf8_encoded = character.encode_utf8(utf8_buffer);
-        sanitized.extend_from_slice(utf8_encoded.as_bytes());
-
-        // Skip beyond the digits we just processed
-        Ok(input.slice_to_end(num_digits))
+        ));
     }
+    let input_after_escape = input.slice_to_end(2); // After (e.g.) '\x'
+    let escape_id = input.bytes()[1];
+    let substitute = match escape_id {
+        b'n' => b'\n',
+        b'r' => b'\r',
+        b't' => b'\t',
+        b'\\' => b'\\',
+        b'/' => b'/',
+        b'"' => b'"',
+        b'\'' => b'\'',
+        b'?' => b'?',
+        b'0' => 0x00u8, // NUL
+        b'a' => 0x07u8, // alert BEL
+        b'b' => 0x08u8, // backspace
+        b'v' => 0x0Bu8, // vertical tab
+        b'f' => 0x0Cu8, // form feed
+        // If the byte following the '\' is a real newline (that is: 0x0A), we discard it.
+        b'\n' => return Ok(input_after_escape),
+        // These cases require more sophisticated parsing, not just a 1-to-1 mapping of bytes
+        b'x' => return hex_digits_code_point(2, input_after_escape, sanitized),
+        b'u' => return hex_digits_code_point(4, input_after_escape, sanitized),
+        b'U' => return hex_digits_code_point(8, input_after_escape, sanitized),
+        _ => {
+            return Err(IonError::Decoding(
+                DecodingError::new(format!("invalid escape sequence '\\{}", escape_id))
+                    .with_position(input.offset()),
+            ))
+        }
+    };
+
+    sanitized.push(substitute);
+    Ok(input_after_escape)
+}
+
+fn hex_digits_code_point<'data>(
+    num_digits: usize,
+    input: TextBufferView<'data>,
+    sanitized: &mut Vec<u8>,
+) -> IonResult<TextBufferView<'data>> {
+    if input.len() < num_digits {
+        return Err(IonError::Decoding(
+            DecodingError::new(format!(
+                "found a {}-hex-digit escape sequence with only {} digits",
+                num_digits,
+                input.len()
+            ))
+            .with_position(input.offset()),
+        ));
+    }
+
+    let hex_digit_bytes = &input.bytes()[..num_digits];
+
+    let all_are_hex_digits = hex_digit_bytes
+        .iter()
+        .take(num_digits)
+        .copied()
+        .all(is_hex_digit);
+    if !all_are_hex_digits {
+        return Err(IonError::Decoding(
+            DecodingError::new(format!(
+                "found a {}-hex-digit escape sequence that contained an invalid hex digit",
+                num_digits,
+            ))
+            .with_position(input.offset()),
+        ));
+    }
+    // We just confirmed all of the digits are ASCII hex digits, so these steps cannot fail.
+    let hex_digits = std::str::from_utf8(hex_digit_bytes).unwrap();
+    let code_point = u32::from_str_radix(hex_digits, 16).unwrap();
+
+    // Check to see if this is a high surrogate; if it is, our code point isn't complete. Another
+    // unicode escape representing the low surrogate has to be next in the input to complete it.
+    // See the docs for this helper function for details. (Note: this will only ever be true for
+    // 4- and 8-digit escape sequences. `\x` escapes don't have enough digits to represent a
+    // high surrogate.)
+    if code_point_is_a_high_surrogate(code_point) {
+        todo!("support surrogate pairs")
+    }
+
+    // A Rust `char` can represent any Unicode scalar value--a code point that is not part of a
+    // surrogate pair. If the value we found isn't a high surrogate, then it's a complete scalar
+    // value. We can safely convert it to a `char`.
+    let character = char::from_u32(code_point).unwrap();
+    let utf8_buffer: &mut [u8; 4] = &mut [0; 4];
+    let utf8_encoded = character.encode_utf8(utf8_buffer);
+    sanitized.extend_from_slice(utf8_encoded.as_bytes());
+
+    // Skip beyond the digits we just processed
+    Ok(input.slice_to_end(num_digits))
 }
 
 /// Returns `true` if the provided code point is a utf-16 high surrogate.
@@ -380,4 +378,72 @@ impl MatchedString {
 /// * <https://www.unicode.org/glossary/#surrogate_code_point>
 fn code_point_is_a_high_surrogate(value: u32) -> bool {
     (0xD800..=0xDFFF).contains(&value)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum MatchedSymbol {
+    /// A numeric symbol ID (e.g. `$21`)
+    SymbolId,
+    /// The symbol is an unquoted identifier (e.g. `foo`)
+    Identifier,
+    /// The symbol is delimited by single quotes.
+    Quoted(bool),
+    // TODO: Operators in S-Expressions
+}
+
+impl MatchedSymbol {
+    pub fn read<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<RawSymbolTokenRef<'data>> {
+        match self {
+            MatchedSymbol::SymbolId => self.read_symbol_id(matched_input),
+            MatchedSymbol::Identifier => self.read_identifier(matched_input),
+            MatchedSymbol::Quoted(contains_escaped_chars) => {
+                self.read_quoted(matched_input, *contains_escaped_chars)
+            }
+        }
+    }
+
+    fn read_quoted<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+        contains_escaped_chars: bool,
+    ) -> IonResult<RawSymbolTokenRef<'data>> {
+        // Take a slice of the input that ignores the first and last bytes, which are quotes.
+        let body = matched_input.slice(1, matched_input.len() - 2);
+        if !contains_escaped_chars {
+            // There are no escaped characters, so we can just validate the string in-place.
+            let text = body.as_text()?;
+            let str_ref = RawSymbolTokenRef::Text(text.into());
+            return Ok(str_ref);
+        }
+
+        // Otherwise, there are escaped characters. We need to build a new version of our symbol
+        // that replaces the escaped characters with their corresponding bytes.
+        let mut sanitized = Vec::with_capacity(matched_input.len());
+
+        escape_text(body, &mut sanitized)?;
+        let text = String::from_utf8(sanitized).unwrap();
+        Ok(RawSymbolTokenRef::Text(text.into()))
+    }
+    fn read_identifier<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<RawSymbolTokenRef<'data>> {
+        matched_input
+            .as_text()
+            .map(|t| RawSymbolTokenRef::Text(Cow::Borrowed(t)))
+    }
+    fn read_symbol_id<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<RawSymbolTokenRef<'data>> {
+        // Skip past the first byte, which has to be a `$`.
+        let text = matched_input.slice_to_end(1).as_text()?;
+        // It's not possible for the number parsing to fail because the matcher's rules
+        // guarantee that this string contains only decimal digits.
+        let sid = usize::from_str(text).expect("loading symbol ID as usize");
+        Ok(RawSymbolTokenRef::SymbolId(sid))
+    }
 }

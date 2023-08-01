@@ -5,8 +5,8 @@ use std::slice::Iter;
 
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1};
-use nom::character::streaming::{char, digit1, one_of};
-use nom::combinator::{fail, map, opt, peek, recognize, success, value};
+use nom::character::streaming::{char, digit1, one_of, satisfy};
+use nom::combinator::{fail, map, not, opt, peek, recognize, success, value};
 use nom::error::{ErrorKind, ParseError};
 use nom::multi::many0_count;
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
@@ -16,9 +16,9 @@ use crate::lazy::encoding::TextEncoding;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
-    MatchedFloat, MatchedInt, MatchedShortString, MatchedString, MatchedValue,
+    MatchedFloat, MatchedInt, MatchedShortString, MatchedString, MatchedSymbol, MatchedValue,
 };
-use crate::lazy::text::parse_result::IonParseError;
+use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::value::LazyRawTextValue;
 use crate::result::DecodingError;
@@ -270,6 +270,16 @@ impl<'data> TextBufferView<'data> {
                 |(matched_string, length)| {
                     EncodedTextValue::new(
                         MatchedValue::String(matched_string),
+                        self.offset(),
+                        length,
+                    )
+                },
+            ),
+            map(
+                match_and_length(Self::match_symbol),
+                |(matched_symbol, length)| {
+                    EncodedTextValue::new(
+                        MatchedValue::Symbol(matched_symbol),
                         self.offset(),
                         length,
                     )
@@ -578,6 +588,103 @@ impl<'data> TextBufferView<'data> {
     /// Returns a matched buffer and a boolean indicating whether any escaped characters were
     /// found in the short string.
     fn match_short_string_body(self) -> IonParseResult<'data, (Self, bool)> {
+        Self::match_text_until_unescaped(self, b'\"')
+    }
+
+    fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
+        // TODO: implement long string matching
+        //       The `fail` parser is a nom builtin that never matches.
+        fail(self)
+    }
+
+    fn match_symbol(self) -> IonParseResult<'data, MatchedSymbol> {
+        // TODO: identifiers
+        alt((
+            Self::match_symbol_id,
+            Self::match_identifier,
+            Self::match_quoted_symbol,
+        ))(self)
+    }
+
+    fn match_symbol_id(self) -> IonParseResult<'data, MatchedSymbol> {
+        recognize(terminated(
+            // Discard a `$` and parse an integer representing the symbol ID.
+            // Note that symbol ID integers:
+            //   * CANNOT have underscores in them. For example: `$1_0` is considered an identifier.
+            //   * CAN have leading zeros. There's precedent for this in ion-java.
+            preceded(tag("$"), digit1),
+            // Peek at the next character to make sure it's unrelated to the symbol ID.
+            // The spec does not offer a formal definition of what ends a symbol ID.
+            // This checks for either a stop_character (which performs its own `peek()`)
+            // or a colon (":"), which could be a field delimiter (":") or the beginning of
+            // an annotation delimiter ('::').
+            alt((
+                // Each of the parsers passed to `alt` must have the same return type. `stop_character`
+                // returns a char instead of a &str, so we use `recognize()` to get a &str instead.
+                recognize(Self::peek_stop_character),
+                peek(tag(":")), // Field delimiter (":") or annotation delimiter ("::")
+            )),
+        ))
+        .map(|_matched| MatchedSymbol::SymbolId)
+        .parse(self)
+    }
+
+    fn match_identifier(self) -> IonParseResult<'data, MatchedSymbol> {
+        let (remaining, identifier_text) = recognize(terminated(
+            pair(
+                Self::identifier_initial_character,
+                Self::identifier_trailing_characters,
+            ),
+            not(Self::identifier_trailing_character),
+        ))(self)?;
+        // Ion defines a number of keywords that are syntactically indistinguishable from
+        // identifiers. Keywords take precedence; we must ensure that any identifier we find
+        // is not actually a keyword.
+        const KEYWORDS: &[&str] = &["true", "false", "nan", "null"];
+        // In many situations, this check will not be necessary. Another type's parser will
+        // recognize the keyword as its own. (For example, `parse_boolean` would match the input
+        // text `false`.) However, because symbols can appear in annotations and the check for
+        // annotations precedes the parsing for all other types, we need this extra verification.
+        if KEYWORDS
+            .iter()
+            .any(|k| k.as_bytes() == identifier_text.bytes())
+        {
+            // Finding a keyword is not a fatal error, it just means that this parser doesn't match.
+            return Err(nom::Err::Error(IonParseError::Invalid(
+                InvalidInputError::new(self),
+            )));
+        }
+        Ok((remaining, MatchedSymbol::Identifier))
+    }
+
+    /// Matches any character that can appear at the start of an identifier.
+    fn identifier_initial_character(self) -> IonParseResult<'data, Self> {
+        recognize(alt((one_of("$_"), satisfy(|c| c.is_ascii_alphabetic()))))(self)
+    }
+
+    /// Matches any character that is legal in an identifier, though not necessarily at the beginning.
+    fn identifier_trailing_character(self) -> IonParseResult<'data, Self> {
+        recognize(alt((one_of("$_"), satisfy(|c| c.is_ascii_alphanumeric()))))(self)
+    }
+
+    /// Matches characters that are legal in an identifier, though not necessarily at the beginning.
+    fn identifier_trailing_characters(self) -> IonParseResult<'data, Self> {
+        recognize(many0_count(Self::identifier_trailing_character))(self)
+    }
+
+    fn match_quoted_symbol(self) -> IonParseResult<'data, MatchedSymbol> {
+        delimited(char('\''), Self::match_quoted_symbol_body, char('\''))
+            .map(|(_matched, contains_escaped_chars)| MatchedSymbol::Quoted(contains_escaped_chars))
+            .parse(self)
+    }
+
+    /// Returns a matched buffer and a boolean indicating whether any escaped characters were
+    /// found in the short string.
+    fn match_quoted_symbol_body(self) -> IonParseResult<'data, (Self, bool)> {
+        Self::match_text_until_unescaped(self, b'\'')
+    }
+
+    fn match_text_until_unescaped(self, delimiter: u8) -> IonParseResult<'data, (Self, bool)> {
         let mut is_escaped = false;
         let mut contains_escaped_chars = false;
         for (index, byte) in self.bytes().iter().enumerate() {
@@ -591,19 +698,13 @@ impl<'data> TextBufferView<'data> {
                 contains_escaped_chars = true;
                 continue;
             }
-            if *byte == b'\"' {
+            if *byte == delimiter {
                 let matched = self.slice(0, index);
                 let remaining = self.slice_to_end(index);
                 return Ok((remaining, (matched, contains_escaped_chars)));
             }
         }
         Err(nom::Err::Incomplete(Needed::Unknown))
-    }
-
-    fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
-        // TODO: implement long string matching
-        //       The `fail` parser is a nom builtin that never matches.
-        fail(self)
     }
 }
 
@@ -840,13 +941,17 @@ mod tests {
             P: Parser<TextBufferView<'data>, O, IonParseError<'data>>,
         {
             let result = self.try_match(parser);
-            // We expect this to fail for one reason or another
-            assert!(
-                result.is_err(),
-                "Expected a parse failure for input: {:?}\nResult: {:?}",
-                self.input,
-                result
-            );
+            // We expect that only part of the input will match or that the entire
+            // input will be rejected outright.
+            if let Ok((_remaining, match_length)) = result {
+                assert_ne!(
+                    match_length,
+                    self.input.len() - 1,
+                    "parser unexpectedly matched the complete input: '{:?}\nResult: {:?}",
+                    self.input,
+                    result
+                );
+            }
         }
     }
 
@@ -1039,13 +1144,54 @@ mod tests {
             r#"
             hello"
             "#,
-            // Missing a trailing quote
+            // Missing a closing quote
             r#"
             "hello
+            "#,
+            // Closing quote is escaped
+            r#"
+            "hello\"
             "#,
         ];
         for input in bad_inputs {
             mismatch_string(input);
+        }
+    }
+
+    #[test]
+    fn test_match_symbol() {
+        fn match_symbol(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_symbol));
+        }
+        fn mismatch_symbol(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_symbol));
+        }
+
+        // These inputs have leading/trailing whitespace to make them more readable, but the string
+        // matcher doesn't accept whitespace. We'll trim each one before testing it.
+        let good_inputs = &[
+            "'hello'",
+            "'😀😀😀'",
+            "'this has an escaped quote \\' right in the middle'",
+            "$308",
+            "$0",
+            "foo",
+            "name",
+            "$bar",
+            "_baz_quux",
+        ];
+        for input in good_inputs {
+            match_symbol(input);
+        }
+
+        let bad_inputs = &[
+            "'hello",    // No closing quote
+            "'hello\\'", // Closing quote is escaped
+            "$-8",       // Negative SID
+            "nan",       // Identifier that is also a keyword
+        ];
+        for input in bad_inputs {
+            mismatch_symbol(input);
         }
     }
 }

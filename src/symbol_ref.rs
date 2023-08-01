@@ -1,5 +1,5 @@
 use crate::Symbol;
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 
@@ -7,19 +7,19 @@ use std::hash::{Hash, Hasher};
 /// static lifetime), a `SymbolRef` may have known or undefined text (i.e. `$0`).
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct SymbolRef<'a> {
-    text: Option<&'a str>,
+    text: Option<Cow<'a, str>>,
 }
 
 impl<'a> Debug for SymbolRef<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.text.unwrap_or("$0"))
+        write!(f, "{}", self.text().unwrap_or("$0"))
     }
 }
 
 impl<'a> SymbolRef<'a> {
     /// If this symbol has known text, returns `Some(&str)`. Otherwise, returns `None`.
     pub fn text(&self) -> Option<&str> {
-        self.text
+        self.text.as_ref().map(|t| t.as_ref())
     }
 
     /// Constructs a `SymbolRef` with unknown text.
@@ -28,14 +28,17 @@ impl<'a> SymbolRef<'a> {
     }
 
     /// Constructs a `SymbolRef` with the specified text.
-    pub fn with_text(text: &str) -> SymbolRef {
-        SymbolRef { text: Some(text) }
+    pub fn with_text(text: impl Into<Cow<'a, str>>) -> SymbolRef<'a> {
+        SymbolRef {
+            text: Some(text.into()),
+        }
     }
 
     pub fn to_owned(self) -> Symbol {
-        match self.text() {
+        match self.text {
             None => Symbol::unknown_text(),
-            Some(text) => Symbol::owned(text),
+            Some(Cow::Borrowed(text)) => Symbol::owned(text),
+            Some(Cow::Owned(text)) => Symbol::owned(text),
         }
     }
 }
@@ -60,14 +63,14 @@ pub trait AsSymbolRef {
 impl<'a, A: AsRef<str> + 'a> AsSymbolRef for A {
     fn as_symbol_ref(&self) -> SymbolRef {
         SymbolRef {
-            text: Some(self.as_ref()),
+            text: Some(Cow::Borrowed(self.as_ref())),
         }
     }
 }
 
 impl<'a> Hash for SymbolRef<'a> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match self.text {
+        match self.text() {
             None => 0.hash(state),
             Some(text) => text.hash(state),
         }
@@ -76,15 +79,30 @@ impl<'a> Hash for SymbolRef<'a> {
 
 impl<'a> From<&'a str> for SymbolRef<'a> {
     fn from(text: &'a str) -> Self {
-        Self { text: Some(text) }
+        Self {
+            text: Some(Cow::Borrowed(text)),
+        }
+    }
+}
+
+impl<'a> From<String> for SymbolRef<'a> {
+    fn from(text: String) -> Self {
+        Self {
+            text: Some(Cow::Owned(text)),
+        }
+    }
+}
+
+impl<'a> From<Cow<'a, str>> for SymbolRef<'a> {
+    fn from(value: Cow<'a, str>) -> Self {
+        Self { text: Some(value) }
     }
 }
 
 impl<'a> From<&'a Symbol> for SymbolRef<'a> {
     fn from(symbol: &'a Symbol) -> Self {
-        Self {
-            text: symbol.text(),
-        }
+        let text = symbol.text().map(Cow::Borrowed);
+        Self { text }
     }
 }
 

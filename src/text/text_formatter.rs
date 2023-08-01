@@ -229,12 +229,13 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         match token.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(sid) => write!(self.output, "${sid}")?,
             RawSymbolTokenRef::Text(text)
-                if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) =>
+                if Self::token_is_keyword(text.as_ref())
+                    || Self::token_resembles_symbol_id(text.as_ref()) =>
             {
                 // Write the symbol text in single quotes
                 write!(self.output, "'{text}'")?;
             }
-            RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text) => {
+            RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text.as_ref()) => {
                 // Write the symbol text without quotes
                 write!(self.output, "{text}")?
             }

@@ -9,6 +9,7 @@ use crate::{
     Annotations, Element, IntoAnnotatedElement, IonError, IonResult, IonType, RawSymbolTokenRef,
     SymbolRef, SymbolTable, Value,
 };
+use std::borrow::Cow;
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
 /// not. A `LazyValue` is immutable; its data can be read any number of times.
@@ -184,7 +185,8 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
                             ))
                         })?
                         .into(),
-                    RawSymbolTokenRef::Text(text) => text.into(),
+                    RawSymbolTokenRef::Text(Cow::Borrowed(text)) => text.into(),
+                    RawSymbolTokenRef::Text(Cow::Owned(text)) => text.into(),
                 };
                 ValueRef::Symbol(symbol)
             }
@@ -333,7 +335,7 @@ where
                 )),
                 Some(symbol) => Some(Ok(symbol.into())),
             },
-            Ok(RawSymbolTokenRef::Text(text)) => Some(Ok(SymbolRef::with_text(text))),
+            Ok(RawSymbolTokenRef::Text(text)) => Some(Ok(text.into())),
             Err(e) => Some(Err(e)),
         }
     }

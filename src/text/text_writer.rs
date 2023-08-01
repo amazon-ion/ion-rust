@@ -123,7 +123,7 @@ impl<W: Write> IonWriter for TextWriter<W> {
                 RawSymbolTokenRef::SymbolId(symbol_id) => {
                     // Get the text associated with this symbol ID
                     match self.symbol_table.text_for(symbol_id) {
-                        Some(text) => RawSymbolTokenRef::Text(text),
+                        Some(text) => RawSymbolTokenRef::Text(text.into()),
                         None => RawSymbolTokenRef::SymbolId(symbol_id),
                     }
                 }
@@ -138,7 +138,7 @@ impl<W: Write> IonWriter for TextWriter<W> {
             RawSymbolTokenRef::SymbolId(symbol_id) => {
                 // Get the text associated with this symbol ID
                 match self.symbol_table.text_for(symbol_id) {
-                    Some(text) => RawSymbolTokenRef::Text(text),
+                    Some(text) => RawSymbolTokenRef::Text(text.into()),
                     None => RawSymbolTokenRef::SymbolId(symbol_id),
                 }
             }
@@ -152,7 +152,7 @@ impl<W: Write> IonWriter for TextWriter<W> {
             RawSymbolTokenRef::SymbolId(symbol_id) => {
                 // Get the text associated with this symbol ID
                 match self.symbol_table.text_for(symbol_id) {
-                    Some(text) => RawSymbolTokenRef::Text(text),
+                    Some(text) => RawSymbolTokenRef::Text(text.into()),
                     None => RawSymbolTokenRef::SymbolId(symbol_id),
                 }
             }
