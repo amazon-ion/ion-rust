@@ -297,6 +297,8 @@ fn write_escaped<'data>(
     Ok(input_after_escape)
 }
 
+/// Reads the next `num_digits` bytes from `input` as a `char`, then writes that `char`'s UTF8 bytes
+/// to `sanitized`.
 fn hex_digits_code_point<'data>(
     num_digits: usize,
     input: TextBufferView<'data>,
@@ -386,7 +388,8 @@ pub(crate) enum MatchedSymbol {
     SymbolId,
     /// The symbol is an unquoted identifier (e.g. `foo`)
     Identifier,
-    /// The symbol is delimited by single quotes.
+    /// The symbol is delimited by single quotes. Holds a `bool` indicating whether the
+    /// matched input contained any escaped bytes.
     Quoted(bool),
     // TODO: Operators in S-Expressions
 }
