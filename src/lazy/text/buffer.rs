@@ -597,6 +597,7 @@ impl<'data> TextBufferView<'data> {
         fail(self)
     }
 
+    /// Matches a symbol ID (`$28`), an identifier (`foo`), or a quoted symbol (`'foo'`).
     fn match_symbol(self) -> IonParseResult<'data, MatchedSymbol> {
         // TODO: identifiers
         alt((
@@ -606,6 +607,7 @@ impl<'data> TextBufferView<'data> {
         ))(self)
     }
 
+    /// Matches a symbol ID (`$28`).
     fn match_symbol_id(self) -> IonParseResult<'data, MatchedSymbol> {
         recognize(terminated(
             // Discard a `$` and parse an integer representing the symbol ID.
@@ -629,6 +631,7 @@ impl<'data> TextBufferView<'data> {
         .parse(self)
     }
 
+    /// Matches an identifier (`foo`).
     fn match_identifier(self) -> IonParseResult<'data, MatchedSymbol> {
         let (remaining, identifier_text) = recognize(terminated(
             pair(
@@ -672,6 +675,7 @@ impl<'data> TextBufferView<'data> {
         recognize(many0_count(Self::identifier_trailing_character))(self)
     }
 
+    /// Matches a quoted symbol (`'foo'`).
     fn match_quoted_symbol(self) -> IonParseResult<'data, MatchedSymbol> {
         delimited(char('\''), Self::match_quoted_symbol_body, char('\''))
             .map(|(_matched, contains_escaped_chars)| MatchedSymbol::Quoted(contains_escaped_chars))
@@ -684,6 +688,8 @@ impl<'data> TextBufferView<'data> {
         Self::match_text_until_unescaped(self, b'\'')
     }
 
+    /// A helper method for matching bytes until the specified delimiter. Ignores any byte
+    /// (including the delimiter) that is prefaced by the escape character `\`.
     fn match_text_until_unescaped(self, delimiter: u8) -> IonParseResult<'data, (Self, bool)> {
         let mut is_escaped = false;
         let mut contains_escaped_chars = false;
