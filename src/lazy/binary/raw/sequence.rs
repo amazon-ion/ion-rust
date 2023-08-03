@@ -18,11 +18,11 @@ impl<'data> LazyRawBinarySequence<'data> {
         self.value.ion_type()
     }
 
-    pub fn iter(&self) -> RawSequenceIterator<'data> {
+    pub fn iter(&self) -> RawBinarySequenceIterator<'data> {
         // Get as much of the sequence's body as is available in the input buffer.
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
-        RawSequenceIterator::new(buffer_slice)
+        RawBinarySequenceIterator::new(buffer_slice)
     }
 }
 
@@ -33,7 +33,7 @@ impl<'data> LazyContainerPrivate<'data, BinaryEncoding> for LazyRawBinarySequenc
 }
 
 impl<'data> LazyRawSequence<'data, BinaryEncoding> for LazyRawBinarySequence<'data> {
-    type Iterator = RawSequenceIterator<'data>;
+    type Iterator = RawBinarySequenceIterator<'data>;
 
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {
         self.value.annotations()
@@ -54,7 +54,7 @@ impl<'data> LazyRawSequence<'data, BinaryEncoding> for LazyRawBinarySequence<'da
 
 impl<'a, 'data> IntoIterator for &'a LazyRawBinarySequence<'data> {
     type Item = IonResult<LazyRawBinaryValue<'data>>;
-    type IntoIter = RawSequenceIterator<'data>;
+    type IntoIter = RawBinarySequenceIterator<'data>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -99,19 +99,19 @@ impl<'a> Debug for LazyRawBinarySequence<'a> {
     }
 }
 
-pub struct RawSequenceIterator<'data> {
+pub struct RawBinarySequenceIterator<'data> {
     source: DataSource<'data>,
 }
 
-impl<'data> RawSequenceIterator<'data> {
-    pub(crate) fn new(input: ImmutableBuffer<'data>) -> RawSequenceIterator<'data> {
-        RawSequenceIterator {
+impl<'data> RawBinarySequenceIterator<'data> {
+    pub(crate) fn new(input: ImmutableBuffer<'data>) -> RawBinarySequenceIterator<'data> {
+        RawBinarySequenceIterator {
             source: DataSource::new(input),
         }
     }
 }
 
-impl<'data> Iterator for RawSequenceIterator<'data> {
+impl<'data> Iterator for RawBinarySequenceIterator<'data> {
     type Item = IonResult<LazyRawBinaryValue<'data>>;
 
     fn next(&mut self) -> Option<Self::Item> {

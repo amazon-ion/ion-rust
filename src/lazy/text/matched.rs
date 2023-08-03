@@ -22,7 +22,6 @@
 use nom::character::is_hex_digit;
 use std::borrow::Cow;
 use std::num::IntErrorKind;
-use std::ops::Range;
 use std::str::FromStr;
 
 use num_bigint::BigInt;
@@ -37,7 +36,7 @@ use crate::result::{DecodingError, IonFailure};
 use crate::{Int, IonError, IonResult, IonType, RawSymbolTokenRef};
 
 /// A partially parsed Ion value.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MatchedValue {
     // `Null` and `Bool` are fully parsed because they only involve matching a keyword.
     Null(IonType),
@@ -46,6 +45,7 @@ pub(crate) enum MatchedValue {
     Float(MatchedFloat),
     String(MatchedString),
     Symbol(MatchedSymbol),
+    List,
     // TODO: ...the other types
 }
 
@@ -160,7 +160,7 @@ impl MatchedFloat {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MatchedString {
     /// The string only has one segment. (e.g. "foo")
     Short(MatchedShortString),
@@ -170,11 +170,12 @@ pub(crate) enum MatchedString {
     Long(MatchedLongString),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct MatchedLongString {
-    // Keep a list of all the string segment ranges we found.
-    // If the user asks to read the string, we'll collate the segments into a single string.
-    slices: Vec<Range<usize>>,
+    // TODO: Decide what (if anything) to store here.
+    //       Storing any collection of bytes or ranges means that this type cannot implement Copy,
+    //       which in turn means MatchedValue and EncodedTextValue also cannot implement Copy.
+    //       We probably also don't want to heap allocate just to match the long string.
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -382,7 +383,7 @@ fn code_point_is_a_high_surrogate(value: u32) -> bool {
     (0xD800..=0xDFFF).contains(&value)
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MatchedSymbol {
     /// A numeric symbol ID (e.g. `$21`)
     SymbolId,
