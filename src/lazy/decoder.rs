@@ -1,5 +1,6 @@
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
+use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef};
 use std::fmt::Debug;
 
@@ -86,6 +87,13 @@ pub trait LazyRawStruct<'data, D: LazyDecoder<'data>>:
     fn annotations(&self) -> D::AnnotationsIterator;
     fn find(&self, name: &str) -> IonResult<Option<D::Value>>;
     fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, D>>>;
+    fn get_expected(&self, name: &str) -> IonResult<RawValueRef<'data, D>> {
+        if let Some(value) = self.get(name)? {
+            Ok(value)
+        } else {
+            IonResult::decoding_error(format!("did not find expected struct field '{}'", name))
+        }
+    }
     fn iter(&self) -> Self::Iterator;
 }
 
