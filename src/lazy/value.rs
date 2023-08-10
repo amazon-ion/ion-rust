@@ -1,5 +1,5 @@
-use crate::lazy::binary::encoding::BinaryEncoding;
 use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
+use crate::lazy::encoding::BinaryEncoding;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::LazySequence;
 use crate::lazy::value_ref::ValueRef;

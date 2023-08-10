@@ -69,6 +69,14 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
+    pub fn expect_i64(self) -> IonResult<i64> {
+        if let RawValueRef::Int(i) = self {
+            i.expect_i64()
+        } else {
+            IonResult::decoding_error("expected an i64 (int)")
+        }
+    }
+
     pub fn expect_float(self) -> IonResult<f64> {
         if let RawValueRef::Float(f) = self {
             Ok(f)

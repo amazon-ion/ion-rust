@@ -1,7 +1,7 @@
 use crate::element::builders::StructBuilder;
-use crate::lazy::binary::encoding::BinaryEncoding;
 use crate::lazy::decoder::private::{LazyRawFieldPrivate, LazyRawValuePrivate};
 use crate::lazy::decoder::{LazyDecoder, LazyRawStruct};
+use crate::lazy::encoding::BinaryEncoding;
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;

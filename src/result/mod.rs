@@ -82,14 +82,14 @@ pub(crate) trait IonFailure {
     // an `IonError::Io` is by converting a `std::io::IoError` with the ? operator.
     // Because this trait is only crate-visible, methods can be added/changed as needed in
     // the future.
-    fn incomplete(label: &'static str, position: impl Into<Position>) -> Self;
+    fn incomplete(label: impl Into<Cow<'static, str>>, position: impl Into<Position>) -> Self;
     fn decoding_error<S: Into<Cow<'static, str>>>(description: S) -> Self;
     fn encoding_error<S: Into<Cow<'static, str>>>(description: S) -> Self;
     fn illegal_operation<S: Into<Cow<'static, str>>>(operation: S) -> Self;
 }
 
 impl IonFailure for IonError {
-    fn incomplete(label: &'static str, position: impl Into<Position>) -> Self {
+    fn incomplete(label: impl Into<Cow<'static, str>>, position: impl Into<Position>) -> Self {
         IncompleteError::new(label, position).into()
     }
 
@@ -107,7 +107,7 @@ impl IonFailure for IonError {
 }
 
 impl<T> IonFailure for IonResult<T> {
-    fn incomplete(label: &'static str, position: impl Into<Position>) -> Self {
+    fn incomplete(label: impl Into<Cow<'static, str>>, position: impl Into<Position>) -> Self {
         Err(IonError::incomplete(label, position))
     }
 
