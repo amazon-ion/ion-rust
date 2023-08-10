@@ -53,7 +53,7 @@ impl<'data> LazyRawTextReader<'data> {
             return Ok(RawStreamItem::EndOfStream);
         }
         let (remaining, matched) = buffer_after_whitespace
-            .match_top_level()
+            .match_top_level_item()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
@@ -85,11 +85,16 @@ mod tests {
         let mut data = String::new();
         data.push_str(
             r#"
+            
         /*
             This test demonstrates lazily reading top-level values
             of various Ion types. The values are interspersed with
             different kinds of comments and whitespace.
         */
+        
+        // Ion version marker
+        
+        $ion_1_0
         
         // Typed nulls
         
@@ -187,6 +192,8 @@ mod tests {
         }
 
         let reader = &mut LazyRawTextReader::new(data.as_bytes());
+
+        assert_eq!(reader.next()?.expect_ivm()?, (1, 0));
 
         // null
         expect_next(reader, RawValueRef::Null(IonType::Null));
