@@ -1064,6 +1064,8 @@ impl<'data> nom::InputTakeAtPosition for TextBufferView<'data> {
 
 // === end of `nom` trait implementations
 
+/// Takes a given parser and returns a new one that accepts any amount of leading whitespace before
+/// calling the original parser.
 fn whitespace_and_then<'data, P, O>(
     parser: P,
 ) -> impl Parser<TextBufferView<'data>, O, IonParseError<'data>>
@@ -1096,6 +1098,8 @@ where
     }
 }
 
+/// Augments a given parser such that it returns the matched value and the range of input bytes
+/// that it matched.
 fn match_and_span<'data, P, O>(
     mut parser: P,
 ) -> impl Parser<TextBufferView<'data>, (O, Range<usize>), IonParseError<'data>>
