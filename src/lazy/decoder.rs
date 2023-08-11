@@ -75,7 +75,7 @@ pub trait LazyRawSequence<'data, D: LazyDecoder<'data>>:
     fn annotations(&self) -> D::AnnotationsIterator;
     fn ion_type(&self) -> IonType;
     fn iter(&self) -> Self::Iterator;
-    fn as_value(&self) -> &D::Value;
+    fn as_value(&self) -> D::Value;
 }
 
 pub trait LazyRawStruct<'data, D: LazyDecoder<'data>>:
@@ -101,5 +101,5 @@ pub trait LazyRawField<'data, D: LazyDecoder<'data>>:
     private::LazyRawFieldPrivate<'data, D> + Debug
 {
     fn name(&self) -> RawSymbolTokenRef<'data>;
-    fn value(&self) -> &D::Value;
+    fn value(&self) -> D::Value;
 }

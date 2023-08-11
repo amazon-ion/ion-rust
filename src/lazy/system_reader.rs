@@ -215,7 +215,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
                     );
                 }
                 found_symbols_field = true;
-                Self::process_symbols(pending_lst, field.value())?;
+                Self::process_symbols(pending_lst, &field.value())?;
             }
             if field.name() == IMPORTS {
                 if found_imports_field {
@@ -224,7 +224,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
                     );
                 }
                 found_imports_field = true;
-                Self::process_imports(pending_lst, field.value())?;
+                Self::process_imports(pending_lst, &field.value())?;
             }
             // Ignore other fields
         }

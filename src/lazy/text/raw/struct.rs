@@ -101,8 +101,8 @@ impl<'data> LazyRawTextField<'data> {
             .expect("invalid struct field name")
     }
 
-    pub fn value(&self) -> &LazyRawTextValue<'data> {
-        &self.value
+    pub fn value(&self) -> LazyRawTextValue<'data> {
+        self.value
     }
 
     pub(crate) fn into_value(self) -> LazyRawTextValue<'data> {
@@ -121,8 +121,8 @@ impl<'data> LazyRawField<'data, TextEncoding> for LazyRawTextField<'data> {
         LazyRawTextField::name(self)
     }
 
-    fn value(&self) -> &LazyRawTextValue<'data> {
-        LazyRawTextField::value(self)
+    fn value(&self) -> LazyRawTextValue<'data> {
+        self.value()
     }
 }
 
