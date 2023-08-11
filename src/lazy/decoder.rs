@@ -31,7 +31,7 @@ pub trait LazyDecoder<'data>: Sized + Debug + Clone {
 // function while also preventing users from seeing or depending on it.
 pub(crate) mod private {
     use super::LazyDecoder;
-    use crate::RawSymbolTokenRef;
+    use crate::{IonResult, RawSymbolTokenRef};
 
     pub trait LazyRawFieldPrivate<'data, D: LazyDecoder<'data>> {
         /// Converts the `LazyRawField` impl to a `LazyRawValue` impl.
@@ -49,8 +49,8 @@ pub(crate) mod private {
 
     pub trait LazyRawValuePrivate<'data> {
         /// Returns the field name associated with this value. If the value is not inside a struct,
-        /// returns `None`.
-        fn field_name(&self) -> Option<RawSymbolTokenRef<'data>>;
+        /// returns `IllegalOperation`.
+        fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>>;
     }
 }
 

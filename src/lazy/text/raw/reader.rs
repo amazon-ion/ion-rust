@@ -168,8 +168,10 @@ mod tests {
             // Quoted symbol
             'bar': 200,
             // Short-form string
-            "baz": 300
+            "baz": mars::earth::300
         }
+        
+        foo::'bar'::  baz :: 42
         
         "#,
         );
@@ -303,6 +305,22 @@ mod tests {
         sum += strukt.get_expected("bar")?.expect_i64()?;
         sum += strukt.get_expected("baz")?.expect_i64()?;
         assert_eq!(sum, 600);
+
+        let value = reader.next()?.expect_value()?;
+        assert_eq!(value.read()?.expect_i64()?, 42);
+        let mut annotations = value.annotations();
+        assert_eq!(
+            annotations.next().unwrap()?,
+            RawSymbolTokenRef::Text("foo".into())
+        );
+        assert_eq!(
+            annotations.next().unwrap()?,
+            RawSymbolTokenRef::Text("bar".into())
+        );
+        assert_eq!(
+            annotations.next().unwrap()?,
+            RawSymbolTokenRef::Text("baz".into())
+        );
 
         Ok(())
     }

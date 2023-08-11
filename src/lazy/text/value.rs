@@ -29,8 +29,8 @@ pub struct LazyRawTextValue<'data> {
 }
 
 impl<'data> LazyRawValuePrivate<'data> for LazyRawTextValue<'data> {
-    fn field_name(&self) -> Option<RawSymbolTokenRef<'data>> {
-        todo!()
+    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>> {
+        self.encoded_value.field_name(self.input)
     }
 }
 
@@ -44,7 +44,14 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
     }
 
     fn annotations(&self) -> <TextEncoding as LazyDecoder<'data>>::AnnotationsIterator {
-        todo!()
+        let span = self
+            .encoded_value
+            .annotations_range()
+            .unwrap_or(self.input.offset()..self.input.offset());
+        let annotations_bytes = self
+            .input
+            .slice(span.start - self.input.offset(), span.len());
+        RawTextAnnotationsIterator::new(annotations_bytes)
     }
 
     fn read(&self) -> IonResult<RawValueRef<'data, TextEncoding>> {
@@ -80,5 +87,72 @@ impl<'a> Debug for LazyRawTextValue<'a> {
             "LazyRawTextValue {{\n  val={:?},\n  buf={:?}\n}}\n",
             self.encoded_value, self.input
         )
+    }
+}
+
+pub struct RawTextAnnotationsIterator<'data> {
+    input: TextBufferView<'data>,
+    has_returned_error: bool,
+}
+
+impl<'data> RawTextAnnotationsIterator<'data> {
+    fn new(input: TextBufferView<'data>) -> Self {
+        RawTextAnnotationsIterator {
+            input,
+            has_returned_error: false,
+        }
+    }
+}
+
+impl<'data> Iterator for RawTextAnnotationsIterator<'data> {
+    type Item = IonResult<RawSymbolTokenRef<'data>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.has_returned_error || self.input.is_empty() {
+            return None;
+        }
+
+        // Match the first annotation in the input. In order for this iterator to be created,
+        // the parser already successfully matched this input once before, so we know it will succeed.
+        use nom::Parser;
+        let (remaining, (symbol, span)) = TextBufferView::match_annotation
+            .parse(self.input)
+            .expect("annotations were already matched successfully by this parser");
+        let matched_input = self
+            .input
+            .slice(span.start - self.input.offset(), span.len());
+        let text = match symbol.read(matched_input) {
+            Ok(text) => text,
+            Err(e) => {
+                self.has_returned_error = true;
+                return Some(Err(e));
+            }
+        };
+        self.input = remaining;
+        Some(Ok(text))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::lazy::text::buffer::TextBufferView;
+    use crate::lazy::text::value::RawTextAnnotationsIterator;
+    use crate::{IonResult, RawSymbolTokenRef};
+
+    #[test]
+    fn iterate_annotations() -> IonResult<()> {
+        fn test(input: &str) -> IonResult<()> {
+            let input = TextBufferView::new(input.as_bytes());
+            let mut iter = RawTextAnnotationsIterator::new(input);
+            assert_eq!(iter.next().unwrap()?, RawSymbolTokenRef::Text("foo".into()));
+            assert_eq!(iter.next().unwrap()?, RawSymbolTokenRef::Text("bar".into()));
+            assert_eq!(iter.next().unwrap()?, RawSymbolTokenRef::Text("baz".into()));
+            Ok(())
+        }
+        test("foo::bar::baz::")?;
+        test("foo         ::     'bar'  ::   baz::")?;
+        test("foo /*comment*/ :://comment\nbar\n::'baz'::")?;
+        Ok(())
     }
 }
