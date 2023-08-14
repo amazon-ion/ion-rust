@@ -76,7 +76,7 @@ impl<'data> LazyRawReader<'data, TextEncoding> for LazyRawTextReader<'data> {
 mod tests {
     use crate::lazy::decoder::{LazyRawStruct, LazyRawValue};
     use crate::lazy::raw_value_ref::RawValueRef;
-    use crate::{IonType, RawSymbolTokenRef};
+    use crate::{IonType, RawSymbolTokenRef, Timestamp};
 
     use super::*;
 
@@ -121,6 +121,12 @@ mod tests {
         3.6e0
         2.5e008
         -318e-2
+        
+        // Timestamps
+        
+        2023T
+        2023-08-13T
+        2023-08-13T21:45:30.993-05:00
             
         // Strings
 
@@ -234,6 +240,28 @@ mod tests {
         expect_next(reader, RawValueRef::Float(2.5f64 * 10f64.powi(8)));
         // -3.18
         expect_next(reader, RawValueRef::Float(-3.18f64));
+        // 2023T
+        expect_next(
+            reader,
+            RawValueRef::Timestamp(Timestamp::with_year(2023).build()?),
+        );
+        // 2023-08-13T
+        expect_next(
+            reader,
+            RawValueRef::Timestamp(Timestamp::with_ymd(2023, 8, 13).build()?),
+        );
+        // 2023-08-13T21:45:30.993-05:00
+        expect_next(
+            reader,
+            RawValueRef::Timestamp(
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hms(21, 45, 30)
+                    .with_milliseconds(993)
+                    .with_offset(-300)
+                    .build()?,
+            ),
+        );
+
         // "Hello"
         expect_next(reader, RawValueRef::String("Hello!".into()));
         // "foo bar baz"
