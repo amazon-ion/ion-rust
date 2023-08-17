@@ -154,4 +154,3 @@ impl MatchedFloat {
         Ok(float)
     }
 }
-
