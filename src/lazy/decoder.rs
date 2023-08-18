@@ -11,7 +11,8 @@ pub trait LazyDecoder<'data>: Sized + Debug + Clone {
     /// A lazy reader that yields [`Self::Value`]s representing the top level values in its input.
     type Reader: LazyRawReader<'data, Self>;
     /// A value (at any depth) in the input. This can be further inspected to access either its
-    /// scalar data or, if it is a container, to view it as [`Self::Sequence`] or [`Self::Struct`].  
+    /// scalar data or, if it is a container, to view it as [`Self::List`], [`Self::SExp`] or
+    /// [`Self::Struct`].  
     type Value: LazyRawValue<'data, Self>;
     /// A list whose child values may be accessed iteratively.
     type SExp: LazyRawSequence<'data, Self>;
