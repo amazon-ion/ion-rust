@@ -50,6 +50,7 @@ pub(crate) enum MatchedValue {
     String(MatchedString),
     Symbol(MatchedSymbol),
     List,
+    SExp,
     Struct,
     // TODO: ...the other types
 }
@@ -391,7 +392,8 @@ pub(crate) enum MatchedSymbol {
     QuotedWithoutEscapes,
     /// The symbol is delimited by single quotes and has at least one escape sequence.
     QuotedWithEscapes,
-    // TODO: Operators in S-Expressions
+    /// An operator within an S-expression
+    Operator,
 }
 
 impl MatchedSymbol {
@@ -399,11 +401,12 @@ impl MatchedSymbol {
         &self,
         matched_input: TextBufferView<'data>,
     ) -> IonResult<RawSymbolTokenRef<'data>> {
+        use MatchedSymbol::*;
         match self {
-            MatchedSymbol::SymbolId => self.read_symbol_id(matched_input),
-            MatchedSymbol::Identifier => self.read_identifier(matched_input),
-            MatchedSymbol::QuotedWithEscapes => self.read_quoted_with_escapes(matched_input),
-            MatchedSymbol::QuotedWithoutEscapes => self.read_quoted_without_escapes(matched_input),
+            SymbolId => self.read_symbol_id(matched_input),
+            Identifier | Operator => self.read_unquoted(matched_input),
+            QuotedWithEscapes => self.read_quoted_with_escapes(matched_input),
+            QuotedWithoutEscapes => self.read_quoted_without_escapes(matched_input),
         }
     }
 
@@ -435,7 +438,9 @@ impl MatchedSymbol {
         Ok(RawSymbolTokenRef::Text(text.into()))
     }
 
-    pub(crate) fn read_identifier<'data>(
+    /// Reads a symbol with no surrounding quotes (and therefore no escapes).
+    /// This is used for both identifiers and (within s-expressions) operators.
+    pub(crate) fn read_unquoted<'data>(
         &self,
         matched_input: TextBufferView<'data>,
     ) -> IonResult<RawSymbolTokenRef<'data>> {
@@ -443,6 +448,7 @@ impl MatchedSymbol {
             .as_text()
             .map(|t| RawSymbolTokenRef::Text(Cow::Borrowed(t)))
     }
+
     fn read_symbol_id<'data>(
         &self,
         matched_input: TextBufferView<'data>,

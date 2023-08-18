@@ -64,3 +64,9 @@ impl AsRawSymbolTokenRef for RawSymbolToken {
         }
     }
 }
+
+impl<'a> From<&'a str> for RawSymbolTokenRef<'a> {
+    fn from(value: &'a str) -> Self {
+        RawSymbolTokenRef::Text(Cow::Borrowed(value))
+    }
+}

@@ -13,8 +13,10 @@ pub trait LazyDecoder<'data>: Sized + Debug + Clone {
     /// A value (at any depth) in the input. This can be further inspected to access either its
     /// scalar data or, if it is a container, to view it as [`Self::Sequence`] or [`Self::Struct`].  
     type Value: LazyRawValue<'data, Self>;
-    /// A list or expression whose child values may be accessed iteratively or by index.
-    type Sequence: LazyRawSequence<'data, Self>;
+    /// A list whose child values may be accessed iteratively.
+    type SExp: LazyRawSequence<'data, Self>;
+    /// An s-expression whose child values may be accessed iteratively.
+    type List: LazyRawSequence<'data, Self>;
     /// A struct whose fields may be accessed iteratively or by field name.
     type Struct: LazyRawStruct<'data, Self>;
     /// An iterator over the annotations on the input stream's values.

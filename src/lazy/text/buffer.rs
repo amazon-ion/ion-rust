@@ -23,7 +23,7 @@ use crate::lazy::text::matched::{
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::raw::r#struct::{LazyRawTextField, RawTextStructIterator};
-use crate::lazy::text::raw::sequence::RawTextSequenceIterator;
+use crate::lazy::text::raw::sequence::{RawTextListIterator, RawTextSExpIterator};
 use crate::lazy::text::value::LazyRawTextValue;
 use crate::result::DecodingError;
 use crate::{IonError, IonResult, IonType, TimestampPrecision};
@@ -265,6 +265,27 @@ impl<'data> TextBufferView<'data> {
         )(self)
     }
 
+    pub fn match_sexp_value(self) -> IonParseResult<'data, Option<LazyRawTextValue<'data>>> {
+        whitespace_and_then(alt((
+            value(None, tag(")")),
+            pair(
+                opt(Self::match_annotations),
+                alt((Self::match_value, Self::match_operator)),
+            )
+            .map(|(maybe_annotations, mut value)| {
+                if let Some(annotations) = maybe_annotations {
+                    value.encoded_value = value
+                        .encoded_value
+                        .with_annotations_sequence(annotations.offset(), annotations.len());
+                    // Rewind the value's input to include the annotations sequence.
+                    value.input = self.slice_to_end(annotations.offset() - self.offset());
+                }
+                Some(value)
+            }),
+        )))
+        .parse(self)
+    }
+
     /// Matches a single value in a list OR the end of the list, allowing for leading whitespace
     /// and comments in either case.
     ///
@@ -337,6 +358,25 @@ impl<'data> TextBufferView<'data> {
         )(self)
     }
 
+    /// Matches an optional annotation sequence and a trailing value.
+    pub fn match_annotated_value(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
+        pair(
+            opt(Self::match_annotations),
+            whitespace_and_then(Self::match_value),
+        )
+        .map(|(maybe_annotations, mut value)| {
+            if let Some(annotations) = maybe_annotations {
+                value.encoded_value = value
+                    .encoded_value
+                    .with_annotations_sequence(annotations.offset(), annotations.len());
+                // Rewind the value's input to include the annotations sequence.
+                value.input = self.slice_to_end(annotations.offset() - self.offset());
+            }
+            value
+        })
+        .parse(self)
+    }
+
     /// Matches a struct field name. That is:
     /// * A quoted symbol
     /// * An identifier
@@ -385,25 +425,6 @@ impl<'data> TextBufferView<'data> {
     fn match_top_level_value(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
         self.match_annotated_value()
             .map(|(remaining, value)| (remaining, RawStreamItem::Value(value)))
-    }
-
-    /// Matches an optional annotation sequence and a trailing value.
-    pub fn match_annotated_value(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
-        pair(
-            opt(Self::match_annotations),
-            whitespace_and_then(Self::match_value),
-        )
-        .map(|(maybe_annotations, mut value)| {
-            if let Some(annotations) = maybe_annotations {
-                value.encoded_value = value
-                    .encoded_value
-                    .with_annotations_sequence(annotations.offset(), annotations.len());
-                // Rewind the value's input to include the annotations sequence.
-                value.input = self.slice_to_end(annotations.offset() - self.offset());
-            }
-            value
-        })
-        .parse(self)
     }
 
     /// Matches a single scalar value or the beginning of a container.
@@ -468,6 +489,12 @@ impl<'data> TextBufferView<'data> {
                 },
             ),
             map(
+                match_and_length(Self::match_sexp),
+                |(matched_list, length)| {
+                    EncodedTextValue::new(MatchedValue::SExp, matched_list.offset(), length)
+                },
+            ),
+            map(
                 match_and_length(Self::match_struct),
                 |(matched_struct, length)| {
                     EncodedTextValue::new(MatchedValue::Struct, matched_struct.offset(), length)
@@ -493,7 +520,7 @@ impl<'data> TextBufferView<'data> {
         }
         // Scan ahead to find the end of this list.
         let list_body = self.slice_to_end(1);
-        let sequence_iter = RawTextSequenceIterator::new(b']', list_body);
+        let sequence_iter = RawTextListIterator::new(list_body);
         let span = match sequence_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
@@ -511,6 +538,38 @@ impl<'data> TextBufferView<'data> {
         };
 
         // For the matched span, we use `self` again to include the opening `[`
+        let matched = self.slice(0, span.len());
+        let remaining = self.slice_to_end(span.len());
+        Ok((remaining, matched))
+    }
+
+    /// Matches a list.
+    ///
+    /// If the input does not contain the entire list, returns `IonError::Incomplete(_)`.
+    pub fn match_sexp(self) -> IonMatchResult<'data> {
+        if self.bytes().first() != Some(&b'(') {
+            let error = InvalidInputError::new(self);
+            return Err(nom::Err::Error(IonParseError::Invalid(error)));
+        }
+        // Scan ahead to find the end of this sexp
+        let sexp_body = self.slice_to_end(1);
+        let sexp_iter = RawTextSExpIterator::new(sexp_body);
+        let span = match sexp_iter.find_span() {
+            Ok(span) => span,
+            // If the complete container isn't available, return an incomplete.
+            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            // If invalid syntax was encountered, return a failure to prevent nom from trying
+            // other parser kinds.
+            Err(e) => {
+                return {
+                    let error = InvalidInputError::new(self)
+                        .with_label("matching a sexp")
+                        .with_description(format!("{}", e));
+                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                }
+            }
+        };
+        // For the matched span, we use `self` again to include the opening `(`
         let matched = self.slice(0, span.len());
         let remaining = self.slice_to_end(span.len());
         Ok((remaining, matched))
@@ -857,9 +916,22 @@ impl<'data> TextBufferView<'data> {
         fail(self)
     }
 
+    /// Matches an operator symbol, which can only legally appear within an s-expression
+    fn match_operator(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
+        match_and_length(is_a("!#%&*+-./;<=>?@^`|~"))
+            .map(|(text, length): (TextBufferView, usize)| LazyRawTextValue {
+                input: self,
+                encoded_value: EncodedTextValue::new(
+                    MatchedValue::Symbol(MatchedSymbol::Operator),
+                    text.offset(),
+                    length,
+                ),
+            })
+            .parse(self)
+    }
+
     /// Matches a symbol ID (`$28`), an identifier (`foo`), or a quoted symbol (`'foo'`).
     fn match_symbol(self) -> IonParseResult<'data, MatchedSymbol> {
-        // TODO: identifiers
         alt((
             Self::match_symbol_id,
             Self::match_identifier,
@@ -1790,6 +1862,36 @@ mod tests {
         let bad_inputs = &["foo", "foo:bar", "foo:::bar"];
         for input in bad_inputs {
             mismatch_annotated_value(input);
+        }
+    }
+
+    #[test]
+    fn test_match_sexp() {
+        fn match_sexp(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_sexp));
+        }
+        fn mismatch_sexp(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_sexp));
+        }
+        let good_inputs = &[
+            "()",
+            "(1)",
+            "(1 2)",
+            "(a)",
+            "(a b)",
+            "(a++)",
+            "(++a)",
+            "(())",
+            "((()))",
+            "(1 (2 (3 4) 5) 6)",
+        ];
+        for input in good_inputs {
+            match_sexp(input);
+        }
+
+        let bad_inputs = &["foo", "1", "(", "(1 2 (3 4 5)"];
+        for input in bad_inputs {
+            mismatch_sexp(input);
         }
     }
 }

@@ -168,6 +168,12 @@ mod tests {
             3
         ]
         
+        (
+            foo++
+            2
+            3
+        )
+        
         {
             // Identifier 
             foo: 100,
@@ -323,6 +329,26 @@ mod tests {
             sum += value?.read()?.expect_i64()?;
         }
         assert_eq!(sum, 6);
+
+        // (foo++ 1 2)
+        let sexp = reader.next()?.expect_value()?.read()?.expect_sexp()?;
+        let mut sexp_elements = sexp.iter();
+        assert_eq!(
+            sexp_elements.next().unwrap()?.read()?,
+            RawValueRef::Symbol("foo".into())
+        );
+        assert_eq!(
+            sexp_elements.next().unwrap()?.read()?,
+            RawValueRef::Symbol("++".into())
+        );
+        assert_eq!(
+            sexp_elements.next().unwrap()?.read()?,
+            RawValueRef::Int(2.into())
+        );
+        assert_eq!(
+            sexp_elements.next().unwrap()?.read()?,
+            RawValueRef::Int(3.into())
+        );
 
         // {foo: 100, bar: 200, baz: 300}
         let item = reader.next()?;

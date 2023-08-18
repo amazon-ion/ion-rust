@@ -9,7 +9,7 @@ use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::MatchedValue;
 use crate::lazy::text::raw::r#struct::LazyRawTextStruct;
-use crate::lazy::text::raw::sequence::LazyRawTextSequence;
+use crate::lazy::text::raw::sequence::{LazyRawTextList, LazyRawTextSExp};
 use crate::{IonResult, IonType, RawSymbolTokenRef};
 
 /// A value that has been identified in the text input stream but whose data has not yet been read.
@@ -69,8 +69,12 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
             MatchedValue::String(s) => RawValueRef::String(s.read(matched_input)?),
             MatchedValue::Symbol(s) => RawValueRef::Symbol(s.read(matched_input)?),
             MatchedValue::List => {
-                let lazy_sequence = LazyRawTextSequence { value: *self };
-                RawValueRef::List(lazy_sequence)
+                let lazy_list = LazyRawTextList { value: *self };
+                RawValueRef::List(lazy_list)
+            }
+            MatchedValue::SExp => {
+                let lazy_sexp = LazyRawTextSExp { value: *self };
+                RawValueRef::SExp(lazy_sexp)
             }
             MatchedValue::Struct => {
                 let lazy_struct = LazyRawTextStruct { value: *self };
