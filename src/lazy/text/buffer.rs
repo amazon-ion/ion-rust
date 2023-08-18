@@ -265,11 +265,16 @@ impl<'data> TextBufferView<'data> {
         )(self)
     }
 
+    /// Matches an optional annotations sequence and a value, including operators.
     pub fn match_sexp_value(self) -> IonParseResult<'data, Option<LazyRawTextValue<'data>>> {
         whitespace_and_then(alt((
             value(None, tag(")")),
             pair(
                 opt(Self::match_annotations),
+                // We need the s-expression parser to recognize the input `--3` as the operator `--` and the
+                // int `3` while recognizing the input `-3` as the int `-3`. If `match_operator` runs before
+                // `match_value`, it will consume the sign (`-`) of negative number values, treating
+                // `-3` as an operator (`-`) and an int (`3`). Thus, we run `match_value` first.
                 alt((Self::match_value, Self::match_operator)),
             )
             .map(|(maybe_annotations, mut value)| {
@@ -543,9 +548,9 @@ impl<'data> TextBufferView<'data> {
         Ok((remaining, matched))
     }
 
-    /// Matches a list.
+    /// Matches an s-expression (sexp).
     ///
-    /// If the input does not contain the entire list, returns `IonError::Incomplete(_)`.
+    /// If the input does not contain the entire s-expression, returns `IonError::Incomplete(_)`.
     pub fn match_sexp(self) -> IonMatchResult<'data> {
         if self.bytes().first() != Some(&b'(') {
             let error = InvalidInputError::new(self);
