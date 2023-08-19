@@ -76,7 +76,7 @@ impl<'data> LazyRawReader<'data, TextEncoding> for LazyRawTextReader<'data> {
 mod tests {
     use crate::lazy::decoder::{LazyRawStruct, LazyRawValue};
     use crate::lazy::raw_value_ref::RawValueRef;
-    use crate::{IonType, RawSymbolTokenRef, Timestamp};
+    use crate::{Decimal, IonType, RawSymbolTokenRef, Timestamp};
 
     use super::*;
 
@@ -121,6 +121,12 @@ mod tests {
         3.6e0
         2.5e008
         -318e-2
+        
+        // Decimals
+        1.5
+        3.14159
+        -6d+5
+        6d-5
         
         // Timestamps
         
@@ -246,6 +252,15 @@ mod tests {
         expect_next(reader, RawValueRef::Float(2.5f64 * 10f64.powi(8)));
         // -3.18
         expect_next(reader, RawValueRef::Float(-3.18f64));
+        //         1.5
+        expect_next(reader, RawValueRef::Decimal(Decimal::new(15, -1)));
+        //         3.14159
+        expect_next(reader, RawValueRef::Decimal(Decimal::new(314159, -5)));
+        //         -6d+5
+        expect_next(reader, RawValueRef::Decimal(Decimal::new(-6, 5)));
+        //         6d-5
+        expect_next(reader, RawValueRef::Decimal(Decimal::new(6, -5)));
+
         // 2023T
         expect_next(
             reader,

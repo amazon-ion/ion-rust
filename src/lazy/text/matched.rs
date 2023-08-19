@@ -19,16 +19,17 @@
 //! use the previously recorded information to minimize the amount of information that needs to be
 //! re-discovered.
 
-use nom::character::is_hex_digit;
-use nom::AsChar;
 use std::borrow::Cow;
 use std::num::IntErrorKind;
 use std::str::FromStr;
 
+use nom::character::is_hex_digit;
+use nom::AsChar;
 use num_bigint::{BigInt, BigUint};
 use num_traits::Num;
 use smallvec::SmallVec;
 
+use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::buffer::TextBufferView;
@@ -36,6 +37,7 @@ use crate::lazy::text::parse_result::InvalidInputError;
 use crate::result::{DecodingError, IonFailure};
 use crate::{
     Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp, TimestampPrecision,
+    UInt,
 };
 
 /// A partially parsed Ion value.
@@ -46,6 +48,7 @@ pub(crate) enum MatchedValue {
     Bool(bool),
     Int(MatchedInt),
     Float(MatchedFloat),
+    Decimal(MatchedDecimal),
     Timestamp(MatchedTimestamp),
     String(MatchedString),
     Symbol(MatchedSymbol),
@@ -164,6 +167,112 @@ impl MatchedFloat {
             error
         })?;
         Ok(float)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) struct MatchedDecimal {
+    is_negative: bool,
+    digits_offset: u16,
+    digits_length: u16,
+    trailing_digits_length: u16,
+    exponent_is_negative: bool,
+    exponent_digits_offset: u16,
+    exponent_digits_length: u16,
+}
+
+impl MatchedDecimal {
+    // Decimals that take more than 32 bytes of text to represent will heap allocate a larger buffer.
+    const STACK_ALLOC_BUFFER_CAPACITY: usize = 32;
+
+    pub fn new(
+        is_negative: bool,
+        digits_offset: u16,
+        digits_length: u16,
+        trailing_digits_length: u16,
+        exponent_is_negative: bool,
+        exponent_offset: u16,
+        exponent_length: u16,
+    ) -> Self {
+        Self {
+            is_negative,
+            digits_offset,
+            digits_length,
+            trailing_digits_length,
+            exponent_is_negative,
+            exponent_digits_offset: exponent_offset,
+            exponent_digits_length: exponent_length,
+        }
+    }
+
+    pub fn read(&self, matched_input: TextBufferView) -> IonResult<Decimal> {
+        // The longest number that can fit into a u64 without finer-grained bounds checks.
+        const MAX_U64_DIGITS: usize = 19;
+        // u64::MAX is a 20-digit number starting with `1`. For simplicity, we'll turn any number
+        // with 19 or fewer digits into a u64 and anything else into a BigUint.
+
+        let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
+            SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
+
+        let digits = matched_input.slice(self.digits_offset as usize, self.digits_length as usize);
+
+        // Copy all of the digits (but not the decimal point or underscores) over to the buffer.
+        sanitized.extend(
+            digits
+                .bytes()
+                .iter()
+                .copied()
+                .filter(|b| b.is_ascii_digit()),
+        );
+
+        let digits_text = sanitized.as_utf8(digits.offset())?;
+        let magnitude: UInt = if sanitized.len() <= MAX_U64_DIGITS {
+            u64::from_str(digits_text).unwrap().into()
+        } else {
+            BigUint::from_str(digits_text).unwrap().into()
+        };
+
+        let sign = if self.is_negative {
+            Sign::Negative
+        } else {
+            Sign::Positive
+        };
+        let coefficient = Coefficient::new(sign, magnitude);
+
+        let mut exponent: i64 = match self.exponent_digits_length {
+            0 => 0,
+            _ => {
+                sanitized.clear();
+                let exponent_digits = matched_input.slice(
+                    self.exponent_digits_offset as usize,
+                    self.exponent_digits_length as usize,
+                );
+                // Copy all of the digits over to the buffer.
+                sanitized.extend(
+                    exponent_digits
+                        .bytes()
+                        .iter()
+                        .copied()
+                        .filter(|b| b.is_ascii_digit()),
+                );
+                let exponent_text = sanitized
+                    .as_utf8(matched_input.offset() + self.exponent_digits_offset as usize)?;
+                let exponent_magnitude = i64::from_str(exponent_text).map_err(|e| {
+                    IonError::decoding_error(format!(
+                        "failed to parse decimal exponent '{exponent_text}': {e:?}"
+                    ))
+                })?;
+                if self.exponent_is_negative {
+                    -exponent_magnitude
+                } else {
+                    exponent_magnitude
+                }
+            }
+        };
+
+        exponent -= self.trailing_digits_length as i64;
+
+        Ok(Decimal::new(coefficient, exponent))
     }
 }
 
@@ -743,6 +852,50 @@ mod tests {
 
         for (input, expected) in tests {
             expect_timestamp(input, expected);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_decimals() -> IonResult<()> {
+        fn expect_decimal(data: &str, expected: Decimal) {
+            let data = format!("{data} "); // Append a space
+            let buffer = TextBufferView::new(data.as_bytes());
+            let (_remaining, matched) = buffer.match_decimal().unwrap();
+            let actual = matched.read(buffer).unwrap();
+            assert_eq!(
+                actual, expected,
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data, actual, expected
+            );
+        }
+
+        let tests = [
+            ("0.", Decimal::new(0, 0)),
+            ("-0.", Decimal::negative_zero()),
+            ("5.", Decimal::new(5, 0)),
+            ("-5.", Decimal::new(-5, 0)),
+            ("5.d0", Decimal::new(5, 0)),
+            ("-5.d0", Decimal::new(-5, 0)),
+            ("5.0", Decimal::new(50, -1)),
+            ("-5.0", Decimal::new(-50, -1)),
+            ("5.0d", Decimal::new(50, -1)),
+            ("-5.0d", Decimal::new(-50, -1)),
+            ("500d0", Decimal::new(5, 2)),
+            ("-500d0", Decimal::new(-5, 2)),
+            ("0.005", Decimal::new(5, -3)),
+            ("-0.005", Decimal::new(-5, -3)),
+            ("0.005D2", Decimal::new(5, -1)),
+            ("-0.005D2", Decimal::new(-5, -1)),
+            ("0.005d+2", Decimal::new(5, -1)),
+            ("-0.005d+2", Decimal::new(-5, -1)),
+            ("0.005D-2", Decimal::new(5, -5)),
+            ("-0.005D-2", Decimal::new(-5, -5)),
+        ];
+
+        for (input, expected) in tests {
+            expect_decimal(input, expected);
         }
 
         Ok(())
