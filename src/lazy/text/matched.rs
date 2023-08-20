@@ -30,6 +30,7 @@ use num_traits::Num;
 use smallvec::SmallVec;
 
 use crate::decimal::coefficient::{Coefficient, Sign};
+use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::buffer::TextBufferView;
@@ -52,6 +53,7 @@ pub(crate) enum MatchedValue {
     Timestamp(MatchedTimestamp),
     String(MatchedString),
     Symbol(MatchedSymbol),
+    Blob(MatchedBlob),
     List,
     SExp,
     Struct,
@@ -750,6 +752,37 @@ impl MatchedHoursAndMinutes {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MatchedBlob {
+    // Position within the blob at which the base64 characters begin
+    content_offset: usize,
+    // Length of the base64 characters
+    content_length: usize,
+}
+
+impl MatchedBlob {
+    pub fn new(content_offset: usize, content_length: usize) -> Self {
+        Self {
+            content_offset,
+            content_length,
+        }
+    }
+
+    pub(crate) fn read<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<BytesRef<'data>> {
+        let base64_text = matched_input.slice(self.content_offset, self.content_length);
+        base64::decode(base64_text.bytes())
+            .map_err(|e| {
+                IonError::decoding_error(format!(
+                    "failed to parse blob with invalid base64 data:\n'{base64_text:?}'\n{e:?}:"
+                ))
+            })
+            .map(BytesRef::from)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::lazy::text::buffer::TextBufferView;
@@ -896,6 +929,39 @@ mod tests {
 
         for (input, expected) in tests {
             expect_decimal(input, expected);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_blobs() -> IonResult<()> {
+        fn expect_blob(data: &str, expected: &str) {
+            let data = format!("{data} "); // Append a space
+            let buffer = TextBufferView::new(data.as_bytes());
+            let (_remaining, matched) = buffer.match_blob().unwrap();
+            let actual = matched.read(buffer).unwrap();
+            assert_eq!(
+                actual,
+                expected.as_ref(),
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data,
+                actual,
+                expected
+            );
+        }
+
+        let tests = [
+            ("{{TWVyY3VyeQ==}}", "Mercury"),
+            ("{{VmVudXM=}}", "Venus"),
+            ("{{RWFydGg=}}", "Earth"),
+            ("{{TWFycw==}}", "Mars"),
+            ("{{     TWFycw==      }}", "Mars"),
+            ("{{\nTWFycw==\t\t }}", "Mars"),
+        ];
+
+        for (input, expected) in tests {
+            expect_blob(input, expected);
         }
 
         Ok(())

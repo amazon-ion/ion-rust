@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1, take_while_m_n};
-use nom::character::streaming::{char, digit1, one_of, satisfy};
+use nom::character::streaming::{alphanumeric1, char, digit1, one_of, satisfy};
 use nom::combinator::{consumed, fail, map, not, opt, peek, recognize, success, value};
 use nom::error::{ErrorKind, ParseError};
 use nom::multi::{many0_count, many1_count};
@@ -17,8 +17,8 @@ use crate::lazy::encoding::TextEncoding;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
-    MatchedDecimal, MatchedFloat, MatchedHoursAndMinutes, MatchedInt, MatchedString, MatchedSymbol,
-    MatchedTimestamp, MatchedTimestampOffset, MatchedValue,
+    MatchedBlob, MatchedDecimal, MatchedFloat, MatchedHoursAndMinutes, MatchedInt, MatchedString,
+    MatchedSymbol, MatchedTimestamp, MatchedTimestampOffset, MatchedValue,
 };
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
@@ -495,6 +495,12 @@ impl<'data> TextBufferView<'data> {
                         self.offset(),
                         length,
                     )
+                },
+            ),
+            map(
+                match_and_length(Self::match_blob),
+                |(matched_blob, length)| {
+                    EncodedTextValue::new(MatchedValue::Blob(matched_blob), self.offset(), length)
                 },
             ),
             map(
@@ -1337,6 +1343,28 @@ impl<'data> TextBufferView<'data> {
             recognize(pair(Self::match_any_digit, Self::match_any_digit)),
         )(self)
     }
+
+    /// Matches a complete blob, including the opening `{{` and closing `}}`.
+    pub fn match_blob(self) -> IonParseResult<'data, MatchedBlob> {
+        delimited(
+            tag("{{"),
+            // Only whitespace (not comments) can appear within the blob
+            preceded(Self::match_optional_whitespace, Self::match_base64_content),
+            preceded(Self::match_optional_whitespace, tag("}}")),
+        )
+        .map(|base64_data| {
+            MatchedBlob::new(base64_data.offset() - self.offset(), base64_data.len())
+        })
+        .parse(self)
+    }
+
+    /// Matches the base64 content within a blob.
+    fn match_base64_content(self) -> IonMatchResult<'data> {
+        recognize(terminated(
+            many1_count(alt((alphanumeric1, is_a("+/")))),
+            opt(alt((tag("=="), tag("=")))),
+        ))(self)
+    }
 }
 
 // === nom trait implementations ===
@@ -2000,6 +2028,52 @@ mod tests {
         let bad_inputs = &["foo", "1", "(", "(1 2 (3 4 5)"];
         for input in bad_inputs {
             mismatch_sexp(input);
+        }
+    }
+
+    #[test]
+    fn test_match_blob() {
+        fn match_blob(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_blob));
+        }
+        fn mismatch_blob(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_blob));
+        }
+        // Base64 encodings of utf-8 strings
+        let good_inputs = &[
+            // hello
+            "{{aGVsbG8=}}",
+            "{{  aGVsbG8=}}",
+            "{{aGVsbG8=  }}",
+            "{{\taGVsbG8=\n\n}}",
+            // hello!
+            "{{aGVsbG8h}}",
+            "{{  aGVsbG8h}}",
+            "{{aGVsbG8h  }}",
+            "{{  aGVsbG8h  }}",
+            // razzle dazzle root beer
+            "{{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}",
+            "{{\ncmF6emxlIGRhenpsZSByb290IGJlZXI=\r}}",
+        ];
+        for input in good_inputs {
+            match_blob(input);
+        }
+
+        let bad_inputs = &[
+            // illegal character $
+            "{{$aGVsbG8=}}",
+            // comment within braces
+            r#"{{
+                // Here's the data:
+                aGVsbG8=
+            }}"#,
+            // padding at the beginning
+            "{{=aGVsbG8}}",
+            // too much padding
+            "{{aGVsbG8===}}",
+        ];
+        for input in bad_inputs {
+            mismatch_blob(input);
         }
     }
 }
