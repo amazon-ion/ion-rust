@@ -1960,14 +1960,15 @@ mod tests {
             MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_decimal));
         }
         let good_inputs = &[
-            "5.", "-5.", "5.0", "-5.0", "5.d", "-5.d", "5.0d0", "-5.0d0", "5.D", "-5.D", "5.0D0",
-            "-5.0D0", "5.d", "-5.d", "5.0d+1", "-5.0d-1",
+            "5.", "-5.", "5.0", "-5.0", "5.0d0", "-5.0d0", "5.0D0", "-5.0D0", "5.0d+1", "-5.0d-1",
         ];
         for input in good_inputs {
             match_decimal(input);
         }
 
-        let bad_inputs = &["5", "5d", "05d", "-5d", "5.d", "-5.0+0"];
+        let bad_inputs = &[
+            "5", "5d", "05d", "-5d", "5.d", "-5.d", "5.D", "-5.D", "-5.0+0",
+        ];
         for input in bad_inputs {
             mismatch_decimal(input);
         }
