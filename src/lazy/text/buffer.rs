@@ -957,7 +957,7 @@ impl<'data> TextBufferView<'data> {
                 let trailing_digits_length = digits_after_dot.len() as u16;
                 let exponent_digits_offset = (exp_digits.offset() - self.offset()) as u16;
                 let exponent_digits_length = exp_digits.len() as u16;
-                let decimal = MatchedDecimal::new(
+                MatchedDecimal::new(
                     is_negative,
                     digits_offset,
                     digits_length,
@@ -965,8 +965,7 @@ impl<'data> TextBufferView<'data> {
                     exponent_is_negative,
                     exponent_digits_offset,
                     exponent_digits_length,
-                );
-                decimal
+                )
             },
         )
         .parse(self)
