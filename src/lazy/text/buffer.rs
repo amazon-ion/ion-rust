@@ -1963,6 +1963,15 @@ mod tests {
             r#"
             "this has an escaped quote \" right in the middle"
             "#,
+            r#" '''hi''' "#,
+            r#"
+            '''foo'''
+            '''bar'''
+            '''baz''' 
+            "#,
+            r#"
+            '''hello,''' /*comment*/ ''' world!'''
+            "#,
         ];
         for input in good_inputs {
             match_string(input.trim());
@@ -1984,38 +1993,6 @@ mod tests {
         ];
         for input in bad_inputs {
             mismatch_string(input);
-        }
-    }
-
-    #[test]
-    fn test_match_long_string() {
-        fn match_long_string(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_long_string));
-        }
-        fn mismatch_long_string(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_long_string));
-        }
-
-        // These inputs have leading/trailing whitespace to make them more readable, but the string
-        // matcher doesn't accept whitespace. We'll trim each one before testing it.
-        let good_inputs = &[
-            r#" '''hi''' "#,
-            r#"
-            '''foo'''
-            '''bar'''
-            '''baz''' 
-            "#,
-            r#"
-            '''hello,''' /*comment*/ ''' world!'''
-            "#,
-        ];
-        for input in good_inputs {
-            match_long_string(input.trim());
-        }
-
-        let bad_inputs = &["foo"];
-        for input in bad_inputs {
-            mismatch_long_string(input);
         }
     }
 
