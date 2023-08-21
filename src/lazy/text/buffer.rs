@@ -17,15 +17,15 @@ use crate::lazy::encoding::TextEncoding;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
-    MatchedBlob, MatchedDecimal, MatchedFloat, MatchedHoursAndMinutes, MatchedInt, MatchedString,
-    MatchedSymbol, MatchedTimestamp, MatchedTimestampOffset, MatchedValue,
+    MatchedBlob, MatchedClob, MatchedDecimal, MatchedFloat, MatchedHoursAndMinutes, MatchedInt,
+    MatchedString, MatchedSymbol, MatchedTimestamp, MatchedTimestampOffset, MatchedValue,
 };
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::raw::r#struct::{LazyRawTextField, RawTextStructIterator};
 use crate::lazy::text::raw::sequence::{RawTextListIterator, RawTextSExpIterator};
 use crate::lazy::text::value::LazyRawTextValue;
-use crate::result::DecodingError;
+use crate::result::{DecodingError, IonFailure};
 use crate::{IonError, IonResult, IonType, TimestampPrecision};
 
 impl<'a> Debug for TextBufferView<'a> {
@@ -1438,6 +1438,58 @@ impl<'data> TextBufferView<'data> {
             opt(alt((tag("=="), tag("=")))),
         ))(self)
     }
+
+    fn match_clob(self) -> IonParseResult<'data, MatchedClob> {
+        delimited(
+            tag("{{"),
+            alt((
+                value(MatchedClob::Short, Self::match_short_clob_body),
+                value(MatchedClob::Long, Self::match_long_clob_body),
+            )),
+            preceded(Self::match_optional_whitespace, tag("}}")),
+        )(self)
+    }
+
+    fn match_short_clob_body(self) -> IonMatchResult<'data> {
+        let (body, (remaining, _matched_string)) = consumed(Self::match_short_string)(self)?;
+        body.validate_clob_text()?;
+        Ok((remaining, body))
+    }
+
+    fn match_long_clob_body(self) -> IonMatchResult<'data> {
+        recognize(many1_count(preceded(
+            Self::match_optional_whitespace,
+            Self::match_short_clob_body,
+        )))(self)
+    }
+
+    fn match_long_clob_body_segment(self) -> IonMatchResult<'data> {
+        let (body, (remaining, _matched_string)) = consumed(Self::match_long_string_segment)(self)?;
+        body.validate_clob_text()?;
+        Ok((remaining, body))
+    }
+
+    fn validate_clob_text(self) -> IonMatchResult<'data> {
+        for byte in self.bytes().iter().copied() {
+            if !Self::byte_is_legal_clob_ascii(byte) {
+                let message = format!("found an illegal byte '{:0x}'in clob", byte);
+                let error = InvalidInputError::new(self).with_description(message);
+                return Err(nom::Err::Failure(IonParseError::Invalid(error)));
+            }
+        }
+        // Return success without consuming
+        Ok((self, self.slice(0, 0)))
+    }
+
+    fn byte_is_legal_clob_ascii(b: u8) -> bool {
+        // Depending on where you look in the spec and/or `ion-tests`, you'll find conflicting
+        // information about which ASCII characters can appear unescaped in a clob. Some say
+        // "characters >= 0x20", but that excludes lots of whitespace characters that are < 0x20.
+        // Some say "displayable ASCII", but DEL (0x7F) is shown to be legal in one of the ion-tests.
+        // The definition used here has largely been inferred from the contents of `ion-tests`.
+        b.is_ascii()
+            && (u32::from(b) >= 0x20 || WHITESPACE_CHARACTERS_AS_STR.as_bytes().contains(&b))
+    }
 }
 
 // === nom trait implementations ===
@@ -2155,6 +2207,33 @@ mod tests {
             // too much padding
             "{{aGVsbG8===}}",
         ];
+        for input in bad_inputs {
+            mismatch_blob(input);
+        }
+    }
+
+    #[test]
+    fn test_match_clob() {
+        fn match_clob(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_clob));
+        }
+        fn mismatch_blob(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_clob));
+        }
+        // Base64 encodings of utf-8 strings
+        let good_inputs = &[
+            r#"{{""}}"#,
+            r#"{{''''''}}"#,
+            r#"{{"foo"}}"#,
+            r#"{{'''foo'''}}"#,
+            r#"{{"foobar"}}"#,
+            r#"{{'''foo''' '''bar'''}}"#,
+        ];
+        for input in good_inputs {
+            match_clob(input);
+        }
+
+        let bad_inputs = &["foo"];
         for input in bad_inputs {
             mismatch_blob(input);
         }

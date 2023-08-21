@@ -413,7 +413,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     fn read_clob(&self) -> ValueParseResult<'data, BinaryEncoding> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Clob);
         let bytes = self.value_body()?;
-        Ok(RawValueRef::Clob(bytes))
+        Ok(RawValueRef::Clob(bytes.into()))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as an S-expression.

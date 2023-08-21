@@ -20,7 +20,7 @@ pub enum RawValueRef<'data, D: LazyDecoder<'data>> {
     String(StrRef<'data>),
     Symbol(RawSymbolTokenRef<'data>),
     Blob(BytesRef<'data>),
-    Clob(&'data [u8]),
+    Clob(BytesRef<'data>),
     SExp(D::SExp),
     List(D::List),
     Struct(D::Struct),
@@ -149,7 +149,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_clob(self) -> IonResult<&'data [u8]> {
+    pub fn expect_clob(self) -> IonResult<BytesRef<'data>> {
         if let RawValueRef::Clob(c) = self {
             Ok(c)
         } else {

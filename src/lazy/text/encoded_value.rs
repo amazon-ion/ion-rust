@@ -131,6 +131,7 @@ impl EncodedTextValue {
             MatchedValue::String(_) => IonType::String,
             MatchedValue::Symbol(_) => IonType::Symbol,
             MatchedValue::Blob(_) => IonType::Blob,
+            MatchedValue::Clob(_) => IonType::Clob,
             MatchedValue::List => IonType::List,
             MatchedValue::SExp => IonType::SExp,
             MatchedValue::Struct => IonType::Struct,

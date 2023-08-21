@@ -55,10 +55,10 @@ pub(crate) enum MatchedValue {
     String(MatchedString),
     Symbol(MatchedSymbol),
     Blob(MatchedBlob),
+    Clob(MatchedClob),
     List,
     SExp,
     Struct,
-    // TODO: ...the other types
 }
 
 /// A partially parsed Ion int.
@@ -338,7 +338,7 @@ impl MatchedString {
         let body = matched_input.slice(3, matched_input.len() - 6);
         // There are no escaped characters, so we can just validate the string in-place.
         let mut sanitized = Vec::with_capacity(matched_input.len());
-        escape_text(body, &mut sanitized)?;
+        escape_text(body, &mut sanitized, false)?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text.to_string()))
     }
@@ -363,7 +363,7 @@ impl MatchedString {
         )(remaining)
         {
             remaining = remaining_after_match;
-            escape_text(segment_body, &mut sanitized)?;
+            escape_text(segment_body, &mut sanitized, false)?;
         }
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text))
@@ -390,31 +390,71 @@ impl MatchedString {
         // Otherwise, there are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
-        escape_text(body, &mut sanitized)?;
+        escape_text(body, &mut sanitized, false)?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text.to_string()))
     }
 }
 
-fn escape_text(matched_input: TextBufferView, sanitized: &mut Vec<u8>) -> IonResult<()> {
+fn escape_text(
+    matched_input: TextBufferView,
+    sanitized: &mut Vec<u8>,
+    // If the text being escaped is in a long string or a clob, then unescaped \r\n and \r get
+    // normalized to \n.
+    normalize_newlines: bool,
+) -> IonResult<()> {
     let mut remaining = matched_input;
-    while !remaining.is_empty() {
-        let next_escape = remaining.bytes().iter().position(|byte| *byte == b'\\');
-        remaining = if let Some(escape_offset) = next_escape {
-            // Everything up to the '\' is already clean. Write that slice to 'sanitized'.
-            let already_clean = remaining.slice(0, escape_offset);
-            sanitized.extend_from_slice(already_clean.bytes());
-            // Everything starting from the '\' needs to be evaluated.
-            let contains_escapes = remaining.slice_to_end(escape_offset);
-            write_escaped(contains_escapes, sanitized)?
-        } else {
-            sanitized.extend_from_slice(remaining.bytes());
-            // 'remaining' is now empty
-            remaining.slice_to_end(remaining.len())
-        };
-    }
 
+    // For ways to optimize this in the future, look at the `memchr` crate.
+    let match_byte = |byte: &u8| *byte == b'\\' || *byte == b'\r';
+
+    while !remaining.is_empty() {
+        let next_escape = remaining.bytes().iter().position(match_byte);
+        remaining = match next_escape {
+            // It's an unescaped carriage return: 0x0A.
+            Some(escape_offset) if remaining.bytes().get(escape_offset) == Some(&b'\r') => {
+                if normalize_newlines {
+                    normalize_newline(remaining, sanitized, escape_offset)
+                } else {
+                    sanitized.push(b'\r');
+                    remaining.slice_to_end(1)
+                }
+            }
+            // It's an escape character: `\`
+            Some(escape_offset) => {
+                // Everything up to the '\' is already clean. Write that slice to 'sanitized'.
+                let already_clean = remaining.slice(0, escape_offset);
+                sanitized.extend_from_slice(already_clean.bytes());
+                // Everything starting from the '\' needs to be evaluated.
+                let contains_escapes = remaining.slice_to_end(escape_offset);
+                write_escaped(contains_escapes, sanitized)?
+            }
+            None => {
+                sanitized.extend_from_slice(remaining.bytes());
+                // 'remaining' is now empty
+                remaining.slice_to_end(remaining.len())
+            }
+        }
+    }
     Ok(())
+}
+
+// This code is only called when a \r is encountered in either a clob or long-form string
+#[cold]
+fn normalize_newline<'data>(
+    remaining: TextBufferView<'data>,
+    sanitized: &mut Vec<u8>,
+    escape_offset: usize,
+) -> TextBufferView<'data> {
+    sanitized.push(b'\n');
+    if remaining.bytes().get(escape_offset + 1).copied() == Some(b'\n') {
+        // The next byte is an unescaped newline; we normalize \r\n to \n, so we need
+        // to skip an extra byte.
+        remaining.slice_to_end(escape_offset + 1)
+    } else {
+        // We only processed a single byte: `\r`
+        remaining.slice_to_end(1)
+    }
 }
 
 fn write_escaped<'data>(
@@ -602,7 +642,7 @@ impl MatchedSymbol {
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
 
-        escape_text(body, &mut sanitized)?;
+        escape_text(body, &mut sanitized, false)?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(RawSymbolTokenRef::Text(text.into()))
     }
@@ -838,6 +878,21 @@ impl MatchedBlob {
                 ))
             })
             .map(BytesRef::from)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MatchedClob {
+    Short,
+    Long,
+}
+
+impl MatchedClob {
+    pub(crate) fn read<'data>(
+        &self,
+        _matched_input: TextBufferView<'data>,
+    ) -> IonResult<BytesRef<'data>> {
+        todo!()
     }
 }
 
