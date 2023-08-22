@@ -84,7 +84,7 @@ mod tests {
             -inf
             nan
             3.6e0
-            2.5e23
+            2.5e008
             -318e-2
         "#;
         let mut reader = LazyRawTextReader::new(data.as_bytes());
