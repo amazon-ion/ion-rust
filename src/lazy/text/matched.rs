@@ -19,10 +19,9 @@
 //! use the previously recorded information to minimize the amount of information that needs to be
 //! re-discovered.
 
-use nom::character::is_hex_digit;
 use std::num::IntErrorKind;
-use std::ops::Range;
 
+use nom::character::is_hex_digit;
 use num_bigint::BigInt;
 use num_traits::Num;
 use smallvec::SmallVec;
@@ -35,7 +34,7 @@ use crate::result::{DecodingError, IonFailure};
 use crate::{Int, IonError, IonResult, IonType};
 
 /// A partially parsed Ion value.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum MatchedValue {
     // `Null` and `Bool` are fully parsed because they only involve matching a keyword.
     Null(IonType),
@@ -159,21 +158,14 @@ impl MatchedFloat {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum MatchedString {
     /// The string only has one segment. (e.g. "foo")
     Short(MatchedShortString),
     /// The string is in multiple segments:
     ///     """hello,"""
     ///     """ world!"""
-    Long(MatchedLongString),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct MatchedLongString {
-    // Keep a list of all the string segment ranges we found.
-    // If the user asks to read the string, we'll collate the segments into a single string.
-    slices: Vec<Range<usize>>,
+    Long,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -199,7 +191,7 @@ impl MatchedString {
     pub fn read<'data>(&self, matched_input: TextBufferView<'data>) -> IonResult<StrRef<'data>> {
         match self {
             MatchedString::Short(short) => self.read_short_string(*short, matched_input),
-            MatchedString::Long(_) => todo!("long-form strings"),
+            MatchedString::Long => todo!("long-form strings"),
         }
     }
 
