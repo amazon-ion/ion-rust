@@ -100,7 +100,7 @@ mod tests {
             -inf
             nan
             3.6e0
-            2.5e23
+            2.5e008
             -318e-2
         "#;
         let mut reader = LazyRawTextReader::new(data.as_bytes());
@@ -177,11 +177,11 @@ mod tests {
         assert_eq!(lazy_float.ion_type(), IonType::Float);
         assert_eq!(lazy_float.read()?.expect_float()?, 3.6f64);
 
-        // 2.25e23
+        // 2.5e008
         let lazy_float = reader.next()?.expect_value()?;
         assert!(!lazy_float.is_null());
         assert_eq!(lazy_float.ion_type(), IonType::Float);
-        assert_eq!(lazy_float.read()?.expect_float()?, 2.5f64 * 10f64.powi(23));
+        assert_eq!(lazy_float.read()?.expect_float()?, 2.5f64 * 10f64.powi(8));
 
         // -3.14
         let lazy_float = reader.next()?.expect_value()?;

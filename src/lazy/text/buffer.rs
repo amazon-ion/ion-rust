@@ -436,7 +436,7 @@ impl<'data> TextBufferView<'data> {
         ))(self)
     }
 
-    /// Matches special IEEE-754 floating point values, including +/- infinity and NaN.
+    /// Matches special IEEE-754 values, including +/- infinity and NaN.
     fn match_float_special_value(self) -> IonParseResult<'data, MatchedFloat> {
         alt((
             value(MatchedFloat::NotANumber, tag("nan")),
