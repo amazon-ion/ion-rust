@@ -50,6 +50,7 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
             MatchedValue::Null(ion_type) => RawValueRef::Null(ion_type),
             MatchedValue::Bool(b) => RawValueRef::Bool(b),
             MatchedValue::Int(i) => RawValueRef::Int(i.read(matched_input)?),
+            MatchedValue::Float(f) => RawValueRef::Float(f.read(matched_input)?),
         };
         Ok(value_ref)
     }

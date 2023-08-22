@@ -143,6 +143,25 @@ impl<'data> From<InvalidInputError<'data>> for IonParseError<'data> {
     }
 }
 
+// We cannot provide an analogous impl for `Incomplete` because it is missing necessary data.
+impl<'data> From<InvalidInputError<'data>> for IonError {
+    fn from(invalid_input_error: InvalidInputError) -> Self {
+        let mut message = String::from(
+            invalid_input_error
+                .description()
+                .unwrap_or("invalid Ion syntax encountered"),
+        );
+        if let Some(label) = invalid_input_error.label {
+            message.push_str(" while ");
+            message.push_str(label.as_ref());
+        }
+        let position = Position::with_offset(invalid_input_error.input.offset())
+            .with_length(invalid_input_error.input.len());
+        let decoding_error = DecodingError::new(message).with_position(position);
+        IonError::Decoding(decoding_error)
+    }
+}
+
 impl<'data> From<nom::Err<IonParseError<'data>>> for IonParseError<'data> {
     fn from(value: Err<IonParseError<'data>>) -> Self {
         match value {
@@ -200,6 +219,31 @@ pub(crate) trait AddContext<'data, T> {
     ) -> IonResult<(TextBufferView<'data>, T)>;
 }
 
+impl<'data, T> AddContext<'data, T> for nom::Err<IonParseError<'data>> {
+    fn with_context(
+        self,
+        label: impl Into<Cow<'static, str>>,
+        input: TextBufferView<'data>,
+    ) -> IonResult<(TextBufferView<'data>, T)> {
+        let ipe = IonParseError::from(self);
+        ipe.with_context(label, input)
+    }
+}
+
+// Turns an IonParseError into an IonResult
+impl<'data, T> AddContext<'data, T> for IonParseError<'data> {
+    fn with_context(
+        self,
+        label: impl Into<Cow<'static, str>>,
+        input: TextBufferView<'data>,
+    ) -> IonResult<(TextBufferView<'data>, T)> {
+        match self {
+            IonParseError::Incomplete => IonResult::incomplete(label, input.offset()),
+            IonParseError::Invalid(invalid_input_error) => Err(IonError::from(invalid_input_error)),
+        }
+    }
+}
+
 impl<'data, T> AddContext<'data, T> for IonParseResult<'data, T> {
     fn with_context(
         self,
@@ -209,29 +253,7 @@ impl<'data, T> AddContext<'data, T> for IonParseResult<'data, T> {
         match self {
             // No change needed in the ok case
             Ok(matched) => Ok(matched),
-            // If the error was an incomplete
-            Err(e) => {
-                // Nom error to IonParseError
-                match IonParseError::from(e) {
-                    IonParseError::Incomplete => IonResult::incomplete(label, input.offset()),
-                    IonParseError::Invalid(invalid_input_error) => {
-                        dbg!(&invalid_input_error.backtrace);
-                        let mut message = String::from(
-                            invalid_input_error
-                                .description()
-                                .unwrap_or("invalid text Ion syntax"),
-                        );
-                        if let Some(label) = invalid_input_error.label {
-                            message.push_str(" while ");
-                            message.push_str(label.as_ref());
-                        }
-                        let position = Position::with_offset(invalid_input_error.input.offset())
-                            .with_length(invalid_input_error.input.len());
-                        let decoding_error = DecodingError::new(message).with_position(position);
-                        Err(IonError::Decoding(decoding_error))
-                    }
-                }
-            }
+            Err(e) => e.with_context(label, input),
         }
     }
 }

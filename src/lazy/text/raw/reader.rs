@@ -80,6 +80,12 @@ mod tests {
             500
             0x20
             0b0101
+            +inf
+            -inf
+            nan
+            3.6e0
+            2.5e008
+            -318e-2
         "#;
         let mut reader = LazyRawTextReader::new(data.as_bytes());
 
@@ -127,6 +133,45 @@ mod tests {
         assert!(!lazy_int_binary_0101.is_null());
         assert_eq!(lazy_int_binary_0101.ion_type(), IonType::Int);
         assert_eq!(lazy_int_binary_0101.read()?.expect_i64()?, 0b0101); // decimal 5
+
+        // +inf
+        let lazy_float_pos_inf = reader.next()?.expect_value()?;
+        assert!(!lazy_float_pos_inf.is_null());
+        assert_eq!(lazy_float_pos_inf.ion_type(), IonType::Float);
+        assert_eq!(lazy_float_pos_inf.read()?.expect_float()?, f64::INFINITY);
+
+        // -inf
+        let lazy_float_neg_inf = reader.next()?.expect_value()?;
+        assert!(!lazy_float_neg_inf.is_null());
+        assert_eq!(lazy_float_neg_inf.ion_type(), IonType::Float);
+        assert_eq!(
+            lazy_float_neg_inf.read()?.expect_float()?,
+            f64::NEG_INFINITY
+        );
+
+        // nan
+        let lazy_float_neg_inf = reader.next()?.expect_value()?;
+        assert!(!lazy_float_neg_inf.is_null());
+        assert_eq!(lazy_float_neg_inf.ion_type(), IonType::Float);
+        assert!(lazy_float_neg_inf.read()?.expect_float()?.is_nan());
+
+        // 3.6e0
+        let lazy_float = reader.next()?.expect_value()?;
+        assert!(!lazy_float.is_null());
+        assert_eq!(lazy_float.ion_type(), IonType::Float);
+        assert_eq!(lazy_float.read()?.expect_float()?, 3.6f64);
+
+        // 2.5e008
+        let lazy_float = reader.next()?.expect_value()?;
+        assert!(!lazy_float.is_null());
+        assert_eq!(lazy_float.ion_type(), IonType::Float);
+        assert_eq!(lazy_float.read()?.expect_float()?, 2.5f64 * 10f64.powi(8));
+
+        // -3.14
+        let lazy_float = reader.next()?.expect_value()?;
+        assert!(!lazy_float.is_null());
+        assert_eq!(lazy_float.ion_type(), IonType::Float);
+        assert_eq!(lazy_float.read()?.expect_float()?, -3.18);
 
         Ok(())
     }

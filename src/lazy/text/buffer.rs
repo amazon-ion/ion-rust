@@ -1,7 +1,7 @@
 use crate::lazy::encoding::TextEncoding;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
-use crate::lazy::text::matched::{MatchedInt, MatchedValue};
+use crate::lazy::text::matched::{MatchedFloat, MatchedInt, MatchedValue};
 use crate::lazy::text::parse_result::IonParseError;
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::value::LazyRawTextValue;
@@ -12,7 +12,7 @@ use nom::character::streaming::{char, digit1, one_of};
 use nom::combinator::{map, opt, peek, recognize, success, value};
 use nom::error::{ErrorKind, ParseError};
 use nom::multi::many0_count;
-use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
+use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
 use nom::{CompareResult, IResult, InputLength, InputTake, Needed, Parser};
 use std::fmt::{Debug, Formatter};
 use std::iter::{Copied, Enumerate};
@@ -190,6 +190,12 @@ impl<'data> TextBufferView<'data> {
                 match_and_length(Self::match_int),
                 |(matched_int, length)| {
                     EncodedTextValue::new(MatchedValue::Int(matched_int), self.offset(), length)
+                },
+            ),
+            map(
+                match_and_length(Self::match_float),
+                |(matched_float, length)| {
+                    EncodedTextValue::new(MatchedValue::Float(matched_float), self.offset(), length)
                 },
             ),
             // TODO: The other Ion types
@@ -371,6 +377,111 @@ impl<'data> TextBufferView<'data> {
     // This function's "1" suffix is a style borrowed from `nom`.
     fn take_base_16_digits1(self) -> IonMatchResult<'data> {
         take_while1(|b: u8| b.is_ascii_hexdigit())(self)
+    }
+
+    /// Matches an Ion float of any syntax
+    fn match_float(self) -> IonParseResult<'data, MatchedFloat> {
+        alt((
+            Self::match_float_special_value,
+            Self::match_float_numeric_value,
+        ))(self)
+    }
+
+    /// Matches special IEEE-754 values, including +/- infinity and NaN.
+    fn match_float_special_value(self) -> IonParseResult<'data, MatchedFloat> {
+        alt((
+            value(MatchedFloat::NotANumber, tag("nan")),
+            value(MatchedFloat::PositiveInfinity, tag("+inf")),
+            value(MatchedFloat::NegativeInfinity, tag("-inf")),
+        ))(self)
+    }
+
+    /// Matches numeric IEEE-754 floating point values.
+    fn match_float_numeric_value(self) -> IonParseResult<'data, MatchedFloat> {
+        terminated(
+            recognize(pair(
+                Self::match_number_with_optional_dot_and_digits,
+                Self::match_float_exponent_marker_and_digits,
+            )),
+            Self::peek_stop_character,
+        )
+        .map(|_matched| MatchedFloat::Numeric)
+        .parse(self)
+    }
+
+    /// Matches a number that may or may not have a decimal place and trailing fractional digits.
+    /// If a decimal place is present, there must also be trailing digits.
+    /// For example:
+    ///   1000
+    ///   1000.559
+    ///   -25.2
+    fn match_number_with_optional_dot_and_digits(self) -> IonMatchResult<'data> {
+        recognize(tuple((
+            opt(tag("-")),
+            Self::match_base_10_digits_before_dot,
+            opt(Self::match_dot_followed_by_base_10_digits),
+        )))(self)
+    }
+
+    /// In a float or decimal, matches the digits that are permitted before the decimal point.
+    /// This includes either a single zero, or a non-zero followed by any sequence of digits.
+    fn match_digits_before_dot(self) -> IonMatchResult<'data> {
+        alt((
+            tag("0"),
+            recognize(pair(Self::match_leading_digit, Self::match_trailing_digits)),
+        ))(self)
+    }
+
+    /// Matches a single non-zero base 10 digit.
+    fn match_leading_digit(self) -> IonMatchResult<'data> {
+        recognize(one_of("123456789"))(self)
+    }
+
+    /// Matches any number of base 10 digits, allowing underscores at any position except the end.
+    fn match_trailing_digits(self) -> IonMatchResult<'data> {
+        recognize(many0_count(preceded(opt(char('_')), digit1)))(self)
+    }
+
+    /// Recognizes a decimal point followed by any number of base-10 digits.
+    fn match_dot_followed_by_base_10_digits(self) -> IonMatchResult<'data> {
+        recognize(preceded(tag("."), opt(Self::match_digits_after_dot)))(self)
+    }
+
+    /// Like `match_digits_before_dot`, but allows leading zeros.
+    fn match_digits_after_dot(self) -> IonMatchResult<'data> {
+        recognize(terminated(
+            // Zero or more digits-followed-by-underscores
+            many0_count(pair(digit1, char('_'))),
+            // One or more digits
+            digit1,
+        ))(self)
+    }
+
+    /// Matches an `e` or `E` followed by an optional sign (`+` or `-`) followed by one or more
+    /// base 10 digits.
+    fn match_float_exponent_marker_and_digits(self) -> IonMatchResult<'data> {
+        preceded(one_of("eE"), Self::match_exponent_sign_and_digits)(self)
+    }
+
+    /// Recognizes the exponent portion of a decimal (everything after the 'd') or float
+    /// (everything after the 'e'). This includes:
+    /// * an optional '+' OR '-'
+    /// * any number of decimal digits, which may:
+    ///    * have underscores in between them: `1_000_000`
+    ///    * have one or more leading zeros: `0005`
+    fn match_exponent_sign_and_digits(self) -> IonMatchResult<'data> {
+        recognize(pair(
+            // Optional leading sign; if there's no sign, it's not negative.
+            opt(Self::match_any_sign),
+            Self::match_digits_after_dot,
+        ))(self)
+    }
+
+    /// Matches `-` OR `+`.
+    ///
+    /// This is used for matching exponent signs; most places in Ion do not allow `+`.
+    pub fn match_any_sign(self) -> IonMatchResult<'data> {
+        alt((tag("+"), tag("-")))(self)
     }
 }
 
@@ -602,7 +713,12 @@ mod tests {
         {
             let result = self.try_match(parser);
             // We expect this to fail for one reason or another
-            result.unwrap_err();
+            assert!(
+                result.is_err(),
+                "Expected a parse failure for input: {:?}\nResult: {:?}",
+                self.input,
+                result
+            );
         }
     }
 
@@ -727,6 +843,40 @@ mod tests {
         ];
         for input in bad_inputs {
             mismatch_int(input);
+        }
+    }
+
+    #[test]
+    fn test_match_float() {
+        fn match_float(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_float));
+        }
+        fn mismatch_float(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_float));
+        }
+
+        let good_inputs = &[
+            "0.0e0", "0E0", "0e0", "305e1", "305e+1", "305e-1", "305e100", "305e-100", "305e+100",
+            "305.0e1", "0.279e3", "279e0", "279.5e0", "279.5E0",
+        ];
+        for input in good_inputs {
+            match_float(input);
+            let negative = format!("-{input}");
+            match_float(&negative);
+        }
+
+        let bad_inputs = &[
+            "305",      // Integer
+            "305e",     // Has exponent delimiter but no exponent
+            ".305e",    // No digits before the decimal point
+            "305e0.5",  // Fractional exponent
+            "305e-0.5", // Negative fractional exponent
+            "0305e1",   // Leading zero
+            "+305e1",   // Leading plus sign
+            "--305e1",  // Multiple negative signs
+        ];
+        for input in bad_inputs {
+            mismatch_float(input);
         }
     }
 }
