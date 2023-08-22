@@ -7,7 +7,7 @@ use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::value::LazyRawTextValue;
 use crate::{IonResult, IonType};
 use nom::branch::alt;
-use nom::bytes::streaming::{is_a, tag, take_while1};
+use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1};
 use nom::character::streaming::{char, digit1, one_of};
 use nom::combinator::{map, opt, peek, recognize, success, value};
 use nom::error::{ErrorKind, ParseError};
@@ -155,6 +155,55 @@ impl<'data> TextBufferView<'data> {
         // This will always return `Ok`, but it is packaged as an IonMatchResult for compatability
         // with other parsers.
         alt((Self::match_whitespace, Self::match_nothing))(self)
+    }
+
+    /// Matches any amount of contiguous comments and whitespace, including none.
+    pub fn match_optional_comments_and_whitespace(self) -> IonMatchResult<'data> {
+        recognize(many0_count(alt((
+            Self::match_whitespace,
+            Self::match_comment,
+        ))))(self)
+    }
+
+    /// Matches a single
+    ///     // Rest-of-the-line
+    /// or
+    ///     /* multi
+    ///        line */
+    /// comment
+    pub fn match_comment(self) -> IonMatchResult<'data> {
+        alt((
+            Self::match_rest_of_line_comment,
+            Self::match_multiline_comment,
+        ))(self)
+    }
+
+    /// Matches a single rest-of-the-line comment.
+    fn match_rest_of_line_comment(self) -> IonMatchResult<'data> {
+        preceded(
+            // Matches a leading "//"...
+            tag("//"),
+            // ...followed by either...
+            alt((
+                // ...one or more non-EOL characters...
+                is_not("\r\n"),
+                // ...or any EOL character.
+                peek(recognize(one_of("\r\n"))),
+                // In either case, the line ending will not be consumed.
+            )),
+        )(self)
+    }
+
+    /// Matches a single multiline comment.
+    fn match_multiline_comment(self) -> IonMatchResult<'data> {
+        recognize(delimited(
+            // Matches a leading "/*"...
+            tag("/*"),
+            // ...any number of non-"*/" characters...
+            take_until("*/"),
+            // ...and then a closing "*/"
+            tag("*/"),
+        ))(self)
     }
 
     /// Matches a single top-level scalar value, the beginning of a container, or an IVM.
@@ -566,6 +615,12 @@ impl<'data> nom::Slice<RangeFrom<usize>> for TextBufferView<'data> {
 impl<'data> nom::Slice<RangeTo<usize>> for TextBufferView<'data> {
     fn slice(&self, range: RangeTo<usize>) -> Self {
         self.slice(0, range.end)
+    }
+}
+
+impl<'data> nom::FindSubstring<&str> for TextBufferView<'data> {
+    fn find_substring(&self, substr: &str) -> Option<usize> {
+        self.data.find_substring(substr)
     }
 }
 
