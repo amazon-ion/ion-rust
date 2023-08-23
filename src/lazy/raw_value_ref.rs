@@ -96,7 +96,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         if let RawValueRef::Int(i) = self {
             i.expect_i64()
         } else {
-            IonResult::decoding_error("expected an i64 (int)")
+            IonResult::decoding_error(format!("expected an i64 (int), found: {:?}", self))
         }
     }
 

@@ -45,8 +45,14 @@ impl<'a> Debug for LazyRawBinaryValue<'a> {
 type ValueParseResult<'data, F> = IonResult<RawValueRef<'data, F>>;
 
 impl<'data> LazyRawValuePrivate<'data> for LazyRawBinaryValue<'data> {
-    fn field_name(&self) -> Option<RawSymbolTokenRef<'data>> {
-        self.encoded_value.field_id.map(RawSymbolTokenRef::SymbolId)
+    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>> {
+        if let Some(field_id) = self.encoded_value.field_id {
+            Ok(RawSymbolTokenRef::SymbolId(field_id))
+        } else {
+            IonResult::illegal_operation(
+                "requested field name, but value was not in a struct field",
+            )
+        }
     }
 }
 
@@ -179,7 +185,7 @@ impl<'data> LazyRawBinaryValue<'data> {
 
     /// If this value is within a struct, returns its associated field name as a `Some(SymbolID)`.
     /// Otherwise, returns `None`.
-    pub(crate) fn field_name(&self) -> Option<SymbolId> {
+    pub(crate) fn field_id(&self) -> Option<SymbolId> {
         self.encoded_value.field_id
     }
 

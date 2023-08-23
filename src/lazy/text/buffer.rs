@@ -9,7 +9,7 @@ use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1};
 use nom::character::streaming::{char, digit1, one_of, satisfy};
 use nom::combinator::{fail, map, not, opt, peek, recognize, success, value};
 use nom::error::{ErrorKind, ParseError};
-use nom::multi::many0_count;
+use nom::multi::{many0_count, many1_count};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
 use nom::{CompareResult, IResult, InputLength, InputTake, Needed, Parser};
 
@@ -251,6 +251,19 @@ impl<'data> TextBufferView<'data> {
         ))
     }
 
+    /// Matches one or more annotations.
+    pub fn match_annotations(self) -> IonMatchResult<'data> {
+        recognize(many1_count(Self::match_annotation))(self)
+    }
+
+    /// Matches an annotation (symbol token) and a terminating '::'.
+    pub fn match_annotation(self) -> IonParseResult<'data, (MatchedSymbol, Range<usize>)> {
+        terminated(
+            whitespace_and_then(match_and_span(Self::match_symbol)),
+            whitespace_and_then(tag("::")),
+        )(self)
+    }
+
     /// Matches a single value in a list OR the end of the list, allowing for leading whitespace
     /// and comments in either case.
     ///
@@ -265,7 +278,7 @@ impl<'data> TextBufferView<'data> {
                 value(None, tag("]")),
                 // ...or a value...
                 terminated(
-                    Self::match_value.map(Some),
+                    Self::match_annotated_value.map(Some),
                     // ...followed by a comma or end-of-list
                     Self::match_delimiter_after_list_value,
                 ),
@@ -317,7 +330,7 @@ impl<'data> TextBufferView<'data> {
             separated_pair(
                 whitespace_and_then(match_and_span(Self::match_struct_field_name)),
                 whitespace_and_then(tag(":")),
-                whitespace_and_then(Self::match_value),
+                whitespace_and_then(Self::match_annotated_value),
             ),
             whitespace_and_then(alt((tag(","), peek(tag("}"))))),
         )(self)
@@ -369,8 +382,27 @@ impl<'data> TextBufferView<'data> {
     /// Matches a single value at the top level. The caller must verify that the input is not an
     /// IVM before calling; otherwise, that IVM will be recognized as an identifier/symbol.
     fn match_top_level_value(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
-        self.match_value()
+        self.match_annotated_value()
             .map(|(remaining, value)| (remaining, RawStreamItem::Value(value)))
+    }
+
+    /// Matches an optional annotation sequence and a trailing value.
+    pub fn match_annotated_value(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
+        pair(
+            opt(Self::match_annotations),
+            whitespace_and_then(Self::match_value),
+        )
+        .map(|(maybe_annotations, mut value)| {
+            if let Some(annotations) = maybe_annotations {
+                value.encoded_value = value
+                    .encoded_value
+                    .with_annotations_sequence(annotations.offset(), annotations.len());
+                // Rewind the value's input to include the annotations sequence.
+                value.input = self.slice_to_end(annotations.offset() - self.offset());
+            }
+            value
+        })
+        .parse(self)
     }
 
     /// Matches a single scalar value or the beginning of a container.
@@ -1128,7 +1160,7 @@ where
 
 /// Augments a given parser such that it returns the matched value and the range of input bytes
 /// that it matched.
-fn match_and_span<'data, P, O>(
+pub(crate) fn match_and_span<'data, P, O>(
     mut parser: P,
 ) -> impl Parser<TextBufferView<'data>, (O, Range<usize>), IonParseError<'data>>
 where
@@ -1475,6 +1507,34 @@ mod tests {
         ];
         for input in bad_inputs {
             mismatch_symbol(input);
+        }
+    }
+
+    #[test]
+    fn test_match_annotated_value() {
+        fn match_annotated_value(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_annotated_value));
+        }
+        fn mismatch_annotated_value(input: &str) {
+            MatchTest::new(input)
+                .expect_mismatch(match_length(TextBufferView::match_annotated_value));
+        }
+        let good_inputs = &[
+            "foo::5",
+            "foo::bar::5",
+            "foo :: 5",
+            "foo::bar::baz::5",
+            "foo :: /*comment*/ bar /*comment*/    :: baz :: 5",
+            "foo::bar::baz::quux::quuz::5",
+            "foo::'bar'::baz::$10::5",
+        ];
+        for input in good_inputs {
+            match_annotated_value(input);
+        }
+
+        let bad_inputs = &["foo", "foo:bar", "foo:::bar"];
+        for input in bad_inputs {
+            mismatch_annotated_value(input);
         }
     }
 }

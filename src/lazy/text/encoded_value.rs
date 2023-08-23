@@ -1,7 +1,7 @@
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::matched::{MatchedSymbol, MatchedValue};
 use crate::result::IonFailure;
-use crate::{IonResult, IonType};
+use crate::{IonResult, IonType, RawSymbolTokenRef};
 use std::ops::Range;
 
 /// Represents the type, offset, and length metadata of the various components of an encoded value
@@ -149,15 +149,20 @@ impl EncodedTextValue {
         self.data_offset..(self.data_offset + self.data_length)
     }
 
-    pub fn field_name<'data>(&self, input: TextBufferView<'data>) -> IonResult<&'data str> {
-        if self.field_name_offset == 0 {
-            return IonResult::illegal_operation(
+    pub fn field_name<'data>(
+        &self,
+        input: TextBufferView<'data>,
+    ) -> IonResult<RawSymbolTokenRef<'data>> {
+        if let Some(field_name_syntax) = self.field_name_syntax() {
+            let relative_start =
+                self.data_offset - input.offset() - (self.field_name_offset as usize);
+            let field_name_bytes = input.slice(relative_start, self.field_name_length as usize);
+            field_name_syntax.read(field_name_bytes)
+        } else {
+            IonResult::illegal_operation(
                 "requested field name, but value was not in a struct field",
-            );
+            )
         }
-        let relative_start = self.data_offset - input.offset() - (self.field_name_offset as usize);
-        let field_name_bytes = input.slice(relative_start, self.field_name_length as usize);
-        field_name_bytes.as_text()
     }
 
     pub fn field_name_range(&self) -> Option<Range<usize>> {
