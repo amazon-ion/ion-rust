@@ -1153,6 +1153,7 @@ impl<'data> TextBufferView<'data> {
     fn match_timestamp_offset(self) -> IonParseResult<'data, MatchedTimestampOffset> {
         alt((
             value(MatchedTimestampOffset::Zulu, tag("Z")),
+            value(MatchedTimestampOffset::Zulu, tag("+00:00")),
             value(MatchedTimestampOffset::Unknown, tag("-00:00")),
             map(
                 pair(one_of("-+"), Self::match_timestamp_offset_hours_and_minutes),
