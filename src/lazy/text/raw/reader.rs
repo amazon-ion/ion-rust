@@ -41,17 +41,12 @@ impl<'data> LazyRawTextReader<'data> {
         if buffer.is_empty() {
             return IonResult::incomplete("reading a top-level value", buffer.offset());
         }
-
-        let (buffer_after_whitespace, _whitespace) =
-            match buffer.match_optional_comments_and_whitespace() {
-                Ok((buf, ws)) => (buf, ws),
-                Err(nom::Err::Incomplete(_)) => return Ok(RawStreamItem::EndOfStream),
-                Err(e) => return IonResult::decoding_error(format!("broken: {:?}", e)),
-            };
-
-        if buffer_after_whitespace.is_empty() {
-            return Ok(RawStreamItem::EndOfStream);
-        }
+        let (buffer_after_whitespace, _whitespace) = buffer
+            .match_optional_comments_and_whitespace()
+            .with_context(
+                "skipping comments and whitespace between top-level values",
+                buffer,
+            )?;
         let (remaining, matched) = buffer_after_whitespace
             .match_top_level()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
@@ -124,7 +119,7 @@ mod tests {
         "\x48ello, \x77orld!"              // \x 2-digit hex escape
         "\u0048ello, \u0077orld!"          // \u 4-digit hex escape
         "\U00000048ello, \U00000077orld!"  // \U 8-digit hex escape
-        
+
         "#,
         );
         // Escaped newlines are discarded
