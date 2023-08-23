@@ -62,7 +62,6 @@ pub(crate) struct EncodedTextValue {
     // value is stored. For others (e.g. a timestamp), the various components of the value are
     // recognized during matching and partial information like subfield offsets can be stored here.
     matched_value: MatchedValue,
-
     field_name_syntax: Option<MatchedSymbol>,
 }
 
@@ -193,12 +192,12 @@ impl EncodedTextValue {
         self.data_length + u32::max(self.annotations_offset, self.field_name_offset) as usize
     }
 
-    pub fn matched(&self) -> &MatchedValue {
-        &self.matched_value
-    }
-
     pub fn field_name_syntax(&self) -> Option<MatchedSymbol> {
         self.field_name_syntax
+    }
+
+    pub fn matched(&self) -> MatchedValue {
+        self.matched_value
     }
 }
 
