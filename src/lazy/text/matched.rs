@@ -284,15 +284,7 @@ pub(crate) enum MatchedString {
     /// The string is in multiple segments:
     ///     """hello,"""
     ///     """ world!"""
-    Long(MatchedLongString),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct MatchedLongString {
-    // TODO: Decide what (if anything) to store here.
-    //       Storing any collection of bytes or ranges means that this type cannot implement Copy,
-    //       which in turn means MatchedValue and EncodedTextValue also cannot implement Copy.
-    //       We probably also don't want to heap allocate just to match the long string.
+    Long,
 }
 
 impl MatchedString {
@@ -305,7 +297,7 @@ impl MatchedString {
                 self.read_short_string_without_escapes(matched_input)
             }
             MatchedString::ShortWithEscapes => self.read_short_string_with_escapes(matched_input),
-            MatchedString::Long(_) => todo!("long-form strings"),
+            MatchedString::Long => todo!("long-form strings"),
         }
     }
 
@@ -327,7 +319,7 @@ impl MatchedString {
     ) -> IonResult<StrRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
         let body = matched_input.slice(1, matched_input.len() - 2);
-        // Otherwise, there are escaped characters. We need to build a new version of our string
+        // There are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
         escape_text(body, &mut sanitized)?;
@@ -694,17 +686,11 @@ impl MatchedTimestamp {
             .as_text()
             .unwrap();
         let timestamp = match fractional_text.len() {
-            3 => {
-                let milliseconds = u32::from_str(fractional_text).unwrap();
-                timestamp.with_milliseconds(milliseconds)
-            }
-            6 => {
-                let microseconds = u32::from_str(fractional_text).unwrap();
-                timestamp.with_microseconds(microseconds)
-            }
-            9 => {
-                let nanoseconds = u32::from_str(fractional_text).unwrap();
-                timestamp.with_nanoseconds(nanoseconds)
+            len if len <= 9 => {
+                let fraction = u32::from_str(fractional_text).unwrap();
+                let multiplier = 10u32.pow(9 - len as u32);
+                let nanoseconds = fraction * multiplier;
+                timestamp.with_nanoseconds_and_precision(nanoseconds, len as u32)
             }
             _ => {
                 // For less common precisions, store a Decimal
@@ -732,6 +718,7 @@ pub enum MatchedTimestampOffset {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MatchedHoursAndMinutes {
     is_negative: bool,
+    /// This is the offset of the first `H` in the offset string `HH:MM`.
     hours_offset: usize,
 }
 

@@ -201,12 +201,12 @@ impl EncodedTextValue {
         self.data_length + u32::max(self.annotations_offset, self.field_name_offset) as usize
     }
 
-    pub fn matched(&self) -> &MatchedValue {
-        &self.matched_value
-    }
-
     pub fn field_name_syntax(&self) -> Option<MatchedSymbol> {
         self.field_name_syntax
+    }
+
+    pub fn matched(&self) -> MatchedValue {
+        self.matched_value
     }
 }
 
