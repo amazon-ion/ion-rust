@@ -572,17 +572,11 @@ impl MatchedTimestamp {
             .as_text()
             .unwrap();
         let timestamp = match fractional_text.len() {
-            3 => {
-                let milliseconds = u32::from_str(fractional_text).unwrap();
-                timestamp.with_milliseconds(milliseconds)
-            }
-            6 => {
-                let microseconds = u32::from_str(fractional_text).unwrap();
-                timestamp.with_microseconds(microseconds)
-            }
-            9 => {
-                let nanoseconds = u32::from_str(fractional_text).unwrap();
-                timestamp.with_nanoseconds(nanoseconds)
+            len if len <= 9 => {
+                let fraction = u32::from_str(fractional_text).unwrap();
+                let multiplier = 10u32.pow(9 - len as u32);
+                let nanoseconds = fraction * multiplier;
+                timestamp.with_nanoseconds_and_precision(nanoseconds, len as u32)
             }
             _ => {
                 // For less common precisions, store a Decimal
@@ -610,6 +604,7 @@ pub enum MatchedTimestampOffset {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MatchedHoursAndMinutes {
     is_negative: bool,
+    /// This is the offset of the first `H` in the offset string `HH:MM`.
     hours_offset: usize,
 }
 
