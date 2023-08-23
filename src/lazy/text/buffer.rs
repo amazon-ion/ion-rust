@@ -1,23 +1,28 @@
-use crate::lazy::encoding::TextEncoding;
-use crate::lazy::raw_stream_item::RawStreamItem;
-use crate::lazy::text::encoded_value::EncodedTextValue;
-use crate::lazy::text::matched::{MatchedFloat, MatchedInt, MatchedValue};
-use crate::lazy::text::parse_result::IonParseError;
-use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
-use crate::lazy::text::value::LazyRawTextValue;
-use crate::{IonResult, IonType};
-use nom::branch::alt;
-use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1};
-use nom::character::streaming::{char, digit1, one_of};
-use nom::combinator::{map, opt, peek, recognize, success, value};
-use nom::error::{ErrorKind, ParseError};
-use nom::multi::many0_count;
-use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
-use nom::{CompareResult, IResult, InputLength, InputTake, Needed, Parser};
 use std::fmt::{Debug, Formatter};
 use std::iter::{Copied, Enumerate};
 use std::ops::{RangeFrom, RangeTo};
 use std::slice::Iter;
+
+use nom::branch::alt;
+use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1};
+use nom::character::streaming::{char, digit1, one_of};
+use nom::combinator::{fail, map, opt, peek, recognize, success, value};
+use nom::error::{ErrorKind, ParseError};
+use nom::multi::many0_count;
+use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
+use nom::{CompareResult, IResult, InputLength, InputTake, Needed, Parser};
+
+use crate::lazy::encoding::TextEncoding;
+use crate::lazy::raw_stream_item::RawStreamItem;
+use crate::lazy::text::encoded_value::EncodedTextValue;
+use crate::lazy::text::matched::{
+    MatchedFloat, MatchedInt, MatchedShortString, MatchedString, MatchedValue,
+};
+use crate::lazy::text::parse_result::IonParseError;
+use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
+use crate::lazy::text::value::LazyRawTextValue;
+use crate::result::DecodingError;
+use crate::{IonError, IonResult, IonType};
 
 impl<'a> Debug for TextBufferView<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -137,6 +142,19 @@ impl<'data> TextBufferView<'data> {
         self.data.is_empty()
     }
 
+    /// Attempts to view the contents of the buffer as a UTF-8 `&str`.
+    pub fn as_text<'a>(&'a self) -> IonResult<&'data str> {
+        // On its surface, this method very closely resembles the `AsUtf8` trait's method.
+        // However, this one returns a `&'data str` instead of a `&'a str`, which is to say
+        // that the string that's returned lives as long as the data itself, not just the duration
+        // of the lifetime introduced by this method call.
+        std::str::from_utf8(self.data).map_err(move |_| {
+            let decoding_error =
+                DecodingError::new("encountered invalid UTF-8").with_position(self.offset());
+            IonError::Decoding(decoding_error)
+        })
+    }
+
     pub fn match_whitespace(self) -> IonMatchResult<'data> {
         is_a(WHITESPACE_CHARACTERS_AS_STR)(self)
     }
@@ -245,6 +263,16 @@ impl<'data> TextBufferView<'data> {
                 match_and_length(Self::match_float),
                 |(matched_float, length)| {
                     EncodedTextValue::new(MatchedValue::Float(matched_float), self.offset(), length)
+                },
+            ),
+            map(
+                match_and_length(Self::match_string),
+                |(matched_string, length)| {
+                    EncodedTextValue::new(
+                        MatchedValue::String(matched_string),
+                        self.offset(),
+                        length,
+                    )
                 },
             ),
             // TODO: The other Ion types
@@ -435,7 +463,6 @@ impl<'data> TextBufferView<'data> {
             Self::match_float_numeric_value,
         ))(self)
     }
-
     /// Matches special IEEE-754 values, including +/- infinity and NaN.
     fn match_float_special_value(self) -> IonParseResult<'data, MatchedFloat> {
         alt((
@@ -531,6 +558,51 @@ impl<'data> TextBufferView<'data> {
     /// This is used for matching exponent signs; most places in Ion do not allow `+`.
     pub fn match_any_sign(self) -> IonMatchResult<'data> {
         alt((tag("+"), tag("-")))(self)
+    }
+
+    /// Matches short- or long-form string.
+    fn match_string(self) -> IonParseResult<'data, MatchedString> {
+        alt((Self::match_short_string, Self::match_long_string))(self)
+    }
+
+    /// Matches a short string. For example: `"foo"`
+    fn match_short_string(self) -> IonParseResult<'data, MatchedString> {
+        delimited(char('"'), Self::match_short_string_body, char('"'))
+            .map(|(_matched, contains_escaped_chars)| {
+                MatchedString::Short(MatchedShortString::new(contains_escaped_chars))
+            })
+            .parse(self)
+    }
+
+    /// Returns a matched buffer and a boolean indicating whether any escaped characters were
+    /// found in the short string.
+    fn match_short_string_body(self) -> IonParseResult<'data, (Self, bool)> {
+        let mut is_escaped = false;
+        let mut contains_escaped_chars = false;
+        for (index, byte) in self.bytes().iter().enumerate() {
+            if is_escaped {
+                // If we're escaped, the previous byte was a \ and we ignore this one.
+                is_escaped = false;
+                continue;
+            }
+            if *byte == b'\\' {
+                is_escaped = true;
+                contains_escaped_chars = true;
+                continue;
+            }
+            if *byte == b'\"' {
+                let matched = self.slice(0, index);
+                let remaining = self.slice_to_end(index);
+                return Ok((remaining, (matched, contains_escaped_chars)));
+            }
+        }
+        Err(nom::Err::Incomplete(Needed::Unknown))
+    }
+
+    fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
+        // TODO: implement long string matching
+        //       The `fail` parser is a nom builtin that never matches.
+        fail(self)
     }
 }
 
@@ -932,6 +1004,47 @@ mod tests {
         ];
         for input in bad_inputs {
             mismatch_float(input);
+        }
+    }
+
+    #[test]
+    fn test_match_string() {
+        fn match_string(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_string));
+        }
+        fn mismatch_string(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_string));
+        }
+
+        // These inputs have leading/trailing whitespace to make them more readable, but the string
+        // matcher doesn't accept whitespace. We'll trim each one before testing it.
+        let good_inputs = &[
+            r#"
+            "hello"
+            "#,
+            r#"
+            "😀😀😀"
+            "#,
+            r#"
+            "this has an escaped quote \" right in the middle"
+            "#,
+        ];
+        for input in good_inputs {
+            match_string(input.trim());
+        }
+
+        let bad_inputs = &[
+            // Missing an opening quote
+            r#"
+            hello"
+            "#,
+            // Missing a trailing quote
+            r#"
+            "hello
+            "#,
+        ];
+        for input in bad_inputs {
+            mismatch_string(input);
         }
     }
 }

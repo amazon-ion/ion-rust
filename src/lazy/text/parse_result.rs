@@ -68,10 +68,6 @@ pub struct InvalidInputError<'data> {
     label: Option<Cow<'static, str>>,
     // The nature of the error--what went wrong?
     description: Option<Cow<'static, str>>,
-    // A backtrace of errors that occurred leading to this one.
-    // XXX: This is the most expensive part of error handling and is likely not very useful.
-    //      Consider removing it if it doesn't carry its weight.
-    backtrace: Vec<InvalidInputError<'data>>,
     // The nom ErrorKind, which indicates which nom-provided parser encountered the error we're
     // bubbling up.
     nom_error_kind: Option<ErrorKind>,
@@ -85,7 +81,6 @@ impl<'data> InvalidInputError<'data> {
             label: None,
             description: None,
             nom_error_kind: None,
-            backtrace: Vec::new(),
         }
     }
 
@@ -107,10 +102,6 @@ impl<'data> InvalidInputError<'data> {
         self
     }
 
-    pub(crate) fn append_error(&mut self, error: InvalidInputError<'data>) {
-        self.backtrace.push(error)
-    }
-
     /// Returns a reference to the `description` text, if any.
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
@@ -122,20 +113,6 @@ impl<'data> InvalidInputError<'data> {
 
     // TODO: Decide how to expose 'input'.
 }
-
-// impl<'data> From<InvalidInputError<'data>> for IonError {
-//     fn from(value: InvalidInputError) -> Self {
-//         dbg!(&value.backtrace);
-//         let mut message = String::from(value.description().unwrap_or("invalid text Ion syntax"));
-//         if let Some(label) = value.label {
-//             message.push_str(" while ");
-//             message.push_str(label.as_ref());
-//         }
-//         let position = Position::with_offset(value.input.offset()).with_length(value.input.len());
-//         let decoding_error = DecodingError::new(message).with_position(position);
-//         IonError::Decoding(decoding_error)
-//     }
-// }
 
 impl<'data> From<InvalidInputError<'data>> for IonParseError<'data> {
     fn from(value: InvalidInputError<'data>) -> Self {
@@ -155,6 +132,18 @@ impl<'data> From<InvalidInputError<'data>> for IonError {
             message.push_str(" while ");
             message.push_str(label.as_ref());
         }
+        message.push_str("; buffer: ");
+        let input = invalid_input_error.input;
+        let buffer_text = if let Ok(text) = invalid_input_error.input.as_text() {
+            text.chars().take(32).collect::<String>()
+        } else {
+            format!(
+                "{:X?}",
+                &invalid_input_error.input.bytes()[..(32.min(input.len()))]
+            )
+        };
+        message.push_str(buffer_text.as_str());
+        message.push_str("...");
         let position = Position::with_offset(invalid_input_error.input.offset())
             .with_length(invalid_input_error.input.len());
         let decoding_error = DecodingError::new(message).with_position(position);
@@ -199,14 +188,10 @@ impl<'data> ParseError<TextBufferView<'data>> for IonParseError<'data> {
             .into()
     }
 
-    fn append(input: TextBufferView<'data>, kind: ErrorKind, mut other: Self) -> Self {
+    fn append(_input: TextBufferView<'data>, _kind: ErrorKind, other: Self) -> Self {
         // When an error stack is being built, this method is called to give the error
         // type an opportunity to aggregate the errors into a collection or a more descriptive
         // message. For now, we simply allow the most recent error to take precedence.
-        let new_error = InvalidInputError::new(input).with_nom_error_kind(kind);
-        if let IonParseError::Invalid(invalid_input_error) = &mut other {
-            invalid_input_error.backtrace.push(new_error)
-        }
         other
     }
 }

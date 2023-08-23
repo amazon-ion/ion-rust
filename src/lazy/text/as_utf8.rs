@@ -12,6 +12,12 @@ pub(crate) trait AsUtf8 {
     fn as_utf8(&self, position: impl Into<Position>) -> IonResult<&str>;
 }
 
+impl AsUtf8 for [u8] {
+    fn as_utf8(&self, position: impl Into<Position>) -> IonResult<&str> {
+        bytes_as_utf8(self, position)
+    }
+}
+
 impl<const N: usize> AsUtf8 for SmallVec<[u8; N]> {
     fn as_utf8(&self, position: impl Into<Position>) -> IonResult<&str> {
         bytes_as_utf8(self.as_ref(), position)

@@ -70,6 +70,7 @@ impl<'data> LazyRawReader<'data, TextEncoding> for LazyRawTextReader<'data> {
 mod tests {
     use super::*;
     use crate::lazy::decoder::LazyRawValue;
+    use crate::lazy::raw_value_ref::RawValueRef;
     use crate::IonType;
 
     #[test]
@@ -82,113 +83,120 @@ mod tests {
         */
         
         // Typed nulls
-            null
-            null.bool
-            null.int
+        
+        null
+        null.bool
+        null.int
             
         // Booleans
-            false
-            true
+
+        false
+        true
         
         // Integers
-            500
-            0x20
-            0b0101
+
+        500
+        0x20
+        0b0101
         
         // Floats
-            +inf
-            -inf
-            nan
-            3.6e0
-            2.5e008
-            -318e-2
+
+        +inf
+        -inf
+        nan
+        3.6e0
+        2.5e008
+        -318e-2
+            
+        // Strings
+
+        "Hello!"
+        "foo bar baz"
+        "😎😎😎"
+        "lol\n\r\0wat"                     // Single-character escapes
+        "\x48ello, \x77orld!"              // \x 2-digit hex escape
+        "\u0048ello, \u0077orld!"          // \u 4-digit hex escape
+        "\U00000048ello, \U00000077orld!"  // \U 8-digit hex escape
+        
         "#;
-        let mut reader = LazyRawTextReader::new(data.as_bytes());
+
+        // Make a mutable string so we can append some things that require Rust-level escapes
+        let mut data = String::from(data);
+        // Escaped newlines are discarded
+        data.push_str("\"Hello,\\\n world!\"");
+
+        fn expect_next<'data>(
+            reader: &mut LazyRawTextReader<'data>,
+            expected: RawValueRef<'data, TextEncoding>,
+        ) {
+            let lazy_value = reader
+                .next()
+                .expect("advancing the reader failed")
+                .expect_value()
+                .expect("expected a value");
+            assert_eq!(
+                matches!(expected, RawValueRef::Null(_)),
+                lazy_value.is_null()
+            );
+            let value_ref = lazy_value.read().expect("reading failed");
+            assert_eq!(value_ref, expected, "{:?} != {:?}", value_ref, expected);
+        }
+
+        let reader = &mut LazyRawTextReader::new(data.as_bytes());
 
         // null
-        let lazy_untyped_null = reader.next()?.expect_value()?;
-        assert!(lazy_untyped_null.is_null());
-        assert_eq!(lazy_untyped_null.ion_type(), IonType::Null);
-
+        expect_next(reader, RawValueRef::Null(IonType::Null));
         // null.bool
-        let lazy_null_bool = reader.next()?.expect_value()?;
-        assert!(lazy_null_bool.is_null());
-        assert_eq!(lazy_null_bool.ion_type(), IonType::Bool);
-
+        expect_next(reader, RawValueRef::Null(IonType::Bool));
         // null.int
-        let lazy_null_int = reader.next()?.expect_value()?;
-        assert!(lazy_null_int.is_null());
-        assert_eq!(lazy_null_int.ion_type(), IonType::Int);
+        expect_next(reader, RawValueRef::Null(IonType::Int));
 
         // false
-        let lazy_bool_false = reader.next()?.expect_value()?;
-        assert!(!lazy_bool_false.is_null());
-        assert_eq!(lazy_bool_false.ion_type(), IonType::Bool);
-        assert!(!lazy_bool_false.read()?.expect_bool()?);
-
+        expect_next(reader, RawValueRef::Bool(false));
         // true
-        let lazy_bool_true = reader.next()?.expect_value()?;
-        assert!(!lazy_bool_true.is_null());
-        assert_eq!(lazy_bool_true.ion_type(), IonType::Bool);
-        assert!(lazy_bool_true.read()?.expect_bool()?);
+        expect_next(reader, RawValueRef::Bool(true));
 
         // 500
-        let lazy_int_decimal_500 = reader.next()?.expect_value()?;
-        assert!(!lazy_int_decimal_500.is_null());
-        assert_eq!(lazy_int_decimal_500.ion_type(), IonType::Int);
-        assert_eq!(lazy_int_decimal_500.read()?.expect_i64()?, 500);
-
+        expect_next(reader, RawValueRef::Int(500.into()));
         // 0x20
-        let lazy_int_hex_20 = reader.next()?.expect_value()?;
-        assert!(!lazy_int_hex_20.is_null());
-        assert_eq!(lazy_int_hex_20.ion_type(), IonType::Int);
-        assert_eq!(lazy_int_hex_20.read()?.expect_i64()?, 0x20); // decimal 32
-
+        expect_next(reader, RawValueRef::Int(0x20.into()));
         // 0b0101
-        let lazy_int_binary_0101 = reader.next()?.expect_value()?;
-        assert!(!lazy_int_binary_0101.is_null());
-        assert_eq!(lazy_int_binary_0101.ion_type(), IonType::Int);
-        assert_eq!(lazy_int_binary_0101.read()?.expect_i64()?, 0b0101); // decimal 5
+        expect_next(reader, RawValueRef::Int(0b0101.into()));
 
         // +inf
-        let lazy_float_pos_inf = reader.next()?.expect_value()?;
-        assert!(!lazy_float_pos_inf.is_null());
-        assert_eq!(lazy_float_pos_inf.ion_type(), IonType::Float);
-        assert_eq!(lazy_float_pos_inf.read()?.expect_float()?, f64::INFINITY);
-
+        expect_next(reader, RawValueRef::Float(f64::INFINITY));
         // -inf
-        let lazy_float_neg_inf = reader.next()?.expect_value()?;
-        assert!(!lazy_float_neg_inf.is_null());
-        assert_eq!(lazy_float_neg_inf.ion_type(), IonType::Float);
-        assert_eq!(
-            lazy_float_neg_inf.read()?.expect_float()?,
-            f64::NEG_INFINITY
-        );
-
+        expect_next(reader, RawValueRef::Float(f64::NEG_INFINITY));
         // nan
-        let lazy_float_neg_inf = reader.next()?.expect_value()?;
-        assert!(!lazy_float_neg_inf.is_null());
-        assert_eq!(lazy_float_neg_inf.ion_type(), IonType::Float);
-        assert!(lazy_float_neg_inf.read()?.expect_float()?.is_nan());
-
+        // NaN != NaN, so we have to spell this test out a bit more
+        assert!(reader
+            .next()?
+            .expect_value()?
+            .read()?
+            .expect_float()?
+            .is_nan());
         // 3.6e0
-        let lazy_float = reader.next()?.expect_value()?;
-        assert!(!lazy_float.is_null());
-        assert_eq!(lazy_float.ion_type(), IonType::Float);
-        assert_eq!(lazy_float.read()?.expect_float()?, 3.6f64);
-
-        // 2.5e008
-        let lazy_float = reader.next()?.expect_value()?;
-        assert!(!lazy_float.is_null());
-        assert_eq!(lazy_float.ion_type(), IonType::Float);
-        assert_eq!(lazy_float.read()?.expect_float()?, 2.5f64 * 10f64.powi(8));
-
-        // -3.14
-        let lazy_float = reader.next()?.expect_value()?;
-        assert!(!lazy_float.is_null());
-        assert_eq!(lazy_float.ion_type(), IonType::Float);
-        assert_eq!(lazy_float.read()?.expect_float()?, -3.18);
-
+        expect_next(reader, RawValueRef::Float(3.6f64));
+        // 2.25e23
+        expect_next(reader, RawValueRef::Float(2.5f64 * 10f64.powi(8)));
+        // -3.18
+        expect_next(reader, RawValueRef::Float(-3.18f64));
+        // "Hello"
+        expect_next(reader, RawValueRef::String("Hello!".into()));
+        // "foo bar baz"
+        expect_next(reader, RawValueRef::String("foo bar baz".into()));
+        // "😎😎😎"
+        expect_next(reader, RawValueRef::String("😎😎😎".into()));
+        // "lol\n\r\0wat"
+        expect_next(reader, RawValueRef::String("lol\n\r\0wat".into()));
+        // "\x48ello, \x77orld!"
+        expect_next(reader, RawValueRef::String("Hello, world!".into()));
+        // "\u0048ello, \u0077orld!"
+        expect_next(reader, RawValueRef::String("Hello, world!".into()));
+        // "\U00000048ello, \U00000077orld!"
+        expect_next(reader, RawValueRef::String("Hello, world!".into()));
+        // "\"Hello,\\\n world!\" "
+        expect_next(reader, RawValueRef::String("Hello, world!".into()));
         Ok(())
     }
 }

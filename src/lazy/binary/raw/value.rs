@@ -9,6 +9,7 @@ use crate::lazy::decoder::private::LazyRawValuePrivate;
 use crate::lazy::decoder::LazyRawValue;
 use crate::lazy::encoding::BinaryEncoding;
 use crate::lazy::raw_value_ref::RawValueRef;
+use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp};
@@ -390,7 +391,7 @@ impl<'data> LazyRawBinaryValue<'data> {
         let raw_bytes = self.value_body()?;
         let text = std::str::from_utf8(raw_bytes)
             .map_err(|_| IonError::decoding_error("found a string with invalid utf-8 data"))?;
-        Ok(RawValueRef::String(text))
+        Ok(RawValueRef::String(StrRef::from(text)))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a blob.
