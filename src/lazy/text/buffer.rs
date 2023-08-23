@@ -810,7 +810,7 @@ impl<'data> TextBufferView<'data> {
         ))(self)
     }
 
-    /// Matches special IEEE-754 floating point values, including +/- infinity and NaN.
+    /// Matches special IEEE-754 values, including +/- infinity and NaN.
     fn match_float_special_value(self) -> IonParseResult<'data, MatchedFloat> {
         alt((
             value(MatchedFloat::NotANumber, tag("nan")),
@@ -1273,7 +1273,7 @@ impl<'data> TextBufferView<'data> {
             recognize(alt((
                 pair(char('0'), one_of("123456789")),
                 pair(one_of("12"), Self::match_any_digit),
-                pair(char('3'), one_of("10")),
+                pair(char('3'), one_of("01")),
             ))),
         )(self)
     }
@@ -1285,8 +1285,8 @@ impl<'data> TextBufferView<'data> {
     ) -> IonParseResult<'data, (TextBufferView<'data>, TextBufferView<'data>)> {
         preceded(
             tag("T"),
-            // Hour
             separated_pair(
+                // Hour
                 recognize(alt((
                     pair(one_of("01"), Self::match_any_digit),
                     pair(char('2'), one_of("0123")),
@@ -1316,6 +1316,7 @@ impl<'data> TextBufferView<'data> {
     fn match_timestamp_offset(self) -> IonParseResult<'data, MatchedTimestampOffset> {
         alt((
             value(MatchedTimestampOffset::Zulu, tag("Z")),
+            value(MatchedTimestampOffset::Zulu, tag("+00:00")),
             value(MatchedTimestampOffset::Unknown, tag("-00:00")),
             map(
                 pair(one_of("-+"), Self::match_timestamp_offset_hours_and_minutes),
@@ -1336,11 +1337,14 @@ impl<'data> TextBufferView<'data> {
     fn match_timestamp_offset_hours_and_minutes(self) -> IonParseResult<'data, (Self, Self)> {
         separated_pair(
             // Hour
-            recognize(pair(Self::match_any_digit, Self::match_any_digit)),
+            recognize(alt((
+                pair(one_of("01"), Self::match_any_digit),
+                pair(char('2'), one_of("0123")),
+            ))),
             // Delimiter
             tag(":"),
             // Minutes
-            recognize(pair(Self::match_any_digit, Self::match_any_digit)),
+            recognize(pair(one_of("012345"), Self::match_any_digit)),
         )(self)
     }
 
@@ -1851,17 +1855,19 @@ mod tests {
         }
 
         let bad_inputs = &[
-            "2023",                  // No 'T'
-            "2023-08",               // No 'T'
-            "20233T",                // 5-digit year
-            "2023-13T",              // Out of bounds month
-            "2023-08-41T",           // Out of bounds day
-            "2023-08+18T",           // Wrong delimiter
-            "2023-08-18T25:00Z",     // Out of bounds hour
-            "2023-08-18T14:00",      // No offset
-            "2023-08-18T14:62",      // Out of bounds minute
-            "2023-08-18T14:35:61",   // Out of bounds second
-            "2023-08-18T14:35:52.Z", // Dot but no fractional
+            "2023",                       // No 'T'
+            "2023-08",                    // No 'T'
+            "20233T",                     // 5-digit year
+            "2023-13T",                   // Out of bounds month
+            "2023-08-41T",                // Out of bounds day
+            "2023-08+18T",                // Wrong delimiter
+            "2023-08-18T25:00Z",          // Out of bounds hour
+            "2023-08-18T14:00",           // No offset
+            "2023-08-18T14:62",           // Out of bounds minute
+            "2023-08-18T14:35:61",        // Out of bounds second
+            "2023-08-18T14:35:52.Z",      // Dot but no fractional
+            "2023-08-18T14:35:52.+24:30", // Out of bounds offset hour
+            "2023-08-18T14:35:52.+00:60", // Out of bounds offset minute
         ];
         for input in bad_inputs {
             mismatch_timestamp(input);
