@@ -62,6 +62,7 @@ pub(crate) struct EncodedTextValue {
     // value is stored. For others (e.g. a timestamp), the various components of the value are
     // recognized during matching and partial information like subfield offsets can be stored here.
     matched_value: MatchedValue,
+
     field_name_syntax: Option<MatchedSymbol>,
 }
 

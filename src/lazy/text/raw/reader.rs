@@ -90,7 +90,7 @@ mod tests {
             of various Ion types. The values are interspersed with
             different kinds of comments and whitespace.
         */
-
+        
         // Ion version marker
         
         $ion_1_0

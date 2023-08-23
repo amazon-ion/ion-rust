@@ -26,11 +26,12 @@ use crate::lazy::text::value::LazyRawTextValue;
 use crate::{IonResult, IonType, RawSymbolTokenRef};
 
 /// An implementation of the `LazyDecoder` trait that can read either text or binary Ion.
-// This family of types boxing and dynamic dispatch by using enums of the supported formats
-// within each type. Method calls are forwarded to the appropriate underlying type.
 #[derive(Debug, Clone)]
 pub struct AnyEncoding;
 
+// This family of types avoids boxing and dynamic dispatch by using enums of the supported formats
+// within each type. Trait methods are implemented by forwarding the call to the appropriate
+// underlying type.
 impl<'data> LazyDecoder<'data> for AnyEncoding {
     type Reader = LazyRawAnyReader<'data>;
     type Value = LazyRawAnyValue<'data>;
