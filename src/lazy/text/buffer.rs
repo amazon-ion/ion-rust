@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::iter::{Copied, Enumerate};
-use std::ops::{RangeFrom, RangeTo};
+use std::ops::{Range, RangeFrom, RangeTo};
 use std::slice::Iter;
 
 use nom::branch::alt;
@@ -16,10 +16,12 @@ use crate::lazy::encoding::TextEncoding;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
-    MatchedFloat, MatchedInt, MatchedShortString, MatchedString, MatchedSymbol, MatchedValue,
+    MatchedFloat, MatchedInt, MatchedString, MatchedSymbol, MatchedValue,
 };
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
+use crate::lazy::text::raw::r#struct::{LazyRawTextField, RawTextStructIterator};
+use crate::lazy::text::raw::sequence::RawTextSequenceIterator;
 use crate::lazy::text::value::LazyRawTextValue;
 use crate::result::DecodingError;
 use crate::{IonError, IonResult, IonType};
@@ -246,6 +248,78 @@ impl<'data> TextBufferView<'data> {
         )(self)
     }
 
+    /// Matches a struct field name/value pair.
+    ///
+    /// If a pair is found, returns `Some(field)` and consumes the following comma if present.
+    /// If no pair is found (that is: the end of the struct is next), returns `None`.
+    pub fn match_struct_field(self) -> IonParseResult<'data, Option<LazyRawTextField<'data>>> {
+        // A struct field can have leading whitespace, but we want the buffer slice that we match
+        // to begin with the field name. Here we skip any whitespace so we have another named
+        // slice (`input_including_field_name`) with that property.
+        let (input_including_field_name, _ws) = self.match_optional_comments_and_whitespace()?;
+        alt((
+            // If the next thing in the input is a `}`, return `None`.
+            value(None, Self::match_struct_end),
+            // Otherwise, match a name/value pair and turn it into a `LazyRawTextField`.
+            Self::match_struct_field_name_and_value.map(
+                move |((name_syntax, name_span), mut value)| {
+                    // Add the field name offsets to the `EncodedTextValue`
+                    value.encoded_value = value.encoded_value.with_field_name(
+                        name_syntax,
+                        name_span.start,
+                        name_span.len(),
+                    );
+                    // Replace the value's buffer slice (which starts with the value itself) with the
+                    // buffer slice we created that begins with the field name.
+                    value.input = input_including_field_name;
+                    Some(LazyRawTextField { value })
+                },
+            ),
+        ))(input_including_field_name)
+    }
+
+    /// Matches any amount of whitespace followed by a closing `}`.
+    fn match_struct_end(self) -> IonMatchResult<'data> {
+        whitespace_and_then(peek(tag("}"))).parse(self)
+    }
+
+    /// Matches a field name/value pair. Returns the syntax used for the field name, the range of
+    /// input bytes where the field name is found, and the value.
+    pub fn match_struct_field_name_and_value(
+        self,
+    ) -> IonParseResult<'data, ((MatchedSymbol, Range<usize>), LazyRawTextValue<'data>)> {
+        terminated(
+            separated_pair(
+                whitespace_and_then(match_and_span(Self::match_struct_field_name)),
+                whitespace_and_then(tag(":")),
+                whitespace_and_then(Self::match_value),
+            ),
+            whitespace_and_then(alt((tag(","), peek(tag("}"))))),
+        )(self)
+    }
+
+    /// Matches a struct field name. That is:
+    /// * A quoted symbol
+    /// * An identifier
+    /// * A symbol ID
+    /// * A short-form string
+    pub fn match_struct_field_name(self) -> IonParseResult<'data, MatchedSymbol> {
+        alt((
+            Self::match_symbol,
+            Self::match_short_string.map(|s| {
+                // NOTE: We're "casting" the matched short string to a matched symbol here.
+                //       This relies on the fact that the MatchedSymbol logic ignores
+                //       the first and last matched byte, which are usually single
+                //       quotes but in this case are double quotes.
+                match s {
+                    MatchedString::ShortWithoutEscapes => MatchedSymbol::QuotedWithoutEscapes,
+                    MatchedString::ShortWithEscapes => MatchedSymbol::QuotedWithEscapes,
+                    _ => unreachable!("field name parser matched long string"),
+                }
+            }),
+        ))(self)
+    }
+
     /// Matches syntax that is expected to follow a value in a list: any amount of whitespace and/or
     /// comments followed by either a comma (consumed) or an end-of-list `]` (not consumed).
     fn match_delimiter_after_list_value(self) -> IonMatchResult<'data> {
@@ -317,9 +391,15 @@ impl<'data> TextBufferView<'data> {
                 },
             ),
             map(
-                match_and_length(tag("[")),
-                |(_matched_list_start, length)| {
-                    EncodedTextValue::new(MatchedValue::List, self.offset(), length)
+                match_and_length(Self::match_list),
+                |(matched_list, length)| {
+                    EncodedTextValue::new(MatchedValue::List, matched_list.offset(), length)
+                },
+            ),
+            map(
+                match_and_length(Self::match_struct),
+                |(matched_struct, length)| {
+                    EncodedTextValue::new(MatchedValue::Struct, matched_struct.offset(), length)
                 },
             ),
             // TODO: The other Ion types
@@ -329,6 +409,74 @@ impl<'data> TextBufferView<'data> {
             input: self,
         })
         .parse(self)
+    }
+
+    /// Matches a list.
+    ///
+    /// If the input does not contain the entire list, returns `IonError::Incomplete(_)`.
+    pub fn match_list(self) -> IonMatchResult<'data> {
+        // If it doesn't start with [, it isn't a list.
+        if self.bytes().first() != Some(&b'[') {
+            let error = InvalidInputError::new(self);
+            return Err(nom::Err::Error(IonParseError::Invalid(error)));
+        }
+        // Scan ahead to find the end of this list.
+        let list_body = self.slice_to_end(1);
+        let sequence_iter = RawTextSequenceIterator::new(b']', list_body);
+        let span = match sequence_iter.find_span() {
+            Ok(span) => span,
+            // If the complete container isn't available, return an incomplete.
+            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            // If invalid syntax was encountered, return a failure to prevent nom from trying
+            // other parser kinds.
+            Err(e) => {
+                return {
+                    let error = InvalidInputError::new(self)
+                        .with_label("matching a list")
+                        .with_description(format!("{}", e));
+                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                }
+            }
+        };
+
+        // For the matched span, we use `self` again to include the opening `[`
+        let matched = self.slice(0, span.len());
+        let remaining = self.slice_to_end(span.len());
+        Ok((remaining, matched))
+    }
+
+    /// Matches a struct.
+    ///
+    /// If the input does not contain the entire struct, returns `IonError::Incomplete(_)`.
+    pub fn match_struct(self) -> IonMatchResult<'data> {
+        // If it doesn't start with {, it isn't a struct.
+        if self.bytes().first() != Some(&b'{') {
+            let error = InvalidInputError::new(self);
+            return Err(nom::Err::Error(IonParseError::Invalid(error)));
+        }
+        // Scan ahead to find the end of this struct.
+        let struct_body = self.slice_to_end(1);
+        let struct_iter = RawTextStructIterator::new(struct_body);
+        let span = match struct_iter.find_span() {
+            Ok(span) => span,
+            // If the complete container isn't available, return an incomplete.
+            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            // If invalid syntax was encountered, return a failure to prevent nom from trying
+            // other parser kinds.
+            Err(e) => {
+                return {
+                    let error = InvalidInputError::new(self)
+                        .with_label("matching a struct")
+                        .with_description(format!("{}", e));
+                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                }
+            }
+        };
+
+        // For the matched span, we use `self` again to include the opening `{`
+        let matched = self.slice(0, span.len());
+        let remaining = self.slice_to_end(span.len());
+        Ok((remaining, matched))
     }
 
     /// Matches a boolean value.
@@ -617,7 +765,11 @@ impl<'data> TextBufferView<'data> {
     fn match_short_string(self) -> IonParseResult<'data, MatchedString> {
         delimited(char('"'), Self::match_short_string_body, char('"'))
             .map(|(_matched, contains_escaped_chars)| {
-                MatchedString::Short(MatchedShortString::new(contains_escaped_chars))
+                if contains_escaped_chars {
+                    MatchedString::ShortWithEscapes
+                } else {
+                    MatchedString::ShortWithoutEscapes
+                }
             })
             .parse(self)
     }
@@ -715,7 +867,13 @@ impl<'data> TextBufferView<'data> {
     /// Matches a quoted symbol (`'foo'`).
     fn match_quoted_symbol(self) -> IonParseResult<'data, MatchedSymbol> {
         delimited(char('\''), Self::match_quoted_symbol_body, char('\''))
-            .map(|(_matched, contains_escaped_chars)| MatchedSymbol::Quoted(contains_escaped_chars))
+            .map(|(_matched, contains_escaped_chars)| {
+                if contains_escaped_chars {
+                    MatchedSymbol::QuotedWithEscapes
+                } else {
+                    MatchedSymbol::QuotedWithoutEscapes
+                }
+            })
             .parse(self)
     }
 
@@ -906,6 +1064,20 @@ impl<'data> nom::InputTakeAtPosition for TextBufferView<'data> {
 
 // === end of `nom` trait implementations
 
+/// Takes a given parser and returns a new one that accepts any amount of leading whitespace before
+/// calling the original parser.
+fn whitespace_and_then<'data, P, O>(
+    parser: P,
+) -> impl Parser<TextBufferView<'data>, O, IonParseError<'data>>
+where
+    P: Parser<TextBufferView<'data>, O, IonParseError<'data>>,
+{
+    preceded(
+        TextBufferView::match_optional_comments_and_whitespace,
+        parser,
+    )
+}
+
 /// Augments a given parser such that it returns the matched value and the number of input bytes
 /// that it matched.
 fn match_and_length<'data, P, O>(
@@ -923,6 +1095,26 @@ where
         let offset_after = remaining.offset();
         let match_length = offset_after - offset_before;
         Ok((remaining, (matched, match_length)))
+    }
+}
+
+/// Augments a given parser such that it returns the matched value and the range of input bytes
+/// that it matched.
+fn match_and_span<'data, P, O>(
+    mut parser: P,
+) -> impl Parser<TextBufferView<'data>, (O, Range<usize>), IonParseError<'data>>
+where
+    P: Parser<TextBufferView<'data>, O, IonParseError<'data>>,
+{
+    move |input: TextBufferView<'data>| {
+        let offset_before = input.offset();
+        let (remaining, matched) = match parser.parse(input) {
+            Ok((remaining, matched)) => (remaining, matched),
+            Err(e) => return Err(e),
+        };
+        let offset_after = remaining.offset();
+        let span = offset_before..offset_after;
+        Ok((remaining, (matched, span)))
     }
 }
 

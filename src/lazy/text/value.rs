@@ -1,3 +1,6 @@
+use std::fmt;
+use std::fmt::{Debug, Formatter};
+
 use crate::lazy::decoder::private::LazyRawValuePrivate;
 use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
 use crate::lazy::encoding::TextEncoding;
@@ -5,10 +8,9 @@ use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::MatchedValue;
+use crate::lazy::text::raw::r#struct::LazyRawTextStruct;
 use crate::lazy::text::raw::sequence::LazyRawTextSequence;
 use crate::{IonResult, IonType, RawSymbolTokenRef};
-use std::fmt;
-use std::fmt::{Debug, Formatter};
 
 /// A value that has been identified in the text input stream but whose data has not yet been read.
 ///
@@ -46,7 +48,10 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
     }
 
     fn read(&self) -> IonResult<RawValueRef<'data, TextEncoding>> {
-        let matched_input = self.input.slice(0, self.encoded_value.data_length());
+        let matched_input = self.input.slice(
+            self.encoded_value.data_offset() - self.input.offset(),
+            self.encoded_value.data_length(),
+        );
         let value_ref = match self.encoded_value.matched() {
             MatchedValue::Null(ion_type) => RawValueRef::Null(ion_type),
             MatchedValue::Bool(b) => RawValueRef::Bool(b),
@@ -58,6 +63,10 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
             MatchedValue::List => {
                 let lazy_sequence = LazyRawTextSequence { value: *self };
                 RawValueRef::List(lazy_sequence)
+            }
+            MatchedValue::Struct => {
+                let lazy_struct = LazyRawTextStruct { value: *self };
+                RawValueRef::Struct(lazy_struct)
             } // ...and the rest!
         };
         Ok(value_ref)

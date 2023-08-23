@@ -176,7 +176,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         if let RawValueRef::Struct(s) = self {
             Ok(s)
         } else {
-            IonResult::decoding_error("expected a struct")
+            IonResult::decoding_error(format!("expected a struct, found: {:?}", self))
         }
     }
 }

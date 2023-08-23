@@ -39,18 +39,24 @@ impl<'data> LazyRawTextReader<'data> {
     {
         let buffer = self.buffer;
         if buffer.is_empty() {
-            return IonResult::incomplete("reading a top-level value", buffer.offset());
+            return Ok(RawStreamItem::EndOfStream);
         }
-        let (buffer_after_whitespace, _whitespace) = buffer
-            .match_optional_comments_and_whitespace()
-            .with_context(
-                "skipping comments and whitespace between top-level values",
-                buffer,
-            )?;
+
+        let (buffer_after_whitespace, _whitespace) =
+            match buffer.match_optional_comments_and_whitespace() {
+                Ok((buf, ws)) => (buf, ws),
+                Err(nom::Err::Incomplete(_)) => return Ok(RawStreamItem::EndOfStream),
+                Err(e) => return IonResult::decoding_error(format!("broken: {:?}", e)),
+            };
+
+        if buffer_after_whitespace.is_empty() {
+            return Ok(RawStreamItem::EndOfStream);
+        }
         let (remaining, matched) = buffer_after_whitespace
             .match_top_level()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
-        // If we successfully moved to the next value, store the remaining buffer view
+        // Since we successfully matched the next value, we'll update the buffer
+        // so a future call to `next()` will resume parsing the remaining input.
         self.buffer = remaining;
         Ok(matched)
     }
@@ -68,10 +74,11 @@ impl<'data> LazyRawReader<'data, TextEncoding> for LazyRawTextReader<'data> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::lazy::decoder::LazyRawValue;
+    use crate::lazy::decoder::{LazyRawStruct, LazyRawValue};
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::{IonType, RawSymbolTokenRef};
+
+    use super::*;
 
     #[test]
     fn test_top_level() -> IonResult<()> {
@@ -149,6 +156,15 @@ mod tests {
             // Third item
             3
         ]
+        
+        {
+            // Identifier 
+            foo: 100,
+            // Quoted symbol
+            'bar': 200,
+            // Short-form string
+            "baz": 300
+        }
 
         "#,
         );
@@ -263,12 +279,24 @@ mod tests {
             RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(733)),
         );
 
+        // [1, 2, 3]
+
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;
         let mut sum = 0;
         for value in &list {
             sum += value?.read()?.expect_i64()?;
         }
         assert_eq!(sum, 6);
+
+        // {foo: 100, bar: 200, baz: 300}
+        let item = reader.next()?;
+        let value = item.expect_value()?.read()?;
+        let strukt = value.expect_struct()?;
+        let mut sum = 0;
+        sum += strukt.get_expected("foo")?.expect_i64()?;
+        sum += strukt.get_expected("bar")?.expect_i64()?;
+        sum += strukt.get_expected("baz")?.expect_i64()?;
+        assert_eq!(sum, 600);
 
         Ok(())
     }

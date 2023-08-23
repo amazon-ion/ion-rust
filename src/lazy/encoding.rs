@@ -1,16 +1,16 @@
+use std::marker::PhantomData;
+
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct;
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
 use crate::lazy::binary::raw::sequence::LazyRawBinarySequence;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
-use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawFieldPrivate};
-use crate::lazy::decoder::{LazyDecoder, LazyRawField, LazyRawStruct};
-use crate::lazy::raw_value_ref::RawValueRef;
+use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::text::raw::r#struct::LazyRawTextStruct;
 use crate::lazy::text::raw::reader::LazyRawTextReader;
 use crate::lazy::text::raw::sequence::LazyRawTextSequence;
 use crate::lazy::text::value::LazyRawTextValue;
 use crate::{IonResult, RawSymbolTokenRef};
-use std::marker::PhantomData;
 
 // These types derive trait implementations in order to allow types that containing them
 // to also derive trait implementations.
@@ -36,55 +36,6 @@ impl<'data> LazyDecoder<'data> for BinaryEncoding {
 // The exist to satisfy various trait definitions.
 
 #[derive(Debug, Clone)]
-pub struct ToDoTextStruct;
-
-#[derive(Debug, Clone)]
-pub struct ToDoTextField;
-
-impl<'data> LazyRawFieldPrivate<'data, TextEncoding> for ToDoTextField {
-    fn into_value(self) -> LazyRawTextValue<'data> {
-        todo!()
-    }
-}
-
-impl<'data> LazyRawField<'data, TextEncoding> for ToDoTextField {
-    fn name(&self) -> RawSymbolTokenRef<'data> {
-        todo!()
-    }
-
-    fn value(&self) -> &LazyRawTextValue<'data> {
-        todo!()
-    }
-}
-
-impl<'data> LazyContainerPrivate<'data, TextEncoding> for ToDoTextStruct {
-    fn from_value(_value: <TextEncoding as LazyDecoder>::Value) -> Self {
-        todo!()
-    }
-}
-
-impl<'data> LazyRawStruct<'data, TextEncoding> for ToDoTextStruct {
-    type Field = ToDoTextField;
-    type Iterator = Box<dyn Iterator<Item = IonResult<ToDoTextField>>>;
-
-    fn annotations(&self) -> ToDoTextAnnotationsIterator<'data> {
-        todo!()
-    }
-
-    fn find(&self, _name: &str) -> IonResult<Option<LazyRawTextValue<'data>>> {
-        todo!()
-    }
-
-    fn get(&self, _name: &str) -> IonResult<Option<RawValueRef<'data, TextEncoding>>> {
-        todo!()
-    }
-
-    fn iter(&self) -> Self::Iterator {
-        todo!()
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct ToDoTextAnnotationsIterator<'data> {
     spooky: &'data PhantomData<()>,
 }
@@ -101,6 +52,6 @@ impl<'data> LazyDecoder<'data> for TextEncoding {
     type Reader = LazyRawTextReader<'data>;
     type Value = LazyRawTextValue<'data>;
     type Sequence = LazyRawTextSequence<'data>;
-    type Struct = ToDoTextStruct;
+    type Struct = LazyRawTextStruct<'data>;
     type AnnotationsIterator = ToDoTextAnnotationsIterator<'data>;
 }

@@ -36,7 +36,7 @@ use crate::result::{DecodingError, IonFailure};
 use crate::{Int, IonError, IonResult, IonType, RawSymbolTokenRef};
 
 /// A partially parsed Ion value.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MatchedValue {
     // `Null` and `Bool` are fully parsed because they only involve matching a keyword.
     Null(IonType),
@@ -46,6 +46,7 @@ pub(crate) enum MatchedValue {
     String(MatchedString),
     Symbol(MatchedSymbol),
     List,
+    Struct,
     // TODO: ...the other types
 }
 
@@ -53,6 +54,7 @@ pub(crate) enum MatchedValue {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) struct MatchedInt {
     radix: u32,
+    // Offset of the digits from the beginning of the value
     digits_offset: usize,
     is_negative: bool,
 }
@@ -160,30 +162,15 @@ impl MatchedFloat {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MatchedString {
     /// The string only has one segment. (e.g. "foo")
-    Short(MatchedShortString),
+    ShortWithoutEscapes,
+    ShortWithEscapes,
     /// The string is in multiple segments:
     ///     """hello,"""
     ///     """ world!"""
     Long,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct MatchedShortString {
-    contains_escaped_chars: bool,
-}
-
-impl MatchedShortString {
-    pub fn new(contains_escaped_chars: bool) -> Self {
-        Self {
-            contains_escaped_chars,
-        }
-    }
-    pub fn contains_escaped_chars(&self) -> bool {
-        self.contains_escaped_chars
-    }
 }
 
 impl MatchedString {
@@ -192,28 +179,35 @@ impl MatchedString {
 
     pub fn read<'data>(&self, matched_input: TextBufferView<'data>) -> IonResult<StrRef<'data>> {
         match self {
-            MatchedString::Short(short) => self.read_short_string(*short, matched_input),
+            MatchedString::ShortWithoutEscapes => {
+                self.read_short_string_without_escapes(matched_input)
+            }
+            MatchedString::ShortWithEscapes => self.read_short_string_with_escapes(matched_input),
             MatchedString::Long => todo!("long-form strings"),
         }
     }
 
-    fn read_short_string<'data>(
+    fn read_short_string_without_escapes<'data>(
         &self,
-        short: MatchedShortString,
         matched_input: TextBufferView<'data>,
     ) -> IonResult<StrRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
         let body = matched_input.slice(1, matched_input.len() - 2);
-        if !short.contains_escaped_chars() {
-            // There are no escaped characters, so we can just validate the string in-place.
-            let text = body.as_text()?;
-            let str_ref = StrRef::from(text);
-            return Ok(str_ref);
-        }
-        // Otherwise, there are escaped characters. We need to build a new version of our string
+        // There are no escaped characters, so we can just validate the string in-place.
+        let text = body.as_text()?;
+        let str_ref = StrRef::from(text);
+        Ok(str_ref)
+    }
+
+    fn read_short_string_with_escapes<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<StrRef<'data>> {
+        // Take a slice of the input that ignores the first and last bytes, which are quotes.
+        let body = matched_input.slice(1, matched_input.len() - 2);
+        // There are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
-
         escape_text(body, &mut sanitized)?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text.to_string()))
@@ -375,15 +369,16 @@ fn code_point_is_a_high_surrogate(value: u32) -> bool {
     (0xD800..=0xDFFF).contains(&value)
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MatchedSymbol {
     /// A numeric symbol ID (e.g. `$21`)
     SymbolId,
     /// The symbol is an unquoted identifier (e.g. `foo`)
     Identifier,
-    /// The symbol is delimited by single quotes. Holds a `bool` indicating whether the
-    /// matched input contained any escaped bytes.
-    Quoted(bool),
+    /// The symbol is delimited by single quotes but contains no escape sequences.
+    QuotedWithoutEscapes,
+    /// The symbol is delimited by single quotes and has at least one escape sequence.
+    QuotedWithEscapes,
     // TODO: Operators in S-Expressions
 }
 
@@ -395,27 +390,31 @@ impl MatchedSymbol {
         match self {
             MatchedSymbol::SymbolId => self.read_symbol_id(matched_input),
             MatchedSymbol::Identifier => self.read_identifier(matched_input),
-            MatchedSymbol::Quoted(contains_escaped_chars) => {
-                self.read_quoted(matched_input, *contains_escaped_chars)
-            }
+            MatchedSymbol::QuotedWithEscapes => self.read_quoted_with_escapes(matched_input),
+            MatchedSymbol::QuotedWithoutEscapes => self.read_quoted_without_escapes(matched_input),
         }
     }
 
-    fn read_quoted<'data>(
+    pub(crate) fn read_quoted_without_escapes<'data>(
         &self,
         matched_input: TextBufferView<'data>,
-        contains_escaped_chars: bool,
     ) -> IonResult<RawSymbolTokenRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
         let body = matched_input.slice(1, matched_input.len() - 2);
-        if !contains_escaped_chars {
-            // There are no escaped characters, so we can just validate the string in-place.
-            let text = body.as_text()?;
-            let str_ref = RawSymbolTokenRef::Text(text.into());
-            return Ok(str_ref);
-        }
+        // There are no escaped characters, so we can just validate the string in-place.
+        let text = body.as_text()?;
+        let str_ref = RawSymbolTokenRef::Text(text.into());
+        Ok(str_ref)
+    }
 
-        // Otherwise, there are escaped characters. We need to build a new version of our symbol
+    pub(crate) fn read_quoted_with_escapes<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<RawSymbolTokenRef<'data>> {
+        // Take a slice of the input that ignores the first and last bytes, which are quotes.
+        let body = matched_input.slice(1, matched_input.len() - 2);
+
+        // There are escaped characters. We need to build a new version of our symbol
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
 
@@ -423,7 +422,8 @@ impl MatchedSymbol {
         let text = String::from_utf8(sanitized).unwrap();
         Ok(RawSymbolTokenRef::Text(text.into()))
     }
-    fn read_identifier<'data>(
+
+    pub(crate) fn read_identifier<'data>(
         &self,
         matched_input: TextBufferView<'data>,
     ) -> IonResult<RawSymbolTokenRef<'data>> {
@@ -431,6 +431,7 @@ impl MatchedSymbol {
             .as_text()
             .map(|t| RawSymbolTokenRef::Text(Cow::Borrowed(t)))
     }
+
     fn read_symbol_id<'data>(
         &self,
         matched_input: TextBufferView<'data>,
