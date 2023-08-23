@@ -1,11 +1,12 @@
 use crate::raw_symbol_token::RawSymbolToken;
 use crate::{Symbol, SymbolId};
+use std::borrow::Cow;
 
 /// Like RawSymbolToken, but the Text variant holds a borrowed reference instead of a String.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RawSymbolTokenRef<'a> {
     SymbolId(SymbolId),
-    Text(&'a str),
+    Text(Cow<'a, str>),
 }
 
 /// Implemented by types that can be viewed as a [RawSymbolTokenRef] without allocations.
@@ -15,10 +16,7 @@ pub trait AsRawSymbolTokenRef {
 
 impl<'a> AsRawSymbolTokenRef for RawSymbolTokenRef<'a> {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
-        match self {
-            RawSymbolTokenRef::SymbolId(sid) => RawSymbolTokenRef::SymbolId(*sid),
-            RawSymbolTokenRef::Text(text) => RawSymbolTokenRef::Text(text),
-        }
+        self.clone()
     }
 }
 
@@ -30,20 +28,20 @@ impl AsRawSymbolTokenRef for SymbolId {
 
 impl AsRawSymbolTokenRef for String {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
-        RawSymbolTokenRef::Text(self.as_str())
+        RawSymbolTokenRef::Text(Cow::from(self.as_str()))
     }
 }
 
 impl AsRawSymbolTokenRef for &str {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
-        RawSymbolTokenRef::Text(self)
+        RawSymbolTokenRef::Text(Cow::from(*self))
     }
 }
 
 impl AsRawSymbolTokenRef for Symbol {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
         match self.text() {
-            Some(text) => RawSymbolTokenRef::Text(text),
+            Some(text) => RawSymbolTokenRef::Text(Cow::from(text)),
             None => RawSymbolTokenRef::SymbolId(0),
         }
     }
@@ -62,7 +60,7 @@ impl AsRawSymbolTokenRef for RawSymbolToken {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
         match self {
             RawSymbolToken::SymbolId(sid) => RawSymbolTokenRef::SymbolId(*sid),
-            RawSymbolToken::Text(text) => RawSymbolTokenRef::Text(text.as_str()),
+            RawSymbolToken::Text(text) => RawSymbolTokenRef::Text(Cow::from(text.as_str())),
         }
     }
 }

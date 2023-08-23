@@ -71,11 +71,13 @@ mod tests {
     use super::*;
     use crate::lazy::decoder::LazyRawValue;
     use crate::lazy::raw_value_ref::RawValueRef;
-    use crate::IonType;
+    use crate::{IonType, RawSymbolTokenRef};
 
     #[test]
     fn test_top_level() -> IonResult<()> {
-        let data = r#"
+        let mut data = String::new();
+        data.push_str(
+            r#"
         /*
             This test demonstrates lazily reading top-level values
             of various Ion types. The values are interspersed with
@@ -117,13 +119,29 @@ mod tests {
         "\x48ello, \x77orld!"              // \x 2-digit hex escape
         "\u0048ello, \u0077orld!"          // \u 4-digit hex escape
         "\U00000048ello, \U00000077orld!"  // \U 8-digit hex escape
-        
-        "#;
 
-        // Make a mutable string so we can append some things that require Rust-level escapes
-        let mut data = String::from(data);
+        "#,
+        );
         // Escaped newlines are discarded
         data.push_str("\"Hello,\\\n world!\"");
+
+        data.push_str(
+            r#"
+        // Symbols
+        
+        'foo'
+        'Hello, world!'
+        '😎😎😎'
+        
+        firstName
+        date_of_birth
+        $variable
+        
+        $0
+        $10
+        $733
+        "#,
+        );
 
         fn expect_next<'data>(
             reader: &mut LazyRawTextReader<'data>,
@@ -197,6 +215,44 @@ mod tests {
         expect_next(reader, RawValueRef::String("Hello, world!".into()));
         // "\"Hello,\\\n world!\" "
         expect_next(reader, RawValueRef::String("Hello, world!".into()));
+        // 'foo'
+        expect_next(
+            reader,
+            RawValueRef::Symbol(RawSymbolTokenRef::Text("foo".into())),
+        );
+        expect_next(
+            reader,
+            RawValueRef::Symbol(RawSymbolTokenRef::Text("Hello, world!".into())),
+        );
+        expect_next(
+            reader,
+            RawValueRef::Symbol(RawSymbolTokenRef::Text("😎😎😎".into())),
+        );
+        // firstName
+        expect_next(
+            reader,
+            RawValueRef::Symbol(RawSymbolTokenRef::Text("firstName".into())),
+        );
+        // date_of_birth
+        expect_next(
+            reader,
+            RawValueRef::Symbol(RawSymbolTokenRef::Text("date_of_birth".into())),
+        );
+        // $variable
+        expect_next(
+            reader,
+            RawValueRef::Symbol(RawSymbolTokenRef::Text("$variable".into())),
+        );
+        // $0
+        expect_next(reader, RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(0)));
+        // $10
+        expect_next(reader, RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(10)));
+        // $733
+        expect_next(
+            reader,
+            RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(733)),
+        );
+
         Ok(())
     }
 }

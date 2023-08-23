@@ -128,7 +128,7 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
                         panic!("Cannot set symbol ID ${symbol_id} as annotation. It is undefined.");
                     }
                 }
-                RawSymbolTokenRef::Text(text) => self.get_or_create_symbol_id(text),
+                RawSymbolTokenRef::Text(text) => self.get_or_create_symbol_id(text.as_ref()),
             };
             self.raw_writer.add_annotation(symbol_id);
         }
@@ -145,7 +145,7 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
                     ));
                 }
             }
-            RawSymbolTokenRef::Text(text) => self.get_or_create_symbol_id(text),
+            RawSymbolTokenRef::Text(text) => self.get_or_create_symbol_id(text.as_ref()),
         };
         self.raw_writer.write_symbol(symbol_id)
     }
@@ -159,7 +159,7 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
                     panic!("Cannot set symbol ID ${symbol_id} as field name. It is undefined.");
                 }
             }
-            RawSymbolTokenRef::Text(text) => self.get_or_create_symbol_id(text),
+            RawSymbolTokenRef::Text(text) => self.get_or_create_symbol_id(text.as_ref()),
         };
         self.raw_writer.set_field_name(text);
     }
