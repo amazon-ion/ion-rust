@@ -126,7 +126,7 @@ mod tests {
         "\x48ello, \x77orld!"              // \x 2-digit hex escape
         "\u0048ello, \u0077orld!"          // \u 4-digit hex escape
         "\U00000048ello, \U00000077orld!"  // \U 8-digit hex escape
-        
+
         "#,
         );
         // Escaped newlines are discarded
@@ -165,7 +165,7 @@ mod tests {
             // Short-form string
             "baz": 300
         }
-        
+
         "#,
         );
 
@@ -280,6 +280,7 @@ mod tests {
         );
 
         // [1, 2, 3]
+
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;
         let mut sum = 0;
         for value in &list {

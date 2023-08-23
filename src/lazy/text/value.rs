@@ -53,8 +53,8 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
             self.encoded_value.data_length(),
         );
         let value_ref = match self.encoded_value.matched() {
-            MatchedValue::Null(ion_type) => RawValueRef::Null(*ion_type),
-            MatchedValue::Bool(b) => RawValueRef::Bool(*b),
+            MatchedValue::Null(ion_type) => RawValueRef::Null(ion_type),
+            MatchedValue::Bool(b) => RawValueRef::Bool(b),
             MatchedValue::Int(i) => RawValueRef::Int(i.read(matched_input)?),
             MatchedValue::Float(f) => RawValueRef::Float(f.read(matched_input)?),
             // ...decimal, timestamp...
