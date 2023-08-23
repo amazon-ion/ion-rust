@@ -50,8 +50,8 @@ impl<'data> LazyRawSequence<'data, TextEncoding> for LazyRawTextSequence<'data> 
         LazyRawTextSequence::iter(self)
     }
 
-    fn as_value(&self) -> &LazyRawTextValue<'data> {
-        &self.value
+    fn as_value(&self) -> LazyRawTextValue<'data> {
+        self.value
     }
 }
 

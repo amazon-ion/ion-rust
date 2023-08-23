@@ -19,11 +19,11 @@
 //! use the previously recorded information to minimize the amount of information that needs to be
 //! re-discovered.
 
+use nom::character::is_hex_digit;
 use std::borrow::Cow;
 use std::num::IntErrorKind;
 use std::str::FromStr;
 
-use nom::character::is_hex_digit;
 use num_bigint::BigInt;
 use num_traits::Num;
 use smallvec::SmallVec;

@@ -1,6 +1,7 @@
 //! Provides an ergonomic, lazy view of an Ion stream that permits random access within each
 //! top level value.
 
+mod any_encoding;
 pub mod binary;
 pub mod decoder;
 pub(crate) mod encoding;

@@ -11,6 +11,7 @@ use crate::{IonResult, RawSymbolTokenRef};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
+#[derive(Clone)]
 pub struct LazyRawBinaryStruct<'data> {
     pub(crate) value: LazyRawBinaryValue<'data>,
 }
@@ -119,6 +120,7 @@ impl<'data> Iterator for RawBinaryStructIterator<'data> {
     }
 }
 
+#[derive(Clone)]
 pub struct LazyRawBinaryField<'data> {
     pub(crate) value: LazyRawBinaryValue<'data>,
 }
@@ -134,8 +136,8 @@ impl<'data> LazyRawBinaryField<'data> {
         RawSymbolTokenRef::SymbolId(field_id)
     }
 
-    pub fn value(&self) -> &LazyRawBinaryValue<'data> {
-        &self.value
+    pub fn value(&self) -> LazyRawBinaryValue<'data> {
+        self.value
     }
 
     pub(crate) fn into_value(self) -> LazyRawBinaryValue<'data> {
@@ -154,8 +156,8 @@ impl<'data> LazyRawField<'data, BinaryEncoding> for LazyRawBinaryField<'data> {
         LazyRawBinaryField::name(self)
     }
 
-    fn value(&self) -> &LazyRawBinaryValue<'data> {
-        LazyRawBinaryField::value(self)
+    fn value(&self) -> LazyRawBinaryValue<'data> {
+        self.value()
     }
 }
 

@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::iter::{Copied, Enumerate};
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::slice::Iter;
+use std::str::FromStr;
 
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1};
@@ -226,6 +227,30 @@ impl<'data> TextBufferView<'data> {
         ))(self)
     }
 
+    /// Matches an Ion version marker (e.g. `$ion_1_0` or `$ion_1_1`.)
+    pub fn match_ivm(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
+        let (remaining, (major, minor)) =
+            preceded(tag("$ion_"), separated_pair(digit1, tag("_"), digit1))(self)?;
+        // `major` and `minor` are base 10 digits. Turning them into `&str`s is guaranteed to succeed.
+        let major_version = u8::from_str(major.as_text().unwrap()).map_err(|_| {
+            let error = InvalidInputError::new(major)
+                .with_label("parsing an IVM major version")
+                .with_description("value did not fit in an unsigned byte");
+            nom::Err::Failure(IonParseError::Invalid(error))
+        })?;
+        let minor_version = u8::from_str(minor.as_text().unwrap()).map_err(|_| {
+            let error = InvalidInputError::new(minor)
+                .with_label("parsing an IVM minor version")
+                .with_description("value did not fit in an unsigned byte");
+            nom::Err::Failure(IonParseError::Invalid(error))
+        })?;
+
+        Ok((
+            remaining,
+            RawStreamItem::VersionMarker(major_version, minor_version),
+        ))
+    }
+
     /// Matches a single value in a list OR the end of the list, allowing for leading whitespace
     /// and comments in either case.
     ///
@@ -329,20 +354,23 @@ impl<'data> TextBufferView<'data> {
         )(self)
     }
 
-    /// Matches a single top-level scalar value, the beginning of a container, or an IVM.
-    pub fn match_top_level(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
-        let (remaining, value) = match self.match_value() {
-            Ok(value) => value,
-            Err(e) => return Err(e),
-        };
+    /// Matches a single top-level value, an IVM, or the end of the stream.
+    pub fn match_top_level_item(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
+        // If only whitespace/comments remain, we're at the end of the stream.
+        let (input_after_ws, _ws) = self.match_optional_comments_and_whitespace()?;
+        if input_after_ws.is_empty() {
+            return Ok((input_after_ws, RawStreamItem::EndOfStream));
+        }
+        // Otherwise, the next item must be an IVM or a value.
+        // We check for IVMs first because the rules for a symbol identifier will match them.
+        alt((Self::match_ivm, Self::match_top_level_value))(input_after_ws)
+    }
 
-        // TODO: Augment this method to take an `is_complete` flag that indicates whether the absence
-        //       of further values should return an `Incomplete` or a `RawStreamItem::EndOfStream`.
-
-        // TODO: Check to see if `value` is actually an IVM.
-        //       => If it's a symbol, try the IVM parser on it and see if it succeeds.
-        //       For now, we just return the value.
-        Ok((remaining, RawStreamItem::Value(value)))
+    /// Matches a single value at the top level. The caller must verify that the input is not an
+    /// IVM before calling; otherwise, that IVM will be recognized as an identifier/symbol.
+    fn match_top_level_value(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
+        self.match_value()
+            .map(|(remaining, value)| (remaining, RawStreamItem::Value(value)))
     }
 
     /// Matches a single scalar value or the beginning of a container.
@@ -1193,6 +1221,26 @@ mod tests {
     #[test]
     fn test_match_stop_char() {
         MatchTest::new(" ").expect_match(match_length(TextBufferView::match_stop_character));
+    }
+
+    #[test]
+    fn test_match_ivm() {
+        fn match_ivm(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_ivm));
+        }
+        fn mismatch_ivm(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_ivm));
+        }
+
+        match_ivm("$ion_1_0");
+        match_ivm("$ion_1_1");
+        match_ivm("$ion_1_2");
+        match_ivm("$ion_124_17");
+
+        mismatch_ivm("ion_1_0");
+        mismatch_ivm("$ion__1_0");
+        mismatch_ivm("$$ion_1_0");
+        mismatch_ivm("$ion_FF_FF");
     }
 
     #[test]

@@ -9,6 +9,7 @@ use crate::{IonResult, IonType};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
+#[derive(Clone)]
 pub struct LazyRawBinarySequence<'data> {
     pub(crate) value: LazyRawBinaryValue<'data>,
 }
@@ -47,8 +48,8 @@ impl<'data> LazyRawSequence<'data, BinaryEncoding> for LazyRawBinarySequence<'da
         LazyRawBinarySequence::iter(self)
     }
 
-    fn as_value(&self) -> &LazyRawBinaryValue<'data> {
-        &self.value
+    fn as_value(&self) -> LazyRawBinaryValue<'data> {
+        self.value
     }
 }
 

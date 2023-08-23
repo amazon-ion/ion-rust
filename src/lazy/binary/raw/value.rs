@@ -26,7 +26,7 @@ use std::{fmt, mem};
 /// struct field names may or may not include a text definition. For a resolved lazy value that
 /// includes a text definition for these items whenever one exists, see
 /// [`crate::lazy::value::LazyValue`].
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct LazyRawBinaryValue<'data> {
     pub(crate) encoded_value: EncodedValue,
     pub(crate) input: ImmutableBuffer<'data>,
