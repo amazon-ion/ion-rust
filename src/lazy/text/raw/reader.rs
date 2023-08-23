@@ -85,7 +85,6 @@ mod tests {
         let mut data = String::new();
         data.push_str(
             r#"
-            
         /*
             This test demonstrates lazily reading top-level values
             of various Ion types. The values are interspersed with
@@ -95,7 +94,7 @@ mod tests {
         // Ion version marker
         
         $ion_1_0
-        
+
         // Typed nulls
         
         null
@@ -131,7 +130,7 @@ mod tests {
         "\x48ello, \x77orld!"              // \x 2-digit hex escape
         "\u0048ello, \u0077orld!"          // \u 4-digit hex escape
         "\U00000048ello, \U00000077orld!"  // \U 8-digit hex escape
-        
+
         "#,
         );
         // Escaped newlines are discarded
@@ -172,7 +171,7 @@ mod tests {
         }
         
         foo::'bar'::  baz :: 42
-        
+
         "#,
         );
 
@@ -289,6 +288,7 @@ mod tests {
         );
 
         // [1, 2, 3]
+
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;
         let mut sum = 0;
         for value in &list {

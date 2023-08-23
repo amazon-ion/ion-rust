@@ -719,7 +719,7 @@ impl<'data> TextBufferView<'data> {
         ))(self)
     }
 
-    /// Matches special IEEE-754 floating point values, including +/- infinity and NaN.
+    /// Matches special IEEE-754 values, including +/- infinity and NaN.
     fn match_float_special_value(self) -> IonParseResult<'data, MatchedFloat> {
         alt((
             value(MatchedFloat::NotANumber, tag("nan")),
@@ -848,7 +848,7 @@ impl<'data> TextBufferView<'data> {
 
     /// Matches a symbol ID (`$28`), an identifier (`foo`), or a quoted symbol (`'foo'`).
     fn match_symbol(self) -> IonParseResult<'data, MatchedSymbol> {
-        // TODO: identifiers
+        // TODO: operators
         alt((
             Self::match_symbol_id,
             Self::match_identifier,

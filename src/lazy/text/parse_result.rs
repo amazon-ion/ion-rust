@@ -114,20 +114,6 @@ impl<'data> InvalidInputError<'data> {
     // TODO: Decide how to expose 'input'.
 }
 
-// impl<'data> From<InvalidInputError<'data>> for IonError {
-//     fn from(value: InvalidInputError) -> Self {
-//         dbg!(&value.backtrace);
-//         let mut message = String::from(value.description().unwrap_or("invalid text Ion syntax"));
-//         if let Some(label) = value.label {
-//             message.push_str(" while ");
-//             message.push_str(label.as_ref());
-//         }
-//         let position = Position::with_offset(value.input.offset()).with_length(value.input.len());
-//         let decoding_error = DecodingError::new(message).with_position(position);
-//         IonError::Decoding(decoding_error)
-//     }
-// }
-
 impl<'data> From<InvalidInputError<'data>> for IonParseError<'data> {
     fn from(value: InvalidInputError<'data>) -> Self {
         IonParseError::Invalid(value)
@@ -149,7 +135,6 @@ impl<'data> From<InvalidInputError<'data>> for IonError {
         message.push_str("; buffer: ");
         let input = invalid_input_error.input;
         let buffer_text = if let Ok(text) = invalid_input_error.input.as_text() {
-            // TODO: This really should be graphemes instead of chars()
             text.chars().take(32).collect::<String>()
         } else {
             format!(
