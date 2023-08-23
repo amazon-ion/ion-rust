@@ -5,6 +5,7 @@ use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::MatchedValue;
+use crate::lazy::text::raw::sequence::LazyRawTextSequence;
 use crate::{IonResult, IonType, RawSymbolTokenRef};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -19,7 +20,7 @@ use std::fmt::{Debug, Formatter};
 /// format than in its binary format, but is still possible.) For a resolved lazy value that
 /// includes a text definition for these items whenever one exists, see
 /// [`crate::lazy::value::LazyValue`].
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct LazyRawTextValue<'data> {
     pub(crate) encoded_value: EncodedTextValue,
     pub(crate) input: TextBufferView<'data>,
@@ -54,7 +55,10 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
             // ...decimal, timestamp...
             MatchedValue::String(s) => RawValueRef::String(s.read(matched_input)?),
             MatchedValue::Symbol(s) => RawValueRef::Symbol(s.read(matched_input)?),
-            // ...and the rest!
+            MatchedValue::List => {
+                let lazy_sequence = LazyRawTextSequence { value: *self };
+                RawValueRef::List(lazy_sequence)
+            } // ...and the rest!
         };
         Ok(value_ref)
     }

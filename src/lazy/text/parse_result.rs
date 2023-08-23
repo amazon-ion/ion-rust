@@ -196,6 +196,26 @@ impl<'data> ParseError<TextBufferView<'data>> for IonParseError<'data> {
     }
 }
 
+/// `Result<Option<T>, _>` has a method called `transpose` that converts it into an `Option<Result<T, _>>`,
+/// allowing it to be easily used in places like iterators that expect that return type.
+/// This trait defines a similar extension method for `Result<(TextBufferView, Option<T>)>`.
+pub(crate) trait ToIteratorOutput<'data, T> {
+    fn transpose(self) -> Option<IonResult<T>>;
+}
+
+impl<'data, T> ToIteratorOutput<'data, T> for IonResult<(TextBufferView<'data>, Option<T>)> {
+    fn transpose(self) -> Option<IonResult<T>> {
+        match self {
+            Ok((_remaining, Some(value))) => Some(Ok(value)),
+            Ok((_remaining, None)) => None,
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+/// Converts the output of a text Ion parser (any of `IonParseResult`, `IonParseError`,
+/// or `nom::Err<IonParseError>`) into a general-purpose `IonResult`. If the implementing type
+/// does not have its own `label` and `input`, the specified values will be used.
 pub(crate) trait AddContext<'data, T> {
     fn with_context(
         self,

@@ -4,11 +4,12 @@ use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
 use crate::lazy::binary::raw::sequence::LazyRawBinarySequence;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawFieldPrivate};
-use crate::lazy::decoder::{LazyDecoder, LazyRawField, LazyRawSequence, LazyRawStruct};
+use crate::lazy::decoder::{LazyDecoder, LazyRawField, LazyRawStruct};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::text::raw::reader::LazyRawTextReader;
+use crate::lazy::text::raw::sequence::LazyRawTextSequence;
 use crate::lazy::text::value::LazyRawTextValue;
-use crate::{IonResult, IonType, RawSymbolTokenRef};
+use crate::{IonResult, RawSymbolTokenRef};
 use std::marker::PhantomData;
 
 // These types derive trait implementations in order to allow types that containing them
@@ -33,34 +34,6 @@ impl<'data> LazyDecoder<'data> for BinaryEncoding {
 // === Placeholders ===
 // The types below will need to be properly defined in order for the lazy text reader to be complete.
 // The exist to satisfy various trait definitions.
-#[derive(Debug, Clone)]
-pub struct ToDoTextSequence;
-
-impl<'data> LazyContainerPrivate<'data, TextEncoding> for ToDoTextSequence {
-    fn from_value(_value: LazyRawTextValue<'data>) -> Self {
-        todo!()
-    }
-}
-
-impl<'data> LazyRawSequence<'data, TextEncoding> for ToDoTextSequence {
-    type Iterator = Box<dyn Iterator<Item = IonResult<LazyRawTextValue<'data>>>>;
-
-    fn annotations(&self) -> ToDoTextAnnotationsIterator<'data> {
-        todo!()
-    }
-
-    fn ion_type(&self) -> IonType {
-        todo!()
-    }
-
-    fn iter(&self) -> Self::Iterator {
-        todo!()
-    }
-
-    fn as_value(&self) -> &<TextEncoding as LazyDecoder<'data>>::Value {
-        todo!()
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct ToDoTextStruct;
@@ -127,7 +100,7 @@ impl<'data> Iterator for ToDoTextAnnotationsIterator<'data> {
 impl<'data> LazyDecoder<'data> for TextEncoding {
     type Reader = LazyRawTextReader<'data>;
     type Value = LazyRawTextValue<'data>;
-    type Sequence = ToDoTextSequence;
+    type Sequence = LazyRawTextSequence<'data>;
     type Struct = ToDoTextStruct;
     type AnnotationsIterator = ToDoTextAnnotationsIterator<'data>;
 }

@@ -140,6 +140,16 @@ mod tests {
         $0
         $10
         $733
+        
+        [
+            // First item
+            1,
+            // Second item
+            2 /*comment before comma*/,
+            // Third item
+            3
+        ]
+
         "#,
         );
 
@@ -252,6 +262,13 @@ mod tests {
             reader,
             RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(733)),
         );
+
+        let list = reader.next()?.expect_value()?.read()?.expect_list()?;
+        let mut sum = 0;
+        for value in &list {
+            sum += value?.read()?.expect_i64()?;
+        }
+        assert_eq!(sum, 6);
 
         Ok(())
     }

@@ -45,6 +45,7 @@ pub(crate) enum MatchedValue {
     Float(MatchedFloat),
     String(MatchedString),
     Symbol(MatchedSymbol),
+    List,
     // TODO: ...the other types
 }
 

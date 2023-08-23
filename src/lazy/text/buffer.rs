@@ -224,6 +224,37 @@ impl<'data> TextBufferView<'data> {
         ))(self)
     }
 
+    /// Matches a single value in a list OR the end of the list, allowing for leading whitespace
+    /// and comments in either case.
+    ///
+    /// If a value is found, returns `Ok(Some(value))`. If the end of the list is found, returns
+    /// `Ok(None)`.
+    pub fn match_list_value(self) -> IonParseResult<'data, Option<LazyRawTextValue<'data>>> {
+        preceded(
+            // Some amount of whitespace/comments...
+            Self::match_optional_comments_and_whitespace,
+            // ...followed by either the end of the list...
+            alt((
+                value(None, tag("]")),
+                // ...or a value...
+                terminated(
+                    Self::match_value.map(Some),
+                    // ...followed by a comma or end-of-list
+                    Self::match_delimiter_after_list_value,
+                ),
+            )),
+        )(self)
+    }
+
+    /// Matches syntax that is expected to follow a value in a list: any amount of whitespace and/or
+    /// comments followed by either a comma (consumed) or an end-of-list `]` (not consumed).
+    fn match_delimiter_after_list_value(self) -> IonMatchResult<'data> {
+        preceded(
+            Self::match_optional_comments_and_whitespace,
+            alt((tag(","), peek(tag("]")))),
+        )(self)
+    }
+
     /// Matches a single top-level scalar value, the beginning of a container, or an IVM.
     pub fn match_top_level(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
         let (remaining, value) = match self.match_value() {
@@ -283,6 +314,12 @@ impl<'data> TextBufferView<'data> {
                         self.offset(),
                         length,
                     )
+                },
+            ),
+            map(
+                match_and_length(tag("[")),
+                |(_matched_list_start, length)| {
+                    EncodedTextValue::new(MatchedValue::List, self.offset(), length)
                 },
             ),
             // TODO: The other Ion types
