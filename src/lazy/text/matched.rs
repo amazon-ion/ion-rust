@@ -764,10 +764,7 @@ impl MatchedBlob {
 
         // Ion allows whitespace to appear in the middle of the base64 data; if the match
         // has inner whitespace, we need to strip it out.
-        let contains_whitespace = matched_bytes
-            .iter()
-            .position(|b| b.is_ascii_whitespace())
-            .is_some();
+        let contains_whitespace = matched_bytes.iter().any(|b| b.is_ascii_whitespace());
 
         let decode_result = if contains_whitespace {
             // This allocates a fresh Vec to store the sanitized bytes. It could be replaced by
@@ -777,7 +774,7 @@ impl MatchedBlob {
                 .copied()
                 .filter(|b| !b.is_ascii_whitespace())
                 .collect();
-            base64::decode(&sanitized_base64_text)
+            base64::decode(sanitized_base64_text)
         } else {
             base64::decode(matched_bytes)
         };
