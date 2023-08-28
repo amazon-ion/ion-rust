@@ -7,7 +7,7 @@ use std::fmt;
 /// Serialization for Ion `Decimal`
 /// This serialization internally uses `serialize_newtype_struct` to trick serde to serialize a number value into decimal.
 /// This `newtype_struct` is named with `$__ion_rs_decimal__` to distinguish it from an actual `newtype_struct`.
-/// More information on `newtype_struct` can be found in the serde data model: https://serde.rs/data-model.html#types
+/// More information on `newtype_struct` can be found in the serde data model: `<https://serde.rs/data-model.html#types>`
 impl Serialize for Decimal {
     #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -29,7 +29,7 @@ impl Serialize for Decimal {
 /// Deserialization for Ion `Decimal`
 /// This deserialization internally uses `serialize_newtype_struct` to trick serde to deserialize a number value into decimal.
 /// This `newtype_struct` is named with `$__ion_rs_decimal__` to distinguish it from an actual `newtype_struct`.
-/// More information on `newtype_struct` can be found in the serde data model: https://serde.rs/data-model.html#types
+/// More information on `newtype_struct` can be found in the serde data model: `<https://serde.rs/data-model.html#types>`
 impl<'de> Deserialize<'de> for Decimal {
     fn deserialize<D>(deserializer: D) -> Result<Decimal, D::Error>
     where

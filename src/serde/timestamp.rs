@@ -16,7 +16,7 @@ thread_local! {
 /// Serialization for Ion `Timestamp`
 /// This serialization internally uses `serialize_newtype_struct` to trick serde to serialize a datetime value into timestamp.
 /// This `newtype_struct` is named with `$__ion_rs_timestamp__` to distinguish it from an actual `newtype_struct`.
-/// More information on `newtype_struct` can be found in the serde data model: https://serde.rs/data-model.html#types
+/// More information on `newtype_struct` can be found in the serde data model: `<https://serde.rs/data-model.html#types>`
 impl Serialize for Timestamp {
     #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -43,7 +43,7 @@ impl Serialize for Timestamp {
 /// Deserialization for Ion `Timestamp`
 /// This deserialization internally uses `serialize_newtype_struct` to trick serde to deserialize a datetime value into timestamp.
 /// This `newtype_struct` is named with `$__ion_rs_timestamp__` to distinguish it from an actual `newtype_struct`.
-/// More information on `newtype_struct` can be found in the serde data model: https://serde.rs/data-model.html#types
+/// More information on `newtype_struct` can be found in the serde data model: `<https://serde.rs/data-model.html#types>`
 impl<'de> Deserialize<'de> for Timestamp {
     fn deserialize<D>(deserializer: D) -> Result<Timestamp, D::Error>
     where
