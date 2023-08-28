@@ -74,7 +74,7 @@ mod tests {
         assert_eq!(back_result.date, my_date.clone());
         assert_eq!(back_result.date0, my_date0.clone());
         assert_eq!(back_result.date1, datetime.clone());
-        assert_eq!(back_result.nested_struct.boolean, true);
+        assert!(back_result.nested_struct.boolean);
         assert_eq!(&back_result.nested_struct.str, "hello");
     }
 }
