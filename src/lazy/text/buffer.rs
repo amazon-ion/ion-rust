@@ -1747,19 +1747,19 @@ mod tests {
         }
 
         let bad_inputs = &[
-            "2023",                       // No 'T'
-            "2023-08",                    // No 'T'
-            "20233T",                     // 5-digit year
-            "2023-13T",                   // Out of bounds month
-            "2023-08-41T",                // Out of bounds day
-            "2023-08+18T",                // Wrong delimiter
-            "2023-08-18T25:00Z",          // Out of bounds hour
-            "2023-08-18T14:00",           // No offset
-            "2023-08-18T14:62",           // Out of bounds minute
-            "2023-08-18T14:35:61",        // Out of bounds second
-            "2023-08-18T14:35:52.Z",      // Dot but no fractional
-            "2023-08-18T14:35:52.+24:30", // Out of bounds offset hour
-            "2023-08-18T14:35:52.+00:60", // Out of bounds offset minute
+            "2023",                          // No 'T'
+            "2023-08",                       // No 'T'
+            "20233T",                        // 5-digit year
+            "2023-13T",                      // Out of bounds month
+            "2023-08-41T",                   // Out of bounds day
+            "2023-08+18T",                   // Wrong delimiter
+            "2023-08-18T25:00Z",             // Out of bounds hour
+            "2023-08-18T14:00",              // No offset
+            "2023-08-18T14:62",              // Out of bounds minute
+            "2023-08-18T14:35:61",           // Out of bounds second
+            "2023-08-18T14:35:52.Z",         // Dot but no fractional
+            "2023-08-18T14:35:52.000+24:30", // Out of bounds offset hour
+            "2023-08-18T14:35:52.000+00:60", // Out of bounds offset minute
         ];
         for input in bad_inputs {
             mismatch_timestamp(input);
