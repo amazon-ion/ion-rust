@@ -1353,7 +1353,7 @@ impl<'data> TextBufferView<'data> {
         delimited(
             tag("{{"),
             // Only whitespace (not comments) can appear within the blob
-            preceded(Self::match_optional_whitespace, Self::match_base64_content),
+            recognize(Self::match_base64_content),
             preceded(Self::match_optional_whitespace, tag("}}")),
         )
         .map(|base64_data| {
@@ -1362,11 +1362,19 @@ impl<'data> TextBufferView<'data> {
         .parse(self)
     }
 
-    /// Matches the base64 content within a blob.
+    /// Matches the base64 content within a blob. Ion allows the base64 content to be broken up with
+    /// whitespace, so the matched input region may need to be stripped of whitespace before
+    /// the data can be decoded.
     fn match_base64_content(self) -> IonMatchResult<'data> {
         recognize(terminated(
-            many1_count(alt((alphanumeric1, is_a("+/")))),
-            opt(alt((tag("=="), tag("=")))),
+            many0_count(preceded(
+                Self::match_optional_whitespace,
+                alt((alphanumeric1, is_a("+/"))),
+            )),
+            opt(preceded(
+                Self::match_optional_whitespace,
+                alt((tag("=="), tag("="))),
+            )),
         ))(self)
     }
 }
@@ -2047,11 +2055,20 @@ mod tests {
         }
         // Base64 encodings of utf-8 strings
         let good_inputs = &[
+            // <empty blobs>
+            "{{}}",
+            "{{    }}",
+            "{{\n\t}}",
             // hello
             "{{aGVsbG8=}}",
             "{{  aGVsbG8=}}",
             "{{aGVsbG8=  }}",
             "{{\taGVsbG8=\n\n}}",
+            "{{aG  Vs  bG   8 =}}",
+            r#"{{
+                aG Vs  
+                bG 8=
+            }}"#,
             // hello!
             "{{aGVsbG8h}}",
             "{{  aGVsbG8h}}",
