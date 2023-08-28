@@ -7,6 +7,9 @@ use std::{fmt, io};
 
 use thiserror::Error;
 
+#[cfg(feature = "experimental-serde")]
+use serde::{de, ser};
+
 mod decoding_error;
 mod encoding_error;
 mod illegal_operation;
@@ -69,6 +72,26 @@ impl From<io::ErrorKind> for IonError {
 
 impl From<fmt::Error> for IonError {
     fn from(error: Error) -> Self {
+        EncodingError::new(error.to_string()).into()
+    }
+}
+
+#[cfg(feature = "experimental-serde")]
+impl de::Error for IonError {
+    fn custom<T>(error: T) -> Self
+    where
+        T: std::fmt::Display,
+    {
+        DecodingError::new(error.to_string()).into()
+    }
+}
+
+#[cfg(feature = "experimental-serde")]
+impl ser::Error for IonError {
+    fn custom<T>(error: T) -> Self
+    where
+        T: std::fmt::Display,
+    {
         EncodingError::new(error.to_string()).into()
     }
 }
