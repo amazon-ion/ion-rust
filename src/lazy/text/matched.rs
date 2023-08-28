@@ -20,11 +20,12 @@
 //! re-discovered.
 
 use nom::character::is_hex_digit;
+use nom::AsChar;
 use std::borrow::Cow;
 use std::num::IntErrorKind;
 use std::str::FromStr;
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, BigUint};
 use num_traits::Num;
 use smallvec::SmallVec;
 
@@ -33,7 +34,9 @@ use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::InvalidInputError;
 use crate::result::{DecodingError, IonFailure};
-use crate::{Int, IonError, IonResult, IonType, RawSymbolTokenRef};
+use crate::{
+    Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp, TimestampPrecision,
+};
 
 /// A partially parsed Ion value.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -43,6 +46,7 @@ pub(crate) enum MatchedValue {
     Bool(bool),
     Int(MatchedInt),
     Float(MatchedFloat),
+    Timestamp(MatchedTimestamp),
     String(MatchedString),
     Symbol(MatchedSymbol),
     List,
@@ -442,5 +446,287 @@ impl MatchedSymbol {
         // guarantee that this string contains only decimal digits.
         let sid = usize::from_str(text).expect("loading symbol ID as usize");
         Ok(RawSymbolTokenRef::SymbolId(sid))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MatchedTimestamp {
+    precision: TimestampPrecision,
+    offset: MatchedTimestampOffset,
+}
+
+impl MatchedTimestamp {
+    pub fn new(precision: TimestampPrecision) -> Self {
+        Self {
+            precision,
+            offset: MatchedTimestampOffset::Unknown,
+        }
+    }
+}
+
+impl MatchedTimestamp {
+    pub fn with_offset(mut self, offset: MatchedTimestampOffset) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    pub(crate) fn read(&self, matched_input: TextBufferView) -> IonResult<Timestamp> {
+        // The parser has already confirmed that each subfield is made of ASCII digits,
+        // so UTF-8 validation and parsing cannot fail. `unwrap()` is used in such cases
+        // throughout.
+        let year_text = matched_input.slice(0, 4).as_text().unwrap();
+        let year = u32::from_str(year_text).unwrap();
+        let timestamp = Timestamp::with_year(year);
+
+        if self.precision == TimestampPrecision::Year {
+            return timestamp.build();
+        }
+
+        // Thanks to the conventions of RFC-3339, each subfield will always have the same offset
+        // and length. We can hardcode the location of each one. (Offset is an exception, as we will
+        // see later.)
+        let month_text = matched_input.slice(5, 2).as_text().unwrap();
+        let month = u32::from_str(month_text).unwrap();
+        let timestamp = timestamp.with_month(month);
+
+        if self.precision == TimestampPrecision::Month {
+            return timestamp.build();
+        }
+
+        let day_text = matched_input.slice(8, 2).as_text().unwrap();
+        let day = u32::from_str(day_text).unwrap();
+        let timestamp = timestamp.with_day(day);
+
+        if self.precision == TimestampPrecision::Day {
+            return timestamp.build();
+        }
+
+        // For precisions greater than `Day`, the offset is mandatory.
+        let offset_minutes = match self.offset {
+            // If it's Zulu or unknown, we don't need to parse it; we already have the
+            // information we need.
+            MatchedTimestampOffset::Zulu => Some(0),
+            MatchedTimestampOffset::Unknown => None,
+            // If it's any other offset, we need to parse the sign, hours, and minutes.
+            // This is the only field that doesn't have a fixed location; it's always at the end
+            // of the timestamp, and the timestamp's length varies by its precision.
+            // The `MatchedHoursAndMinutes` stores the offset at which `hours` begins.
+            MatchedTimestampOffset::HoursAndMinutes(matched_offset) => {
+                let hours_start = matched_offset.hours_offset() - matched_input.offset();
+                let hours_text = matched_input.slice(hours_start, 2).as_text().unwrap();
+                let hours = i32::from_str(hours_text).unwrap();
+                let minutes_start = hours_start + 3;
+                let minutes_text = matched_input.slice(minutes_start, 2).as_text().unwrap();
+                let minutes = i32::from_str(minutes_text).unwrap();
+                let offset_magnitude_minutes = (hours * 60) + minutes;
+                if matched_offset.is_negative {
+                    Some(-offset_magnitude_minutes)
+                } else {
+                    Some(offset_magnitude_minutes)
+                }
+            }
+        };
+
+        let hour_text = matched_input.slice(11, 2).as_text().unwrap();
+        let hour = u32::from_str(hour_text).unwrap();
+        let minute_text = matched_input.slice(14, 2).as_text().unwrap();
+        let minute = u32::from_str(minute_text).unwrap();
+
+        let timestamp = timestamp.with_hour_and_minute(hour, minute);
+
+        if self.precision == TimestampPrecision::HourAndMinute {
+            if let Some(offset) = offset_minutes {
+                return timestamp.with_offset(offset).build();
+            } else {
+                return timestamp.build();
+            }
+        }
+
+        let second_text = matched_input.slice(17, 2).as_text().unwrap();
+        let seconds = u32::from_str(second_text).unwrap();
+        let timestamp = timestamp.with_second(seconds);
+
+        // There's guaranteed to be a 19th byte. It will either be a `.`, indicating the beginning
+        // of fractional seconds or a `+`/`-`/`Z` comprising part of the offset.
+        if matched_input.bytes()[19] != b'.' {
+            // There are no fractional seconds; we can apply the offset (if any) and return.
+            if let Some(offset) = offset_minutes {
+                return timestamp.with_offset(offset).build();
+            } else {
+                return timestamp.build();
+            }
+        }
+
+        // There are fractional seconds. We need to scan ahead to the first non-digit byte in the
+        // input following the leading `.`.
+        let fractional_start = 20;
+        let mut fractional_end = fractional_start;
+        for byte in matched_input.slice_to_end(fractional_start).bytes() {
+            if !byte.is_dec_digit() {
+                break;
+            }
+            fractional_end += 1;
+        }
+        let fractional_text = matched_input
+            .slice(fractional_start, fractional_end - fractional_start)
+            .as_text()
+            .unwrap();
+        let timestamp = match fractional_text.len() {
+            len if len <= 9 => {
+                let fraction = u32::from_str(fractional_text).unwrap();
+                let multiplier = 10u32.pow(9 - len as u32);
+                let nanoseconds = fraction * multiplier;
+                timestamp.with_nanoseconds_and_precision(nanoseconds, len as u32)
+            }
+            _ => {
+                // For less common precisions, store a Decimal
+                let coefficient = BigUint::from_str(fractional_text).unwrap();
+                let decimal = Decimal::new(coefficient, -(fractional_text.len() as i64));
+                timestamp.with_fractional_seconds(decimal)
+            }
+        };
+
+        if let Some(offset) = offset_minutes {
+            timestamp.with_offset(offset).build()
+        } else {
+            timestamp.build()
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MatchedTimestampOffset {
+    Zulu,
+    HoursAndMinutes(MatchedHoursAndMinutes),
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MatchedHoursAndMinutes {
+    is_negative: bool,
+    /// This is the offset of the first `H` in the offset string `HH:MM`.
+    hours_offset: usize,
+}
+
+impl MatchedHoursAndMinutes {
+    pub fn new(is_negative: bool, hours_offset: usize) -> Self {
+        Self {
+            is_negative,
+            hours_offset,
+        }
+    }
+    pub fn is_negative(&self) -> bool {
+        self.is_negative
+    }
+    pub fn hours_offset(&self) -> usize {
+        self.hours_offset
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lazy::text::buffer::TextBufferView;
+    use crate::{Decimal, IonResult, Timestamp};
+
+    #[test]
+    fn read_timestamps() -> IonResult<()> {
+        fn expect_timestamp(data: &str, expected: Timestamp) {
+            let data = format!("{data} "); // Append a space
+            let buffer = TextBufferView::new(data.as_bytes());
+            let (_remaining, matched) = buffer.match_timestamp().unwrap();
+            let actual = matched.read(buffer).unwrap();
+            assert_eq!(
+                actual, expected,
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data, actual, expected
+            );
+        }
+
+        let tests = [
+            ("2023T", Timestamp::with_year(2023).build()?),
+            (
+                "2023-08T",
+                Timestamp::with_year(2023).with_month(8).build()?,
+            ),
+            ("2023-08-13", Timestamp::with_ymd(2023, 8, 13).build()?),
+            ("2023-08-13T", Timestamp::with_ymd(2023, 8, 13).build()?),
+            (
+                "2023-08-13T10:30-00:00",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_offset(0)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30-05:00",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_offset(-300)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30+05:00",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_offset(300)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30:45Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_second(45)
+                    .with_offset(0)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30:45.226Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_second(45)
+                    .with_milliseconds(226)
+                    .with_offset(0)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30:45.226226Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_second(45)
+                    .with_microseconds(226226)
+                    .with_offset(0)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30:45.226226226Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_second(45)
+                    .with_nanoseconds(226226226)
+                    .with_offset(0)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30:45.226226226337337Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_second(45)
+                    .with_fractional_seconds(Decimal::new(226_226_226_337_337_i64, -15))
+                    .with_offset(0)
+                    .build()?,
+            ),
+        ];
+
+        for (input, expected) in tests {
+            expect_timestamp(input, expected);
+        }
+
+        Ok(())
     }
 }

@@ -528,7 +528,7 @@ mod tests {
     use crate::lazy::decoder::{LazyRawReader, LazyRawSequence, LazyRawValue};
     use crate::lazy::raw_stream_item::RawStreamItem;
     use crate::lazy::raw_value_ref::RawValueRef;
-    use crate::{IonResult, RawSymbolTokenRef};
+    use crate::{IonResult, RawSymbolTokenRef, Timestamp};
 
     #[test]
     fn any_encoding() -> IonResult<()> {
@@ -549,6 +549,10 @@ mod tests {
             assert_eq!(
                 reader.next()?.expect_value()?.read()?,
                 RawValueRef::Int(5.into())
+            );
+            assert_eq!(
+                reader.next()?.expect_value()?.read()?,
+                RawValueRef::Timestamp(Timestamp::with_year(2023).with_month(8).build()?)
             );
             assert_eq!(
                 reader.next()?.expect_value()?.read()?,
@@ -574,6 +578,7 @@ mod tests {
             $4::"Gary"
             "foo"
             5
+            2023-08T
             false
             [1, 2, 3]
             "#;

@@ -5,7 +5,7 @@ use std::slice::Iter;
 use std::str::FromStr;
 
 use nom::branch::alt;
-use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1};
+use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1, take_while_m_n};
 use nom::character::streaming::{char, digit1, one_of, satisfy};
 use nom::combinator::{fail, map, not, opt, peek, recognize, success, value};
 use nom::error::{ErrorKind, ParseError};
@@ -17,7 +17,8 @@ use crate::lazy::encoding::TextEncoding;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
-    MatchedFloat, MatchedInt, MatchedString, MatchedSymbol, MatchedValue,
+    MatchedFloat, MatchedHoursAndMinutes, MatchedInt, MatchedString, MatchedSymbol,
+    MatchedTimestamp, MatchedTimestampOffset, MatchedValue,
 };
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
@@ -25,7 +26,7 @@ use crate::lazy::text::raw::r#struct::{LazyRawTextField, RawTextStructIterator};
 use crate::lazy::text::raw::sequence::RawTextSequenceIterator;
 use crate::lazy::text::value::LazyRawTextValue;
 use crate::result::DecodingError;
-use crate::{IonError, IonResult, IonType};
+use crate::{IonError, IonResult, IonType, TimestampPrecision};
 
 impl<'a> Debug for TextBufferView<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -428,6 +429,16 @@ impl<'data> TextBufferView<'data> {
                 match_and_length(Self::match_float),
                 |(matched_float, length)| {
                     EncodedTextValue::new(MatchedValue::Float(matched_float), self.offset(), length)
+                },
+            ),
+            map(
+                match_and_length(Self::match_timestamp),
+                |(matched_timestamp, length)| {
+                    EncodedTextValue::new(
+                        MatchedValue::Timestamp(matched_timestamp),
+                        self.offset(),
+                        length,
+                    )
                 },
             ),
             map(
@@ -967,6 +978,212 @@ impl<'data> TextBufferView<'data> {
         }
         Err(nom::Err::Incomplete(Needed::Unknown))
     }
+
+    /// Matches a single base-10 digit, 0-9.
+    fn match_any_digit(self) -> IonParseResult<'data, char> {
+        satisfy(|c| c.is_ascii_digit())(self)
+    }
+
+    /// Matches a timestamp of any precision.
+    pub fn match_timestamp(self) -> IonParseResult<'data, MatchedTimestamp> {
+        alt((
+            Self::match_timestamp_y,
+            Self::match_timestamp_ym,
+            Self::match_timestamp_ymd,
+            Self::match_timestamp_ymd_hm,
+            Self::match_timestamp_ymd_hms,
+            Self::match_timestamp_ymd_hms_fractional,
+        ))(self)
+    }
+
+    /// Matches a timestamp with year precision.
+    fn match_timestamp_y(self) -> IonParseResult<'data, MatchedTimestamp> {
+        terminated(
+            Self::match_timestamp_year,
+            pair(tag("T"), Self::peek_stop_character),
+        )
+        .map(|_year| MatchedTimestamp::new(TimestampPrecision::Year))
+        .parse(self)
+    }
+
+    /// Matches a timestamp with month precision.
+    fn match_timestamp_ym(self) -> IonParseResult<'data, MatchedTimestamp> {
+        terminated(
+            pair(Self::match_timestamp_year, Self::match_timestamp_month),
+            pair(tag("T"), Self::peek_stop_character),
+        )
+        .map(|(_year, _month)| MatchedTimestamp::new(TimestampPrecision::Month))
+        .parse(self)
+    }
+
+    /// Matches a timestamp with day precision.
+    fn match_timestamp_ymd(self) -> IonParseResult<'data, MatchedTimestamp> {
+        terminated(
+            tuple((
+                Self::match_timestamp_year,
+                Self::match_timestamp_month,
+                Self::match_timestamp_day,
+            )),
+            pair(opt(tag("T")), Self::peek_stop_character),
+        )
+        .map(|_| MatchedTimestamp::new(TimestampPrecision::Day))
+        .parse(self)
+    }
+
+    /// Matches a timestamp with hour-and-minute precision.
+    fn match_timestamp_ymd_hm(self) -> IonParseResult<'data, MatchedTimestamp> {
+        terminated(
+            tuple((
+                Self::match_timestamp_year,
+                Self::match_timestamp_month,
+                Self::match_timestamp_day,
+                Self::match_timestamp_hour_and_minute,
+                Self::match_timestamp_offset,
+            )),
+            Self::peek_stop_character,
+        )
+        .map(|(_y, _m, _d, _hm, offset)| {
+            MatchedTimestamp::new(TimestampPrecision::HourAndMinute).with_offset(offset)
+        })
+        .parse(self)
+    }
+
+    /// Matches a timestamp with second precision.
+    fn match_timestamp_ymd_hms(self) -> IonParseResult<'data, MatchedTimestamp> {
+        terminated(
+            tuple((
+                Self::match_timestamp_year,
+                Self::match_timestamp_month,
+                Self::match_timestamp_day,
+                Self::match_timestamp_hour_and_minute,
+                Self::match_timestamp_seconds,
+                Self::match_timestamp_offset,
+            )),
+            Self::peek_stop_character,
+        )
+        .map(|(_y, _m, _d, _hm, _s, offset)| {
+            MatchedTimestamp::new(TimestampPrecision::Second).with_offset(offset)
+        })
+        .parse(self)
+    }
+
+    /// Matches a timestamp with second precision, including a fractional seconds component.
+    fn match_timestamp_ymd_hms_fractional(self) -> IonParseResult<'data, MatchedTimestamp> {
+        terminated(
+            tuple((
+                Self::match_timestamp_year,
+                Self::match_timestamp_month,
+                Self::match_timestamp_day,
+                Self::match_timestamp_hour_and_minute,
+                Self::match_timestamp_seconds,
+                Self::match_timestamp_fractional_seconds,
+                Self::match_timestamp_offset,
+            )),
+            Self::peek_stop_character,
+        )
+        .map(|(_y, _m, _d, _hm, _s, _f, offset)| {
+            MatchedTimestamp::new(TimestampPrecision::Second).with_offset(offset)
+        })
+        .parse(self)
+    }
+
+    /// Matches the year component of a timestamp.
+    fn match_timestamp_year(self) -> IonMatchResult<'data> {
+        recognize(take_while_m_n(4, 4, |c: u8| c.is_ascii_digit()))(self)
+    }
+
+    /// Matches the month component of a timestamp, including a leading `-`.
+    fn match_timestamp_month(self) -> IonMatchResult<'data> {
+        preceded(
+            tag("-"),
+            recognize(alt((
+                pair(char('0'), one_of("123456789")),
+                pair(char('1'), one_of("012")),
+            ))),
+        )(self)
+    }
+
+    /// Matches the day component of a timestamp, including a leading `-`.
+    fn match_timestamp_day(self) -> IonMatchResult<'data> {
+        preceded(
+            tag("-"),
+            recognize(alt((
+                pair(char('0'), one_of("123456789")),
+                pair(one_of("12"), Self::match_any_digit),
+                pair(char('3'), one_of("01")),
+            ))),
+        )(self)
+    }
+
+    /// Matches a leading `T`, a two-digit hour component of a timestamp, a delimiting ':', and a
+    /// two-digit minute component.
+    fn match_timestamp_hour_and_minute(
+        self,
+    ) -> IonParseResult<'data, (TextBufferView<'data>, TextBufferView<'data>)> {
+        preceded(
+            tag("T"),
+            separated_pair(
+                // Hour
+                recognize(alt((
+                    pair(one_of("01"), Self::match_any_digit),
+                    pair(char('2'), one_of("0123")),
+                ))),
+                // Delimiter
+                tag(":"),
+                // Minutes
+                recognize(pair(one_of("012345"), Self::match_any_digit)),
+            ),
+        )(self)
+    }
+
+    /// Matches a leading `:`, and any two-digit second component from `00` to `59` inclusive.
+    fn match_timestamp_seconds(self) -> IonMatchResult<'data> {
+        preceded(
+            tag(":"),
+            recognize(pair(one_of("012345"), Self::match_any_digit)),
+        )(self)
+    }
+
+    /// Matches the fractional seconds component of a timestamp, including a leading `.`.
+    fn match_timestamp_fractional_seconds(self) -> IonMatchResult<'data> {
+        preceded(tag("."), digit1)(self)
+    }
+
+    /// Matches a timestamp offset of any format.
+    fn match_timestamp_offset(self) -> IonParseResult<'data, MatchedTimestampOffset> {
+        alt((
+            value(MatchedTimestampOffset::Zulu, tag("Z")),
+            value(MatchedTimestampOffset::Zulu, tag("+00:00")),
+            value(MatchedTimestampOffset::Unknown, tag("-00:00")),
+            map(
+                pair(one_of("-+"), Self::match_timestamp_offset_hours_and_minutes),
+                |(sign, (hours, _minutes))| {
+                    let is_negative = sign == '-';
+                    let hours_offset = hours.offset();
+                    MatchedTimestampOffset::HoursAndMinutes(MatchedHoursAndMinutes::new(
+                        is_negative,
+                        hours_offset,
+                    ))
+                },
+            ),
+        ))(self)
+    }
+
+    /// Matches a timestamp offset encoded as a two-digit hour, a delimiting `:`, and a two-digit
+    /// minute.
+    fn match_timestamp_offset_hours_and_minutes(self) -> IonParseResult<'data, (Self, Self)> {
+        separated_pair(
+            // Hour
+            recognize(alt((
+                pair(one_of("01"), Self::match_any_digit),
+                pair(char('2'), one_of("0123")),
+            ))),
+            // Delimiter
+            tag(":"),
+            // Minutes
+            recognize(pair(one_of("012345"), Self::match_any_digit)),
+        )(self)
+    }
 }
 
 // === nom trait implementations ===
@@ -1425,6 +1642,50 @@ mod tests {
         ];
         for input in bad_inputs {
             mismatch_float(input);
+        }
+    }
+
+    #[test]
+    fn test_match_timestamp() {
+        fn match_timestamp(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_timestamp));
+        }
+        fn mismatch_timestamp(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_timestamp));
+        }
+
+        let good_inputs = &[
+            "2023T",
+            "2023-08T",
+            "2023-08-13", // T is optional for ymd
+            "2023-08-13T",
+            "2023-08-13T14:18Z",
+            "2023-08-13T14:18+05:00",
+            "2023-08-13T14:18-05:00",
+            "2023-08-13T14:18:35-05:00",
+            "2023-08-13T14:18:35.994-05:00",
+        ];
+        for input in good_inputs {
+            match_timestamp(input);
+        }
+
+        let bad_inputs = &[
+            "2023",                          // No 'T'
+            "2023-08",                       // No 'T'
+            "20233T",                        // 5-digit year
+            "2023-13T",                      // Out of bounds month
+            "2023-08-41T",                   // Out of bounds day
+            "2023-08+18T",                   // Wrong delimiter
+            "2023-08-18T25:00Z",             // Out of bounds hour
+            "2023-08-18T14:00",              // No offset
+            "2023-08-18T14:62",              // Out of bounds minute
+            "2023-08-18T14:35:61",           // Out of bounds second
+            "2023-08-18T14:35:52.Z",         // Dot but no fractional
+            "2023-08-18T14:35:52.000+24:30", // Out of bounds offset hour
+            "2023-08-18T14:35:52.000+00:60", // Out of bounds offset minute
+        ];
+        for input in bad_inputs {
+            mismatch_timestamp(input);
         }
     }
 

@@ -126,6 +126,7 @@ impl EncodedTextValue {
             MatchedValue::Bool(_) => IonType::Bool,
             MatchedValue::Int(_) => IonType::Int,
             MatchedValue::Float(_) => IonType::Float,
+            MatchedValue::Timestamp(_) => IonType::Timestamp,
             MatchedValue::String(_) => IonType::String,
             MatchedValue::Symbol(_) => IonType::Symbol,
             MatchedValue::List => IonType::List,
