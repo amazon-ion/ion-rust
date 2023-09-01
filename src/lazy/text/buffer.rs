@@ -25,7 +25,7 @@ use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::raw::r#struct::{LazyRawTextField, RawTextStructIterator};
 use crate::lazy::text::raw::sequence::{RawTextListIterator, RawTextSExpIterator};
 use crate::lazy::text::value::LazyRawTextValue;
-use crate::result::{DecodingError, IonFailure};
+use crate::result::DecodingError;
 use crate::{IonError, IonResult, IonType, TimestampPrecision};
 
 impl<'a> Debug for TextBufferView<'a> {
@@ -509,6 +509,12 @@ impl<'data> TextBufferView<'data> {
                 },
             ),
             map(
+                match_and_length(Self::match_clob),
+                |(matched_clob, length)| {
+                    EncodedTextValue::new(MatchedValue::Clob(matched_clob), self.offset(), length)
+                },
+            ),
+            map(
                 match_and_length(Self::match_list),
                 |(matched_list, length)| {
                     EncodedTextValue::new(MatchedValue::List, matched_list.offset(), length)
@@ -815,7 +821,7 @@ impl<'data> TextBufferView<'data> {
         ))(self)
     }
 
-    /// Matches special IEEE-754 floating point values, including +/- infinity and NaN.
+    /// Matches special IEEE-754 values, including +/- infinity and NaN.
     fn match_float_special_value(self) -> IonParseResult<'data, MatchedFloat> {
         alt((
             value(MatchedFloat::NotANumber, tag("nan")),
@@ -1346,7 +1352,7 @@ impl<'data> TextBufferView<'data> {
             recognize(alt((
                 pair(char('0'), one_of("123456789")),
                 pair(one_of("12"), Self::match_any_digit),
-                pair(char('3'), one_of("10")),
+                pair(char('3'), one_of("01")),
             ))),
         )(self)
     }
@@ -1358,8 +1364,8 @@ impl<'data> TextBufferView<'data> {
     ) -> IonParseResult<'data, (TextBufferView<'data>, TextBufferView<'data>)> {
         preceded(
             tag("T"),
-            // Hour
             separated_pair(
+                // Hour
                 recognize(alt((
                     pair(one_of("01"), Self::match_any_digit),
                     pair(char('2'), one_of("0123")),
@@ -1389,6 +1395,7 @@ impl<'data> TextBufferView<'data> {
     fn match_timestamp_offset(self) -> IonParseResult<'data, MatchedTimestampOffset> {
         alt((
             value(MatchedTimestampOffset::Zulu, tag("Z")),
+            value(MatchedTimestampOffset::Zulu, tag("+00:00")),
             value(MatchedTimestampOffset::Unknown, tag("-00:00")),
             map(
                 pair(one_of("-+"), Self::match_timestamp_offset_hours_and_minutes),
@@ -1409,11 +1416,14 @@ impl<'data> TextBufferView<'data> {
     fn match_timestamp_offset_hours_and_minutes(self) -> IonParseResult<'data, (Self, Self)> {
         separated_pair(
             // Hour
-            recognize(pair(Self::match_any_digit, Self::match_any_digit)),
+            recognize(alt((
+                pair(one_of("01"), Self::match_any_digit),
+                pair(char('2'), one_of("0123")),
+            ))),
             // Delimiter
             tag(":"),
             // Minutes
-            recognize(pair(Self::match_any_digit, Self::match_any_digit)),
+            recognize(pair(one_of("012345"), Self::match_any_digit)),
         )(self)
     }
 
@@ -1422,7 +1432,7 @@ impl<'data> TextBufferView<'data> {
         delimited(
             tag("{{"),
             // Only whitespace (not comments) can appear within the blob
-            preceded(Self::match_optional_whitespace, Self::match_base64_content),
+            recognize(Self::match_base64_content),
             preceded(Self::match_optional_whitespace, tag("}}")),
         )
         .map(|base64_data| {
@@ -1431,27 +1441,22 @@ impl<'data> TextBufferView<'data> {
         .parse(self)
     }
 
-    /// Matches the base64 content within a blob.
-    fn match_base64_content(self) -> IonMatchResult<'data> {
-        recognize(terminated(
-            many1_count(alt((alphanumeric1, is_a("+/")))),
-            opt(alt((tag("=="), tag("=")))),
-        ))(self)
-    }
-
     fn match_clob(self) -> IonParseResult<'data, MatchedClob> {
         delimited(
             tag("{{"),
-            alt((
-                value(MatchedClob::Short, Self::match_short_clob_body),
-                value(MatchedClob::Long, Self::match_long_clob_body),
-            )),
+            preceded(
+                Self::match_optional_whitespace,
+                alt((
+                    value(MatchedClob::Short, Self::match_short_clob_body),
+                    value(MatchedClob::Long, Self::match_long_clob_body),
+                )),
+            ),
             preceded(Self::match_optional_whitespace, tag("}}")),
         )(self)
     }
 
     fn match_short_clob_body(self) -> IonMatchResult<'data> {
-        let (body, (remaining, _matched_string)) = consumed(Self::match_short_string)(self)?;
+        let (remaining, (body, _matched_string)) = consumed(Self::match_short_string)(self)?;
         body.validate_clob_text()?;
         Ok((remaining, body))
     }
@@ -1459,12 +1464,12 @@ impl<'data> TextBufferView<'data> {
     fn match_long_clob_body(self) -> IonMatchResult<'data> {
         recognize(many1_count(preceded(
             Self::match_optional_whitespace,
-            Self::match_short_clob_body,
+            Self::match_long_clob_body_segment,
         )))(self)
     }
 
     fn match_long_clob_body_segment(self) -> IonMatchResult<'data> {
-        let (body, (remaining, _matched_string)) = consumed(Self::match_long_string_segment)(self)?;
+        let (remaining, (body, _matched_string)) = consumed(Self::match_long_string_segment)(self)?;
         body.validate_clob_text()?;
         Ok((remaining, body))
     }
@@ -1489,6 +1494,21 @@ impl<'data> TextBufferView<'data> {
         // The definition used here has largely been inferred from the contents of `ion-tests`.
         b.is_ascii()
             && (u32::from(b) >= 0x20 || WHITESPACE_CHARACTERS_AS_STR.as_bytes().contains(&b))
+    }
+    /// Matches the base64 content within a blob. Ion allows the base64 content to be broken up with
+    /// whitespace, so the matched input region may need to be stripped of whitespace before
+    /// the data can be decoded.
+    fn match_base64_content(self) -> IonMatchResult<'data> {
+        recognize(terminated(
+            many0_count(preceded(
+                Self::match_optional_whitespace,
+                alt((alphanumeric1, is_a("+/"))),
+            )),
+            opt(preceded(
+                Self::match_optional_whitespace,
+                alt((tag("=="), tag("="))),
+            )),
+        ))(self)
     }
 }
 
@@ -1714,7 +1734,6 @@ where
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     /// Stores an input string that can be tested against a given parser.
@@ -1977,17 +1996,19 @@ mod tests {
         }
 
         let bad_inputs = &[
-            "2023",                  // No 'T'
-            "2023-08",               // No 'T'
-            "20233T",                // 5-digit year
-            "2023-13T",              // Out of bounds month
-            "2023-08-41T",           // Out of bounds day
-            "2023-08+18T",           // Wrong delimiter
-            "2023-08-18T25:00Z",     // Out of bounds hour
-            "2023-08-18T14:00",      // No offset
-            "2023-08-18T14:62",      // Out of bounds minute
-            "2023-08-18T14:35:61",   // Out of bounds second
-            "2023-08-18T14:35:52.Z", // Dot but no fractional
+            "2023",                          // No 'T'
+            "2023-08",                       // No 'T'
+            "20233T",                        // 5-digit year
+            "2023-13T",                      // Out of bounds month
+            "2023-08-41T",                   // Out of bounds day
+            "2023-08+18T",                   // Wrong delimiter
+            "2023-08-18T25:00Z",             // Out of bounds hour
+            "2023-08-18T14:00",              // No offset
+            "2023-08-18T14:62",              // Out of bounds minute
+            "2023-08-18T14:35:61",           // Out of bounds second
+            "2023-08-18T14:35:52.Z",         // Dot but no fractional
+            "2023-08-18T14:35:52.000+24:30", // Out of bounds offset hour
+            "2023-08-18T14:35:52.000+00:60", // Out of bounds offset minute
         ];
         for input in bad_inputs {
             mismatch_timestamp(input);
@@ -2024,6 +2045,12 @@ mod tests {
             r#"
             '''hello,''' /*comment*/ ''' world!'''
             "#,
+            r#"
+            ''''''
+            "#, // empty string
+            r#"
+            '''''' ''''''
+            "#, // concatenated empty string
         ];
         for input in good_inputs {
             match_string(input.trim());
@@ -2176,11 +2203,20 @@ mod tests {
         }
         // Base64 encodings of utf-8 strings
         let good_inputs = &[
+            // <empty blobs>
+            "{{}}",
+            "{{    }}",
+            "{{\n\t}}",
             // hello
             "{{aGVsbG8=}}",
             "{{  aGVsbG8=}}",
             "{{aGVsbG8=  }}",
             "{{\taGVsbG8=\n\n}}",
+            "{{aG  Vs  bG   8 =}}",
+            r#"{{
+                aG Vs  
+                bG 8=
+            }}"#,
             // hello!
             "{{aGVsbG8h}}",
             "{{  aGVsbG8h}}",
@@ -2228,24 +2264,29 @@ mod tests {
             r#"{{'''foo'''}}"#,
             r#"{{"foobar"}}"#,
             r#"{{'''foo''' '''bar'''}}"#,
+            r#"{{
+                '''foo'''
+                '''bar'''
+                '''baz'''
+            }}"#,
         ];
         for input in good_inputs {
             match_clob(input);
         }
 
-        let bad_inputs = &["foo"];
+        let bad_inputs = &[
+            r#"{{foo}}"#,                         // No quotes
+            r#"{{"foo"}"#,                        // Missing closing brace
+            r#"{{'''foo'''}"#,                    // Missing closing brace
+            r#"{{'''foo''' /*hi!*/ '''bar'''}}"#, // Interleaved comments
+        ];
         for input in bad_inputs {
             mismatch_blob(input);
         }
     }
 
-    #[test]
     fn test_match_text_until_unescaped_str() {
-        let input = TextBufferView::new(
-            r#" foo bar \''' baz''' quux
-        "#
-            .as_bytes(),
-        );
+        let input = TextBufferView::new(r" foo bar \''' baz''' quux ".as_bytes());
         let (_remaining, (matched, contains_escapes)) =
             input.match_text_until_unescaped_str(r#"'''"#).unwrap();
         assert_eq!(matched.as_text().unwrap(), " foo bar \\''' baz");

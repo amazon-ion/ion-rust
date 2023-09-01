@@ -85,7 +85,6 @@ mod tests {
         let mut data = String::new();
         data.push_str(
             r#"
-            
         /*
             This test demonstrates lazily reading top-level values
             of various Ion types. The values are interspersed with
@@ -127,7 +126,7 @@ mod tests {
         3.14159
         -6d+5
         6d-5
-        
+
         // Timestamps
         
         2023T
@@ -141,7 +140,7 @@ mod tests {
         "Hello!"
         
         '''Long string with escaped \''' delimiter''' 
-        
+
         "foo bar baz"
         "😎😎😎"
         "lol\n\r\0wat"                     // Single-character escapes
@@ -153,7 +152,6 @@ mod tests {
         '''Venus '''
         '''Earth '''
         '''Mars '''
-        
         "#,
         );
         // Escaped newlines are discarded
@@ -175,8 +173,16 @@ mod tests {
         $10
         $733
         
-        // Blob
+        // Blobs
         {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
+        
+        // Clobs
+        {{"foobarbaz"}}
+        {{
+            '''foo'''
+            '''bar'''
+            '''baz'''
+        }}
         
         // List
         [
@@ -187,14 +193,14 @@ mod tests {
             // Third item
             3
         ]
-        
+
         // S-Expression
         (
             foo++
             2
             3
         )
-        
+
         // Struct
         {
             // Identifier 
@@ -206,7 +212,7 @@ mod tests {
         }
         
         foo::'bar'::  baz :: 42
-        
+
         "#,
         );
 
@@ -369,6 +375,11 @@ mod tests {
 
         // {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
         expect_next(reader, RawValueRef::Blob("razzle dazzle root beer".into()));
+
+        // {{"foobarbaz"}}
+        expect_next(reader, RawValueRef::Clob("foobarbaz".into()));
+        // {{'''foo''' '''bar''' '''baz'''}}
+        expect_next(reader, RawValueRef::Clob("foobarbaz".into()));
 
         // [1, 2, 3]
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;

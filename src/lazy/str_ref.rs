@@ -1,5 +1,7 @@
+use crate::lazy::bytes_ref::BytesRef;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::Str;
+use nom::AsBytes;
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
@@ -78,5 +80,14 @@ impl<'data> From<StrRef<'data>> for Str {
     fn from(str_ref: StrRef<'data>) -> Self {
         let text: String = str_ref.text.into_owned();
         Str::from(text)
+    }
+}
+
+impl<'data> From<StrRef<'data>> for BytesRef<'data> {
+    fn from(value: StrRef<'data>) -> Self {
+        match value.text {
+            Cow::Borrowed(text) => text.as_bytes().into(),
+            Cow::Owned(text) => Vec::from(text).into(),
+        }
     }
 }
