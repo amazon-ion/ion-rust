@@ -64,8 +64,8 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
             MatchedValue::Bool(b) => RawValueRef::Bool(b),
             MatchedValue::Int(i) => RawValueRef::Int(i.read(matched_input)?),
             MatchedValue::Float(f) => RawValueRef::Float(f.read(matched_input)?),
+            MatchedValue::Decimal(d) => RawValueRef::Decimal(d.read(matched_input)?),
             MatchedValue::Timestamp(t) => RawValueRef::Timestamp(t.read(matched_input)?),
-            // ...decimal, timestamp...
             MatchedValue::String(s) => RawValueRef::String(s.read(matched_input)?),
             MatchedValue::Symbol(s) => RawValueRef::Symbol(s.read(matched_input)?),
             MatchedValue::List => {

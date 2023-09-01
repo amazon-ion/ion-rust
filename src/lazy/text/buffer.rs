@@ -7,7 +7,7 @@ use std::str::FromStr;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1, take_while_m_n};
 use nom::character::streaming::{char, digit1, one_of, satisfy};
-use nom::combinator::{fail, map, not, opt, peek, recognize, success, value};
+use nom::combinator::{consumed, fail, map, not, opt, peek, recognize, success, value};
 use nom::error::{ErrorKind, ParseError};
 use nom::multi::{many0_count, many1_count};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
@@ -17,7 +17,7 @@ use crate::lazy::encoding::TextEncoding;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
-    MatchedFloat, MatchedHoursAndMinutes, MatchedInt, MatchedString, MatchedSymbol,
+    MatchedDecimal, MatchedFloat, MatchedHoursAndMinutes, MatchedInt, MatchedString, MatchedSymbol,
     MatchedTimestamp, MatchedTimestampOffset, MatchedValue,
 };
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
@@ -458,6 +458,16 @@ impl<'data> TextBufferView<'data> {
                 },
             ),
             map(
+                match_and_length(Self::match_decimal),
+                |(matched_decimal, length)| {
+                    EncodedTextValue::new(
+                        MatchedValue::Decimal(matched_decimal),
+                        self.offset(),
+                        length,
+                    )
+                },
+            ),
+            map(
                 match_and_length(Self::match_timestamp),
                 |(matched_timestamp, length)| {
                     EncodedTextValue::new(
@@ -867,28 +877,98 @@ impl<'data> TextBufferView<'data> {
     /// Matches an `e` or `E` followed by an optional sign (`+` or `-`) followed by one or more
     /// base 10 digits.
     fn match_float_exponent_marker_and_digits(self) -> IonMatchResult<'data> {
-        preceded(one_of("eE"), Self::match_exponent_sign_and_digits)(self)
+        preceded(
+            one_of("eE"),
+            recognize(Self::match_exponent_sign_and_digits),
+        )(self)
     }
 
-    /// Recognizes the exponent portion of a decimal (everything after the 'd') or float
+    /// Matches the exponent portion of a decimal (everything after the 'd') or float
     /// (everything after the 'e'). This includes:
     /// * an optional '+' OR '-'
     /// * any number of decimal digits, which may:
     ///    * have underscores in between them: `1_000_000`
     ///    * have one or more leading zeros: `0005`
-    fn match_exponent_sign_and_digits(self) -> IonMatchResult<'data> {
-        recognize(pair(
+    ///
+    /// Returns a boolean indicating whether the sign was negative (vs absent or positive)
+    /// and the buffer slice containing the digits.
+    fn match_exponent_sign_and_digits(self) -> IonParseResult<'data, (bool, Self)> {
+        pair(
             // Optional leading sign; if there's no sign, it's not negative.
-            opt(Self::match_any_sign),
+            opt(Self::match_any_sign).map(|s| s == Some('-')),
             Self::match_digits_after_dot,
-        ))(self)
+        )(self)
     }
 
     /// Matches `-` OR `+`.
     ///
     /// This is used for matching exponent signs; most places in Ion do not allow `+`.
-    pub fn match_any_sign(self) -> IonMatchResult<'data> {
-        alt((tag("+"), tag("-")))(self)
+    pub fn match_any_sign(self) -> IonParseResult<'data, char> {
+        one_of("-+")(self)
+    }
+
+    pub fn match_decimal_exponent(self) -> IonParseResult<'data, (bool, TextBufferView<'data>)> {
+        preceded(one_of("dD"), Self::match_exponent_sign_and_digits)(self)
+    }
+
+    /// Match an optional sign (if present), digits before the decimal point, then digits after the
+    /// decimal point (if present).
+    pub fn match_decimal(self) -> IonParseResult<'data, MatchedDecimal> {
+        tuple((
+            opt(tag("-")),
+            Self::match_digits_before_dot,
+            alt((
+                // Either a decimal point and digits and optional d/D and exponent
+                preceded(
+                    tag("."),
+                    pair(
+                        alt((Self::match_digits_after_dot, Self::match_nothing)),
+                        opt(Self::match_decimal_exponent),
+                    ),
+                )
+                .map(|(digits_after_dot, maybe_exponent)| {
+                    let (exp_is_negative, exp_digits) = match maybe_exponent {
+                        Some(exponent) => exponent,
+                        None => (false, digits_after_dot.slice(digits_after_dot.len(), 0)),
+                    };
+                    (digits_after_dot, exp_is_negative, exp_digits)
+                }),
+                // or just a d/D and exponent
+                consumed(Self::match_decimal_exponent).map(
+                    |(matched, (exp_is_negative, exp_digits))| {
+                        // Make an empty slice to represent the (absent) digits after dot
+                        let digits_after_dot = matched.slice(0, 0);
+                        (digits_after_dot, exp_is_negative, exp_digits)
+                    },
+                ),
+            )),
+        ))
+        .map(
+            |(maybe_sign, leading_digits, (digits_after_dot, exponent_is_negative, exp_digits))| {
+                let is_negative = maybe_sign.is_some();
+                let digits_offset = (leading_digits.offset() - self.offset()) as u16;
+                let digits_length = match digits_after_dot.len() {
+                    0 => leading_digits.len() as u16,
+                    trailing_digits_length => {
+                        // The `+1` accounts for the decimal point
+                        (leading_digits.len() + 1 + trailing_digits_length) as u16
+                    }
+                };
+                let trailing_digits_length = digits_after_dot.len() as u16;
+                let exponent_digits_offset = (exp_digits.offset() - self.offset()) as u16;
+                let exponent_digits_length = exp_digits.len() as u16;
+                MatchedDecimal::new(
+                    is_negative,
+                    digits_offset,
+                    digits_length,
+                    trailing_digits_length,
+                    exponent_is_negative,
+                    exponent_digits_offset,
+                    exponent_digits_length,
+                )
+            },
+        )
+        .parse(self)
     }
 
     /// Matches short- or long-form string.
@@ -1873,6 +1953,29 @@ mod tests {
         let bad_inputs = &["foo", "foo:bar", "foo:::bar"];
         for input in bad_inputs {
             mismatch_annotated_value(input);
+        }
+    }
+
+    #[test]
+    fn test_match_decimal() {
+        fn match_decimal(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_decimal));
+        }
+        fn mismatch_decimal(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_decimal));
+        }
+        let good_inputs = &[
+            "5.", "-5.", "5.0", "-5.0", "5.0d0", "-5.0d0", "5.0D0", "-5.0D0", "5.0d+1", "-5.0d-1",
+        ];
+        for input in good_inputs {
+            match_decimal(input);
+        }
+
+        let bad_inputs = &[
+            "5", "5d", "05d", "-5d", "5.d", "-5.d", "5.D", "-5.D", "-5.0+0",
+        ];
+        for input in bad_inputs {
+            mismatch_decimal(input);
         }
     }
 
