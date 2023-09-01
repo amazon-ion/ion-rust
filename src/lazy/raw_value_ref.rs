@@ -20,8 +20,8 @@ pub enum RawValueRef<'data, D: LazyDecoder<'data>> {
     Symbol(RawSymbolTokenRef<'data>),
     Blob(&'data [u8]),
     Clob(&'data [u8]),
-    SExp(D::Sequence),
-    List(D::Sequence),
+    SExp(D::SExp),
+    List(D::List),
     Struct(D::Struct),
 }
 
@@ -156,7 +156,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_list(self) -> IonResult<D::Sequence> {
+    pub fn expect_list(self) -> IonResult<D::List> {
         if let RawValueRef::List(s) = self {
             Ok(s)
         } else {
@@ -164,7 +164,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_sexp(self) -> IonResult<D::Sequence> {
+    pub fn expect_sexp(self) -> IonResult<D::SExp> {
         if let RawValueRef::SExp(s) = self {
             Ok(s)
         } else {

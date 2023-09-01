@@ -1,7 +1,7 @@
 use crate::element::Value;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::r#struct::LazyStruct;
-use crate::lazy::sequence::LazySequence;
+use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::{Decimal, Int, IonError, IonResult, IonType, SymbolRef, Timestamp};
@@ -9,7 +9,7 @@ use std::fmt::{Debug, Formatter};
 
 /// A [ValueRef] represents a value that has been read from the input stream. Scalar variants contain
 /// their associated data, while container variants contain a handle to traverse the container. (See
-/// [LazySequence] and [LazyStruct].)
+/// [LazyList] and [LazyStruct].)
 ///
 /// Unlike a [Value], a `ValueRef` avoids heap allocation whenever possible, choosing to point instead
 /// to existing resources. Numeric values and timestamps are stored within the `ValueRef` itself.
@@ -25,8 +25,8 @@ pub enum ValueRef<'top, 'data, D: LazyDecoder<'data>> {
     Symbol(SymbolRef<'top>),
     Blob(&'data [u8]),
     Clob(&'data [u8]),
-    SExp(LazySequence<'top, 'data, D>),
-    List(LazySequence<'top, 'data, D>),
+    SExp(LazySExp<'top, 'data, D>),
+    List(LazyList<'top, 'data, D>),
     Struct(LazyStruct<'top, 'data, D>),
 }
 
@@ -185,7 +185,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_list(self) -> IonResult<LazySequence<'top, 'data, D>> {
+    pub fn expect_list(self) -> IonResult<LazyList<'top, 'data, D>> {
         if let ValueRef::List(s) = self {
             Ok(s)
         } else {
@@ -193,7 +193,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_sexp(self) -> IonResult<LazySequence<'top, 'data, D>> {
+    pub fn expect_sexp(self) -> IonResult<LazySExp<'top, 'data, D>> {
         if let ValueRef::SExp(s) = self {
             Ok(s)
         } else {
