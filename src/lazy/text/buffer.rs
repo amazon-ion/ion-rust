@@ -2190,11 +2190,7 @@ mod tests {
 
     #[test]
     fn test_match_text_until_unescaped_str() {
-        let input = TextBufferView::new(
-            r#" foo bar \''' baz''' quux
-        "#
-            .as_bytes(),
-        );
+        let input = TextBufferView::new(r" foo bar \''' baz''' quux ".as_bytes());
         let (_remaining, (matched, contains_escapes)) =
             input.match_text_until_unescaped_str(r#"'''"#).unwrap();
         assert_eq!(matched.as_text().unwrap(), " foo bar \\''' baz");
