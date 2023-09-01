@@ -135,13 +135,23 @@ mod tests {
             
         // Strings
 
+        '''Long string without escapes'''
+
         "Hello!"
+        
+        '''Long string with escaped \''' delimiter''' 
+
         "foo bar baz"
         "😎😎😎"
         "lol\n\r\0wat"                     // Single-character escapes
         "\x48ello, \x77orld!"              // \x 2-digit hex escape
         "\u0048ello, \u0077orld!"          // \u 4-digit hex escape
         "\U00000048ello, \U00000077orld!"  // \U 8-digit hex escape
+        
+        '''Mercury '''
+        '''Venus '''
+        '''Earth '''
+        '''Mars '''
 
         "#,
         );
@@ -288,8 +298,18 @@ mod tests {
             ),
         );
 
+        // '''Long string without escapes'''
+        expect_next(
+            reader,
+            RawValueRef::String("Long string without escapes".into()),
+        );
         // "Hello"
         expect_next(reader, RawValueRef::String("Hello!".into()));
+        // '''Long string with escaped \''' delimiter'''
+        expect_next(
+            reader,
+            RawValueRef::String("Long string with escaped ''' delimiter".into()),
+        );
         // "foo bar baz"
         expect_next(reader, RawValueRef::String("foo bar baz".into()));
         // "😎😎😎"
@@ -302,6 +322,10 @@ mod tests {
         expect_next(reader, RawValueRef::String("Hello, world!".into()));
         // "\U00000048ello, \U00000077orld!"
         expect_next(reader, RawValueRef::String("Hello, world!".into()));
+        expect_next(
+            reader,
+            RawValueRef::String("Mercury Venus Earth Mars ".into()),
+        );
         // "\"Hello,\\\n world!\" "
         expect_next(reader, RawValueRef::String("Hello, world!".into()));
         // 'foo'

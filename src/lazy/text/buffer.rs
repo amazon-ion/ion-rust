@@ -7,9 +7,9 @@ use std::str::FromStr;
 use nom::branch::alt;
 use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1, take_while_m_n};
 use nom::character::streaming::{alphanumeric1, char, digit1, one_of, satisfy};
-use nom::combinator::{consumed, fail, map, not, opt, peek, recognize, success, value};
+use nom::combinator::{consumed, map, not, opt, peek, recognize, success, value};
 use nom::error::{ErrorKind, ParseError};
-use nom::multi::{many0_count, many1_count};
+use nom::multi::{fold_many1, many0_count, many1_count};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
 use nom::{CompareResult, IResult, InputLength, InputTake, Needed, Parser};
 
@@ -30,20 +30,25 @@ use crate::{IonError, IonResult, IonType, TimestampPrecision};
 
 impl<'a> Debug for TextBufferView<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        const CHARS_TO_SHOW: usize = 64;
         write!(f, "TextBufferView {{")?;
         // Try to read the next several bytes from the buffer as UTF-8...
         let text_result = std::str::from_utf8(self.data);
         // ...if it works, print the first 32 unicode scalars...
         if let Ok(text) = text_result {
-            write!(f, "\"{}...\"", text.chars().take(32).collect::<String>())?;
+            write!(
+                f,
+                "\"{}...\"",
+                text.chars().take(CHARS_TO_SHOW).collect::<String>()
+            )?;
         } else {
             // ...if it doesn't, print the first 32 bytes in hex.
             write!(f, "Invalid UTF-8")?;
-            for byte in self.bytes().iter().take(32) {
+            for byte in self.bytes().iter().take(CHARS_TO_SHOW) {
                 write!(f, "{:x?} ", *byte)?;
             }
-            if self.bytes().len() > 32 {
-                write!(f, "...{} more bytes", self.bytes().len() - 32)?;
+            if self.bytes().len() > CHARS_TO_SHOW {
+                write!(f, "...{} more bytes", self.bytes().len() - CHARS_TO_SHOW)?;
             }
         }
         write!(f, "}}")
@@ -1001,10 +1006,41 @@ impl<'data> TextBufferView<'data> {
         Self::match_text_until_unescaped(self, b'\"')
     }
 
-    fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
-        // TODO: implement long string matching
-        //       The `fail` parser is a nom builtin that never matches.
-        fail(self)
+    /// Matches a long string comprised of any number of `'''`-enclosed segments interleaved
+    /// with optional comments and whitespace.
+    pub fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
+        fold_many1(
+            // Parser to keep applying repeatedly
+            whitespace_and_then(Self::match_long_string_segment),
+            // Initial accumulator value: segment count and whether the string contains escaped characters
+            || (0usize, false),
+            // Function to merge the current match's information with the accumulator
+            |(segment_count, string_contains_escapes),
+             (_matched_segment, segment_contains_escapes)| {
+                (
+                    segment_count + 1,
+                    string_contains_escapes || segment_contains_escapes,
+                )
+            },
+        )
+        .map(
+            |(segment_count, contains_escapes)| match (segment_count, contains_escapes) {
+                (1, false) => MatchedString::LongSingleSegmentWithoutEscapes,
+                (1, true) => MatchedString::LongSingleSegmentWithEscapes,
+                _ => MatchedString::Long,
+            },
+        )
+        .parse(self)
+    }
+
+    /// Matches a single long string segment enclosed by `'''` delimiters.
+    pub fn match_long_string_segment(self) -> IonParseResult<'data, (Self, bool)> {
+        delimited(tag("'''"), Self::match_long_string_segment_body, tag("'''"))(self)
+    }
+
+    /// Matches all input up to (but not including) the first unescaped instance of `'''`.
+    fn match_long_string_segment_body(self) -> IonParseResult<'data, (Self, bool)> {
+        Self::match_text_until_unescaped_str(self, "'''")
     }
 
     /// Matches an operator symbol, which can only legally appear within an s-expression
@@ -1140,6 +1176,43 @@ impl<'data> TextBufferView<'data> {
             }
         }
         Err(nom::Err::Incomplete(Needed::Unknown))
+    }
+
+    /// A helper method for matching bytes until the specified delimiter. Ignores any byte
+    /// that is prefaced by the escape character `\`.
+    ///
+    /// The specified delimiter cannot be empty.
+    fn match_text_until_unescaped_str(
+        self,
+        delimiter: &str,
+    ) -> IonParseResult<'data, (Self, bool)> {
+        // The first byte in the delimiter
+        let delimiter_head = delimiter.as_bytes()[0];
+        // Whether we've encountered any escapes while looking for the delimiter
+        let mut contained_escapes = false;
+        // The input left to search
+        let mut remaining = self;
+        loop {
+            // Look for the first unescaped instance of the delimiter's head.
+            // If the input doesn't contain one, this will return an `Incomplete`.
+            // `match_text_until_escaped` does NOT include the delimiter byte in the match,
+            // so `remaining_after_match` starts at the delimiter byte.
+            let (remaining_after_match, (_, segment_contained_escapes)) =
+                remaining.match_text_until_unescaped(delimiter_head)?;
+            contained_escapes |= segment_contained_escapes;
+            remaining = remaining_after_match;
+
+            // If the remaining input starts with the complete delimiter, it's a match.
+            if remaining.bytes().starts_with(delimiter.as_bytes()) {
+                let relative_match_end = remaining.offset() - self.offset();
+                let matched_input = self.slice(0, relative_match_end);
+                let remaining_input = self.slice_to_end(relative_match_end);
+                return Ok((remaining_input, (matched_input, contained_escapes)));
+            } else {
+                // Otherwise, advance by one and try again.
+                remaining = remaining.slice_to_end(1);
+            }
+        }
     }
 
     /// Matches a single base-10 digit, 0-9.
@@ -1609,11 +1682,11 @@ mod tests {
     }
 
     impl MatchTest {
-        /// Takes an `input` string and appends a trailing space to it, guaranteeing that the
+        /// Takes an `input` string and appends a trailing value to it, guaranteeing that the
         /// contents of the input are considered a complete token.
         fn new(input: &str) -> Self {
             MatchTest {
-                input: format!("{input} "), // add trailing space
+                input: format!("{input}\n0"), // add whitespace and a trailing value
             }
         }
 
@@ -1631,10 +1704,10 @@ mod tests {
         {
             let result = self.try_match(parser);
             let (_remaining, match_length) = result.unwrap();
-            // Inputs have a trailing space that should _not_ be part of the match
+            // Inputs have a trailing newline and `0` that should _not_ be part of the match
             assert_eq!(
                 match_length,
-                self.input.len() - 1,
+                self.input.len() - 2,
                 "\nInput: '{}'\nMatched: '{}'\n",
                 self.input,
                 &self.input[..match_length]
@@ -1903,6 +1976,21 @@ mod tests {
             r#"
             "this has an escaped quote \" right in the middle"
             "#,
+            r#" '''hi''' "#,
+            r#"
+            '''foo'''
+            '''bar'''
+            '''baz''' 
+            "#,
+            r#"
+            '''hello,''' /*comment*/ ''' world!'''
+            "#,
+            r#"
+            ''''''
+            "#, // empty string
+            r#"
+            '''''' ''''''
+            "#, // concatenated empty string
         ];
         for input in good_inputs {
             match_string(input.trim());
@@ -2098,5 +2186,14 @@ mod tests {
         for input in bad_inputs {
             mismatch_blob(input);
         }
+    }
+
+    #[test]
+    fn test_match_text_until_unescaped_str() {
+        let input = TextBufferView::new(r" foo bar \''' baz''' quux ".as_bytes());
+        let (_remaining, (matched, contains_escapes)) =
+            input.match_text_until_unescaped_str(r#"'''"#).unwrap();
+        assert_eq!(matched.as_text().unwrap(), " foo bar \\''' baz");
+        assert!(contains_escapes);
     }
 }

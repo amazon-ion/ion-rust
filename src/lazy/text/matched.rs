@@ -24,6 +24,7 @@ use std::num::IntErrorKind;
 use std::str::FromStr;
 
 use nom::character::is_hex_digit;
+use nom::sequence::preceded;
 use nom::AsChar;
 use num_bigint::{BigInt, BigUint};
 use num_traits::Num;
@@ -287,6 +288,14 @@ pub(crate) enum MatchedString {
     ///     """hello,"""
     ///     """ world!"""
     Long,
+    /// The string uses long-format delimiters, but is a single segment. We still have to
+    /// allocate a fresh String to store the version with decoded escapes, but we don't need
+    /// to re-parse the input because there's only one segment.
+    LongSingleSegmentWithEscapes,
+    /// The string uses long-format delimiters, but is a single segment and contains no escapes.
+    /// This allows us to return a slice of the input as-is. It also greatly simplifies the
+    /// reading process because we don't need to re-parse the input.
+    LongSingleSegmentWithoutEscapes,
 }
 
 impl MatchedString {
@@ -299,8 +308,65 @@ impl MatchedString {
                 self.read_short_string_without_escapes(matched_input)
             }
             MatchedString::ShortWithEscapes => self.read_short_string_with_escapes(matched_input),
-            MatchedString::Long => todo!("long-form strings"),
+            MatchedString::LongSingleSegmentWithoutEscapes => {
+                self.read_long_string_single_segment_without_escapes(matched_input)
+            }
+            MatchedString::LongSingleSegmentWithEscapes => {
+                self.read_long_string_single_segment_with_escapes(matched_input)
+            }
+            MatchedString::Long => self.read_long_string(matched_input),
         }
+    }
+
+    fn read_long_string_single_segment_without_escapes<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<StrRef<'data>> {
+        // Take a slice of the input that ignores the first and last three bytes, which are quotes.
+        let body = matched_input.slice(3, matched_input.len() - 6);
+        // There are no escaped characters, so we can just validate the string in-place.
+        let text = body.as_text()?;
+        let str_ref = StrRef::from(text);
+        Ok(str_ref)
+    }
+
+    fn read_long_string_single_segment_with_escapes<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<StrRef<'data>> {
+        // Take a slice of the input that ignores the first and last three bytes, which are quotes.
+        let body = matched_input.slice(3, matched_input.len() - 6);
+        // There are no escaped characters, so we can just validate the string in-place.
+        let mut sanitized = Vec::with_capacity(matched_input.len());
+        escape_text(body, &mut sanitized)?;
+        let text = String::from_utf8(sanitized).unwrap();
+        Ok(StrRef::from(text.to_string()))
+    }
+
+    fn read_long_string<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<StrRef<'data>> {
+        // We're going to re-parse the input to visit each segment, copying its sanitized bytes into
+        // a contiguous buffer.
+
+        // Create a new buffer to hold the sanitized data.
+        let mut sanitized = Vec::with_capacity(matched_input.len());
+        let mut remaining = matched_input;
+
+        // Iterate over the string segments using the match_long_string_segment parser.
+        // This is the same parser that matched the input initially, which means that the only
+        // reason it wouldn't succeed here is if the input is empty, meaning we're done reading.
+        while let Ok((remaining_after_match, (segment_body, _has_escapes))) = preceded(
+            TextBufferView::match_optional_whitespace,
+            TextBufferView::match_long_string_segment,
+        )(remaining)
+        {
+            remaining = remaining_after_match;
+            escape_text(segment_body, &mut sanitized)?;
+        }
+        let text = String::from_utf8(sanitized).unwrap();
+        Ok(StrRef::from(text))
     }
 
     fn read_short_string_without_escapes<'data>(
