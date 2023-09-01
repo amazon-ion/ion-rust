@@ -387,7 +387,7 @@ impl MatchedString {
     ) -> IonResult<StrRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
         let body = matched_input.slice(1, matched_input.len() - 2);
-        // Otherwise, there are escaped characters. We need to build a new version of our string
+        // There are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
         escape_text(body, &mut sanitized)?;
@@ -754,17 +754,11 @@ impl MatchedTimestamp {
             .as_text()
             .unwrap();
         let timestamp = match fractional_text.len() {
-            3 => {
-                let milliseconds = u32::from_str(fractional_text).unwrap();
-                timestamp.with_milliseconds(milliseconds)
-            }
-            6 => {
-                let microseconds = u32::from_str(fractional_text).unwrap();
-                timestamp.with_microseconds(microseconds)
-            }
-            9 => {
-                let nanoseconds = u32::from_str(fractional_text).unwrap();
-                timestamp.with_nanoseconds(nanoseconds)
+            len if len <= 9 => {
+                let fraction = u32::from_str(fractional_text).unwrap();
+                let multiplier = 10u32.pow(9 - len as u32);
+                let nanoseconds = fraction * multiplier;
+                timestamp.with_nanoseconds_and_precision(nanoseconds, len as u32)
             }
             _ => {
                 // For less common precisions, store a Decimal
@@ -792,6 +786,7 @@ pub enum MatchedTimestampOffset {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MatchedHoursAndMinutes {
     is_negative: bool,
+    /// This is the offset of the first `H` in the offset string `HH:MM`.
     hours_offset: usize,
 }
 
@@ -831,10 +826,30 @@ impl MatchedBlob {
         matched_input: TextBufferView<'data>,
     ) -> IonResult<BytesRef<'data>> {
         let base64_text = matched_input.slice(self.content_offset, self.content_length);
-        base64::decode(base64_text.bytes())
+        let matched_bytes = base64_text.bytes();
+
+        // Ion allows whitespace to appear in the middle of the base64 data; if the match
+        // has inner whitespace, we need to strip it out.
+        let contains_whitespace = matched_bytes.iter().any(|b| b.is_ascii_whitespace());
+
+        let decode_result = if contains_whitespace {
+            // This allocates a fresh Vec to store the sanitized bytes. It could be replaced by
+            // a reusable buffer if this proves to be a bottleneck.
+            let sanitized_base64_text: Vec<u8> = matched_bytes
+                .iter()
+                .copied()
+                .filter(|b| !b.is_ascii_whitespace())
+                .collect();
+            base64::decode(sanitized_base64_text)
+        } else {
+            base64::decode(matched_bytes)
+        };
+
+        decode_result
             .map_err(|e| {
                 IonError::decoding_error(format!(
-                    "failed to parse blob with invalid base64 data:\n'{base64_text:?}'\n{e:?}:"
+                    "failed to parse blob with invalid base64 data:\n'{:?}'\n{e:?}:",
+                    matched_input.bytes()
                 ))
             })
             .map(BytesRef::from)
