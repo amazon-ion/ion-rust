@@ -120,13 +120,13 @@ mod tests {
         3.6e0
         2.5e008
         -318e-2
-        
+
         // Decimals
         1.5
         3.14159
         -6d+5
         6d-5
-        
+
         // Timestamps
         
         2023T
