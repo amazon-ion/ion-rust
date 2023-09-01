@@ -406,7 +406,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     fn read_blob(&self) -> ValueParseResult<'data, BinaryEncoding> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Blob);
         let bytes = self.value_body()?;
-        Ok(RawValueRef::Blob(bytes))
+        Ok(RawValueRef::Blob(bytes.into()))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a clob.

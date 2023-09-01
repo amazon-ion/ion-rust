@@ -68,6 +68,7 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
             MatchedValue::Timestamp(t) => RawValueRef::Timestamp(t.read(matched_input)?),
             MatchedValue::String(s) => RawValueRef::String(s.read(matched_input)?),
             MatchedValue::Symbol(s) => RawValueRef::Symbol(s.read(matched_input)?),
+            MatchedValue::Blob(b) => RawValueRef::Blob(b.read(matched_input)?),
             MatchedValue::List => {
                 let lazy_list = LazyRawTextList { value: *self };
                 RawValueRef::List(lazy_list)

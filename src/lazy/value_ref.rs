@@ -1,4 +1,5 @@
 use crate::element::Value;
+use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::{LazyList, LazySExp};
@@ -23,7 +24,7 @@ pub enum ValueRef<'top, 'data, D: LazyDecoder<'data>> {
     Timestamp(Timestamp),
     String(StrRef<'data>),
     Symbol(SymbolRef<'top>),
-    Blob(&'data [u8]),
+    Blob(BytesRef<'data>),
     Clob(&'data [u8]),
     SExp(LazySExp<'top, 'data, D>),
     List(LazyList<'top, 'data, D>),
@@ -169,7 +170,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_blob(self) -> IonResult<&'data [u8]> {
+    pub fn expect_blob(self) -> IonResult<BytesRef<'data>> {
         if let ValueRef::Blob(b) = self {
             Ok(b)
         } else {
@@ -256,7 +257,7 @@ mod tests {
         assert_eq!(reader.expect_next()?.read()?.expect_string()?, "hello");
         assert_eq!(
             reader.expect_next()?.read()?.expect_blob()?,
-            &[0x06, 0x5A, 0x1B] // Base64-decoded "Blob"
+            [0x06u8, 0x5A, 0x1B].as_ref() // Base64-decoded "Blob"
         );
         assert_eq!(
             reader.expect_next()?.read()?.expect_clob()?,
@@ -310,7 +311,7 @@ mod tests {
         );
         assert_eq!(
             reader.expect_next()?.read()?,
-            ValueRef::Blob(&[0x06, 0x5A, 0x1B]) // Base64-decoded "Blob"
+            ValueRef::Blob([0x06, 0x5A, 0x1B].as_ref().into()) // Base64-decoded "Blob"
         );
         assert_eq!(
             reader.expect_next()?.read()?,

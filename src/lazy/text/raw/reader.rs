@@ -164,6 +164,10 @@ mod tests {
         $10
         $733
         
+        // Blob
+        {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
+        
+        // List
         [
             // First item
             1,
@@ -172,13 +176,15 @@ mod tests {
             // Third item
             3
         ]
-        
+
+        // S-Expression
         (
             foo++
             2
             3
         )
-        
+
+        // Struct
         {
             // Identifier 
             foo: 100,
@@ -335,6 +341,9 @@ mod tests {
             reader,
             RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(733)),
         );
+
+        // {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
+        expect_next(reader, RawValueRef::Blob("razzle dazzle root beer".into()));
 
         // [1, 2, 3]
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;

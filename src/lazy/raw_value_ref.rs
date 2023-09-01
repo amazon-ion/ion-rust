@@ -1,3 +1,4 @@
+use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
@@ -18,7 +19,7 @@ pub enum RawValueRef<'data, D: LazyDecoder<'data>> {
     Timestamp(Timestamp),
     String(StrRef<'data>),
     Symbol(RawSymbolTokenRef<'data>),
-    Blob(&'data [u8]),
+    Blob(BytesRef<'data>),
     Clob(&'data [u8]),
     SExp(D::SExp),
     List(D::List),
@@ -140,7 +141,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_blob(self) -> IonResult<&'data [u8]> {
+    pub fn expect_blob(self) -> IonResult<BytesRef<'data>> {
         if let RawValueRef::Blob(b) = self {
             Ok(b)
         } else {
@@ -247,7 +248,7 @@ mod tests {
         );
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_blob()?,
-            &[0x06, 0x5A, 0x1B] // Base64-decoded "Blob"
+            [0x06u8, 0x5A, 0x1B].as_ref() // Base64-decoded "Blob"
         );
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_clob()?,
