@@ -1175,6 +1175,13 @@ impl<'data> TextBufferView<'data> {
                 contains_escaped_chars = true;
                 continue;
             }
+            if *byte == b'\r' {
+                // If the text contains an unescaped carriage return, we may need to normalize it.
+                // In some narrow cases, setting this flag to true may result in a sanitization buffer
+                // being allocated when it isn't strictly necessary.
+                contains_escaped_chars = true;
+                continue;
+            }
             if *byte == delimiter {
                 let matched = self.slice(0, index);
                 let remaining = self.slice_to_end(index);

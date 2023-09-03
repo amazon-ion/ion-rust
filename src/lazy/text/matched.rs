@@ -338,7 +338,14 @@ impl MatchedString {
         let body = matched_input.slice(3, matched_input.len() - 6);
         // There are no escaped characters, so we can just validate the string in-place.
         let mut sanitized = Vec::with_capacity(matched_input.len());
-        decode_text_containing_escapes(body, &mut sanitized, true, true)?;
+        decode_text_containing_escapes(
+            body,
+            &mut sanitized,
+            // Normalize newlines
+            true,
+            // Support unicode escapes
+            true,
+        )?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text.to_string()))
     }
@@ -363,7 +370,14 @@ impl MatchedString {
         )(remaining)
         {
             remaining = remaining_after_match;
-            decode_text_containing_escapes(segment_body, &mut sanitized, true, true)?;
+            decode_text_containing_escapes(
+                segment_body,
+                &mut sanitized,
+                // Normalize newlines
+                true,
+                // Support unicode escapes
+                true,
+            )?;
         }
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text))
@@ -390,7 +404,14 @@ impl MatchedString {
         // There are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
-        decode_text_containing_escapes(body, &mut sanitized, false, true)?;
+        decode_text_containing_escapes(
+            body,
+            &mut sanitized,
+            // Do not normalize newlines
+            false,
+            // Support Unicode escapes
+            true,
+        )?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text.to_string()))
     }
@@ -412,29 +433,33 @@ fn decode_text_containing_escapes(
     let match_byte = |byte: &u8| *byte == b'\\' || *byte == b'\r';
 
     while !remaining.is_empty() {
-        let next_escape = remaining.bytes().iter().position(match_byte);
-        remaining = match next_escape {
+        let next_index_to_inspect = remaining.bytes().iter().position(match_byte);
+        remaining = match next_index_to_inspect {
             // It's an unescaped carriage return: 0x0A.
-            Some(escape_offset) if remaining.bytes().get(escape_offset) == Some(&b'\r') => {
+            Some(carriage_return_offset)
+                if remaining.bytes().get(carriage_return_offset) == Some(&b'\r') =>
+            {
+                // Add all of the data up to the \r is clean. Add that slice to `sanitized`.
+                sanitized.extend_from_slice(remaining.slice(0, carriage_return_offset).bytes());
                 if normalize_newlines {
-                    normalize_newline(remaining, sanitized, escape_offset)
+                    normalize_newline(remaining, sanitized, carriage_return_offset)
                 } else {
+                    // Add it to the sanitized data as-is
                     sanitized.push(b'\r');
-                    remaining.slice_to_end(1)
+                    remaining.slice_to_end(carriage_return_offset + 1)
                 }
             }
             // It's an escape character: `\`
             Some(escape_offset) => {
-                // Everything up to the '\' is already clean. Write that slice to 'sanitized'.
-                let already_clean = remaining.slice(0, escape_offset);
-                sanitized.extend_from_slice(already_clean.bytes());
+                // Add all of the data up to the `\` is clean. Add that slice to `sanitized`.
+                sanitized.extend_from_slice(remaining.slice(0, escape_offset).bytes());
                 // Everything starting from the '\' needs to be evaluated.
                 let contains_escapes = remaining.slice_to_end(escape_offset);
                 decode_escape_into_bytes(contains_escapes, sanitized, support_unicode_escapes)?
             }
             None => {
                 sanitized.extend_from_slice(remaining.bytes());
-                // 'remaining' is now empty
+                // 'remaining' is now empty. Return an empty slice.
                 remaining.slice_to_end(remaining.len())
             }
         }
@@ -449,14 +474,16 @@ fn normalize_newline<'data>(
     sanitized: &mut Vec<u8>,
     escape_offset: usize,
 ) -> TextBufferView<'data> {
+    // Insert the normalized newline
     sanitized.push(b'\n');
+    // Check whether we're skipping one byte (\r) or two (\r\n).
     if remaining.bytes().get(escape_offset + 1).copied() == Some(b'\n') {
         // The next byte is an unescaped newline; we normalize \r\n to \n, so we need
         // to skip an extra byte.
-        remaining.slice_to_end(escape_offset + 1)
+        remaining.slice_to_end(escape_offset + 2)
     } else {
         // We only processed a single byte: `\r`
-        remaining.slice_to_end(1)
+        remaining.slice_to_end(escape_offset + 1)
     }
 }
 
@@ -977,7 +1004,14 @@ impl MatchedClob {
         // There are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(body.len());
-        decode_text_containing_escapes(body, &mut sanitized, false, false)?;
+        decode_text_containing_escapes(
+            body,
+            &mut sanitized,
+            // Do not normalize newlines
+            false,
+            // Unicode escapes are not supported
+            false,
+        )?;
         Ok(BytesRef::from(sanitized))
     }
     fn read_long_clob<'data>(
@@ -1000,7 +1034,14 @@ impl MatchedClob {
         )(remaining)
         {
             remaining = remaining_after_match;
-            decode_text_containing_escapes(segment_body, &mut sanitized, true, false)?;
+            decode_text_containing_escapes(
+                segment_body,
+                &mut sanitized,
+                // Normalize newlines
+                true,
+                // Unicode escapes are not supported
+                false,
+            )?;
         }
         Ok(BytesRef::from(sanitized))
     }
@@ -1192,6 +1233,50 @@ mod tests {
     }
 
     #[test]
+    fn read_strings() -> IonResult<()> {
+        fn expect_string(data: &str, expected: &str) {
+            // Ordinarily the reader is responsible for indicating that the input is complete.
+            // For the sake of these tests, we're going to append one more value (`0`) to the input
+            // stream so the parser knows that the long-form strings are complete. We then trim
+            // our fabricated value off of the input before reading.
+            let data = format!("{data}\n0");
+            let buffer = TextBufferView::new(data.as_bytes());
+            let (_remaining, matched) = buffer.match_string().unwrap();
+            let matched_input = buffer.slice(0, buffer.len() - 2);
+            let actual = matched.read(matched_input).unwrap();
+            assert_eq!(
+                actual, expected,
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data, actual, expected
+            );
+        }
+
+        let tests = [
+            (r#""hello""#, "hello"),
+            (r"'''hello'''", "hello"),
+            (r"'''he''' '''llo'''", "hello"),
+            (r"'''he''' '''llo'''", "hello"),
+            (r#""😎🙂🙃""#, "😎🙂🙃"),
+            (r"'''😎🙂''' '''🙃'''", "😎🙂🙃"),
+            // UTF-8 encoding of
+            (r#""\xe2\x9d\xa4\xef\xb8\x8f""#, "❤️"),
+            (r"'''\xe2\x9d\xa4\xef\xb8\x8f'''", "❤️"),
+            (r"'''\u2764\uFE0F'''", "❤️"),
+            (r"'''\U00002764\U0000FE0F'''", "❤️"),
+            // In short strings, unescaped newlines are not normalized.
+            ("\"foo\rbar\r\nbaz\"", "foo\rbar\r\nbaz"),
+            // In long-form strings, unescaped newlines converted to `\n`.
+            ("'''foo\rbar\r\nbaz'''", "foo\nbar\nbaz"),
+        ];
+
+        for (input, expected) in tests {
+            expect_string(input, expected);
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn read_clobs() -> IonResult<()> {
         fn read_clob(data: &str) -> IonResult<BytesRef> {
             let buffer = TextBufferView::new(data.as_bytes());
@@ -1225,22 +1310,6 @@ mod tests {
                 expected.as_bytes()
             );
         }
-        /*
-
-                parse_equals("{{\"hello\"}}\n", "hello");
-        parse_equals("{{\"a\\\"'\\n\"}}\n", "a\"\'\n");
-        parse_equals("{{\"\\xe2\\x9d\\xa4\\xef\\xb8\\x8f\"}}\n", "❤️");
-
-        // parse tests for long clob
-        parse_equals("{{'''Hello''' '''world'''}}", "Helloworld");
-        parse_equals("{{'''Hello world'''}}", "Hello world");
-        parse_equals("{{'''\\xe2\\x9d\\xa4\\xef\\xb8\\x8f\'''}}", "❤️");
-
-        // Clobs represent text of some encoding, but it may or may not be a flavor of Unicode.
-        // As such, clob syntax does not support Unicode escape sequences like `\u` or `\U`.
-        // Byte literals may be written using `\x`, however.
-        parse_fails(r#"{{ "\u3000" }}"#);
-        */
 
         // These tests compare a clob containing UTF-8 data to the expected string's bytes.
         // This is just an example; clobs' data does not have to be (and often would not be) UTF-8.
@@ -1263,6 +1332,10 @@ mod tests {
             ",
                 "❤️",
             ),
+            // In a long-form clob, unescaped \r and \r\n are normalized into unescaped \n
+            ("{{'''foo\rbar\r\nbaz'''}}", "foo\nbar\nbaz"),
+            // In a short-form clob, newlines are not normalized.
+            ("{{\"foo\rbar\r\nbaz\"}}", "foo\rbar\r\nbaz"),
         ];
 
         for (input, expected) in tests {
