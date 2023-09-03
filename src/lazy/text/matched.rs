@@ -1255,12 +1255,12 @@ mod tests {
             (r#"{{"\xe2\x9d\xa4\xef\xb8\x8f"}}"#, "❤️"),
             (r#"{{'''hel''' '''lo'''}}"#, "hello"),
             (
-                r#"{{
+                r"{{
                     '''\xe2'''
                     '''\x9d\xa4'''
                     '''\xef\xb8\x8f'''
                 }}
-            "#,
+            ",
                 "❤️",
             ),
         ];
@@ -1278,12 +1278,12 @@ mod tests {
             // Escape sequence that terminates early
             r#"{{"\x4"}}"#,
             // Escape sequence split across long-form segments
-            r#"{{
+            r"{{
                     '''\xe'''
                     '''2\x9d\xa'''
                     '''4\xef\xb8\x8f'''
                 }}
-            "#,
+            ",
         ];
 
         for input in illegal_inputs {
