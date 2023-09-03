@@ -977,7 +977,8 @@ impl MatchedClob {
         matched_input: TextBufferView<'data>,
     ) -> IonResult<BytesRef<'data>> {
         // `matched_input` contains the entire clob, including the opening {{ and closing }}.
-        // We can trim those off, but each function below will need to find/
+        // We can trim those off, but each function below will need to find the nested short- or
+        // long-form string content.
         let matched_inside_braces = matched_input.slice(2, matched_input.len() - 4);
         match self {
             MatchedClob::Short => self.read_short_clob(matched_inside_braces),
@@ -1258,7 +1259,7 @@ mod tests {
             (r"'''he''' '''llo'''", "hello"),
             (r#""😎🙂🙃""#, "😎🙂🙃"),
             (r"'''😎🙂''' '''🙃'''", "😎🙂🙃"),
-            // UTF-8 encoding of
+            // The below bytes are the UTF-8 encoding of Unicode code points: U+2764 U+FE0F
             (r#""\xe2\x9d\xa4\xef\xb8\x8f""#, "❤️"),
             (r"'''\xe2\x9d\xa4\xef\xb8\x8f'''", "❤️"),
             (r"'''\u2764\uFE0F'''", "❤️"),
@@ -1280,16 +1281,15 @@ mod tests {
     fn read_clobs() -> IonResult<()> {
         fn read_clob(data: &str) -> IonResult<BytesRef> {
             let buffer = TextBufferView::new(data.as_bytes());
-            // All `read_clob` usages should be accepted by the parser (but may be rejected during
-            // reading), so we can `unwrap()` the `match_clob`.
+            // All `read_clob` usages should be accepted by the matcher, so we can `unwrap()` the
+            // call to `match_clob()`.
             let (_remaining, matched) = buffer.match_clob().unwrap();
-            let actual = matched.read(buffer)?;
-            Ok(actual)
+            // The resulting buffer slice may be rejected during reading.
+            matched.read(buffer)
         }
 
         fn expect_clob_error(data: &str) {
-            let data = format!("{data} "); // Append a space
-            let actual = read_clob(&data);
+            let actual = read_clob(data);
             assert!(
                 actual.is_err(),
                 "Successfully read a clob from illegal input."
@@ -1297,8 +1297,7 @@ mod tests {
         }
 
         fn expect_clob(data: &str, expected: &str) {
-            let data = format!("{data} "); // Append a space
-            let actual = read_clob(&data).unwrap();
+            let actual = read_clob(data).unwrap();
             assert_eq!(
                 actual,
                 expected.as_ref(),
@@ -1332,7 +1331,7 @@ mod tests {
             ",
                 "❤️",
             ),
-            // In a long-form clob, unescaped \r and \r\n are normalized into unescaped \n
+            // In a long-form clob, unescaped `\r` and `\r\n` are normalized into unescaped `\n`
             ("{{'''foo\rbar\r\nbaz'''}}", "foo\nbar\nbaz"),
             // In a short-form clob, newlines are not normalized.
             ("{{\"foo\rbar\r\nbaz\"}}", "foo\rbar\r\nbaz"),
