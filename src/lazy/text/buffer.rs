@@ -989,12 +989,12 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches short- or long-form string.
-    fn match_string(self) -> IonParseResult<'data, MatchedString> {
+    pub fn match_string(self) -> IonParseResult<'data, MatchedString> {
         alt((Self::match_short_string, Self::match_long_string))(self)
     }
 
     /// Matches a short string. For example: `"foo"`
-    fn match_short_string(self) -> IonParseResult<'data, MatchedString> {
+    pub(crate) fn match_short_string(self) -> IonParseResult<'data, MatchedString> {
         delimited(char('"'), Self::match_short_string_body, char('"'))
             .map(|(_matched, contains_escaped_chars)| {
                 if contains_escaped_chars {
@@ -1008,13 +1008,13 @@ impl<'data> TextBufferView<'data> {
 
     /// Returns a matched buffer and a boolean indicating whether any escaped characters were
     /// found in the short string.
-    fn match_short_string_body(self) -> IonParseResult<'data, (Self, bool)> {
+    pub(crate) fn match_short_string_body(self) -> IonParseResult<'data, (Self, bool)> {
         Self::match_text_until_unescaped(self, b'\"')
     }
 
     /// Matches a long string comprised of any number of `'''`-enclosed segments interleaved
     /// with optional comments and whitespace.
-    pub fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
+    pub(crate) fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
         fold_many1(
             // Parser to keep applying repeatedly
             whitespace_and_then(Self::match_long_string_segment),
@@ -1441,7 +1441,8 @@ impl<'data> TextBufferView<'data> {
         .parse(self)
     }
 
-    fn match_clob(self) -> IonParseResult<'data, MatchedClob> {
+    /// Matches a clob of either short- or long-form syntax.
+    pub fn match_clob(self) -> IonParseResult<'data, MatchedClob> {
         delimited(
             tag("{{"),
             preceded(
@@ -1455,12 +1456,14 @@ impl<'data> TextBufferView<'data> {
         )(self)
     }
 
+    /// Matches the body (inside the `{{` and `}}`) of a short-form clob.
     fn match_short_clob_body(self) -> IonMatchResult<'data> {
         let (remaining, (body, _matched_string)) = consumed(Self::match_short_string)(self)?;
         body.validate_clob_text()?;
         Ok((remaining, body))
     }
 
+    /// Matches the body (inside the `{{` and `}}`) of a long-form clob.
     fn match_long_clob_body(self) -> IonMatchResult<'data> {
         recognize(many1_count(preceded(
             Self::match_optional_whitespace,
@@ -1468,12 +1471,14 @@ impl<'data> TextBufferView<'data> {
         )))(self)
     }
 
+    /// Matches a single segment of a long-form clob's content.
     fn match_long_clob_body_segment(self) -> IonMatchResult<'data> {
         let (remaining, (body, _matched_string)) = consumed(Self::match_long_string_segment)(self)?;
         body.validate_clob_text()?;
         Ok((remaining, body))
     }
 
+    /// Returns an error if the buffer contains any byte that is not legal inside a clob.
     fn validate_clob_text(self) -> IonMatchResult<'data> {
         for byte in self.bytes().iter().copied() {
             if !Self::byte_is_legal_clob_ascii(byte) {
@@ -1486,6 +1491,7 @@ impl<'data> TextBufferView<'data> {
         Ok((self, self.slice(0, 0)))
     }
 
+    /// Returns `false` if the specified byte cannot appear unescaped in a clob.
     fn byte_is_legal_clob_ascii(b: u8) -> bool {
         // Depending on where you look in the spec and/or `ion-tests`, you'll find conflicting
         // information about which ASCII characters can appear unescaped in a clob. Some say
@@ -2261,6 +2267,9 @@ mod tests {
             r#"{{""}}"#,
             r#"{{''''''}}"#,
             r#"{{"foo"}}"#,
+            r#"{{  "foo"}}"#,
+            r#"{{  "foo"  }}"#,
+            r#"{{"foo"  }}"#,
             r#"{{'''foo'''}}"#,
             r#"{{"foobar"}}"#,
             r#"{{'''foo''' '''bar'''}}"#,
@@ -2276,9 +2285,12 @@ mod tests {
 
         let bad_inputs = &[
             r#"{{foo}}"#,                         // No quotes
+            r#"{{"foo}}"#,                        // Missing closing quote
             r#"{{"foo"}"#,                        // Missing closing brace
             r#"{{'''foo'''}"#,                    // Missing closing brace
             r#"{{'''foo''' /*hi!*/ '''bar'''}}"#, // Interleaved comments
+            r#"{{'''foo''' "bar"}}"#,             // Mixed quote style
+            r#"{{"😎🙂🙃"}}"#,                    // Contains unescaped non-ascii characters
         ];
         for input in bad_inputs {
             mismatch_blob(input);
