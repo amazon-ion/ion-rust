@@ -1,17 +1,12 @@
+use crate::serde::SERDE_AS_ION;
 use crate::{IonError, Timestamp};
 use chrono::{DateTime, FixedOffset, Utc};
 use serde::de::Error;
 use serde::{self, de, ser, Deserialize, Serialize};
 use serde_with::{DeserializeAs, SerializeAs};
-use std::cell::Cell;
 use std::fmt;
 
-thread_local! {
-    /// Cell that contains a flag to determine when serialization and deserialization
-    /// is occurring with an Ion serializer. This allows us to know when to encode
-    /// Timestamps as ion timestamps
-    pub(crate) static ION_BINARY: Cell<bool> = Cell::new(false);
-}
+pub(crate) const ION_TIMESTAMP: &str = "$__ion_rs_timestamp__";
 
 /// Serialization for Ion `Timestamp`
 /// This serialization internally uses `serialize_newtype_struct` to trick serde to serialize a datetime value into timestamp.
@@ -23,7 +18,7 @@ impl Serialize for Timestamp {
     where
         S: serde::ser::Serializer,
     {
-        ION_BINARY.with(move |cell| {
+        SERDE_AS_ION.with(move |cell| {
             let datetime: DateTime<FixedOffset> = self
                 .clone()
                 .try_into()
@@ -49,7 +44,7 @@ impl<'de> Deserialize<'de> for Timestamp {
     where
         D: de::Deserializer<'de>,
     {
-        ION_BINARY.with(move |cell| {
+        SERDE_AS_ION.with(move |cell| {
             if cell.get() {
                 struct TimestampVisitor;
 

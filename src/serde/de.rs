@@ -1,6 +1,8 @@
 use crate::data_source::IonDataSource;
 use crate::result::IonFailure;
-use crate::serde::timestamp::ION_BINARY;
+use crate::serde::decimal::ION_DECIMAL;
+use crate::serde::timestamp::ION_TIMESTAMP;
+use crate::serde::SERDE_AS_ION;
 use crate::{IonError, IonReader, IonResult, IonType, ReaderBuilder, StreamItem, Symbol};
 use chrono::{DateTime, FixedOffset};
 use serde::de;
@@ -18,7 +20,7 @@ where
     T: Deserialize<'a>,
     S: IonDataSource,
 {
-    ION_BINARY.with(move |cell| {
+    SERDE_AS_ION.with(move |cell| {
         cell.set(true);
         let mut deserializer = Deserializer {
             reader: ReaderBuilder::new().build(s)?,
@@ -59,13 +61,11 @@ where
                 IonType::String | IonType::Symbol => self.deserialize_string(visitor),
                 IonType::Float => self.deserialize_f64(visitor),
                 IonType::Int => self.deserialize_i64(visitor),
-                IonType::Decimal => self.deserialize_newtype_struct("$__ion_rs_decimal__", visitor),
+                IonType::Decimal => self.deserialize_newtype_struct(ION_DECIMAL, visitor),
                 IonType::Bool => self.deserialize_bool(visitor),
                 IonType::List => self.deserialize_seq(visitor),
                 IonType::Struct => self.deserialize_struct("", &[], visitor),
-                IonType::Timestamp => {
-                    self.deserialize_newtype_struct("$__ion_rs_timestamp__", visitor)
-                }
+                IonType::Timestamp => self.deserialize_newtype_struct(ION_TIMESTAMP, visitor),
                 _ => IonResult::decoding_error("unexpected ion type".to_string()),
             }
         } else {
@@ -264,7 +264,7 @@ where
     where
         V: Visitor<'de>,
     {
-        if name == "$__ion_rs_timestamp__" {
+        if name == ION_TIMESTAMP {
             let timestamp = self.reader.read_timestamp()?;
             let datetime: DateTime<FixedOffset> = timestamp.try_into()?;
             let datetime_str = datetime.to_rfc3339();
@@ -272,7 +272,7 @@ where
             let result = visitor.visit_str(&datetime_str);
             self.reader.next()?;
             return result;
-        } else if name == "$__ion_rs_decimal__" {
+        } else if name == ION_DECIMAL {
             let decimal = self.reader.read_decimal()?;
             let result = visitor.visit_str(&decimal.to_string());
             self.reader.next()?;

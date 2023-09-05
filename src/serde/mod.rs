@@ -1,3 +1,105 @@
+//! # Serialization and deserialization of Ion data
+//!
+//! This module offers APIs for serialization of Rust data structures into Ion data and deserialization of Ion data into Rust data structures.
+//! The APIs uses serde framework for serialization and deserialization. See the Serde website <https://serde.rs/> for additional documentation and usage examples.
+//! This feature doesn't support [Ion annotations] for serialization and deserialization.
+//!
+//! There are three different APIs for serializing Ion data:
+//!
+//! * `to_string`: Serialize an object into compact Ion text format.
+//! * `to_pretty`: Serialize an object into pretty formatted Ion text.
+//! * `to_binary`:  Serialize an object into Ion binary format.
+//!
+//! For deserialization `from_ion` API is provided through this module.
+//!
+//! ## Mapping of Ion data types to Rust types
+//!
+//!| Ion data type | Rust data structure |
+//!|---------------|---------------------|
+//!| int           | u64, i64, u32, i32, u16, i16, u8, i8  |
+//!| string        | String               |
+//!| struct        | struct              |
+//!  
+//! _Note: Since the serde framework doesn't support [Ion decimal] and [Ion timestamp] types, distinct serialization and deserialization of these types are defined in this module.
+//! It uses `newtype_struct` with `$__ion_rs_decimal__` and `$__ion_rs_timestamp__` as struct names from [serde data model],
+//! to indicate serde framework to use Ion's implementation of decimal and timestamp serialization and deserialization._
+//!
+//! ## Example of serialization of Rust struct into Ion data
+//! ```
+//! use ion_rs::IonResult;
+//! use crate::ion_rs::serde::to_string;
+//! use serde::{Deserialize, Serialize};
+//!
+//!#[derive(Serialize, Deserialize)]
+//! struct Address {
+//!     street: String,
+//!     city: String,
+//! }
+//!
+//! fn main() -> IonResult<()> {
+//!     // data structure for representing address
+//!     let address = Address {
+//!         street: "10 Downing Street".to_owned(),
+//!         city: "London".to_owned(),
+//!     };
+//!
+//!     // serialize it to an Ion data
+//!     let ion = to_string(&address)?;
+//!
+//!     // assert that the serialized Ion data is as expected
+//!     assert_eq!(r#"{street: "10 Downing Street", city: "London"}"#, ion);
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Example of deserialization of Ion data into Rust struct
+//! ```
+//! use ion_rs::IonResult;
+//! use crate::ion_rs::serde::from_ion;
+//! use serde::{Deserialize, Serialize};
+//!
+//!#[derive(Serialize, Deserialize)]
+//! struct Address {
+//!     street: String,
+//!     city: String,
+//! }
+//!
+//! fn main() -> IonResult<()> {
+//!     // represents Ion data with address information
+//!     let data = r#"
+//!         {
+//!             street: "10 Downing Street",
+//!             city: "London"    
+//!         }
+//!     "#;
+//!
+//!     // deserialize Ion data into Rust struct for address
+//!     let address: Address = from_ion(data)?;
+//!
+//!     // assert that the deserialized Rust struct has street and city field set correctly
+//!     assert_eq!(address.street, "10 Downing Street");
+//!     assert_eq!(address.city, "London");
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! [Ion annotations]: https://amazon-ion.github.io/ion-docs/docs/spec.html#annot
+//! [Ion decimal]: https://amazon-ion.github.io/ion-docs/docs/spec.html#decimal
+//! [Ion timestamp]: https://amazon-ion.github.io/ion-docs/docs/spec.html#timestamp
+//! [serde data model]: https://serde.rs/data-model.html#types
+
+use std::cell::Cell;
+
+thread_local! {
+    /// Cell that contains a flag to determine when serialization and deserialization
+    /// is occurring with an Ion serializer. This allows us to know when to encode
+    /// Timestamps as ion timestamps and Decimal as Ion decimals
+    /// since the representation for timestamps and decimals differs for serde and Ion.
+    pub(crate) static SERDE_AS_ION: Cell<bool> = Cell::new(false);
+}
+
 pub mod de;
 pub mod decimal;
 pub mod ser;
@@ -32,6 +134,7 @@ mod tests {
             #[serde_as(as = "crate::Timestamp")]
             date1: DateTime<FixedOffset>,
             nested_struct: NestedTest,
+            optional: Option<i64>,
         }
 
         #[serde_as]
@@ -58,6 +161,7 @@ mod tests {
                 boolean: true,
                 str: "hello".to_string(),
             },
+            optional: None,
         };
 
         let result = to_string(&test).expect("failed to serialize");
@@ -76,5 +180,6 @@ mod tests {
         assert_eq!(back_result.date1, datetime.clone());
         assert!(back_result.nested_struct.boolean);
         assert_eq!(&back_result.nested_struct.str, "hello");
+        assert_eq!(back_result.optional, None);
     }
 }

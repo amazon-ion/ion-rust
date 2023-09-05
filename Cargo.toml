@@ -34,7 +34,7 @@ experimental = [
   "experimental-reader",
   "experimental-writer",
   "experimental-streaming",
-  "experimental-serde"
+  "experimental-serde",
 ]
 
 # Experimental streaming APIs
@@ -74,7 +74,7 @@ smallvec = {version ="1.9.0", features = ["const_generics"]}
 digest = { version = "0.9", optional = true }
 sha2 = { version = "0.9", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
-serde_with = { verison = "2.0", optional = true }
+serde_with = { version = "2.0", optional = true }
 
 [dev-dependencies]
 rstest = "0.17.0"

@@ -1,8 +1,10 @@
-use crate::serde::timestamp::ION_BINARY;
+use crate::serde::SERDE_AS_ION;
 use crate::{Decimal, Element};
 use serde::de::Error;
 use serde::{self, de, Deserialize, Serialize};
 use std::fmt;
+
+pub(crate) const ION_DECIMAL: &str = "$__ion_rs_decimal__";
 
 /// Serialization for Ion `Decimal`
 /// This serialization internally uses `serialize_newtype_struct` to trick serde to serialize a number value into decimal.
@@ -14,11 +16,10 @@ impl Serialize for Decimal {
     where
         S: serde::ser::Serializer,
     {
-        ION_BINARY.with(move |cell| {
+        SERDE_AS_ION.with(move |cell| {
             let decimal: Decimal = self.clone();
             if cell.get() {
-                serializer
-                    .serialize_newtype_struct("$__ion_rs_decimal__", decimal.to_string().as_str())
+                serializer.serialize_newtype_struct(ION_DECIMAL, decimal.to_string().as_str())
             } else {
                 serializer.serialize_str(decimal.to_string().as_str())
             }
@@ -35,7 +36,7 @@ impl<'de> Deserialize<'de> for Decimal {
     where
         D: de::Deserializer<'de>,
     {
-        ION_BINARY.with(move |cell| {
+        SERDE_AS_ION.with(move |cell| {
             if cell.get() {
                 struct DecimalVisitor;
 
@@ -61,7 +62,7 @@ impl<'de> Deserialize<'de> for Decimal {
                     }
                 }
 
-                deserializer.deserialize_newtype_struct("$__ion_rs_decimal__", DecimalVisitor)
+                deserializer.deserialize_newtype_struct(ION_DECIMAL, DecimalVisitor)
             } else {
                 let string_rep = String::deserialize(deserializer)?;
                 let decimal = Element::read_one(&string_rep)

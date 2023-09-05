@@ -3,7 +3,9 @@ use std::io::Cursor;
 
 use crate::ion_writer::IonWriter;
 use crate::result::IonFailure;
-use crate::serde::timestamp::ION_BINARY;
+use crate::serde::decimal::ION_DECIMAL;
+use crate::serde::timestamp::ION_TIMESTAMP;
+use crate::serde::SERDE_AS_ION;
 use crate::types::Int;
 use crate::{
     BinaryWriterBuilder, Element, IonError, IonResult, IonType, TextKind, TextWriterBuilder,
@@ -17,7 +19,7 @@ pub fn to_pretty<T>(value: &T) -> IonResult<String>
 where
     T: Serialize,
 {
-    ION_BINARY.with(move |cell| {
+    SERDE_AS_ION.with(move |cell| {
         cell.set(true);
         let mut cursor = Cursor::new(Vec::new());
         let mut serializer = Serializer {
@@ -43,7 +45,7 @@ pub fn to_string<T>(value: &T) -> IonResult<String>
 where
     T: Serialize,
 {
-    ION_BINARY.with(move |cell| {
+    SERDE_AS_ION.with(move |cell| {
         cell.set(true);
         let mut cursor = Cursor::new(Vec::new());
         let mut serializer = Serializer {
@@ -69,7 +71,7 @@ pub fn to_binary<T>(value: &T) -> IonResult<Vec<u8>>
 where
     T: Serialize,
 {
-    ION_BINARY.with(move |cell| {
+    SERDE_AS_ION.with(move |cell| {
         cell.set(true);
         let mut cursor = Cursor::new(Vec::new());
         let mut serializer = Serializer {
@@ -206,9 +208,9 @@ where
     where
         T: Serialize,
     {
-        if name == "$__ion_rs_timestamp__" {
+        if name == ION_TIMESTAMP {
             value.serialize(TimestampSerializer { serializer: self })
-        } else if name == "$__ion_rs_decimal__" {
+        } else if name == ION_DECIMAL {
             value.serialize(DecimalSerializer { serializer: self })
         } else {
             value.serialize(self)
