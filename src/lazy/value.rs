@@ -1,7 +1,7 @@
 use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
 use crate::lazy::encoding::BinaryEncoding;
 use crate::lazy::r#struct::LazyStruct;
-use crate::lazy::sequence::LazySequence;
+use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
@@ -193,15 +193,15 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
             Blob(b) => ValueRef::Blob(b),
             Clob(c) => ValueRef::Clob(c),
             SExp(s) => {
-                let lazy_sequence = LazySequence {
-                    raw_sequence: s,
+                let lazy_sexp = LazySExp {
+                    raw_sexp: s,
                     symbol_table: self.symbol_table,
                 };
-                ValueRef::SExp(lazy_sequence)
+                ValueRef::SExp(lazy_sexp)
             }
             List(l) => {
-                let lazy_sequence = LazySequence {
-                    raw_sequence: l,
+                let lazy_sequence = LazyList {
+                    raw_list: l,
                     symbol_table: self.symbol_table,
                 };
                 ValueRef::List(lazy_sequence)

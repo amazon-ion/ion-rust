@@ -4,7 +4,9 @@ use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct;
-use crate::lazy::binary::raw::sequence::LazyRawBinarySequence;
+use crate::lazy::binary::raw::sequence::{
+    LazyRawBinaryList, LazyRawBinarySExp, LazyRawBinarySequence,
+};
 use crate::lazy::decoder::private::LazyRawValuePrivate;
 use crate::lazy::decoder::LazyRawValue;
 use crate::lazy::encoding::BinaryEncoding;
@@ -404,7 +406,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     fn read_blob(&self) -> ValueParseResult<'data, BinaryEncoding> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Blob);
         let bytes = self.value_body()?;
-        Ok(RawValueRef::Blob(bytes))
+        Ok(RawValueRef::Blob(bytes.into()))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a clob.
@@ -422,7 +424,10 @@ impl<'data> LazyRawBinaryValue<'data> {
             input: self.input,
         };
         let lazy_sequence = LazyRawBinarySequence { value: lazy_value };
-        Ok(RawValueRef::SExp(lazy_sequence))
+        let lazy_sexp = LazyRawBinarySExp {
+            sequence: lazy_sequence,
+        };
+        Ok(RawValueRef::SExp(lazy_sexp))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a list.
@@ -433,7 +438,10 @@ impl<'data> LazyRawBinaryValue<'data> {
             input: self.input,
         };
         let lazy_sequence = LazyRawBinarySequence { value: lazy_value };
-        Ok(RawValueRef::List(lazy_sequence))
+        let lazy_list = LazyRawBinaryList {
+            sequence: lazy_sequence,
+        };
+        Ok(RawValueRef::List(lazy_list))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a struct.

@@ -19,21 +19,28 @@
 //! use the previously recorded information to minimize the amount of information that needs to be
 //! re-discovered.
 
-use nom::character::is_hex_digit;
 use std::borrow::Cow;
 use std::num::IntErrorKind;
 use std::str::FromStr;
 
-use num_bigint::BigInt;
+use nom::character::is_hex_digit;
+use nom::sequence::preceded;
+use nom::AsChar;
+use num_bigint::{BigInt, BigUint};
 use num_traits::Num;
 use smallvec::SmallVec;
 
+use crate::decimal::coefficient::{Coefficient, Sign};
+use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::InvalidInputError;
 use crate::result::{DecodingError, IonFailure};
-use crate::{Int, IonError, IonResult, IonType, RawSymbolTokenRef};
+use crate::{
+    Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp, TimestampPrecision,
+    UInt,
+};
 
 /// A partially parsed Ion value.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -43,9 +50,13 @@ pub(crate) enum MatchedValue {
     Bool(bool),
     Int(MatchedInt),
     Float(MatchedFloat),
+    Decimal(MatchedDecimal),
+    Timestamp(MatchedTimestamp),
     String(MatchedString),
     Symbol(MatchedSymbol),
+    Blob(MatchedBlob),
     List,
+    SExp,
     Struct,
     // TODO: ...the other types
 }
@@ -162,6 +173,112 @@ impl MatchedFloat {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) struct MatchedDecimal {
+    is_negative: bool,
+    digits_offset: u16,
+    digits_length: u16,
+    trailing_digits_length: u16,
+    exponent_is_negative: bool,
+    exponent_digits_offset: u16,
+    exponent_digits_length: u16,
+}
+
+impl MatchedDecimal {
+    // Decimals that take more than 32 bytes of text to represent will heap allocate a larger buffer.
+    const STACK_ALLOC_BUFFER_CAPACITY: usize = 32;
+
+    pub fn new(
+        is_negative: bool,
+        digits_offset: u16,
+        digits_length: u16,
+        trailing_digits_length: u16,
+        exponent_is_negative: bool,
+        exponent_offset: u16,
+        exponent_length: u16,
+    ) -> Self {
+        Self {
+            is_negative,
+            digits_offset,
+            digits_length,
+            trailing_digits_length,
+            exponent_is_negative,
+            exponent_digits_offset: exponent_offset,
+            exponent_digits_length: exponent_length,
+        }
+    }
+
+    pub fn read(&self, matched_input: TextBufferView) -> IonResult<Decimal> {
+        // The longest number that can fit into a u64 without finer-grained bounds checks.
+        const MAX_U64_DIGITS: usize = 19;
+        // u64::MAX is a 20-digit number starting with `1`. For simplicity, we'll turn any number
+        // with 19 or fewer digits into a u64 and anything else into a BigUint.
+
+        let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
+            SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
+
+        let digits = matched_input.slice(self.digits_offset as usize, self.digits_length as usize);
+
+        // Copy all of the digits (but not the decimal point or underscores) over to the buffer.
+        sanitized.extend(
+            digits
+                .bytes()
+                .iter()
+                .copied()
+                .filter(|b| b.is_ascii_digit()),
+        );
+
+        let digits_text = sanitized.as_utf8(digits.offset())?;
+        let magnitude: UInt = if sanitized.len() <= MAX_U64_DIGITS {
+            u64::from_str(digits_text).unwrap().into()
+        } else {
+            BigUint::from_str(digits_text).unwrap().into()
+        };
+
+        let sign = if self.is_negative {
+            Sign::Negative
+        } else {
+            Sign::Positive
+        };
+        let coefficient = Coefficient::new(sign, magnitude);
+
+        let mut exponent: i64 = match self.exponent_digits_length {
+            0 => 0,
+            _ => {
+                sanitized.clear();
+                let exponent_digits = matched_input.slice(
+                    self.exponent_digits_offset as usize,
+                    self.exponent_digits_length as usize,
+                );
+                // Copy all of the digits over to the buffer.
+                sanitized.extend(
+                    exponent_digits
+                        .bytes()
+                        .iter()
+                        .copied()
+                        .filter(|b| b.is_ascii_digit()),
+                );
+                let exponent_text = sanitized
+                    .as_utf8(matched_input.offset() + self.exponent_digits_offset as usize)?;
+                let exponent_magnitude = i64::from_str(exponent_text).map_err(|e| {
+                    IonError::decoding_error(format!(
+                        "failed to parse decimal exponent '{exponent_text}': {e:?}"
+                    ))
+                })?;
+                if self.exponent_is_negative {
+                    -exponent_magnitude
+                } else {
+                    exponent_magnitude
+                }
+            }
+        };
+
+        exponent -= self.trailing_digits_length as i64;
+
+        Ok(Decimal::new(coefficient, exponent))
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MatchedString {
     /// The string only has one segment. (e.g. "foo")
@@ -171,6 +288,14 @@ pub(crate) enum MatchedString {
     ///     """hello,"""
     ///     """ world!"""
     Long,
+    /// The string uses long-format delimiters, but is a single segment. We still have to
+    /// allocate a fresh String to store the version with decoded escapes, but we don't need
+    /// to re-parse the input because there's only one segment.
+    LongSingleSegmentWithEscapes,
+    /// The string uses long-format delimiters, but is a single segment and contains no escapes.
+    /// This allows us to return a slice of the input as-is. It also greatly simplifies the
+    /// reading process because we don't need to re-parse the input.
+    LongSingleSegmentWithoutEscapes,
 }
 
 impl MatchedString {
@@ -183,8 +308,65 @@ impl MatchedString {
                 self.read_short_string_without_escapes(matched_input)
             }
             MatchedString::ShortWithEscapes => self.read_short_string_with_escapes(matched_input),
-            MatchedString::Long => todo!("long-form strings"),
+            MatchedString::LongSingleSegmentWithoutEscapes => {
+                self.read_long_string_single_segment_without_escapes(matched_input)
+            }
+            MatchedString::LongSingleSegmentWithEscapes => {
+                self.read_long_string_single_segment_with_escapes(matched_input)
+            }
+            MatchedString::Long => self.read_long_string(matched_input),
         }
+    }
+
+    fn read_long_string_single_segment_without_escapes<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<StrRef<'data>> {
+        // Take a slice of the input that ignores the first and last three bytes, which are quotes.
+        let body = matched_input.slice(3, matched_input.len() - 6);
+        // There are no escaped characters, so we can just validate the string in-place.
+        let text = body.as_text()?;
+        let str_ref = StrRef::from(text);
+        Ok(str_ref)
+    }
+
+    fn read_long_string_single_segment_with_escapes<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<StrRef<'data>> {
+        // Take a slice of the input that ignores the first and last three bytes, which are quotes.
+        let body = matched_input.slice(3, matched_input.len() - 6);
+        // There are no escaped characters, so we can just validate the string in-place.
+        let mut sanitized = Vec::with_capacity(matched_input.len());
+        escape_text(body, &mut sanitized)?;
+        let text = String::from_utf8(sanitized).unwrap();
+        Ok(StrRef::from(text.to_string()))
+    }
+
+    fn read_long_string<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<StrRef<'data>> {
+        // We're going to re-parse the input to visit each segment, copying its sanitized bytes into
+        // a contiguous buffer.
+
+        // Create a new buffer to hold the sanitized data.
+        let mut sanitized = Vec::with_capacity(matched_input.len());
+        let mut remaining = matched_input;
+
+        // Iterate over the string segments using the match_long_string_segment parser.
+        // This is the same parser that matched the input initially, which means that the only
+        // reason it wouldn't succeed here is if the input is empty, meaning we're done reading.
+        while let Ok((remaining_after_match, (segment_body, _has_escapes))) = preceded(
+            TextBufferView::match_optional_whitespace,
+            TextBufferView::match_long_string_segment,
+        )(remaining)
+        {
+            remaining = remaining_after_match;
+            escape_text(segment_body, &mut sanitized)?;
+        }
+        let text = String::from_utf8(sanitized).unwrap();
+        Ok(StrRef::from(text))
     }
 
     fn read_short_string_without_escapes<'data>(
@@ -379,7 +561,8 @@ pub(crate) enum MatchedSymbol {
     QuotedWithoutEscapes,
     /// The symbol is delimited by single quotes and has at least one escape sequence.
     QuotedWithEscapes,
-    // TODO: Operators in S-Expressions
+    /// An operator within an S-expression
+    Operator,
 }
 
 impl MatchedSymbol {
@@ -387,11 +570,12 @@ impl MatchedSymbol {
         &self,
         matched_input: TextBufferView<'data>,
     ) -> IonResult<RawSymbolTokenRef<'data>> {
+        use MatchedSymbol::*;
         match self {
-            MatchedSymbol::SymbolId => self.read_symbol_id(matched_input),
-            MatchedSymbol::Identifier => self.read_identifier(matched_input),
-            MatchedSymbol::QuotedWithEscapes => self.read_quoted_with_escapes(matched_input),
-            MatchedSymbol::QuotedWithoutEscapes => self.read_quoted_without_escapes(matched_input),
+            SymbolId => self.read_symbol_id(matched_input),
+            Identifier | Operator => self.read_unquoted(matched_input),
+            QuotedWithEscapes => self.read_quoted_with_escapes(matched_input),
+            QuotedWithoutEscapes => self.read_quoted_without_escapes(matched_input),
         }
     }
 
@@ -423,7 +607,9 @@ impl MatchedSymbol {
         Ok(RawSymbolTokenRef::Text(text.into()))
     }
 
-    pub(crate) fn read_identifier<'data>(
+    /// Reads a symbol with no surrounding quotes (and therefore no escapes).
+    /// This is used for both identifiers and (within s-expressions) operators.
+    pub(crate) fn read_unquoted<'data>(
         &self,
         matched_input: TextBufferView<'data>,
     ) -> IonResult<RawSymbolTokenRef<'data>> {
@@ -442,5 +628,415 @@ impl MatchedSymbol {
         // guarantee that this string contains only decimal digits.
         let sid = usize::from_str(text).expect("loading symbol ID as usize");
         Ok(RawSymbolTokenRef::SymbolId(sid))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MatchedTimestamp {
+    precision: TimestampPrecision,
+    offset: MatchedTimestampOffset,
+}
+
+impl MatchedTimestamp {
+    pub fn new(precision: TimestampPrecision) -> Self {
+        Self {
+            precision,
+            offset: MatchedTimestampOffset::Unknown,
+        }
+    }
+}
+
+impl MatchedTimestamp {
+    pub fn with_offset(mut self, offset: MatchedTimestampOffset) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    pub(crate) fn read(&self, matched_input: TextBufferView) -> IonResult<Timestamp> {
+        // The parser has already confirmed that each subfield is made of ASCII digits,
+        // so UTF-8 validation and parsing cannot fail. `unwrap()` is used in such cases
+        // throughout.
+        let year_text = matched_input.slice(0, 4).as_text().unwrap();
+        let year = u32::from_str(year_text).unwrap();
+        let timestamp = Timestamp::with_year(year);
+
+        if self.precision == TimestampPrecision::Year {
+            return timestamp.build();
+        }
+
+        // Thanks to the conventions of RFC-3339, each subfield will always have the same offset
+        // and length. We can hardcode the location of each one. (Offset is an exception, as we will
+        // see later.)
+        let month_text = matched_input.slice(5, 2).as_text().unwrap();
+        let month = u32::from_str(month_text).unwrap();
+        let timestamp = timestamp.with_month(month);
+
+        if self.precision == TimestampPrecision::Month {
+            return timestamp.build();
+        }
+
+        let day_text = matched_input.slice(8, 2).as_text().unwrap();
+        let day = u32::from_str(day_text).unwrap();
+        let timestamp = timestamp.with_day(day);
+
+        if self.precision == TimestampPrecision::Day {
+            return timestamp.build();
+        }
+
+        // For precisions greater than `Day`, the offset is mandatory.
+        let offset_minutes = match self.offset {
+            // If it's Zulu or unknown, we don't need to parse it; we already have the
+            // information we need.
+            MatchedTimestampOffset::Zulu => Some(0),
+            MatchedTimestampOffset::Unknown => None,
+            // If it's any other offset, we need to parse the sign, hours, and minutes.
+            // This is the only field that doesn't have a fixed location; it's always at the end
+            // of the timestamp, and the timestamp's length varies by its precision.
+            // The `MatchedHoursAndMinutes` stores the offset at which `hours` begins.
+            MatchedTimestampOffset::HoursAndMinutes(matched_offset) => {
+                let hours_start = matched_offset.hours_offset() - matched_input.offset();
+                let hours_text = matched_input.slice(hours_start, 2).as_text().unwrap();
+                let hours = i32::from_str(hours_text).unwrap();
+                let minutes_start = hours_start + 3;
+                let minutes_text = matched_input.slice(minutes_start, 2).as_text().unwrap();
+                let minutes = i32::from_str(minutes_text).unwrap();
+                let offset_magnitude_minutes = (hours * 60) + minutes;
+                if matched_offset.is_negative {
+                    Some(-offset_magnitude_minutes)
+                } else {
+                    Some(offset_magnitude_minutes)
+                }
+            }
+        };
+
+        let hour_text = matched_input.slice(11, 2).as_text().unwrap();
+        let hour = u32::from_str(hour_text).unwrap();
+        let minute_text = matched_input.slice(14, 2).as_text().unwrap();
+        let minute = u32::from_str(minute_text).unwrap();
+
+        let timestamp = timestamp.with_hour_and_minute(hour, minute);
+
+        if self.precision == TimestampPrecision::HourAndMinute {
+            if let Some(offset) = offset_minutes {
+                return timestamp.with_offset(offset).build();
+            } else {
+                return timestamp.build();
+            }
+        }
+
+        let second_text = matched_input.slice(17, 2).as_text().unwrap();
+        let seconds = u32::from_str(second_text).unwrap();
+        let timestamp = timestamp.with_second(seconds);
+
+        // There's guaranteed to be a 19th byte. It will either be a `.`, indicating the beginning
+        // of fractional seconds or a `+`/`-`/`Z` comprising part of the offset.
+        if matched_input.bytes()[19] != b'.' {
+            // There are no fractional seconds; we can apply the offset (if any) and return.
+            if let Some(offset) = offset_minutes {
+                return timestamp.with_offset(offset).build();
+            } else {
+                return timestamp.build();
+            }
+        }
+
+        // There are fractional seconds. We need to scan ahead to the first non-digit byte in the
+        // input following the leading `.`.
+        let fractional_start = 20;
+        let mut fractional_end = fractional_start;
+        for byte in matched_input.slice_to_end(fractional_start).bytes() {
+            if !byte.is_dec_digit() {
+                break;
+            }
+            fractional_end += 1;
+        }
+        let fractional_text = matched_input
+            .slice(fractional_start, fractional_end - fractional_start)
+            .as_text()
+            .unwrap();
+        let timestamp = match fractional_text.len() {
+            len if len <= 9 => {
+                let fraction = u32::from_str(fractional_text).unwrap();
+                let multiplier = 10u32.pow(9 - len as u32);
+                let nanoseconds = fraction * multiplier;
+                timestamp.with_nanoseconds_and_precision(nanoseconds, len as u32)
+            }
+            _ => {
+                // For less common precisions, store a Decimal
+                let coefficient = BigUint::from_str(fractional_text).unwrap();
+                let decimal = Decimal::new(coefficient, -(fractional_text.len() as i64));
+                timestamp.with_fractional_seconds(decimal)
+            }
+        };
+
+        if let Some(offset) = offset_minutes {
+            timestamp.with_offset(offset).build()
+        } else {
+            timestamp.build()
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MatchedTimestampOffset {
+    Zulu,
+    HoursAndMinutes(MatchedHoursAndMinutes),
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MatchedHoursAndMinutes {
+    is_negative: bool,
+    /// This is the offset of the first `H` in the offset string `HH:MM`.
+    hours_offset: usize,
+}
+
+impl MatchedHoursAndMinutes {
+    pub fn new(is_negative: bool, hours_offset: usize) -> Self {
+        Self {
+            is_negative,
+            hours_offset,
+        }
+    }
+    pub fn is_negative(&self) -> bool {
+        self.is_negative
+    }
+    pub fn hours_offset(&self) -> usize {
+        self.hours_offset
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MatchedBlob {
+    // Position within the blob at which the base64 characters begin
+    content_offset: usize,
+    // Length of the base64 characters
+    content_length: usize,
+}
+
+impl MatchedBlob {
+    pub fn new(content_offset: usize, content_length: usize) -> Self {
+        Self {
+            content_offset,
+            content_length,
+        }
+    }
+
+    pub(crate) fn read<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<BytesRef<'data>> {
+        let base64_text = matched_input.slice(self.content_offset, self.content_length);
+        let matched_bytes = base64_text.bytes();
+
+        // Ion allows whitespace to appear in the middle of the base64 data; if the match
+        // has inner whitespace, we need to strip it out.
+        let contains_whitespace = matched_bytes.iter().any(|b| b.is_ascii_whitespace());
+
+        let decode_result = if contains_whitespace {
+            // This allocates a fresh Vec to store the sanitized bytes. It could be replaced by
+            // a reusable buffer if this proves to be a bottleneck.
+            let sanitized_base64_text: Vec<u8> = matched_bytes
+                .iter()
+                .copied()
+                .filter(|b| !b.is_ascii_whitespace())
+                .collect();
+            base64::decode(sanitized_base64_text)
+        } else {
+            base64::decode(matched_bytes)
+        };
+
+        decode_result
+            .map_err(|e| {
+                IonError::decoding_error(format!(
+                    "failed to parse blob with invalid base64 data:\n'{:?}'\n{e:?}:",
+                    matched_input.bytes()
+                ))
+            })
+            .map(BytesRef::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lazy::text::buffer::TextBufferView;
+    use crate::{Decimal, IonResult, Timestamp};
+
+    #[test]
+    fn read_timestamps() -> IonResult<()> {
+        fn expect_timestamp(data: &str, expected: Timestamp) {
+            let data = format!("{data} "); // Append a space
+            let buffer = TextBufferView::new(data.as_bytes());
+            let (_remaining, matched) = buffer.match_timestamp().unwrap();
+            let actual = matched.read(buffer).unwrap();
+            assert_eq!(
+                actual, expected,
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data, actual, expected
+            );
+        }
+
+        let tests = [
+            ("2023T", Timestamp::with_year(2023).build()?),
+            (
+                "2023-08T",
+                Timestamp::with_year(2023).with_month(8).build()?,
+            ),
+            ("2023-08-13", Timestamp::with_ymd(2023, 8, 13).build()?),
+            ("2023-08-13T", Timestamp::with_ymd(2023, 8, 13).build()?),
+            (
+                "2023-08-13T10:30-00:00",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_offset(0)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30-05:00",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_offset(-300)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30+05:00",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_offset(300)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30:45Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_second(45)
+                    .with_offset(0)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30:45.226Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_second(45)
+                    .with_milliseconds(226)
+                    .with_offset(0)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30:45.226226Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_second(45)
+                    .with_microseconds(226226)
+                    .with_offset(0)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30:45.226226226Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_second(45)
+                    .with_nanoseconds(226226226)
+                    .with_offset(0)
+                    .build()?,
+            ),
+            (
+                "2023-08-13T10:30:45.226226226337337Z",
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hour_and_minute(10, 30)
+                    .with_second(45)
+                    .with_fractional_seconds(Decimal::new(226_226_226_337_337_i64, -15))
+                    .with_offset(0)
+                    .build()?,
+            ),
+        ];
+
+        for (input, expected) in tests {
+            expect_timestamp(input, expected);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_decimals() -> IonResult<()> {
+        fn expect_decimal(data: &str, expected: Decimal) {
+            let data = format!("{data} "); // Append a space
+            let buffer = TextBufferView::new(data.as_bytes());
+            let (_remaining, matched) = buffer.match_decimal().unwrap();
+            let actual = matched.read(buffer).unwrap();
+            assert_eq!(
+                actual, expected,
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data, actual, expected
+            );
+        }
+
+        let tests = [
+            ("0.", Decimal::new(0, 0)),
+            ("-0.", Decimal::negative_zero()),
+            ("5.", Decimal::new(5, 0)),
+            ("-5.", Decimal::new(-5, 0)),
+            ("5.d0", Decimal::new(5, 0)),
+            ("-5.d0", Decimal::new(-5, 0)),
+            ("5.0", Decimal::new(50, -1)),
+            ("-5.0", Decimal::new(-50, -1)),
+            ("5.0d", Decimal::new(50, -1)),
+            ("-5.0d", Decimal::new(-50, -1)),
+            ("500d0", Decimal::new(5, 2)),
+            ("-500d0", Decimal::new(-5, 2)),
+            ("0.005", Decimal::new(5, -3)),
+            ("-0.005", Decimal::new(-5, -3)),
+            ("0.005D2", Decimal::new(5, -1)),
+            ("-0.005D2", Decimal::new(-5, -1)),
+            ("0.005d+2", Decimal::new(5, -1)),
+            ("-0.005d+2", Decimal::new(-5, -1)),
+            ("0.005D-2", Decimal::new(5, -5)),
+            ("-0.005D-2", Decimal::new(-5, -5)),
+        ];
+
+        for (input, expected) in tests {
+            expect_decimal(input, expected);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_blobs() -> IonResult<()> {
+        fn expect_blob(data: &str, expected: &str) {
+            let data = format!("{data} "); // Append a space
+            let buffer = TextBufferView::new(data.as_bytes());
+            let (_remaining, matched) = buffer.match_blob().unwrap();
+            let actual = matched.read(buffer).unwrap();
+            assert_eq!(
+                actual,
+                expected.as_ref(),
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data,
+                actual,
+                expected
+            );
+        }
+
+        let tests = [
+            ("{{TWVyY3VyeQ==}}", "Mercury"),
+            ("{{VmVudXM=}}", "Venus"),
+            ("{{RWFydGg=}}", "Earth"),
+            ("{{TWFycw==}}", "Mars"),
+            ("{{     TWFycw==      }}", "Mars"),
+            ("{{\nTWFycw==\t\t }}", "Mars"),
+        ];
+
+        for (input, expected) in tests {
+            expect_blob(input, expected);
+        }
+
+        Ok(())
     }
 }

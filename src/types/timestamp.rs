@@ -524,7 +524,8 @@ impl Timestamp {
         if let Some(offset) = self.offset {
             // `NaiveDateTime#hours()` returns hours normalized as per UTC
             // for local time we need to +/- the difference
-            let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
+            let local_date_time =
+                DateTime::<FixedOffset>::from_naive_utc_and_offset(self.date_time, offset);
             return local_date_time.year() as u32;
         }
         self.date_time.year() as u32
@@ -538,7 +539,8 @@ impl Timestamp {
         if let Some(offset) = self.offset {
             // `NaiveDateTime#hours()` returns hours normalized as per UTC
             // for local time we need to +/- the difference
-            let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
+            let local_date_time =
+                DateTime::<FixedOffset>::from_naive_utc_and_offset(self.date_time, offset);
             return local_date_time.month();
         }
         self.date_time.month()
@@ -552,7 +554,8 @@ impl Timestamp {
         if let Some(offset) = self.offset {
             // `NaiveDateTime#hours()` returns hours normalized as per UTC
             // for local time we need to +/- the difference
-            let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
+            let local_date_time =
+                DateTime::<FixedOffset>::from_naive_utc_and_offset(self.date_time, offset);
             return local_date_time.day();
         }
         self.date_time.day()
@@ -565,7 +568,8 @@ impl Timestamp {
         if let Some(offset) = self.offset {
             // `NaiveDateTime#hours()` returns hours normalized as per UTC
             // for local time we need to +/- the difference
-            let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
+            let local_date_time =
+                DateTime::<FixedOffset>::from_naive_utc_and_offset(self.date_time, offset);
             return local_date_time.hour();
         }
         self.date_time.hour()
@@ -578,7 +582,8 @@ impl Timestamp {
         if let Some(offset) = self.offset {
             // `NaiveDateTime#hours()` returns minutes normalized as per UTC
             // for local time we need to +/- the difference
-            let local_date_time = DateTime::<FixedOffset>::from_utc(self.date_time, offset);
+            let local_date_time =
+                DateTime::<FixedOffset>::from_naive_utc_and_offset(self.date_time, offset);
             return local_date_time.minute();
         }
         self.date_time.minute()

@@ -1,10 +1,10 @@
+#[cfg(feature = "experimental-lazy-reader")]
+use ion_rs::IonResult;
+
 #[cfg(not(feature = "experimental-lazy-reader"))]
 fn main() {
     println!("This example requires the 'experimental-lazy-reader' feature to work.");
 }
-
-#[cfg(feature = "experimental-lazy-reader")]
-use ion_rs::IonResult;
 
 #[cfg(feature = "experimental-lazy-reader")]
 fn main() -> IonResult<()> {
@@ -13,16 +13,16 @@ fn main() -> IonResult<()> {
 
 #[cfg(feature = "experimental-lazy-reader")]
 mod lazy_reader_example {
+    use std::fs::File;
+    use std::process::exit;
+
+    use memmap::MmapOptions;
 
     use ion_rs::lazy::r#struct::LazyBinaryStruct;
     use ion_rs::lazy::reader::LazyBinaryReader;
-    use ion_rs::lazy::sequence::LazyBinarySequence;
     use ion_rs::lazy::value::LazyBinaryValue;
     use ion_rs::lazy::value_ref::ValueRef;
     use ion_rs::IonResult;
-    use memmap::MmapOptions;
-    use std::fs::File;
-    use std::process::exit;
 
     pub fn read_all_values() -> IonResult<()> {
         let args: Vec<String> = std::env::args().collect();
@@ -53,14 +53,17 @@ mod lazy_reader_example {
     fn count_value_and_children(lazy_value: &LazyBinaryValue) -> IonResult<usize> {
         use ValueRef::*;
         let child_count = match lazy_value.read()? {
-            List(s) | SExp(s) => count_sequence_children(&s)?,
+            List(s) => count_sequence_children(s.iter())?,
+            SExp(s) => count_sequence_children(s.iter())?,
             Struct(s) => count_struct_children(&s)?,
             _ => 0,
         };
         Ok(1 + child_count)
     }
 
-    fn count_sequence_children(lazy_sequence: &LazyBinarySequence) -> IonResult<usize> {
+    fn count_sequence_children<'a, 'b>(
+        lazy_sequence: impl Iterator<Item = IonResult<LazyBinaryValue<'a, 'b>>>,
+    ) -> IonResult<usize> {
         let mut count = 0;
         for value in lazy_sequence {
             count += count_value_and_children(&value?)?;

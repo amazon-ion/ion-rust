@@ -9,7 +9,73 @@ use crate::{IonResult, IonType};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
-#[derive(Clone)]
+#[derive(Debug, Copy, Clone)]
+pub struct LazyRawBinaryList<'data> {
+    pub(crate) sequence: LazyRawBinarySequence<'data>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct LazyRawBinarySExp<'data> {
+    pub(crate) sequence: LazyRawBinarySequence<'data>,
+}
+
+impl<'data> LazyContainerPrivate<'data, BinaryEncoding> for LazyRawBinaryList<'data> {
+    fn from_value(value: LazyRawBinaryValue<'data>) -> Self {
+        LazyRawBinaryList {
+            sequence: LazyRawBinarySequence { value },
+        }
+    }
+}
+
+impl<'data> LazyRawSequence<'data, BinaryEncoding> for LazyRawBinaryList<'data> {
+    type Iterator = RawBinarySequenceIterator<'data>;
+
+    fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {
+        self.sequence.value.annotations()
+    }
+
+    fn ion_type(&self) -> IonType {
+        IonType::List
+    }
+
+    fn iter(&self) -> Self::Iterator {
+        self.sequence.iter()
+    }
+
+    fn as_value(&self) -> LazyRawBinaryValue<'data> {
+        self.sequence.value
+    }
+}
+
+impl<'data> LazyContainerPrivate<'data, BinaryEncoding> for LazyRawBinarySExp<'data> {
+    fn from_value(value: LazyRawBinaryValue<'data>) -> Self {
+        LazyRawBinarySExp {
+            sequence: LazyRawBinarySequence { value },
+        }
+    }
+}
+
+impl<'data> LazyRawSequence<'data, BinaryEncoding> for LazyRawBinarySExp<'data> {
+    type Iterator = RawBinarySequenceIterator<'data>;
+
+    fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {
+        self.sequence.value.annotations()
+    }
+
+    fn ion_type(&self) -> IonType {
+        IonType::SExp
+    }
+
+    fn iter(&self) -> Self::Iterator {
+        self.sequence.iter()
+    }
+
+    fn as_value(&self) -> LazyRawBinaryValue<'data> {
+        self.sequence.value
+    }
+}
+
+#[derive(Copy, Clone)]
 pub struct LazyRawBinarySequence<'data> {
     pub(crate) value: LazyRawBinaryValue<'data>,
 }
@@ -24,32 +90,6 @@ impl<'data> LazyRawBinarySequence<'data> {
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
         RawBinarySequenceIterator::new(buffer_slice)
-    }
-}
-
-impl<'data> LazyContainerPrivate<'data, BinaryEncoding> for LazyRawBinarySequence<'data> {
-    fn from_value(value: LazyRawBinaryValue<'data>) -> Self {
-        LazyRawBinarySequence { value }
-    }
-}
-
-impl<'data> LazyRawSequence<'data, BinaryEncoding> for LazyRawBinarySequence<'data> {
-    type Iterator = RawBinarySequenceIterator<'data>;
-
-    fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {
-        self.value.annotations()
-    }
-
-    fn ion_type(&self) -> IonType {
-        self.value.ion_type()
-    }
-
-    fn iter(&self) -> Self::Iterator {
-        LazyRawBinarySequence::iter(self)
-    }
-
-    fn as_value(&self) -> LazyRawBinaryValue<'data> {
-        self.value
     }
 }
 

@@ -76,7 +76,7 @@ impl<'data> LazyRawReader<'data, TextEncoding> for LazyRawTextReader<'data> {
 mod tests {
     use crate::lazy::decoder::{LazyRawStruct, LazyRawValue};
     use crate::lazy::raw_value_ref::RawValueRef;
-    use crate::{IonType, RawSymbolTokenRef};
+    use crate::{Decimal, IonType, RawSymbolTokenRef, Timestamp};
 
     use super::*;
 
@@ -120,16 +120,38 @@ mod tests {
         3.6e0
         2.5e008
         -318e-2
+
+        // Decimals
+        1.5
+        3.14159
+        -6d+5
+        6d-5
+
+        // Timestamps
+        
+        2023T
+        2023-08-13T
+        2023-08-13T21:45:30.993-05:00
             
         // Strings
 
+        '''Long string without escapes'''
+
         "Hello!"
+        
+        '''Long string with escaped \''' delimiter''' 
+
         "foo bar baz"
         "😎😎😎"
         "lol\n\r\0wat"                     // Single-character escapes
         "\x48ello, \x77orld!"              // \x 2-digit hex escape
         "\u0048ello, \u0077orld!"          // \u 4-digit hex escape
         "\U00000048ello, \U00000077orld!"  // \U 8-digit hex escape
+        
+        '''Mercury '''
+        '''Venus '''
+        '''Earth '''
+        '''Mars '''
 
         "#,
         );
@@ -152,6 +174,10 @@ mod tests {
         $10
         $733
         
+        // Blob
+        {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
+        
+        // List
         [
             // First item
             1,
@@ -160,7 +186,15 @@ mod tests {
             // Third item
             3
         ]
-        
+
+        // S-Expression
+        (
+            foo++
+            2
+            3
+        )
+
+        // Struct
         {
             // Identifier 
             foo: 100,
@@ -233,8 +267,49 @@ mod tests {
         expect_next(reader, RawValueRef::Float(2.5f64 * 10f64.powi(8)));
         // -3.18
         expect_next(reader, RawValueRef::Float(-3.18f64));
+        //         1.5
+        expect_next(reader, RawValueRef::Decimal(Decimal::new(15, -1)));
+        //         3.14159
+        expect_next(reader, RawValueRef::Decimal(Decimal::new(314159, -5)));
+        //         -6d+5
+        expect_next(reader, RawValueRef::Decimal(Decimal::new(-6, 5)));
+        //         6d-5
+        expect_next(reader, RawValueRef::Decimal(Decimal::new(6, -5)));
+
+        // 2023T
+        expect_next(
+            reader,
+            RawValueRef::Timestamp(Timestamp::with_year(2023).build()?),
+        );
+        // 2023-08-13T
+        expect_next(
+            reader,
+            RawValueRef::Timestamp(Timestamp::with_ymd(2023, 8, 13).build()?),
+        );
+        // 2023-08-13T21:45:30.993-05:00
+        expect_next(
+            reader,
+            RawValueRef::Timestamp(
+                Timestamp::with_ymd(2023, 8, 13)
+                    .with_hms(21, 45, 30)
+                    .with_milliseconds(993)
+                    .with_offset(-300)
+                    .build()?,
+            ),
+        );
+
+        // '''Long string without escapes'''
+        expect_next(
+            reader,
+            RawValueRef::String("Long string without escapes".into()),
+        );
         // "Hello"
         expect_next(reader, RawValueRef::String("Hello!".into()));
+        // '''Long string with escaped \''' delimiter'''
+        expect_next(
+            reader,
+            RawValueRef::String("Long string with escaped ''' delimiter".into()),
+        );
         // "foo bar baz"
         expect_next(reader, RawValueRef::String("foo bar baz".into()));
         // "😎😎😎"
@@ -247,6 +322,10 @@ mod tests {
         expect_next(reader, RawValueRef::String("Hello, world!".into()));
         // "\U00000048ello, \U00000077orld!"
         expect_next(reader, RawValueRef::String("Hello, world!".into()));
+        expect_next(
+            reader,
+            RawValueRef::String("Mercury Venus Earth Mars ".into()),
+        );
         // "\"Hello,\\\n world!\" "
         expect_next(reader, RawValueRef::String("Hello, world!".into()));
         // 'foo'
@@ -287,14 +366,36 @@ mod tests {
             RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(733)),
         );
 
-        // [1, 2, 3]
+        // {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
+        expect_next(reader, RawValueRef::Blob("razzle dazzle root beer".into()));
 
+        // [1, 2, 3]
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;
         let mut sum = 0;
         for value in &list {
             sum += value?.read()?.expect_i64()?;
         }
         assert_eq!(sum, 6);
+
+        // (foo++ 1 2)
+        let sexp = reader.next()?.expect_value()?.read()?.expect_sexp()?;
+        let mut sexp_elements = sexp.iter();
+        assert_eq!(
+            sexp_elements.next().unwrap()?.read()?,
+            RawValueRef::Symbol("foo".into())
+        );
+        assert_eq!(
+            sexp_elements.next().unwrap()?.read()?,
+            RawValueRef::Symbol("++".into())
+        );
+        assert_eq!(
+            sexp_elements.next().unwrap()?.read()?,
+            RawValueRef::Int(2.into())
+        );
+        assert_eq!(
+            sexp_elements.next().unwrap()?.read()?,
+            RawValueRef::Int(3.into())
+        );
 
         // {foo: 100, bar: 200, baz: 300}
         let item = reader.next()?;

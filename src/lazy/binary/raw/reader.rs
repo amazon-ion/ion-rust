@@ -188,7 +188,7 @@ mod tests {
         let lazy_list = reader.next()?.expect_value()?.read()?.expect_list()?;
         // Exercise the `Debug` impl
         println!("Lazy Raw Sequence: {:?}", lazy_list);
-        let mut list_values = lazy_list.iter();
+        let mut list_values = lazy_list.sequence.iter();
         assert_eq!(list_values.next().expect("first")?.ion_type(), IonType::Int);
         assert_eq!(
             list_values.next().expect("second")?.ion_type(),
