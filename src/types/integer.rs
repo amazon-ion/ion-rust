@@ -398,23 +398,39 @@ impl Int {
     }
 
     /// Compares an [i64] integer with a [BigInt] to see if they are equal. This method never
-    /// allocates. It will always prefer to downgrade a BigUint and compare the two integers as
-    /// u64 values. If this is not possible, then the two numbers cannot be equal anyway.
+    /// allocates. It will always prefer to downgrade a BigInt and compare the two integers as
+    /// i64 values. If this is not possible, then the two numbers cannot be equal anyway.
     fn cross_representation_eq(m1: i64, m2: &BigInt) -> bool {
         Int::cross_representation_cmp(m1, m2) == Ordering::Equal
     }
 
     /// Compares an [i64] integer with a [BigInt]. This method never allocates. It will always
-    /// prefer to downgrade a BigUint and compare the two integers as u64 values. If this is
-    /// not possible, then the BigUint is larger than the u64.
+    /// prefer to downgrade a BigInt and compare the two integers as i64 values. If this is
+    /// not possible, then the BigInt is larger than the i64.
     fn cross_representation_cmp(m1: i64, m2: &BigInt) -> Ordering {
-        // Try to downgrade the BigUint first since that's cheaper than upgrading the u64.
-        if let Some(downgraded_m2) = m2.to_i64() {
-            // If the conversion succeeds, compare the resulting values.
-            return m1.cmp(&downgraded_m2);
+        // First check the sign for determining the comparison for m1 and m2.
+        let m1_is_negative = m1.is_negative();
+        let m2_is_negative = m2.is_negative();
+
+        match (m1_is_negative, m2_is_negative) {
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
+            (_, _) => {
+                // Try to downgrade the BigInt first since that's cheaper than upgrading the i64.
+                if let Some(downgraded_m2) = m2.to_i64() {
+                    // If the conversion succeeds, compare the resulting values.
+                    return m1.cmp(&downgraded_m2);
+                }
+
+                if m1_is_negative {
+                    // Since both values are negative, the i64 must be larger than BigInt.
+                    return Ordering::Greater;
+                }
+
+                // Otherwise, the BigInt must be larger than the i64.
+                Ordering::Less
+            }
         }
-        // Otherwise, the BigUint must be larger than the u64.
-        Ordering::Less
     }
 }
 
@@ -666,6 +682,18 @@ mod integer_tests {
         Int::from(BigInt::from(1100)),
         Ordering::Equal
     )]
+    #[case::big_int_lt_i64(Int::from(BigInt::from(-9223372036854775809i128)), Int::from(0), Ordering::Less)]
+    #[case::big_int_gt_i64(
+        Int::from(BigInt::from(9223372036854775809i128)),
+        Int::from(0),
+        Ordering::Greater
+    )]
+    #[case::i64_gt_big_int_i128(
+        Int::from(0),
+        Int::from(BigInt::from(9223372036854775809i128)),
+        Ordering::Less
+    )]
+    #[case::i64_lt_big_int_i128(Int::from(0), Int::from(BigInt::from(-9223372036854775809i128)),  Ordering::Greater)]
     fn integer_ordering_tests(#[case] this: Int, #[case] other: Int, #[case] expected: Ordering) {
         assert_eq!(this.cmp(&other), expected)
     }
