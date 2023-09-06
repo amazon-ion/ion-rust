@@ -199,7 +199,8 @@ mod tests {
             // Second item
             2 /*comment before comma*/,
             // Third item
-            3 ,]
+            3, // Final trailing comma
+        ]
         
 
         // S-Expression

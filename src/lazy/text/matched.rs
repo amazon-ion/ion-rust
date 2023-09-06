@@ -438,8 +438,7 @@ impl MatchedString {
             // Support Unicode escapes
             true,
         )?;
-        let text = String::from_utf8(sanitized);
-        let text = text.unwrap();
+        let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text.to_string()))
     }
 }
@@ -1459,7 +1458,7 @@ mod tests {
             (r#"{{"hello"}}"#, "hello"),
             (r#"{{"\x4D"}}"#, "M"),
             (r#"{{"\x4d \x4d \x4d"}}"#, "M M M"),
-            (r#"{{'''\x4d''' '''\x4d''' '''\x4d'''}}"#, "MMM"),
+            (r"{{'''\x4d''' '''\x4d''' '''\x4d'''}}", "MMM"),
             // The below byte literals are the UTF-8 encoding of Unicode code points: U+2764 U+FE0F
             (r#"{{"\xe2\x9d\xa4\xef\xb8\x8f"}}"#, "❤️"),
             (r#"{{'''hel''' '''lo'''}}"#, "hello"),
