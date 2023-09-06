@@ -1,5 +1,5 @@
 use crate::lazy::text::buffer::TextBufferView;
-use crate::lazy::text::matched::{MatchedSymbol, MatchedValue};
+use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef};
 use std::ops::Range;
@@ -63,7 +63,7 @@ pub(crate) struct EncodedTextValue {
     // recognized during matching and partial information like subfield offsets can be stored here.
     matched_value: MatchedValue,
 
-    field_name_syntax: Option<MatchedSymbol>,
+    field_name_syntax: Option<MatchedFieldName>,
 }
 
 impl EncodedTextValue {
@@ -93,7 +93,7 @@ impl EncodedTextValue {
     //    $10
     pub(crate) fn with_field_name(
         mut self,
-        field_name_syntax: MatchedSymbol,
+        field_name_syntax: MatchedFieldName,
         offset: usize,
         length: usize,
     ) -> EncodedTextValue {
@@ -203,7 +203,7 @@ impl EncodedTextValue {
         self.data_length + u32::max(self.annotations_offset, self.field_name_offset) as usize
     }
 
-    pub fn field_name_syntax(&self) -> Option<MatchedSymbol> {
+    pub fn field_name_syntax(&self) -> Option<MatchedFieldName> {
         self.field_name_syntax
     }
 
@@ -215,6 +215,7 @@ impl EncodedTextValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lazy::text::matched::MatchedSymbol;
 
     #[test]
     fn total_length_data_only() {
@@ -225,7 +226,7 @@ mod tests {
     #[test]
     fn total_length_data_with_field_name() {
         let value = EncodedTextValue::new(MatchedValue::Null(IonType::Null), 100, 12)
-            .with_field_name(MatchedSymbol::Identifier, 90, 4);
+            .with_field_name(MatchedFieldName::Symbol(MatchedSymbol::Identifier), 90, 4);
         assert_eq!(value.total_length(), 22);
     }
 
@@ -239,13 +240,13 @@ mod tests {
     #[test]
     fn total_length_data_with_field_name_and_annotations() {
         let value = EncodedTextValue::new(MatchedValue::Null(IonType::Null), 100, 12)
-            .with_field_name(MatchedSymbol::Identifier, 90, 4)
+            .with_field_name(MatchedFieldName::Symbol(MatchedSymbol::Identifier), 90, 4)
             .with_annotations_sequence(94, 6);
         assert_eq!(value.total_length(), 22);
 
         // Same test but with extra whitespace between the components
         let value = EncodedTextValue::new(MatchedValue::Null(IonType::Null), 100, 12)
-            .with_field_name(MatchedSymbol::Identifier, 80, 4)
+            .with_field_name(MatchedFieldName::Symbol(MatchedSymbol::Identifier), 80, 4)
             .with_annotations_sequence(91, 6);
         assert_eq!(value.total_length(), 32, "{:?}", value);
     }

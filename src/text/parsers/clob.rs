@@ -208,7 +208,7 @@ mod clob_parsing_tests {
         // parse tests for long clob
         parse_equals("{{'''Hello''' '''world'''}}", "Helloworld");
         parse_equals("{{'''Hello world'''}}", "Hello world");
-        parse_equals("{{'''\\xe2\\x9d\\xa4\\xef\\xb8\\x8f\'''}}", "❤️");
+        parse_equals(r"{{'''\xe2\x9d\xa4\xef\xb8\x8f'''}}", "❤️");
 
         // Clobs represent text of some encoding, but it may or may not be a flavor of Unicode.
         // As such, clob syntax does not support Unicode escape sequences like `\u` or `\U`.

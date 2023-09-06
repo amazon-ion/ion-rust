@@ -26,8 +26,9 @@ impl<'data> LazyRawTextList<'data> {
     }
 
     pub fn iter(&self) -> RawTextListIterator<'data> {
+        let open_bracket_index = self.value.encoded_value.data_offset() - self.value.input.offset();
         // Make an iterator over the input bytes that follow the initial `[`
-        RawTextListIterator::new(self.value.input.slice_to_end(1))
+        RawTextListIterator::new(self.value.input.slice_to_end(open_bracket_index + 1))
     }
 }
 
@@ -114,9 +115,17 @@ impl<'data> RawTextListIterator<'data> {
             // ...or there aren't values, so it's just the input after the opening delimiter.
             self.input
         };
-        let (input_after_ws, _ws) = input_after_last
-            .match_optional_comments_and_whitespace()
-            .with_context("seeking the end of a list", input_after_last)?;
+        let (mut input_after_ws, _ws) =
+            input_after_last
+                .match_optional_comments_and_whitespace()
+                .with_context("seeking the end of a list", input_after_last)?;
+        // Skip an optional comma and more whitespace
+        if input_after_ws.bytes().first() == Some(&b',') {
+            (input_after_ws, _) = input_after_ws
+                .slice_to_end(1)
+                .match_optional_comments_and_whitespace()
+                .with_context("skipping a list's trailing comma", input_after_ws)?;
+        }
         let (input_after_end, _end_delimiter) = satisfy(|c| c == ']')(input_after_ws)
             .with_context("seeking the closing delimiter of a list", input_after_ws)?;
         let end = input_after_end.offset();
@@ -136,7 +145,10 @@ impl<'data> Iterator for RawTextListIterator<'data> {
                 self.input = remaining;
                 Some(Ok(value))
             }
-            Ok((_remaining, None)) => None,
+            Ok((_remaining, None)) => {
+                // Don't update `remaining` so subsequent calls will continue to return None
+                None
+            }
             Err(e) => {
                 self.has_returned_error = true;
                 e.with_context("reading the next list value", self.input)
@@ -159,8 +171,9 @@ impl<'data> LazyRawTextSExp<'data> {
     }
 
     pub fn iter(&self) -> RawTextSExpIterator<'data> {
+        let open_paren_index = self.value.encoded_value.data_offset() - self.value.input.offset();
         // Make an iterator over the input bytes that follow the initial `(`
-        RawTextSExpIterator::new(self.value.input.slice_to_end(1))
+        RawTextSExpIterator::new(self.value.input.slice_to_end(open_paren_index + 1))
     }
 }
 

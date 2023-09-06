@@ -5,7 +5,7 @@ use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
-use crate::{Decimal, Int, IonError, IonResult, IonType, SymbolRef, Timestamp};
+use crate::{Decimal, Element, Int, IonError, IonResult, IonType, SymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
 
 /// A [ValueRef] represents a value that has been read from the input stream. Scalar variants contain
@@ -97,6 +97,15 @@ impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<ValueRef<'top, 'data, D>> for V
     }
 }
 
+impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<ValueRef<'top, 'data, D>> for Element {
+    type Error = IonError;
+
+    fn try_from(value_ref: ValueRef<'top, 'data, D>) -> Result<Self, Self::Error> {
+        let value: Value = value_ref.try_into()?;
+        Ok(value.into())
+    }
+}
+
 impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
     pub fn expect_null(self) -> IonResult<IonType> {
         if let ValueRef::Null(ion_type) = self {
@@ -166,7 +175,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         if let ValueRef::Symbol(s) = self {
             Ok(s)
         } else {
-            IonResult::decoding_error("expected a symbol")
+            IonResult::decoding_error(format!("expected a symbol, found {:?}", self))
         }
     }
 

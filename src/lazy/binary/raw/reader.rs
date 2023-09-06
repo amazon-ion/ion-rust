@@ -49,7 +49,7 @@ impl<'data> LazyRawBinaryReader<'data> {
         &mut self,
         buffer: ImmutableBuffer<'data>,
     ) -> IonResult<RawStreamItem<'data, BinaryEncoding>> {
-        let lazy_value = match ImmutableBuffer::peek_value_without_field_id(buffer)? {
+        let lazy_value = match ImmutableBuffer::peek_sequence_value(buffer)? {
             Some(lazy_value) => lazy_value,
             None => return Ok(RawStreamItem::EndOfStream),
         };
@@ -142,7 +142,9 @@ impl<'data> DataSource<'data> {
             Err(e) => return Err(e),
         };
 
-        self.buffer = buffer;
+        // If the value we read doesn't start where we began reading, there was a NOP.
+        let num_nop_bytes = lazy_value.input.offset() - buffer.offset();
+        self.buffer = buffer.consume(num_nop_bytes);
         self.bytes_to_skip = lazy_value.encoded_value.total_length();
         Ok(Some(lazy_value))
     }

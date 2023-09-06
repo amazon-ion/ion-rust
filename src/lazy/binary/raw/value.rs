@@ -257,8 +257,8 @@ impl<'data> LazyRawBinaryValue<'data> {
             return Ok(RawValueRef::Decimal(Decimal::new(0i32, 0i64)));
         }
 
-        // Skip the type descriptor
-        let input = self.input.consume(1);
+        // Skip the type descriptor and length bytes
+        let input = ImmutableBuffer::new(self.value_body()?);
 
         let (exponent_var_int, remaining) = input.read_var_int()?;
         let coefficient_size_in_bytes =

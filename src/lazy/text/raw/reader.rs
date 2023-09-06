@@ -55,6 +55,14 @@ impl<'data> LazyRawTextReader<'data> {
         let (remaining, matched) = buffer_after_whitespace
             .match_top_level_item()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
+
+        if let RawStreamItem::VersionMarker(major, minor) = matched {
+            if (major, minor) != (1, 0) {
+                return IonResult::decoding_error(format!(
+                    "Ion version {major}.{minor} is not supported"
+                ));
+            }
+        }
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
         self.buffer = remaining;
@@ -191,8 +199,8 @@ mod tests {
             // Second item
             2 /*comment before comma*/,
             // Third item
-            3
-        ]
+            3 ,]
+        
 
         // S-Expression
         (

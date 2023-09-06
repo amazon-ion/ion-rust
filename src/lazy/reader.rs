@@ -1,16 +1,17 @@
 use crate::binary::constants::v1_0::IVM;
 use crate::element::reader::ElementReader;
 use crate::element::Element;
+use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::encoding::BinaryEncoding;
-use crate::lazy::system_reader::LazySystemReader;
+use crate::lazy::encoding::{BinaryEncoding, TextEncoding};
+use crate::lazy::system_reader::{LazySystemAnyReader, LazySystemBinaryReader, LazySystemReader};
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
-/// Each time [`LazyReader::next`] is called, the reader will advance to the next top-level value
+/// Each time [`LazyApplicationReader::next`] is called, the reader will advance to the next top-level value
 /// in the input stream. Once positioned on a top-level value, users may visit nested values by
 /// calling [`LazyValue::read`] and working with the resulting [`crate::lazy::value_ref::ValueRef`],
 /// which may contain either a scalar value or a lazy container that may itself be traversed.
@@ -18,7 +19,7 @@ use crate::{IonError, IonResult};
 /// The values that the reader yields ([`LazyValue`],
 /// [`LazyBinarySequence`](crate::lazy::sequence::LazyBinarySequence), and
 /// [`LazyBinaryStruct`](crate::lazy::struct::LazyStruct)) are
-/// immutable references to the data stream, and remain valid until [`LazyReader::next`] is called
+/// immutable references to the data stream, and remain valid until [`LazyApplicationReader::next`] is called
 /// again to advance the reader to the next top level value. This means that these references can
 /// be stored, read, and re-read as long as the reader remains on the same top-level value.
 /// ```
@@ -55,11 +56,11 @@ use crate::{IonError, IonResult};
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazyReader<'data, D: LazyDecoder<'data>> {
+pub struct LazyApplicationReader<'data, D: LazyDecoder<'data>> {
     system_reader: LazySystemReader<'data, D>,
 }
 
-impl<'data, D: LazyDecoder<'data>> LazyReader<'data, D> {
+impl<'data, D: LazyDecoder<'data>> LazyApplicationReader<'data, D> {
     /// Returns the next top-level value in the input stream as `Ok(Some(lazy_value))`.
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
     /// If the next value is incomplete (that is: only part of it is in the input buffer) or if the
@@ -75,7 +76,16 @@ impl<'data, D: LazyDecoder<'data>> LazyReader<'data, D> {
     }
 }
 
-pub type LazyBinaryReader<'data> = LazyReader<'data, BinaryEncoding>;
+pub type LazyBinaryReader<'data> = LazyApplicationReader<'data, BinaryEncoding>;
+pub type LazyTextReader<'data> = LazyApplicationReader<'data, TextEncoding>;
+pub type LazyReader<'data> = LazyApplicationReader<'data, AnyEncoding>;
+
+impl<'data> LazyReader<'data> {
+    pub fn new(ion_data: &'data [u8]) -> LazyReader<'data> {
+        let system_reader = LazySystemAnyReader::new(ion_data);
+        LazyApplicationReader { system_reader }
+    }
+}
 
 impl<'data> LazyBinaryReader<'data> {
     pub fn new(ion_data: &'data [u8]) -> IonResult<LazyBinaryReader<'data>> {
@@ -85,13 +95,13 @@ impl<'data> LazyBinaryReader<'data> {
             return IonResult::decoding_error("input does not begin with an Ion version marker");
         }
 
-        let system_reader = LazySystemReader::new(ion_data);
-        Ok(LazyReader { system_reader })
+        let system_reader = LazySystemBinaryReader::new(ion_data);
+        Ok(LazyApplicationReader { system_reader })
     }
 }
 
 pub struct LazyElementIterator<'iter, 'data, D: LazyDecoder<'data>> {
-    lazy_reader: &'iter mut LazyReader<'data, D>,
+    lazy_reader: &'iter mut LazyApplicationReader<'data, D>,
 }
 
 impl<'iter, 'data, D: LazyDecoder<'data>> Iterator for LazyElementIterator<'iter, 'data, D> {
@@ -106,7 +116,7 @@ impl<'iter, 'data, D: LazyDecoder<'data>> Iterator for LazyElementIterator<'iter
     }
 }
 
-impl<'data, D: LazyDecoder<'data>> ElementReader for LazyReader<'data, D> {
+impl<'data, D: LazyDecoder<'data>> ElementReader for LazyApplicationReader<'data, D> {
     type ElementIterator<'a> = LazyElementIterator<'a, 'data, D> where Self: 'a,;
 
     fn read_next_element(&mut self) -> IonResult<Option<Element>> {
