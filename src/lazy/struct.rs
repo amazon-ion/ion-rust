@@ -185,7 +185,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
     /// assert_eq!(lazy_struct.get_expected("foo")?, ValueRef::String("hello".into()));
-    /// assert!(dbg!(lazy_struct.get_expected("Ontario")).is_err());
+    /// assert!(lazy_struct.get_expected("Ontario").is_err());
     ///# Ok(())
     ///# }
     /// ```

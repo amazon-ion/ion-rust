@@ -23,9 +23,11 @@ use std::borrow::Cow;
 use std::num::IntErrorKind;
 use std::str::FromStr;
 
+use nom::branch::alt;
+use nom::bytes::streaming::tag;
 use nom::character::is_hex_digit;
 use nom::sequence::preceded;
-use nom::AsChar;
+use nom::{AsChar, Parser};
 use num_bigint::{BigInt, BigUint};
 use num_traits::Num;
 use smallvec::SmallVec;
@@ -59,6 +61,26 @@ pub(crate) enum MatchedValue {
     List,
     SExp,
     Struct,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) enum MatchedFieldName {
+    Symbol(MatchedSymbol),
+    String(MatchedString),
+}
+
+impl MatchedFieldName {
+    pub fn read<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<RawSymbolTokenRef<'data>> {
+        match self {
+            MatchedFieldName::Symbol(matched_symbol) => matched_symbol.read(matched_input),
+            MatchedFieldName::String(matched_string) => {
+                matched_string.read(matched_input).map(|s| s.into())
+            }
+        }
+    }
 }
 
 /// A partially parsed Ion int.
@@ -128,7 +150,11 @@ impl MatchedInt {
             }
         };
 
-        Ok(int)
+        if self.is_negative {
+            Ok(-int)
+        } else {
+            Ok(int)
+        }
     }
 }
 
@@ -178,7 +204,7 @@ pub(crate) struct MatchedDecimal {
     is_negative: bool,
     digits_offset: u16,
     digits_length: u16,
-    trailing_digits_length: u16,
+    num_trailing_digits: u16,
     exponent_is_negative: bool,
     exponent_digits_offset: u16,
     exponent_digits_length: u16,
@@ -192,7 +218,7 @@ impl MatchedDecimal {
         is_negative: bool,
         digits_offset: u16,
         digits_length: u16,
-        trailing_digits_length: u16,
+        num_trailing_digits: u16,
         exponent_is_negative: bool,
         exponent_offset: u16,
         exponent_length: u16,
@@ -201,7 +227,7 @@ impl MatchedDecimal {
             is_negative,
             digits_offset,
             digits_length,
-            trailing_digits_length,
+            num_trailing_digits,
             exponent_is_negative,
             exponent_digits_offset: exponent_offset,
             exponent_digits_length: exponent_length,
@@ -273,7 +299,7 @@ impl MatchedDecimal {
             }
         };
 
-        exponent -= self.trailing_digits_length as i64;
+        exponent -= self.num_trailing_digits as i64;
 
         Ok(Decimal::new(coefficient, exponent))
     }
@@ -365,7 +391,7 @@ impl MatchedString {
         // This is the same parser that matched the input initially, which means that the only
         // reason it wouldn't succeed here is if the input is empty, meaning we're done reading.
         while let Ok((remaining_after_match, (segment_body, _has_escapes))) = preceded(
-            TextBufferView::match_optional_whitespace,
+            TextBufferView::match_optional_comments_and_whitespace,
             TextBufferView::match_long_string_segment,
         )(remaining)
         {
@@ -519,25 +545,36 @@ fn decode_escape_into_bytes<'data>(
         b'b' => 0x08u8, // backspace
         b'v' => 0x0Bu8, // vertical tab
         b'f' => 0x0Cu8, // form feed
-        // If the byte following the '\' is a real newline (that is: 0x0A), we discard it.
-        b'\n' => return Ok(input_after_escape),
+        // If the bytes following the '\' are an unescaped CR/LF, discard both.
+        b'\r' if input_after_escape.bytes().first() == Some(&b'\n') => {
+            return Ok(input_after_escape.slice_to_end(1))
+        }
+        // If the next byte is a CR or LF, discard it.
+        b'\r' | b'\n' => return Ok(input_after_escape),
         // These cases require more sophisticated parsing, not just a 1-to-1 mapping of bytes
-        b'x' => return decode_hex_digits_escape(2, input_after_escape, sanitized),
-        // Clobs represent text of some encoding, but it may or may not be a flavor of Unicode.
-        // As such, clob syntax does not support Unicode escape sequences like `\u` or `\U`.
-        b'u' if support_unicode_escapes => {
-            return decode_hex_digits_escape(4, input_after_escape, sanitized)
+        b'x' => {
+            return decode_hex_digits_escape(
+                2,
+                input_after_escape,
+                sanitized,
+                support_unicode_escapes,
+            )
         }
-        b'U' if support_unicode_escapes => {
-            return decode_hex_digits_escape(8, input_after_escape, sanitized)
+        b'u' => {
+            return decode_hex_digits_escape(
+                4,
+                input_after_escape,
+                sanitized,
+                support_unicode_escapes,
+            )
         }
-        b'u' | b'U' => {
-            return Err(IonError::Decoding(
-                DecodingError::new(
-                    "Unicode escape sequences (\\u, \\U) are not legal in this context",
-                )
-                .with_position(input.offset()),
-            ))
+        b'U' => {
+            return decode_hex_digits_escape(
+                8,
+                input_after_escape,
+                sanitized,
+                support_unicode_escapes,
+            )
         }
         _ => {
             return Err(IonError::Decoding(
@@ -557,6 +594,7 @@ fn decode_hex_digits_escape<'data>(
     num_digits: usize,
     input: TextBufferView<'data>,
     sanitized: &mut Vec<u8>,
+    support_unicode_escapes: bool,
 ) -> IonResult<TextBufferView<'data>> {
     if input.len() < num_digits {
         return Err(IonError::Decoding(
@@ -566,6 +604,15 @@ fn decode_hex_digits_escape<'data>(
                 input.len()
             ))
             .with_position(input.offset()),
+        ));
+    }
+
+    // Clobs represent text of some encoding, but it may or may not be a flavor of Unicode.
+    // As such, clob syntax does not support Unicode escape sequences like `\u` or `\U`.
+    if num_digits != 2 && !support_unicode_escapes {
+        return Err(IonError::Decoding(
+            DecodingError::new("Unicode escape sequences (\\u, \\U) are not legal in this context")
+                .with_position(input.offset()),
         ));
     }
 
@@ -588,38 +635,28 @@ fn decode_hex_digits_escape<'data>(
     // Isolate the portion of the input that follows the hex digits so we can return it.
     let remaining_input = input.slice_to_end(num_digits);
 
-    // We just confirmed all of the digits are ASCII hex digits, so these steps cannot fail.
-    // We can unwrap() in each case.
+    // We just confirmed all of the digits are ASCII hex digits, so this step cannot fail.
     let hex_digits = std::str::from_utf8(hex_digit_bytes).unwrap();
-    // If this was a '\x' escape, we cannot interpret the hex digits as a Unicode scalar. We treat
-    // it as a byte literal instead.
-    if num_digits == 2 {
-        let byte = u8::from_str_radix(hex_digits, 16).unwrap();
-        sanitized.push(byte);
+
+    if !support_unicode_escapes {
+        // Inside a clob, \x is a byte literal, not a Unicode code point.
+        let byte_literal = u8::from_str_radix(hex_digits, 16).unwrap();
+        sanitized.push(byte_literal);
         return Ok(remaining_input);
     }
 
-    // From here on, we know that the escape was either `\u` or `\U`--a Unicode scalar.
-    // Note that this means we are not processing a clob (which doesn't support Unicode) and can
-    // further infer that we are working with UTF-8, the only supported encoding for strings/symbols.
     let code_point = u32::from_str_radix(hex_digits, 16).unwrap();
 
     // Check to see if this is a high surrogate; if it is, our code point isn't complete. Another
     // unicode escape representing the low surrogate has to be next in the input to complete it.
-    // See the docs for this helper function for details. (Note: this will only ever be true for
-    // 4- and 8-digit escape sequences. `\x` escapes don't have enough digits to represent a
-    // high surrogate.)
+    // See the docs for the `code_point_is_a_high_surrogate` helper function for details.
+    // (Note: this will only ever be true for 4- and 8-digit escape sequences. `\x` escapes don't
+    // have enough digits to represent a high surrogate.)
     if code_point_is_a_high_surrogate(code_point) {
         // The spec has MAY-style language around supporting high surrogates. Supporting them is
-        // allowed but discouraged. For the time being, we will return an error. Other implementations
-        // (notably ion-java) support high surrogates largely for resilience/debugging. We can consider
-        // adding that support if there is demand for it.
-        return Err(IonError::Decoding(
-            DecodingError::new(
-                "found a Unicode high surrogate; UTF-16 is not legal in Ion strings/symbols",
-            )
-            .with_position(input.offset()),
-        ));
+        // allowed but discouraged. The ion-tests spec conformance tests include cases with UTF-16
+        // surrogates, so ion-rust supports them.
+        return complete_surrogate_pair(sanitized, code_point, remaining_input);
     }
 
     // A Rust `char` can represent any Unicode scalar value--a code point that is not part of a
@@ -632,6 +669,57 @@ fn decode_hex_digits_escape<'data>(
 
     // Skip beyond the digits we just processed
     Ok(remaining_input)
+}
+
+/// Reads another escaped code point from the buffer, treating it as the low surrogate to be paired
+/// with the specified high surrogate. Appends the UTF-8 encoding of the resulting Unicode scalar
+/// to `sanitized` and returns the remaining text in the buffer.
+fn complete_surrogate_pair<'data>(
+    sanitized: &mut Vec<u8>,
+    high_surrogate: u32,
+    input: TextBufferView<'data>,
+) -> IonResult<TextBufferView<'data>> {
+    let mut match_next_codepoint = preceded(
+        tag("\\"),
+        alt((
+            preceded(tag("x"), TextBufferView::match_n_hex_digits(2)),
+            preceded(tag("u"), TextBufferView::match_n_hex_digits(4)),
+            preceded(tag("U"), TextBufferView::match_n_hex_digits(8)),
+        )),
+    );
+    let (remaining, hex_digits) = match match_next_codepoint.parse(input) {
+        Ok((remaining, hex_digits)) => (remaining, hex_digits),
+        Err(_) => {
+            return {
+                let error =
+                    DecodingError::new("found a high surrogate not followed by a low surrogate")
+                        .with_position(input.offset());
+                Err(IonError::Decoding(error))
+            }
+        }
+    };
+    let high_surrogate = high_surrogate as u16;
+
+    let hex_digits = std::str::from_utf8(hex_digits.bytes()).unwrap();
+    let low_surrogate = u16::from_str_radix(hex_digits, 16).map_err(|_| {
+        let error =
+            DecodingError::new("low surrogate did not fit in a u16").with_position(input.offset());
+        IonError::Decoding(error)
+    })?;
+
+    let character = char::decode_utf16([high_surrogate, low_surrogate])
+        .next()
+        .unwrap()
+        .map_err(|_| {
+            let error = DecodingError::new("encountered invalid surrogate pair")
+                .with_position(input.offset());
+            IonError::Decoding(error)
+        })?;
+
+    let utf8_buffer: &mut [u8; 4] = &mut [0; 4];
+    let utf8_encoded = character.encode_utf8(utf8_buffer);
+    sanitized.extend_from_slice(utf8_encoded.as_bytes());
+    Ok(remaining)
 }
 
 /// Returns `true` if the provided code point is a utf-16 high surrogate.
@@ -1050,9 +1138,48 @@ impl MatchedClob {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
+    use num_bigint::BigInt;
+
     use crate::lazy::bytes_ref::BytesRef;
     use crate::lazy::text::buffer::TextBufferView;
-    use crate::{Decimal, IonResult, Timestamp};
+    use crate::{Decimal, Int, IonResult, Timestamp};
+
+    #[test]
+    fn read_ints() -> IonResult<()> {
+        fn expect_int(data: &str, expected: impl Into<Int>) {
+            let expected: Int = expected.into();
+            let buffer = TextBufferView::new(data.as_bytes());
+            let (_remaining, matched) = buffer.match_int().unwrap();
+            let actual = matched.read(buffer).unwrap();
+            assert_eq!(
+                actual, expected,
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data, actual, expected
+            );
+        }
+
+        let tests = [
+            ("-5", Int::from(-5)),
+            ("0", Int::from(0)),
+            (
+                "1234567890_1234567890_1234567890_1234567890",
+                Int::from(BigInt::from_str("1234567890_1234567890_1234567890_1234567890").unwrap()),
+            ),
+            (
+                "-1234567890_1234567890_1234567890_1234567890",
+                Int::from(
+                    BigInt::from_str("-1234567890_1234567890_1234567890_1234567890").unwrap(),
+                ),
+            ),
+        ];
+
+        for (input, expected) in tests {
+            expect_int(input, expected);
+        }
+        Ok(())
+    }
 
     #[test]
     fn read_timestamps() -> IonResult<()> {
@@ -1159,10 +1286,21 @@ mod tests {
     #[test]
     fn read_decimals() -> IonResult<()> {
         fn expect_decimal(data: &str, expected: Decimal) {
-            let data = format!("{data} "); // Append a space
             let buffer = TextBufferView::new(data.as_bytes());
-            let (_remaining, matched) = buffer.match_decimal().unwrap();
-            let actual = matched.read(buffer).unwrap();
+            let result = buffer.match_decimal();
+            assert!(
+                result.is_ok(),
+                "Unexpected match error for input: '{data}': {:?}",
+                result
+            );
+            let (_remaining, matched) = buffer.match_decimal().expect("match decimal");
+            let result = matched.read(buffer);
+            assert!(
+                result.is_ok(),
+                "Unexpected read error for input '{data}': {:?}",
+                result
+            );
+            let actual = result.unwrap();
             assert_eq!(
                 actual, expected,
                 "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
@@ -1179,8 +1317,6 @@ mod tests {
             ("-5.d0", Decimal::new(-5, 0)),
             ("5.0", Decimal::new(50, -1)),
             ("-5.0", Decimal::new(-50, -1)),
-            ("5.0d", Decimal::new(50, -1)),
-            ("-5.0d", Decimal::new(-50, -1)),
             ("500d0", Decimal::new(5, 2)),
             ("-500d0", Decimal::new(-5, 2)),
             ("0.005", Decimal::new(5, -3)),
@@ -1259,14 +1395,11 @@ mod tests {
             (r"'''he''' '''llo'''", "hello"),
             (r#""😎🙂🙃""#, "😎🙂🙃"),
             (r"'''😎🙂''' '''🙃'''", "😎🙂🙃"),
-            // The below bytes are the UTF-8 encoding of Unicode code points: U+2764 U+FE0F
-            (r#""\xe2\x9d\xa4\xef\xb8\x8f""#, "❤️"),
-            (r"'''\xe2\x9d\xa4\xef\xb8\x8f'''", "❤️"),
             (r"'''\u2764\uFE0F'''", "❤️"),
             (r"'''\U00002764\U0000FE0F'''", "❤️"),
-            // In short strings, unescaped newlines are not normalized.
-            ("\"foo\rbar\r\nbaz\"", "foo\rbar\r\nbaz"),
-            // In long-form strings, unescaped newlines converted to `\n`.
+            // In short strings, carriage returns are not normalized.
+            ("\"foo\rbar\rbaz\"", "foo\rbar\rbaz"),
+            // In long-form strings, all unescaped newlines are converted to `\n`.
             ("'''foo\rbar\r\nbaz'''", "foo\nbar\nbaz"),
         ];
 
@@ -1297,7 +1430,13 @@ mod tests {
         }
 
         fn expect_clob(data: &str, expected: &str) {
-            let actual = read_clob(data).unwrap();
+            let result = read_clob(data);
+            assert!(
+                result.is_ok(),
+                "Unexpected read failure for input '{data}': {:?}",
+                result
+            );
+            let actual = result.unwrap();
             assert_eq!(
                 actual,
                 expected.as_ref(),
@@ -1319,7 +1458,8 @@ mod tests {
             (r#"{{"hello"}}"#, "hello"),
             (r#"{{"\x4D"}}"#, "M"),
             (r#"{{"\x4d \x4d \x4d"}}"#, "M M M"),
-            // The below bytes are the UTF-8 encoding of Unicode code points: U+2764 U+FE0F
+            (r"{{'''\x4d''' '''\x4d''' '''\x4d'''}}", "MMM"),
+            // The below byte literals are the UTF-8 encoding of Unicode code points: U+2764 U+FE0F
             (r#"{{"\xe2\x9d\xa4\xef\xb8\x8f"}}"#, "❤️"),
             (r#"{{'''hel''' '''lo'''}}"#, "hello"),
             (
@@ -1333,8 +1473,8 @@ mod tests {
             ),
             // In a long-form clob, unescaped `\r` and `\r\n` are normalized into unescaped `\n`
             ("{{'''foo\rbar\r\nbaz'''}}", "foo\nbar\nbaz"),
-            // In a short-form clob, newlines are not normalized.
-            ("{{\"foo\rbar\r\nbaz\"}}", "foo\rbar\r\nbaz"),
+            // In a short-form clob, carriage returns are not normalized.
+            ("{{\"foo\rbar\rbaz\"}}", "foo\rbar\rbaz"),
         ];
 
         for (input, expected) in tests {

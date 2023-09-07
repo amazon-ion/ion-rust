@@ -157,7 +157,7 @@ impl<'data> Iterator for RawBinarySequenceIterator<'data> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.source
-            .try_parse_next(ImmutableBuffer::peek_value_without_field_id)
+            .try_parse_next(ImmutableBuffer::peek_sequence_value)
             .transpose()
     }
 }

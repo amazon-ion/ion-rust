@@ -1,6 +1,6 @@
 use crate::lazy::bytes_ref::BytesRef;
 use crate::text::text_formatter::IonValueFormatter;
-use crate::Str;
+use crate::{RawSymbolTokenRef, Str};
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
@@ -88,5 +88,11 @@ impl<'data> From<StrRef<'data>> for BytesRef<'data> {
             Cow::Borrowed(text) => text.as_bytes().into(),
             Cow::Owned(text) => Vec::from(text).into(),
         }
+    }
+}
+
+impl<'data> From<StrRef<'data>> for RawSymbolTokenRef<'data> {
+    fn from(value: StrRef<'data>) -> Self {
+        RawSymbolTokenRef::Text(value.text)
     }
 }
