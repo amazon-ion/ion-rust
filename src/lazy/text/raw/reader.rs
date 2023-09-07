@@ -94,7 +94,7 @@ mod tests {
         // Ion version marker
         
         $ion_1_0
-
+        
         // Typed nulls
         
         null
@@ -120,7 +120,7 @@ mod tests {
         3.6e0
         2.5e008
         -318e-2
-
+        
         // Decimals
         1.5
         3.14159
@@ -152,7 +152,6 @@ mod tests {
         '''Venus '''
         '''Earth '''
         '''Mars '''
-
         "#,
         );
         // Escaped newlines are discarded
@@ -174,8 +173,16 @@ mod tests {
         $10
         $733
         
-        // Blob
+        // Blobs
         {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
+        
+        // Clobs
+        {{"foobarbaz"}}
+        {{
+            '''foo'''
+            '''bar'''
+            '''baz'''
+        }}
         
         // List
         [
@@ -368,6 +375,11 @@ mod tests {
 
         // {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
         expect_next(reader, RawValueRef::Blob("razzle dazzle root beer".into()));
+
+        // {{"foobarbaz"}}
+        expect_next(reader, RawValueRef::Clob("foobarbaz".into()));
+        // {{'''foo''' '''bar''' '''baz'''}}
+        expect_next(reader, RawValueRef::Clob("foobarbaz".into()));
 
         // [1, 2, 3]
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;

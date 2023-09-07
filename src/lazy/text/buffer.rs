@@ -17,8 +17,8 @@ use crate::lazy::encoding::TextEncoding;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
-    MatchedBlob, MatchedDecimal, MatchedFloat, MatchedHoursAndMinutes, MatchedInt, MatchedString,
-    MatchedSymbol, MatchedTimestamp, MatchedTimestampOffset, MatchedValue,
+    MatchedBlob, MatchedClob, MatchedDecimal, MatchedFloat, MatchedHoursAndMinutes, MatchedInt,
+    MatchedString, MatchedSymbol, MatchedTimestamp, MatchedTimestampOffset, MatchedValue,
 };
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
@@ -509,6 +509,12 @@ impl<'data> TextBufferView<'data> {
                 },
             ),
             map(
+                match_and_length(Self::match_clob),
+                |(matched_clob, length)| {
+                    EncodedTextValue::new(MatchedValue::Clob(matched_clob), self.offset(), length)
+                },
+            ),
+            map(
                 match_and_length(Self::match_list),
                 |(matched_list, length)| {
                     EncodedTextValue::new(MatchedValue::List, matched_list.offset(), length)
@@ -983,12 +989,12 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches short- or long-form string.
-    fn match_string(self) -> IonParseResult<'data, MatchedString> {
+    pub fn match_string(self) -> IonParseResult<'data, MatchedString> {
         alt((Self::match_short_string, Self::match_long_string))(self)
     }
 
     /// Matches a short string. For example: `"foo"`
-    fn match_short_string(self) -> IonParseResult<'data, MatchedString> {
+    pub(crate) fn match_short_string(self) -> IonParseResult<'data, MatchedString> {
         delimited(char('"'), Self::match_short_string_body, char('"'))
             .map(|(_matched, contains_escaped_chars)| {
                 if contains_escaped_chars {
@@ -1002,13 +1008,13 @@ impl<'data> TextBufferView<'data> {
 
     /// Returns a matched buffer and a boolean indicating whether any escaped characters were
     /// found in the short string.
-    fn match_short_string_body(self) -> IonParseResult<'data, (Self, bool)> {
+    pub(crate) fn match_short_string_body(self) -> IonParseResult<'data, (Self, bool)> {
         Self::match_text_until_unescaped(self, b'\"')
     }
 
     /// Matches a long string comprised of any number of `'''`-enclosed segments interleaved
     /// with optional comments and whitespace.
-    pub fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
+    pub(crate) fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
         fold_many1(
             // Parser to keep applying repeatedly
             whitespace_and_then(Self::match_long_string_segment),
@@ -1166,6 +1172,13 @@ impl<'data> TextBufferView<'data> {
             }
             if *byte == b'\\' {
                 is_escaped = true;
+                contains_escaped_chars = true;
+                continue;
+            }
+            if *byte == b'\r' {
+                // If the text contains an unescaped carriage return, we may need to normalize it.
+                // In some narrow cases, setting this flag to true may result in a sanitization buffer
+                // being allocated when it isn't strictly necessary.
                 contains_escaped_chars = true;
                 continue;
             }
@@ -1435,6 +1448,66 @@ impl<'data> TextBufferView<'data> {
         .parse(self)
     }
 
+    /// Matches a clob of either short- or long-form syntax.
+    pub fn match_clob(self) -> IonParseResult<'data, MatchedClob> {
+        delimited(
+            tag("{{"),
+            preceded(
+                Self::match_optional_whitespace,
+                alt((
+                    value(MatchedClob::Short, Self::match_short_clob_body),
+                    value(MatchedClob::Long, Self::match_long_clob_body),
+                )),
+            ),
+            preceded(Self::match_optional_whitespace, tag("}}")),
+        )(self)
+    }
+
+    /// Matches the body (inside the `{{` and `}}`) of a short-form clob.
+    fn match_short_clob_body(self) -> IonMatchResult<'data> {
+        let (remaining, (body, _matched_string)) = consumed(Self::match_short_string)(self)?;
+        body.validate_clob_text()?;
+        Ok((remaining, body))
+    }
+
+    /// Matches the body (inside the `{{` and `}}`) of a long-form clob.
+    fn match_long_clob_body(self) -> IonMatchResult<'data> {
+        recognize(many1_count(preceded(
+            Self::match_optional_whitespace,
+            Self::match_long_clob_body_segment,
+        )))(self)
+    }
+
+    /// Matches a single segment of a long-form clob's content.
+    fn match_long_clob_body_segment(self) -> IonMatchResult<'data> {
+        let (remaining, (body, _matched_string)) = consumed(Self::match_long_string_segment)(self)?;
+        body.validate_clob_text()?;
+        Ok((remaining, body))
+    }
+
+    /// Returns an error if the buffer contains any byte that is not legal inside a clob.
+    fn validate_clob_text(self) -> IonMatchResult<'data> {
+        for byte in self.bytes().iter().copied() {
+            if !Self::byte_is_legal_clob_ascii(byte) {
+                let message = format!("found an illegal byte '{:0x}'in clob", byte);
+                let error = InvalidInputError::new(self).with_description(message);
+                return Err(nom::Err::Failure(IonParseError::Invalid(error)));
+            }
+        }
+        // Return success without consuming
+        Ok((self, self.slice(0, 0)))
+    }
+
+    /// Returns `false` if the specified byte cannot appear unescaped in a clob.
+    fn byte_is_legal_clob_ascii(b: u8) -> bool {
+        // Depending on where you look in the spec and/or `ion-tests`, you'll find conflicting
+        // information about which ASCII characters can appear unescaped in a clob. Some say
+        // "characters >= 0x20", but that excludes lots of whitespace characters that are < 0x20.
+        // Some say "displayable ASCII", but DEL (0x7F) is shown to be legal in one of the ion-tests.
+        // The definition used here has largely been inferred from the contents of `ion-tests`.
+        b.is_ascii()
+            && (u32::from(b) >= 0x20 || WHITESPACE_CHARACTERS_AS_STR.as_bytes().contains(&b))
+    }
     /// Matches the base64 content within a blob. Ion allows the base64 content to be broken up with
     /// whitespace, so the matched input region may need to be stripped of whitespace before
     /// the data can be decoded.
@@ -2189,6 +2262,48 @@ mod tests {
     }
 
     #[test]
+    fn test_match_clob() {
+        fn match_clob(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_clob));
+        }
+        fn mismatch_blob(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_clob));
+        }
+        // Base64 encodings of utf-8 strings
+        let good_inputs = &[
+            r#"{{""}}"#,
+            r#"{{''''''}}"#,
+            r#"{{"foo"}}"#,
+            r#"{{  "foo"}}"#,
+            r#"{{  "foo"  }}"#,
+            r#"{{"foo"  }}"#,
+            r#"{{'''foo'''}}"#,
+            r#"{{"foobar"}}"#,
+            r#"{{'''foo''' '''bar'''}}"#,
+            r#"{{
+                '''foo'''
+                '''bar'''
+                '''baz'''
+            }}"#,
+        ];
+        for input in good_inputs {
+            match_clob(input);
+        }
+
+        let bad_inputs = &[
+            r#"{{foo}}"#,                         // No quotes
+            r#"{{"foo}}"#,                        // Missing closing quote
+            r#"{{"foo"}"#,                        // Missing closing brace
+            r#"{{'''foo'''}"#,                    // Missing closing brace
+            r#"{{'''foo''' /*hi!*/ '''bar'''}}"#, // Interleaved comments
+            r#"{{'''foo''' "bar"}}"#,             // Mixed quote style
+            r#"{{"😎🙂🙃"}}"#,                    // Contains unescaped non-ascii characters
+        ];
+        for input in bad_inputs {
+            mismatch_blob(input);
+        }
+    }
+
     fn test_match_text_until_unescaped_str() {
         let input = TextBufferView::new(r" foo bar \''' baz''' quux ".as_bytes());
         let (_remaining, (matched, contains_escapes)) =

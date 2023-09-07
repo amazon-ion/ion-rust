@@ -25,7 +25,7 @@ pub enum ValueRef<'top, 'data, D: LazyDecoder<'data>> {
     String(StrRef<'data>),
     Symbol(SymbolRef<'top>),
     Blob(BytesRef<'data>),
-    Clob(&'data [u8]),
+    Clob(BytesRef<'data>),
     SExp(LazySExp<'top, 'data, D>),
     List(LazyList<'top, 'data, D>),
     Struct(LazyStruct<'top, 'data, D>),
@@ -178,7 +178,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_clob(self) -> IonResult<&'data [u8]> {
+    pub fn expect_clob(self) -> IonResult<BytesRef<'data>> {
         if let ValueRef::Clob(c) = self {
             Ok(c)
         } else {
@@ -315,7 +315,7 @@ mod tests {
         );
         assert_eq!(
             reader.expect_next()?.read()?,
-            ValueRef::Clob("Clob".as_bytes())
+            ValueRef::Clob("Clob".as_bytes().into())
         );
 
         // PartialEq doesn't cover lazy containers
