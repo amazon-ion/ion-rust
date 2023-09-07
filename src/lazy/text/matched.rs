@@ -1058,7 +1058,9 @@ impl MatchedBlob {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MatchedClob {
+    // Indicates that the content of the clob was written using short-form string syntax.
     Short,
+    // Indicates that the content of the clob was written using long-form string syntax.
     Long,
 }
 
