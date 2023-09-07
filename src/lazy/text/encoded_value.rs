@@ -63,6 +63,9 @@ pub(crate) struct EncodedTextValue {
     // recognized during matching and partial information like subfield offsets can be stored here.
     matched_value: MatchedValue,
 
+    // If this value is a struct field value, this will be populated with an enum indicating
+    // the syntax of the associated field name. If the field name is later read, the decoder
+    // can avoid re-parsing the input from scratch.
     field_name_syntax: Option<MatchedFieldName>,
 }
 
