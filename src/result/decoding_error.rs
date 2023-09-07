@@ -7,6 +7,10 @@ use thiserror::Error;
 #[error("{description}")]
 pub struct DecodingError {
     description: Cow<'static, str>,
+    // This is optional because sometimes data is found to be malformed or invalid but the original
+    // data source is not available. For example, consider a deserializer reading a symbol table
+    // from an `Element`. If the `symbols` field is missing, it needs to raise a decoding error, but
+    // no source position is available. Whenever possible, usages should specify the position.
     position: Option<Position>,
 }
 

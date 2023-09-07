@@ -5,6 +5,8 @@ use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 
+/// A reference to an immutable in-memory representation of an Ion string. To get an owned [`Str`]
+/// instead, see [`StrRef::to_owned`].
 #[derive(Clone, PartialEq, Debug)]
 pub struct StrRef<'data> {
     text: Cow<'data, str>,
@@ -12,7 +14,7 @@ pub struct StrRef<'data> {
 
 impl<'data> StrRef<'data> {
     pub fn to_owned(&self) -> Str {
-        Str::from(self.as_ref())
+        Str::from(self.text.as_ref())
     }
 
     pub fn into_owned(self) -> Str {
@@ -20,7 +22,7 @@ impl<'data> StrRef<'data> {
     }
 
     pub fn text(&self) -> &str {
-        self.as_ref()
+        self.text.as_ref()
     }
 }
 

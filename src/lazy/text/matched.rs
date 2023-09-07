@@ -364,7 +364,7 @@ impl MatchedString {
         let body = matched_input.slice(3, matched_input.len() - 6);
         // There are no escaped characters, so we can just validate the string in-place.
         let mut sanitized = Vec::with_capacity(matched_input.len());
-        decode_text_containing_escapes(
+        replace_escapes_with_byte_values(
             body,
             &mut sanitized,
             // Normalize newlines
@@ -396,7 +396,7 @@ impl MatchedString {
         )(remaining)
         {
             remaining = remaining_after_match;
-            decode_text_containing_escapes(
+            replace_escapes_with_byte_values(
                 segment_body,
                 &mut sanitized,
                 // Normalize newlines
@@ -430,7 +430,7 @@ impl MatchedString {
         // There are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
-        decode_text_containing_escapes(
+        replace_escapes_with_byte_values(
             body,
             &mut sanitized,
             // Do not normalize newlines
@@ -443,7 +443,7 @@ impl MatchedString {
     }
 }
 
-fn decode_text_containing_escapes(
+fn replace_escapes_with_byte_values(
     matched_input: TextBufferView,
     sanitized: &mut Vec<u8>,
     // If the text being escaped is in a long string or a clob, then unescaped \r\n and \r get
@@ -513,6 +513,9 @@ fn normalize_newline<'data>(
     }
 }
 
+/// Matches an escape sequence at the beginning of `input` and pushes its corresponding
+/// byte values onto the end of `sanitized`. Returns the remaining input following the escape
+/// sequence.
 fn decode_escape_into_bytes<'data>(
     input: TextBufferView<'data>,
     sanitized: &mut Vec<u8>,
@@ -799,7 +802,7 @@ impl MatchedSymbol {
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
 
-        decode_text_containing_escapes(body, &mut sanitized, false, true)?;
+        replace_escapes_with_byte_values(body, &mut sanitized, false, true)?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(RawSymbolTokenRef::Text(text.into()))
     }
@@ -1055,7 +1058,9 @@ impl MatchedBlob {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MatchedClob {
+    // Indicates that the content of the clob was written using short-form string syntax.
     Short,
+    // Indicates that the content of the clob was written using long-form string syntax.
     Long,
 }
 
@@ -1093,7 +1098,7 @@ impl MatchedClob {
         // There are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(body.len());
-        decode_text_containing_escapes(
+        replace_escapes_with_byte_values(
             body,
             &mut sanitized,
             // Do not normalize newlines
@@ -1123,7 +1128,7 @@ impl MatchedClob {
         )(remaining)
         {
             remaining = remaining_after_match;
-            decode_text_containing_escapes(
+            replace_escapes_with_byte_values(
                 segment_body,
                 &mut sanitized,
                 // Normalize newlines

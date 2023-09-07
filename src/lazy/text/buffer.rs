@@ -113,8 +113,6 @@ pub(crate) struct TextBufferView<'a> {
     offset: usize,
 }
 
-pub(crate) type ParseResult<'a, T> = IonResult<(T, TextBufferView<'a>)>;
-
 impl<'data> TextBufferView<'data> {
     /// Constructs a new `TextBufferView` that wraps `data`, setting the view's `offset` to zero.
     #[inline]
@@ -432,10 +430,10 @@ impl<'data> TextBufferView<'data> {
         alt((
             // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
             // parsing to be done.
-            map(match_and_length(Self::read_null), |(ion_type, length)| {
+            map(match_and_length(Self::match_null), |(ion_type, length)| {
                 EncodedTextValue::new(MatchedValue::Null(ion_type), self.offset(), length)
             }),
-            map(match_and_length(Self::read_bool), |(value, length)| {
+            map(match_and_length(Self::match_bool), |(value, length)| {
                 EncodedTextValue::new(MatchedValue::Bool(value), self.offset(), length)
             }),
             // For `int` and the other types, we use `match` and store the partially-processed input in the
@@ -662,29 +660,19 @@ impl<'data> TextBufferView<'data> {
         Ok((remaining, matched))
     }
 
-    /// Matches a boolean value.
-    pub fn match_bool(self) -> IonMatchResult<'data> {
-        recognize(Self::read_bool)(self)
-    }
-
     /// Matches and returns a boolean value.
-    pub fn read_bool(self) -> IonParseResult<'data, bool> {
+    pub fn match_bool(self) -> IonParseResult<'data, bool> {
         terminated(
             alt((value(true, tag("true")), value(false, tag("false")))),
             Self::peek_stop_character,
         )(self)
     }
 
-    /// Matches any type of null. (`null`, `null.null`, `null.int`, etc)
-    pub fn match_null(self) -> IonMatchResult<'data> {
-        recognize(Self::read_null)(self)
-    }
-
-    /// Matches and returns a null value.
-    pub fn read_null(self) -> IonParseResult<'data, IonType> {
+    /// Matches and returns any type of null. (`null`, `null.null`, `null.int`, etc)
+    pub fn match_null(self) -> IonParseResult<'data, IonType> {
         delimited(
             complete_tag("null"),
-            opt(preceded(complete_char('.'), Self::read_ion_type)),
+            opt(preceded(complete_char('.'), Self::match_ion_type)),
             Self::peek_stop_character,
         )
         .map(|explicit_ion_type| explicit_ion_type.unwrap_or(IonType::Null))
@@ -692,7 +680,7 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches and returns an Ion type.
-    fn read_ion_type(self) -> IonParseResult<'data, IonType> {
+    fn match_ion_type(self) -> IonParseResult<'data, IonType> {
         alt((
             value(IonType::Null, complete_tag("null")),
             value(IonType::Bool, complete_tag("bool")),
@@ -1929,6 +1917,7 @@ mod tests {
 
         mismatch_ivm("ion_1_0");
         mismatch_ivm("$ion__1_0");
+        mismatch_ivm("$ion_1_0_0");
         mismatch_ivm("$$ion_1_0");
         mismatch_ivm("$ion_FF_FF");
     }
@@ -2199,8 +2188,6 @@ mod tests {
             MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_symbol));
         }
 
-        // These inputs have leading/trailing whitespace to make them more readable, but the string
-        // matcher doesn't accept whitespace. We'll trim each one before testing it.
         let good_inputs = &[
             "'hello'",
             "'😀😀😀'",
@@ -2264,7 +2251,8 @@ mod tests {
             MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_decimal));
         }
         let good_inputs = &[
-            "5.", "-5.", "5.0", "-5.0", "5.0d0", "-5.0d0", "5.0D0", "-5.0D0", "5.0d+1", "-5.0d-1",
+            "5.", "-5.", "5.0", "-5.0", "5d0", "5.d0", "5.0d0", "-5.0d0", "5.0D0", "-5.0D0",
+            "5.0d+1", "-5.0d-1",
         ];
         for input in good_inputs {
             match_decimal(input);
@@ -2295,6 +2283,7 @@ mod tests {
             "(a b)",
             "(a++)",
             "(++a)",
+            "(a+=b)",
             "(())",
             "((()))",
             "(1 (2 (3 4) 5) 6)",
