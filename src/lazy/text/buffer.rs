@@ -2251,7 +2251,8 @@ mod tests {
             MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_decimal));
         }
         let good_inputs = &[
-            "5.", "-5.", "5.0", "-5.0", "5.0d0", "-5.0d0", "5.0D0", "-5.0D0", "5.0d+1", "-5.0d-1",
+            "5.", "-5.", "5.0", "-5.0", "5d0", "5.d0", "5.0d0", "-5.0d0", "5.0D0", "-5.0D0",
+            "5.0d+1", "-5.0d-1",
         ];
         for input in good_inputs {
             match_decimal(input);
