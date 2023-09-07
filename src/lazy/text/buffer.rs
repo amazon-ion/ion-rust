@@ -1917,6 +1917,7 @@ mod tests {
 
         mismatch_ivm("ion_1_0");
         mismatch_ivm("$ion__1_0");
+        mismatch_ivm("$ion_1_0_0");
         mismatch_ivm("$$ion_1_0");
         mismatch_ivm("$ion_FF_FF");
     }
