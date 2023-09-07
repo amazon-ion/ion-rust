@@ -2187,8 +2187,6 @@ mod tests {
             MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_symbol));
         }
 
-        // These inputs have leading/trailing whitespace to make them more readable, but the string
-        // matcher doesn't accept whitespace. We'll trim each one before testing it.
         let good_inputs = &[
             "'hello'",
             "'😀😀😀'",
