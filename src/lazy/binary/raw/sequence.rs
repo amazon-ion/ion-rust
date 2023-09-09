@@ -3,10 +3,9 @@ use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::LazyRawSequence;
+use crate::lazy::decoder::{LazyRawSequence, LazyRawValueExpr};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::{IonResult, IonType};
-use std::fmt;
 use std::fmt::{Debug, Formatter};
 
 #[derive(Debug, Copy, Clone)]
@@ -94,7 +93,7 @@ impl<'data> LazyRawBinarySequence<'data> {
 }
 
 impl<'a, 'data> IntoIterator for &'a LazyRawBinarySequence<'data> {
-    type Item = IonResult<LazyRawBinaryValue<'data>>;
+    type Item = IonResult<LazyRawValueExpr<'data, BinaryEncoding_1_0>>;
     type IntoIter = RawBinarySequenceIterator<'data>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -108,28 +107,14 @@ impl<'a> Debug for LazyRawBinarySequence<'a> {
             IonType::SExp => {
                 write!(f, "(")?;
                 for value in self {
-                    write!(
-                        f,
-                        "{:?} ",
-                        value
-                            .map_err(|_| fmt::Error)?
-                            .read()
-                            .map_err(|_| fmt::Error)?
-                    )?;
+                    write!(f, "{:?} ", value?)?;
                 }
                 write!(f, ")").unwrap();
             }
             IonType::List => {
                 write!(f, "[")?;
                 for value in self {
-                    write!(
-                        f,
-                        "{:?},",
-                        value
-                            .map_err(|_| fmt::Error)?
-                            .read()
-                            .map_err(|_| fmt::Error)?
-                    )?;
+                    write!(f, "{:?},", value?)?;
                 }
                 write!(f, "]").unwrap();
             }
@@ -153,11 +138,16 @@ impl<'data> RawBinarySequenceIterator<'data> {
 }
 
 impl<'data> Iterator for RawBinarySequenceIterator<'data> {
-    type Item = IonResult<LazyRawBinaryValue<'data>>;
+    type Item = IonResult<LazyRawValueExpr<'data, BinaryEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.source
+        match self
+            .source
             .try_parse_next(ImmutableBuffer::peek_sequence_value)
-            .transpose()
+        {
+            Ok(Some(value)) => Some(Ok(LazyRawValueExpr::ValueLiteral(value))),
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
+        }
     }
 }

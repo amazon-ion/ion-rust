@@ -1,4 +1,5 @@
 use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::encoding::EncodingWithMacroSupport;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
 
@@ -13,7 +14,7 @@ pub enum RawStreamItem<'data, D: LazyDecoder<'data>> {
     /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue).
     Value(D::Value),
     /// An Ion 1.1+ macro invocation. Ion 1.0 readers will never return a macro invocation.
-    MacroInvocation(D::MacroInvocation),
+    EExpression(D::MacroInvocation),
     /// The end of the stream
     EndOfStream,
 }
@@ -52,6 +53,24 @@ impl<'data, D: LazyDecoder<'data>> RawStreamItem<'data, D> {
             Ok(value)
         } else {
             IonResult::decoding_error(format!("expected value, found {:?}", self))
+        }
+    }
+}
+
+impl<'data, D: LazyDecoder<'data> + EncodingWithMacroSupport> RawStreamItem<'data, D> {
+    pub fn as_macro_invocation(&self) -> Option<&D::MacroInvocation> {
+        if let Self::EExpression(m) = self {
+            Some(m)
+        } else {
+            None
+        }
+    }
+
+    pub fn expect_macro_invocation(self) -> IonResult<D::MacroInvocation> {
+        if let Self::EExpression(m) = self {
+            Ok(m)
+        } else {
+            IonResult::decoding_error(format!("expected a macro invocation, found {:?}", self))
         }
     }
 }

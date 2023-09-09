@@ -1,10 +1,14 @@
+#![allow(non_camel_case_types)]
+
 use crate::binary::constants::v1_0::IVM;
 use crate::element::reader::ElementReader;
 use crate::element::Element;
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
-use crate::lazy::system_reader::{LazySystemAnyReader, LazySystemBinaryReader, LazySystemReader};
+use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::system_reader::{
+    LazySystemAnyReader, LazySystemBinaryReader, LazySystemReader, LazySystemTextReader_1_1,
+};
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
@@ -60,6 +64,12 @@ pub struct LazyApplicationReader<'data, D: LazyDecoder<'data>> {
     system_reader: LazySystemReader<'data, D>,
 }
 
+pub(crate) enum NextApplicationValue<'top, 'data, D: LazyDecoder<'data>> {
+    ApplicationValue(LazyValue<'top, 'data, D>),
+    SystemValue,
+    EndOfStream,
+}
+
 impl<'data, D: LazyDecoder<'data>> LazyApplicationReader<'data, D> {
     /// Returns the next top-level value in the input stream as `Ok(Some(lazy_value))`.
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
@@ -77,7 +87,8 @@ impl<'data, D: LazyDecoder<'data>> LazyApplicationReader<'data, D> {
 }
 
 pub type LazyBinaryReader<'data> = LazyApplicationReader<'data, BinaryEncoding_1_0>;
-pub type LazyTextReader<'data> = LazyApplicationReader<'data, TextEncoding_1_0>;
+pub type LazyTextReader_1_0<'data> = LazyApplicationReader<'data, TextEncoding_1_0>;
+pub type LazyTextReader_1_1<'data> = LazyApplicationReader<'data, TextEncoding_1_1>;
 pub type LazyReader<'data> = LazyApplicationReader<'data, AnyEncoding>;
 
 impl<'data> LazyReader<'data> {
@@ -96,6 +107,13 @@ impl<'data> LazyBinaryReader<'data> {
         }
 
         let system_reader = LazySystemBinaryReader::new(ion_data);
+        Ok(LazyApplicationReader { system_reader })
+    }
+}
+
+impl<'data> LazyTextReader_1_1<'data> {
+    pub fn new(ion_data: &'data [u8]) -> IonResult<LazyTextReader_1_1<'data>> {
+        let system_reader = LazySystemTextReader_1_1::new(ion_data);
         Ok(LazyApplicationReader { system_reader })
     }
 }

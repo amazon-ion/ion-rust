@@ -5,17 +5,15 @@ use std::fmt::{Debug, Formatter};
 
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawValuePrivate};
 use crate::lazy::decoder::LazyRawValue;
-use crate::lazy::encoding::TextEncoding_1_0;
+use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::encoded_value::EncodedTextValue;
-use crate::lazy::text::raw::r#struct::LazyRawTextStruct_1_0;
-use crate::lazy::text::raw::sequence::{LazyRawTextList_1_0, LazyRawTextSExp_1_0};
 use crate::{IonResult, IonType, RawSymbolTokenRef};
 
 /// A value that has been identified in the text input stream but whose data has not yet been read.
 ///
-/// If only part of the value is in the input buffer, calls to [`LazyRawTextValue_1_0::read`] (which examines
+/// If only part of the value is in the input buffer, calls to [`MatchedRawTextValue::read`] (which examines
 /// bytes beyond the value's header) may return [`IonError::Incomplete`](crate::result::IonError::Incomplete).
 ///
 /// `LazyRawTextValue`s are "unresolved," which is to say that symbol values, annotations, and
@@ -24,18 +22,84 @@ use crate::{IonResult, IonType, RawSymbolTokenRef};
 /// includes a text definition for these items whenever one exists, see
 /// [`crate::lazy::value::LazyValue`].
 #[derive(Copy, Clone)]
-pub struct LazyRawTextValue_1_0<'data> {
+pub struct MatchedRawTextValue<'data> {
     pub(crate) encoded_value: EncodedTextValue,
     pub(crate) input: TextBufferView<'data>,
 }
 
-impl<'data> LazyRawValuePrivate<'data> for LazyRawTextValue_1_0<'data> {
+impl<'a> Debug for MatchedRawTextValue<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "MatchedRawTextValue {{\n  val={:?},\n  buf={:?}\n}}\n",
+            self.encoded_value, self.input
+        )
+    }
+}
+
+// ===== Version-specific wrappers =====
+//
+// These types provide Ion-version-specific impls of the LazyRawValue trait
+#[derive(Copy, Clone, Debug)]
+pub struct LazyRawTextValue_1_0<'data> {
+    pub(crate) matched: MatchedRawTextValue<'data>,
+}
+
+impl<'data> From<MatchedRawTextValue<'data>> for LazyRawTextValue_1_0<'data> {
+    fn from(matched: MatchedRawTextValue<'data>) -> Self {
+        Self { matched }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct LazyRawTextValue_1_1<'data> {
+    pub(crate) matched: MatchedRawTextValue<'data>,
+}
+
+impl<'data> Debug for LazyRawTextValue_1_1<'data> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        // Try to read the value
+        match self.read() {
+            // If we can read the value, show it
+            Ok(value) => write!(f, "LazyRawTextValue_1_1 {{{value:?}}}"),
+            // Otherwise, write out diagnostic information
+            Err(e) => write!(
+                f,
+                "LazyRawTextValue_1_1 {{\n  matched={:?}\n  err={:?}\n}}\n",
+                self.matched, e
+            ),
+        }
+    }
+}
+
+impl<'data> From<MatchedRawTextValue<'data>> for LazyRawTextValue_1_1<'data> {
+    fn from(matched: MatchedRawTextValue<'data>) -> Self {
+        Self { matched }
+    }
+}
+
+impl<'data> LazyRawValuePrivate<'data> for MatchedRawTextValue<'data> {
+    // TODO: We likely want to move this functionality to the Ion-version-specific LazyDecoder::Field
+    //       implementations. See: https://github.com/amazon-ion/ion-rust/issues/631
     fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>> {
         self.encoded_value.field_name(self.input)
     }
 }
 
-impl<'data> LazyRawValue<'data, TextEncoding_1_0> for LazyRawTextValue_1_0<'data> {
+impl<'data> MatchedRawTextValue<'data> {
+    /// No-op compiler hint that we want a particular generic flavor of MatchedRawTextValue
+    pub(crate) fn as_version<D: TextEncoding<'data>>(
+        &self,
+        _encoding: D,
+    ) -> &impl LazyRawValue<'data, D> {
+        self
+    }
+}
+// ===== Ion-version-agnostic functionality =====
+//
+// These trait impls are common to all Ion versions, but require the caller to specify a type
+// parameter.
+impl<'data, D: TextEncoding<'data>> LazyRawValue<'data, D> for MatchedRawTextValue<'data> {
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }
@@ -44,7 +108,7 @@ impl<'data> LazyRawValue<'data, TextEncoding_1_0> for LazyRawTextValue_1_0<'data
         self.encoded_value.is_null()
     }
 
-    fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
+    fn annotations(&self) -> D::AnnotationsIterator {
         let span = self
             .encoded_value
             .annotations_range()
@@ -55,7 +119,7 @@ impl<'data> LazyRawValue<'data, TextEncoding_1_0> for LazyRawTextValue_1_0<'data
         RawTextAnnotationsIterator::new(annotations_bytes)
     }
 
-    fn read(&self) -> IonResult<RawValueRef<'data, TextEncoding_1_0>> {
+    fn read(&self) -> IonResult<RawValueRef<'data, D>> {
         let matched_input = self.input.slice(
             self.encoded_value.data_offset() - self.input.offset(),
             self.encoded_value.data_length(),
@@ -73,21 +137,59 @@ impl<'data> LazyRawValue<'data, TextEncoding_1_0> for LazyRawTextValue_1_0<'data
             Symbol(s) => RawValueRef::Symbol(s.read(matched_input)?),
             Blob(b) => RawValueRef::Blob(b.read(matched_input)?),
             Clob(c) => RawValueRef::Clob(c.read(matched_input)?),
-            List => RawValueRef::List(LazyRawTextList_1_0::from_value(*self)),
-            SExp => RawValueRef::SExp(LazyRawTextSExp_1_0::from_value(*self)),
-            Struct => RawValueRef::Struct(LazyRawTextStruct_1_0::from_value(*self)),
+            List => RawValueRef::List(D::List::from_value(D::value_from_matched(*self))),
+            SExp => RawValueRef::SExp(D::SExp::from_value(D::value_from_matched(*self))),
+            Struct => RawValueRef::Struct(D::Struct::from_value(D::value_from_matched(*self))),
         };
         Ok(value_ref)
     }
 }
 
-impl<'a> Debug for LazyRawTextValue_1_0<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "LazyRawTextValue {{\n  val={:?},\n  buf={:?}\n}}\n",
-            self.encoded_value, self.input
-        )
+impl<'data> LazyRawValuePrivate<'data> for LazyRawTextValue_1_0<'data> {
+    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>> {
+        self.matched.field_name()
+    }
+}
+
+impl<'data> LazyRawValue<'data, TextEncoding_1_0> for LazyRawTextValue_1_0<'data> {
+    fn ion_type(&self) -> IonType {
+        self.matched.as_version(TextEncoding_1_0).ion_type()
+    }
+
+    fn is_null(&self) -> bool {
+        self.matched.as_version(TextEncoding_1_0).is_null()
+    }
+
+    fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
+        self.matched.as_version(TextEncoding_1_0).annotations()
+    }
+
+    fn read(&self) -> IonResult<RawValueRef<'data, TextEncoding_1_0>> {
+        self.matched.as_version(TextEncoding_1_0).read()
+    }
+}
+
+impl<'data> LazyRawValuePrivate<'data> for LazyRawTextValue_1_1<'data> {
+    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>> {
+        self.matched.field_name()
+    }
+}
+
+impl<'data> LazyRawValue<'data, TextEncoding_1_1> for LazyRawTextValue_1_1<'data> {
+    fn ion_type(&self) -> IonType {
+        self.matched.as_version(TextEncoding_1_1).ion_type()
+    }
+
+    fn is_null(&self) -> bool {
+        self.matched.as_version(TextEncoding_1_1).is_null()
+    }
+
+    fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
+        self.matched.as_version(TextEncoding_1_1).annotations()
+    }
+
+    fn read(&self) -> IonResult<RawValueRef<'data, TextEncoding_1_1>> {
+        self.matched.as_version(TextEncoding_1_1).read()
     }
 }
 

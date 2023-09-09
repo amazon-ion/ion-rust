@@ -362,10 +362,16 @@ impl IonOrd for Element {
 }
 
 /// An `(annotations, value)` pair representing an Ion value.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Element {
     annotations: Annotations,
     value: Value,
+}
+
+impl std::fmt::Debug for Element {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        <Element as Display>::fmt(self, f)
+    }
 }
 
 impl Element {

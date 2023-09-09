@@ -1,7 +1,8 @@
 use std::borrow::Cow;
 
-use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
+use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::BinaryEncoding_1_0;
+use crate::lazy::expanded::{ExpandedAnnotationsIterator, ExpandedValueRef, LazyExpandedValue};
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::value_ref::ValueRef;
@@ -54,23 +55,21 @@ use crate::{
 /// ```
 #[derive(Clone)]
 pub struct LazyValue<'top, 'data, D: LazyDecoder<'data>> {
-    pub(crate) raw_value: D::Value,
-    pub(crate) symbol_table: &'top SymbolTable,
+    pub(crate) expanded_value: LazyExpandedValue<'top, 'data, D>,
 }
 
 pub type LazyBinaryValue<'top, 'data> = LazyValue<'top, 'data, BinaryEncoding_1_0>;
 
-impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
     pub(crate) fn new(
-        symbol_table: &'top SymbolTable,
-        raw_value: D::Value,
+        expanded_value: LazyExpandedValue<'top, 'data, D>,
     ) -> LazyValue<'top, 'data, D> {
-        LazyValue {
-            raw_value,
-            symbol_table,
-        }
+        LazyValue { expanded_value }
     }
 
+    fn symbol_table(&'top self) -> &'top SymbolTable {
+        self.expanded_value.context.symbol_table
+    }
     /// Returns the [`IonType`] of this value.
     /// ```
     ///# use ion_rs::IonResult;
@@ -95,7 +94,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
     ///# }
     /// ```
     pub fn ion_type(&self) -> IonType {
-        self.raw_value.ion_type()
+        self.expanded_value.ion_type()
     }
 
     /// Returns an iterator over the annotations on this value. If this value has no annotations,
@@ -128,8 +127,8 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
     /// ```
     pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
         AnnotationsIterator {
-            raw_annotations: self.raw_value.annotations(),
-            symbol_table: self.symbol_table,
+            expanded_annotations: self.expanded_value.annotations(),
+            symbol_table: self.expanded_value.context.symbol_table,
         }
     }
 
@@ -160,13 +159,10 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn read(&self) -> IonResult<ValueRef<'top, 'data, D>>
-    where
-        'data: 'top,
-    {
-        use crate::lazy::raw_value_ref::RawValueRef::*;
+    pub fn read(&self) -> IonResult<ValueRef<'top, 'data, D>> {
+        use ExpandedValueRef::*;
 
-        let value_ref = match self.raw_value.read()? {
+        let value_ref = match self.expanded_value.read()? {
             Null(ion_type) => ValueRef::Null(ion_type),
             Bool(b) => ValueRef::Bool(b),
             Int(i) => ValueRef::Int(i),
@@ -177,6 +173,8 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
             Symbol(s) => {
                 let symbol = match s {
                     RawSymbolTokenRef::SymbolId(sid) => self
+                        .expanded_value
+                        .context
                         .symbol_table
                         .symbol_for(sid)
                         .ok_or_else(|| {
@@ -195,22 +193,22 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
             Clob(c) => ValueRef::Clob(c),
             SExp(s) => {
                 let lazy_sexp = LazySExp {
-                    raw_sexp: s,
-                    symbol_table: self.symbol_table,
+                    expanded_sexp: s,
+                    symbol_table: self.expanded_value.context.symbol_table,
                 };
                 ValueRef::SExp(lazy_sexp)
             }
             List(l) => {
                 let lazy_sequence = LazyList {
-                    raw_list: l,
-                    symbol_table: self.symbol_table,
+                    expanded_list: l,
+                    symbol_table: self.expanded_value.context.symbol_table,
                 };
                 ValueRef::List(lazy_sequence)
             }
             Struct(s) => {
                 let lazy_struct = LazyStruct {
-                    raw_struct: s,
-                    symbol_table: self.symbol_table,
+                    expanded_struct: s,
+                    symbol_table: self.expanded_value.context.symbol_table,
                 };
                 ValueRef::Struct(lazy_struct)
             }
@@ -229,10 +227,11 @@ impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyValue<'top, 'data, D>> for 
     }
 }
 
-/// Iterates over a slice of bytes, lazily reading them as a sequence of VarUInt symbol IDs.
+/// Iterates over a slice of bytes, lazily reading them as a sequence of symbol tokens encoded
+/// using the format described by generic type parameter `D`.
 pub struct AnnotationsIterator<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) symbol_table: &'top SymbolTable,
-    pub(crate) raw_annotations: D::AnnotationsIterator,
+    pub(crate) expanded_annotations: ExpandedAnnotationsIterator<'top, 'data, D>,
 }
 
 impl<'top, 'data, D: LazyDecoder<'data>> AnnotationsIterator<'top, 'data, D>
@@ -328,7 +327,7 @@ where
     type Item = IonResult<SymbolRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let raw_annotation = self.raw_annotations.next()?;
+        let raw_annotation = self.expanded_annotations.next()?;
         match raw_annotation {
             Ok(RawSymbolTokenRef::SymbolId(sid)) => match self.symbol_table.symbol_for(sid) {
                 None => Some(IonResult::decoding_error(
@@ -342,7 +341,7 @@ where
     }
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<AnnotationsIterator<'top, 'data, D>>
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> TryFrom<AnnotationsIterator<'top, 'data, D>>
     for Annotations
 {
     type Error = IonError;

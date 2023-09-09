@@ -73,6 +73,14 @@ impl From<fmt::Error> for IonError {
     }
 }
 
+impl From<IonError> for fmt::Error {
+    fn from(_ion_error: IonError) -> Self {
+        // This no-op transformation allows `?` to be used in `Debug` implementations wherever
+        // an IonError could surface.
+        fmt::Error
+    }
+}
+
 // Crate-visible convenience methods for constructing error variants and wrapping them in the
 // appropriate type: IonResult<T> or IonError. This is a trait so these methods can be added to
 // `IonResult<T>`, which is just a type alias for `Result<T, IonError>`, whose implementation

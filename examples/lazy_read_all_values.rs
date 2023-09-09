@@ -74,7 +74,7 @@ mod lazy_reader_example {
     fn count_struct_children(lazy_struct: &LazyBinaryStruct) -> IonResult<usize> {
         let mut count = 0;
         for field in lazy_struct {
-            count += count_value_and_children(field?.value())?;
+            count += count_value_and_children(&field?.value())?;
         }
         Ok(count)
     }

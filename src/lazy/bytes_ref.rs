@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 
+#[derive(Clone)]
 pub struct BytesRef<'data> {
     data: Cow<'data, [u8]>,
 }
