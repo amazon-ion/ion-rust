@@ -1,5 +1,5 @@
 use crate::lazy::decoder::LazyRawReader;
-use crate::lazy::encoding::TextEncoding;
+use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
@@ -33,7 +33,7 @@ impl<'data> LazyRawTextReader<'data> {
         }
     }
 
-    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, TextEncoding>>
+    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, TextEncoding_1_0>>
     where
         'data: 'top,
     {
@@ -70,12 +70,12 @@ impl<'data> LazyRawTextReader<'data> {
     }
 }
 
-impl<'data> LazyRawReader<'data, TextEncoding> for LazyRawTextReader<'data> {
+impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader<'data> {
     fn new(data: &'data [u8]) -> Self {
         LazyRawTextReader::new(data)
     }
 
-    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, TextEncoding>> {
+    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, TextEncoding_1_0>> {
         self.next()
     }
 }
@@ -227,7 +227,7 @@ mod tests {
 
         fn expect_next<'data>(
             reader: &mut LazyRawTextReader<'data>,
-            expected: RawValueRef<'data, TextEncoding>,
+            expected: RawValueRef<'data, TextEncoding_1_0>,
         ) {
             let lazy_value = reader
                 .next()

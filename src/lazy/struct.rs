@@ -1,7 +1,7 @@
 use crate::element::builders::StructBuilder;
 use crate::lazy::decoder::private::{LazyRawFieldPrivate, LazyRawValuePrivate};
 use crate::lazy::decoder::{LazyDecoder, LazyRawStruct};
-use crate::lazy::encoding::BinaryEncoding;
+use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
@@ -46,7 +46,7 @@ pub struct LazyStruct<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-pub type LazyBinaryStruct<'top, 'data> = LazyStruct<'top, 'data, BinaryEncoding>;
+pub type LazyBinaryStruct<'top, 'data> = LazyStruct<'top, 'data, BinaryEncoding_1_0>;
 
 // Best-effort debug formatting for LazyStruct. Any failures that occur during reading will result
 // in the output being silently truncated.

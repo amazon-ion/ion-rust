@@ -1,5 +1,5 @@
 use crate::lazy::decoder::{LazyDecoder, LazyRawSequence, LazyRawValue};
-use crate::lazy::encoding::BinaryEncoding;
+use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
 use crate::{IonError, IonResult, IonType, SymbolTable};
@@ -49,7 +49,7 @@ pub struct LazyList<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-pub type LazyBinarySequence<'top, 'data> = LazyList<'top, 'data, BinaryEncoding>;
+pub type LazyBinarySequence<'top, 'data> = LazyList<'top, 'data, BinaryEncoding_1_0>;
 
 impl<'top, 'data, D: LazyDecoder<'data>> LazyList<'top, 'data, D> {
     /// Returns the [`IonType`] of this sequence.

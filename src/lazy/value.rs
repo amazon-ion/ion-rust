@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
-use crate::lazy::encoding::BinaryEncoding;
+use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::value_ref::ValueRef;
@@ -58,7 +58,7 @@ pub struct LazyValue<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-pub type LazyBinaryValue<'top, 'data> = LazyValue<'top, 'data, BinaryEncoding>;
+pub type LazyBinaryValue<'top, 'data> = LazyValue<'top, 'data, BinaryEncoding_1_0>;
 
 impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
     pub(crate) fn new(
