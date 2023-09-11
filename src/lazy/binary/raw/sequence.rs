@@ -4,7 +4,7 @@ use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::LazyRawSequence;
-use crate::lazy::encoding::BinaryEncoding;
+use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::{IonResult, IonType};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -19,7 +19,7 @@ pub struct LazyRawBinarySExp<'data> {
     pub(crate) sequence: LazyRawBinarySequence<'data>,
 }
 
-impl<'data> LazyContainerPrivate<'data, BinaryEncoding> for LazyRawBinaryList<'data> {
+impl<'data> LazyContainerPrivate<'data, BinaryEncoding_1_0> for LazyRawBinaryList<'data> {
     fn from_value(value: LazyRawBinaryValue<'data>) -> Self {
         LazyRawBinaryList {
             sequence: LazyRawBinarySequence { value },
@@ -27,7 +27,7 @@ impl<'data> LazyContainerPrivate<'data, BinaryEncoding> for LazyRawBinaryList<'d
     }
 }
 
-impl<'data> LazyRawSequence<'data, BinaryEncoding> for LazyRawBinaryList<'data> {
+impl<'data> LazyRawSequence<'data, BinaryEncoding_1_0> for LazyRawBinaryList<'data> {
     type Iterator = RawBinarySequenceIterator<'data>;
 
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {
@@ -47,7 +47,7 @@ impl<'data> LazyRawSequence<'data, BinaryEncoding> for LazyRawBinaryList<'data> 
     }
 }
 
-impl<'data> LazyContainerPrivate<'data, BinaryEncoding> for LazyRawBinarySExp<'data> {
+impl<'data> LazyContainerPrivate<'data, BinaryEncoding_1_0> for LazyRawBinarySExp<'data> {
     fn from_value(value: LazyRawBinaryValue<'data>) -> Self {
         LazyRawBinarySExp {
             sequence: LazyRawBinarySequence { value },
@@ -55,7 +55,7 @@ impl<'data> LazyContainerPrivate<'data, BinaryEncoding> for LazyRawBinarySExp<'d
     }
 }
 
-impl<'data> LazyRawSequence<'data, BinaryEncoding> for LazyRawBinarySExp<'data> {
+impl<'data> LazyRawSequence<'data, BinaryEncoding_1_0> for LazyRawBinarySExp<'data> {
     type Iterator = RawBinarySequenceIterator<'data>;
 
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {

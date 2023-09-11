@@ -20,7 +20,7 @@ use nom::multi::{fold_many1, fold_many_m_n, many0_count, many1_count};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
 use nom::{AsBytes, CompareResult, IResult, InputLength, InputTake, Needed, Parser};
 
-use crate::lazy::encoding::TextEncoding;
+use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
@@ -30,9 +30,9 @@ use crate::lazy::text::matched::{
 };
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
-use crate::lazy::text::raw::r#struct::{LazyRawTextField, RawTextStructIterator};
-use crate::lazy::text::raw::sequence::{RawTextListIterator, RawTextSExpIterator};
-use crate::lazy::text::value::LazyRawTextValue;
+use crate::lazy::text::raw::r#struct::{LazyRawTextField_1_0, RawTextStructIterator_1_0};
+use crate::lazy::text::raw::sequence::{RawTextListIterator_1_0, RawTextSExpIterator_1_0};
+use crate::lazy::text::value::LazyRawTextValue_1_0;
 use crate::result::DecodingError;
 use crate::{IonError, IonResult, IonType, TimestampPrecision};
 
@@ -256,7 +256,7 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches an Ion version marker (e.g. `$ion_1_0` or `$ion_1_1`.)
-    pub fn match_ivm(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
+    pub fn match_ivm(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding_1_0>> {
         let (remaining, (major, minor)) = terminated(
             preceded(
                 complete_tag("$ion_"),
@@ -300,7 +300,7 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches an optional annotations sequence and a value, including operators.
-    pub fn match_sexp_value(self) -> IonParseResult<'data, Option<LazyRawTextValue<'data>>> {
+    pub fn match_sexp_value(self) -> IonParseResult<'data, Option<LazyRawTextValue_1_0<'data>>> {
         whitespace_and_then(alt((
             value(None, tag(")")),
             pair(
@@ -329,7 +329,7 @@ impl<'data> TextBufferView<'data> {
     ///
     /// If a pair is found, returns `Some(field)` and consumes the following comma if present.
     /// If no pair is found (that is: the end of the struct is next), returns `None`.
-    pub fn match_struct_field(self) -> IonParseResult<'data, Option<LazyRawTextField<'data>>> {
+    pub fn match_struct_field(self) -> IonParseResult<'data, Option<LazyRawTextField_1_0<'data>>> {
         // A struct field can have leading whitespace, but we want the buffer slice that we match
         // to begin with the field name. Here we skip any whitespace so we have another named
         // slice (`input_including_field_name`) with that property.
@@ -349,7 +349,7 @@ impl<'data> TextBufferView<'data> {
                     // Replace the value's buffer slice (which starts with the value itself) with the
                     // buffer slice we created that begins with the field name.
                     value.input = input_including_field_name;
-                    Some(LazyRawTextField { value })
+                    Some(LazyRawTextField_1_0 { value })
                 },
             ),
         ))(input_including_field_name)
@@ -364,7 +364,13 @@ impl<'data> TextBufferView<'data> {
     /// input bytes where the field name is found, and the value.
     pub fn match_struct_field_name_and_value(
         self,
-    ) -> IonParseResult<'data, ((MatchedFieldName, Range<usize>), LazyRawTextValue<'data>)> {
+    ) -> IonParseResult<
+        'data,
+        (
+            (MatchedFieldName, Range<usize>),
+            LazyRawTextValue_1_0<'data>,
+        ),
+    > {
         terminated(
             separated_pair(
                 whitespace_and_then(match_and_span(Self::match_struct_field_name)),
@@ -376,7 +382,7 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches an optional annotation sequence and a trailing value.
-    pub fn match_annotated_value(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
+    pub fn match_annotated_value(self) -> IonParseResult<'data, LazyRawTextValue_1_0<'data>> {
         pair(
             opt(Self::match_annotations),
             whitespace_and_then(Self::match_value),
@@ -407,7 +413,9 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches a single top-level value, an IVM, or the end of the stream.
-    pub fn match_top_level_item(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
+    pub fn match_top_level_item(
+        self,
+    ) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding_1_0>> {
         // If only whitespace/comments remain, we're at the end of the stream.
         let (input_after_ws, _ws) = self.match_optional_comments_and_whitespace()?;
         if input_after_ws.is_empty() {
@@ -420,13 +428,15 @@ impl<'data> TextBufferView<'data> {
 
     /// Matches a single value at the top level. The caller must verify that the input is not an
     /// IVM before calling; otherwise, that IVM will be recognized as an identifier/symbol.
-    fn match_top_level_value(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
+    fn match_top_level_value(
+        self,
+    ) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding_1_0>> {
         self.match_annotated_value()
             .map(|(remaining, value)| (remaining, RawStreamItem::Value(value)))
     }
 
     /// Matches a single scalar value or the beginning of a container.
-    pub fn match_value(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
+    pub fn match_value(self) -> IonParseResult<'data, LazyRawTextValue_1_0<'data>> {
         alt((
             // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
             // parsing to be done.
@@ -522,7 +532,7 @@ impl<'data> TextBufferView<'data> {
             ),
             // TODO: The other Ion types
         ))
-        .map(|encoded_value| LazyRawTextValue {
+        .map(|encoded_value| LazyRawTextValue_1_0 {
             encoded_value,
             input: self,
         })
@@ -540,7 +550,7 @@ impl<'data> TextBufferView<'data> {
         }
         // Scan ahead to find the end of this list.
         let list_body = self.slice_to_end(1);
-        let sequence_iter = RawTextListIterator::new(list_body);
+        let sequence_iter = RawTextListIterator_1_0::new(list_body);
         let span = match sequence_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
@@ -568,7 +578,7 @@ impl<'data> TextBufferView<'data> {
     ///
     /// If a value is found, returns `Ok(Some(value))`. If the end of the list is found, returns
     /// `Ok(None)`.
-    pub fn match_list_value(self) -> IonParseResult<'data, Option<LazyRawTextValue<'data>>> {
+    pub fn match_list_value(self) -> IonParseResult<'data, Option<LazyRawTextValue_1_0<'data>>> {
         preceded(
             // Some amount of whitespace/comments...
             Self::match_optional_comments_and_whitespace,
@@ -604,7 +614,7 @@ impl<'data> TextBufferView<'data> {
         }
         // Scan ahead to find the end of this sexp
         let sexp_body = self.slice_to_end(1);
-        let sexp_iter = RawTextSExpIterator::new(sexp_body);
+        let sexp_iter = RawTextSExpIterator_1_0::new(sexp_body);
         let span = match sexp_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
@@ -637,7 +647,7 @@ impl<'data> TextBufferView<'data> {
         }
         // Scan ahead to find the end of this struct.
         let struct_body = self.slice_to_end(1);
-        let struct_iter = RawTextStructIterator::new(struct_body);
+        let struct_iter = RawTextStructIterator_1_0::new(struct_body);
         let span = match struct_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
@@ -1093,16 +1103,18 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches an operator symbol, which can only legally appear within an s-expression
-    fn match_operator(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
+    fn match_operator(self) -> IonParseResult<'data, LazyRawTextValue_1_0<'data>> {
         match_and_length(is_a("!#%&*+-./;<=>?@^`|~"))
-            .map(|(text, length): (TextBufferView, usize)| LazyRawTextValue {
-                input: self,
-                encoded_value: EncodedTextValue::new(
-                    MatchedValue::Symbol(MatchedSymbol::Operator),
-                    text.offset(),
-                    length,
-                ),
-            })
+            .map(
+                |(text, length): (TextBufferView, usize)| LazyRawTextValue_1_0 {
+                    input: self,
+                    encoded_value: EncodedTextValue::new(
+                        MatchedValue::Symbol(MatchedSymbol::Operator),
+                        text.offset(),
+                        length,
+                    ),
+                },
+            )
             .parse(self)
     }
 

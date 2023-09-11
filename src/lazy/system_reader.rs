@@ -1,5 +1,5 @@
 use crate::lazy::any_encoding::{AnyEncoding, LazyRawAnyReader};
-use crate::lazy::encoding::{BinaryEncoding, TextEncoding};
+use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
 
@@ -77,8 +77,8 @@ pub struct LazySystemReader<'data, D: LazyDecoder<'data>> {
     pending_lst: PendingLst,
 }
 
-pub type LazySystemBinaryReader<'data> = LazySystemReader<'data, BinaryEncoding>;
-pub type LazySystemTextReader<'data> = LazySystemReader<'data, TextEncoding>;
+pub type LazySystemBinaryReader<'data> = LazySystemReader<'data, BinaryEncoding_1_0>;
+pub type LazySystemTextReader<'data> = LazySystemReader<'data, TextEncoding_1_0>;
 pub type LazySystemAnyReader<'data> = LazySystemReader<'data, AnyEncoding>;
 
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
@@ -144,6 +144,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
             }
             RawStreamItem::Value(lazy_raw_value) => lazy_raw_value,
             RawStreamItem::EndOfStream => return Ok(SystemStreamItem::EndOfStream),
+            RawStreamItem::MacroInvocation(_) => todo!("impl macro invocations"),
         };
         if Self::is_symbol_table_struct(&lazy_raw_value)? {
             Self::process_symbol_table(pending_lst, &lazy_raw_value)?;
@@ -177,6 +178,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
                 RawStreamItem::VersionMarker(_, _) => continue,
                 RawStreamItem::Value(lazy_raw_value) => lazy_raw_value,
                 RawStreamItem::EndOfStream => return Ok(None),
+                RawStreamItem::MacroInvocation(_) => todo!("impl macro invocations"),
             };
             if Self::is_symbol_table_struct(&lazy_raw_value)? {
                 // process the symbol table, but do not surface it

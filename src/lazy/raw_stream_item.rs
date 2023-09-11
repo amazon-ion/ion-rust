@@ -12,6 +12,8 @@ pub enum RawStreamItem<'data, D: LazyDecoder<'data>> {
     /// data and (in the case of containers) access any nested values, see the documentation
     /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue).
     Value(D::Value),
+    /// An Ion 1.1+ macro invocation. Ion 1.0 readers will never return a macro invocation.
+    MacroInvocation(D::MacroInvocation),
     /// The end of the stream
     EndOfStream,
 }

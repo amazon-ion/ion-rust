@@ -3,7 +3,7 @@ use crate::element::reader::ElementReader;
 use crate::element::Element;
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::encoding::{BinaryEncoding, TextEncoding};
+use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
 use crate::lazy::system_reader::{LazySystemAnyReader, LazySystemBinaryReader, LazySystemReader};
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
@@ -76,8 +76,8 @@ impl<'data, D: LazyDecoder<'data>> LazyApplicationReader<'data, D> {
     }
 }
 
-pub type LazyBinaryReader<'data> = LazyApplicationReader<'data, BinaryEncoding>;
-pub type LazyTextReader<'data> = LazyApplicationReader<'data, TextEncoding>;
+pub type LazyBinaryReader<'data> = LazyApplicationReader<'data, BinaryEncoding_1_0>;
+pub type LazyTextReader<'data> = LazyApplicationReader<'data, TextEncoding_1_0>;
 pub type LazyReader<'data> = LazyApplicationReader<'data, AnyEncoding>;
 
 impl<'data> LazyReader<'data> {
