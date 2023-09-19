@@ -32,7 +32,4 @@ jobs:
           rustup override set nightly
           cargo miri setup
       - name: Test with Miri
-        uses: actions-rs/cargo@v1
-        with:
-          command: miri test
-          args: serde --features "${{ matrix.features }}"
+        run: cargo miri test serde --features "experimental"
