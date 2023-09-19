@@ -2,7 +2,7 @@
 //!
 //! This module offers APIs for serialization of Rust data structures into Ion data and deserialization of Ion data into Rust data structures.
 //! The APIs uses serde framework for serialization and deserialization. See the Serde website <https://serde.rs/> for additional documentation and usage examples.
-//! This feature doesn't support [Ion annotations] for serialization and deserialization.
+//! This feature doesn't support [Ion annotations] and [Ion SExpressions] for serialization and deserialization.
 //!
 //! There are three different APIs for serializing Ion data:
 //!
@@ -12,17 +12,39 @@
 //!
 //! For deserialization `from_ion` API is provided through this module.
 //!
-//! ## Mapping of Ion data types to Rust types
+//! ## Mapping of Ion data types to Rust and serde data types
 //!
-//!| Ion data type | Rust data structure |
+//!| Ion data type | Rust data structure | Serde data type |
+//!|---------------|---------------------|-----------------|
+//!| int           | u64, i64, u32, i32, u16, i16, u8, i8 | u64, i64, u32, i32, u16, i16, u8, i8 |
+//!| float         | f32, f64            | f32, f64  |
+//!| decimal       | Decimal(Ion Element API) | newtype_struct (with name as `$__ion_rs_decimal__`) |
+//!| timestamp       | Timestamp(Ion Element API) | newtype_struct (with name as `$__ion_rs_timestamp__`) |
+//!| blob          | byte array               | byte array |
+//!| clob          | byte array               | byte array |
+//!| bool          | bool                | bool |
+//!| symbol        | string              | string |
+//!| string        | string              | string |
+//!| struct        | struct              | struct |
+//!| list          | vector              | seq |
+//!| null          | None                | unit |
+//!
+//! ## Mapping of serde data types to Ion data types
+//!
+//!| Serde data type | Ion data type |
 //!|---------------|---------------------|
-//!| int           | u64, i64, u32, i32, u16, i16, u8, i8  |
-//!| string        | String               |
-//!| struct        | struct              |
-//!  
+//!| u64, i64, u32, i32, u16, i16, u8, i8 | int |
+//!| char, string, unit_variant | string |
+//!| byte-array | blob |
+//!| option | None - null, Some - based on other mappings |
+//!| unit, unit_struct | null |
+//!| seq, tuple, tuple_struct, tuple_variant | list |
+//!| newtype_struct ,newtype_variant, map, struct, struct_variant | struct |
+//!
 //! _Note: Since the serde framework doesn't support [Ion decimal] and [Ion timestamp] types, distinct serialization and deserialization of these types are defined in this module.
 //! It uses `newtype_struct` with `$__ion_rs_decimal__` and `$__ion_rs_timestamp__` as struct names from [serde data model],
-//! to indicate serde framework to use Ion's implementation of decimal and timestamp serialization and deserialization._
+//! to indicate serde framework to use Ion's implementation of decimal and timestamp serialization and deserialization.
+//! If one wants to use [chrono::DateTime], it needs to be tagged with `#[serde_as(as = crate::Timestamp)]`._
 //!
 //! ## Example of serialization of Rust struct into Ion data
 //! ```
@@ -85,25 +107,89 @@
 //! }
 //! ```
 //!
+//! ## Example of serialization and deserialization for Timestamp
+//!```
+//! use serde::{Deserialize, Serialize};
+//! use ion_rs::Timestamp;
+//! use ion_rs::IonResult;
+//! use ion_rs::serde::from_ion;
+//! use serde_with::serde_as;
+//! use chrono::{Utc, TimeZone, FixedOffset, DateTime};
+//!
+//! #[serde_as]
+//! #[derive(Serialize, Deserialize)]
+//! struct Event {
+//!     name: String,
+//!     start_time: Timestamp,
+//!     #[serde_as(as = "crate::Timestamp")]
+//!     end_time: DateTime<FixedOffset>
+//! }
+//!
+//! fn main() -> IonResult<()> {
+//! // represents Ion data with event information
+//! let data = r#"
+//!         {
+//!             name: "Annual Conference",
+//!             start_time: 2023-01-01T16:30:00Z,
+//!             end_time: 2023-01-01T18:00:00Z
+//!         }
+//!     "#;
+//!
+//!     // deserialize Ion data into Rust struct for event
+//!     let event: Event = from_ion(data)?;
+//!
+//!     // assert that the deserialized Rust struct has name, start_time and end_time set correctly
+//!     assert_eq!(event.name, "Annual Conference");
+//!     assert_eq!(event.start_time, Timestamp::with_ymd(2023, 1, 1).with_hms(16, 30, 0).build()?);
+//!     assert_eq!(event.end_time, Utc.with_ymd_and_hms(2023, 1, 1, 18, 0, 0).unwrap());
+//!
+//!    Ok(())
+//! }
+//! ```
+//!
+//! ## Example of serialization and deserialization for Decimal
+//!```
+//! use serde::{Deserialize, Serialize};
+//! use ion_rs::Decimal;
+//! use ion_rs::IonResult;
+//! use ion_rs::serde::from_ion;
+//!
+//! #[derive(Serialize, Deserialize)]
+//! struct Product {
+//!     name: String,
+//!     price: Decimal
+//! }
+//!
+//! fn main() -> IonResult<()> {
+//! // represents Ion data with product information
+//! let data = r#"
+//!         {
+//!             name: "Chair",
+//!             price: 35.5
+//!         }
+//!     "#;
+//!
+//!     // deserialize Ion data into Rust struct for product
+//!     let product: Product = from_ion(data)?;
+//!
+//!     // assert that the deserialized Rust struct has name and price field set correctly
+//!     assert_eq!(product.name, "Chair");
+//!     assert_eq!(product.price, Decimal::new(355, -1));
+//!
+//!    Ok(())
+//! }
+//! ```
+//!
 //! [Ion annotations]: https://amazon-ion.github.io/ion-docs/docs/spec.html#annot
+//! [Ion SExpressions]: https://amazon-ion.github.io/ion-docs/docs/spec.html#sexp
 //! [Ion decimal]: https://amazon-ion.github.io/ion-docs/docs/spec.html#decimal
 //! [Ion timestamp]: https://amazon-ion.github.io/ion-docs/docs/spec.html#timestamp
 //! [serde data model]: https://serde.rs/data-model.html#types
 
-use std::cell::Cell;
-
-thread_local! {
-    /// Cell that contains a flag to determine when serialization and deserialization
-    /// is occurring with an Ion serializer. This allows us to know when to encode
-    /// Timestamps as ion timestamps and Decimal as Ion decimals
-    /// since the representation for timestamps and decimals differs for serde and Ion.
-    pub(crate) static SERDE_AS_ION: Cell<bool> = Cell::new(false);
-}
-
 pub mod de;
-pub mod decimal;
+mod decimal;
 pub mod ser;
-pub mod timestamp;
+mod timestamp;
 
 pub use de::{from_ion, Deserializer};
 pub use ser::{to_binary, to_pretty, to_string, Serializer};

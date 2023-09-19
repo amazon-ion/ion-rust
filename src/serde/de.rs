@@ -1,10 +1,10 @@
 use crate::data_source::IonDataSource;
 use crate::result::IonFailure;
-use crate::serde::decimal::ION_DECIMAL;
-use crate::serde::timestamp::ION_TIMESTAMP;
-use crate::serde::SERDE_AS_ION;
-use crate::{IonError, IonReader, IonResult, IonType, ReaderBuilder, StreamItem, Symbol};
-use chrono::{DateTime, FixedOffset};
+use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
+use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
+use crate::{
+    Decimal, IonError, IonReader, IonResult, IonType, ReaderBuilder, StreamItem, Symbol, Timestamp,
+};
 use serde::de;
 use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
@@ -13,28 +13,31 @@ use std::iter::FusedIterator;
 use std::marker::PhantomData;
 
 /// Generic method that can deserialize an object from any given object
-/// that implements `ToIonDateSource`. It also enables `ION_BINARY`
+/// that implements `ToIonDataSource`. It also enables `ION_BINARY`
 /// to ensure that `Timestamp` objects are correctly deserialized.
 pub fn from_ion<'a, T, S>(s: S) -> IonResult<T>
 where
     T: Deserialize<'a>,
     S: IonDataSource,
 {
-    SERDE_AS_ION.with(move |cell| {
-        cell.set(true);
-        let mut deserializer = Deserializer {
-            reader: ReaderBuilder::new().build(s)?,
-        };
+    let mut deserializer = Deserializer {
+        reader: ReaderBuilder::new().build(s)?,
+    };
 
-        // If we are hovering over nothing call next till we have an object
-        while StreamItem::Nothing == deserializer.reader.current() {
-            deserializer.reader.next()?;
-        }
+    if StreamItem::Nothing == deserializer.reader.current() {
+        // We're not on a value. Advance the reader.
+        deserializer.reader.next()?;
+    }
 
-        let result = T::deserialize(&mut deserializer)?;
-        cell.set(false);
-        Ok(result)
-    })
+    if StreamItem::Nothing == deserializer.reader.current() {
+        // Advancing the reader did nothing; this input contains no values.
+        return IonResult::decoding_error(
+            "The input for deserialization doesn't contain any values",
+        );
+    }
+
+    let result = T::deserialize(&mut deserializer)?;
+    Ok(result)
 }
 
 /// The deserializer for Ion, it doesn't care about
@@ -44,7 +47,7 @@ pub struct Deserializer<R> {
     pub(crate) reader: R,
 }
 
-impl<'de, 'a, R> serde::de::Deserializer<'de> for &'a mut Deserializer<R>
+impl<'de, 'a, R> de::Deserializer<'de> for &'a mut Deserializer<R>
 where
     R: IonReader<Symbol = Symbol, Item = StreamItem>,
 {
@@ -61,15 +64,19 @@ where
                 IonType::String | IonType::Symbol => self.deserialize_string(visitor),
                 IonType::Float => self.deserialize_f64(visitor),
                 IonType::Int => self.deserialize_i64(visitor),
-                IonType::Decimal => self.deserialize_newtype_struct(ION_DECIMAL, visitor),
+                IonType::Decimal => {
+                    self.deserialize_newtype_struct(TUNNELED_DECIMAL_TYPE_NAME, visitor)
+                }
                 IonType::Bool => self.deserialize_bool(visitor),
                 IonType::List => self.deserialize_seq(visitor),
                 IonType::Struct => self.deserialize_struct("", &[], visitor),
-                IonType::Timestamp => self.deserialize_newtype_struct(ION_TIMESTAMP, visitor),
-                _ => IonResult::decoding_error("unexpected ion type".to_string()),
+                IonType::Timestamp => {
+                    self.deserialize_newtype_struct(TUNNELED_TIMESTAMP_TYPE_NAME, visitor)
+                }
+                _ => IonResult::decoding_error("unexpected ion type"),
             }
         } else {
-            IonResult::decoding_error("unexpected end of file".to_string())
+            IonResult::decoding_error("unexpected end of file")
         }
     }
 
@@ -86,7 +93,12 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_i8(self.reader.read_i64().map(|x| x as i8)?);
+        let result = visitor.visit_i8(
+            self.reader
+                .read_i64()
+                .map(i8::try_from)?
+                .map_err(|e| IonError::decoding_error(e.to_string()))?,
+        );
         self.reader.next()?;
         result
     }
@@ -95,7 +107,12 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_i16(self.reader.read_i64().map(|x| x as i16)?);
+        let result = visitor.visit_i16(
+            self.reader
+                .read_i64()
+                .map(i16::try_from)?
+                .map_err(|e| IonError::decoding_error(e.to_string()))?,
+        );
         self.reader.next()?;
         result
     }
@@ -104,7 +121,12 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_i32(self.reader.read_i64().map(|x| x as i32)?);
+        let result = visitor.visit_i32(
+            self.reader
+                .read_i64()
+                .map(i32::try_from)?
+                .map_err(|e| IonError::decoding_error(e.to_string()))?,
+        );
         self.reader.next()?;
         result
     }
@@ -122,7 +144,12 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_u8(self.reader.read_i64().map(|x| x as u8)?);
+        let result = visitor.visit_u8(
+            self.reader
+                .read_i64()
+                .map(u8::try_from)?
+                .map_err(|e| IonError::decoding_error(e.to_string()))?,
+        );
         self.reader.next()?;
         result
     }
@@ -131,7 +158,12 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_u16(self.reader.read_i64().map(|x| x as u16)?);
+        let result = visitor.visit_u16(
+            self.reader
+                .read_i64()
+                .map(u16::try_from)?
+                .map_err(|e| IonError::decoding_error(e.to_string()))?,
+        );
         self.reader.next()?;
         result
     }
@@ -140,7 +172,12 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_u32(self.reader.read_i64().map(|x| x as u32)?);
+        let result = visitor.visit_u32(
+            self.reader
+                .read_i64()
+                .map(u32::try_from)?
+                .map_err(|e| IonError::decoding_error(e.to_string()))?,
+        );
         self.reader.next()?;
         result
     }
@@ -176,11 +213,11 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_char(
-            self.reader
-                .read_string()
-                .map(|x| x.to_string().chars().collect::<Vec<char>>()[0])?,
-        );
+        let result = visitor.visit_char(self.reader.read_str().and_then(|s| {
+            s.chars()
+                .next()
+                .ok_or_else(|| IonError::decoding_error("expected a char, found an empty string"))
+        })?);
         self.reader.next()?;
         result
     }
@@ -189,7 +226,7 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_string(self.reader.read_string()?.to_string());
+        let result = visitor.visit_str(self.reader.read_str()?);
         self.reader.next()?;
         result
     }
@@ -198,7 +235,7 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_string(self.reader.read_str()?.to_owned());
+        let result = visitor.visit_str(self.reader.read_str()?);
         self.reader.next()?;
         result
     }
@@ -226,9 +263,12 @@ where
         V: Visitor<'de>,
     {
         if self.reader.is_null() {
+            // since this is is a null value which is equivalent to `None` in Rust data type,
+            // we can skip reading the next value and call visit_none
             self.reader.next()?;
             visitor.visit_none()
         } else {
+            // For non null value we transfer the call to visit_some to perform the deserialization
             visitor.visit_some(self)
         }
     }
@@ -241,7 +281,7 @@ where
             self.reader.next()?;
             visitor.visit_unit()
         } else {
-            IonResult::decoding_error("expected a null value".to_string())
+            IonResult::decoding_error("expected a null value")
         }
     }
 
@@ -264,19 +304,27 @@ where
     where
         V: Visitor<'de>,
     {
-        if name == ION_TIMESTAMP {
+        if name == TUNNELED_TIMESTAMP_TYPE_NAME {
             let timestamp = self.reader.read_timestamp()?;
-            let datetime: DateTime<FixedOffset> = timestamp.try_into()?;
-            let datetime_str = datetime.to_rfc3339();
-
-            let result = visitor.visit_str(&datetime_str);
+            assert_eq!(
+                std::mem::size_of::<V::Value>(),
+                std::mem::size_of::<Timestamp>()
+            );
+            // compiler doesn't understand that the generic Timestamp here is actually V::Value here
+            let visitor_value =
+                unsafe { std::mem::transmute_copy::<Timestamp, V::Value>(&timestamp) };
             self.reader.next()?;
-            return result;
-        } else if name == ION_DECIMAL {
+            return Ok(visitor_value);
+        } else if name == TUNNELED_DECIMAL_TYPE_NAME {
             let decimal = self.reader.read_decimal()?;
-            let result = visitor.visit_str(&decimal.to_string());
+            assert_eq!(
+                std::mem::size_of::<V::Value>(),
+                std::mem::size_of::<Decimal>()
+            );
+            // compiler doesn't understand that the generic Decimal here is actually V::Value here
+            let visitor_value = unsafe { std::mem::transmute_copy::<Decimal, V::Value>(&decimal) };
             self.reader.next()?;
-            return result;
+            return Ok(visitor_value);
         }
         self.reader.step_in()?;
         self.reader.next()?;
@@ -370,10 +418,10 @@ where
                     self.reader.next()?;
                     Ok(value)
                 }
-                _ => IonResult::decoding_error("expected an enumeration".to_string()),
+                _ => IonResult::decoding_error("expected an enumeration"),
             }
         } else {
-            IonResult::decoding_error("unexpected end of file".to_string())
+            IonResult::decoding_error("unexpected end of file")
         }
     }
 
@@ -381,7 +429,7 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_string(self.reader.read_string()?.to_string());
+        let result = visitor.visit_str(self.reader.read_str()?);
         self.reader.next()?;
         result
     }
@@ -548,14 +596,14 @@ where
     where
         T: DeserializeSeed<'de>,
     {
-        IonResult::decoding_error("Unexpected newtype variant".to_string())
+        IonResult::decoding_error("Unexpected newtype variant")
     }
 
     fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("Unexpected tuple variant".to_string())
+        IonResult::decoding_error("Unexpected tuple variant")
     }
 
     fn struct_variant<V>(
@@ -566,7 +614,7 @@ where
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("Unexpected struct variant".to_string())
+        IonResult::decoding_error("Unexpected struct variant")
     }
 }
 
@@ -581,91 +629,91 @@ impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_bool<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_i8<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_i16<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_i32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_i64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_u8<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_u16<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_u32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_u64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_f32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_f64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -686,28 +734,28 @@ impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_unit_struct<V>(
@@ -718,7 +766,7 @@ impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_newtype_struct<V>(
@@ -729,21 +777,21 @@ impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_seq<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_tuple_struct<V>(
@@ -755,14 +803,14 @@ impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_struct<V>(
@@ -774,7 +822,7 @@ impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_enum<V>(
@@ -786,7 +834,7 @@ impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -801,7 +849,7 @@ impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value".to_string())
+        IonResult::decoding_error("expected a string value")
     }
 }
 

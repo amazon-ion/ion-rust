@@ -1,14 +1,12 @@
-use chrono::DateTime;
 use std::io::Cursor;
 
 use crate::ion_writer::IonWriter;
 use crate::result::IonFailure;
-use crate::serde::decimal::ION_DECIMAL;
-use crate::serde::timestamp::ION_TIMESTAMP;
-use crate::serde::SERDE_AS_ION;
+use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
+use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
 use crate::types::Int;
 use crate::{
-    BinaryWriterBuilder, Element, IonError, IonResult, IonType, TextKind, TextWriterBuilder,
+    BinaryWriterBuilder, Decimal, IonError, IonResult, IonType, TextKind, TextWriterBuilder,
     Timestamp,
 };
 use serde::ser::Impossible;
@@ -19,25 +17,21 @@ pub fn to_pretty<T>(value: &T) -> IonResult<String>
 where
     T: Serialize,
 {
-    SERDE_AS_ION.with(move |cell| {
-        cell.set(true);
-        let mut cursor = Cursor::new(Vec::new());
-        let mut serializer = Serializer {
-            writer: TextWriterBuilder::pretty().build(&mut cursor)?,
-        };
+    let mut cursor = Cursor::new(Vec::new());
+    let mut serializer = Serializer {
+        writer: TextWriterBuilder::pretty().build(&mut cursor)?,
+    };
 
-        value.serialize(&mut serializer)?;
-        serializer.writer.flush()?;
-        drop(serializer);
-        cell.set(false);
+    value.serialize(&mut serializer)?;
+    serializer.writer.flush()?;
+    drop(serializer);
 
-        let bytes = cursor.get_ref().clone();
+    let bytes = cursor.get_ref().clone();
 
-        match String::from_utf8(bytes) {
-            Ok(data) => Ok(data),
-            Err(e) => IonResult::encoding_error(e.to_string()),
-        }
-    })
+    match String::from_utf8(bytes) {
+        Ok(data) => Ok(data),
+        Err(e) => IonResult::encoding_error(e.to_string()),
+    }
 }
 
 /// Serialize an object into compact Ion text format
@@ -45,25 +39,21 @@ pub fn to_string<T>(value: &T) -> IonResult<String>
 where
     T: Serialize,
 {
-    SERDE_AS_ION.with(move |cell| {
-        cell.set(true);
-        let mut cursor = Cursor::new(Vec::new());
-        let mut serializer = Serializer {
-            writer: TextWriterBuilder::new(TextKind::Compact).build(&mut cursor)?,
-        };
+    let mut cursor = Cursor::new(Vec::new());
+    let mut serializer = Serializer {
+        writer: TextWriterBuilder::new(TextKind::Compact).build(&mut cursor)?,
+    };
 
-        value.serialize(&mut serializer)?;
-        serializer.writer.flush()?;
-        drop(serializer);
-        cell.set(false);
+    value.serialize(&mut serializer)?;
+    serializer.writer.flush()?;
+    drop(serializer);
 
-        let bytes = cursor.get_ref().clone();
+    let bytes = cursor.get_ref().clone();
 
-        match String::from_utf8(bytes) {
-            Ok(data) => Ok(data),
-            Err(e) => IonResult::encoding_error(e.to_string()),
-        }
-    })
+    match String::from_utf8(bytes) {
+        Ok(data) => Ok(data),
+        Err(e) => IonResult::encoding_error(e.to_string()),
+    }
 }
 
 /// Serialize an object into Ion binary format
@@ -71,20 +61,16 @@ pub fn to_binary<T>(value: &T) -> IonResult<Vec<u8>>
 where
     T: Serialize,
 {
-    SERDE_AS_ION.with(move |cell| {
-        cell.set(true);
-        let mut cursor = Cursor::new(Vec::new());
-        let mut serializer = Serializer {
-            writer: BinaryWriterBuilder::new().build(&mut cursor)?,
-        };
+    let mut cursor = Cursor::new(Vec::new());
+    let mut serializer = Serializer {
+        writer: BinaryWriterBuilder::new().build(&mut cursor)?,
+    };
 
-        value.serialize(&mut serializer)?;
-        serializer.writer.flush()?;
-        drop(serializer);
-        cell.set(false);
+    value.serialize(&mut serializer)?;
+    serializer.writer.flush()?;
+    drop(serializer);
 
-        Ok(cursor.get_ref().clone())
-    })
+    Ok(cursor.get_ref().clone())
 }
 
 /// Implements a standard serializer for Ion
@@ -208,10 +194,21 @@ where
     where
         T: Serialize,
     {
-        if name == ION_TIMESTAMP {
-            value.serialize(TimestampSerializer { serializer: self })
-        } else if name == ION_DECIMAL {
-            value.serialize(DecimalSerializer { serializer: self })
+        if name == TUNNELED_TIMESTAMP_TYPE_NAME {
+            assert_eq!(
+                std::mem::size_of_val(value),
+                std::mem::size_of::<Timestamp>()
+            );
+            // compiler doesn't understand that the generic T here is actually Timestamp here since
+            // we are using TUNNELED_TIMESTAMP_TYPE_NAME flag here which indicates a timestamp value
+            let timestamp = unsafe { std::mem::transmute_copy::<&T, &Timestamp>(&value) };
+            self.writer.write_timestamp(timestamp)
+        } else if name == TUNNELED_DECIMAL_TYPE_NAME {
+            // compiler doesn't understand that the generic T here is actually Decimal here since
+            // we are using TUNNELED_DECIMAL_TYPE_NAME flag here which indicates a decimal value
+            assert_eq!(std::mem::size_of_val(value), std::mem::size_of::<Decimal>());
+            let decimal = unsafe { std::mem::transmute_copy::<&T, &Decimal>(&value) };
+            self.writer.write_decimal(decimal)
         } else {
             value.serialize(self)
         }
@@ -451,7 +448,7 @@ where
 struct MapKeySerializer {}
 
 fn key_must_be_a_string() -> IonError {
-    IonError::encoding_error("Ion does not support non-string keys for maps".to_string())
+    IonError::encoding_error("Ion does not support non-string keys for maps")
 }
 
 impl ser::Serializer for MapKeySerializer {
@@ -536,375 +533,6 @@ impl ser::Serializer for MapKeySerializer {
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
         Ok(v.to_string())
-    }
-
-    fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error>
-    where
-        T: Serialize,
-    {
-        value.serialize(self)
-    }
-
-    fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_newtype_variant<T: ?Sized>(
-        self,
-        _name: &'static str,
-        _variant_index: u32,
-        _variant: &'static str,
-        _value: &T,
-    ) -> Result<Self::Ok, Self::Error>
-    where
-        T: Serialize,
-    {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_tuple_struct(
-        self,
-        _name: &'static str,
-        _len: usize,
-    ) -> Result<Self::SerializeTupleStruct, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_tuple_variant(
-        self,
-        _name: &'static str,
-        _variant_index: u32,
-        _variant: &'static str,
-        _len: usize,
-    ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_struct(
-        self,
-        _name: &'static str,
-        _len: usize,
-    ) -> Result<Self::SerializeStruct, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_struct_variant(
-        self,
-        _name: &'static str,
-        _variant_index: u32,
-        _variant: &'static str,
-        _len: usize,
-    ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-}
-
-/// Handles the `Timestamp` serialization by extracting the datetime
-/// out of the interim structure and writing it properly to the Ion writer
-pub struct TimestampSerializer<'a, E> {
-    serializer: &'a mut Serializer<E>,
-}
-
-impl<'a, E> ser::Serializer for TimestampSerializer<'a, E>
-where
-    E: IonWriter,
-{
-    type Ok = ();
-    type Error = IonError;
-
-    fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        let datetime =
-            DateTime::parse_from_rfc3339(v).map_err(|e| IonError::encoding_error(e.to_string()))?;
-        let timestamp = Timestamp::from(datetime);
-        self.serializer.writer.write_timestamp(&timestamp)
-    }
-
-    fn serialize_unit_variant(
-        self,
-        _name: &'static str,
-        _variant_index: u32,
-        variant: &'static str,
-    ) -> Result<Self::Ok, Self::Error> {
-        let datetime = DateTime::parse_from_rfc3339(variant)
-            .map_err(|e| IonError::encoding_error(e.to_string()))?;
-        let timestamp = Timestamp::from(datetime);
-        self.serializer.writer.write_timestamp(&timestamp)
-    }
-
-    fn serialize_newtype_struct<T: ?Sized>(
-        self,
-        _name: &'static str,
-        value: &T,
-    ) -> Result<Self::Ok, Self::Error>
-    where
-        T: Serialize,
-    {
-        value.serialize(self)
-    }
-
-    type SerializeSeq = Impossible<(), IonError>;
-    type SerializeTuple = Impossible<(), IonError>;
-    type SerializeTupleStruct = Impossible<(), IonError>;
-    type SerializeTupleVariant = Impossible<(), IonError>;
-    type SerializeMap = Impossible<(), IonError>;
-    type SerializeStruct = Impossible<(), IonError>;
-    type SerializeStructVariant = Impossible<(), IonError>;
-
-    fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_i8(self, _v: i8) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_u8(self, _v: u8) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_i16(self, _v: i16) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_u16(self, _v: u16) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_i32(self, _v: i32) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_u32(self, _v: u32) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_i64(self, _v: i64) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_u64(self, _v: u64) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_f32(self, _v: f32) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_f64(self, _v: f64) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_char(self, _v: char) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error>
-    where
-        T: Serialize,
-    {
-        value.serialize(self)
-    }
-
-    fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_newtype_variant<T: ?Sized>(
-        self,
-        _name: &'static str,
-        _variant_index: u32,
-        _variant: &'static str,
-        _value: &T,
-    ) -> Result<Self::Ok, Self::Error>
-    where
-        T: Serialize,
-    {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_tuple_struct(
-        self,
-        _name: &'static str,
-        _len: usize,
-    ) -> Result<Self::SerializeTupleStruct, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_tuple_variant(
-        self,
-        _name: &'static str,
-        _variant_index: u32,
-        _variant: &'static str,
-        _len: usize,
-    ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_struct(
-        self,
-        _name: &'static str,
-        _len: usize,
-    ) -> Result<Self::SerializeStruct, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_struct_variant(
-        self,
-        _name: &'static str,
-        _variant_index: u32,
-        _variant: &'static str,
-        _len: usize,
-    ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-}
-
-/// Serializer for Ion `Decimal`
-pub struct DecimalSerializer<'a, E> {
-    serializer: &'a mut Serializer<E>,
-}
-
-impl<'a, E> ser::Serializer for DecimalSerializer<'a, E>
-where
-    E: IonWriter,
-{
-    type Ok = ();
-    type Error = IonError;
-
-    fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        let e = Element::read_one(v)?;
-        let decimal = e.as_decimal().ok_or(IonError::encoding_error(format!(
-            "Decimal serialization failed for: {}",
-            v
-        )))?;
-        self.serializer.writer.write_decimal(decimal)
-    }
-
-    fn serialize_unit_variant(
-        self,
-        _name: &'static str,
-        _variant_index: u32,
-        variant: &'static str,
-    ) -> Result<Self::Ok, Self::Error> {
-        let e = Element::read_one(variant)?;
-        // TODO: remove unwrap
-        let decimal = e.as_decimal().unwrap();
-        self.serializer.writer.write_decimal(decimal)
-    }
-
-    fn serialize_newtype_struct<T: ?Sized>(
-        self,
-        _name: &'static str,
-        value: &T,
-    ) -> Result<Self::Ok, Self::Error>
-    where
-        T: Serialize,
-    {
-        value.serialize(self)
-    }
-
-    type SerializeSeq = Impossible<(), IonError>;
-    type SerializeTuple = Impossible<(), IonError>;
-    type SerializeTupleStruct = Impossible<(), IonError>;
-    type SerializeTupleVariant = Impossible<(), IonError>;
-    type SerializeMap = Impossible<(), IonError>;
-    type SerializeStruct = Impossible<(), IonError>;
-    type SerializeStructVariant = Impossible<(), IonError>;
-
-    fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_i8(self, _v: i8) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_u8(self, _v: u8) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_i16(self, _v: i16) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_u16(self, _v: u16) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_i32(self, _v: i32) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_u32(self, _v: u32) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_i64(self, _v: i64) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_u64(self, _v: u64) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_f32(self, _v: f32) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_f64(self, _v: f64) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
-    }
-
-    fn serialize_char(self, _v: char) -> Result<Self::Ok, Self::Error> {
-        Err(key_must_be_a_string())
     }
 
     fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {

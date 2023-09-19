@@ -1,10 +1,9 @@
-use crate::serde::SERDE_AS_ION;
-use crate::{Decimal, Element};
-use serde::de::Error;
-use serde::{self, de, Deserialize, Serialize};
+use crate::Decimal;
+use serde::de::Visitor;
+use serde::{self, Deserialize, Deserializer, Serialize};
 use std::fmt;
 
-pub(crate) const ION_DECIMAL: &str = "$__ion_rs_decimal__";
+pub(crate) const TUNNELED_DECIMAL_TYPE_NAME: &str = "$__ion_rs_decimal__";
 
 /// Serialization for Ion `Decimal`
 /// This serialization internally uses `serialize_newtype_struct` to trick serde to serialize a number value into decimal.
@@ -16,14 +15,7 @@ impl Serialize for Decimal {
     where
         S: serde::ser::Serializer,
     {
-        SERDE_AS_ION.with(move |cell| {
-            let decimal: Decimal = self.clone();
-            if cell.get() {
-                serializer.serialize_newtype_struct(ION_DECIMAL, decimal.to_string().as_str())
-            } else {
-                serializer.serialize_str(decimal.to_string().as_str())
-            }
-        })
+        serializer.serialize_newtype_struct(TUNNELED_DECIMAL_TYPE_NAME, self)
     }
 }
 
@@ -34,46 +26,18 @@ impl Serialize for Decimal {
 impl<'de> Deserialize<'de> for Decimal {
     fn deserialize<D>(deserializer: D) -> Result<Decimal, D::Error>
     where
-        D: de::Deserializer<'de>,
+        D: Deserializer<'de>,
     {
-        SERDE_AS_ION.with(move |cell| {
-            if cell.get() {
-                struct DecimalVisitor;
+        struct DecimalVisitor;
 
-                impl<'de> de::Visitor<'de> for DecimalVisitor {
-                    type Value = Decimal;
+        impl<'de> Visitor<'de> for DecimalVisitor {
+            type Value = Decimal;
 
-                    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                        formatter.write_str("an Ion Decimal")
-                    }
-
-                    fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
-                    where
-                        E: Error,
-                    {
-                        let decimal = Element::read_one(s)
-                            .ok()
-                            .and_then(|e| e.as_decimal().map(|d| d.to_owned()))
-                            .ok_or(E::custom(format!(
-                                "Decimal deserialization failed for: {}",
-                                s
-                            )))?;
-                        Ok(decimal)
-                    }
-                }
-
-                deserializer.deserialize_newtype_struct(ION_DECIMAL, DecimalVisitor)
-            } else {
-                let string_rep = String::deserialize(deserializer)?;
-                let decimal = Element::read_one(&string_rep)
-                    .ok()
-                    .and_then(|e| e.as_decimal().map(|d| d.to_owned()))
-                    .ok_or(Error::custom(format!(
-                        "Decimal deserialization failed for: {}",
-                        string_rep
-                    )))?;
-                Ok(decimal)
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("an Ion Decimal")
             }
-        })
+        }
+
+        deserializer.deserialize_newtype_struct(TUNNELED_DECIMAL_TYPE_NAME, DecimalVisitor)
     }
 }
