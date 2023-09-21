@@ -19,6 +19,10 @@ jobs:
       checks: write
 
     steps:
+      - name: Git Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Rust Toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -31,8 +35,12 @@ jobs:
           rustup toolchain install nightly --component miri
           rustup override set nightly
           cargo miri setup
-      - name: Test with Miri
-        uses: actions-rs/cargo@v1
-        with:
-          command: miri
-          args: test serde --features "${{ matrix.features }}"
+      - name: Test with Miri (ubuntu and macos)
+        # miri test for Linux and macOS os, since Windows os requires a different syntax to enable miri flags
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+        # We need to pass the miri flag to disable host isolation in order to access host for clock information on timestamps
+        # more information can be found: https://github.com/rust-lang/miri#miri--z-flags-and-environment-variables
+        run: MIRIFLAGS="-Zmiri-disable-isolation" cargo miri test serde --features "${{ matrix.features }}"
+      - name: Test with Miri (windows)
+        if: matrix.os == 'windows-latest'
+        run: $env:MIRIFLAGS="-Zmiri-disable-isolation" ; cargo miri test serde --features "${{ matrix.features }}"
