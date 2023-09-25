@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-/// The kinds of macros supported by [`MacroEvaluator`]. This list parallels
+/// The kinds of macros supported by
+/// [`MacroEvaluator`](crate::lazy::expanded::macro_evaluator::MacroEvaluator).
+/// This list parallels
 /// [`MacroExpansionKind`](crate::lazy::expanded::macro_evaluator::MacroExpansionKind),
 /// but its variants do not hold any associated state.
 #[derive(Debug)]

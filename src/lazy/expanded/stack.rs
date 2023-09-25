@@ -1,7 +1,7 @@
 use bumpalo::collections::Vec as BumpVec;
 use std::fmt::Debug;
 
-/// Backing storage for the [`MacroEvaluator`](crate::lazy::expanded::MacroEvaluator).
+/// Backing storage for the [`MacroEvaluator`](crate::lazy::expanded::macro_evaluator::MacroEvaluator).
 ///
 /// This is implemented both by `Vec` (which has a static lifetime) and [`BumpVec`](bumpalo::collections::Vec),
 /// which uses storage tied to the encoding context's lifetime.

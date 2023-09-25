@@ -1,7 +1,6 @@
 #![allow(non_camel_case_types)]
 
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryStruct, RawBinaryStructIterator};
