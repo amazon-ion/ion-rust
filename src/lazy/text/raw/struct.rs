@@ -1,24 +1,26 @@
-use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawFieldPrivate};
-use crate::lazy::decoder::{LazyRawField, LazyRawStruct, LazyRawValue};
-use crate::lazy::encoding::TextEncoding;
-use crate::lazy::raw_value_ref::RawValueRef;
-use crate::lazy::text::buffer::TextBufferView;
-use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
-use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{IonResult, RawSymbolTokenRef};
-use nom::character::streaming::satisfy;
+#![allow(non_camel_case_types)]
 use std::ops::Range;
 
+use nom::character::streaming::satisfy;
+
+use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawFieldPrivate};
+use crate::lazy::decoder::{LazyRawField, LazyRawStruct, LazyRawValue};
+use crate::lazy::encoding::TextEncoding_1_0;
+use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
+use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
+use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::{IonResult, RawSymbolTokenRef};
+
 #[derive(Clone, Copy, Debug)]
-pub struct RawTextStructIterator<'data> {
+pub struct RawTextStructIterator_1_0<'data> {
     input: TextBufferView<'data>,
     has_returned_error: bool,
 }
 
-impl<'data> RawTextStructIterator<'data> {
+impl<'data> RawTextStructIterator_1_0<'data> {
     pub(crate) fn new(input: TextBufferView<'data>) -> Self {
-        RawTextStructIterator {
+        RawTextStructIterator_1_0 {
             input,
             has_returned_error: false,
         }
@@ -39,9 +41,17 @@ impl<'data> RawTextStructIterator<'data> {
             // ...or there aren't fields, so it's just the input after the opening delimiter.
             self.input
         };
-        let (input_after_ws, _ws) = input_after_last
-            .match_optional_comments_and_whitespace()
-            .with_context("seeking the end of a struct", input_after_last)?;
+        let (mut input_after_ws, _ws) =
+            input_after_last
+                .match_optional_comments_and_whitespace()
+                .with_context("seeking the end of a struct", input_after_last)?;
+        // Skip an optional comma and more whitespace
+        if input_after_ws.bytes().first() == Some(&b',') {
+            (input_after_ws, _) = input_after_ws
+                .slice_to_end(1)
+                .match_optional_comments_and_whitespace()
+                .with_context("skipping a list's trailing comma", input_after_ws)?;
+        }
         let (input_after_end, _end_delimiter) = satisfy(|c| c == b'}' as char)(input_after_ws)
             .with_context("seeking the closing delimiter of a struct", input_after_ws)?;
         let end = input_after_end.offset();
@@ -49,8 +59,8 @@ impl<'data> RawTextStructIterator<'data> {
     }
 }
 
-impl<'data> Iterator for RawTextStructIterator<'data> {
-    type Item = IonResult<LazyRawTextField<'data>>;
+impl<'data> Iterator for RawTextStructIterator_1_0<'data> {
+    type Item = IonResult<LazyRawTextField_1_0<'data>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -72,13 +82,13 @@ impl<'data> Iterator for RawTextStructIterator<'data> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct LazyRawTextField<'data> {
-    pub(crate) value: LazyRawTextValue<'data>,
+pub struct LazyRawTextField_1_0<'data> {
+    pub(crate) value: LazyRawTextValue_1_0<'data>,
 }
 
-impl<'data> LazyRawTextField<'data> {
-    pub(crate) fn new(value: LazyRawTextValue<'data>) -> Self {
-        LazyRawTextField { value }
+impl<'data> LazyRawTextField_1_0<'data> {
+    pub(crate) fn new(value: LazyRawTextValue_1_0<'data>) -> Self {
+        LazyRawTextField_1_0 { value }
     }
 
     pub fn name(&self) -> RawSymbolTokenRef<'data> {
@@ -101,38 +111,38 @@ impl<'data> LazyRawTextField<'data> {
             .expect("invalid struct field name")
     }
 
-    pub fn value(&self) -> LazyRawTextValue<'data> {
+    pub fn value(&self) -> LazyRawTextValue_1_0<'data> {
         self.value
     }
 
-    pub(crate) fn into_value(self) -> LazyRawTextValue<'data> {
-        self.value
-    }
-}
-
-impl<'data> LazyRawFieldPrivate<'data, TextEncoding> for LazyRawTextField<'data> {
-    fn into_value(self) -> LazyRawTextValue<'data> {
+    pub(crate) fn into_value(self) -> LazyRawTextValue_1_0<'data> {
         self.value
     }
 }
 
-impl<'data> LazyRawField<'data, TextEncoding> for LazyRawTextField<'data> {
+impl<'data> LazyRawFieldPrivate<'data, TextEncoding_1_0> for LazyRawTextField_1_0<'data> {
+    fn into_value(self) -> LazyRawTextValue_1_0<'data> {
+        self.value
+    }
+}
+
+impl<'data> LazyRawField<'data, TextEncoding_1_0> for LazyRawTextField_1_0<'data> {
     fn name(&self) -> RawSymbolTokenRef<'data> {
-        LazyRawTextField::name(self)
+        LazyRawTextField_1_0::name(self)
     }
 
-    fn value(&self) -> LazyRawTextValue<'data> {
+    fn value(&self) -> LazyRawTextValue_1_0<'data> {
         self.value()
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct LazyRawTextStruct<'data> {
-    pub(crate) value: LazyRawTextValue<'data>,
+pub struct LazyRawTextStruct_1_0<'data> {
+    pub(crate) value: LazyRawTextValue_1_0<'data>,
 }
 
-impl<'data> LazyRawTextStruct<'data> {
-    fn find(&self, name: &str) -> IonResult<Option<LazyRawTextValue<'data>>> {
+impl<'data> LazyRawTextStruct_1_0<'data> {
+    fn find(&self, name: &str) -> IonResult<Option<LazyRawTextValue_1_0<'data>>> {
         let name: RawSymbolTokenRef = name.as_raw_symbol_token_ref();
         for field_result in *self {
             let field = field_result?;
@@ -144,43 +154,36 @@ impl<'data> LazyRawTextStruct<'data> {
         }
         Ok(None)
     }
+}
 
-    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, TextEncoding>>> {
-        self.find(name)?.map(|f| f.read()).transpose()
+impl<'data> LazyContainerPrivate<'data, TextEncoding_1_0> for LazyRawTextStruct_1_0<'data> {
+    fn from_value(value: LazyRawTextValue_1_0<'data>) -> Self {
+        LazyRawTextStruct_1_0 { value }
     }
 }
 
-impl<'data> LazyContainerPrivate<'data, TextEncoding> for LazyRawTextStruct<'data> {
-    fn from_value(value: LazyRawTextValue<'data>) -> Self {
-        LazyRawTextStruct { value }
-    }
-}
-
-impl<'data> LazyRawStruct<'data, TextEncoding> for LazyRawTextStruct<'data> {
-    type Field = LazyRawTextField<'data>;
-    type Iterator = RawTextStructIterator<'data>;
+impl<'data> LazyRawStruct<'data, TextEncoding_1_0> for LazyRawTextStruct_1_0<'data> {
+    type Field = LazyRawTextField_1_0<'data>;
+    type Iterator = RawTextStructIterator_1_0<'data>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
         self.value.annotations()
     }
 
-    fn find(&self, name: &str) -> IonResult<Option<LazyRawTextValue<'data>>> {
+    fn find(&self, name: &str) -> IonResult<Option<LazyRawTextValue_1_0<'data>>> {
         self.find(name)
     }
 
-    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, TextEncoding>>> {
-        self.get(name)
-    }
-
     fn iter(&self) -> Self::Iterator {
+        let open_brace_index = self.value.encoded_value.data_offset() - self.value.input.offset();
         // Slice the input to skip the opening `{`
-        RawTextStructIterator::new(self.value.input.slice_to_end(1))
+        RawTextStructIterator_1_0::new(self.value.input.slice_to_end(open_brace_index + 1))
     }
 }
 
-impl<'data> IntoIterator for LazyRawTextStruct<'data> {
-    type Item = IonResult<LazyRawTextField<'data>>;
-    type IntoIter = RawTextStructIterator<'data>;
+impl<'data> IntoIterator for LazyRawTextStruct_1_0<'data> {
+    type Item = IonResult<LazyRawTextField_1_0<'data>>;
+    type IntoIter = RawTextStructIterator_1_0<'data>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()

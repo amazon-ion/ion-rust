@@ -5,26 +5,34 @@ use std::slice::Iter;
 use std::str::FromStr;
 
 use nom::branch::alt;
-use nom::bytes::streaming::{is_a, is_not, tag, take_until, take_while1, take_while_m_n};
+use nom::bytes::complete::{
+    is_a as complete_is_a, is_not as complete_is_not, tag as complete_tag,
+    take_while as complete_take_while, take_while1 as complete_take_while1,
+};
+use nom::bytes::streaming::{is_a, tag, take_until, take_while_m_n};
+use nom::character::complete::{
+    char as complete_char, digit1 as complete_digit1, one_of as complete_one_of,
+};
 use nom::character::streaming::{alphanumeric1, char, digit1, one_of, satisfy};
-use nom::combinator::{consumed, map, not, opt, peek, recognize, success, value};
+use nom::combinator::{consumed, eof, map, not, opt, peek, recognize, success, value};
 use nom::error::{ErrorKind, ParseError};
-use nom::multi::{fold_many1, many0_count, many1_count};
+use nom::multi::{fold_many1, fold_many_m_n, many0_count, many1_count};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
-use nom::{CompareResult, IResult, InputLength, InputTake, Needed, Parser};
+use nom::{AsBytes, CompareResult, IResult, InputLength, InputTake, Needed, Parser};
 
-use crate::lazy::encoding::TextEncoding;
+use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
-    MatchedBlob, MatchedDecimal, MatchedFloat, MatchedHoursAndMinutes, MatchedInt, MatchedString,
-    MatchedSymbol, MatchedTimestamp, MatchedTimestampOffset, MatchedValue,
+    MatchedBlob, MatchedClob, MatchedDecimal, MatchedFieldName, MatchedFloat,
+    MatchedHoursAndMinutes, MatchedInt, MatchedString, MatchedSymbol, MatchedTimestamp,
+    MatchedTimestampOffset, MatchedValue,
 };
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
-use crate::lazy::text::raw::r#struct::{LazyRawTextField, RawTextStructIterator};
-use crate::lazy::text::raw::sequence::{RawTextListIterator, RawTextSExpIterator};
-use crate::lazy::text::value::LazyRawTextValue;
+use crate::lazy::text::raw::r#struct::{LazyRawTextField_1_0, RawTextStructIterator_1_0};
+use crate::lazy::text::raw::sequence::{RawTextListIterator_1_0, RawTextSExpIterator_1_0};
+use crate::lazy::text::value::LazyRawTextValue_1_0;
 use crate::result::DecodingError;
 use crate::{IonError, IonResult, IonType, TimestampPrecision};
 
@@ -67,7 +75,23 @@ const WHITESPACE_CHARACTERS: &[char] = &[
 ];
 
 /// Same as [WHITESPACE_CHARACTERS], but formatted as a string for use in some `nom` APIs
-const WHITESPACE_CHARACTERS_AS_STR: &str = " \t\r\n\x09\x0B\x0C";
+pub(crate) const WHITESPACE_CHARACTERS_AS_STR: &str = " \t\r\n\x09\x0B\x0C";
+
+/// This helper function takes a parser and returns a closure that performs the same parsing
+/// but prints the Result before returning the output. This is handy for debugging.
+// A better implementation would use a macro to auto-generate the label from the file name and
+// line number.
+fn dbg_parse<I: Debug, O: Debug, E: Debug, P: Parser<I, O, E>>(
+    label: &'static str,
+    mut parser: P,
+) -> impl Parser<I, O, E> {
+    move |input: I| {
+        let result = parser.parse(input);
+        #[cfg(debug_assertions)]
+        println!("{}: {:?}", label, result);
+        result
+    }
+}
 
 /// A slice of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a text Ion stream.
@@ -88,8 +112,6 @@ pub(crate) struct TextBufferView<'a> {
     data: &'a [u8],
     offset: usize,
 }
-
-pub(crate) type ParseResult<'a, T> = IonResult<(T, TextBufferView<'a>)>;
 
 impl<'data> TextBufferView<'data> {
     /// Constructs a new `TextBufferView` that wraps `data`, setting the view's `offset` to zero.
@@ -165,7 +187,7 @@ impl<'data> TextBufferView<'data> {
     }
 
     pub fn match_whitespace(self) -> IonMatchResult<'data> {
-        is_a(WHITESPACE_CHARACTERS_AS_STR)(self)
+        complete_is_a(WHITESPACE_CHARACTERS_AS_STR)(self)
     }
 
     /// Always succeeds and consumes none of the input. Returns an empty slice of the buffer.
@@ -209,13 +231,13 @@ impl<'data> TextBufferView<'data> {
     fn match_rest_of_line_comment(self) -> IonMatchResult<'data> {
         preceded(
             // Matches a leading "//"...
-            tag("//"),
+            complete_tag("//"),
             // ...followed by either...
             alt((
                 // ...one or more non-EOL characters...
-                is_not("\r\n"),
+                complete_is_not("\r\n"),
                 // ...or any EOL character.
-                peek(recognize(one_of("\r\n"))),
+                peek(recognize(complete_one_of("\r\n"))),
                 // In either case, the line ending will not be consumed.
             )),
         )(self)
@@ -225,18 +247,25 @@ impl<'data> TextBufferView<'data> {
     fn match_multiline_comment(self) -> IonMatchResult<'data> {
         recognize(delimited(
             // Matches a leading "/*"...
-            tag("/*"),
+            complete_tag("/*"),
             // ...any number of non-"*/" characters...
             take_until("*/"),
             // ...and then a closing "*/"
-            tag("*/"),
+            complete_tag("*/"),
         ))(self)
     }
 
     /// Matches an Ion version marker (e.g. `$ion_1_0` or `$ion_1_1`.)
-    pub fn match_ivm(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
-        let (remaining, (major, minor)) =
-            preceded(tag("$ion_"), separated_pair(digit1, tag("_"), digit1))(self)?;
+    pub fn match_ivm(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding_1_0>> {
+        let (remaining, (major, minor)) = terminated(
+            preceded(
+                complete_tag("$ion_"),
+                separated_pair(complete_digit1, complete_tag("_"), complete_digit1),
+            ),
+            // Look ahead to make sure the IVM isn't followed by a '::'. If it is, then it's not
+            // an IVM, it's an annotation.
+            peek(whitespace_and_then(not(complete_tag("::")))),
+        )(self)?;
         // `major` and `minor` are base 10 digits. Turning them into `&str`s is guaranteed to succeed.
         let major_version = u8::from_str(major.as_text().unwrap()).map_err(|_| {
             let error = InvalidInputError::new(major)
@@ -266,12 +295,12 @@ impl<'data> TextBufferView<'data> {
     pub fn match_annotation(self) -> IonParseResult<'data, (MatchedSymbol, Range<usize>)> {
         terminated(
             whitespace_and_then(match_and_span(Self::match_symbol)),
-            whitespace_and_then(tag("::")),
+            whitespace_and_then(complete_tag("::")),
         )(self)
     }
 
     /// Matches an optional annotations sequence and a value, including operators.
-    pub fn match_sexp_value(self) -> IonParseResult<'data, Option<LazyRawTextValue<'data>>> {
+    pub fn match_sexp_value(self) -> IonParseResult<'data, Option<LazyRawTextValue_1_0<'data>>> {
         whitespace_and_then(alt((
             value(None, tag(")")),
             pair(
@@ -280,7 +309,7 @@ impl<'data> TextBufferView<'data> {
                 // int `3` while recognizing the input `-3` as the int `-3`. If `match_operator` runs before
                 // `match_value`, it will consume the sign (`-`) of negative number values, treating
                 // `-3` as an operator (`-`) and an int (`3`). Thus, we run `match_value` first.
-                alt((Self::match_value, Self::match_operator)),
+                whitespace_and_then(alt((Self::match_value, Self::match_operator))),
             )
             .map(|(maybe_annotations, mut value)| {
                 if let Some(annotations) = maybe_annotations {
@@ -296,33 +325,11 @@ impl<'data> TextBufferView<'data> {
         .parse(self)
     }
 
-    /// Matches a single value in a list OR the end of the list, allowing for leading whitespace
-    /// and comments in either case.
-    ///
-    /// If a value is found, returns `Ok(Some(value))`. If the end of the list is found, returns
-    /// `Ok(None)`.
-    pub fn match_list_value(self) -> IonParseResult<'data, Option<LazyRawTextValue<'data>>> {
-        preceded(
-            // Some amount of whitespace/comments...
-            Self::match_optional_comments_and_whitespace,
-            // ...followed by either the end of the list...
-            alt((
-                value(None, tag("]")),
-                // ...or a value...
-                terminated(
-                    Self::match_annotated_value.map(Some),
-                    // ...followed by a comma or end-of-list
-                    Self::match_delimiter_after_list_value,
-                ),
-            )),
-        )(self)
-    }
-
     /// Matches a struct field name/value pair.
     ///
     /// If a pair is found, returns `Some(field)` and consumes the following comma if present.
     /// If no pair is found (that is: the end of the struct is next), returns `None`.
-    pub fn match_struct_field(self) -> IonParseResult<'data, Option<LazyRawTextField<'data>>> {
+    pub fn match_struct_field(self) -> IonParseResult<'data, Option<LazyRawTextField_1_0<'data>>> {
         // A struct field can have leading whitespace, but we want the buffer slice that we match
         // to begin with the field name. Here we skip any whitespace so we have another named
         // slice (`input_including_field_name`) with that property.
@@ -342,7 +349,7 @@ impl<'data> TextBufferView<'data> {
                     // Replace the value's buffer slice (which starts with the value itself) with the
                     // buffer slice we created that begins with the field name.
                     value.input = input_including_field_name;
-                    Some(LazyRawTextField { value })
+                    Some(LazyRawTextField_1_0 { value })
                 },
             ),
         ))(input_including_field_name)
@@ -357,7 +364,13 @@ impl<'data> TextBufferView<'data> {
     /// input bytes where the field name is found, and the value.
     pub fn match_struct_field_name_and_value(
         self,
-    ) -> IonParseResult<'data, ((MatchedSymbol, Range<usize>), LazyRawTextValue<'data>)> {
+    ) -> IonParseResult<
+        'data,
+        (
+            (MatchedFieldName, Range<usize>),
+            LazyRawTextValue_1_0<'data>,
+        ),
+    > {
         terminated(
             separated_pair(
                 whitespace_and_then(match_and_span(Self::match_struct_field_name)),
@@ -369,7 +382,7 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches an optional annotation sequence and a trailing value.
-    pub fn match_annotated_value(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
+    pub fn match_annotated_value(self) -> IonParseResult<'data, LazyRawTextValue_1_0<'data>> {
         pair(
             opt(Self::match_annotations),
             whitespace_and_then(Self::match_value),
@@ -392,34 +405,17 @@ impl<'data> TextBufferView<'data> {
     /// * An identifier
     /// * A symbol ID
     /// * A short-form string
-    pub fn match_struct_field_name(self) -> IonParseResult<'data, MatchedSymbol> {
+    pub fn match_struct_field_name(self) -> IonParseResult<'data, MatchedFieldName> {
         alt((
-            Self::match_symbol,
-            Self::match_short_string.map(|s| {
-                // NOTE: We're "casting" the matched short string to a matched symbol here.
-                //       This relies on the fact that the MatchedSymbol logic ignores
-                //       the first and last matched byte, which are usually single
-                //       quotes but in this case are double quotes.
-                match s {
-                    MatchedString::ShortWithoutEscapes => MatchedSymbol::QuotedWithoutEscapes,
-                    MatchedString::ShortWithEscapes => MatchedSymbol::QuotedWithEscapes,
-                    _ => unreachable!("field name parser matched long string"),
-                }
-            }),
+            Self::match_string.map(MatchedFieldName::String),
+            Self::match_symbol.map(MatchedFieldName::Symbol),
         ))(self)
     }
 
-    /// Matches syntax that is expected to follow a value in a list: any amount of whitespace and/or
-    /// comments followed by either a comma (consumed) or an end-of-list `]` (not consumed).
-    fn match_delimiter_after_list_value(self) -> IonMatchResult<'data> {
-        preceded(
-            Self::match_optional_comments_and_whitespace,
-            alt((tag(","), peek(tag("]")))),
-        )(self)
-    }
-
     /// Matches a single top-level value, an IVM, or the end of the stream.
-    pub fn match_top_level_item(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
+    pub fn match_top_level_item(
+        self,
+    ) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding_1_0>> {
         // If only whitespace/comments remain, we're at the end of the stream.
         let (input_after_ws, _ws) = self.match_optional_comments_and_whitespace()?;
         if input_after_ws.is_empty() {
@@ -432,20 +428,22 @@ impl<'data> TextBufferView<'data> {
 
     /// Matches a single value at the top level. The caller must verify that the input is not an
     /// IVM before calling; otherwise, that IVM will be recognized as an identifier/symbol.
-    fn match_top_level_value(self) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding>> {
+    fn match_top_level_value(
+        self,
+    ) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding_1_0>> {
         self.match_annotated_value()
             .map(|(remaining, value)| (remaining, RawStreamItem::Value(value)))
     }
 
     /// Matches a single scalar value or the beginning of a container.
-    pub fn match_value(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
+    pub fn match_value(self) -> IonParseResult<'data, LazyRawTextValue_1_0<'data>> {
         alt((
             // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
             // parsing to be done.
-            map(match_and_length(Self::read_null), |(ion_type, length)| {
+            map(match_and_length(Self::match_null), |(ion_type, length)| {
                 EncodedTextValue::new(MatchedValue::Null(ion_type), self.offset(), length)
             }),
-            map(match_and_length(Self::read_bool), |(value, length)| {
+            map(match_and_length(Self::match_bool), |(value, length)| {
                 EncodedTextValue::new(MatchedValue::Bool(value), self.offset(), length)
             }),
             // For `int` and the other types, we use `match` and store the partially-processed input in the
@@ -509,6 +507,12 @@ impl<'data> TextBufferView<'data> {
                 },
             ),
             map(
+                match_and_length(Self::match_clob),
+                |(matched_clob, length)| {
+                    EncodedTextValue::new(MatchedValue::Clob(matched_clob), self.offset(), length)
+                },
+            ),
+            map(
                 match_and_length(Self::match_list),
                 |(matched_list, length)| {
                     EncodedTextValue::new(MatchedValue::List, matched_list.offset(), length)
@@ -528,7 +532,7 @@ impl<'data> TextBufferView<'data> {
             ),
             // TODO: The other Ion types
         ))
-        .map(|encoded_value| LazyRawTextValue {
+        .map(|encoded_value| LazyRawTextValue_1_0 {
             encoded_value,
             input: self,
         })
@@ -546,7 +550,7 @@ impl<'data> TextBufferView<'data> {
         }
         // Scan ahead to find the end of this list.
         let list_body = self.slice_to_end(1);
-        let sequence_iter = RawTextListIterator::new(list_body);
+        let sequence_iter = RawTextListIterator_1_0::new(list_body);
         let span = match sequence_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
@@ -569,6 +573,37 @@ impl<'data> TextBufferView<'data> {
         Ok((remaining, matched))
     }
 
+    /// Matches a single value in a list OR the end of the list, allowing for leading whitespace
+    /// and comments in either case.
+    ///
+    /// If a value is found, returns `Ok(Some(value))`. If the end of the list is found, returns
+    /// `Ok(None)`.
+    pub fn match_list_value(self) -> IonParseResult<'data, Option<LazyRawTextValue_1_0<'data>>> {
+        preceded(
+            // Some amount of whitespace/comments...
+            Self::match_optional_comments_and_whitespace,
+            // ...followed by either the end of the list...
+            alt((
+                value(None, tag("]")),
+                // ...or a value...
+                terminated(
+                    Self::match_annotated_value.map(Some),
+                    // ...followed by a comma or end-of-list
+                    Self::match_delimiter_after_list_value,
+                ),
+            )),
+        )(self)
+    }
+
+    /// Matches syntax that is expected to follow a value in a list: any amount of whitespace and/or
+    /// comments followed by either a comma (consumed) or an end-of-list `]` (not consumed).
+    fn match_delimiter_after_list_value(self) -> IonMatchResult<'data> {
+        preceded(
+            Self::match_optional_comments_and_whitespace,
+            alt((tag(","), peek(tag("]")))),
+        )(self)
+    }
+
     /// Matches an s-expression (sexp).
     ///
     /// If the input does not contain the entire s-expression, returns `IonError::Incomplete(_)`.
@@ -579,7 +614,7 @@ impl<'data> TextBufferView<'data> {
         }
         // Scan ahead to find the end of this sexp
         let sexp_body = self.slice_to_end(1);
-        let sexp_iter = RawTextSExpIterator::new(sexp_body);
+        let sexp_iter = RawTextSExpIterator_1_0::new(sexp_body);
         let span = match sexp_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
@@ -612,7 +647,7 @@ impl<'data> TextBufferView<'data> {
         }
         // Scan ahead to find the end of this struct.
         let struct_body = self.slice_to_end(1);
-        let struct_iter = RawTextStructIterator::new(struct_body);
+        let struct_iter = RawTextStructIterator_1_0::new(struct_body);
         let span = match struct_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
@@ -635,29 +670,19 @@ impl<'data> TextBufferView<'data> {
         Ok((remaining, matched))
     }
 
-    /// Matches a boolean value.
-    pub fn match_bool(self) -> IonMatchResult<'data> {
-        recognize(Self::read_bool)(self)
-    }
-
     /// Matches and returns a boolean value.
-    pub fn read_bool(self) -> IonParseResult<'data, bool> {
+    pub fn match_bool(self) -> IonParseResult<'data, bool> {
         terminated(
             alt((value(true, tag("true")), value(false, tag("false")))),
             Self::peek_stop_character,
         )(self)
     }
 
-    /// Matches any type of null. (`null`, `null.null`, `null.int`, etc)
-    pub fn match_null(self) -> IonMatchResult<'data> {
-        recognize(Self::read_null)(self)
-    }
-
-    /// Matches and returns a null value.
-    pub fn read_null(self) -> IonParseResult<'data, IonType> {
+    /// Matches and returns any type of null. (`null`, `null.null`, `null.int`, etc)
+    pub fn match_null(self) -> IonParseResult<'data, IonType> {
         delimited(
-            tag("null"),
-            opt(preceded(char('.'), Self::read_ion_type)),
+            complete_tag("null"),
+            opt(preceded(complete_char('.'), Self::match_ion_type)),
             Self::peek_stop_character,
         )
         .map(|explicit_ion_type| explicit_ion_type.unwrap_or(IonType::Null))
@@ -665,27 +690,27 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches and returns an Ion type.
-    fn read_ion_type(self) -> IonParseResult<'data, IonType> {
+    fn match_ion_type(self) -> IonParseResult<'data, IonType> {
         alt((
-            value(IonType::Null, tag("null")),
-            value(IonType::Bool, tag("bool")),
-            value(IonType::Int, tag("int")),
-            value(IonType::Float, tag("float")),
-            value(IonType::Decimal, tag("decimal")),
-            value(IonType::Timestamp, tag("timestamp")),
-            value(IonType::Symbol, tag("symbol")),
-            value(IonType::String, tag("string")),
-            value(IonType::Clob, tag("clob")),
-            value(IonType::Blob, tag("blob")),
-            value(IonType::List, tag("list")),
-            value(IonType::SExp, tag("sexp")),
-            value(IonType::Struct, tag("struct")),
+            value(IonType::Null, complete_tag("null")),
+            value(IonType::Bool, complete_tag("bool")),
+            value(IonType::Int, complete_tag("int")),
+            value(IonType::Float, complete_tag("float")),
+            value(IonType::Decimal, complete_tag("decimal")),
+            value(IonType::Timestamp, complete_tag("timestamp")),
+            value(IonType::Symbol, complete_tag("symbol")),
+            value(IonType::String, complete_tag("string")),
+            value(IonType::Clob, complete_tag("clob")),
+            value(IonType::Blob, complete_tag("blob")),
+            value(IonType::List, complete_tag("list")),
+            value(IonType::SExp, complete_tag("sexp")),
+            value(IonType::Struct, complete_tag("struct")),
         ))(self)
     }
 
     /// Matches any one of Ion's stop characters.
     fn match_stop_character(self) -> IonMatchResult<'data> {
-        recognize(one_of("{}[](),\"' \t\n\r\u{0b}\u{0c}")).parse(self)
+        alt((eof, recognize(one_of("{}[](),\"' \t\n\r\u{0b}\u{0c}"))))(self)
     }
 
     /// Matches--but does not consume--any one of Ion's stop characters.
@@ -695,7 +720,7 @@ impl<'data> TextBufferView<'data> {
 
     /// Matches the three parts of an int--its base, its sign, and its digits--without actually
     /// constructing an Int from them.
-    fn match_int(self) -> IonParseResult<'data, MatchedInt> {
+    pub fn match_int(self) -> IonParseResult<'data, MatchedInt> {
         terminated(
             // We test for base 16 and base 2 so the '0x' or '0b' isn't confused for a leading zero
             // in a base 10 number, which would be illegal.
@@ -713,7 +738,7 @@ impl<'data> TextBufferView<'data> {
     fn match_base_2_int(self) -> IonParseResult<'data, MatchedInt> {
         separated_pair(
             opt(char('-')),
-            alt((tag("0b"), tag("0B"))),
+            alt((complete_tag("0b"), complete_tag("0B"))),
             Self::match_base_2_int_digits,
         )
         .map(|(maybe_sign, digits)| {
@@ -726,9 +751,9 @@ impl<'data> TextBufferView<'data> {
     fn match_base_2_int_digits(self) -> IonMatchResult<'data> {
         recognize(terminated(
             // Zero or more digits-followed-by-underscores
-            many0_count(pair(is_a("01"), char('_'))),
+            many0_count(pair(complete_is_a("01"), complete_tag("_"))),
             // One or more digits
-            is_a("01"),
+            complete_is_a("01"),
         ))(self)
     }
 
@@ -744,12 +769,7 @@ impl<'data> TextBufferView<'data> {
 
     /// Matches the digits of a base-10 integer. (i.e. An integer without a sign.)
     fn match_base_10_int_digits(self) -> IonMatchResult<'data> {
-        alt((
-            // The number is either a zero...
-            recognize(char('0')),
-            // Or it's a non-zero followed by some number of '_'-separated digits
-            Self::match_base_10_digits_before_dot,
-        ))(self)
+        Self::match_base_10_digits_before_dot(self)
     }
 
     /// Matches either:
@@ -757,7 +777,9 @@ impl<'data> TextBufferView<'data> {
     /// * a non-zero followed by some number of digits with optional underscores
     fn match_base_10_digits_before_dot(self) -> IonMatchResult<'data> {
         alt((
-            tag("0"),
+            // The number is either a zero...
+            complete_tag("0"),
+            // Or it's a non-zero followed by some number of '_'-separated digits
             recognize(pair(
                 Self::match_base_10_leading_digit,
                 Self::match_base_10_trailing_digits,
@@ -774,7 +796,7 @@ impl<'data> TextBufferView<'data> {
     /// This parser accepts leading zeros, which is why it cannot be used for the beginning
     /// of a number.
     fn match_base_10_trailing_digits(self) -> IonMatchResult<'data> {
-        recognize(many0_count(pair(opt(char('_')), digit1)))(self)
+        recognize(many0_count(pair(opt(complete_char('_')), complete_digit1)))(self)
     }
 
     /// Matches a base-10 notation integer (e.g. `0x0`, `0X20`, or `-0xCAFE`) and returns the
@@ -782,7 +804,7 @@ impl<'data> TextBufferView<'data> {
     fn match_base_16_int(self) -> IonParseResult<'data, MatchedInt> {
         separated_pair(
             opt(char('-')),
-            alt((tag("0x"), tag("0X"))),
+            alt((complete_tag("0x"), complete_tag("0X"))),
             Self::match_base_16_int_trailing_digits,
         )
         .map(|(maybe_sign, digits)| {
@@ -795,7 +817,7 @@ impl<'data> TextBufferView<'data> {
     fn match_base_16_int_trailing_digits(self) -> IonMatchResult<'data> {
         recognize(terminated(
             // Zero or more digits-followed-by-underscores
-            many0_count(pair(Self::take_base_16_digits1, char('_'))),
+            many0_count(pair(Self::take_base_16_digits1, complete_tag("_"))),
             // One or more digits
             Self::take_base_16_digits1,
         ))(self)
@@ -804,35 +826,53 @@ impl<'data> TextBufferView<'data> {
     /// Recognizes 1 or more consecutive base-16 digits.
     // This function's "1" suffix is a style borrowed from `nom`.
     fn take_base_16_digits1(self) -> IonMatchResult<'data> {
-        take_while1(|b: u8| b.is_ascii_hexdigit())(self)
+        complete_take_while1(|b: u8| b.is_ascii_hexdigit())(self)
+    }
+
+    /// Matches `n` consecutive hex digits.
+    pub(crate) fn match_n_hex_digits(
+        count: usize,
+    ) -> impl Parser<TextBufferView<'data>, TextBufferView<'data>, IonParseError<'data>> {
+        // `fold_many_m_n` allows us to repeat the same parser between 'm' and 'n' times,
+        // specifying an operation to perform on each match. In our case, we just need the parser
+        // to run 'n' times exactly so `recognize` can return the accepted slice; our operation
+        // is a no-op.
+        recognize(fold_many_m_n(
+            count,
+            count,
+            satisfy(|c| c.is_ascii_hexdigit()),
+            || 0,
+            // no-op
+            |accum, _item| accum,
+        ))
     }
 
     /// Matches an Ion float of any syntax
     fn match_float(self) -> IonParseResult<'data, MatchedFloat> {
-        alt((
-            Self::match_float_special_value,
-            Self::match_float_numeric_value,
-        ))(self)
+        terminated(
+            alt((
+                Self::match_float_special_value,
+                Self::match_float_numeric_value,
+            )),
+            Self::peek_stop_character,
+        )(self)
     }
 
     /// Matches special IEEE-754 values, including +/- infinity and NaN.
     fn match_float_special_value(self) -> IonParseResult<'data, MatchedFloat> {
         alt((
-            value(MatchedFloat::NotANumber, tag("nan")),
-            value(MatchedFloat::PositiveInfinity, tag("+inf")),
-            value(MatchedFloat::NegativeInfinity, tag("-inf")),
+            value(MatchedFloat::NotANumber, complete_tag("nan")),
+            value(MatchedFloat::PositiveInfinity, complete_tag("+inf")),
+            value(MatchedFloat::NegativeInfinity, complete_tag("-inf")),
         ))(self)
     }
 
     /// Matches numeric IEEE-754 floating point values.
     fn match_float_numeric_value(self) -> IonParseResult<'data, MatchedFloat> {
-        terminated(
-            recognize(pair(
-                Self::match_number_with_optional_dot_and_digits,
-                Self::match_float_exponent_marker_and_digits,
-            )),
-            Self::peek_stop_character,
-        )
+        recognize(pair(
+            Self::match_number_with_optional_dot_and_digits,
+            Self::match_float_exponent_marker_and_digits,
+        ))
         .map(|_matched| MatchedFloat::Numeric)
         .parse(self)
     }
@@ -845,7 +885,7 @@ impl<'data> TextBufferView<'data> {
     ///   -25.2
     fn match_number_with_optional_dot_and_digits(self) -> IonMatchResult<'data> {
         recognize(tuple((
-            opt(tag("-")),
+            opt(complete_tag("-")),
             Self::match_base_10_digits_before_dot,
             opt(Self::match_dot_followed_by_base_10_digits),
         )))(self)
@@ -855,7 +895,7 @@ impl<'data> TextBufferView<'data> {
     /// This includes either a single zero, or a non-zero followed by any sequence of digits.
     fn match_digits_before_dot(self) -> IonMatchResult<'data> {
         alt((
-            tag("0"),
+            complete_tag("0"),
             recognize(pair(Self::match_leading_digit, Self::match_trailing_digits)),
         ))(self)
     }
@@ -867,21 +907,27 @@ impl<'data> TextBufferView<'data> {
 
     /// Matches any number of base 10 digits, allowing underscores at any position except the end.
     fn match_trailing_digits(self) -> IonMatchResult<'data> {
-        recognize(many0_count(preceded(opt(char('_')), digit1)))(self)
+        recognize(many0_count(preceded(
+            opt(complete_char('_')),
+            complete_digit1,
+        )))(self)
     }
 
     /// Recognizes a decimal point followed by any number of base-10 digits.
     fn match_dot_followed_by_base_10_digits(self) -> IonMatchResult<'data> {
-        recognize(preceded(tag("."), opt(Self::match_digits_after_dot)))(self)
+        recognize(preceded(
+            complete_tag("."),
+            opt(Self::match_digits_after_dot),
+        ))(self)
     }
 
     /// Like `match_digits_before_dot`, but allows leading zeros.
     fn match_digits_after_dot(self) -> IonMatchResult<'data> {
         recognize(terminated(
             // Zero or more digits-followed-by-underscores
-            many0_count(pair(digit1, char('_'))),
+            many0_count(pair(complete_digit1, complete_char('_'))),
             // One or more digits
-            digit1,
+            complete_digit1,
         ))(self)
     }
 
@@ -889,7 +935,7 @@ impl<'data> TextBufferView<'data> {
     /// base 10 digits.
     fn match_float_exponent_marker_and_digits(self) -> IonMatchResult<'data> {
         preceded(
-            one_of("eE"),
+            complete_one_of("eE"),
             recognize(Self::match_exponent_sign_and_digits),
         )(self)
     }
@@ -915,45 +961,50 @@ impl<'data> TextBufferView<'data> {
     ///
     /// This is used for matching exponent signs; most places in Ion do not allow `+`.
     pub fn match_any_sign(self) -> IonParseResult<'data, char> {
-        one_of("-+")(self)
+        complete_one_of("-+")(self)
     }
 
     pub fn match_decimal_exponent(self) -> IonParseResult<'data, (bool, TextBufferView<'data>)> {
-        preceded(one_of("dD"), Self::match_exponent_sign_and_digits)(self)
+        preceded(complete_one_of("dD"), Self::match_exponent_sign_and_digits)(self)
     }
 
     /// Match an optional sign (if present), digits before the decimal point, then digits after the
     /// decimal point (if present).
     pub fn match_decimal(self) -> IonParseResult<'data, MatchedDecimal> {
-        tuple((
-            opt(tag("-")),
-            Self::match_digits_before_dot,
-            alt((
-                // Either a decimal point and digits and optional d/D and exponent
-                preceded(
-                    tag("."),
-                    pair(
-                        alt((Self::match_digits_after_dot, Self::match_nothing)),
+        terminated(
+            tuple((
+                opt(complete_tag("-")),
+                Self::match_digits_before_dot,
+                alt((
+                    // Either a decimal point and digits and optional d/D and exponent
+                    tuple((
+                        complete_tag("."),
+                        opt(Self::match_digits_after_dot),
                         opt(Self::match_decimal_exponent),
-                    ),
-                )
-                .map(|(digits_after_dot, maybe_exponent)| {
-                    let (exp_is_negative, exp_digits) = match maybe_exponent {
-                        Some(exponent) => exponent,
-                        None => (false, digits_after_dot.slice(digits_after_dot.len(), 0)),
-                    };
-                    (digits_after_dot, exp_is_negative, exp_digits)
-                }),
-                // or just a d/D and exponent
-                consumed(Self::match_decimal_exponent).map(
-                    |(matched, (exp_is_negative, exp_digits))| {
-                        // Make an empty slice to represent the (absent) digits after dot
-                        let digits_after_dot = matched.slice(0, 0);
+                    ))
+                    .map(|(dot, maybe_digits_after_dot, maybe_exponent)| {
+                        let digits_after_dot = match maybe_digits_after_dot {
+                            Some(digits) => digits,
+                            None => dot.slice(1, 0),
+                        };
+                        let (exp_is_negative, exp_digits) = match maybe_exponent {
+                            Some(exponent) => exponent,
+                            None => (false, digits_after_dot.slice(digits_after_dot.len(), 0)),
+                        };
                         (digits_after_dot, exp_is_negative, exp_digits)
-                    },
-                ),
+                    }),
+                    // or just a d/D and exponent
+                    consumed(Self::match_decimal_exponent).map(
+                        |(matched, (exp_is_negative, exp_digits))| {
+                            // Make an empty slice to represent the (absent) digits after dot
+                            let digits_after_dot = matched.slice(0, 0);
+                            (digits_after_dot, exp_is_negative, exp_digits)
+                        },
+                    ),
+                )),
             )),
-        ))
+            Self::peek_stop_character,
+        )
         .map(
             |(maybe_sign, leading_digits, (digits_after_dot, exponent_is_negative, exp_digits))| {
                 let is_negative = maybe_sign.is_some();
@@ -965,14 +1016,18 @@ impl<'data> TextBufferView<'data> {
                         (leading_digits.len() + 1 + trailing_digits_length) as u16
                     }
                 };
-                let trailing_digits_length = digits_after_dot.len() as u16;
+                let num_trailing_digits = digits_after_dot
+                    .bytes()
+                    .iter()
+                    .filter(|b| b.is_ascii_digit())
+                    .count() as u16;
                 let exponent_digits_offset = (exp_digits.offset() - self.offset()) as u16;
                 let exponent_digits_length = exp_digits.len() as u16;
                 MatchedDecimal::new(
                     is_negative,
                     digits_offset,
                     digits_length,
-                    trailing_digits_length,
+                    num_trailing_digits,
                     exponent_is_negative,
                     exponent_digits_offset,
                     exponent_digits_length,
@@ -983,12 +1038,12 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches short- or long-form string.
-    fn match_string(self) -> IonParseResult<'data, MatchedString> {
+    pub fn match_string(self) -> IonParseResult<'data, MatchedString> {
         alt((Self::match_short_string, Self::match_long_string))(self)
     }
 
     /// Matches a short string. For example: `"foo"`
-    fn match_short_string(self) -> IonParseResult<'data, MatchedString> {
+    pub(crate) fn match_short_string(self) -> IonParseResult<'data, MatchedString> {
         delimited(char('"'), Self::match_short_string_body, char('"'))
             .map(|(_matched, contains_escaped_chars)| {
                 if contains_escaped_chars {
@@ -1002,13 +1057,13 @@ impl<'data> TextBufferView<'data> {
 
     /// Returns a matched buffer and a boolean indicating whether any escaped characters were
     /// found in the short string.
-    fn match_short_string_body(self) -> IonParseResult<'data, (Self, bool)> {
-        Self::match_text_until_unescaped(self, b'\"')
+    pub(crate) fn match_short_string_body(self) -> IonParseResult<'data, (Self, bool)> {
+        Self::match_text_until_unescaped(self, b'\"', false)
     }
 
     /// Matches a long string comprised of any number of `'''`-enclosed segments interleaved
     /// with optional comments and whitespace.
-    pub fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
+    pub(crate) fn match_long_string(self) -> IonParseResult<'data, MatchedString> {
         fold_many1(
             // Parser to keep applying repeatedly
             whitespace_and_then(Self::match_long_string_segment),
@@ -1035,7 +1090,11 @@ impl<'data> TextBufferView<'data> {
 
     /// Matches a single long string segment enclosed by `'''` delimiters.
     pub fn match_long_string_segment(self) -> IonParseResult<'data, (Self, bool)> {
-        delimited(tag("'''"), Self::match_long_string_segment_body, tag("'''"))(self)
+        delimited(
+            complete_tag("'''"),
+            Self::match_long_string_segment_body,
+            complete_tag("'''"),
+        )(self)
     }
 
     /// Matches all input up to (but not including) the first unescaped instance of `'''`.
@@ -1044,16 +1103,18 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches an operator symbol, which can only legally appear within an s-expression
-    fn match_operator(self) -> IonParseResult<'data, LazyRawTextValue<'data>> {
+    fn match_operator(self) -> IonParseResult<'data, LazyRawTextValue_1_0<'data>> {
         match_and_length(is_a("!#%&*+-./;<=>?@^`|~"))
-            .map(|(text, length): (TextBufferView, usize)| LazyRawTextValue {
-                input: self,
-                encoded_value: EncodedTextValue::new(
-                    MatchedValue::Symbol(MatchedSymbol::Operator),
-                    text.offset(),
-                    length,
-                ),
-            })
+            .map(
+                |(text, length): (TextBufferView, usize)| LazyRawTextValue_1_0 {
+                    input: self,
+                    encoded_value: EncodedTextValue::new(
+                        MatchedValue::Symbol(MatchedSymbol::Operator),
+                        text.offset(),
+                        length,
+                    ),
+                },
+            )
             .parse(self)
     }
 
@@ -1073,7 +1134,7 @@ impl<'data> TextBufferView<'data> {
             // Note that symbol ID integers:
             //   * CANNOT have underscores in them. For example: `$1_0` is considered an identifier.
             //   * CAN have leading zeros. There's precedent for this in ion-java.
-            preceded(tag("$"), digit1),
+            preceded(tag("$"), complete_digit1),
             // Peek at the next character to make sure it's unrelated to the symbol ID.
             // The spec does not offer a formal definition of what ends a symbol ID.
             // This checks for either a stop_character (which performs its own `peek()`)
@@ -1097,7 +1158,7 @@ impl<'data> TextBufferView<'data> {
                 Self::identifier_initial_character,
                 Self::identifier_trailing_characters,
             ),
-            not(Self::identifier_trailing_character),
+            Self::identifier_terminator,
         ))(self)?;
         // Ion defines a number of keywords that are syntactically indistinguishable from
         // identifiers. Keywords take precedence; we must ensure that any identifier we find
@@ -1119,6 +1180,13 @@ impl<'data> TextBufferView<'data> {
         Ok((remaining, MatchedSymbol::Identifier))
     }
 
+    fn identifier_terminator(self) -> IonMatchResult<'data> {
+        alt((
+            eof,
+            recognize(peek(not(Self::identifier_trailing_character))),
+        ))(self)
+    }
+
     /// Matches any character that can appear at the start of an identifier.
     fn identifier_initial_character(self) -> IonParseResult<'data, Self> {
         recognize(alt((one_of("$_"), satisfy(|c| c.is_ascii_alphabetic()))))(self)
@@ -1131,7 +1199,7 @@ impl<'data> TextBufferView<'data> {
 
     /// Matches characters that are legal in an identifier, though not necessarily at the beginning.
     fn identifier_trailing_characters(self) -> IonParseResult<'data, Self> {
-        recognize(many0_count(Self::identifier_trailing_character))(self)
+        complete_take_while(|c: u8| c.is_ascii_alphanumeric() || b"$_".contains(&c))(self)
     }
 
     /// Matches a quoted symbol (`'foo'`).
@@ -1150,32 +1218,74 @@ impl<'data> TextBufferView<'data> {
     /// Returns a matched buffer and a boolean indicating whether any escaped characters were
     /// found in the short string.
     fn match_quoted_symbol_body(self) -> IonParseResult<'data, (Self, bool)> {
-        Self::match_text_until_unescaped(self, b'\'')
+        Self::match_text_until_unescaped(self, b'\'', false)
     }
 
     /// A helper method for matching bytes until the specified delimiter. Ignores any byte
     /// (including the delimiter) that is prefaced by the escape character `\`.
-    fn match_text_until_unescaped(self, delimiter: u8) -> IonParseResult<'data, (Self, bool)> {
-        let mut is_escaped = false;
+    fn match_text_until_unescaped(
+        self,
+        delimiter: u8,
+        allow_unescaped_newlines: bool,
+    ) -> IonParseResult<'data, (Self, bool)> {
         let mut contains_escaped_chars = false;
-        for (index, byte) in self.bytes().iter().enumerate() {
-            if is_escaped {
-                // If we're escaped, the previous byte was a \ and we ignore this one.
-                is_escaped = false;
-                continue;
-            }
-            if *byte == b'\\' {
-                is_escaped = true;
+        // This de-sugared syntax allows us to modify `iter` mid-loop.
+        let mut iter = self.bytes().iter().copied().enumerate();
+        while let Some((index, byte)) = iter.next() {
+            if byte == b'\\' {
+                // It's an escape sequence. For the purposes of finding the end delimiter, we can
+                // skip the next 1 byte unless this is \r\n, in which case we need to skip two.
+                // Other escape sequences that are followed by more than one byte (e.g. \u and \U)
+                // are always followed by ASCII letters, which aren't used as delimiters.
                 contains_escaped_chars = true;
+                // Peek at the next two bytes to see if this is a \r\n
+                let next_two_bytes = self.bytes().get(index + 1..index + 3);
+                let bytes_to_skip = if next_two_bytes == Some(&[b'\r', b'\n']) {
+                    2
+                } else {
+                    1
+                };
+                // Eagerly skip the next iterator values
+                let _ = iter.nth(bytes_to_skip - 1);
                 continue;
             }
-            if *byte == delimiter {
+            if byte == delimiter {
                 let matched = self.slice(0, index);
                 let remaining = self.slice_to_end(index);
                 return Ok((remaining, (matched, contains_escaped_chars)));
             }
+            // If this is a control character, make sure it's a legal one.
+            if byte < 0x20 {
+                if byte == b'\r' {
+                    // Carriage returns are not actual escapes, but do require a substitution
+                    // as part of newline normalization when the string is read.
+                    contains_escaped_chars = true;
+                } else {
+                    self.validate_string_control_character(byte, index, allow_unescaped_newlines)?;
+                }
+            }
         }
         Err(nom::Err::Incomplete(Needed::Unknown))
+    }
+
+    #[cold]
+    fn validate_string_control_character(
+        self,
+        byte: u8,
+        index: usize,
+        allow_unescaped_newlines: bool,
+    ) -> IonParseResult<'data, ()> {
+        if byte == b'\n' && !allow_unescaped_newlines {
+            let error = InvalidInputError::new(self.slice_to_end(index))
+                .with_description("unescaped newlines are not allowed in short string literals");
+            return Err(nom::Err::Failure(IonParseError::Invalid(error)));
+        }
+        if !WHITESPACE_CHARACTERS_AS_STR.as_bytes().contains(&byte) {
+            let error = InvalidInputError::new(self.slice_to_end(index))
+                .with_description("unescaped control characters are not allowed in text literals");
+            return Err(nom::Err::Failure(IonParseError::Invalid(error)));
+        }
+        Ok((self.slice_to_end(1), ()))
     }
 
     /// A helper method for matching bytes until the specified delimiter. Ignores any byte
@@ -1198,7 +1308,7 @@ impl<'data> TextBufferView<'data> {
             // `match_text_until_escaped` does NOT include the delimiter byte in the match,
             // so `remaining_after_match` starts at the delimiter byte.
             let (remaining_after_match, (_, segment_contained_escapes)) =
-                remaining.match_text_until_unescaped(delimiter_head)?;
+                remaining.match_text_until_unescaped(delimiter_head, true)?;
             contained_escapes |= segment_contained_escapes;
             remaining = remaining_after_match;
 
@@ -1236,7 +1346,7 @@ impl<'data> TextBufferView<'data> {
     fn match_timestamp_y(self) -> IonParseResult<'data, MatchedTimestamp> {
         terminated(
             Self::match_timestamp_year,
-            pair(tag("T"), Self::peek_stop_character),
+            pair(complete_tag("T"), Self::peek_stop_character),
         )
         .map(|_year| MatchedTimestamp::new(TimestampPrecision::Year))
         .parse(self)
@@ -1246,7 +1356,7 @@ impl<'data> TextBufferView<'data> {
     fn match_timestamp_ym(self) -> IonParseResult<'data, MatchedTimestamp> {
         terminated(
             pair(Self::match_timestamp_year, Self::match_timestamp_month),
-            pair(tag("T"), Self::peek_stop_character),
+            pair(complete_tag("T"), Self::peek_stop_character),
         )
         .map(|(_year, _month)| MatchedTimestamp::new(TimestampPrecision::Month))
         .parse(self)
@@ -1260,7 +1370,7 @@ impl<'data> TextBufferView<'data> {
                 Self::match_timestamp_month,
                 Self::match_timestamp_day,
             )),
-            pair(opt(tag("T")), Self::peek_stop_character),
+            pair(opt(complete_tag("T")), Self::peek_stop_character),
         )
         .map(|_| MatchedTimestamp::new(TimestampPrecision::Day))
         .parse(self)
@@ -1331,10 +1441,10 @@ impl<'data> TextBufferView<'data> {
     /// Matches the month component of a timestamp, including a leading `-`.
     fn match_timestamp_month(self) -> IonMatchResult<'data> {
         preceded(
-            tag("-"),
+            complete_tag("-"),
             recognize(alt((
-                pair(char('0'), one_of("123456789")),
-                pair(char('1'), one_of("012")),
+                pair(complete_char('0'), complete_one_of("123456789")),
+                pair(complete_char('1'), complete_one_of("012")),
             ))),
         )(self)
     }
@@ -1342,11 +1452,11 @@ impl<'data> TextBufferView<'data> {
     /// Matches the day component of a timestamp, including a leading `-`.
     fn match_timestamp_day(self) -> IonMatchResult<'data> {
         preceded(
-            tag("-"),
+            complete_tag("-"),
             recognize(alt((
-                pair(char('0'), one_of("123456789")),
-                pair(one_of("12"), Self::match_any_digit),
-                pair(char('3'), one_of("01")),
+                pair(complete_char('0'), complete_one_of("123456789")),
+                pair(complete_one_of("12"), Self::match_any_digit),
+                pair(complete_char('3'), complete_one_of("01")),
             ))),
         )(self)
     }
@@ -1361,13 +1471,13 @@ impl<'data> TextBufferView<'data> {
             separated_pair(
                 // Hour
                 recognize(alt((
-                    pair(one_of("01"), Self::match_any_digit),
-                    pair(char('2'), one_of("0123")),
+                    pair(complete_one_of("01"), Self::match_any_digit),
+                    pair(complete_char('2'), complete_one_of("0123")),
                 ))),
                 // Delimiter
-                tag(":"),
+                complete_tag(":"),
                 // Minutes
-                recognize(pair(one_of("012345"), Self::match_any_digit)),
+                recognize(pair(complete_one_of("012345"), Self::match_any_digit)),
             ),
         )(self)
     }
@@ -1375,24 +1485,27 @@ impl<'data> TextBufferView<'data> {
     /// Matches a leading `:`, and any two-digit second component from `00` to `59` inclusive.
     fn match_timestamp_seconds(self) -> IonMatchResult<'data> {
         preceded(
-            tag(":"),
-            recognize(pair(one_of("012345"), Self::match_any_digit)),
+            complete_tag(":"),
+            recognize(pair(complete_one_of("012345"), Self::match_any_digit)),
         )(self)
     }
 
     /// Matches the fractional seconds component of a timestamp, including a leading `.`.
     fn match_timestamp_fractional_seconds(self) -> IonMatchResult<'data> {
-        preceded(tag("."), digit1)(self)
+        preceded(complete_tag("."), digit1)(self)
     }
 
     /// Matches a timestamp offset of any format.
     fn match_timestamp_offset(self) -> IonParseResult<'data, MatchedTimestampOffset> {
         alt((
-            value(MatchedTimestampOffset::Zulu, tag("Z")),
-            value(MatchedTimestampOffset::Zulu, tag("+00:00")),
-            value(MatchedTimestampOffset::Unknown, tag("-00:00")),
+            value(MatchedTimestampOffset::Zulu, complete_tag("Z")),
+            value(MatchedTimestampOffset::Zulu, complete_tag("+00:00")),
+            value(MatchedTimestampOffset::Unknown, complete_tag("-00:00")),
             map(
-                pair(one_of("-+"), Self::match_timestamp_offset_hours_and_minutes),
+                pair(
+                    complete_one_of("-+"),
+                    Self::match_timestamp_offset_hours_and_minutes,
+                ),
                 |(sign, (hours, _minutes))| {
                     let is_negative = sign == '-';
                     let hours_offset = hours.offset();
@@ -1411,13 +1524,13 @@ impl<'data> TextBufferView<'data> {
         separated_pair(
             // Hour
             recognize(alt((
-                pair(one_of("01"), Self::match_any_digit),
-                pair(char('2'), one_of("0123")),
+                pair(complete_one_of("01"), Self::match_any_digit),
+                pair(complete_char('2'), complete_one_of("0123")),
             ))),
             // Delimiter
-            tag(":"),
+            complete_tag(":"),
             // Minutes
-            recognize(pair(one_of("012345"), Self::match_any_digit)),
+            recognize(pair(complete_one_of("012345"), Self::match_any_digit)),
         )(self)
     }
 
@@ -1435,6 +1548,66 @@ impl<'data> TextBufferView<'data> {
         .parse(self)
     }
 
+    /// Matches a clob of either short- or long-form syntax.
+    pub fn match_clob(self) -> IonParseResult<'data, MatchedClob> {
+        delimited(
+            tag("{{"),
+            preceded(
+                Self::match_optional_whitespace,
+                alt((
+                    value(MatchedClob::Short, Self::match_short_clob_body),
+                    value(MatchedClob::Long, Self::match_long_clob_body),
+                )),
+            ),
+            preceded(Self::match_optional_whitespace, tag("}}")),
+        )(self)
+    }
+
+    /// Matches the body (inside the `{{` and `}}`) of a short-form clob.
+    fn match_short_clob_body(self) -> IonMatchResult<'data> {
+        let (remaining, (body, _matched_string)) = consumed(Self::match_short_string)(self)?;
+        body.validate_clob_text()?;
+        Ok((remaining, body))
+    }
+
+    /// Matches the body (inside the `{{` and `}}`) of a long-form clob.
+    fn match_long_clob_body(self) -> IonMatchResult<'data> {
+        recognize(many1_count(preceded(
+            Self::match_optional_whitespace,
+            Self::match_long_clob_body_segment,
+        )))(self)
+    }
+
+    /// Matches a single segment of a long-form clob's content.
+    fn match_long_clob_body_segment(self) -> IonMatchResult<'data> {
+        let (remaining, (body, _matched_string)) = consumed(Self::match_long_string_segment)(self)?;
+        body.validate_clob_text()?;
+        Ok((remaining, body))
+    }
+
+    /// Returns an error if the buffer contains any byte that is not legal inside a clob.
+    fn validate_clob_text(self) -> IonMatchResult<'data> {
+        for byte in self.bytes().iter().copied() {
+            if !Self::byte_is_legal_clob_ascii(byte) {
+                let message = format!("found an illegal byte '{:0x}' in clob", byte);
+                let error = InvalidInputError::new(self).with_description(message);
+                return Err(nom::Err::Failure(IonParseError::Invalid(error)));
+            }
+        }
+        // Return success without consuming
+        Ok((self, self.slice(0, 0)))
+    }
+
+    /// Returns `false` if the specified byte cannot appear unescaped in a clob.
+    fn byte_is_legal_clob_ascii(b: u8) -> bool {
+        // Depending on where you look in the spec and/or `ion-tests`, you'll find conflicting
+        // information about which ASCII characters can appear unescaped in a clob. Some say
+        // "characters >= 0x20", but that excludes lots of whitespace characters that are < 0x20.
+        // Some say "displayable ASCII", but DEL (0x7F) is shown to be legal in one of the ion-tests.
+        // The definition used here has largely been inferred from the contents of `ion-tests`.
+        b.is_ascii()
+            && (u32::from(b) >= 0x20 || WHITESPACE_CHARACTERS_AS_STR.as_bytes().contains(&b))
+    }
     /// Matches the base64 content within a blob. Ion allows the base64 content to be broken up with
     /// whitespace, so the matched input region may need to be stripped of whitespace before
     /// the data can be decoded.
@@ -1686,7 +1859,7 @@ mod tests {
         /// contents of the input are considered a complete token.
         fn new(input: &str) -> Self {
             MatchTest {
-                input: format!("{input}\n0"), // add whitespace and a trailing value
+                input: input.to_string(),
             }
         }
 
@@ -1703,11 +1876,12 @@ mod tests {
             P: Parser<TextBufferView<'data>, O, IonParseError<'data>>,
         {
             let result = self.try_match(parser);
-            let (_remaining, match_length) = result.unwrap();
+            let (_remaining, match_length) = result
+                .unwrap_or_else(|_| panic!("Unexpected parse fail for input '{}'", self.input));
             // Inputs have a trailing newline and `0` that should _not_ be part of the match
             assert_eq!(
                 match_length,
-                self.input.len() - 2,
+                self.input.len(),
                 "\nInput: '{}'\nMatched: '{}'\n",
                 self.input,
                 &self.input[..match_length]
@@ -1724,8 +1898,8 @@ mod tests {
             if let Ok((_remaining, match_length)) = result {
                 assert_ne!(
                     match_length,
-                    self.input.len() - 1,
-                    "parser unexpectedly matched the complete input: '{:?}\nResult: {:?}",
+                    self.input.len(),
+                    "parser unexpectedly matched the complete input: {:?}\nResult: {:?}",
                     self.input,
                     result
                 );
@@ -1736,6 +1910,7 @@ mod tests {
     #[test]
     fn test_match_stop_char() {
         MatchTest::new(" ").expect_match(match_length(TextBufferView::match_stop_character));
+        MatchTest::new("").expect_match(match_length(TextBufferView::match_stop_character));
     }
 
     #[test]
@@ -1754,6 +1929,7 @@ mod tests {
 
         mismatch_ivm("ion_1_0");
         mismatch_ivm("$ion__1_0");
+        mismatch_ivm("$ion_1_0_0");
         mismatch_ivm("$$ion_1_0");
         mismatch_ivm("$ion_FF_FF");
     }
@@ -1888,7 +2064,7 @@ mod tests {
 
         let good_inputs = &[
             "0.0e0", "0E0", "0e0", "305e1", "305e+1", "305e-1", "305e100", "305e-100", "305e+100",
-            "305.0e1", "0.279e3", "279e0", "279.5e0", "279.5E0",
+            "305.0e1", "0.279e3", "0.279e-3", "279e0", "279.5e0", "279.5E0",
         ];
         for input in good_inputs {
             match_float(input);
@@ -2024,8 +2200,6 @@ mod tests {
             MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_symbol));
         }
 
-        // These inputs have leading/trailing whitespace to make them more readable, but the string
-        // matcher doesn't accept whitespace. We'll trim each one before testing it.
         let good_inputs = &[
             "'hello'",
             "'😀😀😀'",
@@ -2074,7 +2248,7 @@ mod tests {
             match_annotated_value(input);
         }
 
-        let bad_inputs = &["foo", "foo:bar", "foo:::bar"];
+        let bad_inputs = &["foo::", "foo:bar", "foo:::bar"];
         for input in bad_inputs {
             mismatch_annotated_value(input);
         }
@@ -2089,14 +2263,16 @@ mod tests {
             MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_decimal));
         }
         let good_inputs = &[
-            "5.", "-5.", "5.0", "-5.0", "5.0d0", "-5.0d0", "5.0D0", "-5.0D0", "5.0d+1", "-5.0d-1",
+            "5.", "-5.", "5.0", "-5.0", "5d0", "5.d0", "5.0d0", "-5.0d0", "5.0D0", "-5.0D0",
+            "5.0d+1", "-5.0d-1",
         ];
         for input in good_inputs {
             match_decimal(input);
         }
 
         let bad_inputs = &[
-            "5", "5d", "05d", "-5d", "5.d", "-5.d", "5.D", "-5.D", "-5.0+0",
+            "123._456", "5", "5d", "05d", "-5d", "5.d", "-5.d", "5.D", "-5.D", "5.1d", "-5.1d",
+            "5.1D", "-5.1D", "-5.0+0",
         ];
         for input in bad_inputs {
             mismatch_decimal(input);
@@ -2119,6 +2295,7 @@ mod tests {
             "(a b)",
             "(a++)",
             "(++a)",
+            "(a+=b)",
             "(())",
             "((()))",
             "(1 (2 (3 4) 5) 6)",
@@ -2189,6 +2366,48 @@ mod tests {
     }
 
     #[test]
+    fn test_match_clob() {
+        fn match_clob(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_clob));
+        }
+        fn mismatch_blob(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_clob));
+        }
+        // Base64 encodings of utf-8 strings
+        let good_inputs = &[
+            r#"{{""}}"#,
+            r#"{{''''''}}"#,
+            r#"{{"foo"}}"#,
+            r#"{{  "foo"}}"#,
+            r#"{{  "foo"  }}"#,
+            r#"{{"foo"  }}"#,
+            r#"{{'''foo'''}}"#,
+            r#"{{"foobar"}}"#,
+            r#"{{'''foo''' '''bar'''}}"#,
+            r#"{{
+                '''foo'''
+                '''bar'''
+                '''baz'''
+            }}"#,
+        ];
+        for input in good_inputs {
+            match_clob(input);
+        }
+
+        let bad_inputs = &[
+            r#"{{foo}}"#,                         // No quotes
+            r#"{{"foo}}"#,                        // Missing closing quote
+            r#"{{"foo"}"#,                        // Missing closing brace
+            r#"{{'''foo'''}"#,                    // Missing closing brace
+            r#"{{'''foo''' /*hi!*/ '''bar'''}}"#, // Interleaved comments
+            r#"{{'''foo''' "bar"}}"#,             // Mixed quote style
+            r#"{{"😎🙂🙃"}}"#,                    // Contains unescaped non-ascii characters
+        ];
+        for input in bad_inputs {
+            mismatch_blob(input);
+        }
+    }
+
     fn test_match_text_until_unescaped_str() {
         let input = TextBufferView::new(r" foo bar \''' baz''' quux ".as_bytes());
         let (_remaining, (matched, contains_escapes)) =

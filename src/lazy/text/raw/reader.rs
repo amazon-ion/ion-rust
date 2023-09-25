@@ -1,5 +1,5 @@
 use crate::lazy::decoder::LazyRawReader;
-use crate::lazy::encoding::TextEncoding;
+use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
@@ -33,7 +33,7 @@ impl<'data> LazyRawTextReader<'data> {
         }
     }
 
-    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, TextEncoding>>
+    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, TextEncoding_1_0>>
     where
         'data: 'top,
     {
@@ -55,6 +55,14 @@ impl<'data> LazyRawTextReader<'data> {
         let (remaining, matched) = buffer_after_whitespace
             .match_top_level_item()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
+
+        if let RawStreamItem::VersionMarker(major, minor) = matched {
+            if (major, minor) != (1, 0) {
+                return IonResult::decoding_error(format!(
+                    "Ion version {major}.{minor} is not supported"
+                ));
+            }
+        }
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
         self.buffer = remaining;
@@ -62,12 +70,12 @@ impl<'data> LazyRawTextReader<'data> {
     }
 }
 
-impl<'data> LazyRawReader<'data, TextEncoding> for LazyRawTextReader<'data> {
+impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader<'data> {
     fn new(data: &'data [u8]) -> Self {
         LazyRawTextReader::new(data)
     }
 
-    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, TextEncoding>> {
+    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, TextEncoding_1_0>> {
         self.next()
     }
 }
@@ -94,7 +102,7 @@ mod tests {
         // Ion version marker
         
         $ion_1_0
-
+        
         // Typed nulls
         
         null
@@ -120,7 +128,7 @@ mod tests {
         3.6e0
         2.5e008
         -318e-2
-
+        
         // Decimals
         1.5
         3.14159
@@ -152,7 +160,6 @@ mod tests {
         '''Venus '''
         '''Earth '''
         '''Mars '''
-
         "#,
         );
         // Escaped newlines are discarded
@@ -174,8 +181,16 @@ mod tests {
         $10
         $733
         
-        // Blob
+        // Blobs
         {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
+        
+        // Clobs
+        {{"foobarbaz"}}
+        {{
+            '''foo'''
+            '''bar'''
+            '''baz'''
+        }}
         
         // List
         [
@@ -184,8 +199,9 @@ mod tests {
             // Second item
             2 /*comment before comma*/,
             // Third item
-            3
+            3, // Final trailing comma
         ]
+        
 
         // S-Expression
         (
@@ -211,7 +227,7 @@ mod tests {
 
         fn expect_next<'data>(
             reader: &mut LazyRawTextReader<'data>,
-            expected: RawValueRef<'data, TextEncoding>,
+            expected: RawValueRef<'data, TextEncoding_1_0>,
         ) {
             let lazy_value = reader
                 .next()
@@ -368,6 +384,11 @@ mod tests {
 
         // {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
         expect_next(reader, RawValueRef::Blob("razzle dazzle root beer".into()));
+
+        // {{"foobarbaz"}}
+        expect_next(reader, RawValueRef::Clob("foobarbaz".into()));
+        // {{'''foo''' '''bar''' '''baz'''}}
+        expect_next(reader, RawValueRef::Clob("foobarbaz".into()));
 
         // [1, 2, 3]
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;

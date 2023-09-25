@@ -552,96 +552,142 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a field ID and a value from the buffer.
     pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawBinaryValue<'a>>> {
-        self.peek_value(true)
-    }
-
-    /// Reads a value from the buffer.
-    pub(crate) fn peek_value_without_field_id(self) -> IonResult<Option<LazyRawBinaryValue<'a>>> {
-        self.peek_value(false)
-    }
-
-    /// Reads a value from the buffer. If `has_field` is true, it will read a field ID first.
-    // This method consumes leading NOP bytes, but leaves the header representation in the buffer.
-    // The resulting LazyRawValue's buffer slice always starts with the first non-NOP byte in the
-    // header, which can be either a field ID, an annotations wrapper, or a type descriptor.
-    fn peek_value(self, has_field: bool) -> IonResult<Option<LazyRawBinaryValue<'a>>> {
-        let initial_input = self;
-        if initial_input.is_empty() {
+        let mut input = self;
+        if self.is_empty() {
+            // We're at the end of the struct
             return Ok(None);
         }
-        let (field_id, field_id_length, mut input) = if has_field {
-            let (field_id_var_uint, input_after_field_id) = initial_input.read_var_uint()?;
+        // Read the field ID
+        let (mut field_id_var_uint, mut input_after_field_id) = input.read_var_uint()?;
+        if input_after_field_id.is_empty() {
+            return IonResult::incomplete(
+                "found field name but no value",
+                input_after_field_id.offset(),
+            );
+        }
+
+        let mut type_descriptor = input_after_field_id.peek_type_descriptor()?;
+        if type_descriptor.is_nop() {
+            // Read past NOP fields until we find the first one that's an actual value
+            // or we run out of struct bytes. Note that we read the NOP field(s) from `self` (the
+            // initial input) rather than `input_after_field_id` because it simplifies
+            // the logic of `read_struct_field_nop_pad()`, which is very rarely called.
+            (field_id_var_uint, input_after_field_id) = match input.read_struct_field_nop_pad()? {
+                None => {
+                    // There are no more fields, we're at the end of the struct.
+                    return Ok(None);
+                }
+                Some((nop_length, field_id_var_uint, input_after_field_id)) => {
+                    // Advance `input` beyond the NOP so that when we store it in the value it begins
+                    // with the field ID.
+                    input = input.consume(nop_length);
+                    type_descriptor = input_after_field_id.peek_type_descriptor()?;
+                    (field_id_var_uint, input_after_field_id)
+                }
+            };
+        }
+
+        let field_id_length = field_id_var_uint.size_in_bytes() as u8;
+        let field_id = field_id_var_uint.value();
+
+        let mut value = input_after_field_id.read_value(type_descriptor)?;
+        value.encoded_value.field_id = Some(field_id);
+        value.encoded_value.field_id_length = field_id_length;
+        value.encoded_value.total_length += field_id_length as usize;
+        value.input = input;
+        Ok(Some(value))
+    }
+
+    #[cold]
+    /// Consumes (field ID, NOP pad) pairs until a non-NOP value is encountered in field position or
+    /// the buffer is empty. Returns a buffer starting at the field ID before the non-NOP value.
+    fn read_struct_field_nop_pad(self) -> IonResult<Option<(usize, VarUInt, ImmutableBuffer<'a>)>> {
+        let mut input_before_field_id = self;
+        loop {
+            if input_before_field_id.is_empty() {
+                return Ok(None);
+            }
+            let (field_id_var_uint, input_after_field_id) =
+                input_before_field_id.read_var_uint()?;
+            // If we're out of data (i.e. there's no field value) the struct is incomplete.
             if input_after_field_id.is_empty() {
                 return IonResult::incomplete(
-                    "found field name but no value",
+                    "found a field name but no value",
                     input_after_field_id.offset(),
                 );
             }
-            let field_id_length =
-                u8::try_from(field_id_var_uint.size_in_bytes()).map_err(|_| {
-                    IonError::decoding_error("found a field id with length over 255 bytes")
-                })?;
-            (
-                Some(field_id_var_uint.value()),
-                field_id_length,
-                input_after_field_id,
-            )
-        } else {
-            (None, 0, initial_input)
-        };
-
-        let mut annotations_header_length = 0u8;
-        let mut annotations_sequence_length = 0u8;
-        let mut expected_value_length = None;
-
-        let mut type_descriptor = input.peek_type_descriptor()?;
-        if type_descriptor.is_annotation_wrapper() {
-            let (wrapper, input_after_annotations) =
-                input.read_annotations_wrapper(type_descriptor)?;
-            annotations_header_length = wrapper.header_length;
-            annotations_sequence_length = wrapper.sequence_length;
-            expected_value_length = Some(wrapper.expected_value_length);
-            input = input_after_annotations;
-            type_descriptor = input.peek_type_descriptor()?;
-            if type_descriptor.is_annotation_wrapper() {
-                return IonResult::decoding_error("found an annotations wrapper ");
+            // Peek at the next value header. If it's a NOP, we need to repeat the process.
+            if input_after_field_id.peek_type_descriptor()?.is_nop() {
+                // Consume the NOP to position the buffer at the beginning of the next field ID.
+                (_, input_before_field_id) = input_after_field_id.read_nop_pad()?;
+            } else {
+                // If it isn't a NOP, return the field ID and the buffer slice containing the field
+                // value.
+                let nop_length = input_before_field_id.offset() - self.offset();
+                return Ok(Some((nop_length, field_id_var_uint, input_after_field_id)));
             }
-        } else if type_descriptor.is_nop() {
-            (_, input) = input.consume_nop_padding(type_descriptor)?;
         }
+    }
 
+    /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
+    /// and at the top level.
+    pub(crate) fn peek_sequence_value(self) -> IonResult<Option<LazyRawBinaryValue<'a>>> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+        let mut input = self;
+        let mut type_descriptor = input.peek_type_descriptor()?;
+        // If we find a NOP...
+        if type_descriptor.is_nop() {
+            // ...skip through NOPs until we found the next non-NOP byte.
+            (_, input) = self.consume_nop_padding(type_descriptor)?;
+            // If there is no next byte, we're out of values.
+            if input.is_empty() {
+                return Ok(None);
+            }
+            // Otherwise, there's a value.
+            type_descriptor = input.peek_type_descriptor()?;
+        }
+        Ok(Some(input.read_value(type_descriptor)?))
+    }
+
+    /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
+    /// the next byte (`type_descriptor`) is not a NOP.
+    fn read_value(self, type_descriptor: TypeDescriptor) -> IonResult<LazyRawBinaryValue<'a>> {
+        if type_descriptor.is_annotation_wrapper() {
+            self.read_annotated_value(type_descriptor)
+        } else {
+            self.read_value_without_annotations(type_descriptor)
+        }
+    }
+
+    /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
+    /// the next byte (`type_descriptor`) is neither a NOP nor an annotations wrapper.
+    fn read_value_without_annotations(
+        self,
+        type_descriptor: TypeDescriptor,
+    ) -> IonResult<LazyRawBinaryValue<'a>> {
+        let input = self;
         let header = type_descriptor
             .to_header()
             .ok_or_else(|| IonError::decoding_error("found a non-value in value position"))?;
 
         let header_offset = input.offset();
         let (length, _) = input.consume(1).read_value_length(header)?;
-        let length_length = u8::try_from(length.size_in_bytes()).map_err(|_e| {
-            IonError::decoding_error("found a value with a header length field over 255 bytes long")
-        })?;
+        let length_length = length.size_in_bytes() as u8;
         let value_length = length.value(); // ha
-        let total_length = field_id_length as usize
-            + annotations_header_length as usize
-            + 1 // Header byte
-            + length_length as usize
-            + value_length;
-
-        if let Some(expected_value_length) = expected_value_length {
-            let actual_value_length = 1 + length_length as usize + value_length;
-            if expected_value_length != actual_value_length {
-                println!("{} != {}", expected_value_length, actual_value_length);
-                return IonResult::decoding_error(
-                    "value length did not match length declared by annotations wrapper",
-                );
-            }
-        }
+        let total_length = 1 // Header byte
+                + length_length as usize
+                + value_length;
 
         let encoded_value = EncodedValue {
             header,
-            field_id_length,
-            field_id,
-            annotations_header_length,
-            annotations_sequence_length,
+            // If applicable, these are populated by the caller: `peek_field()`
+            field_id_length: 0,
+            field_id: None,
+            // If applicable, these are populated by the caller: `read_annotated_value()`
+            annotations_header_length: 0,
+            annotations_sequence_length: 0,
             header_offset,
             length_length,
             value_length,
@@ -649,9 +695,46 @@ impl<'a> ImmutableBuffer<'a> {
         };
         let lazy_value = LazyRawBinaryValue {
             encoded_value,
-            input: initial_input,
+            // If this value has a field ID or annotations, this will be replaced by the caller.
+            input: self,
         };
-        Ok(Some(lazy_value))
+        Ok(lazy_value)
+    }
+
+    /// Reads an annotations wrapper and its associated value from the buffer. The caller must confirm
+    /// that the next byte in the buffer (`type_descriptor`) begins an annotations wrapper.
+    fn read_annotated_value(
+        self,
+        mut type_descriptor: TypeDescriptor,
+    ) -> IonResult<LazyRawBinaryValue<'a>> {
+        let input = self;
+        let (wrapper, input_after_annotations) = input.read_annotations_wrapper(type_descriptor)?;
+        type_descriptor = input_after_annotations.peek_type_descriptor()?;
+
+        // Confirm that the next byte begins a value, not a NOP or another annotations wrapper.
+        if type_descriptor.is_annotation_wrapper() {
+            return IonResult::decoding_error(
+                "found an annotations wrapper inside an annotations wrapper",
+            );
+        } else if type_descriptor.is_nop() {
+            return IonResult::decoding_error("found a NOP inside an annotations wrapper");
+        }
+
+        let mut lazy_value =
+            input_after_annotations.read_value_without_annotations(type_descriptor)?;
+        if wrapper.expected_value_length != lazy_value.encoded_value.total_length() {
+            return IonResult::decoding_error(
+                "value length did not match length declared by annotations wrapper",
+            );
+        }
+
+        lazy_value.encoded_value.annotations_header_length = wrapper.header_length;
+        lazy_value.encoded_value.annotations_sequence_length = wrapper.sequence_length;
+        lazy_value.encoded_value.total_length += wrapper.header_length as usize;
+        // Modify the input to include the annotations
+        lazy_value.input = input;
+
+        Ok(lazy_value)
     }
 }
 

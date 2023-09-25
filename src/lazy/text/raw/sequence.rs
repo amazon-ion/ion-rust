@@ -1,3 +1,4 @@
+#![allow(non_camel_case_types)]
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
@@ -6,67 +7,68 @@ use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{LazyRawSequence, LazyRawValue};
-use crate::lazy::encoding::TextEncoding;
+use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
 use crate::lazy::text::parse_result::ToIteratorOutput;
-use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
+use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
 use crate::{IonResult, IonType};
 
 // ===== Lists =====
 
 #[derive(Copy, Clone)]
-pub struct LazyRawTextList<'data> {
-    pub(crate) value: LazyRawTextValue<'data>,
+pub struct LazyRawTextList_1_0<'data> {
+    pub(crate) value: LazyRawTextValue_1_0<'data>,
 }
 
-impl<'data> LazyRawTextList<'data> {
+impl<'data> LazyRawTextList_1_0<'data> {
     pub fn ion_type(&self) -> IonType {
-        self.value.ion_type()
+        IonType::List
     }
 
-    pub fn iter(&self) -> RawTextListIterator<'data> {
+    pub fn iter(&self) -> RawTextListIterator_1_0<'data> {
+        let open_bracket_index = self.value.encoded_value.data_offset() - self.value.input.offset();
         // Make an iterator over the input bytes that follow the initial `[`
-        RawTextListIterator::new(self.value.input.slice_to_end(1))
+        RawTextListIterator_1_0::new(self.value.input.slice_to_end(open_bracket_index + 1))
     }
 }
 
-impl<'data> LazyContainerPrivate<'data, TextEncoding> for LazyRawTextList<'data> {
-    fn from_value(value: LazyRawTextValue<'data>) -> Self {
-        LazyRawTextList { value }
+impl<'data> LazyContainerPrivate<'data, TextEncoding_1_0> for LazyRawTextList_1_0<'data> {
+    fn from_value(value: LazyRawTextValue_1_0<'data>) -> Self {
+        LazyRawTextList_1_0 { value }
     }
 }
 
-impl<'data> LazyRawSequence<'data, TextEncoding> for LazyRawTextList<'data> {
-    type Iterator = RawTextListIterator<'data>;
+impl<'data> LazyRawSequence<'data, TextEncoding_1_0> for LazyRawTextList_1_0<'data> {
+    type Iterator = RawTextListIterator_1_0<'data>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
         self.value.annotations()
     }
 
     fn ion_type(&self) -> IonType {
-        self.value.ion_type()
+        IonType::List
     }
 
     fn iter(&self) -> Self::Iterator {
-        LazyRawTextList::iter(self)
+        LazyRawTextList_1_0::iter(self)
     }
 
-    fn as_value(&self) -> LazyRawTextValue<'data> {
+    fn as_value(&self) -> LazyRawTextValue_1_0<'data> {
         self.value
     }
 }
 
-impl<'a, 'data> IntoIterator for &'a LazyRawTextList<'data> {
-    type Item = IonResult<LazyRawTextValue<'data>>;
-    type IntoIter = RawTextListIterator<'data>;
+impl<'a, 'data> IntoIterator for &'a LazyRawTextList_1_0<'data> {
+    type Item = IonResult<LazyRawTextValue_1_0<'data>>;
+    type IntoIter = RawTextListIterator_1_0<'data>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a> Debug for LazyRawTextList<'a> {
+impl<'a> Debug for LazyRawTextList_1_0<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self {
@@ -86,22 +88,22 @@ impl<'a> Debug for LazyRawTextList<'a> {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct RawTextListIterator<'data> {
+pub struct RawTextListIterator_1_0<'data> {
     input: TextBufferView<'data>,
     // If this iterator has returned an error, it should return `None` forever afterwards
     has_returned_error: bool,
 }
 
-impl<'data> RawTextListIterator<'data> {
-    pub(crate) fn new(input: TextBufferView<'data>) -> RawTextListIterator<'data> {
-        RawTextListIterator {
+impl<'data> RawTextListIterator_1_0<'data> {
+    pub(crate) fn new(input: TextBufferView<'data>) -> RawTextListIterator_1_0<'data> {
+        RawTextListIterator_1_0 {
             input,
             has_returned_error: false,
         }
     }
 }
 
-impl<'data> RawTextListIterator<'data> {
+impl<'data> RawTextListIterator_1_0<'data> {
     pub(crate) fn find_span(&self) -> IonResult<Range<usize>> {
         // The input has already skipped past the opening delimiter.
         let start = self.input.offset() - 1;
@@ -114,9 +116,17 @@ impl<'data> RawTextListIterator<'data> {
             // ...or there aren't values, so it's just the input after the opening delimiter.
             self.input
         };
-        let (input_after_ws, _ws) = input_after_last
-            .match_optional_comments_and_whitespace()
-            .with_context("seeking the end of a list", input_after_last)?;
+        let (mut input_after_ws, _ws) =
+            input_after_last
+                .match_optional_comments_and_whitespace()
+                .with_context("seeking the end of a list", input_after_last)?;
+        // Skip an optional comma and more whitespace
+        if input_after_ws.bytes().first() == Some(&b',') {
+            (input_after_ws, _) = input_after_ws
+                .slice_to_end(1)
+                .match_optional_comments_and_whitespace()
+                .with_context("skipping a list's trailing comma", input_after_ws)?;
+        }
         let (input_after_end, _end_delimiter) = satisfy(|c| c == ']')(input_after_ws)
             .with_context("seeking the closing delimiter of a list", input_after_ws)?;
         let end = input_after_end.offset();
@@ -124,8 +134,8 @@ impl<'data> RawTextListIterator<'data> {
     }
 }
 
-impl<'data> Iterator for RawTextListIterator<'data> {
-    type Item = IonResult<LazyRawTextValue<'data>>;
+impl<'data> Iterator for RawTextListIterator_1_0<'data> {
+    type Item = IonResult<LazyRawTextValue_1_0<'data>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -136,7 +146,10 @@ impl<'data> Iterator for RawTextListIterator<'data> {
                 self.input = remaining;
                 Some(Ok(value))
             }
-            Ok((_remaining, None)) => None,
+            Ok((_remaining, None)) => {
+                // Don't update `remaining` so subsequent calls will continue to return None
+                None
+            }
             Err(e) => {
                 self.has_returned_error = true;
                 e.with_context("reading the next list value", self.input)
@@ -149,38 +162,39 @@ impl<'data> Iterator for RawTextListIterator<'data> {
 // ===== S-Expressions =====
 
 #[derive(Copy, Clone)]
-pub struct LazyRawTextSExp<'data> {
-    pub(crate) value: LazyRawTextValue<'data>,
+pub struct LazyRawTextSExp_1_0<'data> {
+    pub(crate) value: LazyRawTextValue_1_0<'data>,
 }
 
-impl<'data> LazyRawTextSExp<'data> {
+impl<'data> LazyRawTextSExp_1_0<'data> {
     pub fn ion_type(&self) -> IonType {
-        self.value.ion_type()
+        IonType::SExp
     }
 
-    pub fn iter(&self) -> RawTextSExpIterator<'data> {
+    pub fn iter(&self) -> RawTextSExpIterator_1_0<'data> {
+        let open_paren_index = self.value.encoded_value.data_offset() - self.value.input.offset();
         // Make an iterator over the input bytes that follow the initial `(`
-        RawTextSExpIterator::new(self.value.input.slice_to_end(1))
+        RawTextSExpIterator_1_0::new(self.value.input.slice_to_end(open_paren_index + 1))
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct RawTextSExpIterator<'data> {
+pub struct RawTextSExpIterator_1_0<'data> {
     input: TextBufferView<'data>,
     // If this iterator has returned an error, it should return `None` forever afterwards
     has_returned_error: bool,
 }
 
-impl<'data> RawTextSExpIterator<'data> {
-    pub(crate) fn new(input: TextBufferView<'data>) -> RawTextSExpIterator<'data> {
-        RawTextSExpIterator {
+impl<'data> RawTextSExpIterator_1_0<'data> {
+    pub(crate) fn new(input: TextBufferView<'data>) -> RawTextSExpIterator_1_0<'data> {
+        RawTextSExpIterator_1_0 {
             input,
             has_returned_error: false,
         }
     }
 }
 
-impl<'data> RawTextSExpIterator<'data> {
+impl<'data> RawTextSExpIterator_1_0<'data> {
     pub(crate) fn find_span(&self) -> IonResult<Range<usize>> {
         // The input has already skipped past the opening delimiter.
         let start = self.input.offset() - 1;
@@ -203,8 +217,8 @@ impl<'data> RawTextSExpIterator<'data> {
     }
 }
 
-impl<'data> Iterator for RawTextSExpIterator<'data> {
-    type Item = IonResult<LazyRawTextValue<'data>>;
+impl<'data> Iterator for RawTextSExpIterator_1_0<'data> {
+    type Item = IonResult<LazyRawTextValue_1_0<'data>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -225,42 +239,42 @@ impl<'data> Iterator for RawTextSExpIterator<'data> {
     }
 }
 
-impl<'data> LazyContainerPrivate<'data, TextEncoding> for LazyRawTextSExp<'data> {
-    fn from_value(value: LazyRawTextValue<'data>) -> Self {
-        LazyRawTextSExp { value }
+impl<'data> LazyContainerPrivate<'data, TextEncoding_1_0> for LazyRawTextSExp_1_0<'data> {
+    fn from_value(value: LazyRawTextValue_1_0<'data>) -> Self {
+        LazyRawTextSExp_1_0 { value }
     }
 }
 
-impl<'data> LazyRawSequence<'data, TextEncoding> for LazyRawTextSExp<'data> {
-    type Iterator = RawTextSExpIterator<'data>;
+impl<'data> LazyRawSequence<'data, TextEncoding_1_0> for LazyRawTextSExp_1_0<'data> {
+    type Iterator = RawTextSExpIterator_1_0<'data>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
         self.value.annotations()
     }
 
     fn ion_type(&self) -> IonType {
-        self.value.ion_type()
+        IonType::SExp
     }
 
     fn iter(&self) -> Self::Iterator {
-        LazyRawTextSExp::iter(self)
+        LazyRawTextSExp_1_0::iter(self)
     }
 
-    fn as_value(&self) -> LazyRawTextValue<'data> {
+    fn as_value(&self) -> LazyRawTextValue_1_0<'data> {
         self.value
     }
 }
 
-impl<'a, 'data> IntoIterator for &'a LazyRawTextSExp<'data> {
-    type Item = IonResult<LazyRawTextValue<'data>>;
-    type IntoIter = RawTextSExpIterator<'data>;
+impl<'a, 'data> IntoIterator for &'a LazyRawTextSExp_1_0<'data> {
+    type Item = IonResult<LazyRawTextValue_1_0<'data>>;
+    type IntoIter = RawTextSExpIterator_1_0<'data>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a> Debug for LazyRawTextSExp<'a> {
+impl<'a> Debug for LazyRawTextSExp_1_0<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self {

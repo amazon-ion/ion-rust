@@ -1,5 +1,7 @@
+use std::borrow::Cow;
+
 use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
-use crate::lazy::encoding::BinaryEncoding;
+use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::value_ref::ValueRef;
@@ -9,7 +11,6 @@ use crate::{
     Annotations, Element, IntoAnnotatedElement, IonError, IonResult, IonType, RawSymbolTokenRef,
     SymbolRef, SymbolTable, Value,
 };
-use std::borrow::Cow;
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
 /// not. A `LazyValue` is immutable; its data can be read any number of times.
@@ -57,7 +58,7 @@ pub struct LazyValue<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-pub type LazyBinaryValue<'top, 'data> = LazyValue<'top, 'data, BinaryEncoding>;
+pub type LazyBinaryValue<'top, 'data> = LazyValue<'top, 'data, BinaryEncoding_1_0>;
 
 impl<'top, 'data, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
     pub(crate) fn new(
@@ -359,12 +360,13 @@ impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<AnnotationsIterator<'top, 'data
 
 #[cfg(test)]
 mod tests {
+    use num_traits::Float;
+    use rstest::*;
+
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::reader::LazyBinaryReader;
     use crate::{ion_list, ion_sexp, ion_struct, Decimal, IonResult, IonType, Symbol, Timestamp};
     use crate::{Element, IntoAnnotatedElement};
-    use num_traits::Float;
-    use rstest::*;
 
     #[test]
     fn annotations_are() -> IonResult<()> {

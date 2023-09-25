@@ -9,6 +9,18 @@ pub enum RawSymbolTokenRef<'a> {
     Text(Cow<'a, str>),
 }
 
+impl<'a> RawSymbolTokenRef<'a> {
+    /// Returns `true` if this token matches either the specified symbol ID or text value.
+    /// This is useful for comparing tokens that represent system symbol values of an unknown
+    /// encoding.
+    pub fn matches_sid_or_text(&self, symbol_id: SymbolId, symbol_text: &str) -> bool {
+        match self {
+            RawSymbolTokenRef::SymbolId(sid) => symbol_id == *sid,
+            RawSymbolTokenRef::Text(text) => symbol_text == text,
+        }
+    }
+}
+
 /// Implemented by types that can be viewed as a [RawSymbolTokenRef] without allocations.
 pub trait AsRawSymbolTokenRef {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef;

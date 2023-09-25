@@ -22,6 +22,8 @@ pub trait LazyDecoder<'data>: Sized + Debug + Clone {
     type Struct: LazyRawStruct<'data, Self>;
     /// An iterator over the annotations on the input stream's values.
     type AnnotationsIterator: Iterator<Item = IonResult<RawSymbolTokenRef<'data>>>;
+    /// An e-expression invoking a macro. (Ion 1.1+)
+    type MacroInvocation: LazyMacroInvocation<'data, Self>;
 }
 
 // This private module houses public traits. This allows the public traits below to depend on them,
@@ -57,6 +59,10 @@ pub(crate) mod private {
     }
 }
 
+pub trait LazyMacroInvocation<'data, D: LazyDecoder<'data>>: Debug {
+    // Nothing for now.
+}
+
 pub trait LazyRawReader<'data, D: LazyDecoder<'data>> {
     fn new(data: &'data [u8]) -> Self;
     fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, D>>;
@@ -89,7 +95,9 @@ pub trait LazyRawStruct<'data, D: LazyDecoder<'data>>:
 
     fn annotations(&self) -> D::AnnotationsIterator;
     fn find(&self, name: &str) -> IonResult<Option<D::Value>>;
-    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, D>>>;
+    fn get(&self, name: &str) -> IonResult<Option<RawValueRef<'data, D>>> {
+        self.find(name)?.map(|f| f.read()).transpose()
+    }
     fn get_expected(&self, name: &str) -> IonResult<RawValueRef<'data, D>> {
         if let Some(value) = self.get(name)? {
             Ok(value)

@@ -23,9 +23,11 @@ use std::borrow::Cow;
 use std::num::IntErrorKind;
 use std::str::FromStr;
 
+use nom::branch::alt;
+use nom::bytes::streaming::tag;
 use nom::character::is_hex_digit;
 use nom::sequence::preceded;
-use nom::AsChar;
+use nom::{AsChar, Parser};
 use num_bigint::{BigInt, BigUint};
 use num_traits::Num;
 use smallvec::SmallVec;
@@ -55,10 +57,30 @@ pub(crate) enum MatchedValue {
     String(MatchedString),
     Symbol(MatchedSymbol),
     Blob(MatchedBlob),
+    Clob(MatchedClob),
     List,
     SExp,
     Struct,
-    // TODO: ...the other types
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) enum MatchedFieldName {
+    Symbol(MatchedSymbol),
+    String(MatchedString),
+}
+
+impl MatchedFieldName {
+    pub fn read<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<RawSymbolTokenRef<'data>> {
+        match self {
+            MatchedFieldName::Symbol(matched_symbol) => matched_symbol.read(matched_input),
+            MatchedFieldName::String(matched_string) => {
+                matched_string.read(matched_input).map(|s| s.into())
+            }
+        }
+    }
 }
 
 /// A partially parsed Ion int.
@@ -128,7 +150,11 @@ impl MatchedInt {
             }
         };
 
-        Ok(int)
+        if self.is_negative {
+            Ok(-int)
+        } else {
+            Ok(int)
+        }
     }
 }
 
@@ -178,7 +204,7 @@ pub(crate) struct MatchedDecimal {
     is_negative: bool,
     digits_offset: u16,
     digits_length: u16,
-    trailing_digits_length: u16,
+    num_trailing_digits: u16,
     exponent_is_negative: bool,
     exponent_digits_offset: u16,
     exponent_digits_length: u16,
@@ -192,7 +218,7 @@ impl MatchedDecimal {
         is_negative: bool,
         digits_offset: u16,
         digits_length: u16,
-        trailing_digits_length: u16,
+        num_trailing_digits: u16,
         exponent_is_negative: bool,
         exponent_offset: u16,
         exponent_length: u16,
@@ -201,7 +227,7 @@ impl MatchedDecimal {
             is_negative,
             digits_offset,
             digits_length,
-            trailing_digits_length,
+            num_trailing_digits,
             exponent_is_negative,
             exponent_digits_offset: exponent_offset,
             exponent_digits_length: exponent_length,
@@ -273,7 +299,7 @@ impl MatchedDecimal {
             }
         };
 
-        exponent -= self.trailing_digits_length as i64;
+        exponent -= self.num_trailing_digits as i64;
 
         Ok(Decimal::new(coefficient, exponent))
     }
@@ -338,7 +364,14 @@ impl MatchedString {
         let body = matched_input.slice(3, matched_input.len() - 6);
         // There are no escaped characters, so we can just validate the string in-place.
         let mut sanitized = Vec::with_capacity(matched_input.len());
-        escape_text(body, &mut sanitized)?;
+        replace_escapes_with_byte_values(
+            body,
+            &mut sanitized,
+            // Normalize newlines
+            true,
+            // Support unicode escapes
+            true,
+        )?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text.to_string()))
     }
@@ -358,12 +391,19 @@ impl MatchedString {
         // This is the same parser that matched the input initially, which means that the only
         // reason it wouldn't succeed here is if the input is empty, meaning we're done reading.
         while let Ok((remaining_after_match, (segment_body, _has_escapes))) = preceded(
-            TextBufferView::match_optional_whitespace,
+            TextBufferView::match_optional_comments_and_whitespace,
             TextBufferView::match_long_string_segment,
         )(remaining)
         {
             remaining = remaining_after_match;
-            escape_text(segment_body, &mut sanitized)?;
+            replace_escapes_with_byte_values(
+                segment_body,
+                &mut sanitized,
+                // Normalize newlines
+                true,
+                // Support unicode escapes
+                true,
+            )?;
         }
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text))
@@ -390,36 +430,96 @@ impl MatchedString {
         // There are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
-        escape_text(body, &mut sanitized)?;
+        replace_escapes_with_byte_values(
+            body,
+            &mut sanitized,
+            // Do not normalize newlines
+            false,
+            // Support Unicode escapes
+            true,
+        )?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(StrRef::from(text.to_string()))
     }
 }
 
-fn escape_text(matched_input: TextBufferView, sanitized: &mut Vec<u8>) -> IonResult<()> {
+fn replace_escapes_with_byte_values(
+    matched_input: TextBufferView,
+    sanitized: &mut Vec<u8>,
+    // If the text being escaped is in a long string or a clob, then unescaped \r\n and \r get
+    // normalized to \n.
+    normalize_newlines: bool,
+    // Clobs use string-y syntax, but do not support `\u` or `\U` Unicode escapes because the
+    // data they contain may not be Unicode.
+    support_unicode_escapes: bool,
+) -> IonResult<()> {
     let mut remaining = matched_input;
-    while !remaining.is_empty() {
-        let next_escape = remaining.bytes().iter().position(|byte| *byte == b'\\');
-        remaining = if let Some(escape_offset) = next_escape {
-            // Everything up to the '\' is already clean. Write that slice to 'sanitized'.
-            let already_clean = remaining.slice(0, escape_offset);
-            sanitized.extend_from_slice(already_clean.bytes());
-            // Everything starting from the '\' needs to be evaluated.
-            let contains_escapes = remaining.slice_to_end(escape_offset);
-            write_escaped(contains_escapes, sanitized)?
-        } else {
-            sanitized.extend_from_slice(remaining.bytes());
-            // 'remaining' is now empty
-            remaining.slice_to_end(remaining.len())
-        };
-    }
 
+    // For ways to optimize this in the future, look at the `memchr` crate.
+    let match_byte = |byte: &u8| *byte == b'\\' || *byte == b'\r';
+
+    while !remaining.is_empty() {
+        let next_index_to_inspect = remaining.bytes().iter().position(match_byte);
+        remaining = match next_index_to_inspect {
+            // It's an unescaped carriage return: 0x0A.
+            Some(carriage_return_offset)
+                if remaining.bytes().get(carriage_return_offset) == Some(&b'\r') =>
+            {
+                // Add all of the data up to the \r is clean. Add that slice to `sanitized`.
+                sanitized.extend_from_slice(remaining.slice(0, carriage_return_offset).bytes());
+                if normalize_newlines {
+                    normalize_newline(remaining, sanitized, carriage_return_offset)
+                } else {
+                    // Add it to the sanitized data as-is
+                    sanitized.push(b'\r');
+                    remaining.slice_to_end(carriage_return_offset + 1)
+                }
+            }
+            // It's an escape character: `\`
+            Some(escape_offset) => {
+                // Add all of the data up to the `\` is clean. Add that slice to `sanitized`.
+                sanitized.extend_from_slice(remaining.slice(0, escape_offset).bytes());
+                // Everything starting from the '\' needs to be evaluated.
+                let contains_escapes = remaining.slice_to_end(escape_offset);
+                decode_escape_into_bytes(contains_escapes, sanitized, support_unicode_escapes)?
+            }
+            None => {
+                sanitized.extend_from_slice(remaining.bytes());
+                // 'remaining' is now empty. Return an empty slice.
+                remaining.slice_to_end(remaining.len())
+            }
+        }
+    }
     Ok(())
 }
 
-fn write_escaped<'data>(
+// This code is only called when a \r is encountered in either a clob or long-form string
+#[cold]
+fn normalize_newline<'data>(
+    remaining: TextBufferView<'data>,
+    sanitized: &mut Vec<u8>,
+    escape_offset: usize,
+) -> TextBufferView<'data> {
+    // Insert the normalized newline
+    sanitized.push(b'\n');
+    // Check whether we're skipping one byte (\r) or two (\r\n).
+    if remaining.bytes().get(escape_offset + 1).copied() == Some(b'\n') {
+        // The next byte is an unescaped newline; we normalize \r\n to \n, so we need
+        // to skip an extra byte.
+        remaining.slice_to_end(escape_offset + 2)
+    } else {
+        // We only processed a single byte: `\r`
+        remaining.slice_to_end(escape_offset + 1)
+    }
+}
+
+/// Matches an escape sequence at the beginning of `input` and pushes its corresponding
+/// byte values onto the end of `sanitized`. Returns the remaining input following the escape
+/// sequence.
+fn decode_escape_into_bytes<'data>(
     input: TextBufferView<'data>,
     sanitized: &mut Vec<u8>,
+    support_unicode_escapes: bool,
 ) -> IonResult<TextBufferView<'data>> {
     // Note that by the time this method has been called, the parser has already confirmed that
     // there is an appropriate closing delimiter. Thus, if any of the branches below run out of
@@ -448,12 +548,37 @@ fn write_escaped<'data>(
         b'b' => 0x08u8, // backspace
         b'v' => 0x0Bu8, // vertical tab
         b'f' => 0x0Cu8, // form feed
-        // If the byte following the '\' is a real newline (that is: 0x0A), we discard it.
-        b'\n' => return Ok(input_after_escape),
+        // If the bytes following the '\' are an unescaped CR/LF, discard both.
+        b'\r' if input_after_escape.bytes().first() == Some(&b'\n') => {
+            return Ok(input_after_escape.slice_to_end(1))
+        }
+        // If the next byte is a CR or LF, discard it.
+        b'\r' | b'\n' => return Ok(input_after_escape),
         // These cases require more sophisticated parsing, not just a 1-to-1 mapping of bytes
-        b'x' => return hex_digits_code_point(2, input_after_escape, sanitized),
-        b'u' => return hex_digits_code_point(4, input_after_escape, sanitized),
-        b'U' => return hex_digits_code_point(8, input_after_escape, sanitized),
+        b'x' => {
+            return decode_hex_digits_escape(
+                2,
+                input_after_escape,
+                sanitized,
+                support_unicode_escapes,
+            )
+        }
+        b'u' => {
+            return decode_hex_digits_escape(
+                4,
+                input_after_escape,
+                sanitized,
+                support_unicode_escapes,
+            )
+        }
+        b'U' => {
+            return decode_hex_digits_escape(
+                8,
+                input_after_escape,
+                sanitized,
+                support_unicode_escapes,
+            )
+        }
         _ => {
             return Err(IonError::Decoding(
                 DecodingError::new(format!("invalid escape sequence '\\{}", escape_id))
@@ -468,10 +593,11 @@ fn write_escaped<'data>(
 
 /// Reads the next `num_digits` bytes from `input` as a `char`, then writes that `char`'s UTF8 bytes
 /// to `sanitized`.
-fn hex_digits_code_point<'data>(
+fn decode_hex_digits_escape<'data>(
     num_digits: usize,
     input: TextBufferView<'data>,
     sanitized: &mut Vec<u8>,
+    support_unicode_escapes: bool,
 ) -> IonResult<TextBufferView<'data>> {
     if input.len() < num_digits {
         return Err(IonError::Decoding(
@@ -481,6 +607,15 @@ fn hex_digits_code_point<'data>(
                 input.len()
             ))
             .with_position(input.offset()),
+        ));
+    }
+
+    // Clobs represent text of some encoding, but it may or may not be a flavor of Unicode.
+    // As such, clob syntax does not support Unicode escape sequences like `\u` or `\U`.
+    if num_digits != 2 && !support_unicode_escapes {
+        return Err(IonError::Decoding(
+            DecodingError::new("Unicode escape sequences (\\u, \\U) are not legal in this context")
+                .with_position(input.offset()),
         ));
     }
 
@@ -500,17 +635,31 @@ fn hex_digits_code_point<'data>(
             .with_position(input.offset()),
         ));
     }
-    // We just confirmed all of the digits are ASCII hex digits, so these steps cannot fail.
+    // Isolate the portion of the input that follows the hex digits so we can return it.
+    let remaining_input = input.slice_to_end(num_digits);
+
+    // We just confirmed all of the digits are ASCII hex digits, so this step cannot fail.
     let hex_digits = std::str::from_utf8(hex_digit_bytes).unwrap();
+
+    if !support_unicode_escapes {
+        // Inside a clob, \x is a byte literal, not a Unicode code point.
+        let byte_literal = u8::from_str_radix(hex_digits, 16).unwrap();
+        sanitized.push(byte_literal);
+        return Ok(remaining_input);
+    }
+
     let code_point = u32::from_str_radix(hex_digits, 16).unwrap();
 
     // Check to see if this is a high surrogate; if it is, our code point isn't complete. Another
     // unicode escape representing the low surrogate has to be next in the input to complete it.
-    // See the docs for this helper function for details. (Note: this will only ever be true for
-    // 4- and 8-digit escape sequences. `\x` escapes don't have enough digits to represent a
-    // high surrogate.)
+    // See the docs for the `code_point_is_a_high_surrogate` helper function for details.
+    // (Note: this will only ever be true for 4- and 8-digit escape sequences. `\x` escapes don't
+    // have enough digits to represent a high surrogate.)
     if code_point_is_a_high_surrogate(code_point) {
-        todo!("support surrogate pairs")
+        // The spec has MAY-style language around supporting high surrogates. Supporting them is
+        // allowed but discouraged. The ion-tests spec conformance tests include cases with UTF-16
+        // surrogates, so ion-rust supports them.
+        return complete_surrogate_pair(sanitized, code_point, remaining_input);
     }
 
     // A Rust `char` can represent any Unicode scalar value--a code point that is not part of a
@@ -522,7 +671,58 @@ fn hex_digits_code_point<'data>(
     sanitized.extend_from_slice(utf8_encoded.as_bytes());
 
     // Skip beyond the digits we just processed
-    Ok(input.slice_to_end(num_digits))
+    Ok(remaining_input)
+}
+
+/// Reads another escaped code point from the buffer, treating it as the low surrogate to be paired
+/// with the specified high surrogate. Appends the UTF-8 encoding of the resulting Unicode scalar
+/// to `sanitized` and returns the remaining text in the buffer.
+fn complete_surrogate_pair<'data>(
+    sanitized: &mut Vec<u8>,
+    high_surrogate: u32,
+    input: TextBufferView<'data>,
+) -> IonResult<TextBufferView<'data>> {
+    let mut match_next_codepoint = preceded(
+        tag("\\"),
+        alt((
+            preceded(tag("x"), TextBufferView::match_n_hex_digits(2)),
+            preceded(tag("u"), TextBufferView::match_n_hex_digits(4)),
+            preceded(tag("U"), TextBufferView::match_n_hex_digits(8)),
+        )),
+    );
+    let (remaining, hex_digits) = match match_next_codepoint.parse(input) {
+        Ok((remaining, hex_digits)) => (remaining, hex_digits),
+        Err(_) => {
+            return {
+                let error =
+                    DecodingError::new("found a high surrogate not followed by a low surrogate")
+                        .with_position(input.offset());
+                Err(IonError::Decoding(error))
+            }
+        }
+    };
+    let high_surrogate = high_surrogate as u16;
+
+    let hex_digits = std::str::from_utf8(hex_digits.bytes()).unwrap();
+    let low_surrogate = u16::from_str_radix(hex_digits, 16).map_err(|_| {
+        let error =
+            DecodingError::new("low surrogate did not fit in a u16").with_position(input.offset());
+        IonError::Decoding(error)
+    })?;
+
+    let character = char::decode_utf16([high_surrogate, low_surrogate])
+        .next()
+        .unwrap()
+        .map_err(|_| {
+            let error = DecodingError::new("encountered invalid surrogate pair")
+                .with_position(input.offset());
+            IonError::Decoding(error)
+        })?;
+
+    let utf8_buffer: &mut [u8; 4] = &mut [0; 4];
+    let utf8_encoded = character.encode_utf8(utf8_buffer);
+    sanitized.extend_from_slice(utf8_encoded.as_bytes());
+    Ok(remaining)
 }
 
 /// Returns `true` if the provided code point is a utf-16 high surrogate.
@@ -602,7 +802,7 @@ impl MatchedSymbol {
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = Vec::with_capacity(matched_input.len());
 
-        escape_text(body, &mut sanitized)?;
+        replace_escapes_with_byte_values(body, &mut sanitized, false, true)?;
         let text = String::from_utf8(sanitized).unwrap();
         Ok(RawSymbolTokenRef::Text(text.into()))
     }
@@ -856,10 +1056,135 @@ impl MatchedBlob {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MatchedClob {
+    // Indicates that the content of the clob was written using short-form string syntax.
+    Short,
+    // Indicates that the content of the clob was written using long-form string syntax.
+    Long,
+}
+
+impl MatchedClob {
+    pub(crate) fn read<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<BytesRef<'data>> {
+        // `matched_input` contains the entire clob, including the opening {{ and closing }}.
+        // We can trim those off, but each function below will need to find the nested short- or
+        // long-form string content.
+        let matched_inside_braces = matched_input.slice(2, matched_input.len() - 4);
+        match self {
+            MatchedClob::Short => self.read_short_clob(matched_inside_braces),
+            MatchedClob::Long => self.read_long_clob(matched_inside_braces),
+        }
+    }
+    fn read_short_clob<'data>(
+        &self,
+        matched_inside_braces: TextBufferView<'data>,
+    ) -> IonResult<BytesRef<'data>> {
+        // There can be whitespace between the leading {{ and the `"`, so we need to scan ahead
+        // to the `"`.
+        let open_quote_position = matched_inside_braces
+            .bytes()
+            .iter()
+            .position(|b| *b == b'"')
+            .unwrap();
+        // Get a slice that contains all of the bytes after the opening `"`.
+        let remaining = matched_inside_braces.slice_to_end(open_quote_position + 1);
+        // Use the existing short string body parser to identify all of the bytes up to the
+        // unescaped closing `"`. This parser succeeded once during matching, so we know it will
+        // succeed again here; it's safe to unwrap().
+        let (_, (body, _has_escapes)) = remaining.match_short_string_body().unwrap();
+        // There are escaped characters. We need to build a new version of our string
+        // that replaces the escaped characters with their corresponding bytes.
+        let mut sanitized = Vec::with_capacity(body.len());
+        replace_escapes_with_byte_values(
+            body,
+            &mut sanitized,
+            // Do not normalize newlines
+            false,
+            // Unicode escapes are not supported
+            false,
+        )?;
+        Ok(BytesRef::from(sanitized))
+    }
+    fn read_long_clob<'data>(
+        &self,
+        matched_inside_braces: TextBufferView<'data>,
+    ) -> IonResult<BytesRef<'data>> {
+        // We're going to re-parse the input to visit each segment, copying its sanitized bytes into
+        // a contiguous buffer.
+
+        // Create a new buffer to hold the sanitized data.
+        let mut sanitized = Vec::with_capacity(matched_inside_braces.len());
+        let mut remaining = matched_inside_braces;
+
+        // Iterate over the string segments using the match_long_string_segment parser.
+        // This is the same parser that matched the input initially, which means that the only
+        // reason it wouldn't succeed here is if the input is empty, meaning we're done reading.
+        while let Ok((remaining_after_match, (segment_body, _has_escapes))) = preceded(
+            TextBufferView::match_optional_whitespace,
+            TextBufferView::match_long_string_segment,
+        )(remaining)
+        {
+            remaining = remaining_after_match;
+            replace_escapes_with_byte_values(
+                segment_body,
+                &mut sanitized,
+                // Normalize newlines
+                true,
+                // Unicode escapes are not supported
+                false,
+            )?;
+        }
+        Ok(BytesRef::from(sanitized))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
+    use num_bigint::BigInt;
+
+    use crate::lazy::bytes_ref::BytesRef;
     use crate::lazy::text::buffer::TextBufferView;
-    use crate::{Decimal, IonResult, Timestamp};
+    use crate::{Decimal, Int, IonResult, Timestamp};
+
+    #[test]
+    fn read_ints() -> IonResult<()> {
+        fn expect_int(data: &str, expected: impl Into<Int>) {
+            let expected: Int = expected.into();
+            let buffer = TextBufferView::new(data.as_bytes());
+            let (_remaining, matched) = buffer.match_int().unwrap();
+            let actual = matched.read(buffer).unwrap();
+            assert_eq!(
+                actual, expected,
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data, actual, expected
+            );
+        }
+
+        let tests = [
+            ("-5", Int::from(-5)),
+            ("0", Int::from(0)),
+            (
+                "1234567890_1234567890_1234567890_1234567890",
+                Int::from(BigInt::from_str("1234567890_1234567890_1234567890_1234567890").unwrap()),
+            ),
+            (
+                "-1234567890_1234567890_1234567890_1234567890",
+                Int::from(
+                    BigInt::from_str("-1234567890_1234567890_1234567890_1234567890").unwrap(),
+                ),
+            ),
+        ];
+
+        for (input, expected) in tests {
+            expect_int(input, expected);
+        }
+        Ok(())
+    }
 
     #[test]
     fn read_timestamps() -> IonResult<()> {
@@ -966,10 +1291,21 @@ mod tests {
     #[test]
     fn read_decimals() -> IonResult<()> {
         fn expect_decimal(data: &str, expected: Decimal) {
-            let data = format!("{data} "); // Append a space
             let buffer = TextBufferView::new(data.as_bytes());
-            let (_remaining, matched) = buffer.match_decimal().unwrap();
-            let actual = matched.read(buffer).unwrap();
+            let result = buffer.match_decimal();
+            assert!(
+                result.is_ok(),
+                "Unexpected match error for input: '{data}': {:?}",
+                result
+            );
+            let (_remaining, matched) = buffer.match_decimal().expect("match decimal");
+            let result = matched.read(buffer);
+            assert!(
+                result.is_ok(),
+                "Unexpected read error for input '{data}': {:?}",
+                result
+            );
+            let actual = result.unwrap();
             assert_eq!(
                 actual, expected,
                 "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
@@ -986,8 +1322,6 @@ mod tests {
             ("-5.d0", Decimal::new(-5, 0)),
             ("5.0", Decimal::new(50, -1)),
             ("-5.0", Decimal::new(-50, -1)),
-            ("5.0d", Decimal::new(50, -1)),
-            ("-5.0d", Decimal::new(-50, -1)),
             ("500d0", Decimal::new(5, 2)),
             ("-500d0", Decimal::new(-5, 2)),
             ("0.005", Decimal::new(5, -3)),
@@ -1035,6 +1369,142 @@ mod tests {
 
         for (input, expected) in tests {
             expect_blob(input, expected);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_strings() -> IonResult<()> {
+        fn expect_string(data: &str, expected: &str) {
+            // Ordinarily the reader is responsible for indicating that the input is complete.
+            // For the sake of these tests, we're going to append one more value (`0`) to the input
+            // stream so the parser knows that the long-form strings are complete. We then trim
+            // our fabricated value off of the input before reading.
+            let data = format!("{data}\n0");
+            let buffer = TextBufferView::new(data.as_bytes());
+            let (_remaining, matched) = buffer.match_string().unwrap();
+            let matched_input = buffer.slice(0, buffer.len() - 2);
+            let actual = matched.read(matched_input).unwrap();
+            assert_eq!(
+                actual, expected,
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data, actual, expected
+            );
+        }
+
+        let tests = [
+            (r#""hello""#, "hello"),
+            (r"'''hello'''", "hello"),
+            (r"'''he''' '''llo'''", "hello"),
+            (r"'''he''' '''llo'''", "hello"),
+            (r#""😎🙂🙃""#, "😎🙂🙃"),
+            (r"'''😎🙂''' '''🙃'''", "😎🙂🙃"),
+            (r"'''\u2764\uFE0F'''", "❤️"),
+            (r"'''\U00002764\U0000FE0F'''", "❤️"),
+            // In short strings, carriage returns are not normalized.
+            ("\"foo\rbar\rbaz\"", "foo\rbar\rbaz"),
+            // In long-form strings, all unescaped newlines are converted to `\n`.
+            ("'''foo\rbar\r\nbaz'''", "foo\nbar\nbaz"),
+        ];
+
+        for (input, expected) in tests {
+            expect_string(input, expected);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_clobs() -> IonResult<()> {
+        fn read_clob(data: &str) -> IonResult<BytesRef> {
+            let buffer = TextBufferView::new(data.as_bytes());
+            // All `read_clob` usages should be accepted by the matcher, so we can `unwrap()` the
+            // call to `match_clob()`.
+            let (_remaining, matched) = buffer.match_clob().unwrap();
+            // The resulting buffer slice may be rejected during reading.
+            matched.read(buffer)
+        }
+
+        fn expect_clob_error(data: &str) {
+            let actual = read_clob(data);
+            assert!(
+                actual.is_err(),
+                "Successfully read a clob from illegal input."
+            );
+        }
+
+        fn expect_clob(data: &str, expected: &str) {
+            let result = read_clob(data);
+            assert!(
+                result.is_ok(),
+                "Unexpected read failure for input '{data}': {:?}",
+                result
+            );
+            let actual = result.unwrap();
+            assert_eq!(
+                actual,
+                expected.as_ref(),
+                "Actual didn't match expected for input '{}'.\n{:?} ({})\n!=\n{:?} ({:0x?})",
+                data,
+                actual,
+                std::str::from_utf8(actual.data()).unwrap(),
+                expected,
+                expected.as_bytes()
+            );
+        }
+
+        // These tests compare a clob containing UTF-8 data to the expected string's bytes.
+        // This is just an example; clobs' data does not have to be (and often would not be) UTF-8.
+        let tests = [
+            (r#"{{""}}"#, ""),
+            (r#"{{''''''}}"#, ""),
+            (r#"{{'''''' '''''' ''''''}}"#, ""),
+            (r#"{{"hello"}}"#, "hello"),
+            (r#"{{"\x4D"}}"#, "M"),
+            (r#"{{"\x4d \x4d \x4d"}}"#, "M M M"),
+            (r"{{'''\x4d''' '''\x4d''' '''\x4d'''}}", "MMM"),
+            // The below byte literals are the UTF-8 encoding of Unicode code points: U+2764 U+FE0F
+            (r#"{{"\xe2\x9d\xa4\xef\xb8\x8f"}}"#, "❤️"),
+            (r#"{{'''hel''' '''lo'''}}"#, "hello"),
+            (
+                r"{{
+                    '''\xe2'''
+                    '''\x9d\xa4'''
+                    '''\xef\xb8\x8f'''
+                }}
+            ",
+                "❤️",
+            ),
+            // In a long-form clob, unescaped `\r` and `\r\n` are normalized into unescaped `\n`
+            ("{{'''foo\rbar\r\nbaz'''}}", "foo\nbar\nbaz"),
+            // In a short-form clob, carriage returns are not normalized.
+            ("{{\"foo\rbar\rbaz\"}}", "foo\rbar\rbaz"),
+        ];
+
+        for (input, expected) in tests {
+            expect_clob(input, expected);
+        }
+
+        let illegal_inputs = [
+            // Clobs represent text of some encoding, but it may or may not be a flavor of Unicode.
+            // As such, clob syntax does not support Unicode escape sequences like `\u` or `\U`.
+            // Byte literals may be written using `\x`, however.
+            r#"{{"\u004D" }}"#,
+            r#"{{"\U0000004D" }}"#,
+            // Escape sequence that terminates early
+            r#"{{"\x4"}}"#,
+            // Escape sequence split across long-form segments
+            r"{{
+                    '''\xe'''
+                    '''2\x9d\xa'''
+                    '''4\xef\xb8\x8f'''
+                }}
+            ",
+        ];
+
+        for input in illegal_inputs {
+            expect_clob_error(input);
         }
 
         Ok(())

@@ -1,4 +1,5 @@
-use crate::lazy::encoding::BinaryEncoding;
+use crate::lazy::any_encoding::{AnyEncoding, LazyRawAnyReader};
+use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
 
@@ -21,7 +22,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
-/// Unlike [`crate::lazy::reader::LazyReader`], which only exposes values that are part
+/// Unlike [`crate::lazy::reader::LazyApplicationReader`], which only exposes values that are part
 /// of the application data model, [`LazySystemReader`] also yields Ion version markers
 /// (as [`SystemStreamItem::VersionMarker`]) and structs representing a symbol table (as
 /// [`SystemStreamItem::SymbolTable`]).
@@ -76,7 +77,9 @@ pub struct LazySystemReader<'data, D: LazyDecoder<'data>> {
     pending_lst: PendingLst,
 }
 
-pub type LazyBinarySystemReader<'data> = LazySystemReader<'data, BinaryEncoding>;
+pub type LazySystemBinaryReader<'data> = LazySystemReader<'data, BinaryEncoding_1_0>;
+pub type LazySystemTextReader<'data> = LazySystemReader<'data, TextEncoding_1_0>;
+pub type LazySystemAnyReader<'data> = LazySystemReader<'data, AnyEncoding>;
 
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
 // the table defines in this structure so that they may be applied when the reader next advances.
@@ -85,8 +88,22 @@ struct PendingLst {
     symbols: Vec<Option<String>>,
 }
 
-impl<'data> LazyBinarySystemReader<'data> {
-    pub(crate) fn new(ion_data: &'data [u8]) -> LazyBinarySystemReader<'data> {
+impl<'data> LazySystemAnyReader<'data> {
+    pub fn new(ion_data: &'data [u8]) -> LazySystemAnyReader<'data> {
+        let raw_reader = LazyRawAnyReader::new(ion_data);
+        LazySystemReader {
+            raw_reader,
+            symbol_table: SymbolTable::new(),
+            pending_lst: PendingLst {
+                is_lst_append: false,
+                symbols: Vec::new(),
+            },
+        }
+    }
+}
+
+impl<'data> LazySystemBinaryReader<'data> {
+    pub(crate) fn new(ion_data: &'data [u8]) -> LazySystemBinaryReader<'data> {
         let raw_reader = LazyRawBinaryReader::new(ion_data);
         LazySystemReader {
             raw_reader,
@@ -107,7 +124,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
             return Ok(false);
         }
         if let Some(symbol_ref) = lazy_value.annotations().next() {
-            return Ok(symbol_ref? == ION_SYMBOL_TABLE);
+            return Ok(symbol_ref?.matches_sid_or_text(3, "$ion_symbol_table"));
         };
         Ok(false)
     }
@@ -127,6 +144,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
             }
             RawStreamItem::Value(lazy_raw_value) => lazy_raw_value,
             RawStreamItem::EndOfStream => return Ok(SystemStreamItem::EndOfStream),
+            RawStreamItem::MacroInvocation(_) => todo!("impl macro invocations"),
         };
         if Self::is_symbol_table_struct(&lazy_raw_value)? {
             Self::process_symbol_table(pending_lst, &lazy_raw_value)?;
@@ -160,6 +178,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
                 RawStreamItem::VersionMarker(_, _) => continue,
                 RawStreamItem::Value(lazy_raw_value) => lazy_raw_value,
                 RawStreamItem::EndOfStream => return Ok(None),
+                RawStreamItem::MacroInvocation(_) => todo!("impl macro invocations"),
             };
             if Self::is_symbol_table_struct(&lazy_raw_value)? {
                 // process the symbol table, but do not surface it
@@ -208,7 +227,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
 
         for field_result in symbol_table.iter() {
             let field = field_result?;
-            if field.name() == SYMBOLS {
+            if field.name().matches_sid_or_text(7, "symbols") {
                 if found_symbols_field {
                     return IonResult::decoding_error(
                         "found symbol table with multiple 'symbols' fields",
@@ -217,7 +236,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
                 found_symbols_field = true;
                 Self::process_symbols(pending_lst, &field.value())?;
             }
-            if field.name() == IMPORTS {
+            if field.name().matches_sid_or_text(6, "imports") {
                 if found_imports_field {
                     return IonResult::decoding_error(
                         "found symbol table with multiple 'imports' fields",
@@ -250,7 +269,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     fn process_imports(pending_lst: &mut PendingLst, imports: &D::Value) -> IonResult<()> {
         match imports.read()? {
             RawValueRef::Symbol(symbol_ref) => {
-                if symbol_ref == RawSymbolTokenRef::SymbolId(3) {
+                if symbol_ref.matches_sid_or_text(3, "$ion_symbol_table") {
                     pending_lst.is_lst_append = true;
                 }
                 // Any other symbol is ignored
@@ -291,7 +310,7 @@ mod tests {
         hello
         "#,
         )?;
-        let mut system_reader = LazySystemReader::new(&ion_data);
+        let mut system_reader = LazySystemBinaryReader::new(&ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::VersionMarker(major, minor) => {
@@ -316,7 +335,7 @@ mod tests {
         )
         "#,
         )?;
-        let mut system_reader = LazySystemReader::new(&ion_data);
+        let mut system_reader = LazySystemBinaryReader::new(&ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {
@@ -343,7 +362,7 @@ mod tests {
         }
         "#,
         )?;
-        let mut system_reader = LazySystemReader::new(&ion_data);
+        let mut system_reader = LazySystemBinaryReader::new(&ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {

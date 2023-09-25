@@ -1,20 +1,21 @@
+#![allow(non_camel_case_types)]
+
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
-use crate::lazy::decoder::private::LazyRawValuePrivate;
-use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
-use crate::lazy::encoding::TextEncoding;
+use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawValuePrivate};
+use crate::lazy::decoder::LazyRawValue;
+use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::encoded_value::EncodedTextValue;
-use crate::lazy::text::matched::MatchedValue;
-use crate::lazy::text::raw::r#struct::LazyRawTextStruct;
-use crate::lazy::text::raw::sequence::{LazyRawTextList, LazyRawTextSExp};
+use crate::lazy::text::raw::r#struct::LazyRawTextStruct_1_0;
+use crate::lazy::text::raw::sequence::{LazyRawTextList_1_0, LazyRawTextSExp_1_0};
 use crate::{IonResult, IonType, RawSymbolTokenRef};
 
 /// A value that has been identified in the text input stream but whose data has not yet been read.
 ///
-/// If only part of the value is in the input buffer, calls to [`LazyRawTextValue::read`] (which examines
+/// If only part of the value is in the input buffer, calls to [`LazyRawTextValue_1_0::read`] (which examines
 /// bytes beyond the value's header) may return [`IonError::Incomplete`](crate::result::IonError::Incomplete).
 ///
 /// `LazyRawTextValue`s are "unresolved," which is to say that symbol values, annotations, and
@@ -23,18 +24,18 @@ use crate::{IonResult, IonType, RawSymbolTokenRef};
 /// includes a text definition for these items whenever one exists, see
 /// [`crate::lazy::value::LazyValue`].
 #[derive(Copy, Clone)]
-pub struct LazyRawTextValue<'data> {
+pub struct LazyRawTextValue_1_0<'data> {
     pub(crate) encoded_value: EncodedTextValue,
     pub(crate) input: TextBufferView<'data>,
 }
 
-impl<'data> LazyRawValuePrivate<'data> for LazyRawTextValue<'data> {
+impl<'data> LazyRawValuePrivate<'data> for LazyRawTextValue_1_0<'data> {
     fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>> {
         self.encoded_value.field_name(self.input)
     }
 }
 
-impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
+impl<'data> LazyRawValue<'data, TextEncoding_1_0> for LazyRawTextValue_1_0<'data> {
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }
@@ -43,7 +44,7 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
         self.encoded_value.is_null()
     }
 
-    fn annotations(&self) -> <TextEncoding as LazyDecoder<'data>>::AnnotationsIterator {
+    fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
         let span = self
             .encoded_value
             .annotations_range()
@@ -54,39 +55,33 @@ impl<'data> LazyRawValue<'data, TextEncoding> for LazyRawTextValue<'data> {
         RawTextAnnotationsIterator::new(annotations_bytes)
     }
 
-    fn read(&self) -> IonResult<RawValueRef<'data, TextEncoding>> {
+    fn read(&self) -> IonResult<RawValueRef<'data, TextEncoding_1_0>> {
         let matched_input = self.input.slice(
             self.encoded_value.data_offset() - self.input.offset(),
             self.encoded_value.data_length(),
         );
+
+        use crate::lazy::text::matched::MatchedValue::*;
         let value_ref = match self.encoded_value.matched() {
-            MatchedValue::Null(ion_type) => RawValueRef::Null(ion_type),
-            MatchedValue::Bool(b) => RawValueRef::Bool(b),
-            MatchedValue::Int(i) => RawValueRef::Int(i.read(matched_input)?),
-            MatchedValue::Float(f) => RawValueRef::Float(f.read(matched_input)?),
-            MatchedValue::Decimal(d) => RawValueRef::Decimal(d.read(matched_input)?),
-            MatchedValue::Timestamp(t) => RawValueRef::Timestamp(t.read(matched_input)?),
-            MatchedValue::String(s) => RawValueRef::String(s.read(matched_input)?),
-            MatchedValue::Symbol(s) => RawValueRef::Symbol(s.read(matched_input)?),
-            MatchedValue::Blob(b) => RawValueRef::Blob(b.read(matched_input)?),
-            MatchedValue::List => {
-                let lazy_list = LazyRawTextList { value: *self };
-                RawValueRef::List(lazy_list)
-            }
-            MatchedValue::SExp => {
-                let lazy_sexp = LazyRawTextSExp { value: *self };
-                RawValueRef::SExp(lazy_sexp)
-            }
-            MatchedValue::Struct => {
-                let lazy_struct = LazyRawTextStruct { value: *self };
-                RawValueRef::Struct(lazy_struct)
-            } // ...and the rest!
+            Null(ion_type) => RawValueRef::Null(ion_type),
+            Bool(b) => RawValueRef::Bool(b),
+            Int(i) => RawValueRef::Int(i.read(matched_input)?),
+            Float(f) => RawValueRef::Float(f.read(matched_input)?),
+            Decimal(d) => RawValueRef::Decimal(d.read(matched_input)?),
+            Timestamp(t) => RawValueRef::Timestamp(t.read(matched_input)?),
+            String(s) => RawValueRef::String(s.read(matched_input)?),
+            Symbol(s) => RawValueRef::Symbol(s.read(matched_input)?),
+            Blob(b) => RawValueRef::Blob(b.read(matched_input)?),
+            Clob(c) => RawValueRef::Clob(c.read(matched_input)?),
+            List => RawValueRef::List(LazyRawTextList_1_0::from_value(*self)),
+            SExp => RawValueRef::SExp(LazyRawTextSExp_1_0::from_value(*self)),
+            Struct => RawValueRef::Struct(LazyRawTextStruct_1_0::from_value(*self)),
         };
         Ok(value_ref)
     }
 }
 
-impl<'a> Debug for LazyRawTextValue<'a> {
+impl<'a> Debug for LazyRawTextValue_1_0<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -102,7 +97,7 @@ pub struct RawTextAnnotationsIterator<'data> {
 }
 
 impl<'data> RawTextAnnotationsIterator<'data> {
-    fn new(input: TextBufferView<'data>) -> Self {
+    pub(crate) fn new(input: TextBufferView<'data>) -> Self {
         RawTextAnnotationsIterator {
             input,
             has_returned_error: false,
@@ -141,7 +136,6 @@ impl<'data> Iterator for RawTextAnnotationsIterator<'data> {
 
 #[cfg(test)]
 mod tests {
-
     use crate::lazy::text::buffer::TextBufferView;
     use crate::lazy::text::value::RawTextAnnotationsIterator;
     use crate::{IonResult, RawSymbolTokenRef};

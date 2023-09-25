@@ -1,7 +1,7 @@
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::LazyRawReader;
-use crate::lazy::encoding::BinaryEncoding;
+use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::result::IonFailure;
 use crate::IonResult;
@@ -32,7 +32,7 @@ impl<'data> LazyRawBinaryReader<'data> {
     fn read_ivm(
         &mut self,
         buffer: ImmutableBuffer<'data>,
-    ) -> IonResult<RawStreamItem<'data, BinaryEncoding>> {
+    ) -> IonResult<RawStreamItem<'data, BinaryEncoding_1_0>> {
         let ((major, minor), _buffer_after_ivm) = buffer.read_ivm()?;
         if (major, minor) != (1, 0) {
             return IonResult::decoding_error(format!(
@@ -48,8 +48,8 @@ impl<'data> LazyRawBinaryReader<'data> {
     fn read_value(
         &mut self,
         buffer: ImmutableBuffer<'data>,
-    ) -> IonResult<RawStreamItem<'data, BinaryEncoding>> {
-        let lazy_value = match ImmutableBuffer::peek_value_without_field_id(buffer)? {
+    ) -> IonResult<RawStreamItem<'data, BinaryEncoding_1_0>> {
+        let lazy_value = match ImmutableBuffer::peek_sequence_value(buffer)? {
             Some(lazy_value) => lazy_value,
             None => return Ok(RawStreamItem::EndOfStream),
         };
@@ -58,7 +58,7 @@ impl<'data> LazyRawBinaryReader<'data> {
         Ok(RawStreamItem::Value(lazy_value))
     }
 
-    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, BinaryEncoding>>
+    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, BinaryEncoding_1_0>>
     where
         'data: 'top,
     {
@@ -77,12 +77,12 @@ impl<'data> LazyRawBinaryReader<'data> {
     }
 }
 
-impl<'data> LazyRawReader<'data, BinaryEncoding> for LazyRawBinaryReader<'data> {
+impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader<'data> {
     fn new(data: &'data [u8]) -> Self {
         LazyRawBinaryReader::new(data)
     }
 
-    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, BinaryEncoding>> {
+    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, BinaryEncoding_1_0>> {
         self.next()
     }
 }
@@ -142,7 +142,9 @@ impl<'data> DataSource<'data> {
             Err(e) => return Err(e),
         };
 
-        self.buffer = buffer;
+        // If the value we read doesn't start where we began reading, there was a NOP.
+        let num_nop_bytes = lazy_value.input.offset() - buffer.offset();
+        self.buffer = buffer.consume(num_nop_bytes);
         self.bytes_to_skip = lazy_value.encoded_value.total_length();
         Ok(Some(lazy_value))
     }
@@ -217,6 +219,7 @@ mod tests {
                 RawStreamItem::VersionMarker(major, minor) => println!("IVM: v{}.{}", major, minor),
                 RawStreamItem::Value(value) => println!("{:?}", value.read()?),
                 RawStreamItem::EndOfStream => break,
+                RawStreamItem::MacroInvocation(_) => unreachable!("No macros in Ion 1.0"),
             }
         }
         Ok(())
