@@ -39,7 +39,7 @@
 //!| option | None - null, Some - based on other mappings |
 //!| unit, unit_struct | null |
 //!| seq, tuple, tuple_struct, tuple_variant | list |
-//!| newtype_struct ,newtype_variant, map, struct, struct_variant | struct |
+//!| newtype_struct, newtype_variant, map, struct, struct_variant | struct |
 //!
 //! _Note: Since the serde framework doesn't support [Ion decimal] and [Ion timestamp] types, distinct serialization and deserialization of these types are defined in this module.
 //! It uses `newtype_struct` with `$__ion_rs_decimal__` and `$__ion_rs_timestamp__` as struct names from [serde data model],

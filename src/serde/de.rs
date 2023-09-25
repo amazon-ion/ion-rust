@@ -12,9 +12,8 @@ use std::borrow::Cow;
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
 
-/// Generic method that can deserialize an object from any given object
-/// that implements `ToIonDataSource`. It also enables `ION_BINARY`
-/// to ensure that `Timestamp` objects are correctly deserialized.
+/// Generic method that can deserialize an object from any given type
+/// that implements `ToIonDataSource`.
 pub fn from_ion<'a, T, S>(s: S) -> IonResult<T>
 where
     T: Deserialize<'a>,
@@ -93,12 +92,9 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_i8(
-            self.reader
-                .read_i64()
-                .map(i8::try_from)?
-                .map_err(|e| IonError::decoding_error(e.to_string()))?,
-        );
+        let result = visitor.visit_i8(self.reader.read_i64().map(i8::try_from)?.map_err(|_| {
+            IonError::decoding_error("found an integer was out of bounds for an `i8`")
+        })?);
         self.reader.next()?;
         result
     }
@@ -107,12 +103,10 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_i16(
-            self.reader
-                .read_i64()
-                .map(i16::try_from)?
-                .map_err(|e| IonError::decoding_error(e.to_string()))?,
-        );
+        let result =
+            visitor.visit_i16(self.reader.read_i64().map(i16::try_from)?.map_err(|_| {
+                IonError::decoding_error("found an integer was out of bounds for an `i16`")
+            })?);
         self.reader.next()?;
         result
     }
@@ -121,12 +115,10 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_i32(
-            self.reader
-                .read_i64()
-                .map(i32::try_from)?
-                .map_err(|e| IonError::decoding_error(e.to_string()))?,
-        );
+        let result =
+            visitor.visit_i32(self.reader.read_i64().map(i32::try_from)?.map_err(|_| {
+                IonError::decoding_error("found an integer was out of bounds for an `i32`")
+            })?);
         self.reader.next()?;
         result
     }
@@ -144,12 +136,9 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_u8(
-            self.reader
-                .read_i64()
-                .map(u8::try_from)?
-                .map_err(|e| IonError::decoding_error(e.to_string()))?,
-        );
+        let result = visitor.visit_u8(self.reader.read_i64().map(u8::try_from)?.map_err(|_| {
+            IonError::decoding_error("found an integer was out of bounds for an `u8`")
+        })?);
         self.reader.next()?;
         result
     }
@@ -158,12 +147,10 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_u16(
-            self.reader
-                .read_i64()
-                .map(u16::try_from)?
-                .map_err(|e| IonError::decoding_error(e.to_string()))?,
-        );
+        let result =
+            visitor.visit_u16(self.reader.read_i64().map(u16::try_from)?.map_err(|_| {
+                IonError::decoding_error("found an integer was out of bounds for an `u16`")
+            })?);
         self.reader.next()?;
         result
     }
@@ -172,12 +159,10 @@ where
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_u32(
-            self.reader
-                .read_i64()
-                .map(u32::try_from)?
-                .map_err(|e| IonError::decoding_error(e.to_string()))?,
-        );
+        let result =
+            visitor.visit_u32(self.reader.read_i64().map(u32::try_from)?.map_err(|_| {
+                IonError::decoding_error("found an integer was out of bounds for an `u32`")
+            })?);
         self.reader.next()?;
         result
     }
@@ -310,7 +295,9 @@ where
                 std::mem::size_of::<V::Value>(),
                 std::mem::size_of::<Timestamp>()
             );
+            // # Safety
             // compiler doesn't understand that the generic Timestamp here is actually V::Value here
+            // the assert statement above that compares sizes of both the Timestamp and V::Value ensures the conversion performed below is safe
             let visitor_value =
                 unsafe { std::mem::transmute_copy::<Timestamp, V::Value>(&timestamp) };
             self.reader.next()?;
@@ -321,7 +308,9 @@ where
                 std::mem::size_of::<V::Value>(),
                 std::mem::size_of::<Decimal>()
             );
+            // # Safety
             // compiler doesn't understand that the generic Decimal here is actually V::Value here
+            // the assert statement above that compares sizes of both the Decimal and V::Value ensures the conversion performed below is safe
             let visitor_value = unsafe { std::mem::transmute_copy::<Decimal, V::Value>(&decimal) };
             self.reader.next()?;
             return Ok(visitor_value);

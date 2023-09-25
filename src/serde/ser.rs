@@ -100,37 +100,37 @@ where
 
     /// Serialize all integer types using the `Integer` intermediary type.
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
-        self.writer.write_int(&Int::from(v))
+        self.writer.write_i64(v.into())
     }
 
     /// Serialize all integer types using the `Integer` intermediary type.
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
-        self.writer.write_int(&Int::from(v))
+        self.writer.write_i64(v.into())
     }
 
     /// Serialize all integer types using the `Integer` intermediary type.
     fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
-        self.writer.write_int(&Int::from(v))
+        self.writer.write_i64(v.into())
     }
 
     /// Serialize all integer types using the `Integer` intermediary type.
     fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
-        self.writer.write_int(&Int::from(v))
+        self.writer.write_i64(v.into())
     }
 
     /// Serialize all integer types using the `Integer` intermediary type.
     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
-        self.writer.write_int(&Int::from(v))
+        self.writer.write_i64(v.into())
     }
 
     /// Serialize all integer types using the `Integer` intermediary type.
     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
-        self.writer.write_int(&Int::from(v))
+        self.writer.write_i64(v.into())
     }
 
     /// Serialize all integer types using the `Integer` intermediary type.
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-        self.writer.write_int(&Int::from(v))
+        self.writer.write_i64(v)
     }
 
     /// Serialize all integer types using the `Integer` intermediary type.
@@ -199,13 +199,17 @@ where
                 std::mem::size_of_val(value),
                 std::mem::size_of::<Timestamp>()
             );
+            // # Safety
             // compiler doesn't understand that the generic T here is actually Timestamp here since
             // we are using TUNNELED_TIMESTAMP_TYPE_NAME flag here which indicates a timestamp value
+            // the assert statement above that compares sizes of both the Timestamp and value ensures the conversion performed below is safe
             let timestamp = unsafe { std::mem::transmute_copy::<&T, &Timestamp>(&value) };
             self.writer.write_timestamp(timestamp)
         } else if name == TUNNELED_DECIMAL_TYPE_NAME {
+            // # Safety
             // compiler doesn't understand that the generic T here is actually Decimal here since
             // we are using TUNNELED_DECIMAL_TYPE_NAME flag here which indicates a decimal value
+            // the assert statement above that compares sizes of both the Decimal and value ensures the conversion performed below is safe
             assert_eq!(std::mem::size_of_val(value), std::mem::size_of::<Decimal>());
             let decimal = unsafe { std::mem::transmute_copy::<&T, &Decimal>(&value) };
             self.writer.write_decimal(decimal)
