@@ -297,7 +297,7 @@ where
             );
             // # Safety
             // compiler doesn't understand that the generic Timestamp here is actually V::Value here
-            // the assert statement above that compares sizes of both the Timestamp and V::Value ensures the conversion performed below is safe
+            // The assert statement above that compares the sizes of the Timestamp and V::Value types
             let visitor_value =
                 unsafe { std::mem::transmute_copy::<Timestamp, V::Value>(&timestamp) };
             self.reader.next()?;
@@ -310,7 +310,7 @@ where
             );
             // # Safety
             // compiler doesn't understand that the generic Decimal here is actually V::Value here
-            // the assert statement above that compares sizes of both the Decimal and V::Value ensures the conversion performed below is safe
+            // The assert statement above that compares the sizes of the Decimal and V::Value types
             let visitor_value = unsafe { std::mem::transmute_copy::<Decimal, V::Value>(&decimal) };
             self.reader.next()?;
             return Ok(visitor_value);

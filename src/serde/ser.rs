@@ -202,14 +202,14 @@ where
             // # Safety
             // compiler doesn't understand that the generic T here is actually Timestamp here since
             // we are using TUNNELED_TIMESTAMP_TYPE_NAME flag here which indicates a timestamp value
-            // the assert statement above that compares sizes of both the Timestamp and value ensures the conversion performed below is safe
+            // The assert statement above that compares the sizes of the Timestamp and value types
             let timestamp = unsafe { std::mem::transmute_copy::<&T, &Timestamp>(&value) };
             self.writer.write_timestamp(timestamp)
         } else if name == TUNNELED_DECIMAL_TYPE_NAME {
             // # Safety
             // compiler doesn't understand that the generic T here is actually Decimal here since
             // we are using TUNNELED_DECIMAL_TYPE_NAME flag here which indicates a decimal value
-            // the assert statement above that compares sizes of both the Decimal and value ensures the conversion performed below is safe
+            // The assert statement above that compares the sizes of the Decimal and value types
             assert_eq!(std::mem::size_of_val(value), std::mem::size_of::<Decimal>());
             let decimal = unsafe { std::mem::transmute_copy::<&T, &Decimal>(&value) };
             self.writer.write_decimal(decimal)
