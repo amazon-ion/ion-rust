@@ -1,67 +1,101 @@
-use bumpalo::collections::Vec as BumpVec;
-
-use crate::lazy::expanded::EncodingContext;
-use crate::{Element, Sequence};
+use crate::lazy::decoder::{LazyDecoder, RawFieldExpr, RawValueExpr};
+use crate::lazy::expanded::macro_evaluator::TransientTdlMacroEvaluator;
+use crate::lazy::expanded::{EncodingContext, ExpandedValueSource, LazyExpandedValue};
+use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::{Element, IonResult, Sequence, Struct, Value};
 
 pub type TdlMacroInvocation<'top> = &'top Element;
 
-pub struct TemplateSequenceIterator<'top> {
+pub struct TemplateSequenceIterator<'top, 'data, D: LazyDecoder<'data>> {
+    context: EncodingContext<'top>,
+    evaluator: TransientTdlMacroEvaluator<'top, 'data, D>,
     // The list element over which we're iterating
     sequence: &'top Sequence,
     index: usize,
-    macro_stack: BumpVec<'top, TdlMacroInvocation<'top>>,
 }
 
-impl<'top> TemplateSequenceIterator<'top> {
-    pub fn new(context: EncodingContext<'top>, sequence: &'top Sequence) -> Self {
+impl<'top, 'data, D: LazyDecoder<'data>> TemplateSequenceIterator<'top, 'data, D> {
+    pub fn new(
+        context: EncodingContext<'top>,
+        evaluator: TransientTdlMacroEvaluator<'top, 'data, D>,
+        sequence: &'top Sequence,
+    ) -> Self {
         Self {
             sequence,
             index: 0,
-            macro_stack: BumpVec::new_in(context.allocator),
+            context,
+            evaluator,
         }
     }
 }
 
-impl<'top> Iterator for TemplateSequenceIterator<'top> {
-    type Item = &'top Element;
+impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'top, 'data, D> {
+    type Item = IonResult<LazyExpandedValue<'top, 'data, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.sequence.get(self.index) {
-            Some(element) => {
-                self.index += 1;
-                Some(element)
+        loop {
+            // If the evaluator's stack is not empty, give it the opportunity to yield a value.
+            if self.evaluator.stack_depth() > 0 {
+                match self.evaluator.next(self.context, 0).transpose() {
+                    Some(value) => return Some(value),
+                    None => {
+                        // The stack did not produce values and is empty, pull
+                        // the next expression from `self.sequence`
+                    }
+                }
             }
-            None => None,
+            // We didn't get a value from the evaluator, so pull the next expression from the
+            // sequence.
+            let element = self.sequence.get(self.index)?;
+            self.index += 1;
+            // If the expression is an s-expression...
+            if let Value::SExp(sequence) = element.value() {
+                // ...it's a TDL macro invocation. Push it onto the evaluator's stack and return
+                // to the top of the loop.
+                match self.evaluator.push(self.context, sequence) {
+                    Ok(_) => continue,
+                    Err(e) => return Some(Err(e)),
+                }
+            }
+            // Otherwise, it's our next value.
+            return Some(Ok(LazyExpandedValue {
+                context: self.context,
+                source: ExpandedValueSource::Template(element),
+            }));
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use bumpalo::Bump;
+// An iterator that pulls values from a template body and wraps them in LazyRawFieldExpr to
+// mimic reading them from input. The LazyExpandedStruct handles evaluating any macros that this
+// yields.
+pub struct TemplateStructRawFieldsIterator<'top> {
+    // The struct element over whose fields we're iterating
+    struct_: &'top Struct,
+    index: usize,
+}
 
-    use crate::lazy::expanded::macro_table::MacroTable;
-    use crate::lazy::expanded::template::TemplateSequenceIterator;
-    use crate::lazy::expanded::EncodingContext;
-    use crate::{Element, IonResult, SymbolTable};
+impl<'top> TemplateStructRawFieldsIterator<'top> {
+    pub fn new(struct_: &'top Struct) -> Self {
+        Self { struct_, index: 0 }
+    }
+}
 
-    #[test]
-    fn template_list() -> IonResult<()> {
-        let data = "[1, (values 2 3 4), 5]";
-        let element = Element::read_one(data)?;
-        let sequence = element.as_list().expect("list");
-        let macro_table = MacroTable::new();
-        let symtab = SymbolTable::new();
-        let allocator = Bump::new();
-        let context = EncodingContext {
-            macro_table: &macro_table,
-            symbol_table: &symtab,
-            allocator: &allocator,
-        };
-        let iter = TemplateSequenceIterator::new(context, sequence);
-        for value in iter {
-            println!("{:?}", value);
+impl<'top> Iterator for TemplateStructRawFieldsIterator<'top> {
+    type Item = IonResult<RawFieldExpr<'top, &'top Element, &'top Sequence>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some((name, element)) = self.struct_.get_index(self.index) {
+            self.index += 1;
+            let name = name.as_raw_symbol_token_ref();
+            let value = if let Value::SExp(sequence) = element.value() {
+                RawValueExpr::MacroInvocation(sequence)
+            } else {
+                RawValueExpr::ValueLiteral(element)
+            };
+            Some(Ok(RawFieldExpr::NameValuePair(name, value)))
+        } else {
+            None
         }
-        Ok(())
     }
 }

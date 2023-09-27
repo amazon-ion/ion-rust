@@ -71,7 +71,7 @@ impl<'element, 'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, &'element 
         context: EncodingContext<'top>,
     ) -> ArgumentKind<'top, 'data, D, &'element Sequence>
     where
-        Self: 'top,
+        'element: 'top,
     {
         // In this implementation, we are reading the arguments to a template macro invocation.
         // For example:

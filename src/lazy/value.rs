@@ -192,24 +192,15 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
             Blob(b) => ValueRef::Blob(b),
             Clob(c) => ValueRef::Clob(c),
             SExp(s) => {
-                let lazy_sexp = LazySExp {
-                    expanded_sexp: s,
-                    symbol_table: self.expanded_value.context.symbol_table,
-                };
+                let lazy_sexp = LazySExp { expanded_sexp: s };
                 ValueRef::SExp(lazy_sexp)
             }
             List(l) => {
-                let lazy_sequence = LazyList {
-                    expanded_list: l,
-                    symbol_table: self.expanded_value.context.symbol_table,
-                };
+                let lazy_sequence = LazyList { expanded_list: l };
                 ValueRef::List(lazy_sequence)
             }
             Struct(s) => {
-                let lazy_struct = LazyStruct {
-                    expanded_struct: s,
-                    symbol_table: self.expanded_value.context.symbol_table,
-                };
+                let lazy_struct = LazyStruct { expanded_struct: s };
                 ValueRef::Struct(lazy_struct)
             }
         };
@@ -230,14 +221,11 @@ impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyValue<'top, 'data, D>> for 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of symbol tokens encoded
 /// using the format described by generic type parameter `D`.
 pub struct AnnotationsIterator<'top, 'data, D: LazyDecoder<'data>> {
-    pub(crate) symbol_table: &'top SymbolTable,
     pub(crate) expanded_annotations: ExpandedAnnotationsIterator<'top, 'data, D>,
+    pub(crate) symbol_table: &'top SymbolTable,
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> AnnotationsIterator<'top, 'data, D>
-where
-    'data: 'top,
-{
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> AnnotationsIterator<'top, 'data, D> {
     /// Returns `Ok(true)` if this annotations iterator matches the provided sequence exactly, or
     /// `Ok(false)` if not. If a decoding error occurs while visiting and resolving each annotation,
     /// returns an `Err(IonError)`.
@@ -320,10 +308,7 @@ where
     }
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> Iterator for AnnotationsIterator<'top, 'data, D>
-where
-    'data: 'top,
-{
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator for AnnotationsIterator<'top, 'data, D> {
     type Item = IonResult<SymbolRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {

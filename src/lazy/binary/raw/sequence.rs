@@ -3,7 +3,7 @@ use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{LazyRawSequence, LazyRawValueExpr};
+use crate::lazy::decoder::{LazyRawSequence, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::{IonResult, IonType};
 use std::fmt::{Debug, Formatter};
@@ -145,7 +145,7 @@ impl<'data> Iterator for RawBinarySequenceIterator<'data> {
             .source
             .try_parse_next(ImmutableBuffer::peek_sequence_value)
         {
-            Ok(Some(value)) => Some(Ok(LazyRawValueExpr::ValueLiteral(value))),
+            Ok(Some(value)) => Some(Ok(RawValueExpr::ValueLiteral(value))),
             Ok(None) => None,
             Err(e) => Some(Err(e)),
         }

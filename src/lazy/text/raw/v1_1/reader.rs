@@ -7,7 +7,8 @@ use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    LazyRawFieldExpr, LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
+    LazyRawFieldExpr, LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue,
+    LazyRawValueExpr, RawFieldExpr, RawValueExpr,
 };
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::raw_stream_item::RawStreamItem;
@@ -149,11 +150,11 @@ impl<'data> RawTextListIterator_1_1<'data> {
             let value_expr = value_expr_result?;
             // ...the input slice that follows the last sequence value...
             match value_expr {
-                LazyRawValueExpr::ValueLiteral(value) => value
+                RawValueExpr::ValueLiteral(value) => value
                     .matched
                     .input
                     .slice_to_end(value.matched.encoded_value.total_length()),
-                LazyRawValueExpr::MacroInvocation(invocation) => {
+                RawValueExpr::MacroInvocation(invocation) => {
                     let end_of_expr = invocation.input.offset() + invocation.input.len();
                     let remaining = self.input.slice_to_end(end_of_expr - self.input.offset());
                     remaining
@@ -316,11 +317,11 @@ impl<'data> RawTextSExpIterator_1_1<'data> {
             let value_expr = value_expr_result?;
             // ...the input slice that follows the last sequence value...
             match value_expr {
-                LazyRawValueExpr::ValueLiteral(value) => value
+                RawValueExpr::ValueLiteral(value) => value
                     .matched
                     .input
                     .slice_to_end(value.matched.encoded_value.total_length()),
-                LazyRawValueExpr::MacroInvocation(invocation) => {
+                RawValueExpr::MacroInvocation(invocation) => {
                     let end_of_expr = invocation.input.offset() + invocation.input.len();
                     let remaining = self.input.slice_to_end(end_of_expr - self.input.offset());
                     remaining
@@ -444,14 +445,14 @@ impl<'data> RawTextStructIterator_1_1<'data> {
         let input_after_last = if let Some(field_result) = self.last() {
             // If there are any field expressions, we need to isolate the input slice that follows
             // the last one.
-            use LazyRawFieldExpr::*;
+            use RawFieldExpr::*;
             match field_result? {
                 // foo: bar
-                NameValuePair(_name, LazyRawValueExpr::ValueLiteral(value)) => {
+                NameValuePair(_name, RawValueExpr::ValueLiteral(value)) => {
                     value.matched.input.slice_to_end(value.matched.encoded_value.total_length())
                 },
                 // foo: (:bar ...)
-                NameValuePair(_, LazyRawValueExpr::MacroInvocation(invocation))
+                NameValuePair(_, RawValueExpr::MacroInvocation(invocation))
                 // (:foo)
                 | MacroInvocation(invocation) => {
                     self.input.slice_to_end(invocation.input.len())

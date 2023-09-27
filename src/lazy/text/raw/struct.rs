@@ -1,11 +1,12 @@
 #![allow(non_camel_case_types)]
+
 use std::ops::Range;
 
 use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawFieldPrivate};
 use crate::lazy::decoder::{
-    LazyRawField, LazyRawFieldExpr, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
+    LazyRawField, LazyRawFieldExpr, LazyRawStruct, LazyRawValue, RawFieldExpr, RawValueExpr,
 };
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::text::buffer::TextBufferView;
@@ -35,7 +36,7 @@ impl<'data> RawTextStructIterator_1_0<'data> {
             let value = match field_result? {
                 LazyRawFieldExpr::<TextEncoding_1_0>::NameValuePair(
                     _name,
-                    LazyRawValueExpr::ValueLiteral(value),
+                    RawValueExpr::ValueLiteral(value),
                 ) => value,
                 _ => unreachable!("struct field with macro invocation in Ion 1.0"),
             };
@@ -76,9 +77,9 @@ impl<'data> Iterator for RawTextStructIterator_1_0<'data> {
         match self.input.match_struct_field() {
             Ok((remaining_input, Some(field))) => {
                 self.input = remaining_input;
-                Some(Ok(LazyRawFieldExpr::NameValuePair(
+                Some(Ok(RawFieldExpr::NameValuePair(
                     field.name(),
-                    LazyRawValueExpr::ValueLiteral(field.value),
+                    RawValueExpr::ValueLiteral(field.value),
                 )))
             }
             Ok((_, None)) => None,

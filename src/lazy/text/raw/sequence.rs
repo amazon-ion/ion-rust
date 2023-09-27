@@ -6,7 +6,7 @@ use std::ops::Range;
 use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{LazyRawSequence, LazyRawValue, LazyRawValueExpr};
+use crate::lazy::decoder::{LazyRawSequence, LazyRawValue, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
@@ -146,7 +146,7 @@ impl<'data> Iterator for RawTextListIterator_1_0<'data> {
         match self.input.match_list_value() {
             Ok((remaining, Some(value))) => {
                 self.input = remaining;
-                let value = LazyRawValueExpr::ValueLiteral(LazyRawTextValue_1_0::from(value));
+                let value = RawValueExpr::ValueLiteral(LazyRawTextValue_1_0::from(value));
                 Some(Ok(value))
             }
             Ok((_remaining, None)) => {
@@ -243,9 +243,9 @@ impl<'data> Iterator for RawTextSExpIterator_1_0<'data> {
         match self.input.match_sexp_value() {
             Ok((remaining, Some(value))) => {
                 self.input = remaining;
-                Some(Ok(LazyRawValueExpr::ValueLiteral(
-                    LazyRawTextValue_1_0::from(value),
-                )))
+                Some(Ok(RawValueExpr::ValueLiteral(LazyRawTextValue_1_0::from(
+                    value,
+                ))))
             }
             Ok((_remaining, None)) => None,
             Err(e) => {

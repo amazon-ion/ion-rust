@@ -1,6 +1,6 @@
 //! Types and traits representing an e-expression in an Ion stream.
 
-use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
+use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{ArgumentKind, ToArgumentKind};
 use crate::lazy::expanded::{EncodingContext, ExpandedValueSource, LazyExpandedValue};
 
@@ -21,15 +21,11 @@ impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, D::MacroInvocation>
             // Because e-expressions appear in the data stream (and not in a template), there is no
             // environment of named variables. We do not attempt to resolve symbols as though they
             // were variable names and instead pass them along as value literals.
-            LazyRawValueExpr::ValueLiteral(value) => {
-                ArgumentKind::ValueLiteral(LazyExpandedValue {
-                    context,
-                    source: ExpandedValueSource::ValueLiteral(value),
-                })
-            }
-            LazyRawValueExpr::MacroInvocation(invocation) => {
-                ArgumentKind::MacroInvocation(invocation)
-            }
+            RawValueExpr::ValueLiteral(value) => ArgumentKind::ValueLiteral(LazyExpandedValue {
+                context,
+                source: ExpandedValueSource::ValueLiteral(value),
+            }),
+            RawValueExpr::MacroInvocation(invocation) => ArgumentKind::MacroInvocation(invocation),
         }
     }
 }
