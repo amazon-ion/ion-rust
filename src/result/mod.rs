@@ -7,6 +7,9 @@ use std::{fmt, io};
 
 use thiserror::Error;
 
+#[cfg(feature = "experimental-serde")]
+use serde::{de, ser};
+
 mod decoding_error;
 mod encoding_error;
 mod illegal_operation;
@@ -73,11 +76,32 @@ impl From<fmt::Error> for IonError {
     }
 }
 
+
 impl From<IonError> for fmt::Error {
     fn from(_ion_error: IonError) -> Self {
         // This no-op transformation allows `?` to be used in `Debug` implementations wherever
         // an IonError could surface.
         fmt::Error
+    }
+}
+
+#[cfg(feature = "experimental-serde")]
+impl de::Error for IonError {
+    fn custom<T>(error: T) -> Self
+    where
+        T: std::fmt::Display,
+    {
+        DecodingError::new(error.to_string()).into()
+    }
+}
+
+#[cfg(feature = "experimental-serde")]
+impl ser::Error for IonError {
+    fn custom<T>(error: T) -> Self
+    where
+        T: std::fmt::Display,
+    {
+        EncodingError::new(error.to_string()).into()
     }
 }
 
