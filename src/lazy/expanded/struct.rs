@@ -1,22 +1,19 @@
+use std::ops::ControlFlow;
+
 use crate::lazy::decoder::{LazyDecoder, LazyRawStruct, RawFieldExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExpansion, MacroInvocation, TransientEExpEvaluator,
     TransientTdlMacroEvaluator,
 };
-use crate::lazy::expanded::sequence::{LazyExpandedList, LazyExpandedSExp};
 use crate::lazy::expanded::stack::Stack;
 use crate::lazy::expanded::template::TemplateStructRawFieldsIterator;
 use crate::lazy::expanded::{
     EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
     ExpandedValueSource, LazyExpandedValue,
 };
-use crate::lazy::r#struct::LazyStruct;
-use crate::lazy::sequence::{LazyList, LazySExp};
-use crate::lazy::value::LazyValue;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
 use crate::{Annotations, IonError, IonResult, RawSymbolTokenRef, Struct};
-use std::ops::ControlFlow;
 
 #[derive(Debug, Clone)]
 pub struct LazyExpandedField<'top, 'data, D: LazyDecoder<'data>> {
@@ -130,38 +127,6 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedStruct<'top, 'data, D
         } else {
             IonResult::decoding_error(format!("did not find expected struct field '{}'", name))
         }
-    }
-}
-
-impl<'top, 'data, D: LazyDecoder<'data>> From<LazyExpandedValue<'top, 'data, D>>
-    for LazyValue<'top, 'data, D>
-{
-    fn from(expanded_value: LazyExpandedValue<'top, 'data, D>) -> Self {
-        LazyValue { expanded_value }
-    }
-}
-
-impl<'top, 'data, D: LazyDecoder<'data>> From<LazyExpandedStruct<'top, 'data, D>>
-    for LazyStruct<'top, 'data, D>
-{
-    fn from(expanded_struct: LazyExpandedStruct<'top, 'data, D>) -> Self {
-        LazyStruct { expanded_struct }
-    }
-}
-
-impl<'top, 'data, D: LazyDecoder<'data>> From<LazyExpandedSExp<'top, 'data, D>>
-    for LazySExp<'top, 'data, D>
-{
-    fn from(expanded_sexp: LazyExpandedSExp<'top, 'data, D>) -> Self {
-        LazySExp { expanded_sexp }
-    }
-}
-
-impl<'top, 'data, D: LazyDecoder<'data>> From<LazyExpandedList<'top, 'data, D>>
-    for LazyList<'top, 'data, D>
-{
-    fn from(expanded_list: LazyExpandedList<'top, 'data, D>) -> Self {
-        LazyList { expanded_list }
     }
 }
 

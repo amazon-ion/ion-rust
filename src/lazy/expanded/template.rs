@@ -66,7 +66,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'
     }
 }
 
-// An iterator that pulls values from a template body and wraps them in LazyRawFieldExpr to
+// An iterator that pulls values from a template body and wraps them in a `RawFieldExpr` to
 // mimic reading them from input. The LazyExpandedStruct handles evaluating any macros that this
 // yields.
 pub struct TemplateStructRawFieldsIterator<'top> {
