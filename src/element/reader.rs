@@ -67,7 +67,7 @@ pub trait ElementReader {
     /// returning the complete sequence as a `Vec<Element>`.
     ///
     /// If an error occurs while reading, returns `Err(IonError)`.
-    fn read_all_elements(&mut self) -> IonResult<Vec<Element>> {
+    fn read_all_elements(&mut self) -> IonResult<Sequence> {
         self.elements().collect()
     }
 }

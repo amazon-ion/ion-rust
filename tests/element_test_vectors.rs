@@ -43,7 +43,7 @@ trait RoundTrip {
 
 /// Serializes all of the given [Element]s to a `Vec<u8>` according to the
 /// specified [Format].
-fn serialize(format: Format, elements: &[Element]) -> IonResult<Vec<u8>> {
+fn serialize(format: Format, elements: &Sequence) -> IonResult<Vec<u8>> {
     let mut buffer = Vec::with_capacity(2048);
     match format {
         Format::Text(kind) => {
@@ -78,10 +78,7 @@ trait ElementApi {
     fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>>;
 
     /// Asserts the given elements can be round-tripped and equivalent, then returns the new elements.
-    fn assert_round_trip(
-        source_elements: &Vec<Element>,
-        format: Format,
-    ) -> IonResult<Vec<Element>> {
+    fn assert_round_trip(source_elements: &Sequence, format: Format) -> IonResult<Sequence> {
         let bytes = serialize(format, source_elements)?;
         let mut reader = Self::make_reader(&bytes)?;
         let new_elements = reader.read_all_elements()?;
@@ -94,7 +91,7 @@ trait ElementApi {
         Ok(new_elements)
     }
 
-    fn not_eq_error_message(e1: &Vec<Element>, e2: &Vec<Element>) -> String {
+    fn not_eq_error_message(e1: &Sequence, e2: &Sequence) -> String {
         if e1.len() != e2.len() {
             return format!("e1 has {} elements, e2 has {} elements", e1.len(), e2.len());
         }
@@ -224,10 +221,10 @@ trait ElementApi {
         Ok(())
     }
 
-    fn read_file(file_name: &str) -> IonResult<Vec<Element>> {
+    fn read_file(file_name: &str) -> IonResult<Sequence> {
         let data = read(file_name)?;
         let mut reader = Self::make_reader(&data)?;
-        let result: IonResult<Vec<Element>> = reader.read_all_elements();
+        let result: IonResult<Sequence> = reader.read_all_elements();
 
         // do some simple single value reading tests
         let mut reader = Self::make_reader(&data)?;
@@ -240,7 +237,7 @@ trait ElementApi {
                         Ok(elem) => {
                             // only compare if we know equality to work
                             if !contains_path(Self::read_one_equivs_skip_list(), file_name) {
-                                assert!(IonData::eq(&elems[0], &elem))
+                                assert!(IonData::eq(elems.iter().next().unwrap(), &elem))
                             }
                         }
                         Err(e) => panic!("Expected element {elems:?}, got {e:?}"),

@@ -6,7 +6,7 @@ use std::ops::Range;
 use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{LazyRawSequence, LazyRawValue};
+use crate::lazy::decoder::{LazyRawSequence, LazyRawValue, LazyRawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
@@ -27,9 +27,15 @@ impl<'data> LazyRawTextList_1_0<'data> {
     }
 
     pub fn iter(&self) -> RawTextListIterator_1_0<'data> {
-        let open_bracket_index = self.value.encoded_value.data_offset() - self.value.input.offset();
+        let open_bracket_index =
+            self.value.matched.encoded_value.data_offset() - self.value.matched.input.offset();
         // Make an iterator over the input bytes that follow the initial `[`
-        RawTextListIterator_1_0::new(self.value.input.slice_to_end(open_bracket_index + 1))
+        RawTextListIterator_1_0::new(
+            self.value
+                .matched
+                .input
+                .slice_to_end(open_bracket_index + 1),
+        )
     }
 }
 
@@ -60,7 +66,7 @@ impl<'data> LazyRawSequence<'data, TextEncoding_1_0> for LazyRawTextList_1_0<'da
 }
 
 impl<'a, 'data> IntoIterator for &'a LazyRawTextList_1_0<'data> {
-    type Item = IonResult<LazyRawTextValue_1_0<'data>>;
+    type Item = IonResult<LazyRawValueExpr<'data, TextEncoding_1_0>>;
     type IntoIter = RawTextListIterator_1_0<'data>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -72,14 +78,7 @@ impl<'a> Debug for LazyRawTextList_1_0<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self {
-            write!(
-                f,
-                "{:?}, ",
-                value
-                    .map_err(|_| fmt::Error)?
-                    .read()
-                    .map_err(|_| fmt::Error)?
-            )?;
+            write!(f, "{:?}, ", value?.expect_value()?.read()?)?;
         }
         write!(f, "]").unwrap();
 
@@ -109,9 +108,12 @@ impl<'data> RawTextListIterator_1_0<'data> {
         let start = self.input.offset() - 1;
         // We need to find the input slice containing the closing delimiter. It's either...
         let input_after_last = if let Some(value_result) = self.last() {
-            let value = value_result?;
+            let value = value_result?.expect_value()?;
             // ...the input slice that follows the last sequence value...
-            value.input.slice_to_end(value.encoded_value.total_length())
+            value
+                .matched
+                .input
+                .slice_to_end(value.matched.encoded_value.total_length())
         } else {
             // ...or there aren't values, so it's just the input after the opening delimiter.
             self.input
@@ -135,7 +137,7 @@ impl<'data> RawTextListIterator_1_0<'data> {
 }
 
 impl<'data> Iterator for RawTextListIterator_1_0<'data> {
-    type Item = IonResult<LazyRawTextValue_1_0<'data>>;
+    type Item = IonResult<LazyRawValueExpr<'data, TextEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -144,6 +146,7 @@ impl<'data> Iterator for RawTextListIterator_1_0<'data> {
         match self.input.match_list_value() {
             Ok((remaining, Some(value))) => {
                 self.input = remaining;
+                let value = LazyRawValueExpr::ValueLiteral(LazyRawTextValue_1_0::from(value));
                 Some(Ok(value))
             }
             Ok((_remaining, None)) => {
@@ -172,9 +175,12 @@ impl<'data> LazyRawTextSExp_1_0<'data> {
     }
 
     pub fn iter(&self) -> RawTextSExpIterator_1_0<'data> {
-        let open_paren_index = self.value.encoded_value.data_offset() - self.value.input.offset();
+        // Make an iterator over the input bytes that follow the initial `(`; account for
+        // a leading field name and/or annotations.
+        let open_paren_index =
+            self.value.matched.encoded_value.data_offset() - self.value.matched.input.offset();
         // Make an iterator over the input bytes that follow the initial `(`
-        RawTextSExpIterator_1_0::new(self.value.input.slice_to_end(open_paren_index + 1))
+        RawTextSExpIterator_1_0::new(self.value.matched.input.slice_to_end(open_paren_index + 1))
     }
 }
 
@@ -195,14 +201,24 @@ impl<'data> RawTextSExpIterator_1_0<'data> {
 }
 
 impl<'data> RawTextSExpIterator_1_0<'data> {
-    pub(crate) fn find_span(&self) -> IonResult<Range<usize>> {
+    /// Scans ahead to find the end of this s-expression and reports the input span that it occupies.
+    ///
+    /// The `initial_bytes_skipped` parameter indicates how many bytes of input that represented the
+    /// beginning of the expression are not in the buffer. For plain s-expressions, this will always
+    /// be `1` as they begin with a single open parenthesis `(`. For e-expressions (which are used
+    /// to invoke macros from the data stream), it will always be a minimum of `3`: two bytes for
+    /// the opening `(:` and at least one for the macro identifier. (For example: `(:foo`.)
+    pub(crate) fn find_span(&self, initial_bytes_skipped: usize) -> IonResult<Range<usize>> {
         // The input has already skipped past the opening delimiter.
-        let start = self.input.offset() - 1;
+        let start = self.input.offset() - initial_bytes_skipped;
         // We need to find the input slice containing the closing delimiter. It's either...
         let input_after_last = if let Some(value_result) = self.last() {
-            let value = value_result?;
+            let value = value_result?.expect_value()?;
             // ...the input slice that follows the last sequence value...
-            value.input.slice_to_end(value.encoded_value.total_length())
+            value
+                .matched
+                .input
+                .slice_to_end(value.matched.encoded_value.total_length())
         } else {
             // ...or there aren't values, so it's just the input after the opening delimiter.
             self.input
@@ -211,14 +227,14 @@ impl<'data> RawTextSExpIterator_1_0<'data> {
             .match_optional_comments_and_whitespace()
             .with_context("seeking the end of a list", input_after_last)?;
         let (input_after_end, _end_delimiter) = satisfy(|c| c == ')')(input_after_ws)
-            .with_context("seeking the closing delimiter of a list", input_after_ws)?;
+            .with_context("seeking the closing delimiter of a sexp", input_after_ws)?;
         let end = input_after_end.offset();
         Ok(start..end)
     }
 }
 
 impl<'data> Iterator for RawTextSExpIterator_1_0<'data> {
-    type Item = IonResult<LazyRawTextValue_1_0<'data>>;
+    type Item = IonResult<LazyRawValueExpr<'data, TextEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -227,12 +243,14 @@ impl<'data> Iterator for RawTextSExpIterator_1_0<'data> {
         match self.input.match_sexp_value() {
             Ok((remaining, Some(value))) => {
                 self.input = remaining;
-                Some(Ok(value))
+                Some(Ok(LazyRawValueExpr::ValueLiteral(
+                    LazyRawTextValue_1_0::from(value),
+                )))
             }
             Ok((_remaining, None)) => None,
             Err(e) => {
                 self.has_returned_error = true;
-                e.with_context("reading the next list value", self.input)
+                e.with_context("reading the next sexp value", self.input)
                     .transpose()
             }
         }
@@ -266,7 +284,7 @@ impl<'data> LazyRawSequence<'data, TextEncoding_1_0> for LazyRawTextSExp_1_0<'da
 }
 
 impl<'a, 'data> IntoIterator for &'a LazyRawTextSExp_1_0<'data> {
-    type Item = IonResult<LazyRawTextValue_1_0<'data>>;
+    type Item = IonResult<LazyRawValueExpr<'data, TextEncoding_1_0>>;
     type IntoIter = RawTextSExpIterator_1_0<'data>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -278,14 +296,7 @@ impl<'a> Debug for LazyRawTextSExp_1_0<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self {
-            write!(
-                f,
-                "{:?} ",
-                value
-                    .map_err(|_| fmt::Error)?
-                    .read()
-                    .map_err(|_| fmt::Error)?
-            )?;
+            write!(f, "{:?} ", value?.expect_value()?.read()?)?;
         }
         write!(f, ")").unwrap();
 
@@ -297,13 +308,13 @@ impl<'a> Debug for LazyRawTextSExp_1_0<'a> {
 mod tests {
     use std::ops::Range;
 
-    use crate::lazy::text::raw::reader::LazyRawTextReader;
+    use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
     use crate::IonResult;
 
     fn expect_sequence_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
-        let reader = &mut LazyRawTextReader::new(ion_data.as_bytes());
+        let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
         let value = reader.next()?.expect_value()?;
-        let actual_range = value.encoded_value.data_range();
+        let actual_range = value.matched.encoded_value.data_range();
         assert_eq!(
             actual_range, expected,
             "Sequence range ({:?}) did not match expected range ({:?})",

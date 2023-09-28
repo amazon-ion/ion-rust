@@ -7,6 +7,7 @@ use crate::{Symbol, SymbolId};
 /// Stores mappings from Symbol IDs to text and vice-versa.
 // SymbolTable instances always have at least system symbols; they are never empty.
 #[allow(clippy::len_without_is_empty)]
+#[derive(Debug)]
 pub struct SymbolTable {
     symbols_by_id: Vec<Symbol>,
     ids_by_text: HashMap<Symbol, SymbolId>,

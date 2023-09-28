@@ -76,6 +76,14 @@ impl From<fmt::Error> for IonError {
     }
 }
 
+impl From<IonError> for fmt::Error {
+    fn from(_ion_error: IonError) -> Self {
+        // This no-op transformation allows `?` to be used in `Debug` implementations wherever
+        // an IonError could surface.
+        fmt::Error
+    }
+}
+
 #[cfg(feature = "experimental-serde")]
 impl de::Error for IonError {
     fn custom<T>(error: T) -> Self

@@ -4,12 +4,13 @@ use std::ops::Range;
 use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawFieldPrivate};
-use crate::lazy::decoder::{LazyRawField, LazyRawStruct, LazyRawValue};
+use crate::lazy::decoder::{
+    LazyRawField, LazyRawFieldExpr, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
+};
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{IonResult, RawSymbolTokenRef};
 
 #[derive(Clone, Copy, Debug)]
@@ -31,12 +32,18 @@ impl<'data> RawTextStructIterator_1_0<'data> {
         let start = self.input.offset() - 1;
         // We need to find the input slice containing the closing delimiter. It's either...
         let input_after_last = if let Some(field_result) = self.last() {
-            let field = field_result?;
+            let value = match field_result? {
+                LazyRawFieldExpr::<TextEncoding_1_0>::NameValuePair(
+                    _name,
+                    LazyRawValueExpr::ValueLiteral(value),
+                ) => value,
+                _ => unreachable!("struct field with macro invocation in Ion 1.0"),
+            };
             // ...the input slice that follows the last field...
-            field
-                .value
+            value
+                .matched
                 .input
-                .slice_to_end(field.value.encoded_value.total_length())
+                .slice_to_end(value.matched.encoded_value.total_length())
         } else {
             // ...or there aren't fields, so it's just the input after the opening delimiter.
             self.input
@@ -60,7 +67,7 @@ impl<'data> RawTextStructIterator_1_0<'data> {
 }
 
 impl<'data> Iterator for RawTextStructIterator_1_0<'data> {
-    type Item = IonResult<LazyRawTextField_1_0<'data>>;
+    type Item = IonResult<LazyRawFieldExpr<'data, TextEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -69,7 +76,10 @@ impl<'data> Iterator for RawTextStructIterator_1_0<'data> {
         match self.input.match_struct_field() {
             Ok((remaining_input, Some(field))) => {
                 self.input = remaining_input;
-                Some(Ok(field))
+                Some(Ok(LazyRawFieldExpr::NameValuePair(
+                    field.name(),
+                    LazyRawValueExpr::ValueLiteral(field.value),
+                )))
             }
             Ok((_, None)) => None,
             Err(e) => {
@@ -93,21 +103,23 @@ impl<'data> LazyRawTextField_1_0<'data> {
 
     pub fn name(&self) -> RawSymbolTokenRef<'data> {
         // We're in a struct field, the field name _must_ be populated.
-        // If it's not (or the field name is not a valid SID or UTF-8 string),
+        // If it's not (or the field name is not a valid SID or UTF-8 string despite matching),
         // that's a bug. We can safely unwrap/expect here.
         let matched_symbol = self
             .value
+            .matched
             .encoded_value
             .field_name_syntax()
             .expect("field name syntax not available");
         let name_length = self
             .value
+            .matched
             .encoded_value
             .field_name_range()
             .expect("field name length not available")
             .len();
         matched_symbol
-            .read(self.value.input.slice(0, name_length))
+            .read(self.value.matched.input.slice(0, name_length))
             .expect("invalid struct field name")
     }
 
@@ -141,21 +153,6 @@ pub struct LazyRawTextStruct_1_0<'data> {
     pub(crate) value: LazyRawTextValue_1_0<'data>,
 }
 
-impl<'data> LazyRawTextStruct_1_0<'data> {
-    fn find(&self, name: &str) -> IonResult<Option<LazyRawTextValue_1_0<'data>>> {
-        let name: RawSymbolTokenRef = name.as_raw_symbol_token_ref();
-        for field_result in *self {
-            let field = field_result?;
-            let field_name = field.name();
-            if field_name == name {
-                let value = field.value;
-                return Ok(Some(value));
-            }
-        }
-        Ok(None)
-    }
-}
-
 impl<'data> LazyContainerPrivate<'data, TextEncoding_1_0> for LazyRawTextStruct_1_0<'data> {
     fn from_value(value: LazyRawTextValue_1_0<'data>) -> Self {
         LazyRawTextStruct_1_0 { value }
@@ -163,26 +160,22 @@ impl<'data> LazyContainerPrivate<'data, TextEncoding_1_0> for LazyRawTextStruct_
 }
 
 impl<'data> LazyRawStruct<'data, TextEncoding_1_0> for LazyRawTextStruct_1_0<'data> {
-    type Field = LazyRawTextField_1_0<'data>;
     type Iterator = RawTextStructIterator_1_0<'data>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
         self.value.annotations()
     }
 
-    fn find(&self, name: &str) -> IonResult<Option<LazyRawTextValue_1_0<'data>>> {
-        self.find(name)
-    }
-
     fn iter(&self) -> Self::Iterator {
-        let open_brace_index = self.value.encoded_value.data_offset() - self.value.input.offset();
+        let open_brace_index =
+            self.value.matched.encoded_value.data_offset() - self.value.matched.input.offset();
         // Slice the input to skip the opening `{`
-        RawTextStructIterator_1_0::new(self.value.input.slice_to_end(open_brace_index + 1))
+        RawTextStructIterator_1_0::new(self.value.matched.input.slice_to_end(open_brace_index + 1))
     }
 }
 
 impl<'data> IntoIterator for LazyRawTextStruct_1_0<'data> {
-    type Item = IonResult<LazyRawTextField_1_0<'data>>;
+    type Item = IonResult<LazyRawFieldExpr<'data, TextEncoding_1_0>>;
     type IntoIter = RawTextStructIterator_1_0<'data>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -194,13 +187,13 @@ impl<'data> IntoIterator for LazyRawTextStruct_1_0<'data> {
 mod tests {
     use std::ops::Range;
 
-    use crate::lazy::text::raw::reader::LazyRawTextReader;
+    use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
     use crate::IonResult;
 
     fn expect_struct_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
-        let reader = &mut LazyRawTextReader::new(ion_data.as_bytes());
+        let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
         let value = reader.next()?.expect_value()?;
-        let actual_range = value.encoded_value.data_range();
+        let actual_range = value.matched.encoded_value.data_range();
         assert_eq!(
             actual_range, expected,
             "Struct range ({:?}) did not match expected range ({:?})",

@@ -6,6 +6,7 @@ pub mod binary;
 pub mod bytes_ref;
 pub mod decoder;
 pub(crate) mod encoding;
+pub mod expanded;
 pub mod raw_stream_item;
 pub mod raw_value_ref;
 pub mod reader;

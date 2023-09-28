@@ -22,10 +22,10 @@ pub enum ValueRef<'top, 'data, D: LazyDecoder<'data>> {
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
-    String(StrRef<'data>),
+    String(StrRef<'top>),
     Symbol(SymbolRef<'top>),
-    Blob(BytesRef<'data>),
-    Clob(BytesRef<'data>),
+    Blob(BytesRef<'top>),
+    Clob(BytesRef<'top>),
     SExp(LazySExp<'top, 'data, D>),
     List(LazyList<'top, 'data, D>),
     Struct(LazyStruct<'top, 'data, D>),
@@ -163,7 +163,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_string(self) -> IonResult<StrRef<'data>> {
+    pub fn expect_string(self) -> IonResult<StrRef<'top>> {
         if let ValueRef::String(s) = self {
             Ok(s)
         } else {
@@ -179,7 +179,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_blob(self) -> IonResult<BytesRef<'data>> {
+    pub fn expect_blob(self) -> IonResult<BytesRef<'top>> {
         if let ValueRef::Blob(b) = self {
             Ok(b)
         } else {
@@ -187,7 +187,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_clob(self) -> IonResult<BytesRef<'data>> {
+    pub fn expect_clob(self) -> IonResult<BytesRef<'top>> {
         if let ValueRef::Clob(c) = self {
             Ok(c)
         } else {
@@ -216,6 +216,24 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
             Ok(s)
         } else {
             IonResult::decoding_error("expected a struct")
+        }
+    }
+
+    pub fn ion_type(&self) -> IonType {
+        match self {
+            ValueRef::Null(ion_type) => *ion_type,
+            ValueRef::Bool(_) => IonType::Bool,
+            ValueRef::Int(_) => IonType::Int,
+            ValueRef::Float(_) => IonType::Float,
+            ValueRef::Decimal(_) => IonType::Decimal,
+            ValueRef::Timestamp(_) => IonType::Timestamp,
+            ValueRef::String(_) => IonType::String,
+            ValueRef::Symbol(_) => IonType::Symbol,
+            ValueRef::Blob(_) => IonType::Blob,
+            ValueRef::Clob(_) => IonType::Clob,
+            ValueRef::SExp(_) => IonType::SExp,
+            ValueRef::List(_) => IonType::List,
+            ValueRef::Struct(_) => IonType::Struct,
         }
     }
 }

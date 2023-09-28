@@ -1,3 +1,4 @@
+#![allow(non_camel_case_types)]
 use crate::lazy::decoder::LazyRawReader;
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::raw_stream_item::RawStreamItem;
@@ -8,7 +9,7 @@ use crate::IonResult;
 
 /// A text Ion 1.0 reader that yields [`RawStreamItem`]s representing the top level values found
 /// in the provided input stream.
-pub struct LazyRawTextReader<'data> {
+pub struct LazyRawTextReader_1_0<'data> {
     // The current view of the data we're reading from.
     buffer: TextBufferView<'data>,
     // Each time something is parsed from the buffer successfully, the caller will mark the number
@@ -16,9 +17,9 @@ pub struct LazyRawTextReader<'data> {
     bytes_to_skip: usize,
 }
 
-impl<'data> LazyRawTextReader<'data> {
+impl<'data> LazyRawTextReader_1_0<'data> {
     /// Constructs a `LazyRawTextReader` positioned at the beginning of the provided input stream.
-    pub fn new(data: &'data [u8]) -> LazyRawTextReader<'data> {
+    pub fn new(data: &'data [u8]) -> LazyRawTextReader_1_0<'data> {
         Self::new_with_offset(data, 0)
     }
 
@@ -26,8 +27,8 @@ impl<'data> LazyRawTextReader<'data> {
     /// The provided input stream is itself a slice starting `offset` bytes from the beginning
     /// of a larger data stream. This offset is used for reporting the absolute (stream-level)
     /// position of values encountered in `data`.
-    fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawTextReader<'data> {
-        LazyRawTextReader {
+    fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawTextReader_1_0<'data> {
+        LazyRawTextReader_1_0 {
             buffer: TextBufferView::new_with_offset(data, offset),
             bytes_to_skip: 0,
         }
@@ -37,26 +38,23 @@ impl<'data> LazyRawTextReader<'data> {
     where
         'data: 'top,
     {
-        let buffer = self.buffer;
-        if buffer.is_empty() {
-            return Ok(RawStreamItem::EndOfStream);
-        }
-
-        let (buffer_after_whitespace, _whitespace) =
-            match buffer.match_optional_comments_and_whitespace() {
-                Ok((buf, ws)) => (buf, ws),
-                Err(nom::Err::Incomplete(_)) => return Ok(RawStreamItem::EndOfStream),
-                Err(e) => return IonResult::decoding_error(format!("broken: {:?}", e)),
-            };
-
+        let (buffer_after_whitespace, _whitespace) = self
+            .buffer
+            .match_optional_comments_and_whitespace()
+            .with_context("reading whitespace/comments at the top level", self.buffer)?;
         if buffer_after_whitespace.is_empty() {
             return Ok(RawStreamItem::EndOfStream);
         }
-        let (remaining, matched) = buffer_after_whitespace
-            .match_top_level_item()
+
+        let (remaining, matched_item) = buffer_after_whitespace
+            .match_top_level_item_1_0()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
 
-        if let RawStreamItem::VersionMarker(major, minor) = matched {
+        if let RawStreamItem::VersionMarker(major, minor) = matched_item {
+            // TODO: It is not the raw reader's responsibility to report this error. It should
+            //       surface the IVM to the caller, who can then either create a different reader
+            //       for the reported version OR raise an error.
+            //       See: https://github.com/amazon-ion/ion-rust/issues/644
             if (major, minor) != (1, 0) {
                 return IonResult::decoding_error(format!(
                     "Ion version {major}.{minor} is not supported"
@@ -66,13 +64,13 @@ impl<'data> LazyRawTextReader<'data> {
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
         self.buffer = remaining;
-        Ok(matched)
+        Ok(matched_item)
     }
 }
 
-impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader<'data> {
+impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'data> {
     fn new(data: &'data [u8]) -> Self {
-        LazyRawTextReader::new(data)
+        LazyRawTextReader_1_0::new(data)
     }
 
     fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, TextEncoding_1_0>> {
@@ -84,6 +82,7 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader<'data> 
 mod tests {
     use crate::lazy::decoder::{LazyRawStruct, LazyRawValue};
     use crate::lazy::raw_value_ref::RawValueRef;
+    use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
     use crate::{Decimal, IonType, RawSymbolTokenRef, Timestamp};
 
     use super::*;
@@ -226,7 +225,7 @@ mod tests {
         );
 
         fn expect_next<'data>(
-            reader: &mut LazyRawTextReader<'data>,
+            reader: &mut LazyRawTextReader_1_0<'data>,
             expected: RawValueRef<'data, TextEncoding_1_0>,
         ) {
             let lazy_value = reader
@@ -242,7 +241,7 @@ mod tests {
             assert_eq!(value_ref, expected, "{:?} != {:?}", value_ref, expected);
         }
 
-        let reader = &mut LazyRawTextReader::new(data.as_bytes());
+        let reader = &mut LazyRawTextReader_1_0::new(data.as_bytes());
 
         assert_eq!(reader.next()?.expect_ivm()?, (1, 0));
 
@@ -394,7 +393,7 @@ mod tests {
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;
         let mut sum = 0;
         for value in &list {
-            sum += value?.read()?.expect_i64()?;
+            sum += value?.expect_value()?.read()?.expect_i64()?;
         }
         assert_eq!(sum, 6);
 
@@ -402,19 +401,19 @@ mod tests {
         let sexp = reader.next()?.expect_value()?.read()?.expect_sexp()?;
         let mut sexp_elements = sexp.iter();
         assert_eq!(
-            sexp_elements.next().unwrap()?.read()?,
+            sexp_elements.next().unwrap()?.expect_value()?.read()?,
             RawValueRef::Symbol("foo".into())
         );
         assert_eq!(
-            sexp_elements.next().unwrap()?.read()?,
+            sexp_elements.next().unwrap()?.expect_value()?.read()?,
             RawValueRef::Symbol("++".into())
         );
         assert_eq!(
-            sexp_elements.next().unwrap()?.read()?,
+            sexp_elements.next().unwrap()?.expect_value()?.read()?,
             RawValueRef::Int(2.into())
         );
         assert_eq!(
-            sexp_elements.next().unwrap()?.read()?,
+            sexp_elements.next().unwrap()?.expect_value()?.read()?,
             RawValueRef::Int(3.into())
         );
 
@@ -423,9 +422,22 @@ mod tests {
         let value = item.expect_value()?.read()?;
         let strukt = value.expect_struct()?;
         let mut sum = 0;
-        sum += strukt.get_expected("foo")?.expect_i64()?;
-        sum += strukt.get_expected("bar")?.expect_i64()?;
-        sum += strukt.get_expected("baz")?.expect_i64()?;
+        let mut fields = strukt.iter();
+        sum += {
+            let (name, value) = fields.next().unwrap()?.expect_name_value()?;
+            assert_eq!(name, "foo".as_raw_symbol_token_ref());
+            value.read()?.expect_i64()?
+        };
+        sum += {
+            let (name, value) = fields.next().unwrap()?.expect_name_value()?;
+            assert_eq!(name, "bar".as_raw_symbol_token_ref());
+            value.read()?.expect_i64()?
+        };
+        sum += {
+            let (name, value) = fields.next().unwrap()?.expect_name_value()?;
+            assert_eq!(name, "baz".as_raw_symbol_token_ref());
+            value.read()?.expect_i64()?
+        };
         assert_eq!(sum, 600);
 
         let value = reader.next()?.expect_value()?;

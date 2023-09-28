@@ -1,7 +1,9 @@
 use crate::element::builders::StructBuilder;
-use crate::lazy::decoder::private::{LazyRawFieldPrivate, LazyRawValuePrivate};
-use crate::lazy::decoder::{LazyDecoder, LazyRawStruct};
+use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::BinaryEncoding_1_0;
+use crate::lazy::expanded::r#struct::{
+    ExpandedStructIterator, LazyExpandedField, LazyExpandedStruct,
+};
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
@@ -41,8 +43,9 @@ use std::fmt::{Debug, Formatter};
 ///# Ok(())
 ///# }
 /// ```
+#[derive(Clone)]
 pub struct LazyStruct<'top, 'data, D: LazyDecoder<'data>> {
-    pub(crate) raw_struct: D::Struct,
+    pub(crate) expanded_struct: LazyExpandedStruct<'top, 'data, D>,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
@@ -54,10 +57,10 @@ impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazyStruct<'top, 'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {
-            let field = field.map_err(|_| fmt::Error)?;
-            let name = field.name().map_err(|_| fmt::Error)?;
+            let field = field?;
+            let name = field.name()?;
             let lazy_value = field.value();
-            let value = lazy_value.read().map_err(|_| fmt::Error)?;
+            let value = lazy_value.read()?;
             write!(f, "{}:{:?},", name.text().unwrap_or("$0"), value)?;
         }
         write!(f, "}}")?;
@@ -65,11 +68,11 @@ impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazyStruct<'top, 'data, D> {
     }
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     /// Returns an iterator over this struct's fields. See [`LazyField`].
     pub fn iter(&self) -> StructIterator<'top, 'data, D> {
         StructIterator {
-            raw_struct_iter: self.raw_struct.iter(),
+            expanded_struct_iter: self.expanded_struct.iter(),
             symbol_table: self.symbol_table,
         }
     }
@@ -109,7 +112,8 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
         for field in self {
             let field = field?;
             if field.name()? == name {
-                let value = field.value;
+                let expanded_value = field.expanded_field.value().clone();
+                let value = LazyValue::new(expanded_value);
                 return Ok(Some(value));
             }
         }
@@ -229,7 +233,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     /// ```
     pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
         AnnotationsIterator {
-            raw_annotations: self.raw_struct.annotations(),
+            expanded_annotations: self.expanded_struct.annotations(),
             symbol_table: self.symbol_table,
         }
     }
@@ -237,7 +241,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
 
 /// A single field within a [`LazyStruct`].
 pub struct LazyField<'top, 'data, D: LazyDecoder<'data>> {
-    pub(crate) value: LazyValue<'top, 'data, D>,
+    pub(crate) expanded_field: LazyExpandedField<'top, 'data, D>,
 }
 
 impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazyField<'top, 'data, D> {
@@ -245,8 +249,8 @@ impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazyField<'top, 'data, D> {
         write!(
             f,
             "{}: {:?}",
-            self.name().map_err(|_| fmt::Error)?.text().unwrap_or("$0"),
-            self.value().read().map_err(|_| fmt::Error)?,
+            self.name()?.text().unwrap_or("$0"),
+            self.value().read()?,
         )
     }
 }
@@ -257,13 +261,14 @@ where
 {
     /// Returns a symbol representing the name of this field.
     pub fn name(&self) -> IonResult<SymbolRef<'top>> {
-        // This is a LazyField (not a LazyValue), so the field name must be defined.
-        let field_name = self.value.raw_value.field_name().unwrap();
+        let field_name = self.expanded_field.name();
         let field_id = match field_name {
             RawSymbolTokenRef::SymbolId(sid) => sid,
             RawSymbolTokenRef::Text(text) => return Ok(SymbolRef::with_text(text)),
         };
-        self.value
+        self.expanded_field
+            .value
+            .context
             .symbol_table
             .symbol_for(field_id)
             .map(|symbol| symbol.into())
@@ -274,14 +279,15 @@ where
 
     /// Returns a lazy value representing the value of this field. To access the value's data,
     /// see [`LazyValue::read`].
-    pub fn value(&self) -> &LazyValue<'top, 'data, D> {
-        &self.value
+    pub fn value(&self) -> LazyValue<'top, 'data, D> {
+        LazyValue {
+            expanded_value: self.expanded_field.value().clone(),
+        }
     }
 }
 
 pub struct StructIterator<'top, 'data, D: LazyDecoder<'data>> {
-    pub(crate) raw_struct_iter:
-        <<D as LazyDecoder<'data>>::Struct as LazyRawStruct<'data, D>>::Iterator,
+    pub(crate) expanded_struct_iter: ExpandedStructIterator<'top, 'data, D>,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
@@ -295,16 +301,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for StructIterator<'top, 'data
 
 impl<'top, 'data, D: LazyDecoder<'data>> StructIterator<'top, 'data, D> {
     pub fn next_field(&mut self) -> IonResult<Option<LazyField<'top, 'data, D>>> {
-        let raw_field = match self.raw_struct_iter.next() {
-            Some(raw_field) => raw_field?,
+        let expanded_field = match self.expanded_struct_iter.next() {
+            Some(expanded_field) => expanded_field?,
             None => return Ok(None),
         };
 
-        let lazy_value = LazyValue {
-            raw_value: raw_field.into_value(),
-            symbol_table: self.symbol_table,
-        };
-        let lazy_field = LazyField { value: lazy_value };
+        let lazy_field = LazyField { expanded_field };
         Ok(Some(lazy_field))
     }
 }
@@ -316,8 +318,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyStruct<'top, 'data, D>> for
         let mut builder = StructBuilder::new();
         for field in &lazy_struct {
             let field = field?;
-            builder =
-                builder.with_field(field.name()?, Element::try_from((*field.value()).clone())?);
+            builder = builder.with_field(field.name()?, Element::try_from(field.value())?);
         }
         Ok(builder.build())
     }
@@ -333,7 +334,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyStruct<'top, 'data, D>> for
     }
 }
 
-impl<'a, 'top, 'data, D: LazyDecoder<'data>> IntoIterator for &'a LazyStruct<'top, 'data, D> {
+impl<'a, 'top, 'data: 'top, D: LazyDecoder<'data>> IntoIterator for &'a LazyStruct<'top, 'data, D> {
     type Item = IonResult<LazyField<'top, 'data, D>>;
     type IntoIter = StructIterator<'top, 'data, D>;
 

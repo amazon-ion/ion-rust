@@ -233,6 +233,13 @@ impl Struct {
     pub fn get_all<A: AsSymbolRef>(&self, field_name: A) -> impl Iterator<Item = &Element> {
         self.fields.get_all(field_name)
     }
+
+    pub fn get_index(&self, field_index: usize) -> Option<(&Symbol, &Element)> {
+        self.fields
+            .by_index
+            .get(field_index)
+            .map(|(name, value)| (name, value))
+    }
 }
 
 // Allows `for (name, value) in &my_struct {...}` syntax

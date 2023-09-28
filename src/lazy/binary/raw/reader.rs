@@ -171,8 +171,8 @@ mod tests {
         let value = reader.next()?.expect_value()?;
         let lazy_struct = value.read()?.expect_struct()?;
         let mut fields = lazy_struct.iter();
-        let field1 = fields.next().expect("field 1")?;
-        assert_eq!(field1.name(), 4.as_raw_symbol_token_ref()); // 'name'
+        let (name, _value) = fields.next().expect("field 1")?.expect_name_value()?;
+        assert_eq!(name, 4.as_raw_symbol_token_ref()); // 'name'
         Ok(())
     }
 
@@ -191,13 +191,28 @@ mod tests {
         // Exercise the `Debug` impl
         println!("Lazy Raw Sequence: {:?}", lazy_list);
         let mut list_values = lazy_list.sequence.iter();
-        assert_eq!(list_values.next().expect("first")?.ion_type(), IonType::Int);
         assert_eq!(
-            list_values.next().expect("second")?.ion_type(),
+            list_values
+                .next()
+                .expect("first")?
+                .expect_value()?
+                .ion_type(),
+            IonType::Int
+        );
+        assert_eq!(
+            list_values
+                .next()
+                .expect("second")?
+                .expect_value()?
+                .ion_type(),
             IonType::Bool
         );
         assert_eq!(
-            list_values.next().expect("third")?.ion_type(),
+            list_values
+                .next()
+                .expect("third")?
+                .expect_value()?
+                .ion_type(),
             IonType::Symbol
         );
         Ok(())
@@ -219,7 +234,7 @@ mod tests {
                 RawStreamItem::VersionMarker(major, minor) => println!("IVM: v{}.{}", major, minor),
                 RawStreamItem::Value(value) => println!("{:?}", value.read()?),
                 RawStreamItem::EndOfStream => break,
-                RawStreamItem::MacroInvocation(_) => unreachable!("No macros in Ion 1.0"),
+                RawStreamItem::EExpression(_) => unreachable!("No macros in Ion 1.0"),
             }
         }
         Ok(())
