@@ -59,7 +59,7 @@ bytes = "0.4"
 # this makes it explicitly not do this as there is an advisory warning against this:
 # See: https://github.com/chronotope/chrono/issues/602
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
-delegate = "0.9.0"
+delegate = "0.10.0"
 thiserror = "1.0"
 nom = "7.1.1"
 num-bigint = "0.4.3"

@@ -14,8 +14,9 @@ use crate::lazy::decoder::{
     LazyDecoder, LazyRawFieldExpr, LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue,
     LazyRawValueExpr, RawFieldExpr, RawValueExpr,
 };
-use crate::lazy::encoding::{BinaryEncoding_1_0, Never, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::macro_evaluator::MacroInvocation;
+use crate::lazy::never::Never;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::text::raw::r#struct::{LazyRawTextStruct_1_0, RawTextStructIterator_1_0};

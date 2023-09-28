@@ -411,6 +411,11 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> PartialEq for ExpandedValueRef<'t
             (Symbol(i1), Symbol(i2)) => i1 == i2,
             (Blob(i1), Blob(i2)) => i1 == i2,
             (Clob(i1), Clob(i2)) => i1 == i2,
+            // The container variants hold lazy references to the containers themselves.
+            // We cannot compare their equality without recursively reading those containers,
+            // which introduces many opportunities to encounter an error that this method cannot
+            // surface. Because this is `PartialEq`, we have the option of returning `false` for
+            // values that cannot be compared to one another.
             _ => false,
         }
     }

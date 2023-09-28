@@ -459,7 +459,7 @@ impl<'data> TextBufferView<'data> {
                             return Err(nom::Err::Error(IonParseError::Invalid(error)));
                         }
                     };
-                    let field_value = LazyRawTextValue_1_1 { matched: value };
+                    let field_value = LazyRawTextValue_1_1::new(value);
                     Ok(Some(RawFieldExpr::NameValuePair(
                         field_name,
                         RawValueExpr::ValueLiteral(field_value),

@@ -539,12 +539,6 @@ mod tests {
         assert_eq!(macro_invocation.id, MacroIdRef::LocalName("quux"));
         expect_next(reader, RawValueRef::Int(77.into()));
         expect_next(reader, RawValueRef::Bool(false));
-        // // null
-        // expect_next(reader, RawValueRef::Null(IonType::Null));
-        // // null.bool
-        // expect_next(reader, RawValueRef::Null(IonType::Bool));
-        // // null.int
-        // expect_next(reader, RawValueRef::Null(IonType::Int));
         Ok(())
     }
 }

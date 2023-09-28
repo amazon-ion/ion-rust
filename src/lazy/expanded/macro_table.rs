@@ -5,11 +5,21 @@ use std::collections::HashMap;
 /// This list parallels
 /// [`MacroExpansionKind`](crate::lazy::expanded::macro_evaluator::MacroExpansionKind),
 /// but its variants do not hold any associated state.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum MacroKind {
     Void,
     Values,
     MakeString,
+}
+
+impl MacroKind {
+    fn name(&self) -> &str {
+        match self {
+            MacroKind::Void => "void",
+            MacroKind::Values => "values",
+            MacroKind::MakeString => "make_string",
+        }
+    }
 }
 
 /// Allows callers to resolve a macro ID (that is: name or address) to a [`MacroKind`], confirming
@@ -30,9 +40,9 @@ impl MacroTable {
     pub fn new() -> Self {
         let macros_by_id = vec![MacroKind::Void, MacroKind::Values, MacroKind::MakeString];
         let mut macros_by_name = HashMap::new();
-        macros_by_name.insert("void".to_owned(), MacroKind::Void);
-        macros_by_name.insert("values".to_owned(), MacroKind::Values);
-        macros_by_name.insert("make_string".to_owned(), MacroKind::MakeString);
+        for kind in &macros_by_id {
+            macros_by_name.insert(kind.name().to_string(), *kind);
+        }
         Self {
             macros_by_address: macros_by_id,
             macros_by_name,

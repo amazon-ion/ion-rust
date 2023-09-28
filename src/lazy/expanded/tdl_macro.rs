@@ -1,4 +1,5 @@
-//! Types and traits representing a macro invocation within a template.
+//! Types and traits representing a macro invocation within a TDL (Template Definition
+//! Language) expression.
 
 use crate::element::iterators::SequenceIterator;
 use crate::lazy::decoder::LazyDecoder;
