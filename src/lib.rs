@@ -192,6 +192,8 @@ pub mod ion_hash;
 pub mod lazy;
 // Experimental Streaming APIs
 mod position;
+#[cfg(feature = "experimental-serde")]
+pub mod serde;
 #[cfg(feature = "experimental-streaming")]
 pub mod thunk;
 #[cfg(feature = "experimental-streaming")]
