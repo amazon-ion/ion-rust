@@ -12,7 +12,7 @@ use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawValuePrivate};
 use crate::lazy::decoder::{
     LazyDecoder, LazyRawFieldExpr, LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue,
-    LazyRawValueExpr,
+    LazyRawValueExpr, RawFieldExpr, RawValueExpr,
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, Never, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::macro_evaluator::MacroInvocation;
@@ -114,11 +114,11 @@ impl<'data> Iterator for LazyRawAnyMacroArgsIterator<'data> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.encoding {
             LazyRawAnyMacroArgsIteratorKind::Text_1_1(mut iter) => match iter.next() {
-                Some(Ok(LazyRawValueExpr::ValueLiteral(value))) => Some(Ok(
-                    LazyRawValueExpr::ValueLiteral(LazyRawAnyValue::from(value)),
-                )),
-                Some(Ok(LazyRawValueExpr::MacroInvocation(invocation))) => Some(Ok(
-                    LazyRawValueExpr::MacroInvocation(LazyRawAnyMacroInvocation {
+                Some(Ok(RawValueExpr::ValueLiteral(value))) => {
+                    Some(Ok(RawValueExpr::ValueLiteral(LazyRawAnyValue::from(value))))
+                }
+                Some(Ok(RawValueExpr::MacroInvocation(invocation))) => Some(Ok(
+                    RawValueExpr::MacroInvocation(LazyRawAnyMacroInvocation {
                         encoding: LazyRawAnyMacroInvocationKind::Text_1_1(invocation),
                     }),
                 )),
@@ -217,12 +217,12 @@ impl<'data> From<LazyRawValueExpr<'data, TextEncoding_1_0>>
 {
     fn from(value: LazyRawValueExpr<'data, TextEncoding_1_0>) -> Self {
         match value {
-            LazyRawValueExpr::ValueLiteral(v) => LazyRawValueExpr::ValueLiteral(v.into()),
-            LazyRawValueExpr::MacroInvocation(m) => {
+            RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
+            RawValueExpr::MacroInvocation(m) => {
                 let invocation = LazyRawAnyMacroInvocation {
                     encoding: LazyRawAnyMacroInvocationKind::Text_1_0(m),
                 };
-                LazyRawValueExpr::MacroInvocation(invocation)
+                RawValueExpr::MacroInvocation(invocation)
             }
         }
     }
@@ -233,12 +233,12 @@ impl<'data> From<LazyRawValueExpr<'data, BinaryEncoding_1_0>>
 {
     fn from(value: LazyRawValueExpr<'data, BinaryEncoding_1_0>) -> Self {
         match value {
-            LazyRawValueExpr::ValueLiteral(v) => LazyRawValueExpr::ValueLiteral(v.into()),
-            LazyRawValueExpr::MacroInvocation(m) => {
+            RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
+            RawValueExpr::MacroInvocation(m) => {
                 let invocation = LazyRawAnyMacroInvocation {
                     encoding: LazyRawAnyMacroInvocationKind::Binary_1_0(m),
                 };
-                LazyRawValueExpr::MacroInvocation(invocation)
+                RawValueExpr::MacroInvocation(invocation)
             }
         }
     }
@@ -249,12 +249,12 @@ impl<'data> From<LazyRawValueExpr<'data, TextEncoding_1_1>>
 {
     fn from(value: LazyRawValueExpr<'data, TextEncoding_1_1>) -> Self {
         match value {
-            LazyRawValueExpr::ValueLiteral(v) => LazyRawValueExpr::ValueLiteral(v.into()),
-            LazyRawValueExpr::MacroInvocation(m) => {
+            RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
+            RawValueExpr::MacroInvocation(m) => {
                 let invocation = LazyRawAnyMacroInvocation {
                     encoding: LazyRawAnyMacroInvocationKind::Text_1_1(m),
                 };
-                LazyRawValueExpr::MacroInvocation(invocation)
+                RawValueExpr::MacroInvocation(invocation)
             }
         }
     }
@@ -731,11 +731,13 @@ impl<'data> From<LazyRawFieldExpr<'data, TextEncoding_1_0>>
 {
     fn from(text_field: LazyRawFieldExpr<'data, TextEncoding_1_0>) -> Self {
         let (name, value) = match text_field {
-            LazyRawFieldExpr::NameValuePair(name, value) => (name, value),
-            LazyRawFieldExpr::MacroInvocation(_) => unreachable!("macro invocation in Ion 1.0"),
+            RawFieldExpr::NameValuePair(name, value) => (name, value),
+            RawFieldExpr::MacroInvocation(_) => {
+                unreachable!("macro invocation in Ion 1.0")
+            }
         };
         // Convert the text-encoded value into an any-encoded value
-        LazyRawFieldExpr::NameValuePair(name, value.into())
+        RawFieldExpr::NameValuePair(name, value.into())
     }
 }
 
@@ -744,11 +746,13 @@ impl<'data> From<LazyRawFieldExpr<'data, BinaryEncoding_1_0>>
 {
     fn from(binary_field: LazyRawFieldExpr<'data, BinaryEncoding_1_0>) -> Self {
         let (name, value) = match binary_field {
-            LazyRawFieldExpr::NameValuePair(name, value) => (name, value),
-            LazyRawFieldExpr::MacroInvocation(_) => unreachable!("macro invocation in Ion 1.0"),
+            RawFieldExpr::NameValuePair(name, value) => (name, value),
+            RawFieldExpr::MacroInvocation(_) => {
+                unreachable!("macro invocation in Ion 1.0")
+            }
         };
         // Convert the binary-encoded value into an any-encoded value
-        LazyRawFieldExpr::NameValuePair(name, value.into())
+        RawFieldExpr::NameValuePair(name, value.into())
     }
 }
 
@@ -756,8 +760,8 @@ impl<'data> From<LazyRawFieldExpr<'data, TextEncoding_1_1>>
     for LazyRawFieldExpr<'data, AnyEncoding>
 {
     fn from(text_field: LazyRawFieldExpr<'data, TextEncoding_1_1>) -> Self {
-        use LazyRawFieldExpr::{MacroInvocation as FieldMacroInvocation, NameValuePair};
-        use LazyRawValueExpr::{MacroInvocation as ValueMacroInvocation, ValueLiteral};
+        use RawFieldExpr::{MacroInvocation as FieldMacroInvocation, NameValuePair};
+        use RawValueExpr::{MacroInvocation as ValueMacroInvocation, ValueLiteral};
         match text_field {
             NameValuePair(name, ValueLiteral(value)) => {
                 NameValuePair(name, ValueLiteral(value.into()))

@@ -8,7 +8,7 @@ use crate::lazy::expanded::sequence::{
 };
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
-use crate::{IonError, IonResult, SymbolTable};
+use crate::{IonError, IonResult};
 
 /// A list in a binary Ion stream whose header has been parsed but whose body
 /// (i.e. its child values) have not. A `LazyList` is immutable; its data can be read any
@@ -20,7 +20,7 @@ use crate::{IonError, IonResult, SymbolTable};
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::lazy::reader::LazyBinaryReader;;
+/// use ion_rs::lazy::reader::LazyBinaryReader;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;
@@ -50,7 +50,6 @@ use crate::{IonError, IonResult, SymbolTable};
 /// ```
 pub struct LazyList<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) expanded_list: LazyExpandedList<'top, 'data, D>,
-    pub(crate) symbol_table: &'top SymbolTable,
 }
 
 pub type LazyBinarySequence<'top, 'data> = LazyList<'top, 'data, BinaryEncoding_1_0>;
@@ -60,7 +59,6 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyList<'top, 'data, D> {
     pub fn iter(&self) -> ListIterator<'top, 'data, D> {
         ListIterator {
             expanded_list_iter: self.expanded_list.iter(),
-            symbol_table: self.symbol_table,
         }
     }
 
@@ -95,7 +93,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyList<'top, 'data, D> {
     pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
         AnnotationsIterator {
             expanded_annotations: self.expanded_list.annotations(),
-            symbol_table: self.symbol_table,
+            symbol_table: self.expanded_list.context.symbol_table,
         }
     }
 }
@@ -135,7 +133,6 @@ impl<'a, 'top, 'data: 'top, D: LazyDecoder<'data>> IntoIterator for &'a LazyList
 
 pub struct ListIterator<'top, 'data, D: LazyDecoder<'data>> {
     expanded_list_iter: ExpandedListIterator<'top, 'data, D>,
-    symbol_table: &'top SymbolTable,
 }
 
 impl<'top, 'data, D: LazyDecoder<'data>> Iterator for ListIterator<'top, 'data, D> {
@@ -169,7 +166,6 @@ impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazyList<'top, 'data, D> {
 
 pub struct LazySExp<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) expanded_sexp: LazyExpandedSExp<'top, 'data, D>,
-    pub(crate) symbol_table: &'top SymbolTable,
 }
 
 impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazySExp<'top, 'data, D> {
@@ -189,7 +185,6 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazySExp<'top, 'data, D> {
     pub fn iter(&self) -> SExpIterator<'top, 'data, D> {
         SExpIterator {
             expanded_sexp_iter: self.expanded_sexp.iter(),
-            symbol_table: self.symbol_table,
         }
     }
 
@@ -224,7 +219,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazySExp<'top, 'data, D> {
     pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
         AnnotationsIterator {
             expanded_annotations: self.expanded_sexp.annotations(),
-            symbol_table: self.symbol_table,
+            symbol_table: self.expanded_sexp.context.symbol_table,
         }
     }
 }
@@ -264,7 +259,6 @@ impl<'a, 'top, 'data: 'top, D: LazyDecoder<'data>> IntoIterator for &'a LazySExp
 
 pub struct SExpIterator<'top, 'data, D: LazyDecoder<'data>> {
     expanded_sexp_iter: ExpandedSExpIterator<'top, 'data, D>,
-    symbol_table: &'top SymbolTable,
 }
 
 impl<'top, 'data, D: LazyDecoder<'data>> Iterator for SExpIterator<'top, 'data, D> {

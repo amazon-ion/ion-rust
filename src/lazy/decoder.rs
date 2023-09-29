@@ -35,35 +35,45 @@ where
     type MacroInvocation: MacroInvocation<'data, Self>;
 }
 
-/// An item found in value position within an Ion data stream.
-/// This item may be either a value literal or a macro invocation.
+/// An expression found in value position in either serialized Ion or a template.
 /// If it is a value literal, it is considered a stream with exactly one Ion value.
 /// If it is a macro invocation, it is a stream with zero or more Ion values.
 #[derive(Copy, Clone, Debug)]
-pub enum LazyRawValueExpr<'data, D: LazyDecoder<'data>> {
-    /// A text Ion 1.1 value literal. For example: `5`, `foo`, or `"hello"`
-    ValueLiteral(D::Value),
-    /// A text Ion 1.1 macro invocation. For example: `(:employee 12345 "Sarah" "Gonzalez")`
-    MacroInvocation(D::MacroInvocation),
+pub enum RawValueExpr<V, M> {
+    /// A value literal. For example: `5`, `foo`, or `"hello"` in text.
+    ValueLiteral(V),
+    /// An Ion 1.1+ macro invocation. For example: `(:employee 12345 "Sarah" "Gonzalez")` in text.
+    MacroInvocation(M),
 }
 
-impl<'data, D: LazyDecoder<'data>> LazyRawValueExpr<'data, D> {
-    pub fn expect_value(self) -> IonResult<D::Value> {
+// `RawValueExpr` above has no ties to a particular encoding. The `LazyRawValueExpr` type alias
+// below uses the `Value` and `MacroInvocation` associated types from the decoder `D`. In most
+// places, this is a helpful constraint; we can talk about the value expression in terms of the
+// LazyDecoder it's associated with. However, in some places (primarily when expanding template
+// values that don't have a LazyDecoder) we need to be able to use it without constraints.
+
+/// An item found in value position within an Ion data stream written in the encoding represented
+/// by the LazyDecoder `D`. This item may be either a value literal or a macro invocation.
+pub type LazyRawValueExpr<'data, D> =
+    RawValueExpr<<D as LazyDecoder<'data>>::Value, <D as LazyDecoder<'data>>::MacroInvocation>;
+
+impl<V: Debug, M: Debug> RawValueExpr<V, M> {
+    pub fn expect_value(self) -> IonResult<V> {
         match self {
-            LazyRawValueExpr::ValueLiteral(v) => Ok(v),
-            LazyRawValueExpr::MacroInvocation(_m) => {
-                IonResult::decoding_error("expected a value literal, but found macro invocation")
-            }
+            RawValueExpr::ValueLiteral(v) => Ok(v),
+            RawValueExpr::MacroInvocation(_m) => IonResult::decoding_error(
+                "expected a value literal, but found a macro invocation ({:?})",
+            ),
         }
     }
 
-    pub fn expect_macro(self) -> IonResult<D::MacroInvocation> {
+    pub fn expect_macro(self) -> IonResult<M> {
         match self {
-            LazyRawValueExpr::ValueLiteral(v) => IonResult::decoding_error(format!(
-                "expected a macro invocation but found a value literal {:?}",
+            RawValueExpr::ValueLiteral(v) => IonResult::decoding_error(format!(
+                "expected a macro invocation but found a value literal ({:?})",
                 v
             )),
-            LazyRawValueExpr::MacroInvocation(m) => Ok(m),
+            RawValueExpr::MacroInvocation(m) => Ok(m),
         }
     }
 }
@@ -74,15 +84,27 @@ impl<'data, D: LazyDecoder<'data>> LazyRawValueExpr<'data, D> {
 ///   * a name/e-expression pair
 ///   * an e-expression
 #[derive(Debug)]
-pub enum LazyRawFieldExpr<'data, D: LazyDecoder<'data>> {
-    NameValuePair(RawSymbolTokenRef<'data>, LazyRawValueExpr<'data, D>),
-    MacroInvocation(D::MacroInvocation),
+pub enum RawFieldExpr<'name, V, M> {
+    NameValuePair(RawSymbolTokenRef<'name>, RawValueExpr<V, M>),
+    MacroInvocation(M),
 }
 
-impl<'data, D: LazyDecoder<'data>> LazyRawFieldExpr<'data, D> {
-    pub fn expect_name_value(self) -> IonResult<(RawSymbolTokenRef<'data>, D::Value)> {
+// As with the `RawValueExpr`/`LazyRawValueExpr` type pair, a `RawFieldExpr` has no constraints
+// on the types used for values or macros, while the `LazyRawFieldExpr` type alias below uses the
+// value and macro types associated with the decoder `D`.
+
+/// An item found in struct field position an Ion data stream written in the encoding represented
+/// by the LazyDecoder `D`.
+pub type LazyRawFieldExpr<'data, D> = RawFieldExpr<
+    'data,
+    <D as LazyDecoder<'data>>::Value,
+    <D as LazyDecoder<'data>>::MacroInvocation,
+>;
+
+impl<'name, V: Debug, M: Debug> RawFieldExpr<'name, V, M> {
+    pub fn expect_name_value(self) -> IonResult<(RawSymbolTokenRef<'name>, V)> {
         match self {
-            LazyRawFieldExpr::NameValuePair(name, LazyRawValueExpr::ValueLiteral(value)) => {
+            RawFieldExpr::NameValuePair(name, RawValueExpr::ValueLiteral(value)) => {
                 Ok((name, value))
             }
             _ => IonResult::decoding_error(format!(
@@ -92,12 +114,11 @@ impl<'data, D: LazyDecoder<'data>> LazyRawFieldExpr<'data, D> {
         }
     }
 
-    pub fn expect_name_macro(self) -> IonResult<(RawSymbolTokenRef<'data>, D::MacroInvocation)> {
+    pub fn expect_name_macro(self) -> IonResult<(RawSymbolTokenRef<'name>, M)> {
         match self {
-            LazyRawFieldExpr::NameValuePair(
-                name,
-                LazyRawValueExpr::MacroInvocation(invocation),
-            ) => Ok((name, invocation)),
+            RawFieldExpr::NameValuePair(name, RawValueExpr::MacroInvocation(invocation)) => {
+                Ok((name, invocation))
+            }
             _ => IonResult::decoding_error(format!(
                 "expected a name/macro pair but found {:?}",
                 self
@@ -105,9 +126,9 @@ impl<'data, D: LazyDecoder<'data>> LazyRawFieldExpr<'data, D> {
         }
     }
 
-    pub fn expect_macro(self) -> IonResult<D::MacroInvocation> {
+    pub fn expect_macro(self) -> IonResult<M> {
         match self {
-            LazyRawFieldExpr::MacroInvocation(invocation) => Ok(invocation),
+            RawFieldExpr::MacroInvocation(invocation) => Ok(invocation),
             _ => IonResult::decoding_error(format!(
                 "expected a macro invocation but found {:?}",
                 self
@@ -125,6 +146,7 @@ impl<'data, D: LazyDecoder<'data>> LazyRawFieldExpr<'data, D> {
 // internal code that is defined in terms of `LazyRawField` to call the private `into_value()`
 // function while also preventing users from seeing or depending on it.
 pub(crate) mod private {
+    use crate::lazy::encoding::RawValueLiteral;
     use crate::{IonResult, RawSymbolTokenRef};
 
     use super::LazyDecoder;
@@ -143,7 +165,7 @@ pub(crate) mod private {
         fn from_value(value: D::Value) -> Self;
     }
 
-    pub trait LazyRawValuePrivate<'data> {
+    pub trait LazyRawValuePrivate<'data>: RawValueLiteral {
         /// Returns the field name associated with this value. If the value is not inside a struct,
         /// returns `IllegalOperation`.
         fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>>;

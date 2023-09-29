@@ -1,3 +1,6 @@
+use std::fmt;
+use std::fmt::{Debug, Formatter};
+
 use crate::element::builders::StructBuilder;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::BinaryEncoding_1_0;
@@ -9,10 +12,8 @@ use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::{
     Annotations, Element, IntoAnnotatedElement, IonError, IonResult, RawSymbolTokenRef, Struct,
-    SymbolRef, SymbolTable,
+    SymbolRef,
 };
-use std::fmt;
-use std::fmt::{Debug, Formatter};
 
 /// An as-of-yet unread binary Ion struct. `LazyStruct` is immutable; its fields and annotations
 /// can be read any number of times.
@@ -46,7 +47,6 @@ use std::fmt::{Debug, Formatter};
 #[derive(Clone)]
 pub struct LazyStruct<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) expanded_struct: LazyExpandedStruct<'top, 'data, D>,
-    pub(crate) symbol_table: &'top SymbolTable,
 }
 
 pub type LazyBinaryStruct<'top, 'data> = LazyStruct<'top, 'data, BinaryEncoding_1_0>;
@@ -73,7 +73,6 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     pub fn iter(&self) -> StructIterator<'top, 'data, D> {
         StructIterator {
             expanded_struct_iter: self.expanded_struct.iter(),
-            symbol_table: self.symbol_table,
         }
     }
 
@@ -234,7 +233,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
     pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
         AnnotationsIterator {
             expanded_annotations: self.expanded_struct.annotations(),
-            symbol_table: self.symbol_table,
+            symbol_table: self.expanded_struct.context.symbol_table,
         }
     }
 }
@@ -288,7 +287,6 @@ where
 
 pub struct StructIterator<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) expanded_struct_iter: ExpandedStructIterator<'top, 'data, D>,
-    pub(crate) symbol_table: &'top SymbolTable,
 }
 
 impl<'top, 'data, D: LazyDecoder<'data>> Iterator for StructIterator<'top, 'data, D> {
@@ -345,9 +343,10 @@ impl<'a, 'top, 'data: 'top, D: LazyDecoder<'data>> IntoIterator for &'a LazyStru
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::reader::LazyBinaryReader;
+
+    use super::*;
 
     #[test]
     fn find() -> IonResult<()> {

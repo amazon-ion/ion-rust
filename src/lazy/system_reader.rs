@@ -193,7 +193,6 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
             Self::process_symbol_table(pending_lst, &lazy_expanded_value)?;
             let lazy_struct = LazyStruct {
                 expanded_struct: lazy_expanded_value.read()?.expect_struct()?,
-                symbol_table: context.symbol_table,
             };
             return Ok(SystemStreamItem::SymbolTable(lazy_struct));
         }

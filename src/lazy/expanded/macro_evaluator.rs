@@ -45,7 +45,7 @@ pub trait MacroInvocation<'data, D: LazyDecoder<'data>>: Copy + Clone + Debug {
 }
 
 /// A single expression appearing in argument position within a macro invocation.
-pub enum ArgumentKind<'top, 'data: 'top, D: LazyDecoder<'data>, M: MacroInvocation<'data, D>> {
+pub enum ArgumentKind<'top, 'data, D: LazyDecoder<'data>, M: MacroInvocation<'data, D>> {
     /// An Ion value that requires no further evaluation.
     ValueLiteral(LazyExpandedValue<'top, 'data, D>),
     /// A variable name that requires expansion.
@@ -98,7 +98,8 @@ impl<'data, D: LazyDecoder<'data>, M: MacroInvocation<'data, D>> MacroExpansion<
         context: EncodingContext<'top>,
     ) -> IonResult<MacroExpansionStep<'top, 'data, D, M>>
     where
-        M: 'data + 'top,
+        'data: 'top,
+        M: 'top,
     {
         use MacroExpansionKind::*;
         // Delegate the call to `next()` based on the macro kind.
@@ -112,8 +113,7 @@ impl<'data, D: LazyDecoder<'data>, M: MacroInvocation<'data, D>> MacroExpansion<
 }
 
 /// Represents a single step in the process of evaluating a macro.
-pub enum MacroExpansionStep<'top, 'data: 'top, D: LazyDecoder<'data>, M: MacroInvocation<'data, D>>
-{
+pub enum MacroExpansionStep<'top, 'data, D: LazyDecoder<'data>, M: MacroInvocation<'data, D>> {
     /// The next value produced by continuing the macro evaluation.
     ExpandedValue(LazyExpandedValue<'top, 'data, D>),
     /// Another macro that will need to be evaluated before an expanded value can be returned.
@@ -143,7 +143,7 @@ pub struct MacroEvaluator<
 > {
     // A stack of all of the macro invocations currently being evaluated.
     macro_stack: S,
-    spooky: PhantomData<(&'data D, &'data M)>,
+    spooky: PhantomData<(&'data D, M)>,
 }
 
 impl<
@@ -164,7 +164,7 @@ impl<
     /// Constructs a `MacroEvaluator` with a lifetime tied to the current [`EncodingContext`].
     pub fn new_transient<'top>(
         context: EncodingContext<'top>,
-    ) -> MacroEvaluator<'data, D, M, BumpVec<MacroExpansion<'data, D, M>>> {
+    ) -> MacroEvaluator<'data, D, M, BumpVec<'top, MacroExpansion<'data, D, M>>> {
         MacroEvaluator {
             macro_stack: BumpVec::new_in(context.allocator),
             spooky: PhantomData,
@@ -254,6 +254,7 @@ impl<
     ) -> IonResult<Option<LazyExpandedValue<'top, 'data, D>>>
     where
         'data: 'top,
+        M: 'top,
     {
         debug_assert!(
             self.stack_depth() >= depth_to_exhaust,
@@ -302,11 +303,11 @@ impl<
     /// Attempts to resolve the provided `invocation` in the specified `context`. Upon success,
     /// returns an iterator that lazily computes the expansion of the macro invocation and yields
     /// its values.
-    pub(crate) fn evaluate<'top>(
-        &mut self,
+    pub(crate) fn evaluate<'iter, 'top>(
+        &'iter mut self,
         context: EncodingContext<'top>,
         invocation: M,
-    ) -> IonResult<EvaluatingIterator<'_, 'top, 'data, D, M, S>> {
+    ) -> IonResult<EvaluatingIterator<'iter, 'top, 'data, D, M, S>> {
         self.push(context, invocation)?;
         Ok(EvaluatingIterator::new(self, context))
     }
@@ -354,8 +355,15 @@ pub type TransientEExpEvaluator<'top, 'data, D> = MacroEvaluator<
 
 /// A [`MacroEvaluator`] for expanding macro invocations found in a template body, all in the context
 /// of a data stream in the format `D`.
-pub type TdlTemplateEvaluator<'top, 'data, D> =
+pub type TdlMacroEvaluator<'top, 'data, D> =
     MacroEvaluator<'data, D, &'top Sequence, Vec<MacroExpansion<'data, D, &'top Sequence>>>;
+
+pub type TransientTdlMacroEvaluator<'top, 'data, D> = MacroEvaluator<
+    'data,
+    D,
+    &'top Sequence,
+    BumpVec<'top, MacroExpansion<'data, D, &'top Sequence>>,
+>;
 
 /// Yields the values produced by incrementally evaluating the macro that was at the top of the
 /// evaluator's stack when the iterator was created.
@@ -370,12 +378,11 @@ pub struct EvaluatingIterator<
     evaluator: &'iter mut MacroEvaluator<'data, D, M, S>,
     context: EncodingContext<'top>,
     initial_stack_depth: usize,
-    spooky: PhantomData<&'data D>,
 }
 
 impl<
         'iter,
-        'top: 'iter,
+        'top,
         'data: 'top,
         D: LazyDecoder<'data>,
         M: MacroInvocation<'data, D>,
@@ -391,7 +398,6 @@ impl<
             evaluator,
             context,
             initial_stack_depth,
-            spooky: PhantomData,
         }
     }
 }
@@ -401,7 +407,7 @@ impl<
         'top,
         'data: 'top,
         D: LazyDecoder<'data>,
-        M: MacroInvocation<'data, D>,
+        M: MacroInvocation<'data, D> + 'top,
         S: Stack<MacroExpansion<'data, D, M>>,
     > Iterator for EvaluatingIterator<'iter, 'top, 'data, D, M, S>
 {
@@ -448,6 +454,7 @@ impl<'data, D: LazyDecoder<'data>, M: MacroInvocation<'data, D>> ValuesExpansion
         context: EncodingContext<'top>,
     ) -> IonResult<MacroExpansionStep<'top, 'data, D, M>>
     where
+        'data: 'top,
         M: 'top,
     {
         // We visit the argument expressions in the invocation in order from left to right.
@@ -510,7 +517,8 @@ impl<'data, D: LazyDecoder<'data>, M: MacroInvocation<'data, D>> MakeStringExpan
         context: EncodingContext<'top>,
     ) -> IonResult<MacroExpansionStep<'top, 'data, D, M>>
     where
-        M: 'data + 'top,
+        'data: 'top,
+        M: 'top,
     {
         // `make_string` always produces a single value. Once that value has been returned, it needs
         // to report `Complete` on the following call to `next()`.
@@ -527,7 +535,9 @@ impl<'data, D: LazyDecoder<'data>, M: MacroInvocation<'data, D>> MakeStringExpan
         // itself. Instead, we use the bump allocator the make a transient macro evaluator
         // whose resources can be trivially reclaimed when the expansion is done.
         let mut evaluator =
-            MacroEvaluator::<'data, D, M, BumpVec<'top, MacroExpansion<D, M>>>::new();
+            MacroEvaluator::<'data, D, M, BumpVec<'top, MacroExpansion<D, M>>>::new_transient(
+                context,
+            );
 
         for arg in self.arguments.by_ref() {
             let arg_expr: ArgumentKind<D, M> = arg?.to_arg_expr(context);
@@ -600,15 +610,12 @@ impl<'data, D: LazyDecoder<'data>, M: MacroInvocation<'data, D>> MakeStringExpan
 mod tests {
     use bumpalo::Bump as BumpAllocator;
 
-    use crate::lazy::decoder::LazyRawReader;
     use crate::lazy::encoding::TextEncoding_1_1;
-    use crate::lazy::expanded::macro_evaluator::TdlTemplateEvaluator;
+    use crate::lazy::expanded::macro_evaluator::TdlMacroEvaluator;
     use crate::lazy::expanded::macro_table::MacroTable;
     use crate::lazy::expanded::EncodingContext;
-    use crate::lazy::expanded::ExpandedStreamItem;
-    use crate::lazy::expanded::LazyExpandingReader;
     use crate::lazy::reader::LazyTextReader_1_1;
-    use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
+    use crate::lazy::value::LazyValue;
     use crate::{Element, ElementReader, IonResult, SymbolTable};
 
     /// Reads `input` and `expected` using an expanding reader and asserts that their output
@@ -640,21 +647,18 @@ mod tests {
         let symbol_table = SymbolTable::new();
         let allocator = BumpAllocator::new();
         let context = EncodingContext::new(&macro_table, &symbol_table, &allocator);
-        let mut evaluator = TdlTemplateEvaluator::<TextEncoding_1_1>::new();
+        let mut evaluator = TdlMacroEvaluator::<TextEncoding_1_1>::new();
         let invocation = Element::read_one(invocation)?;
         let actuals = evaluator.evaluate(context, invocation.expect_sexp()?)?;
-        let raw_reader = LazyRawTextReader_1_1::new(expected.as_ref());
-        let mut expected_reader = LazyExpandingReader::<TextEncoding_1_1>::new(raw_reader);
-        for actual in actuals {
+        let mut expected_reader = LazyTextReader_1_1::new(expected.as_bytes())?;
+        for actual_result in actuals {
             // Read the next expected value as a raw value, then wrap it in an `ExpandedRawValueRef`
             // so it can be directly compared to the actual.
-            let expected = expected_reader.next(context)?.expect_value()?.read()?;
-            assert_eq!(actual?.read()?, expected);
+            let expected: Element = expected_reader.next()?.unwrap().read()?.try_into()?;
+            let actual: Element = LazyValue::from(actual_result?).try_into()?;
+            assert_eq!(actual, expected);
         }
-        assert!(matches!(
-            expected_reader.next(context),
-            Ok(ExpandedStreamItem::EndOfStream)
-        ));
+        assert!(matches!(expected_reader.next(), Ok(None)));
 
         Ok(())
     }
@@ -723,6 +727,27 @@ mod tests {
     }
 
     #[test]
+    fn macros_inside_a_tdl_list() -> IonResult<()> {
+        eval_tdl_template_invocation(
+            r#"
+                (values [
+                    1,
+                    2,
+                    (values 3 4),
+                    5,
+                    (void),
+                    (void),
+                    6,
+                    (make_string "foo" "bar" "baz"),
+                    7
+                ])
+            "#,
+            "[1, 2, 3, 4, 5, 6, \"foobarbaz\", 7]",
+        )?;
+        Ok(())
+    }
+
+    #[test]
     fn e_expressions_inside_a_sexp() -> IonResult<()> {
         eval_enc_expr(
             "(1 2 (:values 3 4) 5 6 (:make_string (:values foo bar) baz) 7)",
@@ -730,6 +755,10 @@ mod tests {
         )?;
         Ok(())
     }
+
+    // TODO: macros_inside_a_tdl_sexp()
+    // This requires an implementation of TDL's `(make_sexp)` or `(quote)`. Without these,
+    // a sexp is always considered a TDL macro invocation.
 
     #[test]
     fn e_expressions_inside_a_struct() -> IonResult<()> {
@@ -774,6 +803,57 @@ mod tests {
                 g: 6,
                 h: 7,
                 g: 8
+            }
+            "#,
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn macros_inside_a_tdl_struct() -> IonResult<()> {
+        eval_tdl_template_invocation(
+            r#"
+            (values {
+                a: 1,
+                
+                // When a macro in field value position produces more than one value,
+                // a field will be emitted for each value. The same field name will be used for
+                // each one.
+                b: (values 2 3),
+                
+                c: 4,
+                
+                // If the value-position-macro doesn't produce any values, the field will not
+                // appear in the expansion.
+                d: (void),
+                
+                // If a single value is produced, a single field with that value will appear in the
+                // output.
+                e: (make_string "foo" "bar" "baz"),
+                
+                // Nested struct to demonstrate recursive expansion
+                f: {
+                    quux: 5,
+                    quuz: (values true false),
+                },
+                
+                g: 6
+            })
+            "#,
+            r#"
+            {
+                a: 1,
+                b: 2,
+                b: 3,
+                c: 4,
+                // no 'd',
+                e: "foobarbaz",
+                f: {
+                    quux: 5,
+                    quuz: true,
+                    quuz: false,
+                },
+                g: 6,
             }
             "#,
         )?;

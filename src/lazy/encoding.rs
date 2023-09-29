@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use crate::lazy::any_encoding::LazyRawAnyValue;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct;
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
@@ -131,3 +132,21 @@ impl<'data> LazyDecoder<'data> for TextEncoding_1_1 {
     type AnnotationsIterator = RawTextAnnotationsIterator<'data>;
     type MacroInvocation = RawTextMacroInvocation<'data>;
 }
+
+/// Marker trait for types that represent value literals in an Ion stream of some encoding.
+// This trait is used to provide generic conversion implementation of types used as a
+// `LazyDecoder::Value` to `ExpandedValueSource`. That is:
+//
+//     impl<'top, 'data, V: RawValueLiteral, D: LazyDecoder<'data, Value = V>> From<V>
+//         for ExpandedValueSource<'top, 'data, D>
+//
+// If we do not confine the implementation to types with a marker trait, rustc complains that
+// someone may someday use `ExpandedValueSource` as a `LazyDecoder::Value`, and then the
+// the implementation will conflict with the core `impl<T> From<T> for T` implementation.
+pub trait RawValueLiteral {}
+
+impl<'data> RawValueLiteral for MatchedRawTextValue<'data> {}
+impl<'data> RawValueLiteral for LazyRawTextValue_1_0<'data> {}
+impl<'data> RawValueLiteral for LazyRawTextValue_1_1<'data> {}
+impl<'data> RawValueLiteral for LazyRawBinaryValue<'data> {}
+impl<'data> RawValueLiteral for LazyRawAnyValue<'data> {}

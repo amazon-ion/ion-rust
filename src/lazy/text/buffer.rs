@@ -21,7 +21,7 @@ use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple
 use nom::{AsBytes, CompareResult, IResult, InputLength, InputTake, Needed, Parser};
 
 use crate::lazy::decoder::private::LazyRawValuePrivate;
-use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr};
+use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawFieldExpr, RawValueExpr};
 use crate::lazy::encoding::{TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::text::encoded_value::EncodedTextValue;
@@ -337,10 +337,10 @@ impl<'data> TextBufferView<'data> {
         alt((
             whitespace_and_then(
                 Self::match_e_expression
-                    .map(|matched| Some(LazyRawValueExpr::MacroInvocation(matched))),
+                    .map(|matched| Some(RawValueExpr::MacroInvocation(matched))),
             ),
             Self::match_sexp_value.map(|maybe_matched| {
-                maybe_matched.map(|matched| LazyRawValueExpr::ValueLiteral(matched.into()))
+                maybe_matched.map(|matched| RawValueExpr::ValueLiteral(matched.into()))
             }),
         ))
         .parse(self)
@@ -416,7 +416,7 @@ impl<'data> TextBufferView<'data> {
                 Self::match_e_expression,
                 whitespace_and_then(alt((tag(","), peek(tag("}"))))),
             )
-            .map(|invocation| Ok(Some(LazyRawFieldExpr::MacroInvocation(invocation)))),
+            .map(|invocation| Ok(Some(RawFieldExpr::MacroInvocation(invocation)))),
             Self::match_struct_field_name_and_e_expression_1_1.map(
                 |((matched_name, name_span), invocation)| {
                     // TODO: We're discarding the name encoding information here. When we revise our field name
@@ -433,9 +433,9 @@ impl<'data> TextBufferView<'data> {
                             return Err(nom::Err::Error(IonParseError::Invalid(error)));
                         }
                     };
-                    Ok(Some(LazyRawFieldExpr::NameValuePair(
+                    Ok(Some(RawFieldExpr::NameValuePair(
                         name,
-                        LazyRawValueExpr::MacroInvocation(invocation),
+                        RawValueExpr::MacroInvocation(invocation),
                     )))
                 },
             ),
@@ -460,9 +460,9 @@ impl<'data> TextBufferView<'data> {
                         }
                     };
                     let field_value = LazyRawTextValue_1_1 { matched: value };
-                    Ok(Some(LazyRawFieldExpr::NameValuePair(
+                    Ok(Some(RawFieldExpr::NameValuePair(
                         field_name,
-                        LazyRawValueExpr::ValueLiteral(field_value),
+                        RawValueExpr::ValueLiteral(field_value),
                     )))
                 },
             ),
@@ -937,10 +937,10 @@ impl<'data> TextBufferView<'data> {
                     Self::match_e_expression,
                     Self::match_delimiter_after_list_value,
                 )
-                .map(|matched| Some(LazyRawValueExpr::MacroInvocation(matched))),
+                .map(|matched| Some(RawValueExpr::MacroInvocation(matched))),
             ),
             Self::match_list_value.map(|maybe_matched| {
-                maybe_matched.map(|matched| LazyRawValueExpr::ValueLiteral(matched.into()))
+                maybe_matched.map(|matched| RawValueExpr::ValueLiteral(matched.into()))
             }),
         ))
         .parse(self)

@@ -43,12 +43,16 @@ use sequence::{LazyExpandedList, LazyExpandedSExp};
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{LazyDecoder, LazyRawReader, LazyRawValue};
+use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::macro_evaluator::EExpEvaluator;
 use crate::lazy::expanded::macro_table::MacroTable;
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
+use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
+use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
+use crate::lazy::value::LazyValue;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
 use crate::{
@@ -205,6 +209,25 @@ pub enum ExpandedValueSource<'top, 'data, D: LazyDecoder<'data>> {
     ),
 }
 
+// Converts the raw value literal types associated with each format decoder (e.g. LazyRawTextValue_1_1)
+// into an ExpandedValueSource.
+impl<'top, 'data, V: RawValueLiteral, D: LazyDecoder<'data, Value = V>> From<V>
+    for ExpandedValueSource<'top, 'data, D>
+{
+    fn from(value: V) -> Self {
+        ExpandedValueSource::ValueLiteral(value)
+    }
+}
+
+// Converts an Element from the body of a template into an ExpandedValueSource.
+impl<'top, 'data, D: LazyDecoder<'data>> From<&'top Element>
+    for ExpandedValueSource<'top, 'data, D>
+{
+    fn from(element: &'top Element) -> Self {
+        ExpandedValueSource::Template(element)
+    }
+}
+
 /// A value produced by expanding the 'raw' view of the input data.
 #[derive(Clone)]
 pub struct LazyExpandedValue<'top, 'data, D: LazyDecoder<'data>> {
@@ -212,13 +235,27 @@ pub struct LazyExpandedValue<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) source: ExpandedValueSource<'top, 'data, D>,
 }
 
-impl<'top, 'data: 'top, D: LazyDecoder<'data>> Debug for LazyExpandedValue<'top, 'data, D> {
+impl<'top, 'data, D: LazyDecoder<'data>> Debug for LazyExpandedValue<'top, 'data, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.source)
     }
 }
 
 impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedValue<'top, 'data, D> {
+    pub(crate) fn from_value(context: EncodingContext<'top>, value: D::Value) -> Self {
+        Self {
+            context,
+            source: ExpandedValueSource::ValueLiteral(value),
+        }
+    }
+
+    pub(crate) fn from_template(context: EncodingContext<'top>, element: &'top Element) -> Self {
+        Self {
+            context,
+            source: ExpandedValueSource::Template(element),
+        }
+    }
+
     pub fn ion_type(&self) -> IonType {
         use ExpandedValueSource::*;
         match &self.source {
@@ -269,6 +306,38 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedValue<'top, 'data, D>
 
     pub fn context(&self) -> EncodingContext<'top> {
         self.context
+    }
+}
+
+impl<'top, 'data, D: LazyDecoder<'data>> From<LazyExpandedValue<'top, 'data, D>>
+    for LazyValue<'top, 'data, D>
+{
+    fn from(expanded_value: LazyExpandedValue<'top, 'data, D>) -> Self {
+        LazyValue { expanded_value }
+    }
+}
+
+impl<'top, 'data, D: LazyDecoder<'data>> From<LazyExpandedStruct<'top, 'data, D>>
+    for LazyStruct<'top, 'data, D>
+{
+    fn from(expanded_struct: LazyExpandedStruct<'top, 'data, D>) -> Self {
+        LazyStruct { expanded_struct }
+    }
+}
+
+impl<'top, 'data, D: LazyDecoder<'data>> From<LazyExpandedSExp<'top, 'data, D>>
+    for LazySExp<'top, 'data, D>
+{
+    fn from(expanded_sexp: LazyExpandedSExp<'top, 'data, D>) -> Self {
+        LazySExp { expanded_sexp }
+    }
+}
+
+impl<'top, 'data, D: LazyDecoder<'data>> From<LazyExpandedList<'top, 'data, D>>
+    for LazyList<'top, 'data, D>
+{
+    fn from(expanded_list: LazyExpandedList<'top, 'data, D>) -> Self {
+        LazyList { expanded_list }
     }
 }
 

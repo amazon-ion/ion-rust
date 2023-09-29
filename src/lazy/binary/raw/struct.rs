@@ -8,7 +8,9 @@ use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::private::{
     LazyContainerPrivate, LazyRawFieldPrivate, LazyRawValuePrivate,
 };
-use crate::lazy::decoder::{LazyRawField, LazyRawFieldExpr, LazyRawStruct, LazyRawValueExpr};
+use crate::lazy::decoder::{
+    LazyRawField, LazyRawFieldExpr, LazyRawStruct, RawFieldExpr, RawValueExpr,
+};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::{IonResult, RawSymbolTokenRef};
 
@@ -87,9 +89,9 @@ impl<'data> Iterator for RawBinaryStructIterator<'data> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.source.try_parse_next(ImmutableBuffer::peek_field) {
-            Ok(Some(lazy_raw_value)) => Some(Ok(LazyRawFieldExpr::NameValuePair(
+            Ok(Some(lazy_raw_value)) => Some(Ok(RawFieldExpr::NameValuePair(
                 lazy_raw_value.field_name().unwrap(),
-                LazyRawValueExpr::ValueLiteral(lazy_raw_value),
+                RawValueExpr::ValueLiteral(lazy_raw_value),
             ))),
             Ok(None) => None,
             Err(e) => Some(Err(e)),
