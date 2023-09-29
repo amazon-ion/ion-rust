@@ -38,6 +38,9 @@ where
 /// An expression found in value position in either serialized Ion or a template.
 /// If it is a value literal, it is considered a stream with exactly one Ion value.
 /// If it is a macro invocation, it is a stream with zero or more Ion values.
+///
+/// When working with `RawValueExpr`s that always use a given decoder's `Value` and
+/// `MacroInvocation` associated types, consider using [`LazyRawValueExpr`] instead.
 #[derive(Copy, Clone, Debug)]
 pub enum RawValueExpr<V, M> {
     /// A value literal. For example: `5`, `foo`, or `"hello"` in text.
@@ -54,6 +57,9 @@ pub enum RawValueExpr<V, M> {
 
 /// An item found in value position within an Ion data stream written in the encoding represented
 /// by the LazyDecoder `D`. This item may be either a value literal or a macro invocation.
+///
+/// For a version of this type that is not constrained to a particular encoding, see
+/// [`RawValueExpr`].
 pub type LazyRawValueExpr<'data, D> =
     RawValueExpr<<D as LazyDecoder<'data>>::Value, <D as LazyDecoder<'data>>::MacroInvocation>;
 
