@@ -234,7 +234,7 @@ impl Struct {
         self.fields.get_all(field_name)
     }
 
-    pub fn get_index(&self, field_index: usize) -> Option<(&Symbol, &Element)> {
+    pub(crate) fn get_index(&self, field_index: usize) -> Option<(&Symbol, &Element)> {
         self.fields
             .by_index
             .get(field_index)
