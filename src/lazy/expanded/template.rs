@@ -1,14 +1,73 @@
 use crate::lazy::decoder::{LazyDecoder, RawFieldExpr, RawValueExpr};
-use crate::lazy::expanded::macro_evaluator::TransientTdlMacroEvaluator;
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, TemplateEvaluator};
 use crate::lazy::expanded::{EncodingContext, ExpandedValueSource, LazyExpandedValue};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{Element, IonResult, Sequence, Struct, Value};
+#[derive(Debug, Clone)]
+pub enum ParameterEncoding {
+    /// A 'tagged' type is one whose binary encoding begins with an opcode (sometimes called a 'tag'.)
+    Tagged,
+    // TODO: tagless types
+}
+#[derive(Debug, Clone)]
+pub struct Parameter {
+    name: String,
+    encoding: ParameterEncoding,
+    // TODO: Grouping
+}
+
+impl Parameter {
+    pub fn new(name: String, encoding: ParameterEncoding) -> Self {
+        Self { name, encoding }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MacroSignature {
+    parameters: Vec<Parameter>,
+}
+
+impl MacroSignature {
+    fn with_parameter(mut self, name: impl Into<String>, encoding: ParameterEncoding) -> Self {
+        self.parameters.push(Parameter {
+            name: name.into(),
+            encoding,
+        });
+        self
+    }
+
+    fn parameters(&self) -> &[Parameter] {
+        &self.parameters
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TemplateMacro {
+    // TODO: Make the name optional
+    name: String,
+    signature: MacroSignature,
+    // For now, the body is just the materialized tree of the source. Eventually, this will be
+    // a purpose-built type designed for evaluation efficiency.
+    body: Element,
+}
+
+impl TemplateMacro {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn signature(&self) -> &MacroSignature {
+        &self.signature
+    }
+    pub fn body(&self) -> &Element {
+        &self.body
+    }
+}
 
 pub type TdlMacroInvocation<'top> = &'top Element;
 
 pub struct TemplateSequenceIterator<'top, 'data, D: LazyDecoder<'data>> {
     context: EncodingContext<'top>,
-    evaluator: TransientTdlMacroEvaluator<'top, 'data, D>,
+    evaluator: TemplateEvaluator<'top, 'top, 'data, D>,
     // The list element over which we're iterating
     sequence: &'top Sequence,
     index: usize,
@@ -17,7 +76,7 @@ pub struct TemplateSequenceIterator<'top, 'data, D: LazyDecoder<'data>> {
 impl<'top, 'data, D: LazyDecoder<'data>> TemplateSequenceIterator<'top, 'data, D> {
     pub fn new(
         context: EncodingContext<'top>,
-        evaluator: TransientTdlMacroEvaluator<'top, 'data, D>,
+        evaluator: TemplateEvaluator<'top, 'top, 'data, D>,
         sequence: &'top Sequence,
     ) -> Self {
         Self {

@@ -2,10 +2,8 @@ use std::ops::ControlFlow;
 
 use crate::lazy::decoder::{LazyDecoder, LazyRawStruct, RawFieldExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{
-    MacroEvaluator, MacroExpansion, MacroInvocation, TransientEExpEvaluator,
-    TransientTdlMacroEvaluator,
+    MacroEvaluator, TemplateEvaluator, TransientEExpEvaluator,
 };
-use crate::lazy::expanded::stack::Stack;
 use crate::lazy::expanded::template::TemplateStructRawFieldsIterator;
 use crate::lazy::expanded::{
     EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
@@ -81,17 +79,13 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedStruct<'top, 'data, D
         let source = match self.source {
             ExpandedStructSource::ValueLiteral(raw_struct) => {
                 ExpandedStructIteratorSource::ValueLiteral(
-                    MacroEvaluator::<
-                        D,
-                        <D as LazyDecoder<'_>>::MacroInvocation,
-                        bumpalo::collections::Vec<'top, _>,
-                    >::new_transient(self.context),
+                    TransientEExpEvaluator::new(self.context),
                     raw_struct.iter(),
                 )
             }
             ExpandedStructSource::Template(_annotations, struct_) => {
                 ExpandedStructIteratorSource::Template(
-                    TransientTdlMacroEvaluator::new_transient(self.context),
+                    TemplateEvaluator::new(self.context),
                     TemplateStructRawFieldsIterator::new(struct_),
                 )
             }
@@ -142,7 +136,7 @@ pub enum ExpandedStructIteratorSource<'top, 'data, D: LazyDecoder<'data>> {
     // The struct we're iterating over is a value in a TDL template. It may contain macro
     // invocations that need to be evaluated.
     Template(
-        TransientTdlMacroEvaluator<'top, 'data, D>,
+        TemplateEvaluator<'top, 'top, 'data, D>,
         TemplateStructRawFieldsIterator<'top>,
     ),
     // TODO: Constructed
@@ -221,26 +215,18 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> ExpandedStructIterator<'top, 'dat
         // The lifetime of the field name that we return; it needs to live at least as long as
         // `top -- the amount of time that the reader will be parked on this top level value.
         'name: 'top,
-        // The syntactic element that represents a macro invocation in this context. For
-        // example: a `RawTextMacroInvocation` when reading text Ion 1.1 or a `&'top Sequence` when
-        // evaluating a TDL macro.
-        M: MacroInvocation<'data, D> + 'top,
+        E: MacroEvaluator<'top, 'data, D> + 'top,
         // We have an iterator (see `I` below) that gives us raw fields from an input struct.
         // This type, `V`, is the type of value in that raw field. For example: `LazyRawTextValue_1_1`
         // when reading text Ion 1.1, or `&'top Element` when evaluating a TDL macro.
         V: Into<ExpandedValueSource<'top, 'data, D>>,
-        // The type of backing storage used by our macro evaluator. If struct we're iterating over is
-        // at the top level of the data stream, the evaluator will use a `Vec` for its stack to have
-        // storage that can persist across top level values. If this is a nested struct or part of
-        // a template, this will be a transient `BumpVec` with a lifetime tied to the top level.
-        S: Stack<MacroExpansion<'data, D, M>>,
         // An iterator over the struct we're expanding. It may be the fields iterator from a
         // LazyRawStruct, or it could be a `TemplateStructRawFieldsIterator`.
-        I: Iterator<Item = IonResult<RawFieldExpr<'name, V, M>>>,
+        I: Iterator<Item = IonResult<RawFieldExpr<'name, V, E::MacroInvocation>>>,
     >(
         context: EncodingContext<'top>,
         state: &'a mut ExpandedStructIteratorState<'top, 'data, D>,
-        evaluator: &'a mut MacroEvaluator<'data, D, M, S>,
+        evaluator: &'a mut E,
         iter: &'a mut I,
     ) -> Option<IonResult<LazyExpandedField<'top, 'data, D>>> {
         // This method begins by pulling raw field expressions from the source iterator.
@@ -308,14 +294,13 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> ExpandedStructIterator<'top, 'dat
         // These generics are all carried over from the function above.
         'a,
         'name: 'top,
-        M: MacroInvocation<'data, D> + 'top,
+        E: MacroEvaluator<'top, 'data, D> + 'top,
         V: Into<ExpandedValueSource<'top, 'data, D>>,
-        S: Stack<MacroExpansion<'data, D, M>>,
-        I: Iterator<Item = IonResult<RawFieldExpr<'name, V, M>>>,
+        I: Iterator<Item = IonResult<RawFieldExpr<'name, V, E::MacroInvocation>>>,
     >(
         context: EncodingContext<'top>,
         state: &mut ExpandedStructIteratorState<'top, 'data, D>,
-        evaluator: &mut MacroEvaluator<'data, D, M, S>,
+        evaluator: &mut E,
         iter: &mut I,
     ) -> ControlFlow<Option<IonResult<LazyExpandedField<'top, 'data, D>>>> {
         // Because this helper function is always being invoked from within a loop, it uses
@@ -375,13 +360,12 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> ExpandedStructIterator<'top, 'dat
     fn begin_inlining_struct_from_macro<
         'a,
         'name: 'top,
-        M: MacroInvocation<'data, D> + 'top,
-        S: Stack<MacroExpansion<'data, D, M>>,
+        E: MacroEvaluator<'top, 'data, D> + 'top,
     >(
         context: EncodingContext<'top>,
         state: &mut ExpandedStructIteratorState<'top, 'data, D>,
-        evaluator: &mut MacroEvaluator<'data, D, M, S>,
-        invocation: M,
+        evaluator: &mut E,
+        invocation: E::MacroInvocation,
     ) -> IonResult<()> {
         let mut evaluation = evaluator.evaluate(context, invocation)?;
         let expanded_value = match evaluation.next() {

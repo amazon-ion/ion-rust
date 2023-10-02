@@ -1,7 +1,8 @@
 use std::fmt::Debug;
 
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::macro_evaluator::MacroInvocation;
+use crate::lazy::expanded::macro_evaluator::{MacroInvocation, TransientEExpEvaluator};
+use crate::lazy::expanded::EncodingContext;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::text::raw::v1_1::reader::{
@@ -188,6 +189,18 @@ impl<'data> MacroInvocation<'data, TextEncoding_1_1> for RawTextMacroInvocation<
 
     fn arguments(&self) -> Self::ArgumentsIterator {
         RawTextSExpIterator_1_1::new(self.arguments_bytes())
+    }
+
+    type TransientEvaluator<'top> = TransientEExpEvaluator<'top, 'data, TextEncoding_1_1> where 'data: 'top, Self: 'top;
+
+    fn make_transient_evaluator<'top>(
+        context: EncodingContext<'top>,
+    ) -> Self::TransientEvaluator<'top>
+    where
+        Self: 'top,
+        'data: 'top,
+    {
+        TransientEExpEvaluator::new(context)
     }
 }
 

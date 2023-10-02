@@ -3,16 +3,26 @@
 
 use crate::element::iterators::SequenceIterator;
 use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::expanded::macro_evaluator::{ArgumentKind, MacroInvocation, ToArgumentKind};
+use crate::lazy::expanded::macro_evaluator::{
+    ArgumentKind, MacroInvocation, TemplateEvaluator, ToArgumentKind,
+};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 
 use crate::lazy::expanded::{EncodingContext, ExpandedValueSource, LazyExpandedValue};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{Element, IonResult, Sequence, Value};
 
-impl<'top, 'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for &'top Sequence {
-    type ArgumentExpr = &'top Element;
-    type ArgumentsIterator = OkAdapter<SequenceIterator<'top>>;
+impl<'sequence, 'data: 'sequence, D: LazyDecoder<'data>> MacroInvocation<'data, D>
+    for &'sequence Sequence
+where
+    Self: 'sequence,
+{
+    type ArgumentExpr = &'sequence Element;
+    type ArgumentsIterator = OkAdapter<SequenceIterator<'sequence>>;
+
+    type TransientEvaluator<'top> = TemplateEvaluator<'sequence, 'top, 'data, D>    where
+        'data: 'top,
+        Self: 'top;
 
     // TODO: This dummy implementation using `&'top Sequence` will be replaced by a purpose-built
     //       type that validates the invocation before reaching this method. For now, this method can
@@ -34,6 +44,16 @@ impl<'top, 'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for &'top Seq
         let mut children = self.elements();
         let _id = children.next().unwrap();
         OkAdapter { iterator: children }
+    }
+
+    fn make_transient_evaluator<'top>(
+        context: EncodingContext<'top>,
+    ) -> Self::TransientEvaluator<'top>
+    where
+        Self: 'top,
+        'data: 'top,
+    {
+        TemplateEvaluator::new(context)
     }
 }
 
@@ -64,7 +84,7 @@ impl<I: Iterator> Iterator for OkAdapter<I> {
 
 // When an `&Element` appears in macro argument position within a template, this trait implementation
 // recognizes whether the `&Element` represents a value, a variable, or another template invocation.
-impl<'element, 'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, &'element Sequence>
+impl<'element, 'data: 'element, D: LazyDecoder<'data>> ToArgumentKind<'data, D, &'element Sequence>
     for &'element Element
 {
     fn to_arg_expr<'top>(

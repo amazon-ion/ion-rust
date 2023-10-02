@@ -15,7 +15,8 @@ use crate::lazy::decoder::{
     LazyRawValueExpr, RawFieldExpr, RawValueExpr,
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
-use crate::lazy::expanded::macro_evaluator::MacroInvocation;
+use crate::lazy::expanded::macro_evaluator::{MacroInvocation, TransientEExpEvaluator};
+use crate::lazy::expanded::EncodingContext;
 use crate::lazy::never::Never;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
@@ -94,6 +95,18 @@ impl<'data> MacroInvocation<'data, AnyEncoding> for LazyRawAnyMacroInvocation<'d
                 encoding: LazyRawAnyMacroArgsIteratorKind::Text_1_1(m.arguments()),
             },
         }
+    }
+
+    type TransientEvaluator<'top> = TransientEExpEvaluator<'top, 'data, AnyEncoding> where 'data: 'top, Self: 'top;
+
+    fn make_transient_evaluator<'top>(
+        context: EncodingContext<'top>,
+    ) -> Self::TransientEvaluator<'top>
+    where
+        Self: 'top,
+        'data: 'top,
+    {
+        TransientEExpEvaluator::new(context)
     }
 }
 

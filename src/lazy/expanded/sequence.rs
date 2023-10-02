@@ -1,5 +1,7 @@
 use crate::lazy::decoder::{LazyDecoder, LazyRawSequence, LazyRawValueExpr, RawValueExpr};
-use crate::lazy::expanded::macro_evaluator::{TransientEExpEvaluator, TransientTdlMacroEvaluator};
+use crate::lazy::expanded::macro_evaluator::{
+    MacroEvaluator, TemplateEvaluator, TransientEExpEvaluator,
+};
 use crate::lazy::expanded::template::TemplateSequenceIterator;
 use crate::lazy::expanded::{
     EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueSource,
@@ -56,13 +58,13 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedList<'top, 'data, D> {
     pub fn iter(&self) -> ExpandedListIterator<'top, 'data, D> {
         let source = match &self.source {
             ExpandedListSource::ValueLiteral(list) => {
-                let evaluator = TransientEExpEvaluator::new_transient(self.context);
+                let evaluator = TransientEExpEvaluator::new(self.context);
                 ExpandedListIteratorSource::ValueLiteral(evaluator, list.iter())
             }
             ExpandedListSource::Template(_annotations, sequence) => {
                 ExpandedListIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
-                    TransientTdlMacroEvaluator::new_transient(self.context),
+                    TemplateEvaluator::new(self.context),
                     sequence,
                 ))
             }
@@ -134,13 +136,13 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedSExp<'top, 'data, D> {
     pub fn iter(&self) -> ExpandedSExpIterator<'top, 'data, D> {
         let source = match &self.source {
             ExpandedSExpSource::ValueLiteral(sexp) => {
-                let evaluator = TransientEExpEvaluator::new_transient(self.context);
+                let evaluator = TransientEExpEvaluator::new(self.context);
                 ExpandedSExpIteratorSource::ValueLiteral(evaluator, sexp.iter())
             }
             ExpandedSExpSource::Template(_annotations, sequence) => {
                 ExpandedSExpIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
-                    TransientTdlMacroEvaluator::new_transient(self.context),
+                    TemplateEvaluator::new(self.context),
                     sequence,
                 ))
             }
