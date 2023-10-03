@@ -62,6 +62,7 @@ use crate::{
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
 // behind an experimental feature flag. We may constrain access to them in the future as the code
 // stabilizes.
+pub mod compiler;
 pub mod e_expression;
 pub mod macro_evaluator;
 pub mod macro_table;

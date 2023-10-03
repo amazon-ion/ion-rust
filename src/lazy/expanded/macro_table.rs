@@ -59,6 +59,10 @@ impl MacroTable {
         self.macros_by_address.get(id)
     }
 
+    pub fn address_for_name(&self, name: &str) -> Option<usize> {
+        self.macros_by_name.get(name).copied()
+    }
+
     pub fn macro_with_name(&self, name: &str) -> Option<&MacroKind> {
         let id = self.macros_by_name.get(name)?;
         self.macros_by_address.get(*id)

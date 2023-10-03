@@ -1,0 +1,698 @@
+//! Compiles template definition language (TDL) expressions into a form suitable for fast incremental
+//! evaluation.
+use std::ops::Range;
+
+use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::expanded::template::{
+    MacroSignature, Parameter, ParameterEncoding, TemplateBody, TemplateElement,
+    TemplateExpansionStep, TemplateMacro, TemplateValue,
+};
+use crate::lazy::expanded::EncodingContext;
+use crate::lazy::r#struct::LazyStruct;
+use crate::lazy::reader::LazyTextReader_1_1;
+use crate::lazy::sequence::{LazyList, LazySExp};
+use crate::lazy::value::LazyValue;
+use crate::lazy::value_ref::ValueRef;
+use crate::result::IonFailure;
+use crate::symbol_ref::AsSymbolRef;
+use crate::{IonError, IonResult, SymbolRef};
+
+/// Validates a given TDL expression and compiles it into a [`TemplateMacro`] that can be added
+/// to a [`MacroTable`](crate::lazy::expanded::macro_table::MacroTable).
+pub struct TemplateCompiler {}
+
+impl TemplateCompiler {
+    /// Takes a TDL expression in the form:
+    /// ```ion_1_1
+    ///     (macro name (param1 param2 [...] paramN) body)
+    /// ```
+    /// and compiles it into a [`TemplateMacro`].
+    ///
+    /// The `TemplateMacro` stores a sequence of `TemplateExpansionStep`s that need to be evaluated
+    /// in turn. Each step is either a value literal, a reference to one of the parameters (that is:
+    /// a variable), or a macro invocation.
+    ///
+    /// Expressions that contain other expressions (i.e. containers and macro invocations) each
+    /// store the number of subexpressions that they contain, allowing a reader to skip the entire
+    /// parent expression as desired. For example, in this macro:
+    ///
+    /// ```ion_1_1
+    /// (macro foo (x y z)
+    ///     [
+    ///         1,
+    ///         (values 2 3)
+    ///     ]
+    /// )
+    /// ```
+    /// The step corresponding to `(values 2 3)` would store a `2`, indicating that to skip the
+    /// macro invocation altogether one would need to skip the next two expansion steps. The outer
+    /// list (`[1, (values 2 3)]`) would store a `4`, indicating that it contains the `1`, a macro
+    /// expansion `values`, and the arguments that belong to `values`.
+    ///
+    /// The compiler recognizes the `(quote expr1 expr2 [...] exprN)` form, adding each subexpression
+    /// to the template without interpretation.
+    fn compile_from_text(context: EncodingContext, expression: &str) -> IonResult<TemplateMacro> {
+        // TODO: This is a rudimentary implementation that panics instead of performing thorough
+        //       validation. Where it does surface errors, the messages are too terse.
+        let mut reader = LazyTextReader_1_1::new(expression.as_bytes())?;
+        let invocation = reader.expect_next()?.read()?.expect_sexp()?;
+        let mut values = invocation.iter();
+        // TODO: Enforce 'identifier' syntax subset of symbol
+        let id = values.next().expect("macro ID")?.read()?.expect_symbol()?;
+        if id != "macro" {
+            return IonResult::decoding_error(
+                "macro compilation expects a sexp starting with 'macro'",
+            );
+        }
+        let template_name = values
+            .next()
+            .expect("template name")?
+            .read()?
+            .expect_symbol()?;
+        let params = values
+            .next()
+            .expect("parameters sexp")?
+            .read()?
+            .expect_sexp()?;
+
+        let mut compiled_params = Vec::new();
+        for param_result in &params {
+            let compiled_param = Parameter::new(
+                param_result?
+                    .read()?
+                    .expect_symbol()?
+                    .text()
+                    .unwrap()
+                    .to_string(),
+                ParameterEncoding::Tagged,
+            );
+            compiled_params.push(compiled_param);
+        }
+        let signature = MacroSignature::new(compiled_params);
+        let body = values.next().expect("template body")?;
+        let mut compiled_body = TemplateBody {
+            expansion_steps: Vec::new(),
+            annotations_storage: Vec::new(),
+        };
+        Self::compile_value(
+            context,
+            &signature,
+            &mut compiled_body,
+            /*is_quoted=*/ false,
+            body,
+        )?;
+        Ok(TemplateMacro {
+            name: template_name.to_owned(),
+            signature,
+            body: compiled_body,
+        })
+    }
+
+    /// Recursively visits all of the expressions in `lazy_value` and adds their corresponding
+    /// [`TemplateExpansionStep`] sequences to the `TemplateBody`.
+    ///
+    /// If `is_quoted` is true, nested symbols and s-expressions will not be interpreted.
+    fn compile_value<'top, 'data, D: LazyDecoder<'data>>(
+        context: EncodingContext<'top>,
+        signature: &MacroSignature,
+        definition: &mut TemplateBody,
+        is_quoted: bool,
+        lazy_value: LazyValue<'top, 'data, D>,
+    ) -> IonResult<()> {
+        let annotations_range_start = definition.annotations_storage.len();
+        for annotation_result in lazy_value.annotations() {
+            let annotation = annotation_result?;
+            definition.annotations_storage.push(annotation.to_owned());
+        }
+        let annotations_range_end = definition.annotations_storage.len();
+        let annotations_range = annotations_range_start..annotations_range_end;
+
+        let value = match lazy_value.read()? {
+            ValueRef::Null(ion_type) => TemplateValue::Null(ion_type),
+            ValueRef::Bool(b) => TemplateValue::Bool(b),
+            ValueRef::Int(i) => TemplateValue::Int(i),
+            ValueRef::Float(f) => TemplateValue::Float(f),
+            ValueRef::Decimal(d) => TemplateValue::Decimal(d),
+            ValueRef::Timestamp(t) => TemplateValue::Timestamp(t),
+            ValueRef::String(s) => TemplateValue::String(s.to_owned()),
+            ValueRef::Symbol(s) if is_quoted => TemplateValue::Symbol(s.to_owned()),
+            ValueRef::Symbol(s) => {
+                return Self::compile_variable_reference(
+                    context,
+                    signature,
+                    definition,
+                    annotations_range,
+                    s,
+                )
+            }
+            ValueRef::Blob(b) => TemplateValue::Blob(b.to_owned()),
+            ValueRef::Clob(c) => TemplateValue::Clob(c.to_owned()),
+            ValueRef::SExp(s) => {
+                return Self::compile_sexp(
+                    context,
+                    signature,
+                    definition,
+                    is_quoted,
+                    annotations_range.clone(),
+                    s,
+                );
+            }
+            ValueRef::List(l) => {
+                return Self::compile_list(
+                    context,
+                    signature,
+                    definition,
+                    is_quoted,
+                    annotations_range.clone(),
+                    l,
+                )
+            }
+            ValueRef::Struct(s) => {
+                return Self::compile_struct(
+                    context,
+                    signature,
+                    definition,
+                    is_quoted,
+                    annotations_range.clone(),
+                    s,
+                )
+            }
+        };
+        definition
+            .push_element(TemplateElement::with_value(value).with_annotations(annotations_range));
+        Ok(())
+    }
+
+    /// Helper method for visiting all of the child expressions in a list.
+    fn compile_list<'top, 'data, D: LazyDecoder<'data>>(
+        context: EncodingContext<'top>,
+        signature: &MacroSignature,
+        definition: &mut TemplateBody,
+        is_quoted: bool,
+        annotations_range: Range<usize>,
+        lazy_list: LazyList<'top, 'data, D>,
+    ) -> IonResult<()> {
+        let list_element_index = definition.expansion_steps.len();
+        // Assume the list contains zero expressions to start, we'll update this at the end
+        let list_element =
+            TemplateElement::with_value(TemplateValue::List(0)).with_annotations(annotations_range);
+        definition.push_element(list_element);
+        let list_children_start = definition.expansion_steps.len();
+        for value_result in &lazy_list {
+            let value = value_result?;
+            Self::compile_value(context, signature, definition, is_quoted, value)?;
+        }
+        let list_children_end = definition.expansion_steps.len();
+        let number_of_children = list_children_end - list_children_start;
+        // Update the list entry to reflect the number of child expressions it contains
+        match &mut definition.expansion_steps.get_mut(list_element_index) {
+            Some(TemplateExpansionStep::Element(e)) => {
+                let _ = std::mem::replace(&mut e.value, TemplateValue::List(number_of_children));
+            }
+            _ => unreachable!("list element was unexpectedly overwritten"),
+        }
+        Ok(())
+    }
+
+    /// Helper method for visiting all of the child expressions in a sexp.
+    fn compile_sexp<'top, 'data, D: LazyDecoder<'data>>(
+        context: EncodingContext<'top>,
+        signature: &MacroSignature,
+        definition: &mut TemplateBody,
+        is_quoted: bool,
+        annotations_range: Range<usize>,
+        lazy_sexp: LazySExp<'top, 'data, D>,
+    ) -> IonResult<()> {
+        if is_quoted {
+            // If `is_quoted` is true, this s-expression is nested somewhere inside a `(quote ...)`
+            // macro invocation. The sexp and its child expressions can be added to the TemplateBody
+            // without interpretation.
+            Self::compile_quoted_sexp(context, signature, definition, annotations_range, lazy_sexp)
+        } else {
+            // If `is_quoted` is false, the sexp is a macro invocation.
+            // First, verify that it doesn't have annotations.
+            if !annotations_range.is_empty() {
+                return IonResult::decoding_error("found annotations on a macro invocation");
+            }
+            // Peek at the first expression in the sexp. If it's the symbol `quoted`...
+            if Self::sexp_is_quote_macro(&lazy_sexp)? {
+                // ...then we set `is_quoted` to true and compile all of its child expressions.
+                Self::compile_quoted_elements(context, signature, definition, lazy_sexp)
+            } else {
+                // Otherwise, add the macro invocation to the template body.
+                Self::compile_macro(context, signature, definition, lazy_sexp)
+            }
+        }?;
+
+        Ok(())
+    }
+
+    /// Adds a `lazy_sexp` that has been determined to represent a macro invocation to the
+    /// TemplateBody.
+    fn compile_macro<'top, 'data, D: LazyDecoder<'data>>(
+        context: EncodingContext<'top>,
+        signature: &MacroSignature,
+        definition: &mut TemplateBody,
+        lazy_sexp: LazySExp<'top, 'data, D>,
+    ) -> IonResult<()> {
+        let mut expressions = lazy_sexp.iter();
+        let macro_address = Self::address_from_id_expr(context, expressions.next())?;
+        let macro_step_index = definition.expansion_steps.len();
+        // Assume the macro contains zero argument expressions to start, we'll update
+        // this at the end of the function.
+        definition.push_macro_invocation(macro_address, 0);
+        let arguments_start = definition.expansion_steps.len();
+        for argument_result in expressions {
+            let argument = argument_result?;
+            Self::compile_value(
+                context, signature, definition, /*is_quoted=*/ false, argument,
+            )?;
+        }
+        let arguments_end = definition.expansion_steps.len();
+        let number_of_arguments = arguments_end - arguments_start;
+        // Update the macro step to reflect the macro's address and number of child expressions it
+        // contains
+        match &mut definition.expansion_steps.get_mut(macro_step_index) {
+            Some(TemplateExpansionStep::MacroInvocation(_address, num_args)) => {
+                *num_args = number_of_arguments;
+            }
+            _ => unreachable!("sexp element was unexpectedly overwritten"),
+        }
+        Ok(())
+    }
+
+    /// Given a `LazyValue` that represents a macro ID (name or address), attempt to resolve the
+    /// ID to a macro address.
+    fn address_from_id_expr<'top, 'data, D: LazyDecoder<'data>>(
+        context: EncodingContext<'top>,
+        id_expr: Option<IonResult<LazyValue<'top, 'data, D>>>,
+    ) -> IonResult<usize> {
+        match id_expr {
+            None => IonResult::decoding_error("found an empty s-expression in an unquoted context"),
+            Some(Err(e)) => Err(e),
+            Some(Ok(value)) => match value.read()? {
+                ValueRef::Symbol(s) => {
+                    if let Some(name) = s.text() {
+                        Ok(context.macro_table.address_for_name(name).ok_or_else(|| {
+                            IonError::decoding_error(format!("unrecognized macro name: {name}"))
+                        })?)
+                    } else {
+                        IonResult::decoding_error("macro names must be an identifier")
+                    }
+                }
+                ValueRef::Int(int) => usize::try_from(int.expect_i64()?).map_err(|_| {
+                    IonError::decoding_error(format!("found an invalid macro address: {int}"))
+                }),
+                other => {
+                    return IonResult::decoding_error(format!(
+                        "expected a macro name (symbol) or address (int), but found: {other:?}"
+                    ))
+                }
+            },
+        }
+    }
+
+    /// Visits all of the child expressions of `lazy_sexp`, adding them to the `TemplateBody`
+    /// without interpretation. `lazy_sexp` itself is the `quote` macro, and does not get added
+    /// to the template body as there is nothing more for it to do at runtime.
+    fn compile_quoted_elements<'top, 'data, D: LazyDecoder<'data>>(
+        context: EncodingContext<'top>,
+        signature: &MacroSignature,
+        definition: &mut TemplateBody,
+        lazy_sexp: LazySExp<'top, 'data, D>,
+    ) -> IonResult<()> {
+        let mut elements = lazy_sexp.iter();
+        // If this method is called, we've already peeked at the first element to confirm that
+        // it's the symbol `quote`. We can discard it.
+        let _ = elements.next().unwrap()?;
+        for element_result in elements {
+            Self::compile_value(
+                context,
+                signature,
+                definition,
+                /*is_quoted=*/ true,
+                element_result?,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Adds `lazy_sexp` to the template body without interpretation.
+    fn compile_quoted_sexp<'top, 'data, D: LazyDecoder<'data>>(
+        context: EncodingContext<'top>,
+        signature: &MacroSignature,
+        definition: &mut TemplateBody,
+        annotations_range: Range<usize>,
+        lazy_sexp: LazySExp<'top, 'data, D>,
+    ) -> IonResult<()> {
+        let sexp_element_index = definition.expansion_steps.len();
+        // Assume the sexp contains zero expressions to start, we'll update this at the end
+        let sexp_element =
+            TemplateElement::with_value(TemplateValue::SExp(0)).with_annotations(annotations_range);
+        definition.push_element(sexp_element);
+        let sexp_children_start = definition.expansion_steps.len();
+        for value_result in &lazy_sexp {
+            let value = value_result?;
+            Self::compile_value(
+                context, signature, definition, /*is_quoted=*/ true, value,
+            )?;
+        }
+        let sexp_children_end = definition.expansion_steps.len();
+        let number_of_children = sexp_children_end - sexp_children_start;
+        // Update the sexp entry to reflect the number of child expressions it contains
+        match &mut definition.expansion_steps.get_mut(sexp_element_index) {
+            Some(TemplateExpansionStep::Element(e)) => {
+                let _ = std::mem::replace(&mut e.value, TemplateValue::SExp(number_of_children));
+            }
+            _ => unreachable!("sexp element was unexpectedly overwritten"),
+        }
+        Ok(())
+    }
+
+    /// Returns `Ok(true)` if the first child value in the `LazySexp` is the symbol `quote`.
+    /// This method should only be called in an unquoted context.
+    fn sexp_is_quote_macro<'top, 'data, D: LazyDecoder<'data>>(
+        sexp: &LazySExp<'top, 'data, D>,
+    ) -> IonResult<bool> {
+        let first_expr = sexp.iter().next();
+        match first_expr {
+            // If the sexp is empty and we're not in a quoted context, that's an error.
+            None => IonResult::decoding_error("found an empty s-expression in an unquoted context"),
+            Some(Err(e)) => return Err(e),
+            Some(Ok(lazy_value)) => {
+                let value = lazy_value.read()?;
+                Ok(value == ValueRef::Symbol("quote".as_symbol_ref()))
+            }
+        }
+    }
+
+    /// Recursively adds all of the expressions in `lazy_struct` to the `TemplateBody`.
+    fn compile_struct<'top, 'data, D: LazyDecoder<'data>>(
+        context: EncodingContext<'top>,
+        signature: &MacroSignature,
+        definition: &mut TemplateBody,
+        is_quoted: bool,
+        annotations_range: Range<usize>,
+        lazy_struct: LazyStruct<'top, 'data, D>,
+    ) -> IonResult<()> {
+        let struct_element_index = definition.expansion_steps.len();
+        // Assume the struct contains zero expressions to start, we'll update this at the end
+        let struct_element = TemplateElement::with_value(TemplateValue::Struct(0))
+            .with_annotations(annotations_range);
+        definition.push_element(struct_element);
+        let struct_start = definition.expansion_steps.len();
+        for field_result in &lazy_struct {
+            let field = field_result?;
+            let name = field.name()?.to_owned();
+            let name_element = TemplateElement::with_value(TemplateValue::Symbol(name));
+            definition.push_element(name_element);
+            Self::compile_value(context, signature, definition, is_quoted, field.value())?;
+        }
+        let struct_end = definition.expansion_steps.len();
+        // NOTE: this is the number of *children*, not the number of *fields*. A field value
+        // may be a container with many children of its own.
+        let number_of_children = struct_end - struct_start;
+        match &mut definition.expansion_steps.get_mut(struct_element_index) {
+            Some(TemplateExpansionStep::Element(e)) => {
+                let _ = std::mem::replace(&mut e.value, TemplateValue::Struct(number_of_children));
+            }
+            _ => unreachable!("struct element was unexpectedly overwritten"),
+        }
+        Ok(())
+    }
+
+    /// Resolves `variable` to a parameter in the macro signature and adds a corresponding
+    /// `TemplateExpansionStep` to the `TemplateBody`.
+    fn compile_variable_reference(
+        _context: EncodingContext,
+        signature: &MacroSignature,
+        definition: &mut TemplateBody,
+        annotations_range: Range<usize>,
+        variable: SymbolRef,
+    ) -> IonResult<()> {
+        let name = variable.text().ok_or_else(|| {
+            IonError::decoding_error("found variable whose name is unknown text ($0)")
+        })?;
+        if !annotations_range.is_empty() {
+            return IonResult::decoding_error(format!(
+                "found a variable reference '{name}' with annotations"
+            ));
+        }
+        let signature_index = signature
+            .parameters()
+            .iter()
+            .position(|p| p.name() == name)
+            .ok_or_else(|| {
+                IonError::decoding_error(format!("variable '{name}' is not recognized"))
+            })?;
+        definition.push_variable(name, signature_index);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lazy::expanded::compiler::TemplateCompiler;
+    use crate::lazy::expanded::macro_table::MacroTable;
+    use crate::lazy::expanded::template::{TemplateExpansionStep, TemplateMacro, TemplateValue};
+    use crate::lazy::expanded::EncodingContext;
+    use crate::{Int, IntoAnnotations, IonResult, Symbol, SymbolTable};
+
+    // This function only looks at the value portion of the TemplateElement. To compare annotations,
+    // see the `expect_annotations` method.
+    fn expect_value(
+        definition: &TemplateMacro,
+        index: usize,
+        expected: TemplateValue,
+    ) -> IonResult<()> {
+        let actual = definition
+            .body()
+            .expansion_steps()
+            .get(index)
+            .expect("no such expansion step")
+            .expect_element()
+            .expect(&format!("expected value {expected:?}"));
+        assert_eq!(actual.value(), &expected);
+        Ok(())
+    }
+
+    fn expect_macro(
+        definition: &TemplateMacro,
+        index: usize,
+        expected_address: usize,
+        expected_num_arguments: usize,
+    ) -> IonResult<()> {
+        expect_step(
+            definition,
+            index,
+            TemplateExpansionStep::MacroInvocation(expected_address, expected_num_arguments),
+        )
+    }
+
+    fn expect_variable(
+        definition: &TemplateMacro,
+        index: usize,
+        expected_name: &str,
+        expected_signature_index: usize,
+    ) -> IonResult<()> {
+        expect_step(
+            definition,
+            index,
+            TemplateExpansionStep::Variable(expected_name.to_owned(), expected_signature_index),
+        )
+    }
+
+    fn expect_step(
+        definition: &TemplateMacro,
+        index: usize,
+        expected: TemplateExpansionStep,
+    ) -> IonResult<()> {
+        let step = definition
+            .body()
+            .expansion_steps()
+            .get(index)
+            .expect("no such expansion step");
+        assert_eq!(step, &expected);
+        Ok(())
+    }
+
+    fn expect_annotations<A: IntoAnnotations>(
+        definition: &TemplateMacro,
+        index: usize,
+        expected: A,
+    ) {
+        let element = definition
+            .body
+            .expansion_steps()
+            .get(index)
+            .expect("requested index does not exist")
+            .expect_element()
+            .unwrap();
+        let actual_annotations = definition
+            .body
+            .annotations_storage()
+            .get(element.annotations_range.start as usize..element.annotations_range.end as usize)
+            .expect("invalid annotations range")
+            .into_annotations();
+        let expected_annotations = expected.into_annotations();
+        assert_eq!(actual_annotations, expected_annotations);
+    }
+
+    struct TestResources {
+        macro_table: MacroTable,
+        symbol_table: SymbolTable,
+        allocator: bumpalo::Bump,
+    }
+
+    impl TestResources {
+        fn new() -> Self {
+            Self {
+                macro_table: MacroTable::new(),
+                symbol_table: SymbolTable::new(),
+                allocator: bumpalo::Bump::new(),
+            }
+        }
+
+        fn context(&self) -> EncodingContext {
+            EncodingContext {
+                macro_table: &self.macro_table,
+                symbol_table: &self.symbol_table,
+                allocator: &self.allocator,
+            }
+        }
+    }
+
+    #[test]
+    fn single_scalar() -> IonResult<()> {
+        let resources = TestResources::new();
+        let context = resources.context();
+
+        let expression = "(macro foo () 42)";
+
+        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        assert_eq!(template.name(), "foo");
+        assert_eq!(template.signature().parameters().len(), 0);
+        expect_value(&template, 0, TemplateValue::Int(42.into()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn single_list() -> IonResult<()> {
+        let resources = TestResources::new();
+        let context = resources.context();
+
+        let expression = "(macro foo () [1, 2, 3])";
+
+        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        assert_eq!(template.name(), "foo");
+        assert_eq!(template.signature().parameters().len(), 0);
+        expect_value(&template, 0, TemplateValue::List(3))?;
+        expect_value(&template, 1, TemplateValue::Int(1.into()))?;
+        expect_value(&template, 2, TemplateValue::Int(2.into()))?;
+        expect_value(&template, 3, TemplateValue::Int(3.into()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn multiple_scalar() -> IonResult<()> {
+        let resources = TestResources::new();
+        let context = resources.context();
+
+        let expression = r#"(macro foo () (values 42 "hello" false))"#;
+
+        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        assert_eq!(template.name(), "foo");
+        assert_eq!(template.signature().parameters().len(), 0);
+        expect_macro(
+            &template,
+            0,
+            context.macro_table.address_for_name("values").unwrap(),
+            3,
+        )?;
+        expect_value(&template, 1, TemplateValue::Int(42.into()))?;
+        expect_value(&template, 2, TemplateValue::String("hello".into()))?;
+        expect_value(&template, 3, TemplateValue::Bool(false))?;
+        Ok(())
+    }
+
+    #[test]
+    fn try_it() -> IonResult<()> {
+        let resources = TestResources::new();
+        let context = resources.context();
+
+        let expression = "(macro foo (x y z) [100, [200, a::b::300], x, {y: [true, false, z]}])";
+
+        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        expect_value(&template, 0, TemplateValue::List(11))?;
+        expect_value(&template, 1, TemplateValue::Int(Int::from(100)))?;
+        expect_value(&template, 2, TemplateValue::List(2))?;
+        expect_value(&template, 3, TemplateValue::Int(Int::from(200)))?;
+        expect_value(&template, 4, TemplateValue::Int(Int::from(300)))?;
+        expect_annotations(&template, 4, ["a", "b"]);
+        expect_variable(&template, 5, "x", 0)?;
+        expect_value(&template, 6, TemplateValue::Struct(5))?;
+        expect_value(&template, 7, TemplateValue::Symbol(Symbol::from("y")))?;
+        expect_value(&template, 8, TemplateValue::List(3))?;
+        expect_value(&template, 9, TemplateValue::Bool(true))?;
+        expect_value(&template, 10, TemplateValue::Bool(false))?;
+        expect_variable(&template, 11, "z", 2)?;
+        Ok(())
+    }
+
+    #[test]
+    fn identity_macro() -> IonResult<()> {
+        let resources = TestResources::new();
+        let context = resources.context();
+
+        let expression = "(macro identity (x) x)";
+
+        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        assert_eq!(template.name(), "identity");
+        assert_eq!(template.signature().parameters().len(), 1);
+        expect_variable(&template, 0, "x", 0)?;
+        Ok(())
+    }
+
+    #[test]
+    fn quote() -> IonResult<()> {
+        let resources = TestResources::new();
+        let context = resources.context();
+
+        let expression = r#"
+            (macro foo (x)
+                // Outer 'values' call allows multiple expressions in the body 
+                (values
+                    // This `values` is a macro call that has a single argument: the variable `x`
+                    (values x)
+                    // This `quote` call causes the inner `(values x)` to be an uninterpreted s-expression.
+                    (quote 
+                        (values x))))
+        "#;
+
+        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        assert_eq!(template.name(), "foo");
+        assert_eq!(template.signature().parameters().len(), 1);
+        // Outer `values`
+        expect_macro(
+            &template,
+            0,
+            context.macro_table.address_for_name("values").unwrap(),
+            5,
+        )?;
+        // First argument: `(values x)`
+        expect_macro(
+            &template,
+            1,
+            context.macro_table.address_for_name("values").unwrap(),
+            1,
+        )?;
+        expect_variable(&template, 2, "x", 0)?;
+        // Second argument: `(quote (values x))`
+        // Notice that the `quote` is not part of the compiled output, only its arguments
+        expect_value(&template, 3, TemplateValue::SExp(2))?;
+        expect_value(&template, 4, TemplateValue::Symbol("values".into()))?;
+        expect_value(&template, 5, TemplateValue::Symbol("x".into()))?;
+
+        Ok(())
+    }
+}
