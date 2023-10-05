@@ -32,7 +32,7 @@ use crate::lazy::text::matched::{
 };
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
-use crate::lazy::text::raw::r#struct::LazyRawTextField_1_0;
+use crate::lazy::text::raw::r#struct::{LazyRawTextField_1_0, RawTextStructIterator_1_0};
 use crate::lazy::text::raw::sequence::{RawTextListIterator_1_0, RawTextSExpIterator_1_0};
 use crate::lazy::text::raw::v1_1::reader::{
     EncodedTextMacroInvocation, MacroIdRef, RawTextListIterator_1_1, RawTextMacroInvocation,
@@ -117,6 +117,7 @@ pub(crate) struct TextBufferView<'a> {
     //                          offset: 6
     data: &'a [u8],
     offset: usize,
+    // encoding: AnyTextEncoding,
 }
 
 impl<'data> TextBufferView<'data> {
@@ -334,15 +335,31 @@ impl<'data> TextBufferView<'data> {
     pub fn match_sexp_value_1_1(
         self,
     ) -> IonParseResult<'data, Option<LazyRawValueExpr<'data, TextEncoding_1_1>>> {
-        alt((
-            whitespace_and_then(
-                Self::match_e_expression
-                    .map(|matched| Some(RawValueExpr::MacroInvocation(matched))),
-            ),
-            Self::match_sexp_value.map(|maybe_matched| {
+        whitespace_and_then(alt((
+            Self::match_e_expression.map(|matched| Some(RawValueExpr::MacroInvocation(matched))),
+            value(None, tag(")")),
+            pair(
+                opt(Self::match_annotations),
+                // We need the s-expression parser to recognize the input `--3` as the operator `--` and the
+                // int `3` while recognizing the input `-3` as the int `-3`. If `match_operator` runs before
+                // `match_value`, it will consume the sign (`-`) of negative number values, treating
+                // `-3` as an operator (`-`) and an int (`3`). Thus, we run `match_value` first.
+                whitespace_and_then(alt((Self::match_value_1_1, Self::match_operator))),
+            )
+            .map(|(maybe_annotations, mut value)| {
+                if let Some(annotations) = maybe_annotations {
+                    value.encoded_value = value
+                        .encoded_value
+                        .with_annotations_sequence(annotations.offset(), annotations.len());
+                    // Rewind the value's input to include the annotations sequence.
+                    value.input = self.slice_to_end(annotations.offset() - self.offset());
+                }
+                Some(value)
+            })
+            .map(|maybe_matched| {
                 maybe_matched.map(|matched| RawValueExpr::ValueLiteral(matched.into()))
             }),
-        ))
+        )))
         .parse(self)
     }
 
@@ -790,7 +807,7 @@ impl<'data> TextBufferView<'data> {
                 },
             ),
             map(
-                match_and_length(Self::match_struct),
+                match_and_length(Self::match_struct_1_1),
                 |(matched_struct, length)| {
                     EncodedTextValue::new(MatchedValue::Struct, matched_struct.offset(), length)
                 },
@@ -931,18 +948,22 @@ impl<'data> TextBufferView<'data> {
     pub fn match_list_value_1_1(
         self,
     ) -> IonParseResult<'data, Option<LazyRawValueExpr<'data, TextEncoding_1_1>>> {
-        alt((
-            whitespace_and_then(
-                terminated(
-                    Self::match_e_expression,
-                    Self::match_delimiter_after_list_value,
-                )
-                .map(|matched| Some(RawValueExpr::MacroInvocation(matched))),
-            ),
-            Self::match_list_value.map(|maybe_matched| {
+        whitespace_and_then(alt((
+            terminated(
+                Self::match_e_expression,
+                Self::match_delimiter_after_list_value,
+            )
+            .map(|matched| Some(RawValueExpr::MacroInvocation(matched))),
+            value(None, tag("]")),
+            terminated(
+                Self::match_annotated_value_1_1.map(Some),
+                // ...followed by a comma or end-of-list
+                Self::match_delimiter_after_list_value,
+            )
+            .map(|maybe_matched| {
                 maybe_matched.map(|matched| RawValueExpr::ValueLiteral(matched.into()))
             }),
-        ))
+        )))
         .parse(self)
     }
 
@@ -998,7 +1019,7 @@ impl<'data> TextBufferView<'data> {
         }
         // Scan ahead to find the end of this struct.
         let struct_body = self.slice_to_end(1);
-        let struct_iter = RawTextStructIterator_1_1::new(struct_body);
+        let struct_iter = RawTextStructIterator_1_0::new(struct_body);
         let span = match struct_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
@@ -1009,6 +1030,37 @@ impl<'data> TextBufferView<'data> {
                 return {
                     let error = InvalidInputError::new(self)
                         .with_label("matching a struct")
+                        .with_description(format!("{}", e));
+                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                }
+            }
+        };
+
+        // For the matched span, we use `self` again to include the opening `{`
+        let matched = self.slice(0, span.len());
+        let remaining = self.slice_to_end(span.len());
+        Ok((remaining, matched))
+    }
+
+    pub fn match_struct_1_1(self) -> IonMatchResult<'data> {
+        // If it doesn't start with {, it isn't a struct.
+        if self.bytes().first() != Some(&b'{') {
+            let error = InvalidInputError::new(self);
+            return Err(nom::Err::Error(IonParseError::Invalid(error)));
+        }
+        // Scan ahead to find the end of this struct.
+        let struct_body = self.slice_to_end(1);
+        let struct_iter = RawTextStructIterator_1_1::new(struct_body);
+        let span = match struct_iter.find_span() {
+            Ok(span) => span,
+            // If the complete container isn't available, return an incomplete.
+            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            // If invalid syntax was encountered, return a failure to prevent nom from trying
+            // other parser kinds.
+            Err(e) => {
+                return {
+                    let error = InvalidInputError::new(self)
+                        .with_label("matching a v1.1 struct")
                         .with_description(format!("{}", e));
                     Err(nom::Err::Failure(IonParseError::Invalid(error)))
                 }
@@ -2276,8 +2328,9 @@ mod tests {
             P: Parser<TextBufferView<'data>, O, IonParseError<'data>>,
         {
             let result = self.try_match(parser);
-            let (_remaining, match_length) = result
-                .unwrap_or_else(|_| panic!("Unexpected parse fail for input '{}'", self.input));
+            let (_remaining, match_length) = result.unwrap_or_else(|e| {
+                panic!("Unexpected parse fail for input '{}'\n{e}", self.input)
+            });
             // Inputs have a trailing newline and `0` that should _not_ be part of the match
             assert_eq!(
                 match_length,
@@ -2709,6 +2762,56 @@ mod tests {
             mismatch_sexp(input);
         }
     }
+    #[test]
+    fn test_match_sexp_1_1() {
+        fn match_sexp(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_sexp_1_1));
+        }
+        fn mismatch_sexp(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_sexp_1_1));
+        }
+        let good_inputs = &[
+            "()",
+            "(1)",
+            "(1 2)",
+            "(a)",
+            "(a b)",
+            "(a++)",
+            "(++a)",
+            "(a+=b)",
+            "(())",
+            "((()))",
+            "(1 (2 (3 4) 5) 6)",
+            "(1 (:foo 2 3))",
+        ];
+        for input in good_inputs {
+            match_sexp(input);
+        }
+
+        let bad_inputs = &["foo", "1", "(", "(1 2 (3 4 5)"];
+        for input in bad_inputs {
+            mismatch_sexp(input);
+        }
+    }
+
+    #[test]
+    fn test_match_list_1_1() {
+        fn match_list(input: &str) {
+            MatchTest::new(input).expect_match(match_length(TextBufferView::match_list_1_1));
+        }
+        fn mismatch_list(input: &str) {
+            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_list_1_1));
+        }
+        let good_inputs = &["[]", "[1]", "[1, 2]", "[[]]", "[([])]", "[1, (:foo 2 3)]"];
+        for input in good_inputs {
+            match_list(input);
+        }
+
+        let bad_inputs = &["foo", "1", "[", "[1, 2, [3, 4]"];
+        for input in bad_inputs {
+            mismatch_list(input);
+        }
+    }
 
     #[test]
     fn test_match_macro_invocation() {
@@ -2737,6 +2840,31 @@ mod tests {
         for input in bad_inputs {
             mismatch_macro_invocation(input);
         }
+    }
+
+    use rstest::rstest;
+    #[rstest]
+    #[case::simple_e_exp("(:foo)")]
+    #[case::e_exp_in_e_exp("(:foo (:bar 1))")]
+    #[case::e_exp_in_list("[a, b, (:foo 1)]")]
+    #[case::e_exp_in_sexp("(a (:foo 1) c)")]
+    #[case::e_exp_in_struct("{(:foo)}")]
+    // #[case::e_exp_in_struct_with_space_before("{ (:foo)}")]
+    #[case::e_exp_in_struct_with_space_after("{(:foo) }")]
+    // #[case::e_exp_in_struct_field("{a:(:foo)}")]
+    // #[case::e_exp_in_struct_field_with_comma("{a:(:foo),}")]
+    #[case::e_exp_in_struct_field_with_comma_and_second_field("{a:(:foo), b:2}")]
+    // #[case::e_exp_in_struct_field_with_space_before("{ a:(:foo)}")]
+    // #[case::e_exp_in_struct_field_with_space_after("{a:(:foo) }")]
+    #[case::e_exp_in_list_in_struct_field("{ a: [(:foo)] }")]
+    #[case::e_exp_in_sexp_in_struct_field("{ a: ((:foo)) }")]
+    #[case::e_exp_in_sexp_in_list("[a, b, ((:foo 1))]")]
+    #[case::e_exp_in_sexp_in_sexp("(a ((:foo 1)) c)")]
+    #[case::e_exp_in_list_in_list("[a, b, [(:foo 1)]]")]
+    #[case::e_exp_in_list_in_sexp("(a [(:foo 1)] c)")]
+    // TODO: Uncomment the above cases when fixing https://github.com/amazon-ion/ion-rust/issues/653
+    fn test_match_macro_invocation_in_context(#[case] input: &str) {
+        MatchTest::new(input).expect_match(match_length(TextBufferView::match_top_level_item_1_1));
     }
 
     #[test]
