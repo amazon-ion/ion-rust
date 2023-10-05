@@ -117,7 +117,6 @@ pub(crate) struct TextBufferView<'a> {
     //                          offset: 6
     data: &'a [u8],
     offset: usize,
-    // encoding: AnyTextEncoding,
 }
 
 impl<'data> TextBufferView<'data> {
