@@ -21,9 +21,8 @@ impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for Never {
     type ArgumentExpr = Never;
     // This uses a Box<dyn> to avoid defining yet another placeholder type.
     type ArgumentsIterator = Box<dyn Iterator<Item = IonResult<Never>>>;
-    type TransientEvaluator<'top> = Never     where
-        'data: 'top,
-        Self: 'top;
+
+    type TransientEvaluator<'context> = Never  where Self: 'context, 'data: 'context;
 
     fn id(&self) -> MacroIdRef<'_> {
         unreachable!("macro in Ion 1.0 (method: id)")
@@ -33,12 +32,12 @@ impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for Never {
         unreachable!("macro in Ion 1.0 (method: arguments)")
     }
 
-    fn make_transient_evaluator<'top>(
-        _context: EncodingContext<'top>,
-    ) -> Self::TransientEvaluator<'top>
+    fn make_transient_evaluator<'context>(
+        _context: EncodingContext<'context>,
+    ) -> Self::TransientEvaluator<'context>
     where
-        'data: 'top,
-        Self: 'top,
+        'data: 'context,
+        Self: 'context,
     {
         unreachable!("macro in Ion 1.0 (method: make_transient_evaluator)")
     }
@@ -48,8 +47,9 @@ impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, Self> for Never {
     fn to_arg_expr<'top>(
         self,
         _context: EncodingContext<'top>,
-    ) -> ArgumentKind<'top, 'data, D, Self>
+    ) -> ArgumentKind<'top, 'data, D, Never>
     where
+        Never: 'top,
         Self: 'top,
     {
         unreachable!("macro in Ion 1.0 (method: to_arg_expr)")

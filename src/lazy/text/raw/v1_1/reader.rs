@@ -26,6 +26,11 @@ pub struct LazyRawTextReader_1_1<'data> {
     bytes_to_skip: usize,
 }
 
+/// The index at which this macro can be found in the macro table.
+pub type MacroAddress = usize;
+
+/// The index at which a value expression can be found within a template's body.
+pub type TemplateBodyExprAddress = usize;
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MacroIdRef<'data> {
     LocalName(&'data str),

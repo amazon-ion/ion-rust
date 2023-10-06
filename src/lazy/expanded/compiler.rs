@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::expanded::template::{
-    MacroSignature, Parameter, ParameterEncoding, TemplateBody, TemplateElement,
-    TemplateExpansionStep, TemplateMacro, TemplateValue,
+    ExprRange, MacroSignature, Parameter, ParameterEncoding, TemplateBody, TemplateBodyElement,
+    TemplateBodyMacroInvocation, TemplateBodyValueExpr, TemplateMacro, TemplateValue,
 };
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::r#struct::LazyStruct;
@@ -44,10 +44,11 @@ impl TemplateCompiler {
     ///     ]
     /// )
     /// ```
-    /// The step corresponding to `(values 2 3)` would store a `2`, indicating that to skip the
+    ///
+    /// the step corresponding to `(values 2 3)` would store a `2`, indicating that to skip the
     /// macro invocation altogether one would need to skip the next two expansion steps. The outer
     /// list (`[1, (values 2 3)]`) would store a `4`, indicating that it contains the `1`, a macro
-    /// expansion `values`, and the arguments that belong to `values`.
+    /// expansion `values`, and the two arguments that belong to `values`.
     ///
     /// The compiler recognizes the `(quote expr1 expr2 [...] exprN)` form, adding each subexpression
     /// to the template without interpretation.
@@ -91,7 +92,7 @@ impl TemplateCompiler {
         let signature = MacroSignature::new(compiled_params);
         let body = values.next().expect("template body")?;
         let mut compiled_body = TemplateBody {
-            expansion_steps: Vec::new(),
+            expressions: Vec::new(),
             annotations_storage: Vec::new(),
         };
         Self::compile_value(
@@ -109,7 +110,7 @@ impl TemplateCompiler {
     }
 
     /// Recursively visits all of the expressions in `lazy_value` and adds their corresponding
-    /// [`TemplateExpansionStep`] sequences to the `TemplateBody`.
+    /// [`TemplateBodyValueExpr`] sequences to the `TemplateBody`.
     ///
     /// If `is_quoted` is true, nested symbols and s-expressions will not be interpreted.
     fn compile_value<'top, 'data, D: LazyDecoder<'data>>(
@@ -178,8 +179,9 @@ impl TemplateCompiler {
                 )
             }
         };
-        definition
-            .push_element(TemplateElement::with_value(value).with_annotations(annotations_range));
+        definition.push_element(
+            TemplateBodyElement::with_value(value).with_annotations(annotations_range),
+        );
         Ok(())
     }
 
@@ -192,25 +194,22 @@ impl TemplateCompiler {
         annotations_range: Range<usize>,
         lazy_list: LazyList<'top, 'data, D>,
     ) -> IonResult<()> {
-        let list_element_index = definition.expansion_steps.len();
+        let list_element_index = definition.expressions.len();
         // Assume the list contains zero expressions to start, we'll update this at the end
-        let list_element =
-            TemplateElement::with_value(TemplateValue::List(0)).with_annotations(annotations_range);
+        let list_element = TemplateBodyElement::with_value(TemplateValue::List(ExprRange::empty()));
         definition.push_element(list_element);
-        let list_children_start = definition.expansion_steps.len();
+        let list_children_start = definition.expressions.len();
         for value_result in &lazy_list {
             let value = value_result?;
             Self::compile_value(context, signature, definition, is_quoted, value)?;
         }
-        let list_children_end = definition.expansion_steps.len();
-        let number_of_children = list_children_end - list_children_start;
+        let list_children_end = definition.expressions.len();
         // Update the list entry to reflect the number of child expressions it contains
-        match &mut definition.expansion_steps.get_mut(list_element_index) {
-            Some(TemplateExpansionStep::Element(e)) => {
-                let _ = std::mem::replace(&mut e.value, TemplateValue::List(number_of_children));
-            }
-            _ => unreachable!("list element was unexpectedly overwritten"),
-        }
+        let list_element = TemplateBodyElement::with_value(TemplateValue::List(ExprRange::new(
+            list_children_start..list_children_end,
+        )))
+        .with_annotations(annotations_range);
+        definition.expressions[list_element_index] = TemplateBodyValueExpr::Element(list_element);
         Ok(())
     }
 
@@ -257,27 +256,26 @@ impl TemplateCompiler {
     ) -> IonResult<()> {
         let mut expressions = lazy_sexp.iter();
         let macro_address = Self::address_from_id_expr(context, expressions.next())?;
-        let macro_step_index = definition.expansion_steps.len();
+        let macro_step_index = definition.expressions.len();
         // Assume the macro contains zero argument expressions to start, we'll update
         // this at the end of the function.
-        definition.push_macro_invocation(macro_address, 0);
-        let arguments_start = definition.expansion_steps.len();
+        definition.push_macro_invocation(macro_address, ExprRange::empty());
+        let arguments_start = definition.expressions.len();
         for argument_result in expressions {
             let argument = argument_result?;
             Self::compile_value(
                 context, signature, definition, /*is_quoted=*/ false, argument,
             )?;
         }
-        let arguments_end = definition.expansion_steps.len();
-        let number_of_arguments = arguments_end - arguments_start;
+        let arguments_end = definition.expressions.len();
         // Update the macro step to reflect the macro's address and number of child expressions it
         // contains
-        match &mut definition.expansion_steps.get_mut(macro_step_index) {
-            Some(TemplateExpansionStep::MacroInvocation(_address, num_args)) => {
-                *num_args = number_of_arguments;
-            }
-            _ => unreachable!("sexp element was unexpectedly overwritten"),
-        }
+        let template_macro_invocation = TemplateBodyMacroInvocation::new(
+            macro_address,
+            ExprRange::new(arguments_start..arguments_end),
+        );
+        definition.expressions[macro_step_index] =
+            TemplateBodyValueExpr::MacroInvocation(template_macro_invocation);
         Ok(())
     }
 
@@ -303,11 +301,9 @@ impl TemplateCompiler {
                 ValueRef::Int(int) => usize::try_from(int.expect_i64()?).map_err(|_| {
                     IonError::decoding_error(format!("found an invalid macro address: {int}"))
                 }),
-                other => {
-                    return IonResult::decoding_error(format!(
-                        "expected a macro name (symbol) or address (int), but found: {other:?}"
-                    ))
-                }
+                other => IonResult::decoding_error(format!(
+                    "expected a macro name (symbol) or address (int), but found: {other:?}"
+                )),
             },
         }
     }
@@ -345,27 +341,24 @@ impl TemplateCompiler {
         annotations_range: Range<usize>,
         lazy_sexp: LazySExp<'top, 'data, D>,
     ) -> IonResult<()> {
-        let sexp_element_index = definition.expansion_steps.len();
+        let sexp_element_index = definition.expressions.len();
         // Assume the sexp contains zero expressions to start, we'll update this at the end
-        let sexp_element =
-            TemplateElement::with_value(TemplateValue::SExp(0)).with_annotations(annotations_range);
+        let sexp_element = TemplateBodyElement::with_value(TemplateValue::SExp(ExprRange::empty()));
         definition.push_element(sexp_element);
-        let sexp_children_start = definition.expansion_steps.len();
+        let sexp_children_start = definition.expressions.len();
         for value_result in &lazy_sexp {
             let value = value_result?;
             Self::compile_value(
                 context, signature, definition, /*is_quoted=*/ true, value,
             )?;
         }
-        let sexp_children_end = definition.expansion_steps.len();
-        let number_of_children = sexp_children_end - sexp_children_start;
+        let sexp_children_end = definition.expressions.len();
+        let sexp_element = TemplateBodyElement::with_value(TemplateValue::SExp(ExprRange::new(
+            sexp_children_start..sexp_children_end,
+        )))
+        .with_annotations(annotations_range);
         // Update the sexp entry to reflect the number of child expressions it contains
-        match &mut definition.expansion_steps.get_mut(sexp_element_index) {
-            Some(TemplateExpansionStep::Element(e)) => {
-                let _ = std::mem::replace(&mut e.value, TemplateValue::SExp(number_of_children));
-            }
-            _ => unreachable!("sexp element was unexpectedly overwritten"),
-        }
+        definition.expressions[sexp_element_index] = TemplateBodyValueExpr::Element(sexp_element);
         Ok(())
     }
 
@@ -378,7 +371,7 @@ impl TemplateCompiler {
         match first_expr {
             // If the sexp is empty and we're not in a quoted context, that's an error.
             None => IonResult::decoding_error("found an empty s-expression in an unquoted context"),
-            Some(Err(e)) => return Err(e),
+            Some(Err(e)) => Err(e),
             Some(Ok(lazy_value)) => {
                 let value = lazy_value.read()?;
                 Ok(value == ValueRef::Symbol("quote".as_symbol_ref()))
@@ -395,29 +388,27 @@ impl TemplateCompiler {
         annotations_range: Range<usize>,
         lazy_struct: LazyStruct<'top, 'data, D>,
     ) -> IonResult<()> {
-        let struct_element_index = definition.expansion_steps.len();
+        let struct_element_index = definition.expressions.len();
         // Assume the struct contains zero expressions to start, we'll update this at the end
-        let struct_element = TemplateElement::with_value(TemplateValue::Struct(0))
-            .with_annotations(annotations_range);
+        let struct_element =
+            TemplateBodyElement::with_value(TemplateValue::Struct(ExprRange::empty()));
         definition.push_element(struct_element);
-        let struct_start = definition.expansion_steps.len();
+        let struct_start = definition.expressions.len();
         for field_result in &lazy_struct {
             let field = field_result?;
             let name = field.name()?.to_owned();
-            let name_element = TemplateElement::with_value(TemplateValue::Symbol(name));
+            let name_element = TemplateBodyElement::with_value(TemplateValue::Symbol(name));
             definition.push_element(name_element);
             Self::compile_value(context, signature, definition, is_quoted, field.value())?;
         }
-        let struct_end = definition.expansion_steps.len();
-        // NOTE: this is the number of *children*, not the number of *fields*. A field value
-        // may be a container with many children of its own.
-        let number_of_children = struct_end - struct_start;
-        match &mut definition.expansion_steps.get_mut(struct_element_index) {
-            Some(TemplateExpansionStep::Element(e)) => {
-                let _ = std::mem::replace(&mut e.value, TemplateValue::Struct(number_of_children));
-            }
-            _ => unreachable!("struct element was unexpectedly overwritten"),
-        }
+        let struct_end = definition.expressions.len();
+        // Update the struct entry to reflect the range of expansion steps it contains.
+        let struct_element = TemplateBodyElement::with_value(TemplateValue::Struct(
+            ExprRange::new(struct_start..struct_end),
+        ))
+        .with_annotations(annotations_range);
+        definition.expressions[struct_element_index] =
+            TemplateBodyValueExpr::Element(struct_element);
         Ok(())
     }
 
@@ -445,7 +436,7 @@ impl TemplateCompiler {
             .ok_or_else(|| {
                 IonError::decoding_error(format!("variable '{name}' is not recognized"))
             })?;
-        definition.push_variable(name, signature_index);
+        definition.push_variable(signature_index);
         Ok(())
     }
 }
@@ -454,7 +445,10 @@ impl TemplateCompiler {
 mod tests {
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::macro_table::MacroTable;
-    use crate::lazy::expanded::template::{TemplateExpansionStep, TemplateMacro, TemplateValue};
+    use crate::lazy::expanded::template::{
+        ExprRange, TemplateBodyMacroInvocation, TemplateBodyValueExpr,
+        TemplateBodyVariableReference, TemplateMacro, TemplateValue,
+    };
     use crate::lazy::expanded::EncodingContext;
     use crate::{Int, IntoAnnotations, IonResult, Symbol, SymbolTable};
 
@@ -467,11 +461,11 @@ mod tests {
     ) -> IonResult<()> {
         let actual = definition
             .body()
-            .expansion_steps()
+            .expressions()
             .get(index)
             .expect("no such expansion step")
             .expect_element()
-            .expect(&format!("expected value {expected:?}"));
+            .unwrap_or_else(|_| panic!("expected value {expected:?}"));
         assert_eq!(actual.value(), &expected);
         Ok(())
     }
@@ -485,31 +479,36 @@ mod tests {
         expect_step(
             definition,
             index,
-            TemplateExpansionStep::MacroInvocation(expected_address, expected_num_arguments),
+            TemplateBodyValueExpr::MacroInvocation(TemplateBodyMacroInvocation::new(
+                expected_address,
+                // The arg range starts just after the macro invocation step and goes for `expected_num_arguments`.
+                ExprRange::new(index + 1..index + 1 + expected_num_arguments),
+            )),
         )
     }
 
     fn expect_variable(
         definition: &TemplateMacro,
         index: usize,
-        expected_name: &str,
         expected_signature_index: usize,
     ) -> IonResult<()> {
         expect_step(
             definition,
             index,
-            TemplateExpansionStep::Variable(expected_name.to_owned(), expected_signature_index),
+            TemplateBodyValueExpr::Variable(TemplateBodyVariableReference::new(
+                expected_signature_index,
+            )),
         )
     }
 
     fn expect_step(
         definition: &TemplateMacro,
         index: usize,
-        expected: TemplateExpansionStep,
+        expected: TemplateBodyValueExpr,
     ) -> IonResult<()> {
         let step = definition
             .body()
-            .expansion_steps()
+            .expressions()
             .get(index)
             .expect("no such expansion step");
         assert_eq!(step, &expected);
@@ -523,7 +522,7 @@ mod tests {
     ) {
         let element = definition
             .body
-            .expansion_steps()
+            .expressions()
             .get(index)
             .expect("requested index does not exist")
             .expect_element()
@@ -531,7 +530,7 @@ mod tests {
         let actual_annotations = definition
             .body
             .annotations_storage()
-            .get(element.annotations_range.start as usize..element.annotations_range.end as usize)
+            .get(element.annotations_range().ops_range())
             .expect("invalid annotations range")
             .into_annotations();
         let expected_annotations = expected.into_annotations();
@@ -586,7 +585,7 @@ mod tests {
         let template = TemplateCompiler::compile_from_text(context, expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().parameters().len(), 0);
-        expect_value(&template, 0, TemplateValue::List(3))?;
+        expect_value(&template, 0, TemplateValue::List(ExprRange::new(1..4)))?;
         expect_value(&template, 1, TemplateValue::Int(1.into()))?;
         expect_value(&template, 2, TemplateValue::Int(2.into()))?;
         expect_value(&template, 3, TemplateValue::Int(3.into()))?;
@@ -623,19 +622,19 @@ mod tests {
         let expression = "(macro foo (x y z) [100, [200, a::b::300], x, {y: [true, false, z]}])";
 
         let template = TemplateCompiler::compile_from_text(context, expression)?;
-        expect_value(&template, 0, TemplateValue::List(11))?;
+        expect_value(&template, 0, TemplateValue::List(ExprRange::new(1..12)))?;
         expect_value(&template, 1, TemplateValue::Int(Int::from(100)))?;
-        expect_value(&template, 2, TemplateValue::List(2))?;
+        expect_value(&template, 2, TemplateValue::List(ExprRange::new(3..5)))?;
         expect_value(&template, 3, TemplateValue::Int(Int::from(200)))?;
         expect_value(&template, 4, TemplateValue::Int(Int::from(300)))?;
         expect_annotations(&template, 4, ["a", "b"]);
-        expect_variable(&template, 5, "x", 0)?;
-        expect_value(&template, 6, TemplateValue::Struct(5))?;
+        expect_variable(&template, 5, 0)?;
+        expect_value(&template, 6, TemplateValue::Struct(ExprRange::new(7..12)))?;
         expect_value(&template, 7, TemplateValue::Symbol(Symbol::from("y")))?;
-        expect_value(&template, 8, TemplateValue::List(3))?;
+        expect_value(&template, 8, TemplateValue::List(ExprRange::new(9..12)))?;
         expect_value(&template, 9, TemplateValue::Bool(true))?;
         expect_value(&template, 10, TemplateValue::Bool(false))?;
-        expect_variable(&template, 11, "z", 2)?;
+        expect_variable(&template, 11, 2)?;
         Ok(())
     }
 
@@ -649,7 +648,7 @@ mod tests {
         let template = TemplateCompiler::compile_from_text(context, expression)?;
         assert_eq!(template.name(), "identity");
         assert_eq!(template.signature().parameters().len(), 1);
-        expect_variable(&template, 0, "x", 0)?;
+        expect_variable(&template, 0, 0)?;
         Ok(())
     }
 
@@ -686,10 +685,10 @@ mod tests {
             context.macro_table.address_for_name("values").unwrap(),
             1,
         )?;
-        expect_variable(&template, 2, "x", 0)?;
+        expect_variable(&template, 2, 0)?;
         // Second argument: `(quote (values x))`
         // Notice that the `quote` is not part of the compiled output, only its arguments
-        expect_value(&template, 3, TemplateValue::SExp(2))?;
+        expect_value(&template, 3, TemplateValue::SExp(ExprRange::new(4..6)))?;
         expect_value(&template, 4, TemplateValue::Symbol("values".into()))?;
         expect_value(&template, 5, TemplateValue::Symbol("x".into()))?;
 

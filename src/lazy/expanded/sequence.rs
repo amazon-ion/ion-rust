@@ -1,18 +1,21 @@
+use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{LazyDecoder, LazyRawSequence, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, TemplateEvaluator, TransientEExpEvaluator,
 };
-use crate::lazy::expanded::template::TemplateSequenceIterator;
+use crate::lazy::expanded::template::{
+    AnnotationsRange, ExprRange, TemplateMacroRef, TemplateSequenceIterator,
+};
 use crate::lazy::expanded::{
     EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueSource,
     LazyExpandedValue,
 };
-use crate::{Annotations, IonResult, IonType, Sequence};
+use crate::{IonResult, IonType};
 
 #[derive(Clone)]
 pub enum ExpandedListSource<'top, 'data, D: LazyDecoder<'data>> {
     ValueLiteral(D::List),
-    Template(&'top Annotations, &'top Sequence),
+    Template(TemplateMacroRef<'top>, AnnotationsRange, ExprRange),
     // TODO: Constructed
 }
 
@@ -33,10 +36,11 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedList<'top, 'data, D> {
 
     pub fn from_template(
         context: EncodingContext<'top>,
-        annotations: &'top Annotations,
-        sequence: &'top Sequence,
+        template: TemplateMacroRef<'top>,
+        annotations_range: AnnotationsRange,
+        step_range: ExprRange,
     ) -> LazyExpandedList<'top, 'data, D> {
-        let source = ExpandedListSource::Template(annotations, sequence);
+        let source = ExpandedListSource::Template(template, annotations_range, step_range);
         Self { source, context }
     }
 
@@ -45,27 +49,36 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedList<'top, 'data, D> {
     }
 
     pub fn annotations(&self) -> ExpandedAnnotationsIterator<'top, 'data, D> {
-        match self.source {
+        match &self.source {
             ExpandedListSource::ValueLiteral(value) => ExpandedAnnotationsIterator {
                 source: ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
             },
-            ExpandedListSource::Template(annotations, _sequence) => ExpandedAnnotationsIterator {
-                source: ExpandedAnnotationsSource::Template(annotations.iter()),
-            },
+            ExpandedListSource::Template(template, annotations, _sequence) => {
+                let annotations = template
+                    .body
+                    .annotations_storage()
+                    .get(annotations.ops_range())
+                    .unwrap();
+                ExpandedAnnotationsIterator {
+                    source: ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations)),
+                }
+            }
         }
     }
 
     pub fn iter(&self) -> ExpandedListIterator<'top, 'data, D> {
-        let source = match &self.source {
+        let source = match self.source {
             ExpandedListSource::ValueLiteral(list) => {
                 let evaluator = TransientEExpEvaluator::new(self.context);
                 ExpandedListIteratorSource::ValueLiteral(evaluator, list.iter())
             }
-            ExpandedListSource::Template(_annotations, sequence) => {
+            ExpandedListSource::Template(template, _annotations, steps) => {
+                let steps = template.body.expressions().get(steps.ops_range()).unwrap();
                 ExpandedListIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
+                    template,
                     TemplateEvaluator::new(self.context),
-                    sequence,
+                    steps,
                 ))
             }
         };
@@ -108,7 +121,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for ExpandedListIterator<'top,
 #[derive(Clone)]
 pub enum ExpandedSExpSource<'top, 'data, D: LazyDecoder<'data>> {
     ValueLiteral(D::SExp),
-    Template(&'top Annotations, &'top Sequence),
+    Template(TemplateMacroRef<'top>, AnnotationsRange, ExprRange),
 }
 
 #[derive(Clone)]
@@ -123,27 +136,36 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedSExp<'top, 'data, D> {
     }
 
     pub fn annotations(&self) -> ExpandedAnnotationsIterator<'top, 'data, D> {
-        match self.source {
+        match &self.source {
             ExpandedSExpSource::ValueLiteral(value) => ExpandedAnnotationsIterator {
                 source: ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
             },
-            ExpandedSExpSource::Template(annotations, _sequence) => ExpandedAnnotationsIterator {
-                source: ExpandedAnnotationsSource::Template(annotations.iter()),
-            },
+            ExpandedSExpSource::Template(template, annotations, _sequence) => {
+                let annotations = template
+                    .body
+                    .annotations_storage()
+                    .get(annotations.ops_range())
+                    .unwrap();
+                ExpandedAnnotationsIterator {
+                    source: ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations)),
+                }
+            }
         }
     }
 
     pub fn iter(&self) -> ExpandedSExpIterator<'top, 'data, D> {
-        let source = match &self.source {
+        let source = match self.source {
             ExpandedSExpSource::ValueLiteral(sexp) => {
                 let evaluator = TransientEExpEvaluator::new(self.context);
                 ExpandedSExpIteratorSource::ValueLiteral(evaluator, sexp.iter())
             }
-            ExpandedSExpSource::Template(_annotations, sequence) => {
+            ExpandedSExpSource::Template(template, _annotations, steps) => {
+                let steps = template.body.expressions().get(steps.ops_range()).unwrap();
                 ExpandedSExpIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
+                    template,
                     TemplateEvaluator::new(self.context),
-                    sequence,
+                    steps,
                 ))
             }
         };
@@ -163,10 +185,11 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedSExp<'top, 'data, D> {
 
     pub fn from_template(
         context: EncodingContext<'top>,
-        annotations: &'top Annotations,
-        sequence: &'top Sequence,
+        template: TemplateMacroRef<'top>,
+        annotations: AnnotationsRange,
+        expressions: ExprRange,
     ) -> LazyExpandedSExp<'top, 'data, D> {
-        let source = ExpandedSExpSource::Template(annotations, sequence);
+        let source = ExpandedSExpSource::Template(template, annotations, expressions);
         Self { source, context }
     }
 }

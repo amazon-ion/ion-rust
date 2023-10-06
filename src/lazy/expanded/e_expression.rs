@@ -14,6 +14,7 @@ impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, D::MacroInvocation>
         context: EncodingContext<'top>,
     ) -> ArgumentKind<'top, 'data, D, D::MacroInvocation>
     where
+        D::MacroInvocation: 'top,
         Self: 'top,
     {
         match self {

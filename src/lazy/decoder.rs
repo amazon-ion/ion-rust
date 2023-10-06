@@ -183,6 +183,9 @@ impl<'data> MacroInvocation<'data, TextEncoding_1_1> for RawTextMacroInvocation<
     type ArgumentExpr = LazyRawValueExpr<'data, TextEncoding_1_1>;
     type ArgumentsIterator = RawTextSExpIterator_1_1<'data>;
 
+    type TransientEvaluator<'context> =
+    TransientEExpEvaluator<'context, 'data, TextEncoding_1_1>  where Self: 'context, 'data: 'context;
+
     fn id(&self) -> MacroIdRef {
         self.id
     }
@@ -191,16 +194,13 @@ impl<'data> MacroInvocation<'data, TextEncoding_1_1> for RawTextMacroInvocation<
         RawTextSExpIterator_1_1::new(self.arguments_bytes())
     }
 
-    type TransientEvaluator<'top> = TransientEExpEvaluator<'top, 'data, TextEncoding_1_1> where 'data: 'top, Self: 'top;
-
-    fn make_transient_evaluator<'top>(
-        context: EncodingContext<'top>,
-    ) -> Self::TransientEvaluator<'top>
+    fn make_transient_evaluator<'context>(
+        context: EncodingContext<'context>,
+    ) -> Self::TransientEvaluator<'context>
     where
-        Self: 'top,
-        'data: 'top,
+        Self: 'context,
     {
-        TransientEExpEvaluator::new(context)
+        Self::TransientEvaluator::new(context)
     }
 }
 

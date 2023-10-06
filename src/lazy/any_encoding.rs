@@ -79,6 +79,9 @@ impl<'data> MacroInvocation<'data, AnyEncoding> for LazyRawAnyMacroInvocation<'d
     type ArgumentExpr = LazyRawValueExpr<'data, AnyEncoding>;
     type ArgumentsIterator = LazyRawAnyMacroArgsIterator<'data>;
 
+    type TransientEvaluator<'context> =
+    TransientEExpEvaluator<'context, 'data, AnyEncoding> where Self: 'context, 'data: 'context;
+
     fn id(&self) -> MacroIdRef<'_> {
         match self.encoding {
             LazyRawAnyMacroInvocationKind::Text_1_0(_) => unreachable!("macro in text Ion 1.0"),
@@ -97,16 +100,14 @@ impl<'data> MacroInvocation<'data, AnyEncoding> for LazyRawAnyMacroInvocation<'d
         }
     }
 
-    type TransientEvaluator<'top> = TransientEExpEvaluator<'top, 'data, AnyEncoding> where 'data: 'top, Self: 'top;
-
-    fn make_transient_evaluator<'top>(
-        context: EncodingContext<'top>,
-    ) -> Self::TransientEvaluator<'top>
+    fn make_transient_evaluator<'context>(
+        context: EncodingContext<'context>,
+    ) -> Self::TransientEvaluator<'context>
     where
-        Self: 'top,
-        'data: 'top,
+        'data: 'context,
+        Self: 'context,
     {
-        TransientEExpEvaluator::new(context)
+        Self::TransientEvaluator::new(context)
     }
 }
 

@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use crate::lazy::expanded::template::TemplateMacro;
+use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::result::IonFailure;
 use crate::IonResult;
-use std::collections::HashMap;
 
 /// The kinds of macros supported by
 /// [`MacroEvaluator`](crate::lazy::expanded::macro_evaluator::MacroEvaluator).
@@ -14,6 +16,9 @@ pub enum MacroKind {
     Values,
     MakeString,
     Template(TemplateMacro),
+    // The following macro types are implementation details for macro evaluation and are not
+    // directly available to users. They do not appear in the macro table.
+    ExpandVariable,
 }
 
 impl MacroKind {
@@ -23,7 +28,29 @@ impl MacroKind {
             MacroKind::Values => "values",
             MacroKind::MakeString => "make_string",
             MacroKind::Template(template) => template.name(),
+            // The `#` prefix is an arbitrarily selected sigil that indicates this is macro kind is
+            // not directly available to users. If this name appears in (e.g.) a macro evaluator
+            // stack trace, users copy/pasting it into their own templates would get a syntax error.
+            MacroKind::ExpandVariable => "#expand_variable",
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MacroKindRef<'top> {
+    address: MacroAddress,
+    kind: &'top MacroKind,
+}
+
+impl<'top> MacroKindRef<'top> {
+    pub fn new(address: MacroAddress, kind: &'top MacroKind) -> Self {
+        Self { address, kind }
+    }
+    pub fn address(&self) -> MacroAddress {
+        self.address
+    }
+    pub fn kind(&self) -> &'top MacroKind {
+        self.kind
     }
 }
 
@@ -55,17 +82,19 @@ impl MacroTable {
         }
     }
 
-    pub fn macro_at_address(&self, id: usize) -> Option<&MacroKind> {
-        self.macros_by_address.get(id)
+    pub fn macro_at_address(&self, address: usize) -> Option<MacroKindRef<'_>> {
+        let kind = self.macros_by_address.get(address)?;
+        Some(MacroKindRef { address, kind })
     }
 
     pub fn address_for_name(&self, name: &str) -> Option<usize> {
         self.macros_by_name.get(name).copied()
     }
 
-    pub fn macro_with_name(&self, name: &str) -> Option<&MacroKind> {
-        let id = self.macros_by_name.get(name)?;
-        self.macros_by_address.get(*id)
+    pub fn macro_with_name(&self, name: &str) -> Option<MacroKindRef<'_>> {
+        let address = *self.macros_by_name.get(name)?;
+        let kind = self.macros_by_address.get(address)?;
+        Some(MacroKindRef { address, kind })
     }
 
     pub fn add_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {

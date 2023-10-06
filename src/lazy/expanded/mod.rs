@@ -47,6 +47,7 @@ use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::macro_evaluator::{EExpEvaluator, MacroEvaluator};
 use crate::lazy::expanded::macro_table::MacroTable;
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
+use crate::lazy::expanded::template::{TemplateElement, TemplateValue};
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
@@ -55,9 +56,7 @@ use crate::lazy::str_ref::StrRef;
 use crate::lazy::value::LazyValue;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
-use crate::{
-    Decimal, Element, Int, IonResult, IonType, RawSymbolTokenRef, SymbolTable, Timestamp, Value,
-};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, SymbolTable, Timestamp};
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
 // behind an experimental feature flag. We may constrain access to them in the future as the code
@@ -197,16 +196,14 @@ pub enum ExpandedValueSource<'top, 'data, D: LazyDecoder<'data>> {
     /// This value was a literal in the input stream.
     ValueLiteral(D::Value),
     /// This value was part of a template definition.
-    Template(&'top Element),
+    Template(TemplateElement<'top>),
     /// This value was the computed result of a macro invocation like `(:make_string ...)`.
     Constructed(
         // TODO: Make this an associated type on the LazyDecoder trait so 1.0 types can set
         //       it to `Never` and the compiler can eliminate this code path where applicable.
-        (
-            // A collection of bump-allocated annotation strings
-            BumpVec<'top, &'top str>,
-            ExpandedValueRef<'top, 'data, D>,
-        ),
+        // A collection of bump-allocated annotation strings
+        BumpVec<'top, &'top str>,
+        ExpandedValueRef<'top, 'data, D>,
     ),
 }
 
@@ -220,12 +217,11 @@ impl<'top, 'data, V: RawValueLiteral, D: LazyDecoder<'data, Value = V>> From<V>
     }
 }
 
-// Converts an Element from the body of a template into an ExpandedValueSource.
-impl<'top, 'data, D: LazyDecoder<'data>> From<&'top Element>
+impl<'top, 'data, D: LazyDecoder<'data>> From<TemplateElement<'top>>
     for ExpandedValueSource<'top, 'data, D>
 {
-    fn from(element: &'top Element) -> Self {
-        ExpandedValueSource::Template(element)
+    fn from(template_element: TemplateElement<'top>) -> Self {
+        ExpandedValueSource::Template(template_element)
     }
 }
 
@@ -250,7 +246,10 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedValue<'top, 'data, D>
         }
     }
 
-    pub(crate) fn from_template(context: EncodingContext<'top>, element: &'top Element) -> Self {
+    pub(crate) fn from_template(
+        context: EncodingContext<'top>,
+        element: TemplateElement<'top>,
+    ) -> Self {
         Self {
             context,
             source: ExpandedValueSource::Template(element),
@@ -261,8 +260,8 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedValue<'top, 'data, D>
         use ExpandedValueSource::*;
         match &self.source {
             ValueLiteral(value) => value.ion_type(),
-            Template(element) => element.ion_type(),
-            Constructed((_annotations, value)) => value.ion_type(),
+            Template(element) => element.value().ion_type(),
+            Constructed(_annotations, value) => value.ion_type(),
         }
     }
 
@@ -270,8 +269,8 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedValue<'top, 'data, D>
         use ExpandedValueSource::*;
         match &self.source {
             ValueLiteral(value) => value.is_null(),
-            Template(element) => element.is_null(),
-            Constructed((_annotations, value)) => {
+            Template(element) => element.value().is_null(),
+            Constructed(_, value) => {
                 matches!(value, ExpandedValueRef::Null(_))
             }
         }
@@ -284,9 +283,9 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedValue<'top, 'data, D>
                 ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
             ),
             Template(element) => ExpandedAnnotationsIterator::new(
-                ExpandedAnnotationsSource::Template(element.annotations().iter()),
+                ExpandedAnnotationsSource::Template(SymbolsIterator::new(element.annotations())),
             ),
-            Constructed((_annotations, _value)) => {
+            Constructed(_annotations, _value) => {
                 // TODO: iterate over constructed annotations
                 // For now we return an empty iterator
                 ExpandedAnnotationsIterator::new(ExpandedAnnotationsSource::Constructed(Box::new(
@@ -300,8 +299,8 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedValue<'top, 'data, D>
         use ExpandedValueSource::*;
         match &self.source {
             ValueLiteral(value) => Ok(ExpandedValueRef::from_raw(self.context, value.read()?)),
-            Template(element) => Ok(ExpandedValueRef::from_template(element, self.context)),
-            Constructed((_annotations, value)) => Ok((*value).clone()),
+            Template(element) => Ok(ExpandedValueRef::from_template(self.context, element)),
+            Constructed(_annotations, value) => Ok((*value).clone()),
         }
     }
 
@@ -585,8 +584,8 @@ impl<'top, 'data, D: LazyDecoder<'data>> Debug for ExpandedValueRef<'top, 'data,
 }
 
 impl<'top, 'data: 'top, D: LazyDecoder<'data>> ExpandedValueRef<'top, 'data, D> {
-    fn from_template(element: &'top Element, context: EncodingContext<'top>) -> Self {
-        use Value::*;
+    fn from_template(context: EncodingContext<'top>, element: &TemplateElement<'top>) -> Self {
+        use TemplateValue::*;
         match element.value() {
             Null(ion_type) => ExpandedValueRef::Null(*ion_type),
             Bool(b) => ExpandedValueRef::Bool(*b),
@@ -600,18 +599,21 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> ExpandedValueRef<'top, 'data, D> 
             Clob(c) => ExpandedValueRef::Clob(BytesRef::from(c.as_ref())),
             List(s) => ExpandedValueRef::List(LazyExpandedList::from_template(
                 context,
-                element.annotations(),
-                s,
+                element.template(),
+                element.annotations_range(),
+                *s,
             )),
             SExp(s) => ExpandedValueRef::SExp(LazyExpandedSExp::from_template(
                 context,
-                element.annotations(),
-                s,
+                element.template(),
+                element.annotations_range(),
+                *s,
             )),
             Struct(s) => ExpandedValueRef::Struct(LazyExpandedStruct::from_template(
                 context,
-                element.annotations(),
-                s,
+                element.template(),
+                element.annotations_range(),
+                *s,
             )),
         }
     }

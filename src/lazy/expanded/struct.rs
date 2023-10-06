@@ -1,17 +1,20 @@
 use std::ops::ControlFlow;
 
+use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{LazyDecoder, LazyRawStruct, RawFieldExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, TemplateEvaluator, TransientEExpEvaluator,
 };
-use crate::lazy::expanded::template::TemplateStructRawFieldsIterator;
+use crate::lazy::expanded::template::{
+    AnnotationsRange, ExprRange, TemplateMacroRef, TemplateStructRawFieldsIterator,
+};
 use crate::lazy::expanded::{
     EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
     ExpandedValueSource, LazyExpandedValue,
 };
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
-use crate::{Annotations, IonError, IonResult, RawSymbolTokenRef, Struct};
+use crate::{IonError, IonResult, RawSymbolTokenRef};
 
 #[derive(Debug, Clone)]
 pub struct LazyExpandedField<'top, 'data, D: LazyDecoder<'data>> {
@@ -36,7 +39,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedField<'top, 'data, D> {
 #[derive(Clone)]
 pub enum ExpandedStructSource<'top, 'data, D: LazyDecoder<'data>> {
     ValueLiteral(D::Struct),
-    Template(&'top Annotations, &'top Struct),
+    Template(TemplateMacroRef<'top>, AnnotationsRange, ExprRange),
     // TODO: Constructed
 }
 
@@ -57,10 +60,11 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedStruct<'top, 'data, D
 
     pub fn from_template(
         context: EncodingContext<'top>,
-        annotations: &'top Annotations,
-        struct_: &'top Struct,
+        template: TemplateMacroRef<'top>,
+        annotations: AnnotationsRange,
+        expressions: ExprRange,
     ) -> LazyExpandedStruct<'top, 'data, D> {
-        let source = ExpandedStructSource::Template(annotations, struct_);
+        let source = ExpandedStructSource::Template(template, annotations, expressions);
         Self { source, context }
     }
 
@@ -69,9 +73,16 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedStruct<'top, 'data, D
             ExpandedStructSource::ValueLiteral(value) => ExpandedAnnotationsIterator {
                 source: ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
             },
-            ExpandedStructSource::Template(annotations, _struct) => ExpandedAnnotationsIterator {
-                source: ExpandedAnnotationsSource::Template(annotations.iter()),
-            },
+            ExpandedStructSource::Template(template, annotations, _expressions) => {
+                let annotations = template
+                    .body
+                    .annotations_storage()
+                    .get(annotations.ops_range())
+                    .unwrap();
+                ExpandedAnnotationsIterator {
+                    source: ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations)),
+                }
+            }
         }
     }
 
@@ -83,10 +94,14 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedStruct<'top, 'data, D
                     raw_struct.iter(),
                 )
             }
-            ExpandedStructSource::Template(_annotations, struct_) => {
+            ExpandedStructSource::Template(template, _annotations, expressions) => {
                 ExpandedStructIteratorSource::Template(
                     TemplateEvaluator::new(self.context),
-                    TemplateStructRawFieldsIterator::new(struct_),
+                    TemplateStructRawFieldsIterator::new(
+                        self.context,
+                        template,
+                        &template.body.expressions[expressions.ops_range()],
+                    ),
                 )
             }
         };
@@ -136,8 +151,8 @@ pub enum ExpandedStructIteratorSource<'top, 'data, D: LazyDecoder<'data>> {
     // The struct we're iterating over is a value in a TDL template. It may contain macro
     // invocations that need to be evaluated.
     Template(
-        TemplateEvaluator<'top, 'top, 'data, D>,
-        TemplateStructRawFieldsIterator<'top>,
+        TemplateEvaluator<'top, 'data, D>,
+        TemplateStructRawFieldsIterator<'top, 'data, D>,
     ),
     // TODO: Constructed
 }
