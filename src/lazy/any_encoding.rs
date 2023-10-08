@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryStruct, RawBinaryStructIterator};
@@ -12,7 +13,7 @@ use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawValuePrivate};
 use crate::lazy::decoder::{
     LazyDecoder, LazyRawFieldExpr, LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue,
-    LazyRawValueExpr, RawFieldExpr, RawValueExpr,
+    LazyRawValueExpr, RawArgumentExpr, RawFieldExpr, RawValueExpr,
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::macro_evaluator::{MacroInvocation, TransientEExpEvaluator};
@@ -78,6 +79,7 @@ impl<'data> From<RawTextMacroInvocation<'data>> for LazyRawAnyMacroInvocation<'d
 impl<'data> MacroInvocation<'data, AnyEncoding> for LazyRawAnyMacroInvocation<'data> {
     type ArgumentExpr = LazyRawValueExpr<'data, AnyEncoding>;
     type ArgumentsIterator = LazyRawAnyMacroArgsIterator<'data>;
+    type RawArgumentsIterator = LazyRawAnyMacroRawArgsIterator<'data>;
 
     type TransientEvaluator<'context> =
     TransientEExpEvaluator<'context, 'data, AnyEncoding> where Self: 'context, 'data: 'context;
@@ -100,6 +102,10 @@ impl<'data> MacroInvocation<'data, AnyEncoding> for LazyRawAnyMacroInvocation<'d
         }
     }
 
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
+        todo!()
+    }
+
     fn make_transient_evaluator<'context>(
         context: EncodingContext<'context>,
     ) -> Self::TransientEvaluator<'context>
@@ -108,6 +114,22 @@ impl<'data> MacroInvocation<'data, AnyEncoding> for LazyRawAnyMacroInvocation<'d
         Self: 'context,
     {
         Self::TransientEvaluator::new(context)
+    }
+}
+
+pub enum LazyRawAnyMacroRawArgsIteratorKind<'data> {
+    TODO(PhantomData<&'data ()>),
+}
+
+pub struct LazyRawAnyMacroRawArgsIterator<'data> {
+    encoding: LazyRawAnyMacroRawArgsIteratorKind<'data>,
+}
+
+impl<'data> Iterator for LazyRawAnyMacroRawArgsIterator<'data> {
+    type Item = RawArgumentExpr<'data, AnyEncoding>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
     }
 }
 

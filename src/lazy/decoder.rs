@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::{MacroInvocation, TransientEExpEvaluator};
+use crate::lazy::expanded::template::TemplateMacroArgExpr;
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
@@ -82,6 +83,24 @@ impl<V: Debug, M: Debug> RawValueExpr<V, M> {
             )),
             RawValueExpr::MacroInvocation(m) => Ok(m),
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum RawArgumentExpr<'data, D: LazyDecoder<'data>> {
+    StreamExpr(LazyRawValueExpr<'data, D>),
+    TemplateExpr(TemplateMacroArgExpr),
+}
+
+impl<'data, D: LazyDecoder<'data>> From<LazyRawValueExpr<'data, D>> for RawArgumentExpr<'data, D> {
+    fn from(stream_value_expr: LazyRawValueExpr<'data, D>) -> Self {
+        RawArgumentExpr::StreamExpr(stream_value_expr)
+    }
+}
+
+impl<'data, D: LazyDecoder<'data>> From<TemplateMacroArgExpr> for RawArgumentExpr<'data, D> {
+    fn from(template_value_expr: TemplateMacroArgExpr) -> Self {
+        RawArgumentExpr::TemplateExpr(template_value_expr)
     }
 }
 
@@ -182,6 +201,7 @@ pub(crate) mod private {
 impl<'data> MacroInvocation<'data, TextEncoding_1_1> for RawTextMacroInvocation<'data> {
     type ArgumentExpr = LazyRawValueExpr<'data, TextEncoding_1_1>;
     type ArgumentsIterator = RawTextSExpIterator_1_1<'data>;
+    type RawArgumentsIterator = Box<dyn Iterator<Item = RawArgumentExpr<'data, TextEncoding_1_1>>>;
 
     type TransientEvaluator<'context> =
     TransientEExpEvaluator<'context, 'data, TextEncoding_1_1>  where Self: 'context, 'data: 'context;
@@ -192,6 +212,10 @@ impl<'data> MacroInvocation<'data, TextEncoding_1_1> for RawTextMacroInvocation<
 
     fn arguments(&self) -> Self::ArgumentsIterator {
         RawTextSExpIterator_1_1::new(self.arguments_bytes())
+    }
+
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
+        todo!()
     }
 
     fn make_transient_evaluator<'context>(

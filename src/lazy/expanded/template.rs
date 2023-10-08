@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::ops::{Deref, Range};
 
-use crate::lazy::decoder::{LazyDecoder, RawFieldExpr, RawValueExpr};
+use crate::lazy::decoder::{LazyDecoder, RawArgumentExpr, RawFieldExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{
     ArgumentKind, MacroEvaluator, MacroInvocation, TemplateEvaluator, ToArgumentKind,
 };
@@ -580,6 +580,7 @@ impl Iterator for TemplateMacroInvocationArgsIterator {
 impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for TemplateMacroInvocationAddress {
     type ArgumentExpr = TemplateMacroArgExpr;
     type ArgumentsIterator = TemplateMacroInvocationArgsIterator;
+    type RawArgumentsIterator = TemplateMacroInvocationRawArgsIterator<'data, D>;
     type TransientEvaluator<'context> = TemplateEvaluator<'context, 'data, D> where Self: 'context, 'data: 'context;
 
     fn id(&self) -> MacroIdRef {
@@ -590,6 +591,10 @@ impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for TemplateMacroIn
         self.arguments()
     }
 
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
+        todo!()
+    }
+
     fn make_transient_evaluator<'context>(
         context: EncodingContext<'context>,
     ) -> Self::TransientEvaluator<'context>
@@ -598,6 +603,20 @@ impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for TemplateMacroIn
         Self: 'context,
     {
         Self::TransientEvaluator::new(context)
+    }
+}
+
+pub struct TemplateMacroInvocationRawArgsIterator<'data, D: LazyDecoder<'data>> {
+    index: usize,
+    args: TemplateMacroInvocationArgsIterator,
+    spooky: PhantomData<&'data D>,
+}
+
+impl<'data, D: LazyDecoder<'data>> Iterator for TemplateMacroInvocationRawArgsIterator<'data, D> {
+    type Item = RawArgumentExpr<'data, D>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
     }
 }
 

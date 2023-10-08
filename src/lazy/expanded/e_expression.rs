@@ -1,6 +1,6 @@
 //! Types and traits representing an e-expression in an Ion stream.
 
-use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr, RawValueExpr};
+use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr, RawArgumentExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{ArgumentKind, ToArgumentKind};
 use crate::lazy::expanded::{EncodingContext, ExpandedValueSource, LazyExpandedValue};
 

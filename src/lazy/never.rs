@@ -1,13 +1,13 @@
-use crate::lazy::decoder::LazyDecoder;
+use std::fmt::Debug;
+
+use crate::lazy::decoder::{LazyDecoder, RawArgumentExpr};
 use crate::lazy::expanded::macro_evaluator::{
     ArgumentKind, MacroEvaluator, MacroExpansion, MacroInvocation, ToArgumentKind,
 };
+use crate::lazy::expanded::stack::{BumpVecStack, Stack};
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::IonResult;
-use std::fmt::Debug;
-
-use bumpalo::collections::Vec as BumpVec;
 
 /// An uninhabited type that signals to the compiler that related code paths are not reachable.
 #[derive(Debug, Copy, Clone)]
@@ -19,8 +19,9 @@ pub enum Never {
 // The compiler should optimize these methods away.
 impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for Never {
     type ArgumentExpr = Never;
-    // This uses a Box<dyn> to avoid defining yet another placeholder type.
+    // These use Box<dyn> to avoid defining yet another placeholder type.
     type ArgumentsIterator = Box<dyn Iterator<Item = IonResult<Never>>>;
+    type RawArgumentsIterator = Box<dyn Iterator<Item = RawArgumentExpr<'data, D>>>;
 
     type TransientEvaluator<'context> = Never  where Self: 'context, 'data: 'context;
 
@@ -30,6 +31,10 @@ impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for Never {
 
     fn arguments(&self) -> Self::ArgumentsIterator {
         unreachable!("macro in Ion 1.0 (method: arguments)")
+    }
+
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
+        unreachable!("macro in Ion 1.0 (method: raw_arguments)")
     }
 
     fn make_transient_evaluator<'context>(
@@ -57,14 +62,30 @@ impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, Self> for Never {
 }
 
 impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroEvaluator<'top, 'data, D> for Never {
-    type Stack = BumpVec<'top, MacroExpansion<'data, D, Never>>;
     type MacroInvocation = Never;
+    type Stack = BumpVecStack;
 
-    fn stack(&self) -> &Self::Stack {
-        unreachable!("macro in Ion 1.0 (method: stack)")
+    fn macro_stack(
+        &self,
+    ) -> &<Self::Stack as Stack>::Storage<'top, MacroExpansion<'data, D, Self::MacroInvocation>>
+    {
+        unreachable!("macro in Ion 1.0 (method: macro_stack)")
     }
 
-    fn stack_mut(&mut self) -> &mut Self::Stack {
-        unreachable!("macro in Ion 1.0 (method: stack_mut)")
+    fn macro_stack_mut(
+        &mut self,
+    ) -> &mut <Self::Stack as Stack>::Storage<'top, MacroExpansion<'data, D, Self::MacroInvocation>>
+    {
+        unreachable!("macro in Ion 1.0 (method: macro_stack_mut)")
+    }
+
+    fn arg_stack(&self) -> &<Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
+        unreachable!("macro in Ion 1.0 (method: arg_stack)")
+    }
+
+    fn arg_stack_mut(
+        &mut self,
+    ) -> &mut <Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
+        unreachable!("macro in Ion 1.0 (method: arg_stack_mut)")
     }
 }
