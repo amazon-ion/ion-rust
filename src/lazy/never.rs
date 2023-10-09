@@ -4,6 +4,7 @@ use crate::lazy::decoder::{LazyDecoder, RawArgumentExpr};
 use crate::lazy::expanded::macro_evaluator::{
     ArgumentKind, MacroEvaluator, MacroExpansion, MacroInvocation, ToArgumentKind,
 };
+use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::stack::{BumpVecStack, Stack};
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
@@ -39,6 +40,7 @@ impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for Never {
 
     fn make_transient_evaluator<'context>(
         _context: EncodingContext<'context>,
+        _environment: Environment<'context, 'data, D>,
     ) -> Self::TransientEvaluator<'context>
     where
         'data: 'context,
@@ -52,6 +54,7 @@ impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, Self> for Never {
     fn to_arg_expr<'top>(
         self,
         _context: EncodingContext<'top>,
+        _environment: Environment<'top, 'data, D>,
     ) -> ArgumentKind<'top, 'data, D, Never>
     where
         Never: 'top,
@@ -79,13 +82,21 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroEvaluator<'top, 'data, D> fo
         unreachable!("macro in Ion 1.0 (method: macro_stack_mut)")
     }
 
-    fn arg_stack(&self) -> &<Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
-        unreachable!("macro in Ion 1.0 (method: arg_stack)")
+    fn environment(&self) -> Environment<'top, 'data, D> {
+        unreachable!("macro in Ion 1.0 (method: environment)")
     }
 
-    fn arg_stack_mut(
-        &mut self,
-    ) -> &mut <Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
-        unreachable!("macro in Ion 1.0 (method: arg_stack_mut)")
+    fn environment_mut(&mut self) -> &mut Environment<'top, 'data, D> {
+        unreachable!("macro in Ion 1.0 (method: environment_mut)")
     }
+
+    // fn arg_stack(&self) -> &<Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
+    //     unreachable!("macro in Ion 1.0 (method: arg_stack)")
+    // }
+    //
+    // fn arg_stack_mut(
+    //     &mut self,
+    // ) -> &mut <Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
+    //     unreachable!("macro in Ion 1.0 (method: arg_stack_mut)")
+    // }
 }

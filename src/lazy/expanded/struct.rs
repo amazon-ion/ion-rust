@@ -5,6 +5,7 @@ use crate::lazy::decoder::{LazyDecoder, LazyRawStruct, RawFieldExpr, RawValueExp
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, TemplateEvaluator, TransientEExpEvaluator,
 };
+use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
     AnnotationsRange, ExprRange, TemplateMacroRef, TemplateStructRawFieldsIterator,
 };
@@ -39,7 +40,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedField<'top, 'data, D> {
 #[derive(Clone)]
 pub enum ExpandedStructSource<'top, 'data, D: LazyDecoder<'data>> {
     ValueLiteral(D::Struct),
-    Template(TemplateMacroRef<'top>, AnnotationsRange, ExprRange),
+    Template(
+        Environment<'top, 'data, D>,
+        TemplateMacroRef<'top>,
+        AnnotationsRange,
+        ExprRange,
+    ),
     // TODO: Constructed
 }
 
@@ -60,20 +66,22 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedStruct<'top, 'data, D
 
     pub fn from_template(
         context: EncodingContext<'top>,
+        environment: Environment<'top, 'data, D>,
         template: TemplateMacroRef<'top>,
         annotations: AnnotationsRange,
         expressions: ExprRange,
     ) -> LazyExpandedStruct<'top, 'data, D> {
-        let source = ExpandedStructSource::Template(template, annotations, expressions);
+        let source =
+            ExpandedStructSource::Template(environment, template, annotations, expressions);
         Self { source, context }
     }
 
     pub fn annotations(&self) -> ExpandedAnnotationsIterator<'top, 'data, D> {
-        match self.source {
+        match &self.source {
             ExpandedStructSource::ValueLiteral(value) => ExpandedAnnotationsIterator {
                 source: ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
             },
-            ExpandedStructSource::Template(template, annotations, _expressions) => {
+            ExpandedStructSource::Template(_environment, template, annotations, _expressions) => {
                 let annotations = template
                     .body
                     .annotations_storage()
@@ -87,19 +95,21 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedStruct<'top, 'data, D
     }
 
     pub fn iter(&self) -> ExpandedStructIterator<'top, 'data, D> {
-        let source = match self.source {
+        let source = match &self.source {
             ExpandedStructSource::ValueLiteral(raw_struct) => {
                 ExpandedStructIteratorSource::ValueLiteral(
                     TransientEExpEvaluator::new(self.context),
                     raw_struct.iter(),
                 )
             }
-            ExpandedStructSource::Template(template, _annotations, expressions) => {
+            ExpandedStructSource::Template(environment, template, _annotations, expressions) => {
+                let evaluator = TemplateEvaluator::new(self.context, *environment);
                 ExpandedStructIteratorSource::Template(
-                    TemplateEvaluator::new(self.context),
+                    evaluator,
                     TemplateStructRawFieldsIterator::new(
                         self.context,
-                        template,
+                        *environment,
+                        *template,
                         &template.body.expressions[expressions.ops_range()],
                     ),
                 )
@@ -109,6 +119,13 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedStruct<'top, 'data, D
             context: self.context,
             source,
             state: ExpandedStructIteratorState::ReadingFieldFromSource,
+        }
+    }
+
+    fn environment(&self) -> Environment<'top, 'data, D> {
+        match &self.source {
+            ExpandedStructSource::ValueLiteral(_) => Environment::empty(),
+            ExpandedStructSource::Template(environment, _, _, _) => *environment,
         }
     }
 

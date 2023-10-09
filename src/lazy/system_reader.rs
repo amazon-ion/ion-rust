@@ -79,7 +79,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 pub struct LazySystemReader<'data, D: LazyDecoder<'data>> {
     // TODO: Remove this RefCell when the Polonius borrow checker is available.
     //       See: https://github.com/rust-lang/rust/issues/70255
-    expanding_reader: RefCell<LazyExpandingReader<'data, D>>,
+    expanding_reader: LazyExpandingReader<'data, D>,
     // TODO: Make the symbol and macro tables traits on `D` such that they can be configured
     //       statically. Then 1.0 types can use `Never` for the macro table.
     symbol_table: SymbolTable,
@@ -106,7 +106,7 @@ impl<'data> LazySystemAnyReader<'data> {
         let raw_reader = LazyRawAnyReader::new(ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader {
-            expanding_reader: RefCell::new(expanding_reader),
+            expanding_reader: expanding_reader,
             symbol_table: SymbolTable::new(),
             macro_table: MacroTable::new(),
             allocator: BumpAllocator::new(),
@@ -123,7 +123,7 @@ impl<'data> LazySystemBinaryReader<'data> {
         let raw_reader = LazyRawBinaryReader::new(ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader {
-            expanding_reader: RefCell::new(expanding_reader),
+            expanding_reader: expanding_reader,
             symbol_table: SymbolTable::new(),
             macro_table: MacroTable::new(),
             allocator: BumpAllocator::new(),
@@ -140,7 +140,7 @@ impl<'data> LazySystemTextReader_1_1<'data> {
         let raw_reader = LazyRawTextReader_1_1::new(ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader {
-            expanding_reader: RefCell::new(expanding_reader),
+            expanding_reader: expanding_reader,
             symbol_table: SymbolTable::new(),
             macro_table: MacroTable::new(),
             allocator: BumpAllocator::new(),
@@ -170,7 +170,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     pub fn next_item<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, 'data, D>> {
         // Deconstruct the reader to get simultaneous mutable references to multiple fields
         let LazySystemReader {
-            ref expanding_reader,
+            ref mut expanding_reader,
             ref symbol_table,
             macro_table,
             allocator,
@@ -182,7 +182,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
             symbol_table,
             allocator,
         };
-        let lazy_expanded_value = match expanding_reader.borrow_mut().next(context)? {
+        let lazy_expanded_value = match expanding_reader.next(context)? {
             ExpandedStreamItem::VersionMarker(major, minor) => {
                 return Ok(SystemStreamItem::VersionMarker(major, minor));
             }
@@ -208,7 +208,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     // scope is safe. Rust's experimental borrow checker, Polonius, is able to understand it.
     // Until Polonius is available, the method will live here instead.
     // [1]: https://github.com/rust-lang/rust/issues/70255
-    pub fn next_value<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data, D>>> {
+    pub fn next_value<'value>(&'value mut self) -> IonResult<Option<LazyValue<'value, 'data, D>>> {
         // Deconstruct the reader to get simultaneous mutable references to multiple fields
         let LazySystemReader {
             ref expanding_reader,
@@ -225,7 +225,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
                 macro_table,
                 allocator,
             };
-            let lazy_expanded_value = match expanding_reader.borrow_mut().next(context)? {
+            let lazy_expanded_value = match Self::hack_next(context, expanding_reader)? {
                 ExpandedStreamItem::VersionMarker(_major, _minor) => {
                     // TODO: For text, switch the underlying reader as needed
                     continue;
@@ -241,6 +241,26 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
             let lazy_value = LazyValue::new(lazy_expanded_value);
             return Ok(Some(lazy_value));
         }
+    }
+
+    pub fn hack_next<'top>(
+        context: EncodingContext<'top>,
+        reader: &LazyExpandingReader<'data, D>,
+    ) -> IonResult<ExpandedStreamItem<'top, 'data, D>> {
+        let ptr = reader as *const LazyExpandingReader<'data, D>;
+
+        // XXX: This `unsafe` is a workaround for https://github.com/rust-lang/rust/issues/70255
+        //      There is a rustc fix for this limitation on the horizon. See:
+        //      https://smallcultfollowing.com/babysteps/blog/2023/09/22/polonius-part-1/
+        //      Indeed, using the experimental `-Zpolonius` flag on the nightly compiler allows the
+        //      version of this code without this `unsafe` hack to work.
+        // SAFETY: The reader does not reclaim resources until the next user level value; if multiple
+        //         system values are encountered, dangling references should continue to be valid.
+        let reader = unsafe {
+            let mut_ptr = ptr as *mut LazyExpandingReader<'data, D>;
+            &mut *mut_ptr
+        };
+        reader.next(context)
     }
 
     // If the last stream item the reader visited was a symbol table, its `PendingLst` will

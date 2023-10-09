@@ -6,6 +6,7 @@ use crate::lazy::expanded::macro_evaluator::{
     ArgumentKind, MacroEvaluator, MacroInvocation, TemplateEvaluator, ToArgumentKind,
 };
 use crate::lazy::expanded::macro_table::MacroKind;
+use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{
     EncodingContext, ExpandedValueRef, ExpandedValueSource, LazyExpandedValue,
 };
@@ -117,8 +118,8 @@ pub struct TemplateSequenceIterator<'top, 'data, D: LazyDecoder<'data>> {
 impl<'top, 'data, D: LazyDecoder<'data>> TemplateSequenceIterator<'top, 'data, D> {
     pub fn new(
         context: EncodingContext<'top>,
-        template: TemplateMacroRef<'top>,
         evaluator: TemplateEvaluator<'top, 'data, D>,
+        template: TemplateMacroRef<'top>,
         value_expressions: &'top [TemplateBodyValueExpr],
     ) -> Self {
         Self {
@@ -153,10 +154,10 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'
             return match step {
                 TemplateBodyValueExpr::Element(element) => Some(Ok(LazyExpandedValue {
                     context: self.context,
-                    source: ExpandedValueSource::Template(TemplateElement::new(
-                        self.template,
-                        element,
-                    )),
+                    source: ExpandedValueSource::Template(
+                        self.evaluator.environment(),
+                        TemplateElement::new(self.template, element),
+                    ),
                 })),
                 TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
                     // ...it's a TDL macro invocation. Push it onto the evaluator's stack and return
@@ -185,6 +186,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'
 // yields.
 pub struct TemplateStructRawFieldsIterator<'top, 'data, D: LazyDecoder<'data>> {
     context: EncodingContext<'top>,
+    environment: Environment<'top, 'data, D>,
     template: TemplateMacroRef<'top>,
     expressions: &'top [TemplateBodyValueExpr],
     index: usize,
@@ -194,11 +196,13 @@ pub struct TemplateStructRawFieldsIterator<'top, 'data, D: LazyDecoder<'data>> {
 impl<'top, 'data, D: LazyDecoder<'data>> TemplateStructRawFieldsIterator<'top, 'data, D> {
     pub fn new(
         context: EncodingContext<'top>,
+        environment: Environment<'top, 'data, D>,
         template: TemplateMacroRef<'top>,
         expressions: &'top [TemplateBodyValueExpr],
     ) -> Self {
         Self {
             context,
+            environment,
             template,
             expressions,
             index: 0,
@@ -210,8 +214,9 @@ impl<'top, 'data, D: LazyDecoder<'data>> TemplateStructRawFieldsIterator<'top, '
 impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
     for TemplateStructRawFieldsIterator<'top, 'data, D>
 {
-    type Item =
-        IonResult<RawFieldExpr<'top, TemplateElement<'top>, TemplateMacroInvocationAddress>>;
+    type Item = IonResult<
+        RawFieldExpr<'top, ExpandedValueSource<'top, 'data, D>, TemplateMacroInvocationAddress>,
+    >;
 
     fn next(&mut self) -> Option<Self::Item> {
         let name_expr_address = self.index;
@@ -222,8 +227,10 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
             .expect("field name must be a literal");
         let name_token = match LazyExpandedValue::<D>::from_template(
             self.context,
+            Environment::empty(),
             TemplateElement::new(self.template, name_element),
         )
+        // because the name token must be a literal, the env is irrelevant
         .read()
         {
             Ok(ExpandedValueRef::Symbol(token)) => token,
@@ -236,14 +243,17 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
             Err(e) => return Some(Err(e)),
         };
         let value_expr_address = name_expr_address + 1;
-        let value = match self.expressions.get(value_expr_address) {
+        let value_source = match self.expressions.get(value_expr_address) {
             None => {
                 return Some(IonResult::decoding_error(
                     "template struct had field name with no value",
                 ))
             }
             Some(TemplateBodyValueExpr::Element(element)) => {
-                RawValueExpr::ValueLiteral(TemplateElement::new(self.template, element))
+                RawValueExpr::ValueLiteral(ExpandedValueSource::Template(
+                    self.environment,
+                    TemplateElement::new(self.template, element),
+                ))
             }
             Some(TemplateBodyValueExpr::MacroInvocation(invocation)) => {
                 RawValueExpr::MacroInvocation(TemplateMacroInvocationAddress::new(
@@ -258,7 +268,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
             }
         };
         self.index += 2;
-        Some(Ok(RawFieldExpr::NameValuePair(name_token, value)))
+        Some(Ok(RawFieldExpr::NameValuePair(name_token, value_source)))
     }
 }
 
@@ -330,7 +340,7 @@ pub enum TemplateBodyValueExpr {
     MacroInvocation(TemplateBodyMacroInvocation),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TemplateMacroArgExpr {
     // The address of the template macro in which this argument expression appears
     host_template_address: MacroAddress,
@@ -398,6 +408,7 @@ impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, TemplateMacroInvocat
     fn to_arg_expr<'top>(
         self,
         context: EncodingContext<'top>,
+        environment: Environment<'top, 'data, D>,
     ) -> ArgumentKind<'top, 'data, D, TemplateMacroInvocationAddress>
     where
         TemplateBodyValueExpr: 'top,
@@ -433,6 +444,7 @@ impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, TemplateMacroInvocat
                 let template_element = TemplateElement::new(template_ref, element);
                 ArgumentKind::ValueLiteral(LazyExpandedValue::from_template(
                     context,
+                    environment,
                     template_element,
                 ))
             }
@@ -597,12 +609,13 @@ impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for TemplateMacroIn
 
     fn make_transient_evaluator<'context>(
         context: EncodingContext<'context>,
+        environment: Environment<'context, 'data, D>,
     ) -> Self::TransientEvaluator<'context>
     where
         'data: 'context,
         Self: 'context,
     {
-        Self::TransientEvaluator::new(context)
+        Self::TransientEvaluator::new(context, environment)
     }
 }
 

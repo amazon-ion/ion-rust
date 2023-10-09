@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::{MacroInvocation, TransientEExpEvaluator};
+use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::TemplateMacroArgExpr;
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::raw_stream_item::RawStreamItem;
@@ -15,7 +16,7 @@ use crate::{IonResult, IonType, RawSymbolTokenRef};
 /// A family of types that collectively comprise the lazy reader API for an Ion serialization
 /// format. These types operate at the 'raw' level; they do not attempt to resolve symbols
 /// using the active symbol table.
-pub trait LazyDecoder<'data>: Sized + Debug + Clone
+pub trait LazyDecoder<'data>: Sized + Debug + Clone + Copy
 where
     Self: 'data,
 {
@@ -86,7 +87,7 @@ impl<V: Debug, M: Debug> RawValueExpr<V, M> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum RawArgumentExpr<'data, D: LazyDecoder<'data>> {
     StreamExpr(LazyRawValueExpr<'data, D>),
     TemplateExpr(TemplateMacroArgExpr),
@@ -220,10 +221,12 @@ impl<'data> MacroInvocation<'data, TextEncoding_1_1> for RawTextMacroInvocation<
 
     fn make_transient_evaluator<'context>(
         context: EncodingContext<'context>,
+        _environment: Environment<'context, 'data, TextEncoding_1_1>,
     ) -> Self::TransientEvaluator<'context>
     where
         Self: 'context,
     {
+        // E-expressions do not have an environment, so we ignore that parameter.
         Self::TransientEvaluator::new(context)
     }
 }

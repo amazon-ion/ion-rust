@@ -1,7 +1,8 @@
 //! Types and traits representing an e-expression in an Ion stream.
 
-use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr, RawArgumentExpr, RawValueExpr};
+use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{ArgumentKind, ToArgumentKind};
+use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{EncodingContext, ExpandedValueSource, LazyExpandedValue};
 
 // When a `LazyRawValueExpr` appears in argument position within an e-expression, this trait
@@ -12,6 +13,7 @@ impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, D::MacroInvocation>
     fn to_arg_expr<'top>(
         self,
         context: EncodingContext<'top>,
+        _environment: Environment<'top, 'data, D>,
     ) -> ArgumentKind<'top, 'data, D, D::MacroInvocation>
     where
         D::MacroInvocation: 'top,

@@ -17,6 +17,7 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::macro_evaluator::{MacroInvocation, TransientEExpEvaluator};
+use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::never::Never;
 use crate::lazy::raw_stream_item::RawStreamItem;
@@ -37,7 +38,7 @@ use crate::lazy::text::value::{
 use crate::{IonResult, IonType, RawSymbolTokenRef};
 
 /// An implementation of the `LazyDecoder` trait that can read any encoding of Ion.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct AnyEncoding;
 
 // This family of types avoids boxing and dynamic dispatch by using enums of the supported formats
@@ -108,11 +109,13 @@ impl<'data> MacroInvocation<'data, AnyEncoding> for LazyRawAnyMacroInvocation<'d
 
     fn make_transient_evaluator<'context>(
         context: EncodingContext<'context>,
+        _environment: Environment<'context, 'data, AnyEncoding>,
     ) -> Self::TransientEvaluator<'context>
     where
         'data: 'context,
         Self: 'context,
     {
+        // E-expressions do not have an environment, so we ignore that parameter.
         Self::TransientEvaluator::new(context)
     }
 }
