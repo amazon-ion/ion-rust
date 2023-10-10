@@ -2,9 +2,7 @@ use std::ops::ControlFlow;
 
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{LazyDecoder, LazyRawStruct, RawFieldExpr, RawValueExpr};
-use crate::lazy::expanded::macro_evaluator::{
-    MacroEvaluator, TemplateEvaluator, TransientEExpEvaluator,
-};
+use crate::lazy::expanded::macro_evaluator::{EExpEvaluator, MacroEvaluator, TemplateEvaluator};
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
     AnnotationsRange, ExprRange, TemplateMacroRef, TemplateStructRawFieldsIterator,
@@ -98,7 +96,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedStruct<'top, 'data, D
         let source = match &self.source {
             ExpandedStructSource::ValueLiteral(raw_struct) => {
                 ExpandedStructIteratorSource::ValueLiteral(
-                    TransientEExpEvaluator::new(self.context),
+                    EExpEvaluator::new(self.context),
                     raw_struct.iter(),
                 )
             }
@@ -162,7 +160,7 @@ pub enum ExpandedStructIteratorSource<'top, 'data, D: LazyDecoder<'data>> {
     ValueLiteral(
         // Giving the struct iterator its own evaluator means that we can abandon the iterator
         // at any time without impacting the evaluation state of its parent container.
-        TransientEExpEvaluator<'top, 'data, D>,
+        EExpEvaluator<'top, 'data, D>,
         <D::Struct as LazyRawStruct<'data, D>>::Iterator,
     ),
     // The struct we're iterating over is a value in a TDL template. It may contain macro

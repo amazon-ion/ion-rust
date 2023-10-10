@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use crate::lazy::decoder::{LazyDecoder, RawArgumentExpr};
 use crate::lazy::expanded::macro_evaluator::{
-    ArgumentKind, MacroEvaluator, MacroExpansion, MacroInvocation, ToArgumentKind,
+    ArgumentKind, MacroEvaluator, MacroExpansion, MacroInvocation, MacroStack, ToArgumentKind,
 };
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::stack::{BumpVecStack, Stack};
@@ -66,19 +66,11 @@ impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, Self> for Never {
 
 impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroEvaluator<'top, 'data, D> for Never {
     type MacroInvocation = Never;
-    type Stack = BumpVecStack;
-
-    fn macro_stack(
-        &self,
-    ) -> &<Self::Stack as Stack>::Storage<'top, MacroExpansion<'data, D, Self::MacroInvocation>>
-    {
+    fn macro_stack(&self) -> &MacroStack<'top, 'data, D, Never> {
         unreachable!("macro in Ion 1.0 (method: macro_stack)")
     }
 
-    fn macro_stack_mut(
-        &mut self,
-    ) -> &mut <Self::Stack as Stack>::Storage<'top, MacroExpansion<'data, D, Self::MacroInvocation>>
-    {
+    fn macro_stack_mut(&mut self) -> &mut MacroStack<'top, 'data, D, Never> {
         unreachable!("macro in Ion 1.0 (method: macro_stack_mut)")
     }
 

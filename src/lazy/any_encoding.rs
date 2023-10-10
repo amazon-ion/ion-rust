@@ -16,7 +16,7 @@ use crate::lazy::decoder::{
     LazyRawValueExpr, RawArgumentExpr, RawFieldExpr, RawValueExpr,
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
-use crate::lazy::expanded::macro_evaluator::{MacroInvocation, TransientEExpEvaluator};
+use crate::lazy::expanded::macro_evaluator::{EExpEvaluator, MacroInvocation};
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::never::Never;
@@ -83,7 +83,7 @@ impl<'data> MacroInvocation<'data, AnyEncoding> for LazyRawAnyMacroInvocation<'d
     type RawArgumentsIterator = LazyRawAnyMacroRawArgsIterator<'data>;
 
     type TransientEvaluator<'context> =
-    TransientEExpEvaluator<'context, 'data, AnyEncoding> where Self: 'context, 'data: 'context;
+    EExpEvaluator<'context, 'data, AnyEncoding> where Self: 'context, 'data: 'context;
 
     fn id(&self) -> MacroIdRef<'_> {
         match self.encoding {

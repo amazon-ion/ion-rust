@@ -133,38 +133,83 @@ impl<'top, 'data, D: LazyDecoder<'data>> ExpandedStreamItem<'top, 'data, D> {
 /// raw values to the caller.
 pub struct LazyExpandingReader<'data, D: LazyDecoder<'data>> {
     raw_reader: D::Reader,
-    evaluator: EExpEvaluator<'data, D>,
+    evaluator_ptr: Option<*mut ()>,
 }
 
 impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
     pub(crate) fn new(raw_reader: D::Reader) -> Self {
         Self {
             raw_reader,
-            evaluator: EExpEvaluator::new(),
+            evaluator_ptr: None,
         }
+    }
+
+    // fn evaluator<'top>(
+    //     &self,
+    //     _context: EncodingContext<'top>,
+    // ) -> Option<&'_ mut EExpEvaluator<'top, 'data, D>> {
+    //     let ptr: *mut EExpEvaluator<'top, 'data, D> = self.evaluator_ptr?.cast();
+    //     let evaluator: &mut EExpEvaluator<'top, 'data, D> = unsafe { &mut *ptr };
+    //
+    //     Some(evaluator)
+    // }
+
+    fn ptr_to_evaluator<'top>(evaluator_ptr: *mut ()) -> &'top mut EExpEvaluator<'top, 'data, D> {
+        let ptr: *mut EExpEvaluator<'top, 'data, D> = evaluator_ptr.cast();
+        let evaluator: &'top mut EExpEvaluator<'top, 'data, D> = unsafe { &mut *ptr };
+        evaluator
+    }
+
+    fn evaluator_to_ptr(evaluator: &mut EExpEvaluator<'_, 'data, D>) -> *mut () {
+        let ptr: *mut EExpEvaluator<'_, 'data, D> = evaluator;
+        let untyped_ptr: *mut () = ptr.cast();
+        untyped_ptr
+    }
+
+    // fn save_evaluator(&mut self, evaluator: &mut EExpEvaluator<'_, 'data, D>) {
+    //     let ptr: *mut EExpEvaluator<'_, 'data, D> = evaluator;
+    //     let untyped_ptr: *mut () = ptr.cast();
+    //     self.evaluator_ptr = Some(untyped_ptr);
+    // }
+
+    fn get_or_make_evaluator<'top>(
+        maybe_evaluator_ptr: Option<*mut ()>,
+        context: EncodingContext<'top>,
+    ) -> &'top mut EExpEvaluator<'top, 'data, D> {
+        if let Some(evaluator_ptr) = maybe_evaluator_ptr {
+            return Self::ptr_to_evaluator::<'top>(evaluator_ptr);
+        }
+        context
+            .allocator
+            .alloc_with(move || EExpEvaluator::new(context))
     }
 
     /// Returns the next [`ExpandedStreamItem`] either by continuing to evaluate a macro invocation
     /// in progress or by pulling a value from the input stream.
-    pub fn next<'value, 'top: 'value>(
-        &'value mut self,
+    pub fn next<'top>(
+        &mut self,
         context: EncodingContext<'top>,
-    ) -> IonResult<ExpandedStreamItem<'value, 'data, D>>
+    ) -> IonResult<ExpandedStreamItem<'top, 'data, D>>
     where
         'data: 'top,
     {
         loop {
-            if self.evaluator.stack_depth() > 0 {
-                // If the evaluator still has macro expansions in its stack, we need to give it the
-                // opportunity to produce the next value.
-                match self.evaluator.next(context, 0) {
-                    Ok(Some(value)) => return Ok(ExpandedStreamItem::Value(value)),
-                    Ok(None) => {
-                        // While the evaluator had macros in its stack, they did not produce any more
-                        // values. The stack is now empty.
-                    }
-                    Err(e) => return Err(e),
-                };
+            let maybe_evaluator_ptr = (self.evaluator_ptr).clone();
+            if let Some(evaluator_ptr) = maybe_evaluator_ptr {
+                let evaluator = Self::ptr_to_evaluator(evaluator_ptr);
+                if evaluator.stack_depth() > 0 {
+                    // If the evaluator still has macro expansions in its stack, we need to give it the
+                    // opportunity to produce the next value.
+                    match evaluator.next(context, 0) {
+                        Ok(Some(value)) => return Ok(ExpandedStreamItem::Value(value)),
+                        Ok(None) => {
+                            // While the evaluator had macros in its stack, they did not produce any more
+                            // values. The stack is now empty.
+                            self.evaluator_ptr = None;
+                        }
+                        Err(e) => return Err(e),
+                    };
+                }
             }
 
             // If we reach this point, the evaluator's macro stack is empty. We'll pull another
@@ -179,8 +224,11 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
                 }),
                 // It's another macro invocation, we'll start evaluating it.
                 EExpression(e_exp) => {
+                    let evaluator =
+                        Self::get_or_make_evaluator((self.evaluator_ptr).clone(), context);
                     // Push the invocation onto the evaluation stack.
-                    self.evaluator.push(context, e_exp)?;
+                    evaluator.push(context, e_exp)?;
+                    self.evaluator_ptr = Some(Self::evaluator_to_ptr(evaluator));
                     // Return to the top of the loop to pull the next value (if any) from the evaluator.
                     continue;
                 }
@@ -188,6 +236,42 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
             };
             return Ok(expanded_item);
         }
+
+        // loop {
+        //     if self.evaluator.stack_depth() > 0 {
+        //         // If the evaluator still has macro expansions in its stack, we need to give it the
+        //         // opportunity to produce the next value.
+        //         match self.evaluator.next(context, 0) {
+        //             Ok(Some(value)) => return Ok(ExpandedStreamItem::Value(value)),
+        //             Ok(None) => {
+        //                 // While the evaluator had macros in its stack, they did not produce any more
+        //                 // values. The stack is now empty.
+        //             }
+        //             Err(e) => return Err(e),
+        //         };
+        //     }
+        //
+        //     // If we reach this point, the evaluator's macro stack is empty. We'll pull another
+        //     // expression from the input stream.
+        //     use RawStreamItem::*;
+        //     let expanded_item = match self.raw_reader.next()? {
+        //         VersionMarker(major, minor) => ExpandedStreamItem::VersionMarker(major, minor),
+        //         // We got our value; return it.
+        //         Value(raw_value) => ExpandedStreamItem::Value(LazyExpandedValue {
+        //             source: ExpandedValueSource::ValueLiteral(raw_value),
+        //             context,
+        //         }),
+        //         // It's another macro invocation, we'll start evaluating it.
+        //         EExpression(e_exp) => {
+        //             // Push the invocation onto the evaluation stack.
+        //             self.evaluator.push(context, e_exp)?;
+        //             // Return to the top of the loop to pull the next value (if any) from the evaluator.
+        //             continue;
+        //         }
+        //         EndOfStream => ExpandedStreamItem::EndOfStream,
+        //     };
+        //     return Ok(expanded_item);
+        // }
     }
 }
 

@@ -82,10 +82,10 @@ pub struct LazySystemReader<'data, D: LazyDecoder<'data>> {
     expanding_reader: LazyExpandingReader<'data, D>,
     // TODO: Make the symbol and macro tables traits on `D` such that they can be configured
     //       statically. Then 1.0 types can use `Never` for the macro table.
+    pending_lst: PendingLst,
     symbol_table: SymbolTable,
     macro_table: MacroTable,
     allocator: BumpAllocator,
-    pending_lst: PendingLst,
 }
 
 pub type LazySystemBinaryReader<'data> = LazySystemReader<'data, BinaryEncoding_1_0>;
@@ -107,13 +107,13 @@ impl<'data> LazySystemAnyReader<'data> {
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader {
             expanding_reader: expanding_reader,
-            symbol_table: SymbolTable::new(),
-            macro_table: MacroTable::new(),
-            allocator: BumpAllocator::new(),
             pending_lst: PendingLst {
                 is_lst_append: false,
                 symbols: Vec::new(),
             },
+            symbol_table: SymbolTable::new(),
+            macro_table: MacroTable::new(),
+            allocator: BumpAllocator::new(),
         }
     }
 }
@@ -124,13 +124,13 @@ impl<'data> LazySystemBinaryReader<'data> {
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader {
             expanding_reader: expanding_reader,
-            symbol_table: SymbolTable::new(),
-            macro_table: MacroTable::new(),
-            allocator: BumpAllocator::new(),
             pending_lst: PendingLst {
                 is_lst_append: false,
                 symbols: Vec::new(),
             },
+            symbol_table: SymbolTable::new(),
+            macro_table: MacroTable::new(),
+            allocator: BumpAllocator::new(),
         }
     }
 }
@@ -141,13 +141,13 @@ impl<'data> LazySystemTextReader_1_1<'data> {
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader {
             expanding_reader: expanding_reader,
-            symbol_table: SymbolTable::new(),
-            macro_table: MacroTable::new(),
-            allocator: BumpAllocator::new(),
             pending_lst: PendingLst {
                 is_lst_append: false,
                 symbols: Vec::new(),
             },
+            symbol_table: SymbolTable::new(),
+            macro_table: MacroTable::new(),
+            allocator: BumpAllocator::new(),
         }
     }
 }
@@ -171,17 +171,13 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
         // Deconstruct the reader to get simultaneous mutable references to multiple fields
         let LazySystemReader {
             ref mut expanding_reader,
-            ref symbol_table,
-            macro_table,
-            allocator,
             pending_lst,
+            ref symbol_table,
+            ref macro_table,
+            ref allocator,
         } = self;
+        let context = EncodingContext::new(macro_table, symbol_table, allocator);
         Self::apply_pending_lst(symbol_table, pending_lst);
-        let context = EncodingContext {
-            macro_table,
-            symbol_table,
-            allocator,
-        };
         let lazy_expanded_value = match expanding_reader.next(context)? {
             ExpandedStreamItem::VersionMarker(major, minor) => {
                 return Ok(SystemStreamItem::VersionMarker(major, minor));
@@ -211,20 +207,15 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     pub fn next_value<'value>(&'value mut self) -> IonResult<Option<LazyValue<'value, 'data, D>>> {
         // Deconstruct the reader to get simultaneous mutable references to multiple fields
         let LazySystemReader {
-            ref expanding_reader,
-            ref symbol_table,
-            macro_table,
-            allocator,
+            ref mut expanding_reader,
             pending_lst,
+            ref symbol_table,
+            ref macro_table,
+            ref allocator,
         } = self;
-
+        let context = EncodingContext::new(macro_table, symbol_table, allocator);
         loop {
             Self::apply_pending_lst(symbol_table, pending_lst);
-            let context = EncodingContext {
-                symbol_table,
-                macro_table,
-                allocator,
-            };
             let lazy_expanded_value = match Self::hack_next(context, expanding_reader)? {
                 ExpandedStreamItem::VersionMarker(_major, _minor) => {
                     // TODO: For text, switch the underlying reader as needed

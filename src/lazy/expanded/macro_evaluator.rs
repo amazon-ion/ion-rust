@@ -44,13 +44,7 @@ pub trait MacroInvocation<'data, D: LazyDecoder<'data>>: Debug + Copy + Clone {
     // TODO: Item should be IonResult<_>
     type RawArgumentsIterator: Iterator<Item = RawArgumentExpr<'data, D>>;
 
-    type TransientEvaluator<'context>: MacroEvaluator<
-        'context,
-        'data,
-        D,
-        MacroInvocation = Self,
-        Stack = BumpVecStack,
-    >
+    type TransientEvaluator<'context>: MacroEvaluator<'context, 'data, D, MacroInvocation = Self>
     where
         Self: 'context,
         'data: 'context;
@@ -101,7 +95,7 @@ pub struct VariableExpansion<'top, 'data, D: LazyDecoder<'data>> {
     context: EncodingContext<'top>,
     variable_name: &'top str, // useful?
     args_iter: <D::MacroInvocation as MacroInvocation<'data, D>>::ArgumentsIterator,
-    evaluator: TransientEExpEvaluator<'top, 'data, D>,
+    evaluator: EExpEvaluator<'top, 'data, D>,
 }
 
 impl<'top, 'data, D: LazyDecoder<'data>> VariableExpansion<'top, 'data, D> {
@@ -207,6 +201,8 @@ pub enum MacroExpansionStep<'top, 'data, D: LazyDecoder<'data>, M: MacroInvocati
     Complete,
 }
 
+pub type MacroStack<'top, 'data, D, M> = BumpVec<'top, MacroExpansion<'data, D, M>>;
+
 /// Evaluates macro invocations recursively, yielding a single expanded value at a time.
 ///
 /// This trait describes evaluation in a variety of contexts. It supports the cross product of three
@@ -215,47 +211,22 @@ pub enum MacroExpansionStep<'top, 'data, D: LazyDecoder<'data>, M: MacroInvocati
 ///   {e-expression, template macro invocation}
 ///   x {text, binary}
 ///   x {eager, lazy}
-pub trait MacroEvaluator<'stack, 'data: 'stack, D: LazyDecoder<'data>>
+pub trait MacroEvaluator<'top, 'data: 'top, D: LazyDecoder<'data>>
 where
-    Self: 'stack,
+    Self: 'top,
 {
     type MacroInvocation: MacroInvocation<'data, D>;
-    type Stack: Stack;
 
-    fn macro_stack(
-        &self,
-    ) -> &<Self::Stack as Stack>::Storage<'stack, MacroExpansion<'data, D, Self::MacroInvocation>>;
-    fn macro_stack_mut(
-        &mut self,
-    ) -> &mut <Self::Stack as Stack>::Storage<'stack, MacroExpansion<'data, D, Self::MacroInvocation>>;
+    fn macro_stack(&self) -> &MacroStack<'top, 'data, D, Self::MacroInvocation>;
+    fn macro_stack_mut(&mut self) -> &mut MacroStack<'top, 'data, D, Self::MacroInvocation>;
     fn stack_depth(&self) -> usize {
         self.macro_stack().len()
     }
 
-    fn environment(&self) -> Environment<'stack, 'data, D>;
-    fn environment_mut(&mut self) -> &mut Environment<'stack, 'data, D>;
+    fn environment(&self) -> Environment<'top, 'data, D>;
+    fn environment_mut(&mut self) -> &mut Environment<'top, 'data, D>;
 
-    // fn arg_stack(&self) -> &<Self::Stack as Stack>::Storage<'stack, RawArgumentExpr<'data, D>>;
-    // fn arg_stack_mut(
-    //     &mut self,
-    // ) -> &mut <Self::Stack as Stack>::Storage<'stack, RawArgumentExpr<'data, D>>;
-    //
-    // fn arg_stack_depth(&self) -> usize {
-    //     self.arg_stack().len()
-    // }
-
-    /// Returns the number of arguments pushed onto the stack by the invocation.
-    // fn push_args_onto_stack(&mut self, invocation: Self::MacroInvocation) -> IonResult<usize> {
-    //     let stack_depth_before_args = self.arg_stack_depth();
-    //     for raw_arg in invocation.raw_arguments() {
-    //         self.arg_stack_mut().push(raw_arg);
-    //     }
-    //     let stack_depth_after_args = self.arg_stack_depth();
-    //     let arg_count = stack_depth_after_args - stack_depth_before_args;
-    //     Ok(arg_count)
-    // }
-
-    fn make_eval_env<'top>(
+    fn make_eval_env(
         &mut self,
         context: EncodingContext<'top>,
         invocation: Self::MacroInvocation,
@@ -271,7 +242,7 @@ where
     /// Finds the macro corresponding to the invocation's ID in the specified encoding context.
     /// Returns an error if the macro cannot be found. Otherwise, returns a [`MacroExpansion`]
     /// containing the original invocation and the initialized state needed to evaluate it.
-    fn resolve_invocation<'top>(
+    fn resolve_invocation(
         &mut self,
         context: EncodingContext<'top>,
         invocation_to_evaluate: Self::MacroInvocation,
@@ -327,7 +298,7 @@ where
     /// current encoding context and push the resulting `MacroExpansion` onto the stack.
     fn push(
         &mut self,
-        context: EncodingContext,
+        context: EncodingContext<'top>,
         invocation: Self::MacroInvocation,
     ) -> IonResult<()> {
         let expansion = self.resolve_invocation(context, invocation)?;
@@ -350,14 +321,12 @@ where
     ///
     /// The caller must verify that the stack's depth is greater than or equal to `depth_to_exhaust`
     /// before calling `next()`.
-    fn next<'top>(
+    fn next(
         &mut self,
         context: EncodingContext<'top>,
         depth_to_exhaust: usize,
     ) -> IonResult<Option<LazyExpandedValue<'top, 'data, D>>>
     where
-        'data: 'top,
-        'stack: 'top,
         Self::MacroInvocation: 'top,
     {
         debug_assert!(
@@ -411,11 +380,11 @@ where
     /// its values.
     fn evaluate<'iter>(
         &'iter mut self,
-        context: EncodingContext<'stack>,
+        context: EncodingContext<'top>,
         invocation: Self::MacroInvocation,
-    ) -> IonResult<EvaluatingIterator<'iter, 'stack, 'data, D, Self>>
+    ) -> IonResult<EvaluatingIterator<'iter, 'top, 'data, D, Self>>
     where
-        'data: 'stack,
+        'data: 'top,
         Self: Sized,
     {
         self.push(context, invocation)?;
@@ -464,75 +433,6 @@ impl<'iter, 'top, 'data: 'top, D: LazyDecoder<'data>, E: MacroEvaluator<'top, 'd
     }
 }
 
-/// A [`MacroEvaluator`] for expanding e-expressions found in a data stream of the format `D`.
-#[derive(Default)]
-pub struct EExpEvaluator<'data, D: LazyDecoder<'data>> {
-    macro_stack: Vec<MacroExpansion<'data, D, D::MacroInvocation>>,
-}
-
-impl<'data, D: LazyDecoder<'data>> EExpEvaluator<'data, D> {
-    pub fn new() -> Self {
-        Self {
-            macro_stack: Vec::new(),
-        }
-    }
-}
-
-impl<'data, D: LazyDecoder<'data>> MacroEvaluator<'data, 'data, D> for EExpEvaluator<'data, D> {
-    type MacroInvocation = D::MacroInvocation;
-
-    type Stack = VecStack;
-    fn macro_stack(
-        &self,
-    ) -> &<Self::Stack as Stack>::Storage<'data, MacroExpansion<'data, D, Self::MacroInvocation>>
-    {
-        &self.macro_stack
-    }
-
-    fn macro_stack_mut(
-        &mut self,
-    ) -> &mut <Self::Stack as Stack>::Storage<'data, MacroExpansion<'data, D, Self::MacroInvocation>>
-    {
-        &mut self.macro_stack
-    }
-
-    fn environment(&self) -> Environment<'data, 'data, D> {
-        Environment::empty()
-    }
-
-    fn environment_mut(&mut self) -> &mut Environment<'data, 'data, D> {
-        unreachable!("Trying to modify environment of top level E-expression evaluator");
-    }
-
-    // fn arg_stack(&self) -> &<Self::Stack as Stack>::Storage<'data, RawArgumentExpr<'data, D>> {
-    //     &self.arg_stack
-    // }
-    //
-    // fn arg_stack_mut(
-    //     &mut self,
-    // ) -> &mut <Self::Stack as Stack>::Storage<'_, RawArgumentExpr<'data, D>> {
-    //     &mut self.arg_stack
-    // }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct TemplateExpansion {
-    macro_address: MacroAddress,
-    num_args: usize,
-    // Which step (expression) of the macro definition we're in the process of expanding
-    step_index: TemplateBodyExprAddress,
-}
-
-impl TemplateExpansion {
-    pub fn new(macro_address: MacroAddress, num_args: usize) -> Self {
-        Self {
-            macro_address,
-            num_args,
-            step_index: 0,
-        }
-    }
-}
-
 /// Like [`EExpEvaluator`], but can only be used for the duration of the lifetime `'top`. This is
 /// used when a macro expansion needs to perform expansions of its own without yielding flow control
 /// to the primary evaluator.
@@ -553,12 +453,12 @@ impl TemplateExpansion {
 /// evaluator, making it (practically) impossible to modify the stack by pushing another
 /// MacroExpansion onto it. Instead, it creates an evaluator of its own using short-lived,
 /// bump-allocated storage and fully evaluates each argument.
-pub struct TransientEExpEvaluator<'top, 'data, D: LazyDecoder<'data>> {
+pub struct EExpEvaluator<'top, 'data, D: LazyDecoder<'data>> {
     macro_stack: BumpVec<'top, MacroExpansion<'data, D, D::MacroInvocation>>,
     arg_stack: BumpVec<'top, RawArgumentExpr<'data, D>>,
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> TransientEExpEvaluator<'top, 'data, D> {
+impl<'top, 'data, D: LazyDecoder<'data>> EExpEvaluator<'top, 'data, D> {
     pub fn new(context: EncodingContext<'top>) -> Self {
         Self {
             macro_stack: BumpVec::new_in(context.allocator),
@@ -568,23 +468,15 @@ impl<'top, 'data, D: LazyDecoder<'data>> TransientEExpEvaluator<'top, 'data, D> 
 }
 
 impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroEvaluator<'top, 'data, D>
-    for TransientEExpEvaluator<'top, 'data, D>
+    for EExpEvaluator<'top, 'data, D>
 {
     type MacroInvocation = D::MacroInvocation;
 
-    type Stack = BumpVecStack;
-
-    fn macro_stack(
-        &self,
-    ) -> &<Self::Stack as Stack>::Storage<'top, MacroExpansion<'data, D, Self::MacroInvocation>>
-    {
+    fn macro_stack(&self) -> &MacroStack<'top, 'data, D, Self::MacroInvocation> {
         &self.macro_stack
     }
 
-    fn macro_stack_mut(
-        &mut self,
-    ) -> &mut <Self::Stack as Stack>::Storage<'top, MacroExpansion<'data, D, Self::MacroInvocation>>
-    {
+    fn macro_stack_mut(&mut self) -> &mut MacroStack<'top, 'data, D, Self::MacroInvocation> {
         &mut self.macro_stack
     }
 
@@ -595,16 +487,24 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroEvaluator<'top, 'data, D>
     fn environment_mut(&mut self) -> &mut Environment<'top, 'data, D> {
         todo!("env_mut in TransientEExpEvaluator")
     }
+}
 
-    // fn arg_stack(&self) -> &<Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
-    //     &self.arg_stack
-    // }
-    //
-    // fn arg_stack_mut(
-    //     &mut self,
-    // ) -> &mut <Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
-    //     &mut self.arg_stack
-    // }
+#[derive(Clone, Copy, Debug)]
+pub struct TemplateExpansion {
+    macro_address: MacroAddress,
+    num_args: usize,
+    // Which step (expression) of the macro definition we're in the process of expanding
+    step_index: TemplateBodyExprAddress,
+}
+
+impl TemplateExpansion {
+    pub fn new(macro_address: MacroAddress, num_args: usize) -> Self {
+        Self {
+            macro_address,
+            num_args,
+            step_index: 0,
+        }
+    }
 }
 
 /// A [`MacroEvaluator`] for expanding macro invocations found in a template, all in the context
@@ -627,19 +527,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> MacroEvaluator<'top, 'data, D>
     for TemplateEvaluator<'top, 'data, D>
 {
     type MacroInvocation = TemplateMacroInvocationAddress;
-    type Stack = BumpVecStack;
 
-    fn macro_stack(
-        &self,
-    ) -> &<Self::Stack as Stack>::Storage<'top, MacroExpansion<'data, D, Self::MacroInvocation>>
-    {
+    fn macro_stack(&self) -> &MacroStack<'top, 'data, D, Self::MacroInvocation> {
         &self.macro_stack
     }
 
-    fn macro_stack_mut(
-        &mut self,
-    ) -> &mut <Self::Stack as Stack>::Storage<'top, MacroExpansion<'data, D, Self::MacroInvocation>>
-    {
+    fn macro_stack_mut(&mut self) -> &mut MacroStack<'top, 'data, D, Self::MacroInvocation> {
         &mut self.macro_stack
     }
 
@@ -650,16 +543,6 @@ impl<'top, 'data, D: LazyDecoder<'data>> MacroEvaluator<'top, 'data, D>
     fn environment_mut(&mut self) -> &mut Environment<'top, 'data, D> {
         &mut self.environment
     }
-
-    // fn arg_stack(&self) -> &<Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
-    //     &self.arg_stack
-    // }
-    //
-    // fn arg_stack_mut(
-    //     &mut self,
-    // ) -> &mut <Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
-    //     &mut self.arg_stack
-    // }
 }
 
 // ===== Implementation of the `values` macro =====

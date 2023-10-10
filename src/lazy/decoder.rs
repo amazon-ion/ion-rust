@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::macro_evaluator::{MacroInvocation, TransientEExpEvaluator};
+use crate::lazy::expanded::macro_evaluator::{EExpEvaluator, MacroInvocation};
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::TemplateMacroArgExpr;
 use crate::lazy::expanded::EncodingContext;
@@ -16,10 +16,7 @@ use crate::{IonResult, IonType, RawSymbolTokenRef};
 /// A family of types that collectively comprise the lazy reader API for an Ion serialization
 /// format. These types operate at the 'raw' level; they do not attempt to resolve symbols
 /// using the active symbol table.
-pub trait LazyDecoder<'data>: Sized + Debug + Clone + Copy
-where
-    Self: 'data,
-{
+pub trait LazyDecoder<'data>: 'static + Sized + Debug + Clone + Copy {
     /// A lazy reader that yields [`Self::Value`]s representing the top level values in its input.
     type Reader: LazyRawReader<'data, Self>;
     /// A value (at any depth) in the input. This can be further inspected to access either its
@@ -205,7 +202,7 @@ impl<'data> MacroInvocation<'data, TextEncoding_1_1> for RawTextMacroInvocation<
     type RawArgumentsIterator = Box<dyn Iterator<Item = RawArgumentExpr<'data, TextEncoding_1_1>>>;
 
     type TransientEvaluator<'context> =
-    TransientEExpEvaluator<'context, 'data, TextEncoding_1_1>  where Self: 'context, 'data: 'context;
+    EExpEvaluator<'context, 'data, TextEncoding_1_1>  where Self: 'context, 'data: 'context;
 
     fn id(&self) -> MacroIdRef {
         self.id

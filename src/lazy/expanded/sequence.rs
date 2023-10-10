@@ -2,9 +2,7 @@ use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{
     LazyDecoder, LazyRawSequence, LazyRawValueExpr, RawArgumentExpr, RawValueExpr,
 };
-use crate::lazy::expanded::macro_evaluator::{
-    MacroEvaluator, TemplateEvaluator, TransientEExpEvaluator,
-};
+use crate::lazy::expanded::macro_evaluator::{EExpEvaluator, MacroEvaluator, TemplateEvaluator};
 use crate::lazy::expanded::template::{
     AnnotationsRange, ExprRange, TemplateMacroRef, TemplateSequenceIterator,
 };
@@ -127,7 +125,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedList<'top, 'data, D> {
     pub fn iter(&self) -> ExpandedListIterator<'top, 'data, D> {
         let source = match &self.source {
             ExpandedListSource::ValueLiteral(list) => {
-                let evaluator = TransientEExpEvaluator::new(self.context);
+                let evaluator = EExpEvaluator::new(self.context);
                 ExpandedListIteratorSource::ValueLiteral(evaluator, list.iter())
             }
             ExpandedListSource::Template(environment, template, _annotations, steps) => {
@@ -152,7 +150,7 @@ pub enum ExpandedListIteratorSource<'top, 'data, D: LazyDecoder<'data>> {
     ValueLiteral(
         // Giving the list iterator its own evaluator means that we can abandon the iterator
         // at any time without impacting the evaluation state of its parent container.
-        TransientEExpEvaluator<'top, 'data, D>,
+        EExpEvaluator<'top, 'data, D>,
         <D::List as LazyRawSequence<'data, D>>::Iterator,
     ),
     Template(TemplateSequenceIterator<'top, 'data, D>),
@@ -220,7 +218,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedSExp<'top, 'data, D> {
     pub fn iter(&self) -> ExpandedSExpIterator<'top, 'data, D> {
         let source = match &self.source {
             ExpandedSExpSource::ValueLiteral(sexp) => {
-                let evaluator = TransientEExpEvaluator::new(self.context);
+                let evaluator = EExpEvaluator::new(self.context);
                 ExpandedSExpIteratorSource::ValueLiteral(evaluator, sexp.iter())
             }
             ExpandedSExpSource::Template(environment, template, _annotations, steps) => {
@@ -264,7 +262,7 @@ pub enum ExpandedSExpIteratorSource<'top, 'data, D: LazyDecoder<'data>> {
     ValueLiteral(
         // Giving the sexp iterator its own evaluator means that we can abandon the iterator
         // at any time without impacting the evaluation state of its parent container.
-        TransientEExpEvaluator<'top, 'data, D>,
+        EExpEvaluator<'top, 'data, D>,
         <D::SExp as LazyRawSequence<'data, D>>::Iterator,
     ),
     Template(TemplateSequenceIterator<'top, 'data, D>),
@@ -293,7 +291,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for ExpandedSExpIterator<'top,
 /// evaluation already in progress or reading the next item from the input stream.
 fn expand_next_sequence_value<'top, 'data, D: LazyDecoder<'data>>(
     context: EncodingContext<'top>,
-    evaluator: &mut TransientEExpEvaluator<'top, 'data, D>,
+    evaluator: &mut EExpEvaluator<'top, 'data, D>,
     iter: &mut impl Iterator<Item = IonResult<LazyRawValueExpr<'data, D>>>,
 ) -> Option<IonResult<LazyExpandedValue<'top, 'data, D>>> {
     loop {
