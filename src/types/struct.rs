@@ -267,7 +267,7 @@ where
 
             by_name
                 .entry(field_name.clone())
-                .or_insert_with(IndexVec::new)
+                .or_default()
                 .push(by_index.len());
             by_index.push((field_name, field_value));
         }

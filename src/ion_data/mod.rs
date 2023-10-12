@@ -78,7 +78,7 @@ impl<T: Display> Display for IonData<T> {
 
 impl<T: IonEq + IonOrd> PartialOrd for IonData<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(IonOrd::ion_cmp(&self.0, &other.0))
+        Some(self.cmp(other))
     }
 }
 

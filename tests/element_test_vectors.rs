@@ -4,7 +4,7 @@
 
 use ion_rs::{
     BinaryWriterBuilder, Element, ElementReader, ElementWriter, Format, IonData, IonError,
-    IonResult, IonWriter, Sequence, TextKind, TextWriterBuilder,
+    IonResult, IonWriter, Sequence, TextKind, TextWriterBuilder, Value,
 };
 
 use std::fs::read;
@@ -147,6 +147,7 @@ trait ElementApi {
     /// embedded_documents::(
     ///   "a b c"
     ///   "'a' 'b' 'c'"
+    ///   {{ 4AEA6u6OgYPbhnEDh7aBYYFigWNxCnELcQw= }}
     /// )
     /// ```
     ///
@@ -160,9 +161,13 @@ trait ElementApi {
         let group_res: IonResult<Vec<_>> = raw_group
             .elements()
             .map(|elem| {
-                Self::make_reader(elem.as_text().unwrap().as_bytes())?
-                    .elements()
-                    .collect()
+                Self::make_reader(match elem.value() {
+                    Value::String(text) => text.text().as_bytes(),
+                    Value::Blob(bytes) => bytes.as_ref(),
+                    _ => panic!("Expected embedded document to be an Ion String or Ion Blob"),
+                })?
+                .elements()
+                .collect()
             })
             .collect();
         let group = group_res?;
@@ -196,26 +201,54 @@ trait ElementApi {
     fn read_group<F1, F2>(file_name: &str, value_assert: F1, group_assert: F2) -> IonResult<()>
     where
         // group index, value 1 index, value 1, value 2 index, value 2
-        F1: Fn(usize, usize, &Element, usize, &Element),
+        F1: Fn(usize, String, &Element, String, &Element),
         F2: Fn(&Vec<Element>, &Vec<Element>),
     {
         let group_lists = Self::read_file(file_name)?;
-        for (group_index, group_list) in group_lists.iter().enumerate() {
+        for (group_index, group_container) in group_lists.iter().enumerate() {
             // every grouping set is a list/sexp
             // look for the embedded annotation to parse/test as the underlying value
-            let is_embedded = group_list.annotations().contains("embedded_documents");
-            match (group_list.as_sequence(), is_embedded) {
-                (Some(group), true) => {
+            let is_embedded = group_container.annotations().contains("embedded_documents");
+            match (group_container.value(), is_embedded) {
+                (Value::List(group), true) | (Value::SExp(group), true) => {
                     Self::read_group_embedded(group, &group_assert)?;
                 }
-                (Some(group), false) => {
+                (Value::Struct(group), true) => {
+                    let sequence: Sequence = group
+                        .to_owned()
+                        .fields()
+                        .map(|(_, v)| v.to_owned())
+                        .collect();
+                    Self::read_group_embedded(&sequence, &group_assert)?;
+                }
+                (Value::List(group), false) | (Value::SExp(group), false) => {
                     for (this_index, this) in group.elements().enumerate() {
                         for (that_index, that) in group.elements().enumerate() {
-                            value_assert(group_index, this_index, this, that_index, that);
+                            value_assert(
+                                group_index,
+                                format!("{this_index}"),
+                                this,
+                                format!("{that_index}"),
+                                that,
+                            );
                         }
                     }
                 }
-                _ => panic!("Expected a sequence for group: {group_list:?}"),
+                (Value::Struct(group), false) => {
+                    for (this_name, this) in group.fields() {
+                        for (that_name, that) in group.fields() {
+                            value_assert(
+                                group_index,
+                                format!("{this_name}"),
+                                this,
+                                format!("{that_name}"),
+                                that,
+                            );
+                        }
+                    }
+                }
+
+                _ => panic!("Expected a sequence or struct for group: {group_container:?}"),
             };
         }
         Ok(())
@@ -286,8 +319,9 @@ macro_rules! good_round_trip {
     (use $ElementApiImpl:ident; $(fn $test_name:ident($format1:expr, $format2:expr);)+) => {
         mod good_round_trip {
             use super::*; $(
-            #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-            #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+            #[test_resources("ion-tests/iontestdata_1_0/good/**/*.ion")]
+            //#[test_resources("ion-tests/iontestdata_1_1/good/**/*.ion")]
+            #[test_resources("ion-tests/iontestdata_1_0/good/**/*.10n")]
             fn $test_name(file_name: &str) {
                 $ElementApiImpl::assert_file($ElementApiImpl::global_skip_list(), file_name, || {
                     $ElementApiImpl::assert_three_way_round_trip(file_name, $format1, $format2)
@@ -366,24 +400,24 @@ mod impl_display_for_element_tests {
     const TO_STRING_SKIP_LIST: &[&str] = &[
         // These tests have shared symbol table imports in them, which the Reader does not
         // yet support.
-        "ion-tests/iontestdata/good/subfieldVarUInt.ion",
-        "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
-        "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
-        "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
+        "ion-tests/iontestdata_1_0/good/subfieldVarUInt.ion",
+        "ion-tests/iontestdata_1_0/good/subfieldVarUInt15bit.ion",
+        "ion-tests/iontestdata_1_0/good/subfieldVarUInt16bit.ion",
+        "ion-tests/iontestdata_1_0/good/subfieldVarUInt32bit.ion",
         // This test requires the reader to be able to read symbols whose ID is encoded
         // with more than 8 bytes. Having a symbol table with more than 18 quintillion
         // symbols is not very practical.
-        "ion-tests/iontestdata/good/typecodes/T7-large.10n",
-        "ion-tests/iontestdata/good/item1.10n",
-        "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
-        "ion-tests/iontestdata/good/testfile35.ion",
+        "ion-tests/iontestdata_1_0/good/typecodes/T7-large.10n",
+        "ion-tests/iontestdata_1_0/good/item1.10n",
+        "ion-tests/iontestdata_1_0/good/localSymbolTableImportZeroMaxId.ion",
+        "ion-tests/iontestdata_1_0/good/testfile35.ion",
         // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
-        "ion-tests/iontestdata/good/utf16.ion",
-        "ion-tests/iontestdata/good/utf32.ion",
+        "ion-tests/iontestdata_1_0/good/utf16.ion",
+        "ion-tests/iontestdata_1_0/good/utf32.ion",
     ];
 
-    #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/**/*.10n")]
     fn test_to_string(file_name: &str) {
         if contains_path(TO_STRING_SKIP_LIST, file_name) {
             println!("IGNORING: {file_name}");
@@ -413,51 +447,51 @@ mod impl_display_for_element_tests {
 const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
     // The binary reader does not check whether nested values are longer than their
     // parent container.
-    "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
+    "ion-tests/iontestdata_1_0/bad/listWithValueLargerThanSize.10n",
     // ROUND TRIP
     // These tests have shared symbol table imports in them, which the Reader does not
     // yet support.
-    "ion-tests/iontestdata/good/subfieldVarUInt.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldVarUInt.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldVarUInt15bit.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldVarUInt16bit.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldVarUInt32bit.ion",
     // This test requires the reader to be able to read symbols whose ID is encoded
     // with more than 8 bytes. Having a symbol table with more than 18 quintillion
     // symbols is not very practical.
-    "ion-tests/iontestdata/good/typecodes/T7-large.10n",
+    "ion-tests/iontestdata_1_0/good/typecodes/T7-large.10n",
     // ---
     // Requires importing shared symbol tables
-    "ion-tests/iontestdata/good/item1.10n",
-    "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
+    "ion-tests/iontestdata_1_0/good/item1.10n",
+    "ion-tests/iontestdata_1_0/good/localSymbolTableImportZeroMaxId.ion",
     // Requires importing shared symbol tables
-    "ion-tests/iontestdata/good/testfile35.ion",
+    "ion-tests/iontestdata_1_0/good/testfile35.ion",
     // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
-    "ion-tests/iontestdata/good/utf16.ion",
-    "ion-tests/iontestdata/good/utf32.ion",
+    "ion-tests/iontestdata_1_0/good/utf16.ion",
+    "ion-tests/iontestdata_1_0/good/utf32.ion",
     // NON-EQUIVS
-    "ion-tests/iontestdata/good/non-equivs/localSymbolTableWithAnnotations.ion",
-    "ion-tests/iontestdata/good/non-equivs/symbolTablesUnknownText.ion",
+    "ion-tests/iontestdata_1_0/good/non-equivs/localSymbolTableWithAnnotations.ion",
+    "ion-tests/iontestdata_1_0/good/non-equivs/symbolTablesUnknownText.ion",
 ];
 
 const ELEMENT_ROUND_TRIP_SKIP_LIST: SkipList = &[
-    "ion-tests/iontestdata/good/item1.10n",
-    "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
-    "ion-tests/iontestdata/good/notVersionMarkers.ion",
-    "ion-tests/iontestdata/good/subfieldInt.ion",
-    "ion-tests/iontestdata/good/subfieldUInt.ion",
-    "ion-tests/iontestdata/good/subfieldVarInt.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
-    "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
-    "ion-tests/iontestdata/good/utf16.ion",
-    "ion-tests/iontestdata/good/utf32.ion",
+    "ion-tests/iontestdata_1_0/good/item1.10n",
+    "ion-tests/iontestdata_1_0/good/localSymbolTableImportZeroMaxId.ion",
+    "ion-tests/iontestdata_1_0/good/notVersionMarkers.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldInt.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldUInt.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldVarInt.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldVarUInt.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldVarUInt15bit.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldVarUInt16bit.ion",
+    "ion-tests/iontestdata_1_0/good/subfieldVarUInt32bit.ion",
+    "ion-tests/iontestdata_1_0/good/utf16.ion",
+    "ion-tests/iontestdata_1_0/good/utf32.ion",
 ];
 
 const ELEMENT_EQUIVS_SKIP_LIST: SkipList = &[
-    "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
-    "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
-    "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
+    "ion-tests/iontestdata_1_0/good/equivs/localSymbolTableAppend.ion",
+    "ion-tests/iontestdata_1_0/good/equivs/localSymbolTableNullSlots.ion",
+    "ion-tests/iontestdata_1_0/good/equivs/nonIVMNoOps.ion",
 ];
 
 #[cfg(test)]
@@ -511,22 +545,22 @@ mod native_element_tests {
         fn pretty_lines(Format::Text(TextKind::Pretty), Format::Text(TextKind::Lines));
     }
 
-    #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/bad/**/*.10n")]
+    #[test_resources("ion-tests/iontestdata_1_0/bad/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/bad/**/*.10n")]
     fn native_bad(file_name: &str) {
         bad(NativeElementApi, file_name)
     }
 
-    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.10n")]
     fn native_equivs(file_name: &str) {
         equivs(NativeElementApi, file_name)
     }
 
-    #[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/non-equivs/**/*.ion")]
     // no binary files exist and the macro doesn't like empty globs...
     // see frehberg/test-generator#12
-    //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
+    //#[test_resources("ion-tests/iontestdata_1_0/good/non-equivs/**/*.10n")]
     fn native_non_equivs(file_name: &str) {
         non_equivs(NativeElementApi, file_name)
     }
@@ -594,22 +628,22 @@ mod non_blocking_native_element_tests {
         fn pretty_lines(Format::Text(TextKind::Pretty), Format::Text(TextKind::Lines));
     }
 
-    #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/bad/**/*.10n")]
+    #[test_resources("ion-tests/iontestdata_1_0/bad/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/bad/**/*.10n")]
     fn native_bad(file_name: &str) {
         bad(NonBlockingNativeElementApi, file_name)
     }
 
-    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.10n")]
     fn native_equivs(file_name: &str) {
         equivs(NonBlockingNativeElementApi, file_name)
     }
 
-    #[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/non-equivs/**/*.ion")]
     // no binary files exist and the macro doesn't like empty globs...
     // see frehberg/test-generator#12
-    //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
+    //#[test_resources("ion-tests/iontestdata_1_0/good/non-equivs/**/*.10n")]
     fn native_non_equivs(file_name: &str) {
         non_equivs(NonBlockingNativeElementApi, file_name)
     }
@@ -670,22 +704,22 @@ mod token_native_element_tests {
         fn pretty_lines(Format::Text(TextKind::Pretty), Format::Text(TextKind::Lines));
     }
 
-    #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/bad/**/*.10n")]
+    #[test_resources("ion-tests/iontestdata_1_0/bad/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/bad/**/*.10n")]
     fn native_bad(file_name: &str) {
         bad(TokenNativeElementApi, file_name)
     }
 
-    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.10n")]
     fn native_equivs(file_name: &str) {
         equivs(TokenNativeElementApi, file_name)
     }
 
-    #[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/non-equivs/**/*.ion")]
     // no binary files exist and the macro doesn't like empty globs...
     // see frehberg/test-generator#12
-    //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
+    //#[test_resources("ion-tests/iontestdata_1_0/good/non-equivs/**/*.10n")]
     fn native_non_equivs(file_name: &str) {
         non_equivs(TokenNativeElementApi, file_name)
     }
@@ -742,22 +776,115 @@ mod lazy_element_tests {
         fn pretty_lines(Format::Text(TextKind::Pretty), Format::Text(TextKind::Lines));
     }
 
-    #[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/bad/**/*.10n")]
+    #[test_resources("ion-tests/iontestdata_1_0/bad/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/bad/**/*.10n")]
     fn lazy_bad(file_name: &str) {
         bad(LazyReaderElementApi, file_name)
     }
 
-    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
-    #[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.10n")]
     fn lazy_equivs(file_name: &str) {
         equivs(LazyReaderElementApi, file_name)
     }
 
-    #[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.ion")]
+    #[test_resources("ion-tests/iontestdata_1_0/good/non-equivs/**/*.ion")]
     // no binary files exist and the macro doesn't like empty globs...
     // see frehberg/test-generator#12
-    //#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
+    //#[test_resources("ion-tests/iontestdata_1_0/good/non-equivs/**/*.10n")]
+    fn lazy_non_equivs(file_name: &str) {
+        non_equivs(LazyReaderElementApi, file_name)
+    }
+}
+
+/// TODO: When the Ion 1.1 binary reader is complete, update this module to include binary tests
+#[cfg(test)]
+mod ion_1_1 {
+    use super::*;
+    use ion_rs::lazy::reader::LazyTextReader_1_1;
+
+    struct LazyReaderElementApi;
+
+    impl ElementApi for LazyReaderElementApi {
+        type ElementReader<'a> = LazyTextReader_1_1<'a>;
+
+        fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
+            Ok(LazyTextReader_1_1::new(data).unwrap())
+        }
+
+        fn global_skip_list() -> SkipList {
+            &[
+                // TODO: Revisit these once the Ion 1.1 System Symbol Table is defined
+                "ion-tests/iontestdata_1_1/good/equivs/localSymbolTableAppend.ion",
+                "ion-tests/iontestdata_1_1/good/equivs/localSymbolTableNullSlots.ion",
+                "ion-tests/iontestdata_1_1/good/equivs/localSymbolTableWithAnnotations.ion",
+                "ion-tests/iontestdata_1_1/good/equivs/localSymbolTables.ion",
+                "ion-tests/iontestdata_1_1/good/equivs/nonIVMNoOps.ion",
+                "ion-tests/iontestdata_1_1/good/non-equivs/annotatedIvms.ion",
+                "ion-tests/iontestdata_1_1/good/non-equivs/localSymbolTableWithAnnotations.ion",
+                "ion-tests/iontestdata_1_1/good/non-equivs/symbolTables.ion",
+                "ion-tests/iontestdata_1_1/good/non-equivs/symbolTablesUnknownText.ion",
+                // TODO: Remove from skiplist when shared symbol tables are supported
+                "ion-tests/iontestdata_1_1/good/localSymbolTableImportZeroMaxId.ion",
+                "ion-tests/iontestdata_1_1/good/testfile35.ion",
+                // TODO: https://github.com/amazon-ion/ion-rust/issues/653
+                "ion-tests/iontestdata_1_1/good/equivs/macros/make_string.ion",
+                "ion-tests/iontestdata_1_1/good/equivs/macros/values.ion",
+                "ion-tests/iontestdata_1_1/good/equivs/macros/void.ion",
+                "ion-tests/iontestdata_1_1/good/macros/void_invoked_deeply_nested.ion",
+                "ion-tests/iontestdata_1_1/good/macros/void_invoked_in_struct.ion",
+                "ion-tests/iontestdata_1_1/good/macros/void_invoked_in_struct_field.ion",
+            ]
+        }
+
+        fn read_one_equivs_skip_list() -> SkipList {
+            &[]
+        }
+
+        fn round_trip_skip_list() -> SkipList {
+            &[]
+        }
+
+        fn equivs_skip_list() -> SkipList {
+            &[]
+        }
+
+        fn non_equivs_skip_list() -> SkipList {
+            &[]
+        }
+    }
+
+    // TODO: Update to write as Ion 1.1
+    mod good_round_trip {
+        use super::*;
+        use ion_rs::Format::Text;
+        #[test_resources("ion-tests/iontestdata_1_1/good/**/*.ion")]
+        fn round_trip(file_name: &str) {
+            LazyReaderElementApi::assert_file(
+                LazyReaderElementApi::global_skip_list(),
+                file_name,
+                || {
+                    LazyReaderElementApi::assert_three_way_round_trip(
+                        file_name,
+                        Text(TextKind::Lines),
+                        Text(TextKind::Lines),
+                    )
+                },
+            );
+        }
+    }
+
+    #[test_resources("ion-tests/iontestdata_1_1/bad/**/*.ion")]
+    fn lazy_bad(file_name: &str) {
+        bad(LazyReaderElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata_1_1/good/equivs/**/*.ion")]
+    fn lazy_equivs(file_name: &str) {
+        equivs(LazyReaderElementApi, file_name)
+    }
+
+    #[test_resources("ion-tests/iontestdata_1_1/good/non-equivs/**/*.ion")]
     fn lazy_non_equivs(file_name: &str) {
         non_equivs(LazyReaderElementApi, file_name)
     }
