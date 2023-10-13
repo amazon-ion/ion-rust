@@ -35,7 +35,6 @@
 use std::fmt::{Debug, Formatter};
 use std::iter::empty;
 
-use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 
 use sequence::{LazyExpandedList, LazyExpandedSExp};
@@ -241,7 +240,7 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
 }
 
 /// The source of data backing a [`LazyExpandedValue`].
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub enum ExpandedValueSource<'top, 'data, D: LazyDecoder<'data>> {
     /// This value was a literal in the input stream.
     ValueLiteral(D::Value),
@@ -251,9 +250,10 @@ pub enum ExpandedValueSource<'top, 'data, D: LazyDecoder<'data>> {
     Constructed(
         // TODO: Make this an associated type on the LazyDecoder trait so 1.0 types can set
         //       it to `Never` and the compiler can eliminate this code path where applicable.
-        // A collection of bump-allocated annotation strings
-        BumpVec<'top, &'top str>,
-        ExpandedValueRef<'top, 'data, D>,
+        // Constructed data stored in the bump allocator. Holding references instead of the data
+        // itself allows this type (and those that contain it) to impl `Copy`.
+        &'top [&'top str],
+        &'top ExpandedValueRef<'top, 'data, D>,
     ),
 }
 
@@ -280,7 +280,7 @@ impl<'top, 'data, V: RawValueLiteral, D: LazyDecoder<'data, Value = V>> From<V>
 }
 
 /// A value produced by expanding the 'raw' view of the input data.
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct LazyExpandedValue<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) context: EncodingContext<'top>,
     pub(crate) source: ExpandedValueSource<'top, 'data, D>,

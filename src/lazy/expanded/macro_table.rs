@@ -16,9 +16,6 @@ pub enum MacroKind {
     Values,
     MakeString,
     Template(TemplateMacro),
-    // The following macro types are implementation details for macro evaluation and are not
-    // directly available to users. They do not appear in the macro table.
-    ExpandVariable,
 }
 
 impl MacroKind {
@@ -28,10 +25,6 @@ impl MacroKind {
             MacroKind::Values => "values",
             MacroKind::MakeString => "make_string",
             MacroKind::Template(template) => template.name(),
-            // The `#` prefix is an arbitrarily selected sigil that indicates this is macro kind is
-            // not directly available to users. If this name appears in (e.g.) a macro evaluator
-            // stack trace, users copy/pasting it into their own templates would get a syntax error.
-            MacroKind::ExpandVariable => "#expand_variable",
         }
     }
 }

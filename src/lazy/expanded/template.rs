@@ -1,3 +1,4 @@
+use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
@@ -5,7 +6,7 @@ use std::ops::{Deref, Range};
 
 use crate::lazy::decoder::{LazyDecoder, RawFieldExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{
-    ArgumentExpr, MacroEvaluator, MacroExpr, MacroInvocation,
+    ArgumentExpr, MacroEvaluator, MacroExpansionStep, MacroExpr, MacroInvocation,
 };
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::sequence::Environment;
@@ -14,7 +15,7 @@ use crate::lazy::expanded::{
 };
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef, TemplateBodyExprAddress};
 use crate::result::IonFailure;
-use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, Timestamp};
+use crate::{Bytes, Decimal, Int, IonError, IonResult, IonType, Str, Symbol, Timestamp};
 
 #[derive(Debug, Clone)]
 pub enum ParameterEncoding {
@@ -204,8 +205,29 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'
                         Err(e) => return Some(Err(e)),
                     };
                 }
-                TemplateBodyValueExpr::Variable(_) => {
-                    todo!("TemplateSequenceIterator: variable expansion");
+                TemplateBodyValueExpr::Variable(variable_ref) => {
+                    let arg_expr = self
+                        .evaluator
+                        .environment()
+                        .args()
+                        .get(variable_ref.signature_index())
+                        .unwrap();
+                    match arg_expr {
+                        ArgumentExpr::ValueLiteral(value) => {
+                            println!("yield variable expansion {value:?} from list");
+                            return Some(Ok(*value));
+                        }
+                        ArgumentExpr::Variable(variable_reference) => {
+                            unreachable!("variable references are not recursively resolved; while evaluating {:?}, found {:?}", arg_expr, variable_reference)
+                        }
+                        ArgumentExpr::MacroInvocation(invocation) => {
+                            println!("push variable expansion '{:?}' onto the stack", invocation);
+                            match self.evaluator.push(self.context, *invocation) {
+                                Ok(_) => continue,
+                                Err(e) => return Some(Err(e)),
+                            }
+                        }
+                    }
                 }
             };
         }
@@ -311,8 +333,26 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
                 self.index += invocation.arg_expressions.len();
                 RawValueExpr::MacroInvocation(MacroExpr::TemplateMacro(invocation))
             }
-            Some(TemplateBodyValueExpr::Variable(_)) => {
-                todo!("variable expansion in template structs")
+            Some(TemplateBodyValueExpr::Variable(variable)) => {
+                let arg_expr = match self.environment.get_expected(variable.signature_index()) {
+                    Ok(expr) => expr,
+                    Err(e) => return Some(Err(e)),
+                };
+                match arg_expr {
+                    ArgumentExpr::ValueLiteral(expansion) => {
+                        println!("expand variable to {expansion:?} in template struct");
+                        RawValueExpr::ValueLiteral(expansion.source)
+                    }
+                    ArgumentExpr::Variable(_) => {
+                        unreachable!(
+                            "environment contained a variable reference instead of an expression"
+                        )
+                    }
+                    ArgumentExpr::MacroInvocation(invocation) => {
+                        println!("expand variable to {:?} in template struct", invocation);
+                        RawValueExpr::MacroInvocation(*invocation)
+                    }
+                }
             }
         };
         self.index += 2;

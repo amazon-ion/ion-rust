@@ -8,9 +8,11 @@ use crate::lazy::expanded::{
     EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueSource,
     LazyExpandedValue,
 };
-use crate::{IonResult, IonType};
+use crate::{IonError, IonResult, IonType};
 
+use crate::result::IonFailure;
 use bumpalo::collections::Vec as BumpVec;
+
 #[derive(Copy, Clone, Debug)]
 pub struct Environment<'top, 'data, D: LazyDecoder<'data>> {
     args: &'top [ArgumentExpr<'top, 'data, D>],
@@ -26,6 +28,21 @@ impl<'top, 'data, D: LazyDecoder<'data>> Environment<'top, 'data, D> {
         Environment {
             args: args.into_bump_slice(),
         }
+    }
+
+    pub fn get_expected(
+        &self,
+        signature_index: usize,
+    ) -> IonResult<&'top ArgumentExpr<'top, 'data, D>> {
+        self.args()
+            .get(signature_index)
+            // The TemplateCompiler should detect any invalid variable references prior to evaluation
+            .ok_or_else(|| {
+                IonError::decoding_error(format!(
+                    "reference to variable with signature index {} not valid",
+                    signature_index
+                ))
+            })
     }
 
     pub fn empty() -> Environment<'top, 'data, D> {

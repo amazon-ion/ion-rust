@@ -234,7 +234,6 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
             };
             if Self::is_symbol_table_struct(&lazy_expanded_value)? {
                 Self::process_symbol_table(pending_lst, &lazy_expanded_value)?;
-                drop(lazy_expanded_value);
                 continue;
             }
             let lazy_value = LazyValue::new(lazy_expanded_value);
