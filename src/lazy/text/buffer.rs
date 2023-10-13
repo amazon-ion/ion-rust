@@ -35,7 +35,7 @@ use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::raw::r#struct::LazyRawTextField_1_0;
 use crate::lazy::text::raw::sequence::{RawTextListIterator_1_0, RawTextSExpIterator_1_0};
 use crate::lazy::text::raw::v1_1::reader::{
-    EncodedTextMacroInvocation, MacroIdRef, RawTextListIterator_1_1, RawTextMacroInvocation,
+    EncodedTextMacroInvocation, MacroIdRef, RawTextEExpression_1_1, RawTextListIterator_1_1,
     RawTextSExpIterator_1_1, RawTextStructIterator_1_1,
 };
 use crate::lazy::text::value::{LazyRawTextValue_1_0, LazyRawTextValue_1_1, MatchedRawTextValue};
@@ -479,7 +479,7 @@ impl<'data> TextBufferView<'data> {
         'data,
         (
             (MatchedFieldName, Range<usize>),
-            RawTextMacroInvocation<'data>,
+            RawTextEExpression_1_1<'data>,
         ),
     > {
         terminated(
@@ -1024,7 +1024,7 @@ impl<'data> TextBufferView<'data> {
     /// Matches an e-expression invoking a macro.
     ///
     /// If the input does not contain the entire e-expression, returns `IonError::Incomplete(_)`.
-    pub fn match_e_expression(self) -> IonParseResult<'data, RawTextMacroInvocation<'data>> {
+    pub fn match_e_expression(self) -> IonParseResult<'data, RawTextEExpression_1_1<'data>> {
         let (exp_body, _) = tag("(:")(self)?;
         // TODO: Support macro ID kinds besides unqualified names
         let (exp_body_after_id, (macro_id_bytes, _matched_symbol)) =
@@ -1061,7 +1061,7 @@ impl<'data> TextBufferView<'data> {
         // For the matched span, we use `self` again to include the opening `(:`
         let matched = self.slice(0, span.len());
         let remaining = self.slice_to_end(span.len());
-        let macro_invocation = RawTextMacroInvocation::new(
+        let macro_invocation = RawTextEExpression_1_1::new(
             macro_id,
             EncodedTextMacroInvocation::new(macro_id_bytes.len() as u16),
             matched,

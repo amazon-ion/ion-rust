@@ -1,8 +1,6 @@
 use crate::element::iterators::SymbolsIterator;
-use crate::lazy::decoder::{
-    LazyDecoder, LazyRawSequence, LazyRawValueExpr, RawArgumentExpr, RawValueExpr,
-};
-use crate::lazy::expanded::macro_evaluator::{EExpEvaluator, MacroEvaluator, TemplateEvaluator};
+use crate::lazy::decoder::{LazyDecoder, LazyRawSequence, LazyRawValueExpr, RawValueExpr};
+use crate::lazy::expanded::macro_evaluator::{ArgumentExpr, MacroEvaluator, RawMacroInvocation};
 use crate::lazy::expanded::template::{
     AnnotationsRange, ExprRange, TemplateMacroRef, TemplateSequenceIterator,
 };
@@ -13,51 +11,28 @@ use crate::lazy::expanded::{
 use crate::{IonResult, IonType};
 
 use bumpalo::collections::Vec as BumpVec;
-
-// // TODO: Move somewhere more central, add doc comment, explain that we could optimize by only
-// //       copying the top stack frame's arguments
-// pub type Environment<'top, 'data, D> = BumpVec<'top, RawArgumentExpr<'data, D>>;
-// pub type EnvironmentRef<'top, 'data, D> = &'top Environment<'top, 'data, D>;
-
 #[derive(Copy, Clone, Debug)]
 pub struct Environment<'top, 'data, D: LazyDecoder<'data>> {
-    args: &'top [RawArgumentExpr<'data, D>],
-    parent: Option<&'top Self>,
+    args: &'top [ArgumentExpr<'top, 'data, D>],
 }
 
-pub const fn empty_args<'data, D: LazyDecoder<'data>>() -> &'data [RawArgumentExpr<'data, D>] {
+pub const fn empty_args<'top, 'data, D: LazyDecoder<'data>>() -> &'top [ArgumentExpr<'top, 'data, D>]
+{
     &[]
 }
 
 impl<'top, 'data, D: LazyDecoder<'data>> Environment<'top, 'data, D> {
-    pub(crate) fn new(args: BumpVec<'top, RawArgumentExpr<'data, D>>) -> Self {
+    pub(crate) fn new(args: BumpVec<'top, ArgumentExpr<'top, 'data, D>>) -> Self {
         Environment {
             args: args.into_bump_slice(),
-            parent: None,
         }
     }
 
-    pub fn from_args(
-        context: EncodingContext<'top>,
-        args: &[RawArgumentExpr<'data, D>],
-    ) -> Environment<'top, 'data, D> {
-        let mut arg_stack = BumpVec::new_in(context.allocator);
-        arg_stack.extend_from_slice(args);
-        Environment::new(arg_stack)
+    pub fn empty() -> Environment<'top, 'data, D> {
+        Environment { args: empty_args() }
     }
-
-    pub fn empty() -> Environment<'data, 'data, D> {
-        Environment {
-            args: empty_args(),
-            parent: None,
-        }
-    }
-    pub fn args(&self) -> &'top [RawArgumentExpr<'data, D>] {
+    pub fn args(&self) -> &'top [ArgumentExpr<'top, 'data, D>] {
         self.args
-    }
-
-    pub fn parent(&self) -> Option<&'top Self> {
-        self.parent
     }
 }
 
@@ -125,12 +100,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedList<'top, 'data, D> {
     pub fn iter(&self) -> ExpandedListIterator<'top, 'data, D> {
         let source = match &self.source {
             ExpandedListSource::ValueLiteral(list) => {
-                let evaluator = EExpEvaluator::new(self.context);
+                let evaluator = MacroEvaluator::new(self.context, Environment::empty());
                 ExpandedListIteratorSource::ValueLiteral(evaluator, list.iter())
             }
             ExpandedListSource::Template(environment, template, _annotations, steps) => {
                 let steps = template.body.expressions().get(steps.ops_range()).unwrap();
-                let evaluator = TemplateEvaluator::new(self.context, *environment);
+                let evaluator = MacroEvaluator::new(self.context, *environment);
                 ExpandedListIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
                     evaluator,
@@ -150,7 +125,7 @@ pub enum ExpandedListIteratorSource<'top, 'data, D: LazyDecoder<'data>> {
     ValueLiteral(
         // Giving the list iterator its own evaluator means that we can abandon the iterator
         // at any time without impacting the evaluation state of its parent container.
-        EExpEvaluator<'top, 'data, D>,
+        MacroEvaluator<'top, 'data, D>,
         <D::List as LazyRawSequence<'data, D>>::Iterator,
     ),
     Template(TemplateSequenceIterator<'top, 'data, D>),
@@ -218,12 +193,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedSExp<'top, 'data, D> {
     pub fn iter(&self) -> ExpandedSExpIterator<'top, 'data, D> {
         let source = match &self.source {
             ExpandedSExpSource::ValueLiteral(sexp) => {
-                let evaluator = EExpEvaluator::new(self.context);
+                let evaluator = MacroEvaluator::new(self.context, Environment::empty());
                 ExpandedSExpIteratorSource::ValueLiteral(evaluator, sexp.iter())
             }
             ExpandedSExpSource::Template(environment, template, _annotations, steps) => {
                 let steps = template.body.expressions().get(steps.ops_range()).unwrap();
-                let evaluator = TemplateEvaluator::new(self.context, *environment);
+                let evaluator = MacroEvaluator::new(self.context, *environment);
                 ExpandedSExpIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
                     evaluator,
@@ -262,7 +237,7 @@ pub enum ExpandedSExpIteratorSource<'top, 'data, D: LazyDecoder<'data>> {
     ValueLiteral(
         // Giving the sexp iterator its own evaluator means that we can abandon the iterator
         // at any time without impacting the evaluation state of its parent container.
-        EExpEvaluator<'top, 'data, D>,
+        MacroEvaluator<'top, 'data, D>,
         <D::SExp as LazyRawSequence<'data, D>>::Iterator,
     ),
     Template(TemplateSequenceIterator<'top, 'data, D>),
@@ -291,12 +266,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for ExpandedSExpIterator<'top,
 /// evaluation already in progress or reading the next item from the input stream.
 fn expand_next_sequence_value<'top, 'data, D: LazyDecoder<'data>>(
     context: EncodingContext<'top>,
-    evaluator: &mut EExpEvaluator<'top, 'data, D>,
+    evaluator: &mut MacroEvaluator<'top, 'data, D>,
     iter: &mut impl Iterator<Item = IonResult<LazyRawValueExpr<'data, D>>>,
 ) -> Option<IonResult<LazyExpandedValue<'top, 'data, D>>> {
     loop {
         // If the evaluator's stack is not empty, it's still expanding a macro.
-        if evaluator.stack_depth() > 0 {
+        if evaluator.macro_stack_depth() > 0 {
             let value = evaluator.next(context, 0).transpose();
             if value.is_some() {
                 // The `Some` may contain a value or an error; either way, that's the next return value.
@@ -315,7 +290,11 @@ fn expand_next_sequence_value<'top, 'data, D: LazyDecoder<'data>>(
                 }))
             }
             Some(Ok(RawValueExpr::MacroInvocation(invocation))) => {
-                let begin_expansion_result = evaluator.push(context, invocation);
+                let resolved_invocation = match invocation.resolve(context) {
+                    Ok(resolved) => resolved,
+                    Err(e) => return Some(Err(e)),
+                };
+                let begin_expansion_result = evaluator.push(context, resolved_invocation);
                 if let Err(e) = begin_expansion_result {
                     return Some(Err(e));
                 }

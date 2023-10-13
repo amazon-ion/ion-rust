@@ -1,11 +1,10 @@
 use std::fmt::Debug;
 
-use crate::lazy::decoder::{LazyDecoder, RawArgumentExpr};
+use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{
-    ArgumentKind, MacroEvaluator, MacroExpansion, MacroInvocation, MacroStack, ToArgumentKind,
+    ArgumentExpr, MacroExpr, MacroInvocation, RawMacroInvocation,
 };
 use crate::lazy::expanded::sequence::Environment;
-use crate::lazy::expanded::stack::{BumpVecStack, Stack};
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::IonResult;
@@ -18,77 +17,44 @@ pub enum Never {
 
 // Ion 1.0 uses `Never` as a placeholder type for MacroInvocation.
 // The compiler should optimize these methods away.
-impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for Never {
-    type ArgumentExpr = Never;
+impl<'data, D: LazyDecoder<'data>> RawMacroInvocation<'data, D> for Never {
     // These use Box<dyn> to avoid defining yet another placeholder type.
-    type ArgumentsIterator = Box<dyn Iterator<Item = IonResult<Never>>>;
-    type RawArgumentsIterator = Box<dyn Iterator<Item = RawArgumentExpr<'data, D>>>;
+    type RawArgumentsIterator<'a> = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'data, D>>>>;
+    type MacroInvocation<'top> = Never where 'data: 'top;
 
-    type TransientEvaluator<'context> = Never  where Self: 'context, 'data: 'context;
-
-    fn id(&self) -> MacroIdRef<'_> {
+    fn id(&self) -> MacroIdRef<'data> {
         unreachable!("macro in Ion 1.0 (method: id)")
     }
 
-    fn arguments(&self) -> Self::ArgumentsIterator {
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
         unreachable!("macro in Ion 1.0 (method: arguments)")
     }
 
-    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
-        unreachable!("macro in Ion 1.0 (method: raw_arguments)")
-    }
-
-    fn make_transient_evaluator<'context>(
-        _context: EncodingContext<'context>,
-        _environment: Environment<'context, 'data, D>,
-    ) -> Self::TransientEvaluator<'context>
-    where
-        'data: 'context,
-        Self: 'context,
-    {
-        unreachable!("macro in Ion 1.0 (method: make_transient_evaluator)")
-    }
-}
-
-impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, Self> for Never {
-    fn to_arg_expr<'top>(
+    fn resolve<'top>(
         self,
         _context: EncodingContext<'top>,
-        _environment: Environment<'top, 'data, D>,
-    ) -> ArgumentKind<'top, 'data, D, Never>
+    ) -> IonResult<Self::MacroInvocation<'top>>
     where
-        Never: 'top,
-        Self: 'top,
+        'data: 'top,
     {
-        unreachable!("macro in Ion 1.0 (method: to_arg_expr)")
+        unreachable!("macro in Ion 1.0 (method: resolve)")
     }
 }
 
-impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroEvaluator<'top, 'data, D> for Never {
-    type MacroInvocation = Never;
-    fn macro_stack(&self) -> &MacroStack<'top, 'data, D, Never> {
-        unreachable!("macro in Ion 1.0 (method: macro_stack)")
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> From<Never> for MacroExpr<'top, 'data, D> {
+    fn from(_value: Never) -> Self {
+        unreachable!("macro in Ion 1.0 (method: into)")
+    }
+}
+
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroInvocation<'top, 'data, D> for Never {
+    type ArgumentsIterator = Box<dyn Iterator<Item = IonResult<ArgumentExpr<'top, 'data, D>>>>;
+
+    fn id(&self) -> MacroIdRef<'data> {
+        unreachable!("macro in Ion 1.0 (method: id)");
     }
 
-    fn macro_stack_mut(&mut self) -> &mut MacroStack<'top, 'data, D, Never> {
-        unreachable!("macro in Ion 1.0 (method: macro_stack_mut)")
+    fn arguments(&self, _environment: Environment<'top, 'data, D>) -> Self::ArgumentsIterator {
+        unreachable!("macro in Ion 1.0 (method: arguments)");
     }
-
-    fn environment(&self) -> Environment<'top, 'data, D> {
-        unreachable!("macro in Ion 1.0 (method: environment)")
-    }
-
-    fn environment_mut(&mut self) -> &mut Environment<'top, 'data, D> {
-        unreachable!("macro in Ion 1.0 (method: environment_mut)")
-    }
-
-    // fn arg_stack(&self) -> &<Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
-    //     unreachable!("macro in Ion 1.0 (method: arg_stack)")
-    // }
-    //
-    // fn arg_stack_mut(
-    //     &mut self,
-    // ) -> &mut <Self::Stack as Stack>::Storage<'top, RawArgumentExpr<'data, D>> {
-    //     unreachable!("macro in Ion 1.0 (method: arg_stack_mut)")
-    // }
 }

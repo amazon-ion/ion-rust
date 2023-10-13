@@ -1,17 +1,16 @@
 use std::fmt::Debug;
 
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::macro_evaluator::{EExpEvaluator, MacroInvocation};
-use crate::lazy::expanded::sequence::Environment;
-use crate::lazy::expanded::template::TemplateMacroArgExpr;
+use crate::lazy::expanded::e_expression::TextEExpression_1_1;
+use crate::lazy::expanded::macro_evaluator::{MacroInvocation, RawMacroInvocation};
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::text::raw::v1_1::reader::{
-    MacroIdRef, RawTextMacroInvocation, RawTextSExpIterator_1_1,
+    MacroIdRef, RawTextEExpression_1_1, RawTextSExpIterator_1_1,
 };
 use crate::result::IonFailure;
-use crate::{IonResult, IonType, RawSymbolTokenRef};
+use crate::{IonError, IonResult, IonType, RawSymbolTokenRef};
 
 /// A family of types that collectively comprise the lazy reader API for an Ion serialization
 /// format. These types operate at the 'raw' level; they do not attempt to resolve symbols
@@ -32,7 +31,10 @@ pub trait LazyDecoder<'data>: 'static + Sized + Debug + Clone + Copy {
     /// An iterator over the annotations on the input stream's values.
     type AnnotationsIterator: Iterator<Item = IonResult<RawSymbolTokenRef<'data>>>;
     /// An e-expression invoking a macro. (Ion 1.1+)
-    type MacroInvocation: MacroInvocation<'data, Self>;
+    type RawMacroInvocation: RawMacroInvocation<'data, Self>;
+    type MacroInvocation<'top>: MacroInvocation<'top, 'data, Self>
+    where
+        'data: 'top;
 }
 
 /// An expression found in value position in either serialized Ion or a template.
@@ -61,7 +63,7 @@ pub enum RawValueExpr<V, M> {
 /// For a version of this type that is not constrained to a particular encoding, see
 /// [`RawValueExpr`].
 pub type LazyRawValueExpr<'data, D> =
-    RawValueExpr<<D as LazyDecoder<'data>>::Value, <D as LazyDecoder<'data>>::MacroInvocation>;
+    RawValueExpr<<D as LazyDecoder<'data>>::Value, <D as LazyDecoder<'data>>::RawMacroInvocation>;
 
 impl<V: Debug, M: Debug> RawValueExpr<V, M> {
     pub fn expect_value(self) -> IonResult<V> {
@@ -81,24 +83,6 @@ impl<V: Debug, M: Debug> RawValueExpr<V, M> {
             )),
             RawValueExpr::MacroInvocation(m) => Ok(m),
         }
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum RawArgumentExpr<'data, D: LazyDecoder<'data>> {
-    StreamExpr(LazyRawValueExpr<'data, D>),
-    TemplateExpr(TemplateMacroArgExpr),
-}
-
-impl<'data, D: LazyDecoder<'data>> From<LazyRawValueExpr<'data, D>> for RawArgumentExpr<'data, D> {
-    fn from(stream_value_expr: LazyRawValueExpr<'data, D>) -> Self {
-        RawArgumentExpr::StreamExpr(stream_value_expr)
-    }
-}
-
-impl<'data, D: LazyDecoder<'data>> From<TemplateMacroArgExpr> for RawArgumentExpr<'data, D> {
-    fn from(template_value_expr: TemplateMacroArgExpr) -> Self {
-        RawArgumentExpr::TemplateExpr(template_value_expr)
     }
 }
 
@@ -122,7 +106,7 @@ pub enum RawFieldExpr<'name, V, M> {
 pub type LazyRawFieldExpr<'data, D> = RawFieldExpr<
     'data,
     <D as LazyDecoder<'data>>::Value,
-    <D as LazyDecoder<'data>>::MacroInvocation,
+    <D as LazyDecoder<'data>>::RawMacroInvocation,
 >;
 
 impl<'name, V: Debug, M: Debug> RawFieldExpr<'name, V, M> {
@@ -196,35 +180,32 @@ pub(crate) mod private {
     }
 }
 
-impl<'data> MacroInvocation<'data, TextEncoding_1_1> for RawTextMacroInvocation<'data> {
-    type ArgumentExpr = LazyRawValueExpr<'data, TextEncoding_1_1>;
-    type ArgumentsIterator = RawTextSExpIterator_1_1<'data>;
-    type RawArgumentsIterator = Box<dyn Iterator<Item = RawArgumentExpr<'data, TextEncoding_1_1>>>;
+// TODO: Everything should use LazyRawValueExpr in the RMI impl?
 
-    type TransientEvaluator<'context> =
-    EExpEvaluator<'context, 'data, TextEncoding_1_1>  where Self: 'context, 'data: 'context;
+impl<'data> RawMacroInvocation<'data, TextEncoding_1_1> for RawTextEExpression_1_1<'data> {
+    type RawArgumentsIterator<'a> = RawTextSExpIterator_1_1<'data> where Self: 'a;
 
-    fn id(&self) -> MacroIdRef {
+    type MacroInvocation<'top> = TextEExpression_1_1<'top, 'data> where 'data: 'top;
+
+    fn id(&self) -> MacroIdRef<'data> {
         self.id
     }
 
-    fn arguments(&self) -> Self::ArgumentsIterator {
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
         RawTextSExpIterator_1_1::new(self.arguments_bytes())
     }
 
-    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
-        todo!()
-    }
-
-    fn make_transient_evaluator<'context>(
-        context: EncodingContext<'context>,
-        _environment: Environment<'context, 'data, TextEncoding_1_1>,
-    ) -> Self::TransientEvaluator<'context>
+    fn resolve<'top>(self, context: EncodingContext<'top>) -> IonResult<Self::MacroInvocation<'top>>
     where
-        Self: 'context,
+        'data: 'top,
     {
-        // E-expressions do not have an environment, so we ignore that parameter.
-        Self::TransientEvaluator::new(context)
+        let invoked_macro = context
+            .macro_table
+            .macro_with_id(self.id())
+            .ok_or_else(|| {
+                IonError::decoding_error(format!("unrecognized macro ID {:?}", self.id()))
+            })?;
+        Ok(TextEExpression_1_1::new(context, self, invoked_macro))
     }
 }
 

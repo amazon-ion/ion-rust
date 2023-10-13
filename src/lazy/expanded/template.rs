@@ -1,11 +1,13 @@
+use std::fmt;
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::ops::{Deref, Range};
 
-use crate::lazy::decoder::{LazyDecoder, RawArgumentExpr, RawFieldExpr, RawValueExpr};
+use crate::lazy::decoder::{LazyDecoder, RawFieldExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{
-    ArgumentKind, MacroEvaluator, MacroInvocation, TemplateEvaluator, ToArgumentKind,
+    ArgumentExpr, MacroEvaluator, MacroExpr, MacroInvocation,
 };
-use crate::lazy::expanded::macro_table::MacroKind;
+use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{
     EncodingContext, ExpandedValueRef, ExpandedValueSource, LazyExpandedValue,
@@ -59,40 +61,18 @@ impl MacroSignature {
     }
 }
 
-/// A pairing of a template reference and the address in the macro table at which it was found.
-/// This type implements Deref to allow easy access to the methods on the template.
-#[derive(Debug, Clone, Copy)]
-pub struct TemplateMacroRef<'top> {
-    template_address: MacroAddress,
-    template: &'top TemplateMacro,
-}
-
-impl<'top> TemplateMacroRef<'top> {
-    pub fn new(template_address: MacroAddress, template: &'top TemplateMacro) -> Self {
-        Self {
-            template_address,
-            template,
-        }
-    }
-    pub fn address(&self) -> MacroAddress {
-        self.template_address
-    }
-}
-
-impl<'top> Deref for TemplateMacroRef<'top> {
-    type Target = &'top TemplateMacro;
-
-    fn deref(&self) -> &Self::Target {
-        &self.template
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TemplateMacro {
     // TODO: Make the name optional
     pub(crate) name: Symbol,
     pub(crate) signature: MacroSignature,
     pub(crate) body: TemplateBody,
+}
+
+impl Debug for TemplateMacro {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.fmt_template(f)
+    }
 }
 
 impl TemplateMacro {
@@ -105,12 +85,50 @@ impl TemplateMacro {
     pub fn body(&self) -> &TemplateBody {
         &self.body
     }
+
+    pub(crate) fn fmt_template(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Template {}", self.name())?;
+        for param in self.signature().parameters() {
+            writeln!(f, "  {param:?}")?;
+        }
+        writeln!(f, "  body:")?;
+        let indentation = &mut String::from("    ");
+        let mut index = 0usize;
+        while let Some(expr) = self.body().expressions().get(index) {
+            index += TemplateBodyValueExpr::fmt_expr(f, indentation, expr, self)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct TemplateMacroRef<'top> {
+    address: MacroAddress,
+    template: &'top TemplateMacro,
+}
+
+impl<'top> TemplateMacroRef<'top> {
+    pub fn new(address: MacroAddress, template: &'top TemplateMacro) -> Self {
+        Self { address, template }
+    }
+    pub fn address(&self) -> MacroAddress {
+        self.address
+    }
+}
+
+impl<'top> Deref for TemplateMacroRef<'top> {
+    type Target = &'top TemplateMacro;
+
+    fn deref(&self) -> &Self::Target {
+        &self.template
+    }
 }
 
 pub struct TemplateSequenceIterator<'top, 'data, D: LazyDecoder<'data>> {
     context: EncodingContext<'top>,
     template: TemplateMacroRef<'top>,
-    evaluator: TemplateEvaluator<'top, 'data, D>,
+    evaluator: MacroEvaluator<'top, 'data, D>,
     value_expressions: &'top [TemplateBodyValueExpr],
     index: usize,
 }
@@ -118,7 +136,7 @@ pub struct TemplateSequenceIterator<'top, 'data, D: LazyDecoder<'data>> {
 impl<'top, 'data, D: LazyDecoder<'data>> TemplateSequenceIterator<'top, 'data, D> {
     pub fn new(
         context: EncodingContext<'top>,
-        evaluator: TemplateEvaluator<'top, 'data, D>,
+        evaluator: MacroEvaluator<'top, 'data, D>,
         template: TemplateMacroRef<'top>,
         value_expressions: &'top [TemplateBodyValueExpr],
     ) -> Self {
@@ -138,37 +156,50 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             // If the evaluator's stack is not empty, give it the opportunity to yield a value.
-            if self.evaluator.stack_depth() > 0 {
+            if self.evaluator.macro_stack_depth() > 0 {
                 match self.evaluator.next(self.context, 0).transpose() {
                     Some(value) => return Some(value),
                     None => {
                         // The stack did not produce values and is empty, pull
-                        // the next expression from `self.sequence`
+                        // the next expression from `self.value_expressions`
                     }
                 }
             }
-            let step_address = self.index;
             // We didn't get a value from the evaluator, so pull the next expansion step.
-            let step = self.value_expressions.get(step_address)?;
+            let step = self.value_expressions.get(self.index)?;
             self.index += 1;
             return match step {
-                TemplateBodyValueExpr::Element(element) => Some(Ok(LazyExpandedValue {
-                    context: self.context,
-                    source: ExpandedValueSource::Template(
-                        self.evaluator.environment(),
-                        TemplateElement::new(self.template, element),
-                    ),
-                })),
+                TemplateBodyValueExpr::Element(element) => {
+                    let value = LazyExpandedValue {
+                        context: self.context,
+                        source: ExpandedValueSource::Template(
+                            self.evaluator.environment(),
+                            TemplateElement::new(self.template, element),
+                        ),
+                    };
+                    println!("yield {value:?} from list");
+                    Some(Ok(value))
+                }
                 TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
                     // ...it's a TDL macro invocation. Push it onto the evaluator's stack and return
                     // to the top of the loop.
-                    let invocation_address = TemplateMacroInvocationAddress::new(
-                        self.template.address(),
-                        body_invocation.macro_address,
-                        step_address,
-                        body_invocation.arg_expr_range.len(),
+                    let invoked_macro = self
+                        .context
+                        .macro_table
+                        .macro_at_address(body_invocation.invoked_macro_address)
+                        .unwrap();
+                    let invocation = TemplateMacroInvocation::new(
+                        self.context,
+                        self.template,
+                        invoked_macro,
+                        self.template
+                            .body
+                            .expressions()
+                            .get(body_invocation.arg_expr_range().ops_range())
+                            .unwrap(),
                     );
-                    match self.evaluator.push(self.context, invocation_address) {
+                    self.index += invocation.arg_expressions.len();
+                    match self.evaluator.push(self.context, invocation) {
                         Ok(_) => continue,
                         Err(e) => return Some(Err(e)),
                     };
@@ -215,7 +246,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
     for TemplateStructRawFieldsIterator<'top, 'data, D>
 {
     type Item = IonResult<
-        RawFieldExpr<'top, ExpandedValueSource<'top, 'data, D>, TemplateMacroInvocationAddress>,
+        RawFieldExpr<'top, ExpandedValueSource<'top, 'data, D>, MacroExpr<'top, 'data, D>>,
     >;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -250,18 +281,35 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
                 ))
             }
             Some(TemplateBodyValueExpr::Element(element)) => {
+                match element.value() {
+                    TemplateValue::List(range)
+                    | TemplateValue::SExp(range)
+                    | TemplateValue::Struct(range) => self.index += range.len(),
+                    _ => {}
+                };
                 RawValueExpr::ValueLiteral(ExpandedValueSource::Template(
                     self.environment,
                     TemplateElement::new(self.template, element),
                 ))
             }
-            Some(TemplateBodyValueExpr::MacroInvocation(invocation)) => {
-                RawValueExpr::MacroInvocation(TemplateMacroInvocationAddress::new(
-                    self.template.address(),
-                    invocation.macro_address(),
-                    value_expr_address,
-                    invocation.arg_expr_range().len(),
-                ))
+            Some(TemplateBodyValueExpr::MacroInvocation(body_invocation)) => {
+                let invoked_macro = self
+                    .context
+                    .macro_table
+                    .macro_at_address(body_invocation.invoked_macro_address)
+                    .unwrap();
+                let invocation = TemplateMacroInvocation::new(
+                    self.context,
+                    self.template,
+                    invoked_macro,
+                    self.template
+                        .body
+                        .expressions()
+                        .get(body_invocation.arg_expr_range().ops_range())
+                        .unwrap(),
+                );
+                self.index += invocation.arg_expressions.len();
+                RawValueExpr::MacroInvocation(MacroExpr::TemplateMacro(invocation))
             }
             Some(TemplateBodyValueExpr::Variable(_)) => {
                 todo!("variable expansion in template structs")
@@ -300,10 +348,15 @@ impl TemplateBody {
         ))
     }
 
-    pub fn push_macro_invocation(&mut self, address: usize, expr_range: ExprRange) {
+    pub fn push_macro_invocation(&mut self, invoked_macro_address: usize, expr_range: ExprRange) {
+        let expression_address = self.expressions.len();
         self.expressions
             .push(TemplateBodyValueExpr::MacroInvocation(
-                TemplateBodyMacroInvocation::new(address, expr_range),
+                TemplateBodyMacroInvocation::new(
+                    expression_address,
+                    invoked_macro_address,
+                    expr_range,
+                ),
             ))
     }
 }
@@ -340,6 +393,56 @@ pub enum TemplateBodyValueExpr {
     MacroInvocation(TemplateBodyMacroInvocation),
 }
 
+impl TemplateBodyValueExpr {
+    pub(crate) fn fmt_expr(
+        f: &mut Formatter<'_>,
+        indentation: &mut String,
+        expr: &TemplateBodyValueExpr,
+        host_template: &TemplateMacro,
+    ) -> Result<usize, fmt::Error> {
+        match &expr {
+            TemplateBodyValueExpr::Element(e) => {
+                // TODO: Annotations
+                writeln!(f, "{}{:?}", indentation, e.value)?;
+                Ok(1)
+            }
+            TemplateBodyValueExpr::Variable(v) => {
+                writeln!(f, "{}{:?}", indentation, v)?;
+                Ok(1)
+            }
+            TemplateBodyValueExpr::MacroInvocation(m) => {
+                Self::fmt_invocation(f, indentation, host_template, m)
+            }
+        }
+    }
+
+    pub(crate) fn fmt_invocation(
+        f: &mut Formatter<'_>,
+        indentation: &mut String,
+        host_template: &TemplateMacro,
+        invocation: &TemplateBodyMacroInvocation,
+    ) -> Result<usize, fmt::Error> {
+        writeln!(
+            f,
+            "{}invoke address {}",
+            indentation, invocation.invoked_macro_address
+        )?;
+        let args = host_template
+            .body
+            .expressions
+            .get(invocation.arg_expr_range.ops_range())
+            .unwrap();
+
+        indentation.push_str("    ");
+        let mut expr_index: usize = 0;
+        while let Some(arg) = args.get(expr_index) {
+            expr_index += Self::fmt_expr(f, indentation, arg, host_template)?;
+        }
+        indentation.truncate(indentation.len() - 4);
+        Ok(1 + args.len())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TemplateMacroArgExpr {
     // The address of the template macro in which this argument expression appears
@@ -359,24 +462,63 @@ impl TemplateMacroArgExpr {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
+pub struct RawTemplateMacroInvocationArg {
+    host_template_address: MacroAddress,
+    template_body_expr_address: TemplateBodyExprAddress,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct TemplateBodyMacroInvocation {
-    macro_address: MacroAddress,
+    invocation_expr_address: TemplateBodyExprAddress,
+    invoked_macro_address: MacroAddress,
     arg_expr_range: ExprRange,
 }
 
 impl TemplateBodyMacroInvocation {
-    pub fn new(macro_address: MacroAddress, arg_expr_range: ExprRange) -> Self {
+    pub fn new(
+        invocation_expr_address: TemplateBodyExprAddress,
+        invoked_macro_address: MacroAddress,
+        arg_expr_range: ExprRange,
+    ) -> Self {
         Self {
-            macro_address,
+            invocation_expr_address,
+            invoked_macro_address,
             arg_expr_range,
         }
     }
     pub fn macro_address(&self) -> MacroAddress {
-        self.macro_address
+        self.invoked_macro_address
     }
     pub fn arg_expr_range(&self) -> ExprRange {
         self.arg_expr_range
+    }
+    pub fn invocation_expr_address(&self) -> TemplateBodyExprAddress {
+        self.invocation_expr_address
+    }
+
+    pub fn resolve<'top>(
+        self,
+        host_template: TemplateMacroRef<'top>,
+        context: EncodingContext<'top>,
+    ) -> IonResult<TemplateMacroInvocation<'top>> {
+        let invoked_macro = context
+            .macro_table
+            .macro_at_address(self.invoked_macro_address)
+            .unwrap();
+
+        let arg_expressions = host_template
+            .body
+            .expressions()
+            .get(self.arg_expr_range.ops_range())
+            .unwrap();
+
+        Ok(TemplateMacroInvocation {
+            context,
+            host_template,
+            invoked_macro,
+            arg_expressions,
+        })
     }
 }
 
@@ -402,154 +544,50 @@ impl TemplateBodyValueExpr {
     }
 }
 
-impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, TemplateMacroInvocationAddress>
-    for TemplateMacroArgExpr
-{
-    fn to_arg_expr<'top>(
-        self,
-        context: EncodingContext<'top>,
-        environment: Environment<'top, 'data, D>,
-    ) -> ArgumentKind<'top, 'data, D, TemplateMacroInvocationAddress>
-    where
-        TemplateBodyValueExpr: 'top,
-        Self: 'top,
-    {
-        let Some(macro_ref) = &context
-            .macro_table
-            .macro_at_address(self.host_template_address)
-        else {
-            unreachable!(
-                "template address {} was not valid",
-                self.host_template_address
-            );
-        };
-
-        let MacroKind::Template(template) = macro_ref.kind() else {
-            unreachable!(
-                "macro at address {} was not a template: {:?}",
-                self.host_template_address,
-                macro_ref.kind()
-            );
-        };
-
-        let template_ref = TemplateMacroRef::new(macro_ref.address(), template);
-
-        let invocation_expr = template
-            .body()
-            .expressions()
-            .get(self.value_expr_address)
-            .unwrap();
-        match invocation_expr {
-            TemplateBodyValueExpr::Element(element) => {
-                let template_element = TemplateElement::new(template_ref, element);
-                ArgumentKind::ValueLiteral(LazyExpandedValue::from_template(
-                    context,
-                    environment,
-                    template_element,
-                ))
-            }
-            TemplateBodyValueExpr::Variable(_variable) => {
-                todo!("variable expansion")
-            }
-            TemplateBodyValueExpr::MacroInvocation(invocation) => {
-                ArgumentKind::MacroInvocation(TemplateMacroInvocationAddress {
-                    host_template_address: template_ref.address(),
-                    invoked_macro_address: invocation.macro_address,
-                    invocation_expression_address: self.value_expr_address,
-                    num_arguments: invocation.arg_expr_range.len(),
-                })
-            }
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct TemplateMacroInvocationAddress {
-    // The template where the invocation appeared
-    host_template_address: MacroAddress,
-    // The address of the macro being invoked
-    invoked_macro_address: MacroAddress,
-    // The address (Vec index) of the TemplateValueExpr::MacroInvocation, which enables an
-    // arguments iterator to visit each argument expression in the template.
-    invocation_expression_address: TemplateBodyExprAddress,
-    num_arguments: usize,
-}
-
-impl TemplateMacroInvocationAddress {
-    pub fn new(
-        host_template_address: MacroAddress,
-        invoked_macro_address: MacroAddress,
-        invocation_expression_address: TemplateBodyExprAddress,
-        num_arguments: usize,
-    ) -> Self {
-        Self {
-            host_template_address,
-            invoked_macro_address,
-            invocation_expression_address,
-            num_arguments,
-        }
-    }
-    pub fn host_template_address(&self) -> MacroAddress {
-        self.host_template_address
-    }
-    pub fn invocation_expression_address(&self) -> usize {
-        self.invocation_expression_address
-    }
-
-    pub fn arguments(&self) -> TemplateMacroInvocationArgsIterator {
-        TemplateMacroInvocationArgsIterator::new(*self)
-    }
-}
-
 /// A macro invocation in a template body.
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct TemplateMacroInvocation<'top> {
-    // The address of the template in which this macro invocation appears
-    host_template_address: MacroAddress,
+    context: EncodingContext<'top>,
     // The definition of the template in which this macro invocation appears
-    host_template: &'top TemplateMacro,
-    // The address of the the macro invocation expression within the host template's body
-    invocation_expression_address: TemplateBodyExprAddress,
+    host_template: TemplateMacroRef<'top>,
     // The address of the macro being invoked
-    invoked_macro_address: MacroAddress,
+    invoked_macro: MacroRef<'top>,
     // The range of value expressions in the host template's body that are arguments to the
     // macro being invoked
     arg_expressions: &'top [TemplateBodyValueExpr],
 }
 
+impl<'top> Debug for TemplateMacroInvocation<'top> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "TemplateMacroInvocation <target macro address={}>",
+            self.invoked_macro.address()
+        )
+    }
+}
+
 impl<'top> TemplateMacroInvocation<'top> {
     pub fn new(
-        host_template_address: MacroAddress,
-        host_template: &'top TemplateMacro,
-        invocation_expression_address: TemplateBodyExprAddress,
-        invoked_macro_address: MacroAddress,
+        context: EncodingContext<'top>,
+        host_template: TemplateMacroRef<'top>,
+        invoked_macro: MacroRef<'top>,
         arg_expressions: &'top [TemplateBodyValueExpr],
     ) -> Self {
         Self {
-            host_template_address,
+            context,
             host_template,
-            invocation_expression_address,
-            invoked_macro_address,
+            invoked_macro,
             arg_expressions,
         }
     }
-    pub fn invocation_address(&self) -> TemplateMacroInvocationAddress {
-        TemplateMacroInvocationAddress {
-            host_template_address: self.host_template_address,
-            invoked_macro_address: self.invoked_macro_address,
-            invocation_expression_address: 0,
-            num_arguments: self.arg_expressions.len(),
-        }
+    pub fn arguments<'data, D: LazyDecoder<'data>>(
+        &self,
+        environment: Environment<'top, 'data, D>,
+    ) -> TemplateMacroInvocationArgsIterator<'top, 'data, D> {
+        TemplateMacroInvocationArgsIterator::new(environment, *self)
     }
-
-    pub fn macro_address(&self) -> MacroAddress {
-        self.invoked_macro_address
-    }
-    pub fn args(&self) -> TemplateMacroInvocationArgsIterator {
-        TemplateMacroInvocationArgsIterator::new(self.invocation_address())
-    }
-
-    pub fn template(&self) -> &'top TemplateMacro {
+    pub fn template(&self) -> TemplateMacroRef<'top> {
         self.host_template
     }
     pub fn arg_expressions(&self) -> &'top [TemplateBodyValueExpr] {
@@ -557,79 +595,93 @@ impl<'top> TemplateMacroInvocation<'top> {
     }
 }
 
-// TODO: note about why this can't hold a 'top lifetime
-pub struct TemplateMacroInvocationArgsIterator {
-    invocation_address: TemplateMacroInvocationAddress,
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> From<TemplateMacroInvocation<'top>>
+    for MacroExpr<'top, 'data, D>
+{
+    fn from(value: TemplateMacroInvocation<'top>) -> Self {
+        MacroExpr::TemplateMacro(value)
+    }
+}
+
+// TODO: This should hold an Environment<'top, 'data, D> instead of holding a PhantomData
+pub struct TemplateMacroInvocationArgsIterator<'top, 'data, D: LazyDecoder<'data>> {
+    environment: Environment<'top, 'data, D>,
+    invocation: TemplateMacroInvocation<'top>,
     arg_index: usize,
 }
 
-impl TemplateMacroInvocationArgsIterator {
-    pub fn new(invocation_address: TemplateMacroInvocationAddress) -> Self {
+impl<'top, 'data, D: LazyDecoder<'data>> TemplateMacroInvocationArgsIterator<'top, 'data, D> {
+    pub fn new(
+        environment: Environment<'top, 'data, D>,
+        invocation: TemplateMacroInvocation<'top>,
+    ) -> Self {
         Self {
-            invocation_address,
+            environment,
+            invocation,
             arg_index: 0,
         }
     }
 }
 
-impl Iterator for TemplateMacroInvocationArgsIterator {
-    type Item = IonResult<TemplateMacroArgExpr>;
+impl<'top, 'data, D: LazyDecoder<'data>> Iterator
+    for TemplateMacroInvocationArgsIterator<'top, 'data, D>
+{
+    type Item = IonResult<ArgumentExpr<'top, 'data, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.arg_index >= self.invocation_address.num_arguments {
-            return None;
-        }
-        let arg_expr = TemplateMacroArgExpr::new(
-            self.invocation_address.host_template_address(),
-            self.arg_index,
-        );
+        let arg = self.invocation.arg_expressions().get(self.arg_index)?;
         self.arg_index += 1;
+        let arg_expr = match arg {
+            TemplateBodyValueExpr::Element(e) => {
+                // If it's a container, skip over its contents when this iterator resumes
+                match e.value() {
+                    TemplateValue::List(range)
+                    | TemplateValue::SExp(range)
+                    | TemplateValue::Struct(range) => {
+                        self.arg_index += range.len();
+                    }
+                    _ => {}
+                };
+                ArgumentExpr::ValueLiteral(LazyExpandedValue::from_template(
+                    self.invocation.context,
+                    self.environment,
+                    TemplateElement::new(self.invocation.template(), e),
+                ))
+            }
+            TemplateBodyValueExpr::Variable(_v) => {
+                todo!("variable expansion")
+            }
+            TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
+                let invocation = match body_invocation
+                    .resolve(self.invocation.template(), self.invocation.context)
+                {
+                    Ok(invocation) => {
+                        // Skip over all of the expressions that belong to this invocation.
+                        self.arg_index += invocation.arg_expressions.len();
+                        invocation
+                    }
+                    Err(e) => return Some(Err(e)),
+                };
+                ArgumentExpr::MacroInvocation(invocation.into())
+            }
+        };
+
         Some(Ok(arg_expr))
     }
 }
 
-// TODO: Explain why this is on the address and not the resolved invocation
-impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for TemplateMacroInvocationAddress {
-    type ArgumentExpr = TemplateMacroArgExpr;
-    type ArgumentsIterator = TemplateMacroInvocationArgsIterator;
-    type RawArgumentsIterator = TemplateMacroInvocationRawArgsIterator<'data, D>;
-    type TransientEvaluator<'context> = TemplateEvaluator<'context, 'data, D> where Self: 'context, 'data: 'context;
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroInvocation<'top, 'data, D>
+    for TemplateMacroInvocation<'top>
+{
+    type ArgumentsIterator = TemplateMacroInvocationArgsIterator<'top, 'data, D>;
 
-    fn id(&self) -> MacroIdRef {
-        MacroIdRef::LocalAddress(self.invoked_macro_address)
+    fn id(&self) -> MacroIdRef<'data> {
+        MacroIdRef::LocalAddress(self.invoked_macro.address())
     }
 
-    fn arguments(&self) -> Self::ArgumentsIterator {
-        self.arguments()
-    }
-
-    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
-        todo!()
-    }
-
-    fn make_transient_evaluator<'context>(
-        context: EncodingContext<'context>,
-        environment: Environment<'context, 'data, D>,
-    ) -> Self::TransientEvaluator<'context>
-    where
-        'data: 'context,
-        Self: 'context,
-    {
-        Self::TransientEvaluator::new(context, environment)
-    }
-}
-
-pub struct TemplateMacroInvocationRawArgsIterator<'data, D: LazyDecoder<'data>> {
-    index: usize,
-    args: TemplateMacroInvocationArgsIterator,
-    spooky: PhantomData<&'data D>,
-}
-
-impl<'data, D: LazyDecoder<'data>> Iterator for TemplateMacroInvocationRawArgsIterator<'data, D> {
-    type Item = RawArgumentExpr<'data, D>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+    fn arguments(&self, environment: Environment<'top, 'data, D>) -> Self::ArgumentsIterator {
+        // Delegate to the inherent impl on TemplateMacroInvocation
+        self.arguments(environment)
     }
 }
 

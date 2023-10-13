@@ -1,7 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use std::cell::RefCell;
-
 use bumpalo::Bump as BumpAllocator;
 
 use crate::lazy::any_encoding::{AnyEncoding, LazyRawAnyReader};
@@ -88,6 +86,16 @@ pub struct LazySystemReader<'data, D: LazyDecoder<'data>> {
     allocator: BumpAllocator,
 }
 
+impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
+    pub(crate) fn macro_table_mut(&mut self) -> &mut MacroTable {
+        &mut self.macro_table
+    }
+
+    pub(crate) fn context(&self) -> EncodingContext<'_> {
+        EncodingContext::new(&self.macro_table, &self.symbol_table, &self.allocator)
+    }
+}
+
 pub type LazySystemBinaryReader<'data> = LazySystemReader<'data, BinaryEncoding_1_0>;
 pub type LazySystemTextReader_1_0<'data> = LazySystemReader<'data, TextEncoding_1_0>;
 pub type LazySystemTextReader_1_1<'data> = LazySystemReader<'data, TextEncoding_1_1>;
@@ -106,7 +114,7 @@ impl<'data> LazySystemAnyReader<'data> {
         let raw_reader = LazyRawAnyReader::new(ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader {
-            expanding_reader: expanding_reader,
+            expanding_reader,
             pending_lst: PendingLst {
                 is_lst_append: false,
                 symbols: Vec::new(),
@@ -123,7 +131,7 @@ impl<'data> LazySystemBinaryReader<'data> {
         let raw_reader = LazyRawBinaryReader::new(ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader {
-            expanding_reader: expanding_reader,
+            expanding_reader,
             pending_lst: PendingLst {
                 is_lst_append: false,
                 symbols: Vec::new(),
@@ -140,7 +148,7 @@ impl<'data> LazySystemTextReader_1_1<'data> {
         let raw_reader = LazyRawTextReader_1_1::new(ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader {
-            expanding_reader: expanding_reader,
+            expanding_reader,
             pending_lst: PendingLst {
                 is_lst_append: false,
                 symbols: Vec::new(),

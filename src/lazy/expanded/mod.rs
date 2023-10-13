@@ -42,9 +42,9 @@ use sequence::{LazyExpandedList, LazyExpandedSExp};
 
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::bytes_ref::BytesRef;
-use crate::lazy::decoder::{LazyDecoder, LazyRawReader, LazyRawValue, RawArgumentExpr};
+use crate::lazy::decoder::{LazyDecoder, LazyRawReader, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
-use crate::lazy::expanded::macro_evaluator::{EExpEvaluator, MacroEvaluator};
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawMacroInvocation};
 use crate::lazy::expanded::macro_table::MacroTable;
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
@@ -154,14 +154,14 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
     //     Some(evaluator)
     // }
 
-    fn ptr_to_evaluator<'top>(evaluator_ptr: *mut ()) -> &'top mut EExpEvaluator<'top, 'data, D> {
-        let ptr: *mut EExpEvaluator<'top, 'data, D> = evaluator_ptr.cast();
-        let evaluator: &'top mut EExpEvaluator<'top, 'data, D> = unsafe { &mut *ptr };
+    fn ptr_to_evaluator<'top>(evaluator_ptr: *mut ()) -> &'top mut MacroEvaluator<'top, 'data, D> {
+        let ptr: *mut MacroEvaluator<'top, 'data, D> = evaluator_ptr.cast();
+        let evaluator: &'top mut MacroEvaluator<'top, 'data, D> = unsafe { &mut *ptr };
         evaluator
     }
 
-    fn evaluator_to_ptr(evaluator: &mut EExpEvaluator<'_, 'data, D>) -> *mut () {
-        let ptr: *mut EExpEvaluator<'_, 'data, D> = evaluator;
+    fn evaluator_to_ptr(evaluator: &mut MacroEvaluator<'_, 'data, D>) -> *mut () {
+        let ptr: *mut MacroEvaluator<'_, 'data, D> = evaluator;
         let untyped_ptr: *mut () = ptr.cast();
         untyped_ptr
     }
@@ -175,13 +175,14 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
     fn get_or_make_evaluator<'top>(
         maybe_evaluator_ptr: Option<*mut ()>,
         context: EncodingContext<'top>,
-    ) -> &'top mut EExpEvaluator<'top, 'data, D> {
+    ) -> &'top mut MacroEvaluator<'top, 'data, D> {
         if let Some(evaluator_ptr) = maybe_evaluator_ptr {
             return Self::ptr_to_evaluator::<'top>(evaluator_ptr);
         }
+        // If there isn't an evaluator, we create a new one with an empty environment.
         context
             .allocator
-            .alloc_with(move || EExpEvaluator::new(context))
+            .alloc_with(move || MacroEvaluator::new(context, Environment::empty()))
     }
 
     /// Returns the next [`ExpandedStreamItem`] either by continuing to evaluate a macro invocation
@@ -194,10 +195,10 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
         'data: 'top,
     {
         loop {
-            let maybe_evaluator_ptr = (self.evaluator_ptr).clone();
+            let maybe_evaluator_ptr = self.evaluator_ptr;
             if let Some(evaluator_ptr) = maybe_evaluator_ptr {
                 let evaluator = Self::ptr_to_evaluator(evaluator_ptr);
-                if evaluator.stack_depth() > 0 {
+                if evaluator.macro_stack_depth() > 0 {
                     // If the evaluator still has macro expansions in its stack, we need to give it the
                     // opportunity to produce the next value.
                     match evaluator.next(context, 0) {
@@ -224,10 +225,10 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
                 }),
                 // It's another macro invocation, we'll start evaluating it.
                 EExpression(e_exp) => {
-                    let evaluator =
-                        Self::get_or_make_evaluator((self.evaluator_ptr).clone(), context);
+                    let resolved_e_exp = e_exp.resolve(context)?;
+                    let evaluator = Self::get_or_make_evaluator(self.evaluator_ptr, context);
                     // Push the invocation onto the evaluation stack.
-                    evaluator.push(context, e_exp)?;
+                    evaluator.push(context, resolved_e_exp)?;
                     self.evaluator_ptr = Some(Self::evaluator_to_ptr(evaluator));
                     // Return to the top of the loop to pull the next value (if any) from the evaluator.
                     continue;
@@ -236,53 +237,17 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
             };
             return Ok(expanded_item);
         }
-
-        // loop {
-        //     if self.evaluator.stack_depth() > 0 {
-        //         // If the evaluator still has macro expansions in its stack, we need to give it the
-        //         // opportunity to produce the next value.
-        //         match self.evaluator.next(context, 0) {
-        //             Ok(Some(value)) => return Ok(ExpandedStreamItem::Value(value)),
-        //             Ok(None) => {
-        //                 // While the evaluator had macros in its stack, they did not produce any more
-        //                 // values. The stack is now empty.
-        //             }
-        //             Err(e) => return Err(e),
-        //         };
-        //     }
-        //
-        //     // If we reach this point, the evaluator's macro stack is empty. We'll pull another
-        //     // expression from the input stream.
-        //     use RawStreamItem::*;
-        //     let expanded_item = match self.raw_reader.next()? {
-        //         VersionMarker(major, minor) => ExpandedStreamItem::VersionMarker(major, minor),
-        //         // We got our value; return it.
-        //         Value(raw_value) => ExpandedStreamItem::Value(LazyExpandedValue {
-        //             source: ExpandedValueSource::ValueLiteral(raw_value),
-        //             context,
-        //         }),
-        //         // It's another macro invocation, we'll start evaluating it.
-        //         EExpression(e_exp) => {
-        //             // Push the invocation onto the evaluation stack.
-        //             self.evaluator.push(context, e_exp)?;
-        //             // Return to the top of the loop to pull the next value (if any) from the evaluator.
-        //             continue;
-        //         }
-        //         EndOfStream => ExpandedStreamItem::EndOfStream,
-        //     };
-        //     return Ok(expanded_item);
-        // }
     }
 }
 
 /// The source of data backing a [`LazyExpandedValue`].
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum ExpandedValueSource<'top, 'data, D: LazyDecoder<'data>> {
     /// This value was a literal in the input stream.
     ValueLiteral(D::Value),
     /// This value was part of a template definition.
     Template(Environment<'top, 'data, D>, TemplateElement<'top>),
-    /// This value was the computed result of a macro invocation like `(:make_string ...)`.
+    /// This value was the computed result of a macro invocation like `(:make_string `...)`.
     Constructed(
         // TODO: Make this an associated type on the LazyDecoder trait so 1.0 types can set
         //       it to `Never` and the compiler can eliminate this code path where applicable.
@@ -290,6 +255,18 @@ pub enum ExpandedValueSource<'top, 'data, D: LazyDecoder<'data>> {
         BumpVec<'top, &'top str>,
         ExpandedValueRef<'top, 'data, D>,
     ),
+}
+
+impl<'top, 'data, D: LazyDecoder<'data>> Debug for ExpandedValueSource<'top, 'data, D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            ExpandedValueSource::ValueLiteral(v) => write!(f, "{v:?}"),
+            ExpandedValueSource::Template(_, template_element) => {
+                write!(f, "{:?}", template_element.value())
+            }
+            ExpandedValueSource::Constructed(_, value) => write!(f, "{value:?}"),
+        }
+    }
 }
 
 // Converts the raw value literal types associated with each format decoder (e.g. LazyRawTextValue_1_1)
@@ -301,14 +278,6 @@ impl<'top, 'data, V: RawValueLiteral, D: LazyDecoder<'data, Value = V>> From<V>
         ExpandedValueSource::ValueLiteral(value)
     }
 }
-
-// impl<'top, 'data, D: LazyDecoder<'data>> From<TemplateElement<'top>>
-//     for ExpandedValueSource<'top, 'data, D>
-// {
-//     fn from(template_element: TemplateElement<'top>) -> Self {
-//         ExpandedValueSource::Template(template_element)
-//     }
-// }
 
 /// A value produced by expanding the 'raw' view of the input data.
 #[derive(Clone)]
@@ -379,15 +348,6 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedValue<'top, 'data, D>
                 )))
             }
         }
-    }
-
-    fn environment(&self) -> &[RawArgumentExpr<'data, D>] {
-        todo!()
-        // match &self.source {
-        //     ExpandedValueSource::ValueLiteral(_) => Environment::empty(),
-        //     ExpandedValueSource::Template(environment, _) => environment.as_slice(),
-        //     ExpandedValueSource::Constructed(_, _) => empty_environment(),
-        // }
     }
 
     pub fn read(&self) -> IonResult<ExpandedValueRef<'top, 'data, D>> {

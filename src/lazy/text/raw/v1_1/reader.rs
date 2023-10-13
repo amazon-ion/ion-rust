@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
@@ -39,20 +40,20 @@ pub enum MacroIdRef<'data> {
 }
 
 #[derive(Copy, Clone)]
-pub struct RawTextMacroInvocation<'data> {
+pub struct RawTextEExpression_1_1<'data> {
     pub(crate) encoded_expr: EncodedTextMacroInvocation,
     pub(crate) input: TextBufferView<'data>,
     pub(crate) id: MacroIdRef<'data>,
 }
 
-impl<'data> Debug for RawTextMacroInvocation<'data> {
+impl<'data> Debug for RawTextEExpression_1_1<'data> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // This is a text macro and the parser accepted it, so it's valid UTF-8. We can `unwrap()`.
         write!(f, "<macro invocation '{}'>", self.input.as_text().unwrap())
     }
 }
 
-impl<'data> RawTextMacroInvocation<'data> {
+impl<'data> RawTextEExpression_1_1<'data> {
     pub(crate) fn new(
         id: MacroIdRef<'data>,
         encoded_expr: EncodedTextMacroInvocation,
@@ -127,9 +128,21 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct LazyRawTextList_1_1<'data> {
     pub(crate) value: LazyRawTextValue_1_1<'data>,
+}
+
+impl<'a> Debug for LazyRawTextList_1_1<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "[")?;
+        for value in self.iter() {
+            write!(f, "{:?}, ", value?.expect_value()?.read()?)?;
+        }
+        write!(f, "]").unwrap();
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -190,9 +203,21 @@ impl<'data> RawTextListIterator_1_1<'data> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct LazyRawTextSExp_1_1<'data> {
     pub(crate) value: LazyRawTextValue_1_1<'data>,
+}
+
+impl<'a> Debug for LazyRawTextSExp_1_1<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "(")?;
+        for value in self.iter() {
+            write!(f, "{:?} ", value?.expect_value()?.read()?)?;
+        }
+        write!(f, ")").unwrap();
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -211,9 +236,33 @@ impl<'data> RawTextSExpIterator_1_1<'data> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct LazyRawTextStruct_1_1<'data> {
     pub(crate) value: LazyRawTextValue_1_1<'data>,
+}
+
+impl<'a> Debug for LazyRawTextStruct_1_1<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        for field in self.iter() {
+            match field? {
+                LazyRawFieldExpr::<TextEncoding_1_1>::NameValuePair(
+                    name,
+                    RawValueExpr::ValueLiteral(value),
+                ) => write!(f, "{name:?}: {value:?}, "),
+                LazyRawFieldExpr::<TextEncoding_1_1>::NameValuePair(
+                    name,
+                    RawValueExpr::MacroInvocation(invocation),
+                ) => write!(f, "{name:?}: {invocation:?}, "),
+                LazyRawFieldExpr::<TextEncoding_1_1>::MacroInvocation(invocation) => {
+                    write!(f, "{invocation:?}, ")
+                }
+            }?;
+        }
+        write!(f, "}}").unwrap();
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Copy, Clone)]

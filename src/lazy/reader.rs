@@ -6,9 +6,12 @@ use crate::element::Element;
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::expanded::template::TemplateMacro;
+use crate::lazy::expanded::EncodingContext;
 use crate::lazy::system_reader::{
     LazySystemAnyReader, LazySystemBinaryReader, LazySystemReader, LazySystemTextReader_1_1,
 };
+use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
@@ -115,6 +118,14 @@ impl<'data> LazyTextReader_1_1<'data> {
     pub fn new(ion_data: &'data [u8]) -> IonResult<LazyTextReader_1_1<'data>> {
         let system_reader = LazySystemTextReader_1_1::new(ion_data);
         Ok(LazyApplicationReader { system_reader })
+    }
+
+    pub(crate) fn register_template(&mut self, template: TemplateMacro) -> IonResult<MacroAddress> {
+        self.system_reader.macro_table_mut().add_macro(template)
+    }
+
+    pub(crate) fn context(&self) -> EncodingContext<'_> {
+        self.system_reader.context()
     }
 }
 

@@ -52,7 +52,10 @@ impl TemplateCompiler {
     ///
     /// The compiler recognizes the `(quote expr1 expr2 [...] exprN)` form, adding each subexpression
     /// to the template without interpretation.
-    fn compile_from_text(context: EncodingContext, expression: &str) -> IonResult<TemplateMacro> {
+    pub(crate) fn compile_from_text(
+        context: EncodingContext,
+        expression: &str,
+    ) -> IonResult<TemplateMacro> {
         // TODO: This is a rudimentary implementation that panics instead of performing thorough
         //       validation. Where it does surface errors, the messages are too terse.
         let mut reader = LazyTextReader_1_1::new(expression.as_bytes())?;
@@ -271,6 +274,7 @@ impl TemplateCompiler {
         // Update the macro step to reflect the macro's address and number of child expressions it
         // contains
         let template_macro_invocation = TemplateBodyMacroInvocation::new(
+            macro_step_index,
             macro_address,
             ExprRange::new(arguments_start..arguments_end),
         );
@@ -480,6 +484,7 @@ mod tests {
             definition,
             index,
             TemplateBodyValueExpr::MacroInvocation(TemplateBodyMacroInvocation::new(
+                index,
                 expected_address,
                 // The arg range starts just after the macro invocation step and goes for `expected_num_arguments`.
                 ExprRange::new(index + 1..index + 1 + expected_num_arguments),

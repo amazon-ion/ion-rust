@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::lazy::expanded::template::TemplateMacro;
-use crate::lazy::text::raw::v1_1::reader::MacroAddress;
+use crate::lazy::expanded::template::{TemplateMacro, TemplateMacroRef};
+use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
 use crate::IonResult;
 
@@ -36,13 +36,13 @@ impl MacroKind {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct MacroKindRef<'top> {
+#[derive(Debug, Copy, Clone)]
+pub struct MacroRef<'top> {
     address: MacroAddress,
     kind: &'top MacroKind,
 }
 
-impl<'top> MacroKindRef<'top> {
+impl<'top> MacroRef<'top> {
     pub fn new(address: MacroAddress, kind: &'top MacroKind) -> Self {
         Self { address, kind }
     }
@@ -51,6 +51,16 @@ impl<'top> MacroKindRef<'top> {
     }
     pub fn kind(&self) -> &'top MacroKind {
         self.kind
+    }
+
+    pub fn expect_template(self) -> IonResult<TemplateMacroRef<'top>> {
+        if let MacroKind::Template(template) = &self.kind {
+            return Ok(TemplateMacroRef::new(self.address, template));
+        }
+        IonResult::decoding_error(format!(
+            "expected a template macro but found {:?}",
+            self.kind
+        ))
     }
 }
 
@@ -82,29 +92,36 @@ impl MacroTable {
         }
     }
 
-    pub fn macro_at_address(&self, address: usize) -> Option<MacroKindRef<'_>> {
+    pub fn macro_with_id(&'_ self, id: MacroIdRef<'_>) -> Option<MacroRef<'_>> {
+        match id {
+            MacroIdRef::LocalName(name) => self.macro_with_name(name),
+            MacroIdRef::LocalAddress(address) => self.macro_at_address(address),
+        }
+    }
+
+    pub fn macro_at_address(&self, address: usize) -> Option<MacroRef<'_>> {
         let kind = self.macros_by_address.get(address)?;
-        Some(MacroKindRef { address, kind })
+        Some(MacroRef { address, kind })
     }
 
     pub fn address_for_name(&self, name: &str) -> Option<usize> {
         self.macros_by_name.get(name).copied()
     }
 
-    pub fn macro_with_name(&self, name: &str) -> Option<MacroKindRef<'_>> {
+    pub fn macro_with_name(&self, name: &str) -> Option<MacroRef<'_>> {
         let address = *self.macros_by_name.get(name)?;
         let kind = self.macros_by_address.get(address)?;
-        Some(MacroKindRef { address, kind })
+        Some(MacroRef { address, kind })
     }
 
     pub fn add_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {
-        if self.macros_by_name.contains_key(template.name()) {
-            return IonResult::decoding_error("macro named '{}' already exists");
+        let name = template.name();
+        if self.macros_by_name.contains_key(name) {
+            return IonResult::decoding_error(format!("macro named '{name}' already exists"));
         }
         let id = self.macros_by_address.len();
-        self.macros_by_name.insert(template.name().to_owned(), id);
+        self.macros_by_name.insert(name.to_owned(), id);
         self.macros_by_address.push(MacroKind::Template(template));
-        let id = 0;
         Ok(id)
     }
 }
