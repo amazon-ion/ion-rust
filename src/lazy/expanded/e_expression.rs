@@ -13,6 +13,7 @@ use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::IonResult;
 use std::fmt::{Debug, Formatter};
 
+/// An e-expression (in Ion format `D`) that has been resolved in the current encoding context.
 #[derive(Copy, Clone)]
 pub struct EExpression<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) context: EncodingContext<'top>,

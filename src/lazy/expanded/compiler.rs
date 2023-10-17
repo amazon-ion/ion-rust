@@ -258,6 +258,8 @@ impl TemplateCompiler {
         lazy_sexp: LazySExp<'top, 'data, D>,
     ) -> IonResult<()> {
         let mut expressions = lazy_sexp.iter();
+        // Convert the macro ID (name or address) into an address. If this refers to a macro that
+        // doesn't exist yet, this will return an error. This prevents recursion.
         let macro_address = Self::address_from_id_expr(context, expressions.next())?;
         let macro_step_index = definition.expressions.len();
         // Assume the macro contains zero argument expressions to start, we'll update
@@ -302,9 +304,18 @@ impl TemplateCompiler {
                         IonResult::decoding_error("macro names must be an identifier")
                     }
                 }
-                ValueRef::Int(int) => usize::try_from(int.expect_i64()?).map_err(|_| {
-                    IonError::decoding_error(format!("found an invalid macro address: {int}"))
-                }),
+                ValueRef::Int(int) => {
+                    let address = usize::try_from(int.expect_i64()?).map_err(|_| {
+                        IonError::decoding_error(format!("found an invalid macro address: {int}"))
+                    })?;
+                    if context.macro_table.macro_at_address(address).is_none() {
+                        IonResult::decoding_error(format!(
+                            "invocation of invalid macro address {address}"
+                        ))
+                    } else {
+                        Ok(address)
+                    }
+                }
                 other => IonResult::decoding_error(format!(
                     "expected a macro name (symbol) or address (int), but found: {other:?}"
                 )),

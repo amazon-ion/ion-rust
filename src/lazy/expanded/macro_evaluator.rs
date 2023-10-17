@@ -58,6 +58,8 @@ pub trait RawMacroInvocation<'data, D: LazyDecoder<'data>>: Debug + Copy + Clone
         'data: 'top;
 }
 
+/// A macro invocation (either an e-expression or a template macro) that has been resolved
+/// in the current encoding context.
 pub trait MacroInvocation<'top, 'data: 'top, D: LazyDecoder<'data>>:
     Debug + Copy + Clone + Into<MacroExpr<'top, 'data, D>>
 {
@@ -67,6 +69,7 @@ pub trait MacroInvocation<'top, 'data: 'top, D: LazyDecoder<'data>>:
     fn arguments(&self, environment: Environment<'top, 'data, D>) -> Self::ArgumentsIterator;
 }
 
+// Either
 #[derive(Copy, Clone, Debug)]
 pub enum MacroExpr<'top, 'data: 'top, D: LazyDecoder<'data>> {
     TemplateMacro(TemplateMacroInvocation<'top>),

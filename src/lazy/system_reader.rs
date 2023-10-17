@@ -1,7 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use bumpalo::Bump as BumpAllocator;
-
 use crate::lazy::any_encoding::{AnyEncoding, LazyRawAnyReader};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
 use crate::lazy::decoder::LazyDecoder;
@@ -9,9 +7,8 @@ use crate::lazy::decoder::LazyRawReader;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::macro_table::MacroTable;
 use crate::lazy::expanded::{
-    EncodingContext, ExpandedStreamItem, ExpandedValueRef, LazyExpandedValue, LazyExpandingReader,
+    EncodingContext, ExpandedValueRef, LazyExpandedValue, LazyExpandingReader,
 };
-use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
 use crate::lazy::value::LazyValue;
@@ -75,24 +72,16 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///# }
 /// ```
 pub struct LazySystemReader<'data, D: LazyDecoder<'data>> {
-    // TODO: Remove this RefCell when the Polonius borrow checker is available.
-    //       See: https://github.com/rust-lang/rust/issues/70255
     expanding_reader: LazyExpandingReader<'data, D>,
-    // TODO: Make the symbol and macro tables traits on `D` such that they can be configured
-    //       statically. Then 1.0 types can use `Never` for the macro table.
-    pending_lst: PendingLst,
-    symbol_table: SymbolTable,
-    macro_table: MacroTable,
-    allocator: BumpAllocator,
 }
 
 impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     pub(crate) fn macro_table_mut(&mut self) -> &mut MacroTable {
-        &mut self.macro_table
+        self.expanding_reader.macro_table_mut()
     }
 
     pub(crate) fn context(&self) -> EncodingContext<'_> {
-        EncodingContext::new(&self.macro_table, &self.symbol_table, &self.allocator)
+        self.expanding_reader.context()
     }
 }
 
@@ -104,25 +93,16 @@ pub type LazySystemAnyReader<'data> = LazySystemReader<'data, AnyEncoding>;
 
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
 // the table defines in this structure so that they may be applied when the reader next advances.
-struct PendingLst {
-    is_lst_append: bool,
-    symbols: Vec<Option<String>>,
+pub(crate) struct PendingLst {
+    pub(crate) is_lst_append: bool,
+    pub(crate) symbols: Vec<Option<String>>,
 }
 
 impl<'data> LazySystemAnyReader<'data> {
     pub fn new(ion_data: &'data [u8]) -> LazySystemAnyReader<'data> {
         let raw_reader = LazyRawAnyReader::new(ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
-        LazySystemReader {
-            expanding_reader,
-            pending_lst: PendingLst {
-                is_lst_append: false,
-                symbols: Vec::new(),
-            },
-            symbol_table: SymbolTable::new(),
-            macro_table: MacroTable::new(),
-            allocator: BumpAllocator::new(),
-        }
+        LazySystemReader { expanding_reader }
     }
 }
 
@@ -130,16 +110,7 @@ impl<'data> LazySystemBinaryReader<'data> {
     pub(crate) fn new(ion_data: &'data [u8]) -> LazySystemBinaryReader<'data> {
         let raw_reader = LazyRawBinaryReader::new(ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
-        LazySystemReader {
-            expanding_reader,
-            pending_lst: PendingLst {
-                is_lst_append: false,
-                symbols: Vec::new(),
-            },
-            symbol_table: SymbolTable::new(),
-            macro_table: MacroTable::new(),
-            allocator: BumpAllocator::new(),
-        }
+        LazySystemReader { expanding_reader }
     }
 }
 
@@ -147,23 +118,16 @@ impl<'data> LazySystemTextReader_1_1<'data> {
     pub(crate) fn new(ion_data: &'data [u8]) -> LazySystemTextReader_1_1<'data> {
         let raw_reader = LazyRawTextReader_1_1::new(ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
-        LazySystemReader {
-            expanding_reader,
-            pending_lst: PendingLst {
-                is_lst_append: false,
-                symbols: Vec::new(),
-            },
-            symbol_table: SymbolTable::new(),
-            macro_table: MacroTable::new(),
-            allocator: BumpAllocator::new(),
-        }
+        LazySystemReader { expanding_reader }
     }
 }
 
 impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     // Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
     // `$ion_symbol_table`.
-    fn is_symbol_table_struct(lazy_value: &'_ LazyExpandedValue<'_, 'data, D>) -> IonResult<bool> {
+    pub fn is_symbol_table_struct(
+        lazy_value: &'_ LazyExpandedValue<'_, 'data, D>,
+    ) -> IonResult<bool> {
         if lazy_value.ion_type() != IonType::Struct {
             return Ok(false);
         }
@@ -176,109 +140,19 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
     /// [`SystemStreamItem`].
     pub fn next_item<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, 'data, D>> {
-        // Deconstruct the reader to get simultaneous mutable references to multiple fields
-        let LazySystemReader {
-            ref mut expanding_reader,
-            pending_lst,
-            ref symbol_table,
-            ref macro_table,
-            ref allocator,
-        } = self;
-        let context = EncodingContext::new(macro_table, symbol_table, allocator);
-        Self::apply_pending_lst(symbol_table, pending_lst);
-        let lazy_expanded_value = match expanding_reader.next(context)? {
-            ExpandedStreamItem::VersionMarker(major, minor) => {
-                return Ok(SystemStreamItem::VersionMarker(major, minor));
-            }
-            ExpandedStreamItem::Value(lazy_raw_value) => lazy_raw_value,
-            ExpandedStreamItem::EndOfStream => return Ok(SystemStreamItem::EndOfStream),
-        };
-        if Self::is_symbol_table_struct(&lazy_expanded_value)? {
-            Self::process_symbol_table(pending_lst, &lazy_expanded_value)?;
-            let lazy_struct = LazyStruct {
-                expanded_struct: lazy_expanded_value.read()?.expect_struct()?,
-            };
-            return Ok(SystemStreamItem::SymbolTable(lazy_struct));
-        }
-        let lazy_value = LazyValue::new(lazy_expanded_value);
-        Ok(SystemStreamItem::Value(lazy_value))
+        self.expanding_reader.next_item()
     }
 
     /// Returns the next value that is part of the application data model, bypassing all encoding
     /// artifacts (IVMs, symbol tables).
-    // It would make more sense for this logic to live in the user-level `LazyReader` as a simple
-    // loop over LazySystemReader::next. However, due to a limitation in the borrow checker[1], it's
-    // not able to determine that calling LazySystemReader::next() multiple times in the same lexical
-    // scope is safe. Rust's experimental borrow checker, Polonius, is able to understand it.
-    // Until Polonius is available, the method will live here instead.
-    // [1]: https://github.com/rust-lang/rust/issues/70255
     pub fn next_value<'value>(&'value mut self) -> IonResult<Option<LazyValue<'value, 'data, D>>> {
-        // Deconstruct the reader to get simultaneous mutable references to multiple fields
-        let LazySystemReader {
-            ref mut expanding_reader,
-            pending_lst,
-            ref symbol_table,
-            ref macro_table,
-            ref allocator,
-        } = self;
-        let context = EncodingContext::new(macro_table, symbol_table, allocator);
-        loop {
-            Self::apply_pending_lst(symbol_table, pending_lst);
-            let lazy_expanded_value = match Self::hack_next(context, expanding_reader)? {
-                ExpandedStreamItem::VersionMarker(_major, _minor) => {
-                    // TODO: For text, switch the underlying reader as needed
-                    continue;
-                }
-                ExpandedStreamItem::Value(lazy_raw_value) => lazy_raw_value,
-                ExpandedStreamItem::EndOfStream => return Ok(None),
-            };
-            if Self::is_symbol_table_struct(&lazy_expanded_value)? {
-                Self::process_symbol_table(pending_lst, &lazy_expanded_value)?;
-                continue;
-            }
-            let lazy_value = LazyValue::new(lazy_expanded_value);
-            return Ok(Some(lazy_value));
-        }
-    }
-
-    pub fn hack_next<'top>(
-        context: EncodingContext<'top>,
-        reader: &LazyExpandingReader<'data, D>,
-    ) -> IonResult<ExpandedStreamItem<'top, 'data, D>> {
-        let ptr = reader as *const LazyExpandingReader<'data, D>;
-
-        // XXX: This `unsafe` is a workaround for https://github.com/rust-lang/rust/issues/70255
-        //      There is a rustc fix for this limitation on the horizon. See:
-        //      https://smallcultfollowing.com/babysteps/blog/2023/09/22/polonius-part-1/
-        //      Indeed, using the experimental `-Zpolonius` flag on the nightly compiler allows the
-        //      version of this code without this `unsafe` hack to work.
-        // SAFETY: The reader does not reclaim resources until the next user level value; if multiple
-        //         system values are encountered, dangling references should continue to be valid.
-        let reader = unsafe {
-            let mut_ptr = ptr as *mut LazyExpandingReader<'data, D>;
-            &mut *mut_ptr
-        };
-        reader.next(context)
+        self.expanding_reader.unsafe_next_value()
     }
 
     // If the last stream item the reader visited was a symbol table, its `PendingLst` will
     // contain new symbols that need to be added to the local symbol table.
     fn apply_pending_lst(symbol_table: &SymbolTable, pending_lst: &mut PendingLst) {
         let ptr = symbol_table as *const SymbolTable;
-
-        // XXX: This `unsafe` is a workaround for https://github.com/rust-lang/rust/issues/70255
-        //      There is a rustc fix for this limitation on the horizon. See:
-        //      https://smallcultfollowing.com/babysteps/blog/2023/09/22/polonius-part-1/
-        //      Indeed, using the experimental `-Zpolonius` flag on the nightly compiler allows the
-        //      version of this code without this `unsafe` hack to work. The alternative to the
-        //      hack is wrapping the SymbolTable in something like `RefCell`, which adds a small
-        //      amount of overhead to each access. Given that the `SymbolTable` is on the hot
-        //      path and that a fix is inbound, I think this use of `unsafe` is warranted.
-        // SAFETY: At this point, the only thing that's holding potentially holding references to
-        //         the symbol table is the lazy value that represented an LST directive. We've
-        //         already read through that value in full to populate the `PendingLst`. Updating
-        //         the symbol table will invalidate data in that lazy value, so we just have to take
-        //         care not to read from it after updating the symbol table.
         let symbol_table = unsafe {
             let mut_ptr = ptr as *mut SymbolTable;
             &mut *mut_ptr
@@ -305,7 +179,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
 
     // Traverses a symbol table, processing the `symbols` and `imports` fields as needed to
     // populate the `PendingLst`.
-    fn process_symbol_table<'top>(
+    pub(crate) fn process_symbol_table<'top>(
         pending_lst: &mut PendingLst,
         symbol_table: &LazyExpandedValue<'top, 'data, D>,
     ) -> IonResult<()> {

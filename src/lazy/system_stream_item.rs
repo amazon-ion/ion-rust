@@ -6,6 +6,7 @@ use crate::{IonError, IonResult};
 use std::fmt::{Debug, Formatter};
 
 /// System stream elements that a SystemReader may encounter.
+#[non_exhaustive]
 pub enum SystemStreamItem<'top, 'data, D: LazyDecoder<'data>> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
