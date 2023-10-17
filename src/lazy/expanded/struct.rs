@@ -137,7 +137,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyExpandedStruct<'top, 'data, D
         for field_result in self.iter() {
             let field = field_result?;
             if field.name() == name.as_raw_symbol_token_ref() {
-                return Ok(Some(field.value().clone()));
+                return Ok(Some(*field.value()));
             }
         }
         Ok(None)

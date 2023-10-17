@@ -111,7 +111,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyStruct<'top, 'data, D> {
         for field in self {
             let field = field?;
             if field.name()? == name {
-                let expanded_value = field.expanded_field.value().clone();
+                let expanded_value = *field.expanded_field.value();
                 let value = LazyValue::new(expanded_value);
                 return Ok(Some(value));
             }
@@ -280,7 +280,7 @@ where
     /// see [`LazyValue::read`].
     pub fn value(&self) -> LazyValue<'top, 'data, D> {
         LazyValue {
-            expanded_value: self.expanded_field.value().clone(),
+            expanded_value: *self.expanded_field.value(),
         }
     }
 }

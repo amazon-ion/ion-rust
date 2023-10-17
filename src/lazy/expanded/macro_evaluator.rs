@@ -770,6 +770,71 @@ mod tests {
         Ok(())
     }
 
+    /*
+
+    {
+        name: {
+            first: "alice",
+            last: "smith",
+        },
+        state: "New York",
+        country: "USA",
+    }
+
+     */
+    #[test]
+    fn person() -> IonResult<()> {
+        eval_template_invocation(
+            r#"
+                (macro new_yorker (first last)
+                    {
+                        name: {
+                            first: first,
+                            last: last,
+                        },
+                        state: "New York",
+                        country: "USA"
+                    }
+                )
+            "#,
+            r#"
+                [
+                    (:new_yorker "Aaron" "Aaronson"),
+                    (:new_yorker "Bettie" "Benowitz"),
+                    (:new_yorker "Carol" "Canterbury"),
+                ]
+                "#,
+            r#"
+                [
+                    {
+                        name: {
+                            first: "Aaron",
+                            last: "Aaronson",
+                        },
+                        state: "New York",
+                        country: "USA"
+                    },
+                    {
+                        name: {
+                            first: "Bettie",
+                            last: "Benowitz",
+                        },
+                        state: "New York",
+                        country: "USA"
+                    },
+                    {
+                        name: {
+                            first: "Carol",
+                            last: "Canterbury",
+                        },
+                        state: "New York",
+                        country: "USA"
+                    }
+                ]    
+            "#,
+        )
+    }
+
     #[test]
     fn application_log_event() -> IonResult<()> {
         eval_template_invocation(

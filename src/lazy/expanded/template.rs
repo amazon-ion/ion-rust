@@ -1,4 +1,3 @@
-use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
@@ -6,7 +5,7 @@ use std::ops::{Deref, Range};
 
 use crate::lazy::decoder::{LazyDecoder, RawFieldExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{
-    ArgumentExpr, MacroEvaluator, MacroExpansionStep, MacroExpr, MacroInvocation,
+    ArgumentExpr, MacroEvaluator, MacroExpr, MacroInvocation,
 };
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::sequence::Environment;
@@ -15,7 +14,7 @@ use crate::lazy::expanded::{
 };
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef, TemplateBodyExprAddress};
 use crate::result::IonFailure;
-use crate::{Bytes, Decimal, Int, IonError, IonResult, IonType, Str, Symbol, Timestamp};
+use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, Timestamp};
 
 #[derive(Debug, Clone)]
 pub enum ParameterEncoding {
