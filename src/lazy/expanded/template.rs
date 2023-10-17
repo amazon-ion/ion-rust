@@ -4,9 +4,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, Range};
 
 use crate::lazy::decoder::{LazyDecoder, RawFieldExpr, RawValueExpr};
-use crate::lazy::expanded::macro_evaluator::{
-    ArgumentExpr, MacroEvaluator, MacroExpr, MacroInvocation,
-};
+use crate::lazy::expanded::macro_evaluator::{ArgumentExpr, MacroEvaluator, MacroExpr};
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{
@@ -620,6 +618,10 @@ impl<'top> TemplateMacroInvocation<'top> {
             arg_expressions,
         }
     }
+
+    pub fn id(&self) -> MacroIdRef<'top> {
+        MacroIdRef::LocalAddress(self.invoked_macro.address())
+    }
     pub fn arguments<'data, D: LazyDecoder<'data>>(
         &self,
         environment: Environment<'top, 'data, D>,
@@ -706,21 +708,6 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator
         };
 
         Some(Ok(arg_expr))
-    }
-}
-
-impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroInvocation<'top, 'data, D>
-    for TemplateMacroInvocation<'top>
-{
-    type ArgumentsIterator = TemplateMacroInvocationArgsIterator<'top, 'data, D>;
-
-    fn id(&self) -> MacroIdRef<'data> {
-        MacroIdRef::LocalAddress(self.invoked_macro.address())
-    }
-
-    fn arguments(&self, environment: Environment<'top, 'data, D>) -> Self::ArgumentsIterator {
-        // Delegate to the inherent impl on TemplateMacroInvocation
-        self.arguments(environment)
     }
 }
 

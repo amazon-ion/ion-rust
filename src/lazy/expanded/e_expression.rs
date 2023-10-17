@@ -3,11 +3,8 @@
 
 use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::macro_evaluator::{
-    ArgumentExpr, MacroExpr, MacroInvocation, RawMacroInvocation,
-};
+use crate::lazy::expanded::macro_evaluator::{ArgumentExpr, MacroExpr, RawEExpression};
 use crate::lazy::expanded::macro_table::MacroRef;
-use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{EncodingContext, LazyExpandedValue};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::IonResult;
@@ -41,21 +38,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> EExpression<'top, 'data, D> {
     }
 }
 
-impl<
-        'top,
-        'data: 'top,
-        D: LazyDecoder<'data, MacroInvocation<'top> = EExpression<'top, 'data, D>>,
-    > MacroInvocation<'top, 'data, D> for EExpression<'top, 'data, D>
-{
-    type ArgumentsIterator = EExpressionArgsIterator<'top, 'data, D>;
-
-    fn id(&self) -> MacroIdRef<'top> {
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> EExpression<'top, 'data, D> {
+    pub fn id(&self) -> MacroIdRef<'top> {
         self.raw_invocation.id()
     }
 
-    fn arguments(&self, _environment: Environment<'top, 'data, D>) -> Self::ArgumentsIterator {
-        // E-expressions do not have an environment, so we can ignore/discard that parameter.
-        // Callers pass `Environment::empty()` in E-expression contexts anyway.
+    pub fn arguments(&self) -> EExpressionArgsIterator<'top, 'data, D> {
         EExpressionArgsIterator {
             context: self.context,
             raw_args: self.raw_invocation.raw_arguments(),
@@ -63,11 +51,8 @@ impl<
     }
 }
 
-impl<
-        'top,
-        'data: 'top,
-        D: LazyDecoder<'data, MacroInvocation<'top> = EExpression<'top, 'data, D>>,
-    > From<EExpression<'top, 'data, D>> for MacroExpr<'top, 'data, D>
+impl<'top, 'data: 'top, D: LazyDecoder<'data>> From<EExpression<'top, 'data, D>>
+    for MacroExpr<'top, 'data, D>
 {
     fn from(value: EExpression<'top, 'data, D>) -> Self {
         MacroExpr::EExp(value)
@@ -76,7 +61,7 @@ impl<
 
 pub struct EExpressionArgsIterator<'top, 'data, D: LazyDecoder<'data>> {
     context: EncodingContext<'top>,
-    raw_args: <D::RawMacroInvocation as RawMacroInvocation<'data, D>>::RawArgumentsIterator<'data>,
+    raw_args: <D::RawMacroInvocation as RawEExpression<'data, D>>::RawArgumentsIterator<'data>,
 }
 
 impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator

@@ -16,6 +16,7 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 
 use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
+use crate::lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator};
 use crate::lazy::expanded::macro_table::MacroKind;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
@@ -30,19 +31,13 @@ use crate::result::IonFailure;
 use crate::{IonError, IonResult, RawSymbolTokenRef};
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
-/// A syntactic entity that represents the invocation of a macro in some context.
-///
-/// This entity may be an item from a binary stream, a text stream, or a template definition.
-/// Implementors must specify how their type can be mapped to a macro ID and a sequence of arguments.
-pub trait RawMacroInvocation<'data, D: LazyDecoder<'data>>: Debug + Copy + Clone {
+/// The syntactic entity in format `D` that represents an e-expression. This expression has not
+/// yet been resolved in the current encoding context.
+pub trait RawEExpression<'data, D: LazyDecoder<'data>>: Debug + Copy + Clone {
     /// An iterator that yields the macro invocation's arguments in order.
     type RawArgumentsIterator<'a>: Iterator<Item = IonResult<LazyRawValueExpr<'data, D>>>
     where
         Self: 'a;
-
-    type MacroInvocation<'top>: MacroInvocation<'top, 'data, D>
-    where
-        'data: 'top;
 
     /// The macro name or address specified at the head of this macro invocation.
     fn id(&self) -> MacroIdRef<'data>;
@@ -53,35 +48,22 @@ pub trait RawMacroInvocation<'data, D: LazyDecoder<'data>>: Debug + Copy + Clone
     fn resolve<'top>(
         self,
         context: EncodingContext<'top>,
-    ) -> IonResult<Self::MacroInvocation<'top>>
+    ) -> IonResult<EExpression<'top, 'data, D>>
     where
         'data: 'top;
-}
-
-/// A macro invocation (either an e-expression or a template macro) that has been resolved
-/// in the current encoding context.
-pub trait MacroInvocation<'top, 'data: 'top, D: LazyDecoder<'data>>:
-    Debug + Copy + Clone + Into<MacroExpr<'top, 'data, D>>
-{
-    type ArgumentsIterator: Iterator<Item = IonResult<ArgumentExpr<'top, 'data, D>>>;
-
-    fn id(&self) -> MacroIdRef<'top>;
-    fn arguments(&self, environment: Environment<'top, 'data, D>) -> Self::ArgumentsIterator;
 }
 
 // Either
 #[derive(Copy, Clone, Debug)]
 pub enum MacroExpr<'top, 'data: 'top, D: LazyDecoder<'data>> {
     TemplateMacro(TemplateMacroInvocation<'top>),
-    EExp(D::MacroInvocation<'top>),
+    EExp(EExpression<'top, 'data, D>),
 }
 
 impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroExpr<'top, 'data, D> {
     fn id(&self) -> MacroIdRef {
         match &self {
-            MacroExpr::TemplateMacro(m) => {
-                <TemplateMacroInvocation<'top> as MacroInvocation<'top, 'data, D>>::id(m)
-            }
+            MacroExpr::TemplateMacro(m) => m.id(),
             MacroExpr::EExp(e) => e.id(),
         }
     }
@@ -94,9 +76,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroExpr<'top, 'data, D> {
             MacroExpr::TemplateMacro(m) => {
                 MacroExprArgsKind::<'top, 'data, D>::Macro(m.arguments(environment))
             }
-            MacroExpr::EExp(e) => {
-                MacroExprArgsKind::<'top, 'data, D>::EExp(e.arguments(Environment::empty()))
-            }
+            MacroExpr::EExp(e) => MacroExprArgsKind::<'top, 'data, D>::EExp(e.arguments()),
         };
         MacroExprArgsIterator { source: args_kind }
     }
@@ -104,7 +84,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroExpr<'top, 'data, D> {
 
 pub enum MacroExprArgsKind<'top, 'data: 'top, D: LazyDecoder<'data>> {
     Macro(TemplateMacroInvocationArgsIterator<'top, 'data, D>),
-    EExp(<D::MacroInvocation<'top> as MacroInvocation<'top, 'data, D>>::ArgumentsIterator),
+    EExp(EExpressionArgsIterator<'top, 'data, D>),
 }
 
 pub struct MacroExprArgsIterator<'top, 'data: 'top, D: LazyDecoder<'data>> {

@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::e_expression::TextEExpression_1_1;
-use crate::lazy::expanded::macro_evaluator::{MacroInvocation, RawMacroInvocation};
+use crate::lazy::expanded::e_expression::{EExpression, TextEExpression_1_1};
+use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
@@ -31,10 +31,7 @@ pub trait LazyDecoder<'data>: 'static + Sized + Debug + Clone + Copy {
     /// An iterator over the annotations on the input stream's values.
     type AnnotationsIterator: Iterator<Item = IonResult<RawSymbolTokenRef<'data>>>;
     /// An e-expression invoking a macro. (Ion 1.1+)
-    type RawMacroInvocation: RawMacroInvocation<'data, Self>;
-    type MacroInvocation<'top>: MacroInvocation<'top, 'data, Self>
-    where
-        'data: 'top;
+    type RawMacroInvocation: RawEExpression<'data, Self>;
 }
 
 /// An expression found in value position in either serialized Ion or a template.
@@ -182,10 +179,8 @@ pub(crate) mod private {
 
 // TODO: Everything should use LazyRawValueExpr in the RMI impl?
 
-impl<'data> RawMacroInvocation<'data, TextEncoding_1_1> for RawTextEExpression_1_1<'data> {
+impl<'data> RawEExpression<'data, TextEncoding_1_1> for RawTextEExpression_1_1<'data> {
     type RawArgumentsIterator<'a> = RawTextSExpIterator_1_1<'data> where Self: 'a;
-
-    type MacroInvocation<'top> = TextEExpression_1_1<'top, 'data> where 'data: 'top;
 
     fn id(&self) -> MacroIdRef<'data> {
         self.id
@@ -195,7 +190,10 @@ impl<'data> RawMacroInvocation<'data, TextEncoding_1_1> for RawTextEExpression_1
         RawTextSExpIterator_1_1::new(self.arguments_bytes())
     }
 
-    fn resolve<'top>(self, context: EncodingContext<'top>) -> IonResult<Self::MacroInvocation<'top>>
+    fn resolve<'top>(
+        self,
+        context: EncodingContext<'top>,
+    ) -> IonResult<EExpression<'top, 'data, TextEncoding_1_1>>
     where
         'data: 'top,
     {

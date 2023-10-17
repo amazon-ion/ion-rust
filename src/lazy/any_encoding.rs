@@ -16,7 +16,7 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::e_expression::EExpression;
-use crate::lazy::expanded::macro_evaluator::RawMacroInvocation;
+use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::never::Never;
 use crate::lazy::raw_stream_item::RawStreamItem;
@@ -52,7 +52,6 @@ impl<'data> LazyDecoder<'data> for AnyEncoding {
     type Struct = LazyRawAnyStruct<'data>;
     type AnnotationsIterator = RawAnyAnnotationsIterator<'data>;
     type RawMacroInvocation = LazyRawAnyEExpression<'data>;
-    type MacroInvocation<'top> = EExpression<'top, 'data, AnyEncoding> where 'data: 'top;
 }
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawAnyEExpression<'data> {
@@ -77,9 +76,8 @@ impl<'data> From<RawTextEExpression_1_1<'data>> for LazyRawAnyEExpression<'data>
     }
 }
 
-impl<'data> RawMacroInvocation<'data, AnyEncoding> for LazyRawAnyEExpression<'data> {
+impl<'data> RawEExpression<'data, AnyEncoding> for LazyRawAnyEExpression<'data> {
     type RawArgumentsIterator<'a> = LazyRawAnyMacroArgsIterator<'data>  where Self: 'a;
-    type MacroInvocation<'top> = EExpression<'top, 'data, AnyEncoding> where 'data: 'top;
 
     fn id(&self) -> MacroIdRef<'data> {
         match self.encoding {
@@ -99,7 +97,10 @@ impl<'data> RawMacroInvocation<'data, AnyEncoding> for LazyRawAnyEExpression<'da
         }
     }
 
-    fn resolve<'top>(self, context: EncodingContext<'top>) -> IonResult<Self::MacroInvocation<'top>>
+    fn resolve<'top>(
+        self,
+        context: EncodingContext<'top>,
+    ) -> IonResult<EExpression<'top, 'data, AnyEncoding>>
     where
         'data: 'top,
     {
@@ -119,7 +120,7 @@ impl<'data> RawMacroInvocation<'data, AnyEncoding> for LazyRawAnyEExpression<'da
 
 pub enum LazyRawAnyMacroArgsIteratorKind<'data> {
     Text_1_1(
-        <RawTextEExpression_1_1<'data> as RawMacroInvocation<
+        <RawTextEExpression_1_1<'data> as RawEExpression<
                 'data,
                 TextEncoding_1_1,
             >>::RawArgumentsIterator<'data>,

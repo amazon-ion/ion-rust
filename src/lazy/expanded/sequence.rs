@@ -1,6 +1,6 @@
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{LazyDecoder, LazyRawSequence, LazyRawValueExpr, RawValueExpr};
-use crate::lazy::expanded::macro_evaluator::{ArgumentExpr, MacroEvaluator, RawMacroInvocation};
+use crate::lazy::expanded::macro_evaluator::{ArgumentExpr, MacroEvaluator, RawEExpression};
 use crate::lazy::expanded::template::{
     AnnotationsRange, ExprRange, TemplateMacroRef, TemplateSequenceIterator,
 };

@@ -4,7 +4,7 @@ use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{
     LazyDecoder, LazyRawFieldExpr, LazyRawStruct, RawFieldExpr, RawValueExpr,
 };
-use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawMacroInvocation};
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
     AnnotationsRange, ExprRange, TemplateMacroRef, TemplateStructRawFieldsIterator,

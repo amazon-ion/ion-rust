@@ -7,7 +7,6 @@ use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
 use crate::lazy::binary::raw::sequence::{LazyRawBinaryList, LazyRawBinarySExp};
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::expanded::e_expression::TextEExpression_1_1;
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::r#struct::LazyRawTextStruct_1_0;
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
@@ -99,7 +98,6 @@ impl<'data> LazyDecoder<'data> for BinaryEncoding_1_0 {
     type AnnotationsIterator = RawBinaryAnnotationsIterator<'data>;
     // Macros are not supported in Ion 1.0
     type RawMacroInvocation = Never;
-    type MacroInvocation<'top> = Never where 'data: 'top;
 }
 
 impl<'data> LazyDecoder<'data> for TextEncoding_1_0 {
@@ -111,7 +109,6 @@ impl<'data> LazyDecoder<'data> for TextEncoding_1_0 {
     type AnnotationsIterator = RawTextAnnotationsIterator<'data>;
     // Macros are not supported in Ion 1.0
     type RawMacroInvocation = Never;
-    type MacroInvocation<'top> = Never where 'data: 'top;
 }
 
 impl<'data> LazyDecoder<'data> for TextEncoding_1_1 {
@@ -122,7 +119,6 @@ impl<'data> LazyDecoder<'data> for TextEncoding_1_1 {
     type Struct = LazyRawTextStruct_1_1<'data>;
     type AnnotationsIterator = RawTextAnnotationsIterator<'data>;
     type RawMacroInvocation = RawTextEExpression_1_1<'data>;
-    type MacroInvocation<'top> = TextEExpression_1_1<'top, 'data> where 'data: 'top;
 }
 
 /// Marker trait for types that represent value literals in an Ion stream of some encoding.

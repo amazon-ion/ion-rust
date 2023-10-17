@@ -44,7 +44,7 @@ use crate::element::iterators::SymbolsIterator;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{LazyDecoder, LazyRawReader, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
-use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawMacroInvocation};
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression};
 use crate::lazy::expanded::macro_table::MacroTable;
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
