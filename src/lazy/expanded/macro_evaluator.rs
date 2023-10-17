@@ -53,10 +53,12 @@ pub trait RawEExpression<'data, D: LazyDecoder<'data>>: Debug + Copy + Clone {
         'data: 'top;
 }
 
-// Either
+/// An invocation of a macro found in either the data stream or in the body of a template.
 #[derive(Copy, Clone, Debug)]
 pub enum MacroExpr<'top, 'data: 'top, D: LazyDecoder<'data>> {
+    /// A macro invocation found in the body of a template.
     TemplateMacro(TemplateMacroInvocation<'top>),
+    /// A macro invocation found in the data stream.
     EExp(EExpression<'top, 'data, D>),
 }
 
@@ -110,8 +112,9 @@ pub enum ArgumentExpr<'top, 'data: 'top, D: LazyDecoder<'data>> {
     // both contexts.
     ValueLiteral(LazyExpandedValue<'top, 'data, D>),
     /// A variable name that requires expansion.
+    // Variable references can only appear in template macro invocations.
     Variable(TemplateBodyVariableReference),
-    /// A template macro invocation that requires evaluation.
+    /// A macro invocation that requires evaluation.
     MacroInvocation(MacroExpr<'top, 'data, D>),
 }
 
@@ -122,57 +125,6 @@ pub enum MacroExpansionKind<'top, 'data, D: LazyDecoder<'data>> {
     Values(ValuesExpansion<'top, 'data, D>),
     MakeString(MakeStringExpansion<'top, 'data, D>),
     Template(TemplateExpansion<'top>),
-}
-
-#[derive(Clone, Debug)]
-pub struct TemplateExpansion<'top> {
-    template: TemplateMacroRef<'top>,
-    step_index: usize,
-}
-
-impl<'top> TemplateExpansion<'top> {
-    pub fn new(template: TemplateMacroRef<'top>) -> Self {
-        Self {
-            template,
-            step_index: 0,
-        }
-    }
-
-    fn next<'data: 'top, D: LazyDecoder<'data>>(
-        &mut self,
-        context: EncodingContext<'top>,
-        environment: Environment<'top, 'data, D>,
-    ) -> IonResult<MacroExpansionStep<'top, 'data, D>> {
-        let value_expr = match self.template.body().expressions().get(self.step_index) {
-            None => return Ok(MacroExpansionStep::Complete),
-            Some(expr) => expr,
-        };
-        self.step_index += 1;
-
-        let step = match value_expr {
-            TemplateBodyValueExpr::Element(e) => {
-                match e.value() {
-                    TemplateValue::List(range)
-                    | TemplateValue::SExp(range)
-                    | TemplateValue::Struct(range) => self.step_index += range.len(),
-                    _ => {}
-                }
-                MacroExpansionStep::Value(LazyExpandedValue::from_template(
-                    context,
-                    environment,
-                    TemplateElement::new(self.template, e),
-                ))
-            }
-            TemplateBodyValueExpr::Variable(variable) => MacroExpansionStep::Variable(*variable),
-            TemplateBodyValueExpr::MacroInvocation(raw_invocation) => {
-                let invocation = raw_invocation.resolve(self.template, context)?;
-                self.step_index += invocation.arg_expressions().len();
-                MacroExpansionStep::Macro(invocation.into())
-            }
-        };
-
-        Ok(step)
-    }
 }
 
 /// A macro in the process of being evaluated. Stores both the state of the evaluation and the
@@ -699,6 +651,60 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> MakeStringExpansion<'top, 'data, 
             }
         }
         Ok(())
+    }
+}
+
+// ===== Implementation of template macro expansion =====
+
+/// The evaluation state of a template expansion.
+#[derive(Clone, Debug)]
+pub struct TemplateExpansion<'top> {
+    template: TemplateMacroRef<'top>,
+    step_index: usize,
+}
+
+impl<'top> TemplateExpansion<'top> {
+    pub fn new(template: TemplateMacroRef<'top>) -> Self {
+        Self {
+            template,
+            step_index: 0,
+        }
+    }
+
+    fn next<'data: 'top, D: LazyDecoder<'data>>(
+        &mut self,
+        context: EncodingContext<'top>,
+        environment: Environment<'top, 'data, D>,
+    ) -> IonResult<MacroExpansionStep<'top, 'data, D>> {
+        let value_expr = match self.template.body().expressions().get(self.step_index) {
+            None => return Ok(MacroExpansionStep::Complete),
+            Some(expr) => expr,
+        };
+        self.step_index += 1;
+
+        let step = match value_expr {
+            TemplateBodyValueExpr::Element(e) => {
+                match e.value() {
+                    TemplateValue::List(range)
+                    | TemplateValue::SExp(range)
+                    | TemplateValue::Struct(range) => self.step_index += range.len(),
+                    _ => {}
+                }
+                MacroExpansionStep::Value(LazyExpandedValue::from_template(
+                    context,
+                    environment,
+                    TemplateElement::new(self.template, e),
+                ))
+            }
+            TemplateBodyValueExpr::Variable(variable) => MacroExpansionStep::Variable(*variable),
+            TemplateBodyValueExpr::MacroInvocation(raw_invocation) => {
+                let invocation = raw_invocation.resolve(self.template, context)?;
+                self.step_index += invocation.arg_expressions().len();
+                MacroExpansionStep::Macro(invocation.into())
+            }
+        };
+
+        Ok(step)
     }
 }
 
