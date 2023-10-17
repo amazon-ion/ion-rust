@@ -68,7 +68,6 @@ pub mod macro_table;
 pub mod sequence;
 pub mod stack;
 pub mod r#struct;
-pub mod tdl_macro;
 pub mod template;
 
 /// A collection of resources that can be used to encode or decode Ion values.
