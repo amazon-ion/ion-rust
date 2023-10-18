@@ -4,7 +4,7 @@
 
 use ion_rs::{
     BinaryWriterBuilder, Element, ElementReader, ElementWriter, Format, IonData, IonError,
-    IonResult, IonWriter, Sequence, TextKind, TextWriterBuilder, Value,
+    IonResult, IonWriter, SExp, Sequence, Symbol, TextKind, TextWriterBuilder, Value,
 };
 
 use std::fs::read;
@@ -138,8 +138,7 @@ trait ElementApi {
         }
     }
 
-    /// Parses the elements of a given sequence as text Ion data and tests a grouping on the read
-    /// documents.
+    /// Parses an element as text or binary Ion data and returns a Sequence containing all elements.
     ///
     /// For example, for the given group:
     ///
@@ -150,38 +149,19 @@ trait ElementApi {
     ///   {{ 4AEA6u6OgYPbhnEDh7aBYYFigWNxCnELcQw= }}
     /// )
     /// ```
-    ///
-    /// This will parse each string as a [`Vec`] of [`Element`] and apply the `group_assert` function
-    /// for every pair of the parsed data including the identity case (a parsed document is
-    /// compared against itself).
-    fn read_group_embedded<F>(raw_group: &Sequence, group_assert: &F) -> IonResult<()>
-    where
-        F: Fn(&Vec<Element>, &Vec<Element>),
-    {
-        let group_res: IonResult<Vec<_>> = raw_group
-            .elements()
-            .map(|elem| {
-                Self::make_reader(match elem.value() {
-                    Value::String(text) => text.text().as_bytes(),
-                    Value::Blob(bytes) => bytes.as_ref(),
-                    _ => panic!("Expected embedded document to be an Ion String or Ion Blob"),
-                })?
-                .elements()
-                .collect()
-            })
-            .collect();
-        let group = group_res?;
-        for this in group.iter() {
-            for that in group.iter() {
-                group_assert(this, that);
-            }
+    fn read_embedded_doc_as_sequence(elem: &Element) -> IonResult<Sequence> {
+        match elem.value() {
+            Value::String(text) => Element::read_all(text.text().as_bytes()),
+            Value::Blob(bytes) => Element::read_all(bytes.as_ref()),
+            _ => panic!("Expected embedded document to be an Ion String or Ion Blob"),
         }
-        Ok(())
     }
 
     /// Parses a document that has top-level `list`/`sexp` values that represent a *group*.
-    /// If this top-level value is annotated with `embedded_documents`, then [`read_group_embedded`]
-    /// is executed for that grouping.  Otherwise, the `value_assert` function is invoked for
+    /// If this top-level value is annotated with `embedded_documents`, then all values in the group
+    /// are interpreted as an embedded document, and read using [`read_embedded_doc_as_sequence`].
+    /// (The returned Sequence is then wrapped in a SExp so they can be compared as Elements).
+    /// After possibly handling an embedded document, `value_assert` function is invoked for
     /// every pair of values in a group including the identity case (a value in a group is compared
     /// against itself).
     ///
@@ -198,30 +178,29 @@ trait ElementApi {
     ///
     /// This would have two groups, one with direct values that will be compared and another
     /// with embedded Ion text that will be parsed and compared.
-    fn read_group<F1, F2>(file_name: &str, value_assert: F1, group_assert: F2) -> IonResult<()>
+    fn read_group<F>(file_name: &str, value_assert: F) -> IonResult<()>
     where
-        // group index, value 1 index, value 1, value 2 index, value 2
-        F1: Fn(usize, String, &Element, String, &Element),
-        F2: Fn(&Vec<Element>, &Vec<Element>),
+        // group index, value 1 name/index, value 1, value 2 name/index, value 2
+        F: Fn(usize, String, &Element, String, &Element),
     {
         let group_lists = Self::read_file(file_name)?;
         for (group_index, group_container) in group_lists.iter().enumerate() {
-            // every grouping set is a list/sexp
+            // every grouping set is a list/sexp/struct
             // look for the embedded annotation to parse/test as the underlying value
             let is_embedded = group_container.annotations().contains("embedded_documents");
-            match (group_container.value(), is_embedded) {
-                (Value::List(group), true) | (Value::SExp(group), true) => {
-                    Self::read_group_embedded(group, &group_assert)?;
-                }
-                (Value::Struct(group), true) => {
-                    let sequence: Sequence = group
-                        .to_owned()
-                        .fields()
-                        .map(|(_, v)| v.to_owned())
-                        .collect();
-                    Self::read_group_embedded(&sequence, &group_assert)?;
-                }
-                (Value::List(group), false) | (Value::SExp(group), false) => {
+            match group_container.value().to_owned() {
+                Value::List(group) | Value::SExp(group) => {
+                    let group = if is_embedded {
+                        group
+                            .iter()
+                            .map(|it| Self::read_embedded_doc_as_sequence(it).unwrap())
+                            .map(|it| Element::from(SExp::from(it)))
+                            .collect::<Vec<_>>()
+                            .into()
+                    } else {
+                        group
+                    };
+
                     for (this_index, this) in group.elements().enumerate() {
                         for (that_index, that) in group.elements().enumerate() {
                             value_assert(
@@ -234,9 +213,22 @@ trait ElementApi {
                         }
                     }
                 }
-                (Value::Struct(group), false) => {
-                    for (this_name, this) in group.fields() {
-                        for (that_name, that) in group.fields() {
+                Value::Struct(group) => {
+                    let fields: Vec<(Symbol, Element)> = group
+                        .fields()
+                        .map(|(fname, value)| {
+                            let value = if is_embedded {
+                                let seq = Self::read_embedded_doc_as_sequence(value).unwrap();
+                                Element::from(SExp::from(seq))
+                            } else {
+                                value.to_owned()
+                            };
+                            (fname.to_owned(), value)
+                        })
+                        .collect();
+
+                    for (this_name, this) in &fields {
+                        for (that_name, that) in &fields {
                             value_assert(
                                 group_index,
                                 format!("{this_name}"),
@@ -351,7 +343,6 @@ fn equivs<E: ElementApi>(_element_api: E, file_name: &str) {
                     "in group {group_index}, index {this_index} ({this}) was not ion_eq to index {that_index} ({that})"
                 )
             },
-            |this_group, that_group| assert!(IonData::eq(this_group, that_group)),
         )
     });
 }
@@ -362,7 +353,7 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
         E::read_group(
             file_name,
             |group_index, this_index, this, that_index, that| {
-                if std::ptr::eq(this, that) {
+                if this_index == that_index {
                     assert!(
                         IonData::eq(this,that),
                         "in group {group_index}, index {this_index} ({this}) was not ion_eq to index {that_index} ({that})"
@@ -372,19 +363,6 @@ fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
                         !IonData::eq(this,that),
                         "in group {group_index}, index {this_index} ({this}) was unexpectedly ion_eq to index {that_index} ({that})"
                     )
-                }
-            },
-            |this_group, that_group| {
-                if std::ptr::eq(this_group, that_group) {
-                    assert!(
-                        IonData::eq(this_group,that_group),
-                        "unexpected these to be equal but they were unequal: {this_group:?} != {that_group:?}"
-                    );
-                } else {
-                    assert!(
-                        !IonData::eq(this_group,that_group),
-                        "unexpected these to be unequal but they were equal: {this_group:?} == {that_group:?}"
-                    );
                 }
             },
         )
