@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, Range};
 
 use crate::lazy::decoder::{LazyDecoder, RawFieldExpr, RawValueExpr};
-use crate::lazy::expanded::macro_evaluator::{ArgumentExpr, MacroEvaluator, MacroExpr};
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, ValueExpr};
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{
@@ -205,17 +205,14 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'
                     let arg_expr = self
                         .evaluator
                         .environment()
-                        .args()
+                        .expressions()
                         .get(variable_ref.signature_index())
                         .unwrap();
                     match arg_expr {
-                        ArgumentExpr::ValueLiteral(value) => {
+                        ValueExpr::ValueLiteral(value) => {
                             return Some(Ok(*value));
                         }
-                        ArgumentExpr::Variable(variable_reference) => {
-                            unreachable!("variable references are not recursively resolved; while evaluating {:?}, found {:?}", arg_expr, variable_reference)
-                        }
-                        ArgumentExpr::MacroInvocation(invocation) => {
+                        ValueExpr::MacroInvocation(invocation) => {
                             match self.evaluator.push(self.context, *invocation) {
                                 Ok(_) => continue,
                                 Err(e) => return Some(Err(e)),
@@ -333,15 +330,10 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
                     Err(e) => return Some(Err(e)),
                 };
                 match arg_expr {
-                    ArgumentExpr::ValueLiteral(expansion) => {
+                    ValueExpr::ValueLiteral(expansion) => {
                         RawValueExpr::ValueLiteral(expansion.source)
                     }
-                    ArgumentExpr::Variable(_) => {
-                        unreachable!(
-                            "environment contained a variable reference instead of an expression"
-                        )
-                    }
-                    ArgumentExpr::MacroInvocation(invocation) => {
+                    ValueExpr::MacroInvocation(invocation) => {
                         RawValueExpr::MacroInvocation(*invocation)
                     }
                 }
@@ -582,7 +574,7 @@ pub struct TemplateMacroInvocation<'top> {
     context: EncodingContext<'top>,
     // The definition of the template in which this macro invocation appears
     host_template: TemplateMacroRef<'top>,
-    // The address of the macro being invoked
+    // The macro being invoked
     invoked_macro: MacroRef<'top>,
     // The range of value expressions in the host template's body that are arguments to the
     // macro being invoked
@@ -639,7 +631,6 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> From<TemplateMacroInvocation<'top
     }
 }
 
-// TODO: This should hold an Environment<'top, 'data, D> instead of holding a PhantomData
 pub struct TemplateMacroInvocationArgsIterator<'top, 'data, D: LazyDecoder<'data>> {
     environment: Environment<'top, 'data, D>,
     invocation: TemplateMacroInvocation<'top>,
@@ -662,7 +653,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> TemplateMacroInvocationArgsIterator<'to
 impl<'top, 'data, D: LazyDecoder<'data>> Iterator
     for TemplateMacroInvocationArgsIterator<'top, 'data, D>
 {
-    type Item = IonResult<ArgumentExpr<'top, 'data, D>>;
+    type Item = IonResult<ValueExpr<'top, 'data, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let arg = self.invocation.arg_expressions().get(self.arg_index)?;
@@ -678,15 +669,16 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator
                     }
                     _ => {}
                 };
-                ArgumentExpr::ValueLiteral(LazyExpandedValue::from_template(
+                ValueExpr::ValueLiteral(LazyExpandedValue::from_template(
                     self.invocation.context,
                     self.environment,
                     TemplateElement::new(self.invocation.template(), e),
                 ))
             }
-            TemplateBodyValueExpr::Variable(_v) => {
-                todo!("variable expansion")
-            }
+            TemplateBodyValueExpr::Variable(variable_ref) => *self
+                .environment
+                .get_expected(variable_ref.signature_index())
+                .unwrap(),
             TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
                 let invocation = match body_invocation
                     .resolve(self.invocation.template(), self.invocation.context)
@@ -698,7 +690,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator
                     }
                     Err(e) => return Some(Err(e)),
                 };
-                ArgumentExpr::MacroInvocation(invocation.into())
+                ValueExpr::MacroInvocation(invocation.into())
             }
         };
 

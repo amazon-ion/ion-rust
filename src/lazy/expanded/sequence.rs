@@ -1,6 +1,8 @@
+use bumpalo::collections::Vec as BumpVec;
+
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{LazyDecoder, LazyRawSequence, LazyRawValueExpr, RawValueExpr};
-use crate::lazy::expanded::macro_evaluator::{ArgumentExpr, MacroEvaluator, RawEExpression};
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression, ValueExpr};
 use crate::lazy::expanded::template::{
     AnnotationsRange, ExprRange, TemplateMacroRef, TemplateSequenceIterator,
 };
@@ -8,33 +10,32 @@ use crate::lazy::expanded::{
     EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueSource,
     LazyExpandedValue,
 };
-use crate::{IonError, IonResult, IonType};
-
 use crate::result::IonFailure;
-use bumpalo::collections::Vec as BumpVec;
+use crate::{IonError, IonResult, IonType};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Environment<'top, 'data, D: LazyDecoder<'data>> {
-    args: &'top [ArgumentExpr<'top, 'data, D>],
+    expressions: &'top [ValueExpr<'top, 'data, D>],
 }
 
-pub const fn empty_args<'top, 'data, D: LazyDecoder<'data>>() -> &'top [ArgumentExpr<'top, 'data, D>]
-{
+pub const fn empty_args<'top, 'data, D: LazyDecoder<'data>>() -> &'top [ValueExpr<'top, 'data, D>] {
     &[]
 }
 
 impl<'top, 'data, D: LazyDecoder<'data>> Environment<'top, 'data, D> {
-    pub(crate) fn new(args: BumpVec<'top, ArgumentExpr<'top, 'data, D>>) -> Self {
+    pub(crate) fn new(args: BumpVec<'top, ValueExpr<'top, 'data, D>>) -> Self {
         Environment {
-            args: args.into_bump_slice(),
+            expressions: args.into_bump_slice(),
         }
     }
 
+    /// Returns the expression for the corresponding signature index -- the variable's offset within
+    /// the template's signature. If the requested index is out of bounds, returns `Err`.
     pub fn get_expected(
         &self,
         signature_index: usize,
-    ) -> IonResult<&'top ArgumentExpr<'top, 'data, D>> {
-        self.args()
+    ) -> IonResult<&'top ValueExpr<'top, 'data, D>> {
+        self.expressions()
             .get(signature_index)
             // The TemplateCompiler should detect any invalid variable references prior to evaluation
             .ok_or_else(|| {
@@ -46,10 +47,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> Environment<'top, 'data, D> {
     }
 
     pub fn empty() -> Environment<'top, 'data, D> {
-        Environment { args: empty_args() }
+        Environment {
+            expressions: empty_args(),
+        }
     }
-    pub fn args(&self) -> &'top [ArgumentExpr<'top, 'data, D>] {
-        self.args
+    pub fn expressions(&self) -> &'top [ValueExpr<'top, 'data, D>] {
+        self.expressions
     }
 }
 

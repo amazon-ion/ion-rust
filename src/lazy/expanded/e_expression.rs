@@ -3,7 +3,7 @@
 
 use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::macro_evaluator::{ArgumentExpr, MacroExpr, RawEExpression};
+use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression, ValueExpr};
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::{EncodingContext, LazyExpandedValue};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
@@ -67,7 +67,7 @@ pub struct EExpressionArgsIterator<'top, 'data, D: LazyDecoder<'data>> {
 impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
     for EExpressionArgsIterator<'top, 'data, D>
 {
-    type Item = IonResult<ArgumentExpr<'top, 'data, D>>;
+    type Item = IonResult<ValueExpr<'top, 'data, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let raw_arg: LazyRawValueExpr<'data, D> = match self.raw_args.next()? {
@@ -77,14 +77,14 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
 
         let expr = match raw_arg {
             LazyRawValueExpr::<D>::ValueLiteral(value) => {
-                ArgumentExpr::ValueLiteral(LazyExpandedValue::from_value(self.context, value))
+                ValueExpr::ValueLiteral(LazyExpandedValue::from_value(self.context, value))
             }
             LazyRawValueExpr::<D>::MacroInvocation(raw_invocation) => {
                 let invocation = match raw_invocation.resolve(self.context) {
                     Ok(invocation) => invocation,
                     Err(e) => return Some(Err(e)),
                 };
-                ArgumentExpr::MacroInvocation(invocation.into())
+                ValueExpr::MacroInvocation(invocation.into())
             }
         };
         Some(Ok(expr))

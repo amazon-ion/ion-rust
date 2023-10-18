@@ -62,6 +62,7 @@ impl TemplateCompiler {
         let invocation = reader.expect_next()?.read()?.expect_sexp()?;
         let mut values = invocation.iter();
         // TODO: Enforce 'identifier' syntax subset of symbol
+        // TODO: Syntactic support address IDs like `(:14 ...)`
         let id = values.next().expect("macro ID")?.read()?.expect_symbol()?;
         if id != "macro" {
             return IonResult::decoding_error(
@@ -285,7 +286,7 @@ impl TemplateCompiler {
         Ok(())
     }
 
-    /// Given a `LazyValue` that represents a macro ID (name or address), attempt to resolve the
+    /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
     /// ID to a macro address.
     fn address_from_id_expr<'top, 'data, D: LazyDecoder<'data>>(
         context: EncodingContext<'top>,
@@ -325,7 +326,7 @@ impl TemplateCompiler {
 
     /// Visits all of the child expressions of `lazy_sexp`, adding them to the `TemplateBody`
     /// without interpretation. `lazy_sexp` itself is the `quote` macro, and does not get added
-    /// to the template body as there is nothing more for it to do at runtime.
+    /// to the template body as there is nothing more for it to do at evaluation time.
     fn compile_quoted_elements<'top, 'data, D: LazyDecoder<'data>>(
         context: EncodingContext<'top>,
         signature: &MacroSignature,
