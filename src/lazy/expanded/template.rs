@@ -271,10 +271,10 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
             .expect("field name must be a literal");
         let name_token = match LazyExpandedValue::<D>::from_template(
             self.context,
+            // because the name token must be a literal, the env is irrelevant
             Environment::empty(),
             TemplateElement::new(self.template, name_element),
         )
-        // because the name token must be a literal, the env is irrelevant
         .read()
         {
             Ok(ExpandedValueRef::Symbol(token)) => token,
@@ -793,11 +793,9 @@ pub enum TemplateValue {
     String(Str),
     Clob(Bytes),
     Blob(Bytes),
-    // The number of ensuing TemplateElements that are nested.
+    // The range of ensuing `TemplateBodyValueExpr`s that belong to this container.
     List(ExprRange),
     SExp(ExprRange),
-    // The number of fields in the struct. Each field is made up of a pair of TemplateExpansionSteps,
-    // a name (always a symbol, never has annotations), and a value (any element).
     Struct(ExprRange),
 }
 

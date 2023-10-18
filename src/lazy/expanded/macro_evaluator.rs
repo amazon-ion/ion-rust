@@ -291,14 +291,14 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroEvaluator<'top, 'data, D> {
     /// Creates a new `Environment` for the given `invocation`.
     ///
     /// This helper function iterates over the argument expressions in the invocation. If an argument
-    /// expression is a value literal or
+    /// expression is a value literal or macro invocation, it is added to the new environment as-is.
+    /// If an argument is a variable reference, it is substituted with the corresponding value literal
+    /// or macro invocation from the current environment and then added to the new environment.
     fn make_new_evaluation_environment(
         &mut self,
         context: EncodingContext<'top>,
         invocation: MacroExpr<'top, 'data, D>,
     ) -> IonResult<Environment<'top, 'data, D>> {
-        // Using the current environment, make a new environment for the next invocation.
-        // TODO: Explain better
         let mut args = BumpVec::new_in(context.allocator);
         for arg in invocation.arguments(self.environment()) {
             args.push(arg?);
@@ -523,7 +523,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValuesExpansion<'top, 'data, D> {
         }
     }
 
-    /// Yields the next [`MacroExpansionStep`] in this macro's evaluation.
+    /// Yields the next [`ValueExpr`] in this macro's evaluation.
     pub fn next(
         &mut self,
         _context: EncodingContext<'top>,
@@ -567,7 +567,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> MakeStringExpansion<'top, 'data, 
         }
     }
 
-    /// Yields the next [`MacroExpansionStep`] in this `make_string` macro's evaluation.
+    /// Yields the next [`ValueExpr`] in this `make_string` macro's evaluation.
     pub fn next(
         &mut self,
         context: EncodingContext<'top>,
@@ -761,6 +761,72 @@ mod tests {
         assert!(matches!(expected_reader.next(), Ok(None)));
 
         Ok(())
+    }
+
+    #[test]
+    fn multiple_top_level_values() -> IonResult<()> {
+        eval_template_invocation(
+            "(macro foo () (values 1 2 3 4 5))",
+            r#"
+                (:foo)
+            "#,
+            r#"
+                1 2 3 4 5
+            "#,
+        )
+    }
+
+    #[test]
+    fn emit_symbol_table() -> IonResult<()> {
+        eval_template_invocation(
+            r#"
+                (macro lst (symbols) 
+                    $ion_symbol_table::{
+                        symbols: symbols
+                    }
+                )
+            "#,
+            r#"
+                (:lst ["foo", "bar", "baz"]) $10 $11 $12
+            "#,
+            r#"
+                foo bar baz
+            "#,
+        )
+    }
+
+    #[test]
+    fn context_changes_happen_between_top_level_expressions() -> IonResult<()> {
+        eval_template_invocation(
+            r#"
+                (macro lst (symbols) 
+                    (values
+                        $ion_symbol_table::{
+                            symbols: symbols
+                        }
+                    )
+                )
+            "#,
+            r#"
+                $ion_symbol_table::{
+                    symbols: ["foo", "bar"]
+                }
+                
+                // These symbols refer to the symtab defined above
+                $10
+                $11
+                
+                // The $10 and $11 here _also_ refer to the symtab above because the
+                // new LST won't be applied until after this top-level expression.
+                (:values (:lst ["baz", "quux"]) $10 $11)
+                
+                // These refer to the new LST
+                $10 $11
+            "#,
+            r#"
+                foo bar foo bar baz quux
+            "#,
+        )
     }
 
     #[test]

@@ -32,7 +32,6 @@
 //! Leaving symbol tokens unresolved is an optimization; annotations, field names, and symbol values
 //! that are ignored by the reader do not incur the cost of symbol table resolution.
 
-use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
 use std::iter::empty;
 
@@ -69,13 +68,12 @@ pub mod e_expression;
 pub mod macro_evaluator;
 pub mod macro_table;
 pub mod sequence;
-pub mod stack;
 pub mod r#struct;
 pub mod template;
 
 /// A collection of resources that can be used to encode or decode Ion values.
 /// The `'top` lifetime associated with the [`EncodingContext`] reflects the fact that it can only
-/// be used as long as the reader is positioned on the same top level value (i.e. the symbol and
+/// be used as long as the reader is positioned on the same top level expression (i.e. the symbol and
 /// macro tables are guaranteed not to change).
 //  It should be possible to loosen this definition of `'top` to include several top level values
 //  as long as the macro and symbol tables do not change between them, though this would require
@@ -150,7 +148,7 @@ pub struct LazyExpandingReader<'data, D: LazyDecoder<'data>> {
     //
     // The `EncodingContext` passed as an argument to each call to `next()` provides a bump allocator
     // whose storage is guaranteed to remain available as long as the reader remains on the same
-    // top-level value. When an e-expression is encountered in the data stream, we can store a
+    // top-level expression. When an e-expression is encountered in the data stream, we can store a
     // MacroEvaluator there until the reader advances to the next top-level expression. However,
     // there is not a lifetime we can use that meets our use case; `'data`--the duration of the
     // &[u8] from which we're reading--is too long, and `'top`--the duration of the current call
@@ -163,7 +161,7 @@ pub struct LazyExpandingReader<'data, D: LazyDecoder<'data>> {
     //
     // Because there is not valid lifetime we can use for the type `*mut MacroEvaluator<'lifetime>`,
     // in the field below, we cast away the pointer's type for the purposes of storage and then cast
-    // it back at dereference time.
+    // it back at dereference time when a 'top lifetime is available.
     evaluator_ptr: Option<*mut ()>,
     // A bump allocator that is cleared between top-level expressions.
     allocator: BumpAllocator,
@@ -171,7 +169,8 @@ pub struct LazyExpandingReader<'data, D: LazyDecoder<'data>> {
     // changes that need to be applied at the next opportunity.
     // TODO: Remove this RefCell when the Polonius borrow checker is available.
     //       See: https://github.com/rust-lang/rust/issues/70255
-    pending_lst: RefCell<PendingLst>,
+    pending_lst: PendingLst,
+    has_pending_lst_changes: bool,
     // TODO: Make the symbol and macro tables traits on `D` such that they can be configured
     //       statically. Then 1.0 types can use `Never` for the macro table.
     symbol_table: SymbolTable,
@@ -184,15 +183,18 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
             raw_reader,
             evaluator_ptr: None,
             allocator: BumpAllocator::new(),
-            pending_lst: RefCell::new(PendingLst {
+            has_pending_lst_changes: false,
+            pending_lst: PendingLst {
                 is_lst_append: false,
                 symbols: Vec::new(),
-            }),
+            },
             symbol_table: SymbolTable::new(),
             macro_table: MacroTable::new(),
         }
     }
 
+    // TODO: Remove this when template definitions can be read in from the input stream and
+    //       do not need to be registered with the reader manually.
     pub(crate) fn macro_table_mut(&mut self) -> &mut MacroTable {
         &mut self.macro_table
     }
@@ -244,33 +246,27 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
         &self,
         symbol_table_value: &LazyExpandedValue<'_, 'data, D>,
     ) -> IonResult<()> {
-        LazySystemReader::process_symbol_table(
-            &mut self.pending_lst.borrow_mut(),
-            symbol_table_value,
-        )
+        let reader: &mut LazyExpandingReader<'data, D> = Self::unsafe_get_mut(self);
+        reader.has_pending_lst_changes = true;
+        LazySystemReader::process_symbol_table(&mut reader.pending_lst, symbol_table_value)
     }
 
     /// Updates the encoding context with the information stored in the `PendingLst`.
+    // TODO: This only works on Ion 1.0 symbol tables for now
     fn apply_pending_lst(&mut self) {
-        // `is_empty()` will be true if the last item was not a symbol table OR if it was a symbol
-        // table but did not define new symbols. In either case, there's nothing for us to do.
-        let pending_lst: &mut PendingLst = &mut self.pending_lst.borrow_mut();
-        if pending_lst.symbols.is_empty() {
-            return;
-        }
-
         // If the symbol table's `imports` field had a value of `$ion_symbol_table`, then we're
         // appending the symbols it defined to the end of our existing local symbol table.
         // Otherwise, we need to clear the existing table before appending the new symbols.
-        if !pending_lst.is_lst_append {
+        if !self.pending_lst.is_lst_append {
             // We're setting the symbols list, not appending to it.
             self.symbol_table.reset();
         }
         // `drain()` empties the pending symbols list
-        for symbol in pending_lst.symbols.drain(..) {
+        for symbol in self.pending_lst.symbols.drain(..) {
             self.symbol_table.intern_or_add_placeholder(symbol);
         }
-        pending_lst.is_lst_append = false;
+        self.pending_lst.is_lst_append = false;
+        self.has_pending_lst_changes = false;
     }
 
     /// Inspects a `LazyExpandedValue` to determine whether it is a symbol table or an
@@ -291,6 +287,7 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
     }
 
     fn unsafe_get_mut<T>(value: &T) -> &mut T {
+        #![allow(clippy::mut_from_ref)]
         // XXX: This `unsafe` hack is a workaround for a limitation in the borrow checker that
         //      prevents it from understanding that a mutable borrow in the body of the loop does
         //      not necessarily need to prevent all other borrows.
@@ -303,25 +300,22 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
         //      Indeed, using the experimental `-Zpolonius` flag on the nightly compiler allows the
         //      version of this code without this `unsafe` hack to work. The alternative to the
         //      hack is wrapping several components inside the expanding reader in something like
-        //      a `RefCell`, which adds a small amount of overhead to each access. Given that the
-        //       `SymbolTable` is on the hot path and that a fix is inbound, I think this use of
-        //      `unsafe` is warranted.
+        //      a `RefCell`, which adds a small amount of overhead to each access. Given that this
+        //      code is the hot path and a fix is inbound, I think this use of `unsafe` is warranted.
         //
         //      SAFETY: This method should only be used for transient access to fields in a loop.
         //      The reference it produces MUST NOT be persisted across loop iterations or returned.
 
         // Cast the reference to a const pointer
         let ptr = value as *const T;
-        let mut_value = unsafe {
+        unsafe {
             // Cast the const pointer to a mut pointer
             let mut_ptr = ptr as *mut T;
             // Cast the mut pointer to a mut reference
             &mut *mut_ptr
-        };
+        }
         // ^--- These operations only "exist" at compile time, and should boil away during rustc's
         //      optimization passes.
-
-        mut_value
     }
 
     /// This method is invoked just before the reader begins reading the next top-level expression
@@ -338,7 +332,9 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
         // This means that nothing is holding a reference to the bump allocator's memory.
         let reader = Self::unsafe_get_mut(self);
         reader.evaluator_ptr = None;
-        reader.apply_pending_lst();
+        if self.has_pending_lst_changes {
+            reader.apply_pending_lst();
+        }
         reader.allocator.reset();
     }
 

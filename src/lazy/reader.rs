@@ -120,10 +120,13 @@ impl<'data> LazyTextReader_1_1<'data> {
         Ok(LazyApplicationReader { system_reader })
     }
 
+    // Temporary method for defining/testing templates.
+    // TODO: Remove this when the reader can understand 1.1 encoding directives.
     pub(crate) fn register_template(&mut self, template: TemplateMacro) -> IonResult<MacroAddress> {
         self.system_reader.macro_table_mut().add_macro(template)
     }
 
+    // TODO: Remove this when the reader can understand 1.1 encoding directives.
     pub(crate) fn context(&self) -> EncodingContext<'_> {
         self.system_reader.context()
     }
