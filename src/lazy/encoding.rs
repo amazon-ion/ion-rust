@@ -97,7 +97,7 @@ impl<'data> LazyDecoder<'data> for BinaryEncoding_1_0 {
     type Struct = LazyRawBinaryStruct<'data>;
     type AnnotationsIterator = RawBinaryAnnotationsIterator<'data>;
     // Macros are not supported in Ion 1.0
-    type RawMacroInvocation = Never;
+    type EExpression = Never;
 }
 
 impl<'data> LazyDecoder<'data> for TextEncoding_1_0 {
@@ -108,7 +108,7 @@ impl<'data> LazyDecoder<'data> for TextEncoding_1_0 {
     type Struct = LazyRawTextStruct_1_0<'data>;
     type AnnotationsIterator = RawTextAnnotationsIterator<'data>;
     // Macros are not supported in Ion 1.0
-    type RawMacroInvocation = Never;
+    type EExpression = Never;
 }
 
 impl<'data> LazyDecoder<'data> for TextEncoding_1_1 {
@@ -118,7 +118,7 @@ impl<'data> LazyDecoder<'data> for TextEncoding_1_1 {
     type List = LazyRawTextList_1_1<'data>;
     type Struct = LazyRawTextStruct_1_1<'data>;
     type AnnotationsIterator = RawTextAnnotationsIterator<'data>;
-    type RawMacroInvocation = RawTextEExpression_1_1<'data>;
+    type EExpression = RawTextEExpression_1_1<'data>;
 }
 
 /// Marker trait for types that represent value literals in an Ion stream of some encoding.

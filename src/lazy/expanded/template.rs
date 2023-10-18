@@ -175,7 +175,6 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'
                             TemplateElement::new(self.template, element),
                         ),
                     };
-                    println!("yield {value:?} from list");
                     Some(Ok(value))
                 }
                 TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
@@ -211,14 +210,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'
                         .unwrap();
                     match arg_expr {
                         ArgumentExpr::ValueLiteral(value) => {
-                            println!("yield variable expansion {value:?} from list");
                             return Some(Ok(*value));
                         }
                         ArgumentExpr::Variable(variable_reference) => {
                             unreachable!("variable references are not recursively resolved; while evaluating {:?}, found {:?}", arg_expr, variable_reference)
                         }
                         ArgumentExpr::MacroInvocation(invocation) => {
-                            println!("push variable expansion '{:?}' onto the stack", invocation);
                             match self.evaluator.push(self.context, *invocation) {
                                 Ok(_) => continue,
                                 Err(e) => return Some(Err(e)),
@@ -337,7 +334,6 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
                 };
                 match arg_expr {
                     ArgumentExpr::ValueLiteral(expansion) => {
-                        println!("expand variable to {expansion:?} in template struct");
                         RawValueExpr::ValueLiteral(expansion.source)
                     }
                     ArgumentExpr::Variable(_) => {
@@ -346,7 +342,6 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
                         )
                     }
                     ArgumentExpr::MacroInvocation(invocation) => {
-                        println!("expand variable to {:?} in template struct", invocation);
                         RawValueExpr::MacroInvocation(*invocation)
                     }
                 }

@@ -1,9 +1,7 @@
 use std::fmt::Debug;
 
 use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
-use crate::lazy::expanded::e_expression::EExpression;
 use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
-use crate::lazy::expanded::EncodingContext;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::IonResult;
 
@@ -15,7 +13,7 @@ pub enum Never {
 
 // Ion 1.0 uses `Never` as a placeholder type for MacroInvocation.
 // The compiler should optimize these methods away.
-impl<'data, D: LazyDecoder<'data>> RawEExpression<'data, D> for Never {
+impl<'data, D: LazyDecoder<'data, EExpression = Self>> RawEExpression<'data, D> for Never {
     // These use Box<dyn> to avoid defining yet another placeholder type.
     type RawArgumentsIterator<'a> = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'data, D>>>>;
 
@@ -25,16 +23,6 @@ impl<'data, D: LazyDecoder<'data>> RawEExpression<'data, D> for Never {
 
     fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
         unreachable!("macro in Ion 1.0 (method: arguments)")
-    }
-
-    fn resolve<'top>(
-        self,
-        _context: EncodingContext<'top>,
-    ) -> IonResult<EExpression<'top, 'data, D>>
-    where
-        'data: 'top,
-    {
-        unreachable!("macro in Ion 1.0 (method: resolve)")
     }
 }
 

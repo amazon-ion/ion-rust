@@ -15,9 +15,7 @@ use crate::lazy::decoder::{
     LazyRawValueExpr, RawFieldExpr, RawValueExpr,
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
-use crate::lazy::expanded::e_expression::EExpression;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
-use crate::lazy::expanded::EncodingContext;
 use crate::lazy::never::Never;
 use crate::lazy::raw_stream_item::RawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
@@ -34,8 +32,7 @@ use crate::lazy::text::raw::v1_1::reader::{
 use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, RawTextAnnotationsIterator,
 };
-use crate::result::IonFailure;
-use crate::{IonError, IonResult, IonType, RawSymbolTokenRef};
+use crate::{IonResult, IonType, RawSymbolTokenRef};
 
 /// An implementation of the `LazyDecoder` trait that can read any encoding of Ion.
 #[derive(Debug, Clone, Copy)]
@@ -51,7 +48,7 @@ impl<'data> LazyDecoder<'data> for AnyEncoding {
     type List = LazyRawAnyList<'data>;
     type Struct = LazyRawAnyStruct<'data>;
     type AnnotationsIterator = RawAnyAnnotationsIterator<'data>;
-    type RawMacroInvocation = LazyRawAnyEExpression<'data>;
+    type EExpression = LazyRawAnyEExpression<'data>;
 }
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawAnyEExpression<'data> {
@@ -95,26 +92,6 @@ impl<'data> RawEExpression<'data, AnyEncoding> for LazyRawAnyEExpression<'data> 
                 encoding: LazyRawAnyMacroArgsIteratorKind::Text_1_1(m.raw_arguments()),
             },
         }
-    }
-
-    fn resolve<'top>(
-        self,
-        context: EncodingContext<'top>,
-    ) -> IonResult<EExpression<'top, 'data, AnyEncoding>>
-    where
-        'data: 'top,
-    {
-        let invoked_macro = context
-            .macro_table
-            .macro_with_id(self.id())
-            .ok_or_else(|| {
-                IonError::decoding_error(format!("unrecognized macro ID {:?}", self.id()))
-            })?;
-        Ok(EExpression {
-            context,
-            raw_invocation: self,
-            invoked_macro,
-        })
     }
 }
 

@@ -14,7 +14,7 @@ use std::fmt::{Debug, Formatter};
 #[derive(Copy, Clone)]
 pub struct EExpression<'top, 'data, D: LazyDecoder<'data>> {
     pub(crate) context: EncodingContext<'top>,
-    pub(crate) raw_invocation: D::RawMacroInvocation,
+    pub(crate) raw_invocation: D::EExpression,
     pub(crate) invoked_macro: MacroRef<'top>,
 }
 
@@ -27,7 +27,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> Debug for EExpression<'top, 'data, D> {
 impl<'top, 'data, D: LazyDecoder<'data>> EExpression<'top, 'data, D> {
     pub fn new(
         context: EncodingContext<'top>,
-        raw_invocation: D::RawMacroInvocation,
+        raw_invocation: D::EExpression,
         invoked_macro: MacroRef<'top>,
     ) -> Self {
         Self {
@@ -61,7 +61,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> From<EExpression<'top, 'data, D>>
 
 pub struct EExpressionArgsIterator<'top, 'data, D: LazyDecoder<'data>> {
     context: EncodingContext<'top>,
-    raw_args: <D::RawMacroInvocation as RawEExpression<'data, D>>::RawArgumentsIterator<'data>,
+    raw_args: <D::EExpression as RawEExpression<'data, D>>::RawArgumentsIterator<'data>,
 }
 
 impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
