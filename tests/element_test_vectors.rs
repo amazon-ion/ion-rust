@@ -188,7 +188,7 @@ trait ElementApi {
             // every grouping set is a list/sexp/struct
             // look for the embedded annotation to parse/test as the underlying value
             let is_embedded = group_container.annotations().contains("embedded_documents");
-            match group_container.value().to_owned() {
+            match group_container.value() {
                 Value::List(group) | Value::SExp(group) => {
                     let group = if is_embedded {
                         group
@@ -198,7 +198,7 @@ trait ElementApi {
                             .collect::<Vec<_>>()
                             .into()
                     } else {
-                        group
+                        group.to_owned()
                     };
 
                     for (this_index, this) in group.elements().enumerate() {
