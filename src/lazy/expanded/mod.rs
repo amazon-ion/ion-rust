@@ -35,7 +35,8 @@
 use std::fmt::{Debug, Formatter};
 use std::iter::empty;
 
-use bumpalo::Bump as BumpAllocator;
+use bumpalo::collections::Vec as BumpVec;
+use bumpalo::{Bump as BumpAllocator, Bump};
 
 use sequence::{LazyExpandedList, LazyExpandedSExp};
 
@@ -163,14 +164,12 @@ pub struct LazyExpandingReader<'data, D: LazyDecoder<'data>> {
     // in the field below, we cast away the pointer's type for the purposes of storage and then cast
     // it back at dereference time when a 'top lifetime is available.
     evaluator_ptr: Option<*mut ()>,
+    // The encoding context can only be changed between top level expressions. This field stores
+    // a reference a bump-allocated `PendingLst` that holds updates that need to be applied at the
+    // next opportunity.
+    pending_lst_ptr: Option<*mut ()>,
     // A bump allocator that is cleared between top-level expressions.
     allocator: BumpAllocator,
-    // The encoding context can only be changed between top level expressions. This field stores
-    // changes that need to be applied at the next opportunity.
-    // TODO: Remove this RefCell when the Polonius borrow checker is available.
-    //       See: https://github.com/rust-lang/rust/issues/70255
-    pending_lst: PendingLst,
-    has_pending_lst_changes: bool,
     // TODO: Make the symbol and macro tables traits on `D` such that they can be configured
     //       statically. Then 1.0 types can use `Never` for the macro table.
     symbol_table: SymbolTable,
@@ -183,11 +182,7 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
             raw_reader,
             evaluator_ptr: None,
             allocator: BumpAllocator::new(),
-            has_pending_lst_changes: false,
-            pending_lst: PendingLst {
-                is_lst_append: false,
-                symbols: Vec::new(),
-            },
+            pending_lst_ptr: None,
             symbol_table: SymbolTable::new(),
             macro_table: MacroTable::new(),
         }
@@ -203,24 +198,49 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
         EncodingContext::new(&self.macro_table, &self.symbol_table, &self.allocator)
     }
 
-    /// Dereferences a raw pointer storing the address of the active MacroEvaluator.
-    fn ptr_to_evaluator<'top>(evaluator_ptr: *mut ()) -> &'top mut MacroEvaluator<'top, 'data, D> {
-        let ptr: *mut MacroEvaluator<'top, 'data, D> = evaluator_ptr.cast();
-        // SAFETY: The pointer passed in is expected to refer to a MacroEvaluator living in the bump
-        // allocator. In order for 'top to be a valid lifetime, the bump allocator can only be
-        // reset between top-level expressions.
-        let evaluator: &'top mut MacroEvaluator<'top, 'data, D> = unsafe { &mut *ptr };
-        evaluator
+    fn ptr_to_mut_ref<'a, T>(ptr: *mut ()) -> &'a mut T {
+        let typed_ptr: *mut T = ptr.cast();
+        unsafe { &mut *typed_ptr }
     }
 
-    /// Converts a mutable reference to the active MacroEvaluator into a raw, untyped pointer.
-    // This allows the pointer to be stored in `self.evaluator_ptr` in anticipation of the following
-    // call to `next()`.
-    fn evaluator_to_ptr(evaluator: &mut MacroEvaluator<'_, 'data, D>) -> *mut () {
-        let ptr: *mut MacroEvaluator<'_, 'data, D> = evaluator;
+    /// Dereferences a raw pointer storing the address of the active MacroEvaluator.
+    fn ptr_to_evaluator<'top>(evaluator_ptr: *mut ()) -> &'top mut MacroEvaluator<'top, 'data, D> {
+        Self::ptr_to_mut_ref(evaluator_ptr)
+    }
+
+    fn ptr_to_pending_lst<'top>(pending_lst_ptr: *mut ()) -> &'top mut PendingLst<'top> {
+        Self::ptr_to_mut_ref(pending_lst_ptr)
+    }
+    // fn ptr_to_evaluator<'top>(evaluator_ptr: *mut ()) -> &'top mut MacroEvaluator<'top, 'data, D> {
+    //     let ptr: *mut MacroEvaluator<'top, 'data, D> = evaluator_ptr.cast();
+    //     // SAFETY: The pointer passed in is expected to refer to a MacroEvaluator living in the bump
+    //     // allocator. In order for 'top to be a valid lifetime, the bump allocator can only be
+    //     // reset between top-level expressions.
+    //     let evaluator: &'top mut MacroEvaluator<'top, 'data, D> = unsafe { &mut *ptr };
+    //     evaluator
+    // }
+
+    fn ref_as_ptr<T>(reference: &mut T) -> *mut () {
+        let ptr: *mut T = reference;
         let untyped_ptr: *mut () = ptr.cast();
         untyped_ptr
     }
+
+    /// Converts a mutable reference to the active MacroEvaluator into a raw, untyped pointer.
+    fn evaluator_to_ptr(evaluator: &mut MacroEvaluator<'_, 'data, D>) -> *mut () {
+        Self::ref_as_ptr(evaluator)
+    }
+
+    fn pending_lst_to_ptr<'a>(pending_lst: &'_ mut PendingLst<'a>) -> *mut () {
+        Self::ref_as_ptr(pending_lst)
+    }
+    // This allows the pointer to be stored in `self.evaluator_ptr` in anticipation of the following
+    // call to `next()`.
+    // fn evaluator_to_ptr(evaluator: &mut MacroEvaluator<'_, 'data, D>) -> *mut () {
+    //     let ptr: *mut MacroEvaluator<'_, 'data, D> = evaluator;
+    //     let untyped_ptr: *mut () = ptr.cast();
+    //     untyped_ptr
+    // }
 
     /// If `maybe_evaluator_ptr` is `Some(pointer)`, this function will return a mutable reference
     /// (`&mut`) to the `MacroEvaluator` to which `pointer` refers.
@@ -243,40 +263,55 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
     /// Given a `LazyExpandedValue` representing a symbol table, update the `PendingList` with the
     /// new encoding context information that will be applied after the current top level expression.
     fn update_pending_lst(
-        &self,
+        pending_lst: &mut Option<*mut ()>,
+        allocator: &BumpAllocator,
         symbol_table_value: &LazyExpandedValue<'_, 'data, D>,
     ) -> IonResult<()> {
-        let reader: &mut LazyExpandingReader<'data, D> = Self::unsafe_get_mut(self);
-        reader.has_pending_lst_changes = true;
-        LazySystemReader::process_symbol_table(&mut reader.pending_lst, symbol_table_value)
+        // Get the pending LST from the bump allocator or create a new one
+        let pending_lst_ptr = match *pending_lst {
+            // If there's already a PendingLst in the bump allocator, use that.
+            Some(pointer) => Self::ptr_to_pending_lst(pointer),
+            // Otherwise...
+            None => {
+                // ...bump-allocate a new PendingLst...
+                let new_lst = allocator.alloc_with(|| PendingLst {
+                    is_lst_append: false,
+                    symbols: BumpVec::new_in(allocator),
+                });
+                // ...and update the reader's PendingLst pointer to refer to it.
+                *pending_lst = Some(Self::pending_lst_to_ptr(new_lst));
+                new_lst
+            }
+        };
+        LazySystemReader::process_symbol_table(pending_lst_ptr, symbol_table_value)
     }
 
     /// Updates the encoding context with the information stored in the `PendingLst`.
-    // TODO: This only works on Ion 1.0 symbol tables for now
-    fn apply_pending_lst(&mut self) {
+    // TODO: This only works on Ion 1.0 symbol tables for now, hence the name `PendingLst`
+    fn apply_pending_lst(pending_lst: &mut PendingLst<'_>, symbol_table: &mut SymbolTable) {
         // If the symbol table's `imports` field had a value of `$ion_symbol_table`, then we're
         // appending the symbols it defined to the end of our existing local symbol table.
         // Otherwise, we need to clear the existing table before appending the new symbols.
-        if !self.pending_lst.is_lst_append {
+        if !pending_lst.is_lst_append {
             // We're setting the symbols list, not appending to it.
-            self.symbol_table.reset();
+            symbol_table.reset();
         }
         // `drain()` empties the pending symbols list
-        for symbol in self.pending_lst.symbols.drain(..) {
-            self.symbol_table.intern_or_add_placeholder(symbol);
+        for symbol in pending_lst.symbols.drain(..) {
+            symbol_table.intern_or_add_placeholder(symbol);
         }
-        self.pending_lst.is_lst_append = false;
-        self.has_pending_lst_changes = false;
+        pending_lst.is_lst_append = false;
     }
 
     /// Inspects a `LazyExpandedValue` to determine whether it is a symbol table or an
     /// application-level value. Returns it as the appropriate variant of `SystemStreamItem`.
     fn interpret_expanded_value<'top>(
-        &self,
+        pending_lst: &mut Option<*mut ()>,
+        allocator: &BumpAllocator,
         value: LazyExpandedValue<'top, 'data, D>,
     ) -> IonResult<SystemStreamItem<'top, 'data, D>> {
         if LazySystemReader::is_symbol_table_struct(&value)? {
-            self.update_pending_lst(&value)?;
+            Self::update_pending_lst(pending_lst, allocator, &value)?;
             let lazy_struct = LazyStruct {
                 expanded_struct: value.read()?.expect_struct().unwrap(),
             };
@@ -323,28 +358,25 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
     /// single expression.
     ///
     /// This is the reader's opportunity to make any pending changes to the encoding context.
-    fn between_top_level_expressions(&self) {
-        // When this is called:
-        // * We are between top-level values.
-        // * The user is no longer holding references to values yielded by prior calls to `next()`.
-        // * `self.evaluator_ptr` is `None`.
-        //
-        // This means that nothing is holding a reference to the bump allocator's memory.
-        let reader = Self::unsafe_get_mut(self);
-        reader.evaluator_ptr = None;
-        if self.has_pending_lst_changes {
-            reader.apply_pending_lst();
+    fn between_top_level_expressions(
+        evaluator_ptr: &mut Option<*mut ()>,
+        pending_lst_ptr: &mut Option<*mut ()>,
+        allocator: &mut Bump,
+        symbol_table: &mut SymbolTable,
+    ) {
+        *evaluator_ptr = None;
+        if let Some(ptr) = *pending_lst_ptr {
+            let pending_lst = Self::ptr_to_pending_lst(ptr);
+            Self::apply_pending_lst(pending_lst, symbol_table);
+            *pending_lst_ptr = None;
         }
-        reader.allocator.reset();
+        allocator.reset();
     }
 
-    pub(crate) fn unsafe_next_value<'top>(
-        &'top self,
-    ) -> IonResult<Option<LazyValue<'top, 'data, D>>> {
+    pub(crate) fn next_value<'top>(&mut self) -> IonResult<Option<LazyValue<'top, 'data, D>>> {
+        let ptr = Self::ref_as_ptr(self);
         loop {
-            // We need the unsafe mut access hack because we're calling 'next()' in a loop.
-            // However, there's never a time that the reference we get can survive across iterations.
-            match Self::unsafe_get_mut(self).next_item()? {
+            match Self::unsafe_next_value(ptr)? {
                 SystemStreamItem::VersionMarker(_, _) => {
                     // TODO: Handle version changes 1.0 <-> 1.1
                 }
@@ -355,67 +387,121 @@ impl<'data, D: LazyDecoder<'data>> LazyExpandingReader<'data, D> {
         }
     }
 
+    pub(crate) fn unsafe_next_value<'top>(
+        reader_ptr: *mut (),
+    ) -> IonResult<SystemStreamItem<'top, 'data, D>> {
+        let reader: &'top mut LazyExpandingReader<'data, D> = Self::ptr_to_mut_ref(reader_ptr);
+        reader.next_item()
+    }
+
     /// Returns the next [`SystemStreamItem`] either by continuing to evaluate a macro invocation
     /// in progress or by pulling another expression from the input stream.
     pub fn next_item<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, 'data, D>>
     where
         'data: 'top,
     {
-        loop {
-            // See if there's already an active macro evaluator.
-            if let Some(evaluator_ptr) = self.evaluator_ptr {
-                let evaluator = Self::ptr_to_evaluator(evaluator_ptr);
-                if evaluator.macro_stack_depth() > 0 {
-                    // If the evaluator still has macro expansions in its stack, we need to give it the
-                    // opportunity to produce the next value.
-                    match evaluator.next(self.context(), 0) {
-                        Ok(Some(value)) => {
-                            return self.interpret_expanded_value(value);
-                        }
-                        Ok(None) => {
-                            // While the evaluator had macros in its stack, they did not produce any more
-                            // values. The stack is now empty.
-                        }
-                        Err(e) => return Err(e),
-                    };
-                }
+        let LazyExpandingReader {
+            raw_reader,
+            evaluator_ptr,
+            pending_lst_ptr,
+            allocator,
+            symbol_table,
+            macro_table,
+        } = self;
+
+        // If there's already an active macro evaluator, see if it has a value to give us.
+        if let Some(ptr) = *evaluator_ptr {
+            let evaluator = Self::ptr_to_evaluator(ptr);
+            if let Some(value) = Self::next_from_evaluator(
+                evaluator,
+                pending_lst_ptr,
+                allocator,
+                symbol_table,
+                macro_table,
+            )? {
+                return Ok(value);
             }
+        }
 
-            self.between_top_level_expressions();
+        // Apply any pending changes to the encoding context and reset state as needed
+        Self::between_top_level_expressions(
+            evaluator_ptr,
+            pending_lst_ptr,
+            allocator,
+            symbol_table,
+        );
 
-            // We'll pull another top-level expression from the input stream if one is available.
+        // If we get `none` back, that's ok. We'll see if there's more data available in the reader.
+
+        loop {
+            // Pull another top-level expression from the input stream if one is available.
             use RawStreamItem::*;
-            let expanded_item = match Self::unsafe_get_mut(&self.raw_reader).next()? {
-                VersionMarker(major, minor) => SystemStreamItem::VersionMarker(major, minor),
+            match raw_reader.next()? {
+                VersionMarker(major, minor) => {
+                    return Ok(SystemStreamItem::VersionMarker(major, minor))
+                }
                 // We got our value; return it.
                 Value(raw_value) => {
+                    let context = EncodingContext::new(macro_table, symbol_table, allocator);
                     let value = LazyExpandedValue {
                         source: ExpandedValueSource::ValueLiteral(raw_value),
-                        context: self.context(),
+                        context,
                     };
-                    return self.interpret_expanded_value(value);
+                    return Self::interpret_expanded_value(pending_lst_ptr, allocator, value);
                 }
                 // It's another macro invocation, we'll start evaluating it.
                 EExpression(e_exp) => {
-                    let context = EncodingContext::new(
-                        &self.macro_table,
-                        &self.symbol_table,
-                        &self.allocator,
-                    );
+                    let context = EncodingContext::new(macro_table, symbol_table, allocator);
                     let resolved_e_exp = e_exp.resolve(context)?;
-                    let evaluator = Self::get_or_make_evaluator(self.evaluator_ptr, context);
+                    let evaluator = Self::get_or_make_evaluator(*evaluator_ptr, context);
                     // Push the invocation onto the evaluation stack.
                     evaluator.push(context, resolved_e_exp)?;
-                    *Self::unsafe_get_mut(&self.evaluator_ptr) =
-                        Some(Self::evaluator_to_ptr(evaluator));
-                    // Return to the top of the loop to pull the next value (if any) from the evaluator.
-                    continue;
+                    *evaluator_ptr = Some(Self::evaluator_to_ptr(evaluator));
                 }
-                EndOfStream => SystemStreamItem::EndOfStream,
+                EndOfStream => return Ok(SystemStreamItem::EndOfStream),
             };
 
-            return Ok(expanded_item);
+            if let Some(ptr) = *evaluator_ptr {
+                let evaluator = Self::ptr_to_evaluator(ptr);
+                if let Some(value) = Self::next_from_evaluator(
+                    evaluator,
+                    pending_lst_ptr,
+                    allocator,
+                    symbol_table,
+                    macro_table,
+                )? {
+                    return Ok(value);
+                }
+            }
         }
+    }
+
+    fn next_from_evaluator<'top>(
+        evaluator: &mut MacroEvaluator<'top, 'data, D>,
+        pending_lst_ptr: &mut Option<*mut ()>,
+        allocator_ptr: *const Bump,
+        symbol_table_ptr: *const SymbolTable,
+        macro_table: &'top MacroTable,
+    ) -> IonResult<Option<SystemStreamItem<'top, 'data, D>>> {
+        if evaluator.macro_stack_depth() > 0 {
+            let allocator: &'top Bump = unsafe { &*allocator_ptr };
+            let symbol_table: &'top SymbolTable = unsafe { &*symbol_table_ptr };
+            // If the evaluator still has macro expansions in its stack, we need to give it the
+            // opportunity to produce the next value.
+            let context = EncodingContext::new(macro_table, symbol_table, allocator);
+            match evaluator.next(context, 0) {
+                Ok(Some(value)) => {
+                    return Self::interpret_expanded_value(pending_lst_ptr, allocator, value)
+                        .map(Some);
+                }
+                Ok(None) => {
+                    // While the evaluator had macros in its stack, they did not produce any more
+                    // values. The stack is now empty.
+                }
+                Err(e) => return Err(e),
+            };
+        }
+        Ok(None)
     }
 }
 

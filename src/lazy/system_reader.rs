@@ -15,6 +15,8 @@ use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
 
+use bumpalo::collections::Vec as BumpVec;
+
 // Symbol IDs used for processing symbol table structs
 const ION_SYMBOL_TABLE: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(3);
 const IMPORTS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(6);
@@ -93,9 +95,9 @@ pub type LazySystemAnyReader<'data> = LazySystemReader<'data, AnyEncoding>;
 
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
 // the table defines in this structure so that they may be applied when the reader next advances.
-pub(crate) struct PendingLst {
+pub(crate) struct PendingLst<'top> {
     pub(crate) is_lst_append: bool,
-    pub(crate) symbols: Vec<Option<String>>,
+    pub(crate) symbols: BumpVec<'top, Option<String>>,
 }
 
 impl<'data> LazySystemAnyReader<'data> {
@@ -146,7 +148,7 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     /// Returns the next value that is part of the application data model, bypassing all encoding
     /// artifacts (IVMs, symbol tables).
     pub fn next_value<'value>(&'value mut self) -> IonResult<Option<LazyValue<'value, 'data, D>>> {
-        self.expanding_reader.unsafe_next_value()
+        self.expanding_reader.next_value()
     }
 
     // If the last stream item the reader visited was a symbol table, its `PendingLst` will
