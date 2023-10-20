@@ -15,6 +15,8 @@
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 
+use bumpalo::collections::{String as BumpString, Vec as BumpVec};
+
 use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
 use crate::lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator};
 use crate::lazy::expanded::macro_table::MacroKind;
@@ -29,7 +31,6 @@ use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult, RawSymbolTokenRef};
-use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
 /// The syntactic entity in format `D` that represents an e-expression. This expression has not
 /// yet been resolved in the current encoding context.
@@ -421,11 +422,18 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> MacroEvaluator<'top, 'data, D> {
                 }
                 // If the current macro reports that its expansion is complete...
                 None => {
-                    // ...pop it off the stack...
-                    let completed = self.macro_stack.pop().unwrap();
-                    if matches!(completed.kind, MacroExpansionKind::Template(_)) {
-                        let _popped_env = self.env_stack.pop().unwrap();
+                    // Check to see if the completed value was a template. If so, discard its environment.
+                    let completed_kind = &self.macro_stack.last().unwrap().kind;
+                    if matches!(completed_kind, MacroExpansionKind::Template(_)) {
+                        // NB: Here and below, we use `truncate()` instead of `pop()` so the value can
+                        // be dropped in place without incurring a move. That move runs afoul of the
+                        // aliasing requirements that `miri` looks for, though I'm unsure why.
+                        // Once Polonius lands and we are able to remove the `unsafe` usages in
+                        // the LazyExpandingReader, this will be unnecessary.
+                        self.env_stack.truncate(self.env_stack.len() - 1);
                     }
+                    self.macro_stack.truncate(self.macro_stack.len() - 1);
+
                     // ...and see that was the macro the caller was interested in evaluating.
                     if self.macro_stack.len() < depth_to_exhaust {
                         // If so, there are no more values to yield, even though there may still
@@ -715,7 +723,6 @@ impl<'top> TemplateExpansion<'top> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::reader::LazyTextReader_1_1;
     use crate::{Element, ElementReader, IonResult};
 
@@ -743,13 +750,13 @@ mod tests {
     ///
     /// This test exists to demonstrate that macro evaluation within the TDL context works the
     /// same as evaluation in the data stream.
-    fn eval_template_invocation(template: &str, invocation: &str, expected: &str) -> IonResult<()> {
+    fn eval_template_invocation(
+        template_definition: &str,
+        invocation: &str,
+        expected: &str,
+    ) -> IonResult<()> {
         let mut reader = LazyTextReader_1_1::new(invocation.as_bytes())?;
-        let template_macro = dbg!(TemplateCompiler::compile_from_text(
-            reader.context(),
-            template
-        )?);
-        let _macro_address = reader.register_template(template_macro)?;
+        let _macro_address = reader.register_template(template_definition)?;
         let actuals = reader.read_all_elements()?;
         let mut expected_reader = LazyTextReader_1_1::new(expected.as_bytes())?;
         for actual in actuals {

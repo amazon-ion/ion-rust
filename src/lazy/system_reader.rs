@@ -5,17 +5,12 @@ use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::decoder::LazyRawReader;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
-use crate::lazy::expanded::macro_table::MacroTable;
-use crate::lazy::expanded::{
-    EncodingContext, ExpandedValueRef, LazyExpandedValue, LazyExpandingReader,
-};
+use crate::lazy::expanded::{ExpandedValueRef, LazyExpandedValue, LazyExpandingReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
-
-use bumpalo::collections::Vec as BumpVec;
 
 // Symbol IDs used for processing symbol table structs
 const ION_SYMBOL_TABLE: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(3);
@@ -74,17 +69,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///# }
 /// ```
 pub struct LazySystemReader<'data, D: LazyDecoder<'data>> {
-    expanding_reader: LazyExpandingReader<'data, D>,
-}
-
-impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
-    pub(crate) fn macro_table_mut(&mut self) -> &mut MacroTable {
-        self.expanding_reader.macro_table_mut()
-    }
-
-    pub(crate) fn context(&self) -> EncodingContext<'_> {
-        self.expanding_reader.context()
-    }
+    pub(crate) expanding_reader: LazyExpandingReader<'data, D>,
 }
 
 pub type LazySystemBinaryReader<'data> = LazySystemReader<'data, BinaryEncoding_1_0>;
@@ -95,9 +80,21 @@ pub type LazySystemAnyReader<'data> = LazySystemReader<'data, AnyEncoding>;
 
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
 // the table defines in this structure so that they may be applied when the reader next advances.
-pub(crate) struct PendingLst<'top> {
+#[derive(Default)]
+pub(crate) struct PendingLst {
+    pub(crate) has_changes: bool,
     pub(crate) is_lst_append: bool,
-    pub(crate) symbols: BumpVec<'top, Option<String>>,
+    pub(crate) symbols: Vec<Option<String>>,
+}
+
+impl PendingLst {
+    pub fn new() -> Self {
+        Self {
+            has_changes: false,
+            is_lst_append: false,
+            symbols: Vec::new(),
+        }
+    }
 }
 
 impl<'data> LazySystemAnyReader<'data> {
@@ -153,22 +150,15 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
 
     // If the last stream item the reader visited was a symbol table, its `PendingLst` will
     // contain new symbols that need to be added to the local symbol table.
-    fn apply_pending_lst(symbol_table: &SymbolTable, pending_lst: &mut PendingLst) {
-        let ptr = symbol_table as *const SymbolTable;
-        let symbol_table = unsafe {
-            let mut_ptr = ptr as *mut SymbolTable;
-            &mut *mut_ptr
-        };
-        // `is_empty()` will be true if the last item was not a symbol table OR if it was a symbol
-        // table but did not define new symbols. In either case, there's nothing for us to do.
-        if pending_lst.symbols.is_empty() {
-            return;
-        }
-
+    fn apply_pending_lst(symbol_table: &mut SymbolTable, pending_lst: &mut PendingLst) {
         // If the symbol table's `imports` field had a value of `$ion_symbol_table`, then we're
         // appending the symbols it defined to the end of our existing local symbol table.
         // Otherwise, we need to clear the existing table before appending the new symbols.
-        if !pending_lst.is_lst_append {
+        if pending_lst.is_lst_append {
+            if pending_lst.symbols.is_empty() {
+                return;
+            }
+        } else {
             // We're setting the symbols list, not appending to it.
             symbol_table.reset();
         }

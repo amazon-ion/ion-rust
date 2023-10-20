@@ -6,8 +6,6 @@ use crate::element::Element;
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
-use crate::lazy::expanded::template::TemplateMacro;
-use crate::lazy::expanded::EncodingContext;
 use crate::lazy::system_reader::{
     LazySystemAnyReader, LazySystemBinaryReader, LazySystemReader, LazySystemTextReader_1_1,
 };
@@ -122,13 +120,13 @@ impl<'data> LazyTextReader_1_1<'data> {
 
     // Temporary method for defining/testing templates.
     // TODO: Remove this when the reader can understand 1.1 encoding directives.
-    pub(crate) fn register_template(&mut self, template: TemplateMacro) -> IonResult<MacroAddress> {
-        self.system_reader.macro_table_mut().add_macro(template)
-    }
-
-    // TODO: Remove this when the reader can understand 1.1 encoding directives.
-    pub(crate) fn context(&self) -> EncodingContext<'_> {
-        self.system_reader.context()
+    pub(crate) fn register_template(
+        &mut self,
+        template_definition: &str,
+    ) -> IonResult<MacroAddress> {
+        self.system_reader
+            .expanding_reader
+            .register_template(template_definition)
     }
 }
 
@@ -167,13 +165,14 @@ impl<'data, D: LazyDecoder<'data>> ElementReader for LazyApplicationReader<'data
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::element::writer::ElementWriter;
     use crate::element::Element;
     use crate::lazy::value_ref::ValueRef;
     use crate::{
         ion_list, ion_sexp, ion_struct, BinaryWriterBuilder, Int, IonResult, IonType, IonWriter,
     };
+
+    use super::*;
 
     fn to_binary_ion(text_ion: &str) -> IonResult<Vec<u8>> {
         let mut buffer = Vec::new();
