@@ -2,7 +2,7 @@
 
 //! Provides a dynamically typed, materialized representation of an Ion value.
 //!
-//! An [Element](Element) represents an `(annotations, value)` pair, where a `value` is
+//! An [Element] represents an `(annotations, value)` pair, where a `value` is
 //! an Ion `integer`, `float`, `list`, `struct`, etc.
 //!
 //! For reference here are a couple other _value_ style APIs for JSON:

@@ -833,7 +833,7 @@ impl TemplateValue {
 pub type ExprRange = SmallRange;
 pub type AnnotationsRange = SmallRange;
 
-/// A range that takes 8 bytes instead of Range<usize>'s 16. This is useful for cases like
+/// A range that takes 8 bytes instead of `Range<usize>`'s 16. This is useful for cases like
 /// annotations where a capacity of 4 billion+ is more than enough. It also implements `Copy`,
 /// making it possible for enclosing types to also implement `Copy`.
 #[derive(Clone, Copy, Debug, PartialEq)]
