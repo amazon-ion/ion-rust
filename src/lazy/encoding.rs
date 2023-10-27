@@ -63,24 +63,18 @@ impl Encoding for TextEncoding_1_1 {
 pub trait BinaryEncoding: Encoding {}
 
 /// Marker trait for text encodings.
-pub trait TextEncoding<'data>:
-    Encoding + LazyDecoder<'data, AnnotationsIterator = RawTextAnnotationsIterator<'data>>
+pub trait TextEncoding<'top>:
+    Encoding + LazyDecoder<AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>>
 {
-    fn value_from_matched(
-        matched: MatchedRawTextValue<'data>,
-    ) -> <Self as LazyDecoder<'data>>::Value;
+    fn value_from_matched(matched: MatchedRawTextValue) -> <Self as LazyDecoder>::Value<'_>;
 }
-impl<'data> TextEncoding<'data> for TextEncoding_1_0 {
-    fn value_from_matched(
-        matched: MatchedRawTextValue<'data>,
-    ) -> <Self as LazyDecoder<'data>>::Value {
+impl<'top> TextEncoding<'top> for TextEncoding_1_0 {
+    fn value_from_matched(matched: MatchedRawTextValue) -> <Self as LazyDecoder>::Value<'_> {
         LazyRawTextValue_1_0::from(matched)
     }
 }
-impl<'data> TextEncoding<'data> for TextEncoding_1_1 {
-    fn value_from_matched(
-        matched: MatchedRawTextValue<'data>,
-    ) -> <Self as LazyDecoder<'data>>::Value {
+impl<'top> TextEncoding<'top> for TextEncoding_1_1 {
+    fn value_from_matched(matched: MatchedRawTextValue) -> <Self as LazyDecoder>::Value<'_> {
         LazyRawTextValue_1_1::from(matched)
     }
 }
@@ -89,36 +83,36 @@ impl<'data> TextEncoding<'data> for TextEncoding_1_1 {
 pub trait EncodingWithMacroSupport {}
 impl EncodingWithMacroSupport for TextEncoding_1_1 {}
 
-impl<'data> LazyDecoder<'data> for BinaryEncoding_1_0 {
-    type Reader = LazyRawBinaryReader<'data>;
-    type Value = LazyRawBinaryValue<'data>;
-    type SExp = LazyRawBinarySExp<'data>;
-    type List = LazyRawBinaryList<'data>;
-    type Struct = LazyRawBinaryStruct<'data>;
-    type AnnotationsIterator = RawBinaryAnnotationsIterator<'data>;
+impl LazyDecoder for BinaryEncoding_1_0 {
+    type Reader<'data> = LazyRawBinaryReader<'data>;
+    type Value<'top> = LazyRawBinaryValue<'top>;
+    type SExp<'top> = LazyRawBinarySExp<'top>;
+    type List<'top> = LazyRawBinaryList<'top>;
+    type Struct<'top> = LazyRawBinaryStruct<'top>;
+    type AnnotationsIterator<'top> = RawBinaryAnnotationsIterator<'top>;
     // Macros are not supported in Ion 1.0
-    type EExpression = Never;
+    type EExpression<'top> = Never;
 }
 
-impl<'data> LazyDecoder<'data> for TextEncoding_1_0 {
-    type Reader = LazyRawTextReader_1_0<'data>;
-    type Value = LazyRawTextValue_1_0<'data>;
-    type SExp = LazyRawTextSExp_1_0<'data>;
-    type List = LazyRawTextList_1_0<'data>;
-    type Struct = LazyRawTextStruct_1_0<'data>;
-    type AnnotationsIterator = RawTextAnnotationsIterator<'data>;
+impl LazyDecoder for TextEncoding_1_0 {
+    type Reader<'data> = LazyRawTextReader_1_0<'data>;
+    type Value<'top> = LazyRawTextValue_1_0<'top>;
+    type SExp<'top> = LazyRawTextSExp_1_0<'top>;
+    type List<'top> = LazyRawTextList_1_0<'top>;
+    type Struct<'top> = LazyRawTextStruct_1_0<'top>;
+    type AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>;
     // Macros are not supported in Ion 1.0
-    type EExpression = Never;
+    type EExpression<'top> = Never;
 }
 
-impl<'data> LazyDecoder<'data> for TextEncoding_1_1 {
-    type Reader = LazyRawTextReader_1_1<'data>;
-    type Value = LazyRawTextValue_1_1<'data>;
-    type SExp = LazyRawTextSExp_1_1<'data>;
-    type List = LazyRawTextList_1_1<'data>;
-    type Struct = LazyRawTextStruct_1_1<'data>;
-    type AnnotationsIterator = RawTextAnnotationsIterator<'data>;
-    type EExpression = RawTextEExpression_1_1<'data>;
+impl LazyDecoder for TextEncoding_1_1 {
+    type Reader<'data> = LazyRawTextReader_1_1<'data>;
+    type Value<'top> = LazyRawTextValue_1_1<'top>;
+    type SExp<'top> = LazyRawTextSExp_1_1<'top>;
+    type List<'top> = LazyRawTextList_1_1<'top>;
+    type Struct<'top> = LazyRawTextStruct_1_1<'top>;
+    type AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>;
+    type EExpression<'top> = RawTextEExpression_1_1<'top>;
 }
 
 /// Marker trait for types that represent value literals in an Ion stream of some encoding.
@@ -126,14 +120,14 @@ impl<'data> LazyDecoder<'data> for TextEncoding_1_1 {
 // `LazyDecoder::Value` to `ExpandedValueSource`. That is:
 //
 //     impl<'top, 'data, V: RawValueLiteral, D: LazyDecoder<'data, Value = V>> From<V>
-//         for ExpandedValueSource<'top, 'data, D>
+//         for ExpandedValueSource<'top, D>
 //
 // If we do not confine the implementation to types with a marker trait, rustc complains that
 // someone may someday use `ExpandedValueSource` as a `LazyDecoder::Value`, and then the
 // the implementation will conflict with the core `impl<T> From<T> for T` implementation.
 pub trait RawValueLiteral {}
 
-impl<'data> RawValueLiteral for MatchedRawTextValue<'data> {}
-impl<'data, E: TextEncoding<'data>> RawValueLiteral for LazyRawTextValue<'data, E> {}
-impl<'data> RawValueLiteral for LazyRawBinaryValue<'data> {}
-impl<'data> RawValueLiteral for LazyRawAnyValue<'data> {}
+impl<'top> RawValueLiteral for MatchedRawTextValue<'top> {}
+impl<'top, E: TextEncoding<'top>> RawValueLiteral for LazyRawTextValue<'top, E> {}
+impl<'top> RawValueLiteral for LazyRawBinaryValue<'top> {}
+impl<'top> RawValueLiteral for LazyRawAnyValue<'top> {}

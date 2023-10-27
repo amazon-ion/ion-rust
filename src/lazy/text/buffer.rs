@@ -22,8 +22,9 @@ use nom::{AsBytes, CompareResult, IResult, InputLength, InputTake, Needed, Parse
 
 use crate::lazy::decoder::private::LazyRawValuePrivate;
 use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawFieldExpr, RawValueExpr};
-use crate::lazy::encoding::{TextEncoding_1_0, TextEncoding_1_1};
-use crate::lazy::raw_stream_item::RawStreamItem;
+use crate::lazy::encoding::TextEncoding_1_1;
+use crate::lazy::never::Never;
+use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
     MatchedBlob, MatchedClob, MatchedDecimal, MatchedFieldName, MatchedFloat,
@@ -132,6 +133,13 @@ impl<'data> TextBufferView<'data> {
     /// offset _into_ `data`.
     pub fn new_with_offset(data: &[u8], offset: usize) -> TextBufferView {
         TextBufferView { data, offset }
+    }
+
+    pub fn local_lifespan<'a>(self) -> TextBufferView<'a>
+    where
+        'data: 'a,
+    {
+        self.slice_to_end(0)
     }
 
     /// Returns a subslice of the [`TextBufferView`] that starts at `offset` and continues for
@@ -575,9 +583,12 @@ impl<'data> TextBufferView<'data> {
     }
 
     /// Matches a single top-level value, an IVM, or the end of the stream.
-    pub fn match_top_level_item_1_0(
+    pub fn match_top_level_item_1_0<'a>(
         self,
-    ) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding_1_0>> {
+    ) -> IonParseResult<'a, RawStreamItem<LazyRawTextValue_1_0<'a>, Never>>
+    where
+        'data: 'a,
+    {
         // If only whitespace/comments remain, we're at the end of the stream.
         let (input_after_ws, _ws) = self.match_optional_comments_and_whitespace()?;
         if input_after_ws.is_empty() {
@@ -597,7 +608,7 @@ impl<'data> TextBufferView<'data> {
     /// the stream.
     pub fn match_top_level_item_1_1(
         self,
-    ) -> IonParseResult<'data, RawStreamItem<'data, TextEncoding_1_1>> {
+    ) -> IonParseResult<'data, LazyRawStreamItem<'data, TextEncoding_1_1>> {
         // If only whitespace/comments remain, we're at the end of the stream.
         let (input_after_ws, _ws) = self.match_optional_comments_and_whitespace()?;
         if input_after_ws.is_empty() {

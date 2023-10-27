@@ -2,9 +2,11 @@ use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
 use crate::lazy::decoder::LazyRawReader;
 use crate::lazy::encoding::BinaryEncoding_1_0;
-use crate::lazy::raw_stream_item::RawStreamItem;
+use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
 use crate::result::IonFailure;
 use crate::IonResult;
+
+use bumpalo::Bump as BumpAllocator;
 
 /// A binary Ion 1.0 reader that yields [`LazyRawBinaryValue`]s representing the top level values found
 /// in the provided input stream.
@@ -29,10 +31,13 @@ impl<'data> LazyRawBinaryReader<'data> {
 
     /// Helper method called by [`Self::next`]. Reads the current stream item as an Ion version
     /// marker. If the version is not 1.0, returns an [`crate::IonError::Decoding`].
-    fn read_ivm(
+    fn read_ivm<'top>(
         &mut self,
         buffer: ImmutableBuffer<'data>,
-    ) -> IonResult<RawStreamItem<'data, BinaryEncoding_1_0>> {
+    ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_0>>
+    where
+        'data: 'top,
+    {
         let ((major, minor), _buffer_after_ivm) = buffer.read_ivm()?;
         if (major, minor) != (1, 0) {
             return IonResult::decoding_error(format!(
@@ -42,29 +47,32 @@ impl<'data> LazyRawBinaryReader<'data> {
         }
         self.data.buffer = buffer;
         self.data.bytes_to_skip = 4; // IVM length
-        return Ok(RawStreamItem::VersionMarker(1, 0));
+        Ok(LazyRawStreamItem::<BinaryEncoding_1_0>::VersionMarker(1, 0))
     }
 
-    fn read_value(
+    fn read_value<'top>(
         &mut self,
         buffer: ImmutableBuffer<'data>,
-    ) -> IonResult<RawStreamItem<'data, BinaryEncoding_1_0>> {
+    ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_0>>
+    where
+        'data: 'top,
+    {
         let lazy_value = match ImmutableBuffer::peek_sequence_value(buffer)? {
             Some(lazy_value) => lazy_value,
-            None => return Ok(RawStreamItem::EndOfStream),
+            None => return Ok(LazyRawStreamItem::<BinaryEncoding_1_0>::EndOfStream),
         };
         self.data.buffer = buffer;
         self.data.bytes_to_skip = lazy_value.encoded_value.total_length();
         Ok(RawStreamItem::Value(lazy_value))
     }
 
-    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, BinaryEncoding_1_0>>
+    pub fn next<'top>(&'top mut self) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_0>>
     where
         'data: 'top,
     {
         let mut buffer = self.data.advance_to_next_item()?;
         if buffer.is_empty() {
-            return Ok(RawStreamItem::EndOfStream);
+            return Ok(LazyRawStreamItem::<BinaryEncoding_1_0>::EndOfStream);
         }
         let type_descriptor = buffer.peek_type_descriptor()?;
         if type_descriptor.is_nop() {
@@ -82,7 +90,13 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader<'da
         LazyRawBinaryReader::new(data)
     }
 
-    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, BinaryEncoding_1_0>> {
+    fn next<'top>(
+        &'top mut self,
+        _allocator: &'top BumpAllocator,
+    ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_0>>
+    where
+        'data: 'top,
+    {
         self.next()
     }
 }
@@ -230,11 +244,14 @@ mod tests {
         )?;
         let mut reader = LazyRawBinaryReader::new(data);
         loop {
+            use RawStreamItem::*;
             match reader.next()? {
-                RawStreamItem::VersionMarker(major, minor) => println!("IVM: v{}.{}", major, minor),
-                RawStreamItem::Value(value) => println!("{:?}", value.read()?),
-                RawStreamItem::EndOfStream => break,
-                RawStreamItem::EExpression(_) => unreachable!("No macros in Ion 1.0"),
+                VersionMarker(major, minor) => {
+                    println!("IVM: v{}.{}", major, minor)
+                }
+                Value(value) => println!("{:?}", value.read()?),
+                EndOfStream => break,
+                EExpression(_) => unreachable!("No macros in Ion 1.0"),
             }
         }
         Ok(())

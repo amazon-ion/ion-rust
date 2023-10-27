@@ -69,7 +69,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazySystemReader<'data, D: LazyDecoder<'data>> {
+pub struct LazySystemReader<'data, D: LazyDecoder> {
     pub(crate) expanding_reader: LazyExpandingReader<'data, D>,
 }
 
@@ -122,12 +122,10 @@ impl<'data> LazySystemTextReader_1_1<'data> {
     }
 }
 
-impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
+impl<'data, D: LazyDecoder> LazySystemReader<'data, D> {
     // Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
     // `$ion_symbol_table`.
-    pub fn is_symbol_table_struct(
-        lazy_value: &'_ LazyExpandedValue<'_, 'data, D>,
-    ) -> IonResult<bool> {
+    pub fn is_symbol_table_struct(lazy_value: &'_ LazyExpandedValue<'_, D>) -> IonResult<bool> {
         if lazy_value.ion_type() != IonType::Struct {
             return Ok(false);
         }
@@ -139,13 +137,19 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
 
     /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
     /// [`SystemStreamItem`].
-    pub fn next_item<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, 'data, D>> {
+    pub fn next_item<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, D>>
+    where
+        'data: 'top,
+    {
         self.expanding_reader.next_item()
     }
 
     /// Returns the next value that is part of the application data model, bypassing all encoding
     /// artifacts (IVMs, symbol tables).
-    pub fn next_value<'value>(&'value mut self) -> IonResult<Option<LazyValue<'value, 'data, D>>> {
+    pub fn next_value<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, D>>>
+    where
+        'data: 'top,
+    {
         self.expanding_reader.next_value()
     }
 
@@ -172,9 +176,9 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
 
     // Traverses a symbol table, processing the `symbols` and `imports` fields as needed to
     // populate the `PendingLst`.
-    pub(crate) fn process_symbol_table<'top>(
+    pub(crate) fn process_symbol_table(
         pending_lst: &mut PendingLst,
-        symbol_table: &LazyExpandedValue<'top, 'data, D>,
+        symbol_table: &LazyExpandedValue<'_, D>,
     ) -> IonResult<()> {
         // We've already confirmed this is an annotated struct
         let symbol_table = symbol_table.read()?.expect_struct()?;
@@ -208,9 +212,9 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     }
 
     // Store any strings defined in the `symbols` field in the `PendingLst` for future application.
-    fn process_symbols<'top>(
+    fn process_symbols(
         pending_lst: &mut PendingLst,
-        symbols: &LazyExpandedValue<'top, 'data, D>,
+        symbols: &LazyExpandedValue<'_, D>,
     ) -> IonResult<()> {
         if let ExpandedValueRef::List(list) = symbols.read()? {
             for symbol_text_result in list.iter() {
@@ -226,9 +230,9 @@ impl<'data, D: LazyDecoder<'data>> LazySystemReader<'data, D> {
     }
 
     // Check for `imports: $ion_symbol_table`.
-    fn process_imports<'top>(
+    fn process_imports(
         pending_lst: &mut PendingLst,
-        imports: &LazyExpandedValue<'top, 'data, D>,
+        imports: &LazyExpandedValue<'_, D>,
     ) -> IonResult<()> {
         match imports.read()? {
             ExpandedValueRef::Symbol(symbol_ref) => {

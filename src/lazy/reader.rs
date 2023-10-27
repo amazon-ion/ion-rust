@@ -61,27 +61,33 @@ use crate::{IonError, IonResult};
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazyApplicationReader<'data, D: LazyDecoder<'data>> {
+pub struct LazyApplicationReader<'data, D: LazyDecoder> {
     system_reader: LazySystemReader<'data, D>,
 }
 
-pub(crate) enum NextApplicationValue<'top, 'data, D: LazyDecoder<'data>> {
-    ApplicationValue(LazyValue<'top, 'data, D>),
+pub(crate) enum NextApplicationValue<'top, D: LazyDecoder> {
+    ApplicationValue(LazyValue<'top, D>),
     SystemValue,
     EndOfStream,
 }
 
-impl<'data, D: LazyDecoder<'data>> LazyApplicationReader<'data, D> {
+impl<'data, D: LazyDecoder> LazyApplicationReader<'data, D> {
     /// Returns the next top-level value in the input stream as `Ok(Some(lazy_value))`.
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
     /// If the next value is incomplete (that is: only part of it is in the input buffer) or if the
     /// input buffer contains invalid data, returns `Err(ion_error)`.
-    pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, 'data, D>>> {
+    pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, D>>>
+    where
+        'data: 'top,
+    {
         self.system_reader.next_value()
     }
 
     /// Like [`Self::next`], but returns an `IonError` if there are no more values in the stream.
-    pub fn expect_next<'top>(&'top mut self) -> IonResult<LazyValue<'top, 'data, D>> {
+    pub fn expect_next<'top>(&'top mut self) -> IonResult<LazyValue<'top, D>>
+    where
+        'data: 'top,
+    {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
     }
@@ -120,21 +126,18 @@ impl<'data> LazyTextReader_1_1<'data> {
 
     // Temporary method for defining/testing templates.
     // TODO: Remove this when the reader can understand 1.1 encoding directives.
-    pub(crate) fn register_template(
-        &mut self,
-        template_definition: &str,
-    ) -> IonResult<MacroAddress> {
+    pub fn register_template(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         self.system_reader
             .expanding_reader
             .register_template(template_definition)
     }
 }
 
-pub struct LazyElementIterator<'iter, 'data, D: LazyDecoder<'data>> {
+pub struct LazyElementIterator<'iter, 'data, D: LazyDecoder> {
     lazy_reader: &'iter mut LazyApplicationReader<'data, D>,
 }
 
-impl<'iter, 'data, D: LazyDecoder<'data>> Iterator for LazyElementIterator<'iter, 'data, D> {
+impl<'iter, 'data, D: LazyDecoder> Iterator for LazyElementIterator<'iter, 'data, D> {
     type Item = IonResult<Element>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -146,7 +149,7 @@ impl<'iter, 'data, D: LazyDecoder<'data>> Iterator for LazyElementIterator<'iter
     }
 }
 
-impl<'data, D: LazyDecoder<'data>> ElementReader for LazyApplicationReader<'data, D> {
+impl<'data, D: LazyDecoder> ElementReader for LazyApplicationReader<'data, D> {
     type ElementIterator<'a> = LazyElementIterator<'a, 'data, D> where Self: 'a,;
 
     fn read_next_element(&mut self) -> IonResult<Option<Element>> {

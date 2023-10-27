@@ -52,7 +52,7 @@ impl TemplateCompiler {
     ///
     /// The compiler recognizes the `(quote expr1 expr2 [...] exprN)` form, adding each subexpression
     /// to the template without interpretation.
-    pub(crate) fn compile_from_text(
+    pub fn compile_from_text(
         context: EncodingContext,
         expression: &str,
     ) -> IonResult<TemplateMacro> {
@@ -117,12 +117,12 @@ impl TemplateCompiler {
     /// [`TemplateBodyValueExpr`] sequences to the `TemplateBody`.
     ///
     /// If `is_quoted` is true, nested symbols and s-expressions will not be interpreted.
-    fn compile_value<'top, 'data, D: LazyDecoder<'data>>(
+    fn compile_value<'top, D: LazyDecoder>(
         context: EncodingContext<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_quoted: bool,
-        lazy_value: LazyValue<'top, 'data, D>,
+        lazy_value: LazyValue<'top, D>,
     ) -> IonResult<()> {
         let annotations_range_start = definition.annotations_storage.len();
         for annotation_result in lazy_value.annotations() {
@@ -190,13 +190,13 @@ impl TemplateCompiler {
     }
 
     /// Helper method for visiting all of the child expressions in a list.
-    fn compile_list<'top, 'data, D: LazyDecoder<'data>>(
+    fn compile_list<'top, D: LazyDecoder>(
         context: EncodingContext<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_quoted: bool,
         annotations_range: Range<usize>,
-        lazy_list: LazyList<'top, 'data, D>,
+        lazy_list: LazyList<'top, D>,
     ) -> IonResult<()> {
         let list_element_index = definition.expressions.len();
         // Assume the list contains zero expressions to start, we'll update this at the end
@@ -218,13 +218,13 @@ impl TemplateCompiler {
     }
 
     /// Helper method for visiting all of the child expressions in a sexp.
-    fn compile_sexp<'top, 'data, D: LazyDecoder<'data>>(
+    fn compile_sexp<'top, D: LazyDecoder>(
         context: EncodingContext<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_quoted: bool,
         annotations_range: Range<usize>,
-        lazy_sexp: LazySExp<'top, 'data, D>,
+        lazy_sexp: LazySExp<'top, D>,
     ) -> IonResult<()> {
         if is_quoted {
             // If `is_quoted` is true, this s-expression is nested somewhere inside a `(quote ...)`
@@ -252,11 +252,11 @@ impl TemplateCompiler {
 
     /// Adds a `lazy_sexp` that has been determined to represent a macro invocation to the
     /// TemplateBody.
-    fn compile_macro<'top, 'data, D: LazyDecoder<'data>>(
+    fn compile_macro<'top, D: LazyDecoder>(
         context: EncodingContext<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
-        lazy_sexp: LazySExp<'top, 'data, D>,
+        lazy_sexp: LazySExp<'top, D>,
     ) -> IonResult<()> {
         let mut expressions = lazy_sexp.iter();
         // Convert the macro ID (name or address) into an address. If this refers to a macro that
@@ -288,9 +288,9 @@ impl TemplateCompiler {
 
     /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
     /// ID to a macro address.
-    fn address_from_id_expr<'top, 'data, D: LazyDecoder<'data>>(
+    fn address_from_id_expr<'top, D: LazyDecoder>(
         context: EncodingContext<'top>,
-        id_expr: Option<IonResult<LazyValue<'top, 'data, D>>>,
+        id_expr: Option<IonResult<LazyValue<'top, D>>>,
     ) -> IonResult<usize> {
         match id_expr {
             None => IonResult::decoding_error("found an empty s-expression in an unquoted context"),
@@ -327,11 +327,11 @@ impl TemplateCompiler {
     /// Visits all of the child expressions of `lazy_sexp`, adding them to the `TemplateBody`
     /// without interpretation. `lazy_sexp` itself is the `quote` macro, and does not get added
     /// to the template body as there is nothing more for it to do at evaluation time.
-    fn compile_quoted_elements<'top, 'data, D: LazyDecoder<'data>>(
+    fn compile_quoted_elements<'top, D: LazyDecoder>(
         context: EncodingContext<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
-        lazy_sexp: LazySExp<'top, 'data, D>,
+        lazy_sexp: LazySExp<'top, D>,
     ) -> IonResult<()> {
         let mut elements = lazy_sexp.iter();
         // If this method is called, we've already peeked at the first element to confirm that
@@ -350,12 +350,12 @@ impl TemplateCompiler {
     }
 
     /// Adds `lazy_sexp` to the template body without interpretation.
-    fn compile_quoted_sexp<'top, 'data, D: LazyDecoder<'data>>(
+    fn compile_quoted_sexp<'top, D: LazyDecoder>(
         context: EncodingContext<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         annotations_range: Range<usize>,
-        lazy_sexp: LazySExp<'top, 'data, D>,
+        lazy_sexp: LazySExp<'top, D>,
     ) -> IonResult<()> {
         let sexp_element_index = definition.expressions.len();
         // Assume the sexp contains zero expressions to start, we'll update this at the end
@@ -380,9 +380,7 @@ impl TemplateCompiler {
 
     /// Returns `Ok(true)` if the first child value in the `LazySexp` is the symbol `quote`.
     /// This method should only be called in an unquoted context.
-    fn sexp_is_quote_macro<'top, 'data, D: LazyDecoder<'data>>(
-        sexp: &LazySExp<'top, 'data, D>,
-    ) -> IonResult<bool> {
+    fn sexp_is_quote_macro<D: LazyDecoder>(sexp: &LazySExp<D>) -> IonResult<bool> {
         let first_expr = sexp.iter().next();
         match first_expr {
             // If the sexp is empty and we're not in a quoted context, that's an error.
@@ -396,13 +394,13 @@ impl TemplateCompiler {
     }
 
     /// Recursively adds all of the expressions in `lazy_struct` to the `TemplateBody`.
-    fn compile_struct<'top, 'data, D: LazyDecoder<'data>>(
+    fn compile_struct<'top, D: LazyDecoder>(
         context: EncodingContext<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_quoted: bool,
         annotations_range: Range<usize>,
-        lazy_struct: LazyStruct<'top, 'data, D>,
+        lazy_struct: LazyStruct<'top, D>,
     ) -> IonResult<()> {
         let struct_element_index = definition.expressions.len();
         // Assume the struct contains zero expressions to start, we'll update this at the end

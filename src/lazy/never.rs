@@ -13,11 +13,11 @@ pub enum Never {
 
 // Ion 1.0 uses `Never` as a placeholder type for MacroInvocation.
 // The compiler should optimize these methods away.
-impl<'data, D: LazyDecoder<'data, EExpression = Self>> RawEExpression<'data, D> for Never {
+impl<'top, D: LazyDecoder<EExpression<'top> = Self>> RawEExpression<'top, D> for Never {
     // These use Box<dyn> to avoid defining yet another placeholder type.
-    type RawArgumentsIterator<'a> = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'data, D>>>>;
+    type RawArgumentsIterator<'a> = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>>;
 
-    fn id(&self) -> MacroIdRef<'data> {
+    fn id(&self) -> MacroIdRef<'top> {
         unreachable!("macro in Ion 1.0 (method: id)")
     }
 
@@ -26,7 +26,7 @@ impl<'data, D: LazyDecoder<'data, EExpression = Self>> RawEExpression<'data, D> 
     }
 }
 
-impl<'top, 'data: 'top, D: LazyDecoder<'data>> From<Never> for MacroExpr<'top, 'data, D> {
+impl<'top, D: LazyDecoder> From<Never> for MacroExpr<'top, D> {
     fn from(_value: Never) -> Self {
         unreachable!("macro in Ion 1.0 (method: into)")
     }

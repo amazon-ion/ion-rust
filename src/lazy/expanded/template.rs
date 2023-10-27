@@ -1,6 +1,5 @@
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
 use std::ops::{Deref, Range};
 
 use crate::lazy::decoder::{LazyDecoder, RawFieldExpr, RawValueExpr};
@@ -123,18 +122,18 @@ impl<'top> Deref for TemplateMacroRef<'top> {
     }
 }
 
-pub struct TemplateSequenceIterator<'top, 'data, D: LazyDecoder<'data>> {
+pub struct TemplateSequenceIterator<'top, D: LazyDecoder> {
     context: EncodingContext<'top>,
     template: TemplateMacroRef<'top>,
-    evaluator: MacroEvaluator<'top, 'data, D>,
+    evaluator: MacroEvaluator<'top, D>,
     value_expressions: &'top [TemplateBodyValueExpr],
     index: usize,
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> TemplateSequenceIterator<'top, 'data, D> {
+impl<'top, D: LazyDecoder> TemplateSequenceIterator<'top, D> {
     pub fn new(
         context: EncodingContext<'top>,
-        evaluator: MacroEvaluator<'top, 'data, D>,
+        evaluator: MacroEvaluator<'top, D>,
         template: TemplateMacroRef<'top>,
         value_expressions: &'top [TemplateBodyValueExpr],
     ) -> Self {
@@ -148,8 +147,8 @@ impl<'top, 'data, D: LazyDecoder<'data>> TemplateSequenceIterator<'top, 'data, D
     }
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'top, 'data, D> {
-    type Item = IonResult<LazyExpandedValue<'top, 'data, D>>;
+impl<'top, D: LazyDecoder> Iterator for TemplateSequenceIterator<'top, D> {
+    type Item = IonResult<LazyExpandedValue<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -228,19 +227,18 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for TemplateSequenceIterator<'
 // An iterator that pulls values from a template body and wraps them in a `RawFieldExpr` to
 // mimic reading them from input. The LazyExpandedStruct handles evaluating any macros that this
 // yields.
-pub struct TemplateStructRawFieldsIterator<'top, 'data, D: LazyDecoder<'data>> {
+pub struct TemplateStructRawFieldsIterator<'top, D: LazyDecoder> {
     context: EncodingContext<'top>,
-    environment: Environment<'top, 'data, D>,
+    environment: Environment<'top, D>,
     template: TemplateMacroRef<'top>,
     expressions: &'top [TemplateBodyValueExpr],
     index: usize,
-    spooky: PhantomData<&'data D>,
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> TemplateStructRawFieldsIterator<'top, 'data, D> {
+impl<'top, D: LazyDecoder> TemplateStructRawFieldsIterator<'top, D> {
     pub fn new(
         context: EncodingContext<'top>,
-        environment: Environment<'top, 'data, D>,
+        environment: Environment<'top, D>,
         template: TemplateMacroRef<'top>,
         expressions: &'top [TemplateBodyValueExpr],
     ) -> Self {
@@ -250,17 +248,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> TemplateStructRawFieldsIterator<'top, '
             template,
             expressions,
             index: 0,
-            spooky: PhantomData,
         }
     }
 }
 
-impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator
-    for TemplateStructRawFieldsIterator<'top, 'data, D>
-{
-    type Item = IonResult<
-        RawFieldExpr<'top, ExpandedValueSource<'top, 'data, D>, MacroExpr<'top, 'data, D>>,
-    >;
+impl<'top, D: LazyDecoder> Iterator for TemplateStructRawFieldsIterator<'top, D> {
+    type Item = IonResult<RawFieldExpr<'top, ExpandedValueSource<'top, D>, MacroExpr<'top, D>>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let name_expr_address = self.index;
@@ -609,10 +602,10 @@ impl<'top> TemplateMacroInvocation<'top> {
     pub fn id(&self) -> MacroIdRef<'top> {
         MacroIdRef::LocalAddress(self.invoked_macro.address())
     }
-    pub fn arguments<'data, D: LazyDecoder<'data>>(
+    pub fn arguments<D: LazyDecoder>(
         &self,
-        environment: Environment<'top, 'data, D>,
-    ) -> TemplateMacroInvocationArgsIterator<'top, 'data, D> {
+        environment: Environment<'top, D>,
+    ) -> TemplateMacroInvocationArgsIterator<'top, D> {
         TemplateMacroInvocationArgsIterator::new(environment, *self)
     }
     pub fn template(&self) -> TemplateMacroRef<'top> {
@@ -623,23 +616,21 @@ impl<'top> TemplateMacroInvocation<'top> {
     }
 }
 
-impl<'top, 'data: 'top, D: LazyDecoder<'data>> From<TemplateMacroInvocation<'top>>
-    for MacroExpr<'top, 'data, D>
-{
+impl<'top, D: LazyDecoder> From<TemplateMacroInvocation<'top>> for MacroExpr<'top, D> {
     fn from(value: TemplateMacroInvocation<'top>) -> Self {
         MacroExpr::TemplateMacro(value)
     }
 }
 
-pub struct TemplateMacroInvocationArgsIterator<'top, 'data, D: LazyDecoder<'data>> {
-    environment: Environment<'top, 'data, D>,
+pub struct TemplateMacroInvocationArgsIterator<'top, D: LazyDecoder> {
+    environment: Environment<'top, D>,
     invocation: TemplateMacroInvocation<'top>,
     arg_index: usize,
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> TemplateMacroInvocationArgsIterator<'top, 'data, D> {
+impl<'top, D: LazyDecoder> TemplateMacroInvocationArgsIterator<'top, D> {
     pub fn new(
-        environment: Environment<'top, 'data, D>,
+        environment: Environment<'top, D>,
         invocation: TemplateMacroInvocation<'top>,
     ) -> Self {
         Self {
@@ -650,10 +641,8 @@ impl<'top, 'data, D: LazyDecoder<'data>> TemplateMacroInvocationArgsIterator<'to
     }
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> Iterator
-    for TemplateMacroInvocationArgsIterator<'top, 'data, D>
-{
-    type Item = IonResult<ValueExpr<'top, 'data, D>>;
+impl<'top, D: LazyDecoder> Iterator for TemplateMacroInvocationArgsIterator<'top, D> {
+    type Item = IonResult<ValueExpr<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let arg = self.invocation.arg_expressions().get(self.arg_index)?;

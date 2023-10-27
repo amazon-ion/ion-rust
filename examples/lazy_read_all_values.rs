@@ -61,8 +61,8 @@ mod lazy_reader_example {
         Ok(1 + child_count)
     }
 
-    fn count_sequence_children<'a, 'b: 'a>(
-        lazy_sequence: impl Iterator<Item = IonResult<LazyBinaryValue<'a, 'b>>>,
+    fn count_sequence_children<'a>(
+        lazy_sequence: impl Iterator<Item = IonResult<LazyBinaryValue<'a>>>,
     ) -> IonResult<usize> {
         let mut count = 0;
         for value in lazy_sequence {

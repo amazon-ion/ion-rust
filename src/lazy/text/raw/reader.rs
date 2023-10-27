@@ -1,13 +1,16 @@
 #![allow(non_camel_case_types)]
 use crate::lazy::decoder::LazyRawReader;
 use crate::lazy::encoding::TextEncoding_1_0;
-use crate::lazy::raw_stream_item::RawStreamItem;
+use crate::lazy::never::Never;
+use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
+use crate::lazy::text::value::LazyRawTextValue_1_0;
 use crate::result::IonFailure;
 use crate::IonResult;
+use bumpalo::Bump as BumpAllocator;
 
-/// A text Ion 1.0 reader that yields [`RawStreamItem`]s representing the top level values found
+/// A text Ion 1.0 reader that yields [`LazyRawStreamItem`]s representing the top level values found
 /// in the provided input stream.
 pub struct LazyRawTextReader_1_0<'data> {
     // The current view of the data we're reading from.
@@ -34,7 +37,7 @@ impl<'data> LazyRawTextReader_1_0<'data> {
         }
     }
 
-    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<'data, TextEncoding_1_0>>
+    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<LazyRawTextValue_1_0<'top>, Never>>
     where
         'data: 'top,
     {
@@ -45,6 +48,7 @@ impl<'data> LazyRawTextReader_1_0<'data> {
         if buffer_after_whitespace.is_empty() {
             return Ok(RawStreamItem::EndOfStream);
         }
+        let buffer_after_whitespace = buffer_after_whitespace.local_lifespan();
 
         let (remaining, matched_item) = buffer_after_whitespace
             .match_top_level_item_1_0()
@@ -73,7 +77,13 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
         LazyRawTextReader_1_0::new(data)
     }
 
-    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, TextEncoding_1_0>> {
+    fn next<'top>(
+        &'top mut self,
+        _allocator: &'top BumpAllocator,
+    ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_0>>
+    where
+        'data: 'top,
+    {
         self.next()
     }
 }
@@ -224,9 +234,9 @@ mod tests {
         "#,
         );
 
-        fn expect_next<'data>(
-            reader: &mut LazyRawTextReader_1_0<'data>,
-            expected: RawValueRef<'data, TextEncoding_1_0>,
+        fn expect_next<'top, 'data: 'top>(
+            reader: &'top mut LazyRawTextReader_1_0<'data>,
+            expected: RawValueRef<'top, TextEncoding_1_0>,
         ) {
             let lazy_value = reader
                 .next()

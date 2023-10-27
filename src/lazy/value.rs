@@ -54,16 +54,14 @@ use crate::{
 ///# }
 /// ```
 #[derive(Clone)]
-pub struct LazyValue<'top, 'data, D: LazyDecoder<'data>> {
-    pub(crate) expanded_value: LazyExpandedValue<'top, 'data, D>,
+pub struct LazyValue<'top, D: LazyDecoder> {
+    pub(crate) expanded_value: LazyExpandedValue<'top, D>,
 }
 
-pub type LazyBinaryValue<'top, 'data> = LazyValue<'top, 'data, BinaryEncoding_1_0>;
+pub type LazyBinaryValue<'top> = LazyValue<'top, BinaryEncoding_1_0>;
 
-impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
-    pub(crate) fn new(
-        expanded_value: LazyExpandedValue<'top, 'data, D>,
-    ) -> LazyValue<'top, 'data, D> {
+impl<'top, D: LazyDecoder> LazyValue<'top, D> {
+    pub(crate) fn new(expanded_value: LazyExpandedValue<'top, D>) -> LazyValue<'top, D> {
         LazyValue { expanded_value }
     }
 
@@ -125,7 +123,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn annotations(&self) -> AnnotationsIterator<'top, 'data, D> {
+    pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {
             expanded_annotations: self.expanded_value.annotations(),
             symbol_table: self.expanded_value.context.symbol_table,
@@ -159,7 +157,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn read(&self) -> IonResult<ValueRef<'top, 'data, D>> {
+    pub fn read(&self) -> IonResult<ValueRef<'top, D>> {
         use ExpandedValueRef::*;
 
         let value_ref = match self.expanded_value.read()? {
@@ -208,10 +206,10 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> LazyValue<'top, 'data, D> {
     }
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyValue<'top, 'data, D>> for Element {
+impl<'top, D: LazyDecoder> TryFrom<LazyValue<'top, D>> for Element {
     type Error = IonError;
 
-    fn try_from(value: LazyValue<'top, 'data, D>) -> Result<Self, Self::Error> {
+    fn try_from(value: LazyValue<'top, D>) -> Result<Self, Self::Error> {
         let annotations: Annotations = value.annotations().try_into()?;
         let value: Value = value.read()?.try_into()?;
         Ok(value.with_annotations(annotations))
@@ -220,12 +218,12 @@ impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<LazyValue<'top, 'data, D>> for 
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of symbol tokens encoded
 /// using the format described by generic type parameter `D`.
-pub struct AnnotationsIterator<'top, 'data, D: LazyDecoder<'data>> {
-    pub(crate) expanded_annotations: ExpandedAnnotationsIterator<'top, 'data, D>,
+pub struct AnnotationsIterator<'top, D: LazyDecoder> {
+    pub(crate) expanded_annotations: ExpandedAnnotationsIterator<'top, D>,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-impl<'top, 'data: 'top, D: LazyDecoder<'data>> AnnotationsIterator<'top, 'data, D> {
+impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     /// Returns `Ok(true)` if this annotations iterator matches the provided sequence exactly, or
     /// `Ok(false)` if not. If a decoding error occurs while visiting and resolving each annotation,
     /// returns an `Err(IonError)`.
@@ -308,7 +306,7 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> AnnotationsIterator<'top, 'data, 
     }
 }
 
-impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator for AnnotationsIterator<'top, 'data, D> {
+impl<'top, D: LazyDecoder> Iterator for AnnotationsIterator<'top, D> {
     type Item = IonResult<SymbolRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -326,12 +324,10 @@ impl<'top, 'data: 'top, D: LazyDecoder<'data>> Iterator for AnnotationsIterator<
     }
 }
 
-impl<'top, 'data: 'top, D: LazyDecoder<'data>> TryFrom<AnnotationsIterator<'top, 'data, D>>
-    for Annotations
-{
+impl<'top, D: LazyDecoder> TryFrom<AnnotationsIterator<'top, D>> for Annotations {
     type Error = IonError;
 
-    fn try_from(iter: AnnotationsIterator<'top, 'data, D>) -> Result<Self, Self::Error> {
+    fn try_from(iter: AnnotationsIterator<'top, D>) -> Result<Self, Self::Error> {
         let annotations = iter
             .map(|symbol_ref| match symbol_ref {
                 Ok(symbol_ref) => Ok(symbol_ref.to_owned()),

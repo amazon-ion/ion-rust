@@ -15,13 +15,13 @@ use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator}
 use crate::{IonResult, RawSymbolTokenRef};
 
 #[derive(Clone, Copy, Debug)]
-pub struct RawTextStructIterator_1_0<'data> {
-    input: TextBufferView<'data>,
+pub struct RawTextStructIterator_1_0<'top> {
+    input: TextBufferView<'top>,
     has_returned_error: bool,
 }
 
-impl<'data> RawTextStructIterator_1_0<'data> {
-    pub(crate) fn new(input: TextBufferView<'data>) -> Self {
+impl<'top> RawTextStructIterator_1_0<'top> {
+    pub(crate) fn new(input: TextBufferView<'top>) -> Self {
         RawTextStructIterator_1_0 {
             input,
             has_returned_error: false,
@@ -67,8 +67,8 @@ impl<'data> RawTextStructIterator_1_0<'data> {
     }
 }
 
-impl<'data> Iterator for RawTextStructIterator_1_0<'data> {
-    type Item = IonResult<LazyRawFieldExpr<'data, TextEncoding_1_0>>;
+impl<'top> Iterator for RawTextStructIterator_1_0<'top> {
+    type Item = IonResult<LazyRawFieldExpr<'top, TextEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -93,16 +93,16 @@ impl<'data> Iterator for RawTextStructIterator_1_0<'data> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct LazyRawTextField_1_0<'data> {
-    pub(crate) value: LazyRawTextValue_1_0<'data>,
+pub struct LazyRawTextField_1_0<'top> {
+    pub(crate) value: LazyRawTextValue_1_0<'top>,
 }
 
-impl<'data> LazyRawTextField_1_0<'data> {
-    pub(crate) fn new(value: LazyRawTextValue_1_0<'data>) -> Self {
+impl<'top> LazyRawTextField_1_0<'top> {
+    pub(crate) fn new(value: LazyRawTextValue_1_0<'top>) -> Self {
         LazyRawTextField_1_0 { value }
     }
 
-    pub fn name(&self) -> RawSymbolTokenRef<'data> {
+    pub fn name(&self) -> RawSymbolTokenRef<'top> {
         // We're in a struct field, the field name _must_ be populated.
         // If it's not (or the field name is not a valid SID or UTF-8 string despite matching),
         // that's a bug. We can safely unwrap/expect here.
@@ -124,46 +124,46 @@ impl<'data> LazyRawTextField_1_0<'data> {
             .expect("invalid struct field name")
     }
 
-    pub fn value(&self) -> LazyRawTextValue_1_0<'data> {
+    pub fn value(&self) -> LazyRawTextValue_1_0<'top> {
         self.value
     }
 
-    pub(crate) fn into_value(self) -> LazyRawTextValue_1_0<'data> {
-        self.value
-    }
-}
-
-impl<'data> LazyRawFieldPrivate<'data, TextEncoding_1_0> for LazyRawTextField_1_0<'data> {
-    fn into_value(self) -> LazyRawTextValue_1_0<'data> {
+    pub(crate) fn into_value(self) -> LazyRawTextValue_1_0<'top> {
         self.value
     }
 }
 
-impl<'data> LazyRawField<'data, TextEncoding_1_0> for LazyRawTextField_1_0<'data> {
-    fn name(&self) -> RawSymbolTokenRef<'data> {
+impl<'top> LazyRawFieldPrivate<'top, TextEncoding_1_0> for LazyRawTextField_1_0<'top> {
+    fn into_value(self) -> LazyRawTextValue_1_0<'top> {
+        self.value
+    }
+}
+
+impl<'top> LazyRawField<'top, TextEncoding_1_0> for LazyRawTextField_1_0<'top> {
+    fn name(&self) -> RawSymbolTokenRef<'top> {
         LazyRawTextField_1_0::name(self)
     }
 
-    fn value(&self) -> LazyRawTextValue_1_0<'data> {
+    fn value(&self) -> LazyRawTextValue_1_0<'top> {
         self.value()
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct LazyRawTextStruct_1_0<'data> {
-    pub(crate) value: LazyRawTextValue_1_0<'data>,
+pub struct LazyRawTextStruct_1_0<'top> {
+    pub(crate) value: LazyRawTextValue_1_0<'top>,
 }
 
-impl<'data> LazyContainerPrivate<'data, TextEncoding_1_0> for LazyRawTextStruct_1_0<'data> {
-    fn from_value(value: LazyRawTextValue_1_0<'data>) -> Self {
+impl<'top> LazyContainerPrivate<'top, TextEncoding_1_0> for LazyRawTextStruct_1_0<'top> {
+    fn from_value(value: LazyRawTextValue_1_0<'top>) -> Self {
         LazyRawTextStruct_1_0 { value }
     }
 }
 
-impl<'data> LazyRawStruct<'data, TextEncoding_1_0> for LazyRawTextStruct_1_0<'data> {
-    type Iterator = RawTextStructIterator_1_0<'data>;
+impl<'top> LazyRawStruct<'top, TextEncoding_1_0> for LazyRawTextStruct_1_0<'top> {
+    type Iterator = RawTextStructIterator_1_0<'top>;
 
-    fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
+    fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
         self.value.annotations()
     }
 
@@ -175,9 +175,9 @@ impl<'data> LazyRawStruct<'data, TextEncoding_1_0> for LazyRawTextStruct_1_0<'da
     }
 }
 
-impl<'data> IntoIterator for LazyRawTextStruct_1_0<'data> {
-    type Item = IonResult<LazyRawFieldExpr<'data, TextEncoding_1_0>>;
-    type IntoIter = RawTextStructIterator_1_0<'data>;
+impl<'top> IntoIterator for LazyRawTextStruct_1_0<'top> {
+    type Item = IonResult<LazyRawFieldExpr<'top, TextEncoding_1_0>>;
+    type IntoIter = RawTextStructIterator_1_0<'top>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()

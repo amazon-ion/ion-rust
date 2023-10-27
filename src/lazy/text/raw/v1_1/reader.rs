@@ -12,12 +12,14 @@ use crate::lazy::decoder::{
     LazyRawValueExpr, RawFieldExpr, RawValueExpr,
 };
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::raw_stream_item::RawStreamItem;
+use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
 use crate::result::IonFailure;
 use crate::{IonResult, IonType};
+
+use bumpalo::Bump as BumpAllocator;
 
 pub struct LazyRawTextReader_1_1<'data> {
     // The current view of the data we're reading from.
@@ -94,7 +96,14 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
         }
     }
 
-    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, TextEncoding_1_1>> {
+    // TODO: Use allocator
+    fn next<'top>(
+        &'top mut self,
+        _allocator: &'top BumpAllocator,
+    ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_1>>
+    where
+        'data: 'top,
+    {
         let (buffer_after_whitespace, _whitespace) = self
             .buffer
             .match_optional_comments_and_whitespace()
@@ -129,8 +138,8 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
 }
 
 #[derive(Copy, Clone)]
-pub struct LazyRawTextList_1_1<'data> {
-    pub(crate) value: LazyRawTextValue_1_1<'data>,
+pub struct LazyRawTextList_1_1<'top> {
+    pub(crate) value: LazyRawTextValue_1_1<'top>,
 }
 
 impl<'a> Debug for LazyRawTextList_1_1<'a> {
@@ -146,14 +155,14 @@ impl<'a> Debug for LazyRawTextList_1_1<'a> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct RawTextListIterator_1_1<'data> {
-    input: TextBufferView<'data>,
+pub struct RawTextListIterator_1_1<'top> {
+    input: TextBufferView<'top>,
     // If this iterator has returned an error, it should return `None` forever afterwards
     has_returned_error: bool,
 }
 
-impl<'data> RawTextListIterator_1_1<'data> {
-    pub(crate) fn new(input: TextBufferView<'data>) -> Self {
+impl<'top> RawTextListIterator_1_1<'top> {
+    pub(crate) fn new(input: TextBufferView<'top>) -> Self {
         Self {
             input,
             has_returned_error: false,
@@ -204,8 +213,8 @@ impl<'data> RawTextListIterator_1_1<'data> {
 }
 
 #[derive(Copy, Clone)]
-pub struct LazyRawTextSExp_1_1<'data> {
-    pub(crate) value: LazyRawTextValue_1_1<'data>,
+pub struct LazyRawTextSExp_1_1<'top> {
+    pub(crate) value: LazyRawTextValue_1_1<'top>,
 }
 
 impl<'a> Debug for LazyRawTextSExp_1_1<'a> {
@@ -221,14 +230,14 @@ impl<'a> Debug for LazyRawTextSExp_1_1<'a> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct RawTextSExpIterator_1_1<'data> {
-    input: TextBufferView<'data>,
+pub struct RawTextSExpIterator_1_1<'top> {
+    input: TextBufferView<'top>,
     // If this iterator has returned an error, it should return `None` forever afterwards
     has_returned_error: bool,
 }
 
-impl<'data> RawTextSExpIterator_1_1<'data> {
-    pub(crate) fn new(input: TextBufferView<'data>) -> Self {
+impl<'top> RawTextSExpIterator_1_1<'top> {
+    pub(crate) fn new(input: TextBufferView<'top>) -> Self {
         Self {
             input,
             has_returned_error: false,
@@ -237,8 +246,8 @@ impl<'data> RawTextSExpIterator_1_1<'data> {
 }
 
 #[derive(Copy, Clone)]
-pub struct LazyRawTextStruct_1_1<'data> {
-    pub(crate) value: LazyRawTextValue_1_1<'data>,
+pub struct LazyRawTextStruct_1_1<'top> {
+    pub(crate) value: LazyRawTextValue_1_1<'top>,
 }
 
 impl<'a> Debug for LazyRawTextStruct_1_1<'a> {
@@ -266,13 +275,13 @@ impl<'a> Debug for LazyRawTextStruct_1_1<'a> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct RawTextStructIterator_1_1<'data> {
-    input: TextBufferView<'data>,
+pub struct RawTextStructIterator_1_1<'top> {
+    input: TextBufferView<'top>,
     has_returned_error: bool,
 }
 
-impl<'data> RawTextStructIterator_1_1<'data> {
-    pub(crate) fn new(input: TextBufferView<'data>) -> Self {
+impl<'top> RawTextStructIterator_1_1<'top> {
+    pub(crate) fn new(input: TextBufferView<'top>) -> Self {
         Self {
             input,
             has_returned_error: false,
@@ -282,16 +291,16 @@ impl<'data> RawTextStructIterator_1_1<'data> {
 
 // ===== Trait implementations =====
 
-impl<'data> LazyContainerPrivate<'data, TextEncoding_1_1> for LazyRawTextList_1_1<'data> {
-    fn from_value(value: LazyRawTextValue_1_1<'data>) -> Self {
+impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
+    fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
         LazyRawTextList_1_1 { value }
     }
 }
 
-impl<'data> LazyRawSequence<'data, TextEncoding_1_1> for LazyRawTextList_1_1<'data> {
-    type Iterator = RawTextListIterator_1_1<'data>;
+impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
+    type Iterator = RawTextListIterator_1_1<'top>;
 
-    fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
+    fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
         self.value.annotations()
     }
 
@@ -311,13 +320,13 @@ impl<'data> LazyRawSequence<'data, TextEncoding_1_1> for LazyRawTextList_1_1<'da
         )
     }
 
-    fn as_value(&self) -> LazyRawTextValue_1_1<'data> {
+    fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
         self.value.matched.into()
     }
 }
 
-impl<'data> Iterator for RawTextListIterator_1_1<'data> {
-    type Item = IonResult<LazyRawValueExpr<'data, TextEncoding_1_1>>;
+impl<'top> Iterator for RawTextListIterator_1_1<'top> {
+    type Item = IonResult<LazyRawValueExpr<'top, TextEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -341,12 +350,12 @@ impl<'data> Iterator for RawTextListIterator_1_1<'data> {
     }
 }
 
-impl<'data> LazyRawTextSExp_1_1<'data> {
+impl<'top> LazyRawTextSExp_1_1<'top> {
     pub fn ion_type(&self) -> IonType {
         IonType::SExp
     }
 
-    pub fn iter(&self) -> RawTextSExpIterator_1_1<'data> {
+    pub fn iter(&self) -> RawTextSExpIterator_1_1<'top> {
         let open_paren_index =
             self.value.matched.encoded_value.data_offset() - self.value.matched.input.offset();
         // Make an iterator over the input bytes that follow the initial `(`
@@ -355,7 +364,7 @@ impl<'data> LazyRawTextSExp_1_1<'data> {
 }
 
 // TODO: This impl is very similar to the 1.0 impl; see if we can DRY it up.
-impl<'data> RawTextSExpIterator_1_1<'data> {
+impl<'top> RawTextSExpIterator_1_1<'top> {
     /// Scans ahead to find the end of this s-expression and reports the input span that it occupies.
     ///
     /// The `initial_bytes_skipped` parameter indicates how many bytes of input that represented the
@@ -395,16 +404,16 @@ impl<'data> RawTextSExpIterator_1_1<'data> {
     }
 }
 
-impl<'data> LazyContainerPrivate<'data, TextEncoding_1_1> for LazyRawTextSExp_1_1<'data> {
-    fn from_value(value: LazyRawTextValue_1_1<'data>) -> Self {
+impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
+    fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
         LazyRawTextSExp_1_1 { value }
     }
 }
 
-impl<'data> LazyRawSequence<'data, TextEncoding_1_1> for LazyRawTextSExp_1_1<'data> {
-    type Iterator = RawTextSExpIterator_1_1<'data>;
+impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
+    type Iterator = RawTextSExpIterator_1_1<'top>;
 
-    fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
+    fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
         self.value.annotations()
     }
 
@@ -420,13 +429,13 @@ impl<'data> LazyRawSequence<'data, TextEncoding_1_1> for LazyRawTextSExp_1_1<'da
         RawTextSExpIterator_1_1::new(self.value.matched.input.slice_to_end(open_paren_index + 1))
     }
 
-    fn as_value(&self) -> LazyRawTextValue_1_1<'data> {
+    fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
         self.value.matched.into()
     }
 }
 
-impl<'data> Iterator for RawTextSExpIterator_1_1<'data> {
-    type Item = IonResult<LazyRawValueExpr<'data, TextEncoding_1_1>>;
+impl<'top> Iterator for RawTextSExpIterator_1_1<'top> {
+    type Item = IonResult<LazyRawValueExpr<'top, TextEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -447,16 +456,16 @@ impl<'data> Iterator for RawTextSExpIterator_1_1<'data> {
     }
 }
 
-impl<'data> LazyContainerPrivate<'data, TextEncoding_1_1> for LazyRawTextStruct_1_1<'data> {
-    fn from_value(value: LazyRawTextValue_1_1<'data>) -> Self {
+impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top> {
+    fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
         LazyRawTextStruct_1_1 { value }
     }
 }
 
-impl<'data> LazyRawStruct<'data, TextEncoding_1_1> for LazyRawTextStruct_1_1<'data> {
-    type Iterator = RawTextStructIterator_1_1<'data>;
+impl<'top> LazyRawStruct<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top> {
+    type Iterator = RawTextStructIterator_1_1<'top>;
 
-    fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
+    fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
         self.value.annotations()
     }
 
@@ -468,8 +477,8 @@ impl<'data> LazyRawStruct<'data, TextEncoding_1_1> for LazyRawTextStruct_1_1<'da
     }
 }
 
-impl<'data> Iterator for RawTextStructIterator_1_1<'data> {
-    type Item = IonResult<LazyRawFieldExpr<'data, TextEncoding_1_1>>;
+impl<'top> Iterator for RawTextStructIterator_1_1<'top> {
+    type Item = IonResult<LazyRawFieldExpr<'top, TextEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -490,7 +499,7 @@ impl<'data> Iterator for RawTextStructIterator_1_1<'data> {
     }
 }
 
-impl<'data> RawTextStructIterator_1_1<'data> {
+impl<'top> RawTextStructIterator_1_1<'top> {
     // TODO: DRY with RawTextStructIterator_1_0
     pub(crate) fn find_span(&self) -> IonResult<Range<usize>> {
         // The input has already skipped past the opening delimiter.
@@ -539,12 +548,13 @@ mod tests {
     use super::*;
     use crate::lazy::raw_value_ref::RawValueRef;
 
-    fn expect_next<'data>(
-        reader: &mut LazyRawTextReader_1_1<'data>,
-        expected: RawValueRef<'data, TextEncoding_1_1>,
+    fn expect_next<'top, 'data: 'top>(
+        allocator: &'top BumpAllocator,
+        reader: &'top mut LazyRawTextReader_1_1<'data>,
+        expected: RawValueRef<'top, TextEncoding_1_1>,
     ) {
         let lazy_value = reader
-            .next()
+            .next(allocator)
             .expect("advancing the reader failed")
             .expect_value()
             .expect("expected a value");
@@ -568,16 +578,21 @@ mod tests {
             false
        "#;
 
+        let allocator = BumpAllocator::new();
         let reader = &mut LazyRawTextReader_1_1::new(data.as_bytes());
 
         // $ion_1_1
-        assert_eq!(reader.next()?.expect_ivm()?, (1, 1));
+        assert_eq!(reader.next(&allocator)?.expect_ivm()?, (1, 1));
         // "foo"
-        expect_next(reader, RawValueRef::String("foo".into()));
+        expect_next(&allocator, reader, RawValueRef::String("foo".into()));
         // bar
-        expect_next(reader, RawValueRef::Symbol("bar".into()));
+        expect_next(&allocator, reader, RawValueRef::Symbol("bar".into()));
         // (baz null.string)
-        let sexp = reader.next()?.expect_value()?.read()?.expect_sexp()?;
+        let sexp = reader
+            .next(&allocator)?
+            .expect_value()?
+            .read()?
+            .expect_sexp()?;
         let mut children = sexp.iter();
         assert_eq!(
             children.next().unwrap()?.expect_value()?.read()?,
@@ -589,10 +604,10 @@ mod tests {
         );
         assert!(children.next().is_none());
         // (:quux quuz)
-        let macro_invocation = reader.next()?.expect_macro_invocation()?;
+        let macro_invocation = reader.next(&allocator)?.expect_macro_invocation()?;
         assert_eq!(macro_invocation.id, MacroIdRef::LocalName("quux"));
-        expect_next(reader, RawValueRef::Int(77.into()));
-        expect_next(reader, RawValueRef::Bool(false));
+        expect_next(&allocator, reader, RawValueRef::Int(77.into()));
+        expect_next(&allocator, reader, RawValueRef::Bool(false));
         Ok(())
     }
 }
