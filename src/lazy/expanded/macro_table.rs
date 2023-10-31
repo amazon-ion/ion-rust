@@ -75,7 +75,7 @@ impl Default for MacroTable {
 impl MacroTable {
     pub fn new() -> Self {
         let macros_by_id = vec![MacroKind::Void, MacroKind::Values, MacroKind::MakeString];
-        let mut macros_by_name = HashMap::new();
+        let mut macros_by_name = HashMap::default();
         for (id, kind) in macros_by_id.iter().enumerate() {
             macros_by_name.insert(kind.name().to_string(), id);
         }

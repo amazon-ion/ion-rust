@@ -2,6 +2,8 @@
 
 use std::fmt::Debug;
 
+use bumpalo::Bump as BumpAllocator;
+
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryStruct, RawBinaryStructIterator};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
@@ -26,15 +28,12 @@ use crate::lazy::text::raw::sequence::{
 };
 use crate::lazy::text::raw::v1_1::reader::{
     LazyRawTextList_1_1, LazyRawTextSExp_1_1, LazyRawTextStruct_1_1, MacroIdRef,
-    RawTextEExpression_1_1, RawTextListIterator_1_1, RawTextSExpIterator_1_1,
-    RawTextStructIterator_1_1,
+    RawTextEExpression_1_1, RawTextSequenceCacheIterator_1_1, RawTextStructCacheIterator_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, RawTextAnnotationsIterator,
 };
 use crate::{IonResult, IonType, RawSymbolTokenRef};
-
-use bumpalo::Bump as BumpAllocator;
 
 /// An implementation of the `LazyDecoder` trait that can read any encoding of Ion.
 #[derive(Debug, Clone, Copy)]
@@ -169,14 +168,13 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
 
     fn next<'top>(
         &'top mut self,
-        // TODO: This will be used once the 1.1 readers are added to the `self.encoding` enum
-        _allocator: &'top BumpAllocator,
+        allocator: &'top BumpAllocator,
     ) -> IonResult<LazyRawStreamItem<'top, AnyEncoding>>
     where
         'data: 'top,
     {
         match &mut self.encoding {
-            RawReaderKind::Text_1_0(r) => Ok(r.next()?.into()),
+            RawReaderKind::Text_1_0(r) => Ok(r.next(allocator)?.into()),
             RawReaderKind::Binary_1_0(r) => Ok(r.next()?.into()),
         }
     }
@@ -503,7 +501,7 @@ pub struct RawAnyListIterator<'data> {
 pub enum RawAnyListIteratorKind<'data> {
     Text_1_0(RawTextListIterator_1_0<'data>),
     Binary_1_0(RawBinarySequenceIterator<'data>),
-    Text_1_1(RawTextListIterator_1_1<'data>),
+    Text_1_1(RawTextSequenceCacheIterator_1_1<'data>),
 }
 
 impl<'data> Iterator for RawAnyListIterator<'data> {
@@ -623,7 +621,7 @@ pub struct RawAnySExpIterator<'data> {
 pub enum RawAnySExpIteratorKind<'data> {
     Text_1_0(RawTextSExpIterator_1_0<'data>),
     Binary_1_0(RawBinarySequenceIterator<'data>),
-    Text_1_1(RawTextSExpIterator_1_1<'data>),
+    Text_1_1(RawTextSequenceCacheIterator_1_1<'data>),
 }
 
 impl<'data> Iterator for RawAnySExpIterator<'data> {
@@ -727,7 +725,7 @@ pub struct RawAnyStructIterator<'data> {
 pub enum RawAnyStructIteratorKind<'data> {
     Text_1_0(RawTextStructIterator_1_0<'data>),
     Binary_1_0(RawBinaryStructIterator<'data>),
-    Text_1_1(RawTextStructIterator_1_1<'data>),
+    Text_1_1(RawTextStructCacheIterator_1_1<'data>),
 }
 
 impl<'data> Iterator for RawAnyStructIterator<'data> {
@@ -879,13 +877,14 @@ impl<'data> IntoIterator for LazyRawAnyStruct<'data> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::lazy::any_encoding::LazyRawAnyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::decoder::{LazyRawReader, LazyRawSequence, LazyRawValue};
     use crate::lazy::raw_stream_item::LazyRawStreamItem;
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::{IonResult, RawSymbolTokenRef, Timestamp};
+
+    use super::*;
 
     #[test]
     fn any_encoding() -> IonResult<()> {

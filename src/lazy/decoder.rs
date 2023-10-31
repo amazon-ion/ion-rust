@@ -1,16 +1,16 @@
 use std::fmt::Debug;
 
+use bumpalo::Bump as BumpAllocator;
+
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::text::raw::v1_1::reader::{
-    MacroIdRef, RawTextEExpression_1_1, RawTextSExpIterator_1_1,
+    MacroIdRef, RawTextEExpression_1_1, RawTextSequenceCacheIterator_1_1,
 };
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef};
-
-use bumpalo::Bump as BumpAllocator;
 
 /// A family of types that collectively comprise the lazy reader API for an Ion serialization
 /// format. These types operate at the 'raw' level; they do not attempt to resolve symbols
@@ -44,7 +44,7 @@ pub trait LazyDecoder: 'static + Sized + Debug + Clone + Copy {
 ///
 /// When working with `RawValueExpr`s that always use a given decoder's `Value` and
 /// `MacroInvocation` associated types, consider using [`LazyRawValueExpr`] instead.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RawValueExpr<V, M> {
     /// A value literal. For example: `5`, `foo`, or `"hello"` in text.
     ValueLiteral(V),
@@ -92,7 +92,7 @@ impl<V: Debug, M: Debug> RawValueExpr<V, M> {
 ///   * a name/value pair (as it is in Ion 1.0)
 ///   * a name/e-expression pair
 ///   * an e-expression
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum RawFieldExpr<'top, V, M> {
     NameValuePair(RawSymbolTokenRef<'top>, RawValueExpr<V, M>),
     MacroInvocation(M),
@@ -179,14 +179,14 @@ pub(crate) mod private {
 }
 
 impl<'top> RawEExpression<'top, TextEncoding_1_1> for RawTextEExpression_1_1<'top> {
-    type RawArgumentsIterator<'a> = RawTextSExpIterator_1_1<'top> where Self: 'a;
+    type RawArgumentsIterator<'a> = RawTextSequenceCacheIterator_1_1<'top> where Self: 'a;
 
     fn id(&self) -> MacroIdRef<'top> {
         self.id
     }
 
     fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
-        RawTextSExpIterator_1_1::new(self.arguments_bytes())
+        RawTextSequenceCacheIterator_1_1::new(self.arg_expr_cache)
     }
 }
 

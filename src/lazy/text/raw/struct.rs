@@ -190,10 +190,12 @@ mod tests {
 
     use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
     use crate::IonResult;
+    use bumpalo::Bump as BumpAllocator;
 
     fn expect_struct_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
+        let allocator = BumpAllocator::new();
         let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
-        let value = reader.next()?.expect_value()?;
+        let value = reader.next(&allocator)?.expect_value()?;
         let actual_range = value.matched.encoded_value.data_range();
         assert_eq!(
             actual_range, expected,

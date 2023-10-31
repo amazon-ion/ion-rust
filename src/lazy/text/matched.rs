@@ -21,6 +21,7 @@
 
 use std::borrow::Cow;
 use std::num::IntErrorKind;
+use std::ops::Range;
 use std::str::FromStr;
 
 use nom::branch::alt;
@@ -34,6 +35,7 @@ use smallvec::SmallVec;
 
 use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::lazy::bytes_ref::BytesRef;
+use crate::lazy::decoder::{LazyDecoder, LazyRawFieldExpr, LazyRawValueExpr};
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::buffer::TextBufferView;
@@ -45,8 +47,8 @@ use crate::{
 };
 
 /// A partially parsed Ion value.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum MatchedValue {
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum MatchedValue<'top, D: LazyDecoder> {
     // `Null` and `Bool` are fully parsed because they only involve matching a keyword.
     Null(IonType),
     Bool(bool),
@@ -58,28 +60,81 @@ pub(crate) enum MatchedValue {
     Symbol(MatchedSymbol),
     Blob(MatchedBlob),
     Clob(MatchedClob),
-    List,
-    SExp,
-    Struct,
+    List(&'top [LazyRawValueExpr<'top, D>]),
+    SExp(&'top [LazyRawValueExpr<'top, D>]),
+    Struct(&'top [LazyRawFieldExpr<'top, D>]),
+}
+
+impl<'top, D: LazyDecoder> PartialEq for MatchedValue<'top, D> {
+    fn eq(&self, other: &Self) -> bool {
+        use MatchedValue::*;
+        match (self, other) {
+            (Null(n1), Null(n2)) => n1 == n2,
+            (Bool(b1), Bool(b2)) => b1 == b2,
+            (Int(i1), Int(i2)) => i1 == i2,
+            (Float(f1), Float(f2)) => f1 == f2,
+            (Decimal(d1), Decimal(d2)) => d1 == d2,
+            (Timestamp(t1), Timestamp(t2)) => t1 == t2,
+            (String(s1), String(s2)) => s1 == s2,
+            (Symbol(s1), Symbol(s2)) => s1 == s2,
+            (Blob(b1), Blob(b2)) => b1 == b2,
+            (Clob(c1), Clob(c2)) => c1 == c2,
+            // The container variants hold raw representations of the containers themselves.
+            // We cannot compare their equality without recursively reading those containers,
+            // which introduces many opportunities to encounter an error that this method cannot
+            // surface. Because this is `PartialEq`, we have the option of returning `false` for
+            // values that cannot be compared to one another.
+            _ => false,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub(crate) enum MatchedFieldName {
+pub(crate) enum MatchedFieldNameSyntax {
     Symbol(MatchedSymbol),
     String(MatchedString),
 }
 
-impl MatchedFieldName {
+impl MatchedFieldNameSyntax {
     pub fn read<'data>(
         &self,
         matched_input: TextBufferView<'data>,
     ) -> IonResult<RawSymbolTokenRef<'data>> {
         match self {
-            MatchedFieldName::Symbol(matched_symbol) => matched_symbol.read(matched_input),
-            MatchedFieldName::String(matched_string) => {
+            MatchedFieldNameSyntax::Symbol(matched_symbol) => matched_symbol.read(matched_input),
+            MatchedFieldNameSyntax::String(matched_string) => {
                 matched_string.read(matched_input).map(|s| s.into())
             }
         }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) struct MatchedFieldName {
+    // This is stored as a tuple to allow this type to be `Copy`; Range<usize> is not `Copy`.
+    span: (usize, usize),
+    syntax: MatchedFieldNameSyntax,
+}
+
+impl MatchedFieldName {
+    pub fn new(syntax: MatchedFieldNameSyntax, span: Range<usize>) -> Self {
+        Self {
+            span: (span.start, span.end),
+            syntax,
+        }
+    }
+    pub fn span(&self) -> Range<usize> {
+        self.span.0..self.span.1
+    }
+    pub fn syntax(&self) -> MatchedFieldNameSyntax {
+        self.syntax
+    }
+
+    pub fn read<'data>(
+        &self,
+        matched_input: TextBufferView<'data>,
+    ) -> IonResult<RawSymbolTokenRef<'data>> {
+        self.syntax.read(matched_input)
     }
 }
 
@@ -1145,6 +1200,7 @@ impl MatchedClob {
 mod tests {
     use std::str::FromStr;
 
+    use bumpalo::Bump as BumpAllocator;
     use num_bigint::BigInt;
 
     use crate::lazy::bytes_ref::BytesRef;
@@ -1155,7 +1211,8 @@ mod tests {
     fn read_ints() -> IonResult<()> {
         fn expect_int(data: &str, expected: impl Into<Int>) {
             let expected: Int = expected.into();
-            let buffer = TextBufferView::new(data.as_bytes());
+            let allocator = BumpAllocator::new();
+            let buffer = TextBufferView::new(&allocator, data.as_bytes());
             let (_remaining, matched) = buffer.match_int().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
@@ -1190,7 +1247,8 @@ mod tests {
     fn read_timestamps() -> IonResult<()> {
         fn expect_timestamp(data: &str, expected: Timestamp) {
             let data = format!("{data} "); // Append a space
-            let buffer = TextBufferView::new(data.as_bytes());
+            let allocator = BumpAllocator::new();
+            let buffer = TextBufferView::new(&allocator, data.as_bytes());
             let (_remaining, matched) = buffer.match_timestamp().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
@@ -1291,7 +1349,8 @@ mod tests {
     #[test]
     fn read_decimals() -> IonResult<()> {
         fn expect_decimal(data: &str, expected: Decimal) {
-            let buffer = TextBufferView::new(data.as_bytes());
+            let allocator = BumpAllocator::new();
+            let buffer = TextBufferView::new(&allocator, data.as_bytes());
             let result = buffer.match_decimal();
             assert!(
                 result.is_ok(),
@@ -1345,7 +1404,8 @@ mod tests {
     fn read_blobs() -> IonResult<()> {
         fn expect_blob(data: &str, expected: &str) {
             let data = format!("{data} "); // Append a space
-            let buffer = TextBufferView::new(data.as_bytes());
+            let allocator = BumpAllocator::new();
+            let buffer = TextBufferView::new(&allocator, data.as_bytes());
             let (_remaining, matched) = buffer.match_blob().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
@@ -1382,7 +1442,8 @@ mod tests {
             // stream so the parser knows that the long-form strings are complete. We then trim
             // our fabricated value off of the input before reading.
             let data = format!("{data}\n0");
-            let buffer = TextBufferView::new(data.as_bytes());
+            let allocator = BumpAllocator::new();
+            let buffer = TextBufferView::new(&allocator, data.as_bytes());
             let (_remaining, matched) = buffer.match_string().unwrap();
             let matched_input = buffer.slice(0, buffer.len() - 2);
             let actual = matched.read(matched_input).unwrap();
@@ -1417,8 +1478,8 @@ mod tests {
 
     #[test]
     fn read_clobs() -> IonResult<()> {
-        fn read_clob(data: &str) -> IonResult<BytesRef> {
-            let buffer = TextBufferView::new(data.as_bytes());
+        fn read_clob<'a>(allocator: &'a BumpAllocator, data: &'a str) -> IonResult<BytesRef<'a>> {
+            let buffer = TextBufferView::new(allocator, data.as_bytes());
             // All `read_clob` usages should be accepted by the matcher, so we can `unwrap()` the
             // call to `match_clob()`.
             let (_remaining, matched) = buffer.match_clob().unwrap();
@@ -1426,16 +1487,16 @@ mod tests {
             matched.read(buffer)
         }
 
-        fn expect_clob_error(data: &str) {
-            let actual = read_clob(data);
+        fn expect_clob_error(allocator: &BumpAllocator, data: &str) {
+            let actual = read_clob(allocator, data);
             assert!(
                 actual.is_err(),
                 "Successfully read a clob from illegal input."
             );
         }
 
-        fn expect_clob(data: &str, expected: &str) {
-            let result = read_clob(data);
+        fn expect_clob(allocator: &BumpAllocator, data: &str, expected: &str) {
+            let result = read_clob(allocator, data);
             assert!(
                 result.is_ok(),
                 "Unexpected read failure for input '{data}': {:?}",
@@ -1482,8 +1543,10 @@ mod tests {
             ("{{\"foo\rbar\rbaz\"}}", "foo\rbar\rbaz"),
         ];
 
+        let mut allocator = BumpAllocator::new();
         for (input, expected) in tests {
-            expect_clob(input, expected);
+            expect_clob(&allocator, input, expected);
+            allocator.reset();
         }
 
         let illegal_inputs = [
@@ -1504,7 +1567,8 @@ mod tests {
         ];
 
         for input in illegal_inputs {
-            expect_clob_error(input);
+            expect_clob_error(&allocator, input);
+            allocator.reset();
         }
 
         Ok(())

@@ -66,15 +66,21 @@ pub trait BinaryEncoding: Encoding {}
 pub trait TextEncoding<'top>:
     Encoding + LazyDecoder<AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>>
 {
-    fn value_from_matched(matched: MatchedRawTextValue) -> <Self as LazyDecoder>::Value<'_>;
+    fn value_from_matched(
+        matched: MatchedRawTextValue<'top, Self>,
+    ) -> <Self as LazyDecoder>::Value<'top>;
 }
 impl<'top> TextEncoding<'top> for TextEncoding_1_0 {
-    fn value_from_matched(matched: MatchedRawTextValue) -> <Self as LazyDecoder>::Value<'_> {
+    fn value_from_matched(
+        matched: MatchedRawTextValue<'_, Self>,
+    ) -> <Self as LazyDecoder>::Value<'_> {
         LazyRawTextValue_1_0::from(matched)
     }
 }
 impl<'top> TextEncoding<'top> for TextEncoding_1_1 {
-    fn value_from_matched(matched: MatchedRawTextValue) -> <Self as LazyDecoder>::Value<'_> {
+    fn value_from_matched(
+        matched: MatchedRawTextValue<'_, Self>,
+    ) -> <Self as LazyDecoder>::Value<'_> {
         LazyRawTextValue_1_1::from(matched)
     }
 }
@@ -127,7 +133,7 @@ impl LazyDecoder for TextEncoding_1_1 {
 // the implementation will conflict with the core `impl<T> From<T> for T` implementation.
 pub trait RawValueLiteral {}
 
-impl<'top> RawValueLiteral for MatchedRawTextValue<'top> {}
+impl<'top, E: TextEncoding<'top>> RawValueLiteral for MatchedRawTextValue<'top, E> {}
 impl<'top, E: TextEncoding<'top>> RawValueLiteral for LazyRawTextValue<'top, E> {}
 impl<'top> RawValueLiteral for LazyRawBinaryValue<'top> {}
 impl<'top> RawValueLiteral for LazyRawAnyValue<'top> {}

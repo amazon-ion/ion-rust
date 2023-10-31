@@ -87,7 +87,7 @@ memmap = "0.7.0"
 criterion = "0.5.1"
 
 [[bench]]
-name = "read_text_single_struct"
+name = "read_many_structs"
 harness = false
 
 [profile.release]

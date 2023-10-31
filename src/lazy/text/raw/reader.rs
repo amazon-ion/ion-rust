@@ -13,11 +13,8 @@ use bumpalo::Bump as BumpAllocator;
 /// A text Ion 1.0 reader that yields [`LazyRawStreamItem`]s representing the top level values found
 /// in the provided input stream.
 pub struct LazyRawTextReader_1_0<'data> {
-    // The current view of the data we're reading from.
-    buffer: TextBufferView<'data>,
-    // Each time something is parsed from the buffer successfully, the caller will mark the number
-    // of bytes that may be skipped the next time the reader advances.
-    bytes_to_skip: usize,
+    input: &'data [u8],
+    offset: usize,
 }
 
 impl<'data> LazyRawTextReader_1_0<'data> {
@@ -32,19 +29,23 @@ impl<'data> LazyRawTextReader_1_0<'data> {
     /// position of values encountered in `data`.
     fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawTextReader_1_0<'data> {
         LazyRawTextReader_1_0 {
-            buffer: TextBufferView::new_with_offset(data, offset),
-            bytes_to_skip: 0,
+            input: data,
+            offset,
         }
     }
 
-    pub fn next<'top>(&'top mut self) -> IonResult<RawStreamItem<LazyRawTextValue_1_0<'top>, Never>>
+    pub fn next<'top>(
+        &'top mut self,
+        allocator: &'top BumpAllocator,
+    ) -> IonResult<RawStreamItem<LazyRawTextValue_1_0<'top>, Never>>
     where
         'data: 'top,
     {
-        let (buffer_after_whitespace, _whitespace) = self
-            .buffer
+        let input =
+            TextBufferView::new_with_offset(allocator, &self.input[self.offset..], self.offset);
+        let (buffer_after_whitespace, _whitespace) = input
             .match_optional_comments_and_whitespace()
-            .with_context("reading whitespace/comments at the top level", self.buffer)?;
+            .with_context("reading whitespace/comments at the top level", input)?;
         if buffer_after_whitespace.is_empty() {
             return Ok(RawStreamItem::EndOfStream);
         }
@@ -67,7 +68,7 @@ impl<'data> LazyRawTextReader_1_0<'data> {
         }
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
-        self.buffer = remaining;
+        self.offset = remaining.offset();
         Ok(matched_item)
     }
 }
@@ -79,12 +80,12 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
 
     fn next<'top>(
         &'top mut self,
-        _allocator: &'top BumpAllocator,
+        allocator: &'top BumpAllocator,
     ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_0>>
     where
         'data: 'top,
     {
-        self.next()
+        self.next(allocator)
     }
 }
 
@@ -96,6 +97,34 @@ mod tests {
     use crate::{Decimal, IonType, RawSymbolTokenRef, Timestamp};
 
     use super::*;
+
+    struct TestReader<'data> {
+        allocator: BumpAllocator,
+        reader: LazyRawTextReader_1_0<'data>,
+    }
+
+    impl<'data> TestReader<'data> {
+        fn next(&mut self) -> IonResult<LazyRawStreamItem<'_, TextEncoding_1_0>> {
+            self.reader.next(&self.allocator)
+        }
+        fn expect_next<'a>(&'a mut self, expected: RawValueRef<'a, TextEncoding_1_0>)
+        where
+            'data: 'a,
+        {
+            let TestReader { allocator, reader } = self;
+            let lazy_value = reader
+                .next(allocator)
+                .expect("advancing the reader failed")
+                .expect_value()
+                .expect("expected a value");
+            assert_eq!(
+                matches!(expected, RawValueRef::Null(_)),
+                lazy_value.is_null()
+            );
+            let value_ref = lazy_value.read().expect("reading failed");
+            assert_eq!(value_ref, expected, "{:?} != {:?}", value_ref, expected);
+        }
+    }
 
     #[test]
     fn test_top_level() -> IonResult<()> {
@@ -234,50 +263,36 @@ mod tests {
         "#,
         );
 
-        fn expect_next<'top, 'data: 'top>(
-            reader: &'top mut LazyRawTextReader_1_0<'data>,
-            expected: RawValueRef<'top, TextEncoding_1_0>,
-        ) {
-            let lazy_value = reader
-                .next()
-                .expect("advancing the reader failed")
-                .expect_value()
-                .expect("expected a value");
-            assert_eq!(
-                matches!(expected, RawValueRef::Null(_)),
-                lazy_value.is_null()
-            );
-            let value_ref = lazy_value.read().expect("reading failed");
-            assert_eq!(value_ref, expected, "{:?} != {:?}", value_ref, expected);
-        }
-
-        let reader = &mut LazyRawTextReader_1_0::new(data.as_bytes());
+        let reader = &mut TestReader {
+            reader: LazyRawTextReader_1_0::new(data.as_bytes()),
+            allocator: BumpAllocator::new(),
+        };
 
         assert_eq!(reader.next()?.expect_ivm()?, (1, 0));
 
         // null
-        expect_next(reader, RawValueRef::Null(IonType::Null));
+        reader.expect_next(RawValueRef::Null(IonType::Null));
         // null.bool
-        expect_next(reader, RawValueRef::Null(IonType::Bool));
+        reader.expect_next(RawValueRef::Null(IonType::Bool));
         // null.int
-        expect_next(reader, RawValueRef::Null(IonType::Int));
+        reader.expect_next(RawValueRef::Null(IonType::Int));
 
         // false
-        expect_next(reader, RawValueRef::Bool(false));
+        reader.expect_next(RawValueRef::Bool(false));
         // true
-        expect_next(reader, RawValueRef::Bool(true));
+        reader.expect_next(RawValueRef::Bool(true));
 
         // 500
-        expect_next(reader, RawValueRef::Int(500.into()));
+        reader.expect_next(RawValueRef::Int(500.into()));
         // 0x20
-        expect_next(reader, RawValueRef::Int(0x20.into()));
+        reader.expect_next(RawValueRef::Int(0x20.into()));
         // 0b0101
-        expect_next(reader, RawValueRef::Int(0b0101.into()));
+        reader.expect_next(RawValueRef::Int(0b0101.into()));
 
         // +inf
-        expect_next(reader, RawValueRef::Float(f64::INFINITY));
+        reader.expect_next(RawValueRef::Float(f64::INFINITY));
         // -inf
-        expect_next(reader, RawValueRef::Float(f64::NEG_INFINITY));
+        reader.expect_next(RawValueRef::Float(f64::NEG_INFINITY));
         // nan
         // NaN != NaN, so we have to spell this test out a bit more
         assert!(reader
@@ -287,117 +302,92 @@ mod tests {
             .expect_float()?
             .is_nan());
         // 3.6e0
-        expect_next(reader, RawValueRef::Float(3.6f64));
+        reader.expect_next(RawValueRef::Float(3.6f64));
         // 2.25e23
-        expect_next(reader, RawValueRef::Float(2.5f64 * 10f64.powi(8)));
+        reader.expect_next(RawValueRef::Float(2.5f64 * 10f64.powi(8)));
         // -3.18
-        expect_next(reader, RawValueRef::Float(-3.18f64));
+        reader.expect_next(RawValueRef::Float(-3.18f64));
         //         1.5
-        expect_next(reader, RawValueRef::Decimal(Decimal::new(15, -1)));
+        reader.expect_next(RawValueRef::Decimal(Decimal::new(15, -1)));
         //         3.14159
-        expect_next(reader, RawValueRef::Decimal(Decimal::new(314159, -5)));
+        reader.expect_next(RawValueRef::Decimal(Decimal::new(314159, -5)));
         //         -6d+5
-        expect_next(reader, RawValueRef::Decimal(Decimal::new(-6, 5)));
+        reader.expect_next(RawValueRef::Decimal(Decimal::new(-6, 5)));
         //         6d-5
-        expect_next(reader, RawValueRef::Decimal(Decimal::new(6, -5)));
+        reader.expect_next(RawValueRef::Decimal(Decimal::new(6, -5)));
 
         // 2023T
-        expect_next(
-            reader,
-            RawValueRef::Timestamp(Timestamp::with_year(2023).build()?),
-        );
+        reader.expect_next(RawValueRef::Timestamp(Timestamp::with_year(2023).build()?));
         // 2023-08-13T
-        expect_next(
-            reader,
-            RawValueRef::Timestamp(Timestamp::with_ymd(2023, 8, 13).build()?),
-        );
+        reader.expect_next(RawValueRef::Timestamp(
+            Timestamp::with_ymd(2023, 8, 13).build()?,
+        ));
         // 2023-08-13T21:45:30.993-05:00
-        expect_next(
-            reader,
-            RawValueRef::Timestamp(
-                Timestamp::with_ymd(2023, 8, 13)
-                    .with_hms(21, 45, 30)
-                    .with_milliseconds(993)
-                    .with_offset(-300)
-                    .build()?,
-            ),
-        );
+        reader.expect_next(RawValueRef::Timestamp(
+            Timestamp::with_ymd(2023, 8, 13)
+                .with_hms(21, 45, 30)
+                .with_milliseconds(993)
+                .with_offset(-300)
+                .build()?,
+        ));
 
         // '''Long string without escapes'''
-        expect_next(
-            reader,
-            RawValueRef::String("Long string without escapes".into()),
-        );
+        reader.expect_next(RawValueRef::String("Long string without escapes".into()));
         // "Hello"
-        expect_next(reader, RawValueRef::String("Hello!".into()));
+        reader.expect_next(RawValueRef::String("Hello!".into()));
         // '''Long string with escaped \''' delimiter'''
-        expect_next(
-            reader,
-            RawValueRef::String("Long string with escaped ''' delimiter".into()),
-        );
+        reader.expect_next(RawValueRef::String(
+            "Long string with escaped ''' delimiter".into(),
+        ));
         // "foo bar baz"
-        expect_next(reader, RawValueRef::String("foo bar baz".into()));
+        reader.expect_next(RawValueRef::String("foo bar baz".into()));
         // "😎😎😎"
-        expect_next(reader, RawValueRef::String("😎😎😎".into()));
+        reader.expect_next(RawValueRef::String("😎😎😎".into()));
         // "lol\n\r\0wat"
-        expect_next(reader, RawValueRef::String("lol\n\r\0wat".into()));
+        reader.expect_next(RawValueRef::String("lol\n\r\0wat".into()));
         // "\x48ello, \x77orld!"
-        expect_next(reader, RawValueRef::String("Hello, world!".into()));
+        reader.expect_next(RawValueRef::String("Hello, world!".into()));
         // "\u0048ello, \u0077orld!"
-        expect_next(reader, RawValueRef::String("Hello, world!".into()));
+        reader.expect_next(RawValueRef::String("Hello, world!".into()));
         // "\U00000048ello, \U00000077orld!"
-        expect_next(reader, RawValueRef::String("Hello, world!".into()));
-        expect_next(
-            reader,
-            RawValueRef::String("Mercury Venus Earth Mars ".into()),
-        );
+        reader.expect_next(RawValueRef::String("Hello, world!".into()));
+        reader.expect_next(RawValueRef::String("Mercury Venus Earth Mars ".into()));
         // "\"Hello,\\\n world!\" "
-        expect_next(reader, RawValueRef::String("Hello, world!".into()));
+        reader.expect_next(RawValueRef::String("Hello, world!".into()));
         // 'foo'
-        expect_next(
-            reader,
-            RawValueRef::Symbol(RawSymbolTokenRef::Text("foo".into())),
-        );
-        expect_next(
-            reader,
-            RawValueRef::Symbol(RawSymbolTokenRef::Text("Hello, world!".into())),
-        );
-        expect_next(
-            reader,
-            RawValueRef::Symbol(RawSymbolTokenRef::Text("😎😎😎".into())),
-        );
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text("foo".into())));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
+            "Hello, world!".into(),
+        )));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
+            "😎😎😎".into(),
+        )));
         // firstName
-        expect_next(
-            reader,
-            RawValueRef::Symbol(RawSymbolTokenRef::Text("firstName".into())),
-        );
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
+            "firstName".into(),
+        )));
         // date_of_birth
-        expect_next(
-            reader,
-            RawValueRef::Symbol(RawSymbolTokenRef::Text("date_of_birth".into())),
-        );
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
+            "date_of_birth".into(),
+        )));
         // $variable
-        expect_next(
-            reader,
-            RawValueRef::Symbol(RawSymbolTokenRef::Text("$variable".into())),
-        );
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
+            "$variable".into(),
+        )));
         // $0
-        expect_next(reader, RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(0)));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(0)));
         // $10
-        expect_next(reader, RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(10)));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(10)));
         // $733
-        expect_next(
-            reader,
-            RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(733)),
-        );
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(733)));
 
         // {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
-        expect_next(reader, RawValueRef::Blob("razzle dazzle root beer".into()));
+        reader.expect_next(RawValueRef::Blob("razzle dazzle root beer".into()));
 
         // {{"foobarbaz"}}
-        expect_next(reader, RawValueRef::Clob("foobarbaz".into()));
+        reader.expect_next(RawValueRef::Clob("foobarbaz".into()));
         // {{'''foo''' '''bar''' '''baz'''}}
-        expect_next(reader, RawValueRef::Clob("foobarbaz".into()));
+        reader.expect_next(RawValueRef::Clob("foobarbaz".into()));
 
         // [1, 2, 3]
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;

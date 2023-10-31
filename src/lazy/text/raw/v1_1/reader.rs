@@ -19,14 +19,13 @@ use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator}
 use crate::result::IonFailure;
 use crate::{IonResult, IonType};
 
+use crate::lazy::text::matched::MatchedValue;
+use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 
 pub struct LazyRawTextReader_1_1<'data> {
-    // The current view of the data we're reading from.
-    buffer: TextBufferView<'data>,
-    // Each time something is parsed from the buffer successfully, the caller will mark the number
-    // of bytes that may be skipped the next time the reader advances.
-    bytes_to_skip: usize,
+    input: &'data [u8],
+    offset: usize,
 }
 
 /// The index at which this macro can be found in the macro table.
@@ -42,10 +41,11 @@ pub enum MacroIdRef<'data> {
 }
 
 #[derive(Copy, Clone)]
-pub struct RawTextEExpression_1_1<'data> {
+pub struct RawTextEExpression_1_1<'top> {
     pub(crate) encoded_expr: EncodedTextMacroInvocation,
-    pub(crate) input: TextBufferView<'data>,
-    pub(crate) id: MacroIdRef<'data>,
+    pub(crate) input: TextBufferView<'top>,
+    pub(crate) id: MacroIdRef<'top>,
+    pub(crate) arg_expr_cache: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
 }
 
 impl<'data> Debug for RawTextEExpression_1_1<'data> {
@@ -55,21 +55,23 @@ impl<'data> Debug for RawTextEExpression_1_1<'data> {
     }
 }
 
-impl<'data> RawTextEExpression_1_1<'data> {
+impl<'top> RawTextEExpression_1_1<'top> {
     pub(crate) fn new(
-        id: MacroIdRef<'data>,
+        id: MacroIdRef<'top>,
         encoded_expr: EncodedTextMacroInvocation,
-        input: TextBufferView<'data>,
+        input: TextBufferView<'top>,
+        child_expr_cache: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
     ) -> Self {
         Self {
             encoded_expr,
             input,
             id,
+            arg_expr_cache: child_expr_cache,
         }
     }
 
     /// Returns the slice of the input buffer that contains this macro expansion's arguments.
-    pub(crate) fn arguments_bytes(&self) -> TextBufferView<'data> {
+    pub(crate) fn arguments_bytes(&self) -> TextBufferView<'top> {
         const SMILEY_LENGTH: usize = 2; // The opening `(:`
         self.input
             .slice_to_end(SMILEY_LENGTH + self.encoded_expr.id_length as usize)
@@ -91,26 +93,24 @@ impl EncodedTextMacroInvocation {
 impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'data> {
     fn new(data: &'data [u8]) -> Self {
         LazyRawTextReader_1_1 {
-            buffer: TextBufferView::new(data),
-            bytes_to_skip: 0,
+            input: data,
+            offset: 0,
         }
     }
 
     // TODO: Use allocator
     fn next<'top>(
         &'top mut self,
-        _allocator: &'top BumpAllocator,
+        allocator: &'top BumpAllocator,
     ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_1>>
     where
         'data: 'top,
     {
-        let (buffer_after_whitespace, _whitespace) = self
-            .buffer
+        let input =
+            TextBufferView::new_with_offset(allocator, &self.input[self.offset..], self.offset);
+        let (buffer_after_whitespace, _whitespace) = input
             .match_optional_comments_and_whitespace()
-            .with_context(
-                "reading v1.1 whitespace/comments at the top level",
-                self.buffer,
-            )?;
+            .with_context("reading v1.1 whitespace/comments at the top level", input)?;
         if buffer_after_whitespace.is_empty() {
             return Ok(RawStreamItem::EndOfStream);
         }
@@ -132,7 +132,7 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
         }
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
-        self.buffer = remaining;
+        self.offset = remaining.offset();
         Ok(matched_item)
     }
 }
@@ -168,13 +168,29 @@ impl<'top> RawTextListIterator_1_1<'top> {
             has_returned_error: false,
         }
     }
+}
 
-    pub(crate) fn find_span(&self) -> IonResult<Range<usize>> {
+pub(crate) struct TextListSpanFinder_1_1<'top> {
+    pub(crate) allocator: &'top bumpalo::Bump,
+    pub(crate) iterator: RawTextListIterator_1_1<'top>,
+}
+
+impl<'top> TextListSpanFinder_1_1<'top> {
+    pub(crate) fn find_span(
+        &self,
+    ) -> IonResult<(
+        Range<usize>,
+        &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
+    )> {
         // The input has already skipped past the opening delimiter.
-        let start = self.input.offset() - 1;
-        // We need to find the input slice containing the closing delimiter. It's either...
-        let input_after_last = if let Some(value_expr_result) = self.last() {
-            let value_expr = value_expr_result?;
+        let start = self.iterator.input.offset() - 1;
+        let mut child_expr_cache = BumpVec::new_in(self.allocator);
+        for expr_result in self.iterator {
+            let expr = expr_result?;
+            child_expr_cache.push(expr);
+        }
+
+        let input_after_last_expr = if let Some(value_expr) = child_expr_cache.last() {
             // ...the input slice that follows the last sequence value...
             match value_expr {
                 RawValueExpr::ValueLiteral(value) => value
@@ -183,18 +199,21 @@ impl<'top> RawTextListIterator_1_1<'top> {
                     .slice_to_end(value.matched.encoded_value.total_length()),
                 RawValueExpr::MacroInvocation(invocation) => {
                     let end_of_expr = invocation.input.offset() + invocation.input.len();
-                    let remaining = self.input.slice_to_end(end_of_expr - self.input.offset());
+                    let remaining = self
+                        .iterator
+                        .input
+                        .slice_to_end(end_of_expr - self.iterator.input.offset());
                     remaining
                 }
             }
         } else {
-            // ...or there aren't values, so it's just the input after the opening delimiter.
-            self.input
+            // ...or there weren't any child values, so it's just the input after the opening delimiter.
+            self.iterator.input
         };
-        let (mut input_after_ws, _ws) =
-            input_after_last
-                .match_optional_comments_and_whitespace()
-                .with_context("seeking the end of a v1.1 list", input_after_last)?;
+
+        let (mut input_after_ws, _ws) = input_after_last_expr
+            .match_optional_comments_and_whitespace()
+            .with_context("seeking the end of a list", input_after_last_expr)?;
         // Skip an optional comma and more whitespace
         if input_after_ws.bytes().first() == Some(&b',') {
             (input_after_ws, _) = input_after_ws
@@ -203,12 +222,17 @@ impl<'top> RawTextListIterator_1_1<'top> {
                 .with_context("skipping a v1.1 list's trailing comma", input_after_ws)?;
         }
         let (input_after_end, _end_delimiter) = satisfy(|c| c == ']')(input_after_ws)
-            .with_context(
-                "seeking the closing delimiter of a v1.1 list",
-                input_after_ws,
-            )?;
+            .with_context("seeking the closing delimiter of a list", input_after_ws)?;
         let end = input_after_end.offset();
-        Ok(start..end)
+
+        let span = start..end;
+        Ok((span, child_expr_cache.into_bump_slice()))
+    }
+    pub fn new(allocator: &'top bumpalo::Bump, iterator: RawTextListIterator_1_1<'top>) -> Self {
+        Self {
+            allocator,
+            iterator,
+        }
     }
 }
 
@@ -241,6 +265,151 @@ impl<'top> RawTextSExpIterator_1_1<'top> {
         Self {
             input,
             has_returned_error: false,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct RawTextSequenceCacheIterator_1_1<'top> {
+    child_exprs: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
+    index: usize,
+}
+
+impl<'top> RawTextSequenceCacheIterator_1_1<'top> {
+    pub fn new(child_exprs: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>]) -> Self {
+        Self {
+            child_exprs,
+            index: 0,
+        }
+    }
+}
+
+impl<'top> Iterator for RawTextSequenceCacheIterator_1_1<'top> {
+    type Item = IonResult<LazyRawValueExpr<'top, TextEncoding_1_1>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_expr = self.child_exprs.get(self.index)?;
+        self.index += 1;
+        Some(Ok(*next_expr))
+    }
+}
+
+pub(crate) struct TextSExpSpanFinder_1_1<'top> {
+    pub(crate) allocator: &'top bumpalo::Bump,
+    pub(crate) iterator: RawTextSExpIterator_1_1<'top>,
+}
+
+impl<'top> TextSExpSpanFinder_1_1<'top> {
+    pub fn new(allocator: &'top bumpalo::Bump, iterator: RawTextSExpIterator_1_1<'top>) -> Self {
+        Self {
+            allocator,
+            iterator,
+        }
+    }
+
+    /// Scans ahead to find the end of this s-expression and reports the input span that it occupies.
+    /// As it scans, it records lazy references to the S-expression's child expressions.
+    ///
+    /// The `initial_bytes_skipped` parameter indicates how many bytes of input that represented the
+    /// beginning of the expression are not in the buffer. For plain s-expressions, this will always
+    /// be `1` as they begin with a single open parenthesis `(`. For e-expressions (which are used
+    /// to invoke macros from the data stream), it will always be a minimum of `3`: two bytes for
+    /// the opening `(:` and at least one for the macro identifier. (For example: `(:foo`.)
+    pub(crate) fn find_span(
+        &self,
+        initial_bytes_skipped: usize,
+    ) -> IonResult<(
+        Range<usize>,
+        &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
+    )> {
+        // The input has already skipped past the opening delimiter.
+        let start = self.iterator.input.offset() - initial_bytes_skipped;
+        let mut child_expr_cache = BumpVec::new_in(self.allocator);
+        for expr_result in self.iterator {
+            let expr = expr_result?;
+            child_expr_cache.push(expr);
+        }
+
+        let input_after_last_expr = if let Some(value_expr) = child_expr_cache.last() {
+            // ...the input slice that follows the last sequence value...
+            match value_expr {
+                RawValueExpr::ValueLiteral(value) => value
+                    .matched
+                    .input
+                    .slice_to_end(value.matched.encoded_value.total_length()),
+                RawValueExpr::MacroInvocation(invocation) => {
+                    let end_of_expr = invocation.input.offset() + invocation.input.len();
+                    let remaining = self
+                        .iterator
+                        .input
+                        .slice_to_end(end_of_expr - self.iterator.input.offset());
+                    remaining
+                }
+            }
+        } else {
+            // ...or there weren't any child values, so it's just the input after the opening delimiter.
+            self.iterator.input
+        };
+
+        let (input_after_ws, _ws) = input_after_last_expr
+            .match_optional_comments_and_whitespace()
+            .with_context("seeking the end of a sexp", input_after_last_expr)?;
+        let (input_after_end, _end_delimiter) = satisfy(|c| c == ')')(input_after_ws)
+            .with_context("seeking the closing delimiter of a sexp", input_after_ws)?;
+        let end = input_after_end.offset();
+
+        let span = start..end;
+        Ok((span, child_expr_cache.into_bump_slice()))
+    }
+}
+
+impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
+    fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
+        LazyRawTextSExp_1_1 { value }
+    }
+}
+
+impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
+    type Iterator = RawTextSequenceCacheIterator_1_1<'top>;
+
+    fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
+        self.value.annotations()
+    }
+
+    fn ion_type(&self) -> IonType {
+        self.value.ion_type()
+    }
+
+    fn iter(&self) -> Self::Iterator {
+        let MatchedValue::SExp(child_exprs) = self.value.matched.encoded_value.matched() else {
+            unreachable!("s-expression contained a matched value of the wrong type")
+        };
+        RawTextSequenceCacheIterator_1_1::new(child_exprs)
+    }
+
+    fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
+        self.value.matched.into()
+    }
+}
+
+impl<'top> Iterator for RawTextSExpIterator_1_1<'top> {
+    type Item = IonResult<LazyRawValueExpr<'top, TextEncoding_1_1>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.has_returned_error {
+            return None;
+        }
+        match self.input.match_sexp_value_1_1() {
+            Ok((remaining, Some(value))) => {
+                self.input = remaining;
+                Some(Ok(value))
+            }
+            Ok((_remaining, None)) => None,
+            Err(e) => {
+                self.has_returned_error = true;
+                e.with_context("reading the next sexp value", self.input)
+                    .transpose()
+            }
         }
     }
 }
@@ -289,6 +458,32 @@ impl<'top> RawTextStructIterator_1_1<'top> {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct RawTextStructCacheIterator_1_1<'top> {
+    field_exprs: &'top [LazyRawFieldExpr<'top, TextEncoding_1_1>],
+    index: usize,
+}
+
+impl<'top> RawTextStructCacheIterator_1_1<'top> {
+    pub fn new(field_exprs: &'top [LazyRawFieldExpr<'top, TextEncoding_1_1>]) -> Self {
+        Self {
+            field_exprs,
+            index: 0,
+        }
+    }
+}
+
+impl<'top> Iterator for RawTextStructCacheIterator_1_1<'top> {
+    type Item = IonResult<LazyRawFieldExpr<'top, TextEncoding_1_1>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_expr = self.field_exprs.get(self.index)?;
+        self.index += 1;
+        // TODO: Remove the result wrapper
+        Some(Ok(next_expr.clone()))
+    }
+}
+
 // ===== Trait implementations =====
 
 impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
@@ -298,7 +493,7 @@ impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextList_1_1<
 }
 
 impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
-    type Iterator = RawTextListIterator_1_1<'top>;
+    type Iterator = RawTextSequenceCacheIterator_1_1<'top>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
         self.value.annotations()
@@ -309,15 +504,10 @@ impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top>
     }
 
     fn iter(&self) -> Self::Iterator {
-        let open_bracket_index =
-            self.value.matched.encoded_value.data_offset() - self.value.matched.input.offset();
-        // Make an iterator over the input bytes that follow the initial `[`
-        RawTextListIterator_1_1::new(
-            self.value
-                .matched
-                .input
-                .slice_to_end(open_bracket_index + 1),
-        )
+        let MatchedValue::List(child_exprs) = self.value.matched.encoded_value.matched() else {
+            unreachable!("list contained a matched value of the wrong type")
+        };
+        RawTextSequenceCacheIterator_1_1::new(child_exprs)
     }
 
     fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
@@ -350,112 +540,6 @@ impl<'top> Iterator for RawTextListIterator_1_1<'top> {
     }
 }
 
-impl<'top> LazyRawTextSExp_1_1<'top> {
-    pub fn ion_type(&self) -> IonType {
-        IonType::SExp
-    }
-
-    pub fn iter(&self) -> RawTextSExpIterator_1_1<'top> {
-        let open_paren_index =
-            self.value.matched.encoded_value.data_offset() - self.value.matched.input.offset();
-        // Make an iterator over the input bytes that follow the initial `(`
-        RawTextSExpIterator_1_1::new(self.value.matched.input.slice_to_end(open_paren_index + 1))
-    }
-}
-
-// TODO: This impl is very similar to the 1.0 impl; see if we can DRY it up.
-impl<'top> RawTextSExpIterator_1_1<'top> {
-    /// Scans ahead to find the end of this s-expression and reports the input span that it occupies.
-    ///
-    /// The `initial_bytes_skipped` parameter indicates how many bytes of input that represented the
-    /// beginning of the expression are not in the buffer. For plain s-expressions, this will always
-    /// be `1` as they begin with a single open parenthesis `(`. For e-expressions (which are used
-    /// to invoke macros from the data stream), it will always be a minimum of `3`: two bytes for
-    /// the opening `(:` and at least one for the macro identifier. (For example: `(:foo`.)
-    pub(crate) fn find_span(&self, initial_bytes_skipped: usize) -> IonResult<Range<usize>> {
-        // The input has already skipped past the opening delimiter.
-        let start = self.input.offset() - initial_bytes_skipped;
-        // We need to find the input slice containing the closing delimiter. It's either...
-        let input_after_last = if let Some(value_expr_result) = self.last() {
-            let value_expr = value_expr_result?;
-            // ...the input slice that follows the last sequence value...
-            match value_expr {
-                RawValueExpr::ValueLiteral(value) => value
-                    .matched
-                    .input
-                    .slice_to_end(value.matched.encoded_value.total_length()),
-                RawValueExpr::MacroInvocation(invocation) => {
-                    let end_of_expr = invocation.input.offset() + invocation.input.len();
-                    let remaining = self.input.slice_to_end(end_of_expr - self.input.offset());
-                    remaining
-                }
-            }
-        } else {
-            // ...or there aren't values, so it's just the input after the opening delimiter.
-            self.input
-        };
-        let (input_after_ws, _ws) = input_after_last
-            .match_optional_comments_and_whitespace()
-            .with_context("seeking the end of a sexp", input_after_last)?;
-        let (input_after_end, _end_delimiter) = satisfy(|c| c == ')')(input_after_ws)
-            .with_context("seeking the closing delimiter of a sexp", input_after_ws)?;
-        let end = input_after_end.offset();
-        Ok(start..end)
-    }
-}
-
-impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
-    fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
-        LazyRawTextSExp_1_1 { value }
-    }
-}
-
-impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
-    type Iterator = RawTextSExpIterator_1_1<'top>;
-
-    fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
-        self.value.annotations()
-    }
-
-    fn ion_type(&self) -> IonType {
-        self.value.ion_type()
-    }
-
-    fn iter(&self) -> Self::Iterator {
-        // Make an iterator over the input bytes that follow the initial `(`; account for
-        // a leading field name and/or annotations.
-        let open_paren_index =
-            self.value.matched.encoded_value.data_offset() - self.value.matched.input.offset();
-        RawTextSExpIterator_1_1::new(self.value.matched.input.slice_to_end(open_paren_index + 1))
-    }
-
-    fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
-        self.value.matched.into()
-    }
-}
-
-impl<'top> Iterator for RawTextSExpIterator_1_1<'top> {
-    type Item = IonResult<LazyRawValueExpr<'top, TextEncoding_1_1>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.has_returned_error {
-            return None;
-        }
-        match self.input.match_sexp_value_1_1() {
-            Ok((remaining, Some(value))) => {
-                self.input = remaining;
-                Some(Ok(value))
-            }
-            Ok((_remaining, None)) => None,
-            Err(e) => {
-                self.has_returned_error = true;
-                e.with_context("reading the next sexp value", self.input)
-                    .transpose()
-            }
-        }
-    }
-}
-
 impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top> {
     fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
         LazyRawTextStruct_1_1 { value }
@@ -463,17 +547,17 @@ impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextStruct_1_
 }
 
 impl<'top> LazyRawStruct<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top> {
-    type Iterator = RawTextStructIterator_1_1<'top>;
+    type Iterator = RawTextStructCacheIterator_1_1<'top>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
         self.value.annotations()
     }
 
     fn iter(&self) -> Self::Iterator {
-        let open_brace_index =
-            self.value.matched.encoded_value.data_offset() - self.value.matched.input.offset();
-        // Slice the input to skip the opening `{`
-        RawTextStructIterator_1_1::new(self.value.matched.input.slice_to_end(open_brace_index + 1))
+        let MatchedValue::Struct(field_exprs) = self.value.matched.encoded_value.matched() else {
+            unreachable!("struct contained a matched value of the wrong type")
+        };
+        RawTextStructCacheIterator_1_1::new(field_exprs)
     }
 }
 
@@ -540,6 +624,80 @@ impl<'top> RawTextStructIterator_1_1<'top> {
             .with_context("seeking the closing delimiter of a struct", input_after_ws)?;
         let end = input_after_end.offset();
         Ok(start..end)
+    }
+}
+
+pub(crate) struct TextStructSpanFinder_1_1<'top> {
+    pub(crate) allocator: &'top bumpalo::Bump,
+    pub(crate) iterator: RawTextStructIterator_1_1<'top>,
+}
+
+impl<'top> TextStructSpanFinder_1_1<'top> {
+    pub fn new(allocator: &'top bumpalo::Bump, iterator: RawTextStructIterator_1_1<'top>) -> Self {
+        Self {
+            allocator,
+            iterator,
+        }
+    }
+
+    /// Scans ahead to find the end of this s-expression and reports the input span that it occupies.
+    /// As it scans, it records lazy references to the S-expression's child expressions.
+    ///
+    /// The `initial_bytes_skipped` parameter indicates how many bytes of input that represented the
+    /// beginning of the expression are not in the buffer. For plain s-expressions, this will always
+    /// be `1` as they begin with a single open parenthesis `(`. For e-expressions (which are used
+    /// to invoke macros from the data stream), it will always be a minimum of `3`: two bytes for
+    /// the opening `(:` and at least one for the macro identifier. (For example: `(:foo`.)
+    pub(crate) fn find_span(
+        &self,
+    ) -> IonResult<(
+        Range<usize>,
+        &'top [LazyRawFieldExpr<'top, TextEncoding_1_1>],
+    )> {
+        // The input has already skipped past the opening delimiter.
+        let start = self.iterator.input.offset() - 1;
+        let mut child_expr_cache = BumpVec::new_in(self.allocator);
+        for expr_result in self.iterator {
+            let expr = expr_result?;
+            child_expr_cache.push(expr);
+        }
+
+        // We need to find the input slice containing the closing delimiter.
+        let input_after_last = if let Some(field_result) = child_expr_cache.last() {
+            // If there are any field expressions, we need to isolate the input slice that follows
+            // the last one.
+            use RawFieldExpr::*;
+            match field_result {
+                // foo: bar
+                NameValuePair(_name, RawValueExpr::ValueLiteral(value)) => {
+                    value.matched.input.slice_to_end(value.matched.encoded_value.total_length())
+                },
+                // foo: (:bar ...)
+                NameValuePair(_, RawValueExpr::MacroInvocation(invocation))
+                // (:foo)
+                | MacroInvocation(invocation) => {
+                    self.iterator.input.slice_to_end(invocation.input.len())
+                }
+            }
+        } else {
+            // ...or there aren't fields, so it's just the input after the opening delimiter.
+            self.iterator.input
+        };
+        let (mut input_after_ws, _ws) =
+            input_after_last
+                .match_optional_comments_and_whitespace()
+                .with_context("seeking the end of a struct", input_after_last)?;
+        // Skip an optional comma and more whitespace
+        if input_after_ws.bytes().first() == Some(&b',') {
+            (input_after_ws, _) = input_after_ws
+                .slice_to_end(1)
+                .match_optional_comments_and_whitespace()
+                .with_context("skipping a struct's trailing comma", input_after_ws)?;
+        }
+        let (input_after_end, _end_delimiter) = satisfy(|c| c == b'}' as char)(input_after_ws)
+            .with_context("seeking the closing delimiter of a struct", input_after_ws)?;
+        let end = input_after_end.offset();
+        Ok((start..end, child_expr_cache.into_bump_slice()))
     }
 }
 
