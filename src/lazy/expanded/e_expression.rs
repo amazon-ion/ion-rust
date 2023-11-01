@@ -18,6 +18,15 @@ pub struct EExpression<'top, D: LazyDecoder> {
     pub(crate) invoked_macro: MacroRef<'top>,
 }
 
+impl<'top, D: LazyDecoder> EExpression<'top, D> {
+    pub fn raw_invocation(&self) -> D::EExpression<'top> {
+        self.raw_invocation
+    }
+    pub fn invoked_macro(&self) -> MacroRef<'top> {
+        self.invoked_macro
+    }
+}
+
 impl<'top, D: LazyDecoder> Debug for EExpression<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "EExpression {:?}", self.raw_invocation)

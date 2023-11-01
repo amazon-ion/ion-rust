@@ -19,6 +19,7 @@ use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator}
 use crate::result::IonFailure;
 use crate::{IonResult, IonType};
 
+use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::text::matched::MatchedValue;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
@@ -48,6 +49,18 @@ pub struct RawTextEExpression_1_1<'top> {
     pub(crate) arg_expr_cache: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
 }
 
+impl<'top> RawEExpression<'top, TextEncoding_1_1> for RawTextEExpression_1_1<'top> {
+    type RawArgumentsIterator<'a> = RawTextSequenceCacheIterator_1_1<'top> where Self: 'a;
+
+    fn id(&self) -> MacroIdRef<'top> {
+        self.id
+    }
+
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
+        RawTextSequenceCacheIterator_1_1::new(self.arg_expr_cache)
+    }
+}
+
 impl<'data> Debug for RawTextEExpression_1_1<'data> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // This is a text macro and the parser accepted it, so it's valid UTF-8. We can `unwrap()`.
@@ -68,13 +81,6 @@ impl<'top> RawTextEExpression_1_1<'top> {
             id,
             arg_expr_cache: child_expr_cache,
         }
-    }
-
-    /// Returns the slice of the input buffer that contains this macro expansion's arguments.
-    pub(crate) fn arguments_bytes(&self) -> TextBufferView<'top> {
-        const SMILEY_LENGTH: usize = 2; // The opening `(:`
-        self.input
-            .slice_to_end(SMILEY_LENGTH + self.encoded_expr.id_length as usize)
     }
 }
 
@@ -98,7 +104,6 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
         }
     }
 
-    // TODO: Use allocator
     fn next<'top>(
         &'top mut self,
         allocator: &'top BumpAllocator,
@@ -170,6 +175,9 @@ impl<'top> RawTextListIterator_1_1<'top> {
     }
 }
 
+/// Wraps a [`RawTextListIterator_1_1`] (which parses the body of a list) and caches the child
+/// expressions the iterator yields along the way. Finally, returns a `Range<usize>` representing
+/// the span of input bytes that the list occupies.
 pub(crate) struct TextListSpanFinder_1_1<'top> {
     pub(crate) allocator: &'top bumpalo::Bump,
     pub(crate) iterator: RawTextListIterator_1_1<'top>,
@@ -294,6 +302,9 @@ impl<'top> Iterator for RawTextSequenceCacheIterator_1_1<'top> {
     }
 }
 
+/// Wraps a [`RawTextSExpIterator_1_1`] (which parses the body of a sexp) and caches the child
+/// expressions the iterator yields along the way. Finally, returns a `Range<usize>` representing
+/// the span of input bytes that the sexp occupies.
 pub(crate) struct TextSExpSpanFinder_1_1<'top> {
     pub(crate) allocator: &'top bumpalo::Bump,
     pub(crate) iterator: RawTextSExpIterator_1_1<'top>,
@@ -627,6 +638,9 @@ impl<'top> RawTextStructIterator_1_1<'top> {
     }
 }
 
+/// Wraps a [`RawTextStructIterator_1_1`] (which parses the body of a struct) and caches the field
+/// expressions the iterator yields along the way. Finally, returns a `Range<usize>` representing
+/// the span of input bytes that the struct occupies.
 pub(crate) struct TextStructSpanFinder_1_1<'top> {
     pub(crate) allocator: &'top bumpalo::Bump,
     pub(crate) iterator: RawTextStructIterator_1_1<'top>,
@@ -640,14 +654,8 @@ impl<'top> TextStructSpanFinder_1_1<'top> {
         }
     }
 
-    /// Scans ahead to find the end of this s-expression and reports the input span that it occupies.
-    /// As it scans, it records lazy references to the S-expression's child expressions.
-    ///
-    /// The `initial_bytes_skipped` parameter indicates how many bytes of input that represented the
-    /// beginning of the expression are not in the buffer. For plain s-expressions, this will always
-    /// be `1` as they begin with a single open parenthesis `(`. For e-expressions (which are used
-    /// to invoke macros from the data stream), it will always be a minimum of `3`: two bytes for
-    /// the opening `(:` and at least one for the macro identifier. (For example: `(:foo`.)
+    /// Scans ahead to find the end of this struct and reports the input span that it occupies.
+    /// As it scans, it records lazy references to the struct's field expressions.
     pub(crate) fn find_span(
         &self,
     ) -> IonResult<(

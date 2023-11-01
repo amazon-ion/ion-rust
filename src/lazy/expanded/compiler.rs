@@ -15,7 +15,7 @@ use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{IonError, IonResult, SymbolRef};
+use crate::{IonError, IonResult, IonType, SymbolRef};
 
 /// Validates a given TDL expression and compiles it into a [`TemplateMacro`] that can be added
 /// to a [`MacroTable`](crate::lazy::expanded::macro_table::MacroTable).
@@ -28,30 +28,36 @@ impl TemplateCompiler {
     /// ```
     /// and compiles it into a [`TemplateMacro`].
     ///
-    /// The `TemplateMacro` stores a sequence of `TemplateExpansionStep`s that need to be evaluated
+    /// The [`TemplateMacro`] stores a sequence of [`TemplateBodyValueExpr`]s that need to be evaluated
     /// in turn. Each step is either a value literal, a reference to one of the parameters (that is:
     /// a variable), or a macro invocation.
     ///
     /// Expressions that contain other expressions (i.e. containers and macro invocations) each
-    /// store the number of subexpressions that they contain, allowing a reader to skip the entire
+    /// store the range of subexpressions that they contain, allowing a reader to skip the entire
     /// parent expression as desired. For example, in this macro:
     ///
     /// ```ion_1_1
-    /// (macro foo (x y z)
-    ///     [
-    ///         1,
-    ///         (values 2 3)
+    /// (macro foo ()
+    ///                  // Template body expressions
+    ///     [            // #0, contains expressions 1..=4
+    ///         1,       // #1
+    ///         (values  // #2, contains expressions 3..=4
+    ///             2    // #3
+    ///             3    // #4
+    ///         )
     ///     ]
     /// )
     /// ```
     ///
-    /// the step corresponding to `(values 2 3)` would store a `2`, indicating that to skip the
-    /// macro invocation altogether one would need to skip the next two expansion steps. The outer
-    /// list (`[1, (values 2 3)]`) would store a `4`, indicating that it contains the `1`, a macro
-    /// expansion `values`, and the two arguments that belong to `values`.
+    /// the step corresponding to `(values 2 3)` would store the range `3..=4`, indicating that
+    /// it contains template body expressions number `3` and `4`. A reader wishing to skip that call
+    /// to `values` could do so by moving ahead to expression number `5`. The outer
+    /// list (`[1, (values 2 3)]`) would store a `1..=4`, indicating that it contains the `1`,
+    /// the a macro invocation `values`, and the two arguments that belong to `values`.
     ///
     /// The compiler recognizes the `(quote expr1 expr2 [...] exprN)` form, adding each subexpression
-    /// to the template without interpretation.
+    /// to the template without interpretation. `(quote ...)` does not appear in the compiled
+    /// template as there is nothing more for it to do at expansion time.
     pub fn compile_from_text(
         context: EncodingContext,
         expression: &str,
@@ -61,19 +67,29 @@ impl TemplateCompiler {
         let mut reader = LazyTextReader_1_1::new(expression.as_bytes())?;
         let invocation = reader.expect_next()?.read()?.expect_sexp()?;
         let mut values = invocation.iter();
-        // TODO: Enforce 'identifier' syntax subset of symbol
-        // TODO: Syntactic support address IDs like `(:14 ...)`
-        let id = values.next().expect("macro ID")?.read()?.expect_symbol()?;
-        if id != "macro" {
+
+        let macro_keyword = values.next().expect("macro ID")?.read()?.expect_symbol()?;
+        if macro_keyword != "macro" {
             return IonResult::decoding_error(
-                "macro compilation expects a sexp starting with 'macro'",
+                "macro compilation expects a sexp starting with the keyword `macro`",
             );
         }
-        let template_name = values
-            .next()
-            .expect("template name")?
-            .read()?
-            .expect_symbol()?;
+
+        // TODO: Enforce 'identifier' syntax subset of symbol
+        // TODO: Syntactic support address IDs like `(:14 ...)`
+        let template_name = match values.next().expect("template name")?.read()? {
+            ValueRef::Symbol(s) if s.text().is_none() => {
+                return IonResult::decoding_error("$0 is not a valid macro name")
+            }
+            ValueRef::Symbol(s) => Some(s.text().unwrap().to_owned()),
+            ValueRef::Null(IonType::Symbol | IonType::Null) => None,
+            other => {
+                return IonResult::decoding_error(format!(
+                    "expected identifier as macro name but found: {other:?}"
+                ))
+            }
+        };
+
         let params = values
             .next()
             .expect("parameters sexp")?
@@ -106,11 +122,13 @@ impl TemplateCompiler {
             /*is_quoted=*/ false,
             body,
         )?;
-        Ok(TemplateMacro {
-            name: template_name.to_owned(),
+        let template_macro = TemplateMacro {
+            name: template_name,
             signature,
             body: compiled_body,
-        })
+        };
+        println!("{template_macro:?}");
+        Ok(template_macro)
     }
 
     /// Recursively visits all of the expressions in `lazy_value` and adds their corresponding
@@ -261,7 +279,11 @@ impl TemplateCompiler {
         let mut expressions = lazy_sexp.iter();
         // Convert the macro ID (name or address) into an address. If this refers to a macro that
         // doesn't exist yet, this will return an error. This prevents recursion.
-        let macro_address = Self::address_from_id_expr(context, expressions.next())?;
+        // TODO: Consider storing the name of the invoked target macro in the host's definition
+        //       as debug information. The name cannot be stored directly on the
+        //       TemplateBodyMacroInvocation as that would prevent the type from being `Copy`.
+        let (_maybe_name, macro_address) =
+            Self::name_and_address_from_id_expr(context, expressions.next())?;
         let macro_step_index = definition.expressions.len();
         // Assume the macro contains zero argument expressions to start, we'll update
         // this at the end of the function.
@@ -277,7 +299,6 @@ impl TemplateCompiler {
         // Update the macro step to reflect the macro's address and number of child expressions it
         // contains
         let template_macro_invocation = TemplateBodyMacroInvocation::new(
-            macro_step_index,
             macro_address,
             ExprRange::new(arguments_start..arguments_end),
         );
@@ -288,19 +309,21 @@ impl TemplateCompiler {
 
     /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
     /// ID to a macro address.
-    fn address_from_id_expr<'top, D: LazyDecoder>(
+    fn name_and_address_from_id_expr<'top, D: LazyDecoder>(
         context: EncodingContext<'top>,
         id_expr: Option<IonResult<LazyValue<'top, D>>>,
-    ) -> IonResult<usize> {
+    ) -> IonResult<(Option<String>, usize)> {
         match id_expr {
             None => IonResult::decoding_error("found an empty s-expression in an unquoted context"),
             Some(Err(e)) => Err(e),
             Some(Ok(value)) => match value.read()? {
                 ValueRef::Symbol(s) => {
                     if let Some(name) = s.text() {
-                        Ok(context.macro_table.address_for_name(name).ok_or_else(|| {
-                            IonError::decoding_error(format!("unrecognized macro name: {name}"))
-                        })?)
+                        let address =
+                            context.macro_table.address_for_name(name).ok_or_else(|| {
+                                IonError::decoding_error(format!("unrecognized macro name: {name}"))
+                            })?;
+                        Ok((Some(name.to_string()), address))
                     } else {
                         IonResult::decoding_error("macro names must be an identifier")
                     }
@@ -314,7 +337,7 @@ impl TemplateCompiler {
                             "invocation of invalid macro address {address}"
                         ))
                     } else {
-                        Ok(address)
+                        Ok((None, address))
                     }
                 }
                 other => IonResult::decoding_error(format!(
@@ -494,7 +517,6 @@ mod tests {
             definition,
             index,
             TemplateBodyValueExpr::MacroInvocation(TemplateBodyMacroInvocation::new(
-                index,
                 expected_address,
                 // The arg range starts just after the macro invocation step and goes for `expected_num_arguments`.
                 ExprRange::new(index + 1..index + 1 + expected_num_arguments),

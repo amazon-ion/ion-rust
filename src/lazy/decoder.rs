@@ -2,13 +2,9 @@ use std::fmt::Debug;
 
 use bumpalo::Bump as BumpAllocator;
 
-use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
-use crate::lazy::text::raw::v1_1::reader::{
-    MacroIdRef, RawTextEExpression_1_1, RawTextSequenceCacheIterator_1_1,
-};
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef};
 
@@ -175,18 +171,6 @@ pub(crate) mod private {
         /// Returns the field name associated with this value. If the value is not inside a struct,
         /// returns `IllegalOperation`.
         fn field_name(&self) -> IonResult<RawSymbolTokenRef<'top>>;
-    }
-}
-
-impl<'top> RawEExpression<'top, TextEncoding_1_1> for RawTextEExpression_1_1<'top> {
-    type RawArgumentsIterator<'a> = RawTextSequenceCacheIterator_1_1<'top> where Self: 'a;
-
-    fn id(&self) -> MacroIdRef<'top> {
-        self.id
-    }
-
-    fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
-        RawTextSequenceCacheIterator_1_1::new(self.arg_expr_cache)
     }
 }
 

@@ -18,7 +18,7 @@ use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
 use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
 use crate::lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator};
-use crate::lazy::expanded::macro_table::MacroKind;
+use crate::lazy::expanded::macro_table::{MacroKind, MacroRef};
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
     TemplateBodyValueExpr, TemplateBodyVariableReference, TemplateElement, TemplateMacroInvocation,
@@ -89,6 +89,13 @@ impl<'top, D: LazyDecoder> MacroExpr<'top, D> {
             MacroExpr::EExp(e) => MacroExprArgsKind::<'top, D>::EExp(e.arguments()),
         };
         MacroExprArgsIterator { source: args_kind }
+    }
+
+    fn invoked_macro(&self) -> MacroRef<'top> {
+        match &self {
+            MacroExpr::TemplateMacro(m) => m.invoked_macro(),
+            MacroExpr::EExp(e) => e.invoked_macro(),
+        }
     }
 }
 
@@ -298,31 +305,18 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
         Ok(environment)
     }
 
-    /// Finds the macro corresponding to the invocation's ID in the specified encoding context.
-    /// Returns an error if the macro cannot be found. Otherwise, returns a [`MacroExpansion`]
-    /// containing the original invocation and the initialized state needed to evaluate it.
-    fn resolve_invocation(
+    /// Initializes a [`MacroExpansion`] that contains the necessary state to incrementally evaluate
+    /// the provided macro invocation.
+    ///
+    /// Returns an error if the invocation is invalid due to missing or malformed arguments.
+    fn initialize_expansion(
         &mut self,
         context: EncodingContext<'top>,
         invocation_to_evaluate: MacroExpr<'top, D>,
     ) -> IonResult<MacroExpansion<'top, D>> {
-        // Get the `MacroKind` corresponding to the given ID.
-        let macro_kind = match self
-            .context
-            .macro_table
-            .macro_with_id(invocation_to_evaluate.id())
-        {
-            Some(kind) => kind,
-            None => {
-                return IonResult::decoding_error(format!(
-                    "found unrecognized macro id {:?}",
-                    invocation_to_evaluate.id()
-                ))
-            }
-        };
         // Initialize a `MacroExpansionKind` with the state necessary to evaluate the requested
         // macro.
-        let expansion_kind = match macro_kind.kind() {
+        let expansion_kind = match invocation_to_evaluate.invoked_macro().kind() {
             MacroKind::Void => MacroExpansionKind::Void,
             MacroKind::Values => MacroExpansionKind::Values(ValuesExpansion {
                 arguments: invocation_to_evaluate.arguments(self.environment()),
@@ -332,7 +326,7 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
                 invocation_to_evaluate.arguments(self.environment()),
             )),
             MacroKind::Template(template) => {
-                let template_address = macro_kind.address();
+                let template_address = invocation_to_evaluate.invoked_macro().address();
                 let template_ref = TemplateMacroRef::new(template_address, template);
                 let new_environment =
                     self.make_new_evaluation_environment(context, invocation_to_evaluate)?;
@@ -354,7 +348,7 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
         invocation: impl Into<MacroExpr<'top, D>>,
     ) -> IonResult<()> {
         let macro_expr = invocation.into();
-        let expansion = self.resolve_invocation(context, macro_expr)?;
+        let expansion = self.initialize_expansion(context, macro_expr)?;
         self.macro_stack.push(expansion);
         Ok(())
     }
@@ -693,7 +687,7 @@ impl<'top> TemplateExpansion<'top> {
                 *environment.get_expected(variable.signature_index())?
             }
             TemplateBodyValueExpr::MacroInvocation(raw_invocation) => {
-                let invocation = raw_invocation.resolve(self.template, context)?;
+                let invocation = raw_invocation.resolve(self.template, context);
                 self.step_index += invocation.arg_expressions().len();
                 ValueExpr::MacroInvocation(invocation.into())
             }

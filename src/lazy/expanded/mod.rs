@@ -325,7 +325,10 @@ impl<'data, D: LazyDecoder> LazyExpandingReader<'data, D> {
                 SystemStreamItem::VersionMarker(_, _) => {
                     // TODO: Handle version changes 1.0 <-> 1.1
                 }
-                SystemStreamItem::SymbolTable(_) => {}
+                SystemStreamItem::SymbolTable(_) => {
+                    // The symbol table is processed by `next_item` before it is returned. There's
+                    // nothing to be done here.
+                }
                 SystemStreamItem::Value(value) => return Ok(Some(value)),
                 SystemStreamItem::EndOfStream => return Ok(None),
             }
@@ -444,8 +447,8 @@ pub enum ExpandedValueSource<'top, D: LazyDecoder> {
         //       it to `Never` and the compiler can eliminate this code path where applicable.
         // Constructed data stored in the bump allocator. Holding references instead of the data
         // itself allows this type (and those that contain it) to impl `Copy`.
-        &'top [&'top str],
-        &'top ExpandedValueRef<'top, D>,
+        &'top [&'top str],               // Annotations (if any)
+        &'top ExpandedValueRef<'top, D>, // Value
     ),
 }
 

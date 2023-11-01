@@ -13,13 +13,24 @@ use crate::lazy::expanded::{
 use crate::result::IonFailure;
 use crate::{IonError, IonResult, IonType};
 
+/// A sequence of not-yet-evaluated expressions passed as arguments to a macro invocation.
+///
+/// The number of expressions is required to match the number of parameters in the macro's signature,
+/// and the order of the expressions corresponds to the order of the parameters.
+///
+/// For example, given this macro definition:
+/// ```ion_1_1
+///     (macro foo (x y z) [x, y, z])
+/// ```
+/// and this invocation:
+/// ```ion_1_1
+///     (:foo 1 2 (:values 3))
+/// ```
+/// The `Environment` would contain the expressions `1`, `2` and `3`, corresponding to parameters
+/// `x`, `y`, and `z` respectively.
 #[derive(Copy, Clone, Debug)]
 pub struct Environment<'top, D: LazyDecoder> {
     expressions: &'top [ValueExpr<'top, D>],
-}
-
-pub const fn empty_args<'top, D: LazyDecoder>() -> &'top [ValueExpr<'top, D>] {
-    &[]
 }
 
 impl<'top, D: LazyDecoder> Environment<'top, D> {
@@ -43,19 +54,22 @@ impl<'top, D: LazyDecoder> Environment<'top, D> {
             })
     }
 
+    /// Returns an empty environment without performing any allocations. This is used for evaluating
+    /// e-expressions, which never have named parameters.
     pub fn empty() -> Environment<'top, D> {
-        Environment {
-            expressions: empty_args(),
-        }
+        Environment { expressions: &[] }
     }
     pub fn expressions(&self) -> &'top [ValueExpr<'top, D>] {
         self.expressions
     }
 }
 
-#[derive(Clone)]
+/// The data source for a [`LazyExpandedList`].
+#[derive(Clone, Copy)]
 pub enum ExpandedListSource<'top, D: LazyDecoder> {
+    /// The list was a value literal in the input stream.
     ValueLiteral(D::List<'top>),
+    /// The list was part of a template definition.
     Template(
         Environment<'top, D>,
         TemplateMacroRef<'top>,
@@ -65,7 +79,9 @@ pub enum ExpandedListSource<'top, D: LazyDecoder> {
     // TODO: Constructed
 }
 
-#[derive(Clone)]
+/// A list that may have come from either a value literal in the input stream or from evaluating
+/// a template.
+#[derive(Clone, Copy)]
 pub struct LazyExpandedList<'top, D: LazyDecoder> {
     pub(crate) context: EncodingContext<'top>,
     pub(crate) source: ExpandedListSource<'top, D>,
@@ -138,6 +154,7 @@ impl<'top, D: LazyDecoder> LazyExpandedList<'top, D> {
     }
 }
 
+/// The source of child values iterated over by an [`ExpandedListIterator`].
 pub enum ExpandedListIteratorSource<'top, D: LazyDecoder> {
     ValueLiteral(
         // Giving the list iterator its own evaluator means that we can abandon the iterator
@@ -149,6 +166,7 @@ pub enum ExpandedListIteratorSource<'top, D: LazyDecoder> {
     // TODO: Constructed
 }
 
+/// Iterates over the child values of a [`LazyExpandedList`].
 pub struct ExpandedListIterator<'top, D: LazyDecoder> {
     context: EncodingContext<'top>,
     source: ExpandedListIteratorSource<'top, D>,
@@ -167,9 +185,12 @@ impl<'top, D: LazyDecoder> Iterator for ExpandedListIterator<'top, D> {
     }
 }
 
-#[derive(Clone)]
+/// The data source for a [`LazyExpandedSExp`].
+#[derive(Clone, Copy)]
 pub enum ExpandedSExpSource<'top, D: LazyDecoder> {
+    /// The SExp was a value literal in the input stream.
     ValueLiteral(D::SExp<'top>),
+    /// The SExp was part of a template definition.
     Template(
         Environment<'top, D>,
         TemplateMacroRef<'top>,
@@ -178,7 +199,9 @@ pub enum ExpandedSExpSource<'top, D: LazyDecoder> {
     ),
 }
 
-#[derive(Clone)]
+/// An s-expression that may have come from either a value literal in the input stream or from
+/// evaluating a template.
+#[derive(Clone, Copy)]
 pub struct LazyExpandedSExp<'top, D: LazyDecoder> {
     pub(crate) source: ExpandedSExpSource<'top, D>,
     pub(crate) context: EncodingContext<'top>,
@@ -250,6 +273,7 @@ impl<'top, D: LazyDecoder> LazyExpandedSExp<'top, D> {
     }
 }
 
+/// The source of child values iterated over by an [`ExpandedSExpIterator`].
 pub enum ExpandedSExpIteratorSource<'top, D: LazyDecoder> {
     ValueLiteral(
         // Giving the sexp iterator its own evaluator means that we can abandon the iterator
@@ -261,6 +285,7 @@ pub enum ExpandedSExpIteratorSource<'top, D: LazyDecoder> {
     // TODO: Constructed
 }
 
+/// Iterates over the child values of a [`LazyExpandedSExp`].
 pub struct ExpandedSExpIterator<'top, D: LazyDecoder> {
     context: EncodingContext<'top>,
     source: ExpandedSExpIteratorSource<'top, D>,
