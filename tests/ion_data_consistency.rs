@@ -20,13 +20,13 @@ fn contains_path(paths: &[&str], file_name: &str) -> bool {
 }
 
 const SKIP_LIST: &[&str] = &[
-    "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
-    "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
-    "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
+    "ion-tests/iontestdata_1_0/good/equivs/localSymbolTableAppend.ion",
+    "ion-tests/iontestdata_1_0/good/equivs/localSymbolTableNullSlots.ion",
+    "ion-tests/iontestdata_1_0/good/equivs/nonIVMNoOps.ion",
 ];
 
-#[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
-#[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
+#[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.ion")]
+#[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.10n")]
 fn ion_data_eq_ord_consistency(file_name: &str) {
     // Best-effort tests to check that Eq and Ord are consistent.
 
