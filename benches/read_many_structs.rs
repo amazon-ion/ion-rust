@@ -5,9 +5,8 @@ use ion_rs::lazy::r#struct::LazyStruct;
 use ion_rs::lazy::reader::{LazyApplicationReader, LazyTextReader_1_1};
 use ion_rs::lazy::value::LazyValue;
 use ion_rs::lazy::value_ref::ValueRef;
-use ion_rs::ElementReader;
-use ion_rs::IonEq;
-use ion_rs::{Element, Format, IonReader, IonResult, TextKind};
+use ion_rs::{Element, Format, IonResult, TextKind};
+use ion_rs::{ElementReader, IonData};
 
 fn rewrite_as_compact_text(pretty_ion: &str) -> IonResult<String> {
     let values = Element::read_all(pretty_ion).unwrap();
@@ -62,7 +61,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     reader_1_1.register_template(template_text).unwrap();
     let seq_1_1 = reader_1_1.read_all_elements().unwrap();
     assert!(
-        seq_1_0.ion_eq(&seq_1_1),
+        IonData::eq(&seq_1_0, &seq_1_1),
         "Ion 1.0 sequence was not equal to the Ion 1.1 sequence"
     );
 

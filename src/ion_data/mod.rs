@@ -1,4 +1,4 @@
-pub(crate) mod ion_eq;
+mod ion_eq;
 mod ion_ord;
 
 use std::cmp::Ordering;
