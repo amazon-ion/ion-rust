@@ -700,7 +700,7 @@ impl<'top> TemplateExpansion<'top> {
 #[cfg(test)]
 mod tests {
     use crate::lazy::reader::LazyTextReader_1_1;
-    use crate::{Element, ElementReader, IonResult};
+    use crate::{ElementReader, IonResult};
 
     /// Reads `input` and `expected` using an expanding reader and asserts that their output
     /// is the same.
@@ -733,14 +733,10 @@ mod tests {
     ) -> IonResult<()> {
         let mut reader = LazyTextReader_1_1::new(invocation.as_bytes())?;
         let _macro_address = reader.register_template(template_definition)?;
-        let actuals = reader.read_all_elements()?;
+        let actual = reader.read_all_elements()?;
         let mut expected_reader = LazyTextReader_1_1::new(expected.as_bytes())?;
-        for actual in actuals {
-            // Read the next expected value as a raw value, then wrap it in an `ExpandedRawValueRef`
-            // so it can be directly compared to the actual.
-            let expected: Element = expected_reader.next()?.unwrap().read()?.try_into()?;
-            assert_eq!(actual, expected);
-        }
+        let expected = expected_reader.read_all_elements()?;
+        assert_eq!(actual, expected);
         assert!(matches!(expected_reader.next(), Ok(None)));
 
         Ok(())
@@ -755,6 +751,45 @@ mod tests {
             "#,
             r#"
                 1 2 3 4 5
+            "#,
+        )
+    }
+
+    #[test]
+    fn it_takes_all_kinds() -> IonResult<()> {
+        eval_template_invocation(
+            r#"(macro foo () 
+                (values 
+                    null 
+                    true
+                    1
+                    1e0
+                    1.0
+                    2023T
+                    "1"
+                    (quote '1') // TODO: Only treat identifiers as variables
+                    {{MQ==}}
+                    {{"1"}}
+                    [1]
+                    (quote (1)) // Prevent the sexp from being considered a macro invocation
+                    {'1':1}))"#,
+            r#"
+                (:foo)
+            "#,
+            r#"
+                null 
+                true
+                1
+                1e0
+                1.0
+                2023T
+                "1"
+                '1'
+                {{MQ==}}
+                {{"1"}}
+                [1]
+                (1)
+                {'1':1}
             "#,
         )
     }
@@ -937,6 +972,19 @@ mod tests {
                             "2022-12-07T20:59:59.744000Z",
                         ]
                     }
+            "#,
+        )
+    }
+
+    #[test]
+    fn annotated_template_value() -> IonResult<()> {
+        eval_template_invocation(
+            "(macro foo () bar::baz::quux::5)",
+            r#"
+                (:foo)
+            "#,
+            r#"
+                bar::baz::quux::5
             "#,
         )
     }
