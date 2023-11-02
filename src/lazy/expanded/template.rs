@@ -104,10 +104,7 @@ impl Debug for TemplateMacro {
 
 impl TemplateMacro {
     pub fn name(&self) -> &str {
-        self.name
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or("<anonymous>")
+        self.name.as_deref().unwrap_or("<anonymous>")
     }
     pub fn signature(&self) -> &MacroSignature {
         &self.signature
@@ -555,7 +552,7 @@ impl TemplateBodyValueExpr {
             let value = &expressions[expr_index + 1];
             writeln!(f, "{indentation}'{name}':")?;
             indentation.push_str("    ");
-            expr_index += 1 + Self::fmt_expr(f, indentation, host_template, &value)?;
+            expr_index += 1 + Self::fmt_expr(f, indentation, host_template, value)?;
             indentation.truncate(indentation.len() - 4);
         }
         indentation.truncate(indentation.len() - 4);

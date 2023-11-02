@@ -204,6 +204,7 @@ pub use element::{
     reader::ElementReader, writer::ElementWriter, Annotations, Element, IntoAnnotatedElement,
     IntoAnnotations, Sequence, Value,
 };
+pub use ion_data::ion_eq::IonEq;
 pub use ion_data::IonData;
 pub use symbol_ref::SymbolRef;
 #[doc(inline)]

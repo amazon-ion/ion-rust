@@ -127,7 +127,6 @@ impl TemplateCompiler {
             signature,
             body: compiled_body,
         };
-        println!("{template_macro:?}");
         Ok(template_macro)
     }
 

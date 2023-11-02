@@ -2,24 +2,32 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ion_rs::lazy::decoder::LazyDecoder;
 use ion_rs::lazy::encoding::TextEncoding_1_1;
 use ion_rs::lazy::r#struct::LazyStruct;
-use ion_rs::lazy::reader::{LazyApplicationReader, LazyTextReader_1_0, LazyTextReader_1_1};
+use ion_rs::lazy::reader::{LazyApplicationReader, LazyTextReader_1_1};
 use ion_rs::lazy::value::LazyValue;
 use ion_rs::lazy::value_ref::ValueRef;
-use ion_rs::IonResult;
-use nom::AsBytes;
+use ion_rs::ElementReader;
+use ion_rs::IonEq;
+use ion_rs::{Element, Format, IonReader, IonResult, TextKind};
+
+fn rewrite_as_compact_text(pretty_ion: &str) -> IonResult<String> {
+    let values = Element::read_all(pretty_ion).unwrap();
+    let mut buffer = Vec::new();
+    Element::write_all_as(&values, Format::Text(TextKind::Compact), &mut buffer)?;
+    Ok(String::from_utf8(buffer).unwrap())
+}
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     const NUM_VALUES: usize = 10_000;
-    let data_1_0 = concat!("{",
-            "'timestamp': 1670446800245,",
-            "'threadId': 418,",
-            r#"'threadName': "scheduler-thread-6","#,
-            r#"'loggerName': "com.example.organization.product.component.ClassName","#,
-            "'logLevel': INFO,",
-            r#"'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}","#,
-            r#"'parameters': ["SUCCESS","example-client-1","aws-us-east-5f-18b4fa","region 4","2022-12-07T20:59:59.744000Z",],"#,
-        "}"
-    ).repeat(NUM_VALUES);
+    let pretty_data_1_0 = r#"{
+            'timestamp': 1670446800245,
+            'threadId': 418,
+            'threadName': "scheduler-thread-6",
+            'loggerName': "com.example.organization.product.component.ClassName",
+            'logLevel': INFO,
+            'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
+            'parameters': ["SUCCESS","example-client-1","aws-us-east-5f-18b4fa","region 4","2022-12-07T20:59:59.744000Z",],
+        }"#.repeat(NUM_VALUES);
+    let data_1_0 = rewrite_as_compact_text(&pretty_data_1_0).unwrap();
     let template_text = r#"
             (macro event (timestamp thread_id thread_name client_num host_id parameters)
                 {
@@ -43,6 +51,20 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     println!("Ion 1.0 data size: {} bytes", data_1_0.len());
     println!("Ion 1.1 data size: {} bytes", data_1_1.len());
+
+    // As a sanity check, materialize the data from both the Ion 1.0 and 1.1 streams and make sure
+    // that they are equivalent before we start measuring the time needed to read them.
+    let seq_1_0 = LazyTextReader_1_1::new(data_1_0.as_bytes())
+        .unwrap()
+        .read_all_elements()
+        .unwrap();
+    let mut reader_1_1 = LazyTextReader_1_1::new(data_1_1.as_bytes()).unwrap();
+    reader_1_1.register_template(template_text).unwrap();
+    let seq_1_1 = reader_1_1.read_all_elements().unwrap();
+    assert!(
+        seq_1_0.ion_eq(&seq_1_1),
+        "Ion 1.0 sequence was not equal to the Ion 1.1 sequence"
+    );
 
     fn count_value_and_children<D: LazyDecoder>(lazy_value: &LazyValue<'_, D>) -> IonResult<usize> {
         use ValueRef::*;
@@ -93,6 +115,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             while let Some(item) = reader.next().unwrap() {
                 num_values += count_value_and_children(&item).unwrap();
             }
+            let _ = black_box(num_values);
         })
     });
     c.bench_function("text 1.1: scan all", |b| {
@@ -112,6 +135,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             while let Some(item) = reader.next().unwrap() {
                 num_values += count_value_and_children(&item).unwrap();
             }
+            let _ = black_box(num_values);
         })
     });
 }
