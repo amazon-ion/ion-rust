@@ -10,24 +10,24 @@ use std::fmt::{Debug, Formatter};
 /// or text literal). If it is a symbol ID, a symbol table will be needed to find its associated text.
 ///
 /// For a resolved version of this type, see [crate::lazy::value_ref::ValueRef].
-pub enum RawValueRef<'data, D: LazyDecoder<'data>> {
+pub enum RawValueRef<'top, D: LazyDecoder> {
     Null(IonType),
     Bool(bool),
     Int(Int),
     Float(f64),
     Decimal(Decimal),
     Timestamp(Timestamp),
-    String(StrRef<'data>),
-    Symbol(RawSymbolTokenRef<'data>),
-    Blob(BytesRef<'data>),
-    Clob(BytesRef<'data>),
-    SExp(D::SExp),
-    List(D::List),
-    Struct(D::Struct),
+    String(StrRef<'top>),
+    Symbol(RawSymbolTokenRef<'top>),
+    Blob(BytesRef<'top>),
+    Clob(BytesRef<'top>),
+    SExp(D::SExp<'top>),
+    List(D::List<'top>),
+    Struct(D::Struct<'top>),
 }
 
 // Provides equality for scalar types, but not containers.
-impl<'data, D: LazyDecoder<'data>> PartialEq for RawValueRef<'data, D> {
+impl<'top, D: LazyDecoder> PartialEq for RawValueRef<'top, D> {
     fn eq(&self, other: &Self) -> bool {
         use RawValueRef::*;
         match (self, other) {
@@ -48,7 +48,7 @@ impl<'data, D: LazyDecoder<'data>> PartialEq for RawValueRef<'data, D> {
     }
 }
 
-impl<'data, D: LazyDecoder<'data>> Debug for RawValueRef<'data, D> {
+impl<'top, D: LazyDecoder> Debug for RawValueRef<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             RawValueRef::Null(ion_type) => write!(f, "null.{}", ion_type),
@@ -68,7 +68,7 @@ impl<'data, D: LazyDecoder<'data>> Debug for RawValueRef<'data, D> {
     }
 }
 
-impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
+impl<'top, D: LazyDecoder> RawValueRef<'top, D> {
     pub fn expect_null(self) -> IonResult<IonType> {
         if let RawValueRef::Null(ion_type) = self {
             Ok(ion_type)
@@ -125,7 +125,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_string(self) -> IonResult<StrRef<'data>> {
+    pub fn expect_string(self) -> IonResult<StrRef<'top>> {
         if let RawValueRef::String(s) = self {
             Ok(s)
         } else {
@@ -133,7 +133,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_symbol(self) -> IonResult<RawSymbolTokenRef<'data>> {
+    pub fn expect_symbol(self) -> IonResult<RawSymbolTokenRef<'top>> {
         if let RawValueRef::Symbol(s) = self {
             Ok(s.clone())
         } else {
@@ -141,7 +141,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_blob(self) -> IonResult<BytesRef<'data>> {
+    pub fn expect_blob(self) -> IonResult<BytesRef<'top>> {
         if let RawValueRef::Blob(b) = self {
             Ok(b)
         } else {
@@ -149,7 +149,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_clob(self) -> IonResult<BytesRef<'data>> {
+    pub fn expect_clob(self) -> IonResult<BytesRef<'top>> {
         if let RawValueRef::Clob(c) = self {
             Ok(c)
         } else {
@@ -157,7 +157,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_list(self) -> IonResult<D::List> {
+    pub fn expect_list(self) -> IonResult<D::List<'top>> {
         if let RawValueRef::List(s) = self {
             Ok(s)
         } else {
@@ -165,7 +165,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_sexp(self) -> IonResult<D::SExp> {
+    pub fn expect_sexp(self) -> IonResult<D::SExp<'top>> {
         if let RawValueRef::SExp(s) = self {
             Ok(s)
         } else {
@@ -173,7 +173,7 @@ impl<'data, D: LazyDecoder<'data>> RawValueRef<'data, D> {
         }
     }
 
-    pub fn expect_struct(self) -> IonResult<D::Struct> {
+    pub fn expect_struct(self) -> IonResult<D::Struct<'top>> {
         if let RawValueRef::Struct(s) = self {
             Ok(s)
         } else {

@@ -15,7 +15,7 @@ use std::fmt::{Debug, Formatter};
 /// Unlike a [Value], a `ValueRef` avoids heap allocation whenever possible, choosing to point instead
 /// to existing resources. Numeric values and timestamps are stored within the `ValueRef` itself.
 /// Text values and lobs hold references to either a slice of input data or text in the symbol table.
-pub enum ValueRef<'top, 'data, D: LazyDecoder<'data>> {
+pub enum ValueRef<'top, D: LazyDecoder> {
     Null(IonType),
     Bool(bool),
     Int(Int),
@@ -26,12 +26,12 @@ pub enum ValueRef<'top, 'data, D: LazyDecoder<'data>> {
     Symbol(SymbolRef<'top>),
     Blob(BytesRef<'top>),
     Clob(BytesRef<'top>),
-    SExp(LazySExp<'top, 'data, D>),
-    List(LazyList<'top, 'data, D>),
-    Struct(LazyStruct<'top, 'data, D>),
+    SExp(LazySExp<'top, D>),
+    List(LazyList<'top, D>),
+    Struct(LazyStruct<'top, D>),
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> PartialEq for ValueRef<'top, 'data, D> {
+impl<'top, D: LazyDecoder> PartialEq for ValueRef<'top, D> {
     fn eq(&self, other: &Self) -> bool {
         use ValueRef::*;
         match (self, other) {
@@ -52,7 +52,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> PartialEq for ValueRef<'top, 'data, D> 
     }
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> Debug for ValueRef<'top, 'data, D> {
+impl<'top, D: LazyDecoder> Debug for ValueRef<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ValueRef::*;
         match self {
@@ -73,10 +73,10 @@ impl<'top, 'data, D: LazyDecoder<'data>> Debug for ValueRef<'top, 'data, D> {
     }
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<ValueRef<'top, 'data, D>> for Value {
+impl<'top, D: LazyDecoder> TryFrom<ValueRef<'top, D>> for Value {
     type Error = IonError;
 
-    fn try_from(value: ValueRef<'top, 'data, D>) -> Result<Self, Self::Error> {
+    fn try_from(value: ValueRef<'top, D>) -> Result<Self, Self::Error> {
         use ValueRef::*;
         let value = match value {
             Null(ion_type) => Value::Null(ion_type),
@@ -97,16 +97,16 @@ impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<ValueRef<'top, 'data, D>> for V
     }
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> TryFrom<ValueRef<'top, 'data, D>> for Element {
+impl<'top, D: LazyDecoder> TryFrom<ValueRef<'top, D>> for Element {
     type Error = IonError;
 
-    fn try_from(value_ref: ValueRef<'top, 'data, D>) -> Result<Self, Self::Error> {
+    fn try_from(value_ref: ValueRef<'top, D>) -> Result<Self, Self::Error> {
         let value: Value = value_ref.try_into()?;
         Ok(value.into())
     }
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
+impl<'top, D: LazyDecoder> ValueRef<'top, D> {
     pub fn expect_null(self) -> IonResult<IonType> {
         if let ValueRef::Null(ion_type) = self {
             Ok(ion_type)
@@ -195,7 +195,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_list(self) -> IonResult<LazyList<'top, 'data, D>> {
+    pub fn expect_list(self) -> IonResult<LazyList<'top, D>> {
         if let ValueRef::List(s) = self {
             Ok(s)
         } else {
@@ -203,7 +203,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_sexp(self) -> IonResult<LazySExp<'top, 'data, D>> {
+    pub fn expect_sexp(self) -> IonResult<LazySExp<'top, D>> {
         if let ValueRef::SExp(s) = self {
             Ok(s)
         } else {
@@ -211,7 +211,7 @@ impl<'top, 'data, D: LazyDecoder<'data>> ValueRef<'top, 'data, D> {
         }
     }
 
-    pub fn expect_struct(self) -> IonResult<LazyStruct<'top, 'data, D>> {
+    pub fn expect_struct(self) -> IonResult<LazyStruct<'top, D>> {
         if let ValueRef::Struct(s) = self {
             Ok(s)
         } else {

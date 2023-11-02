@@ -217,19 +217,24 @@ impl<'data, T> ToIteratorOutput<'data, T> for IonResult<(TextBufferView<'data>, 
 /// or `nom::Err<IonParseError>`) into a general-purpose `IonResult`. If the implementing type
 /// does not have its own `label` and `input`, the specified values will be used.
 pub(crate) trait AddContext<'data, T> {
-    fn with_context(
+    fn with_context<'a>(
         self,
         label: impl Into<Cow<'static, str>>,
         input: TextBufferView<'data>,
-    ) -> IonResult<(TextBufferView<'data>, T)>;
+    ) -> IonResult<(TextBufferView<'a>, T)>
+    where
+        'data: 'a;
 }
 
 impl<'data, T> AddContext<'data, T> for nom::Err<IonParseError<'data>> {
-    fn with_context(
+    fn with_context<'a>(
         self,
         label: impl Into<Cow<'static, str>>,
         input: TextBufferView<'data>,
-    ) -> IonResult<(TextBufferView<'data>, T)> {
+    ) -> IonResult<(TextBufferView<'a>, T)>
+    where
+        'data: 'a,
+    {
         let ipe = IonParseError::from(self);
         ipe.with_context(label, input)
     }
@@ -237,11 +242,14 @@ impl<'data, T> AddContext<'data, T> for nom::Err<IonParseError<'data>> {
 
 // Turns an IonParseError into an IonResult
 impl<'data, T> AddContext<'data, T> for IonParseError<'data> {
-    fn with_context(
+    fn with_context<'a>(
         self,
         label: impl Into<Cow<'static, str>>,
         input: TextBufferView<'data>,
-    ) -> IonResult<(TextBufferView<'data>, T)> {
+    ) -> IonResult<(TextBufferView<'a>, T)>
+    where
+        'data: 'a,
+    {
         match self {
             IonParseError::Incomplete => IonResult::incomplete(label, input.offset()),
             IonParseError::Invalid(invalid_input_error) => Err(IonError::from(invalid_input_error)),
@@ -250,11 +258,14 @@ impl<'data, T> AddContext<'data, T> for IonParseError<'data> {
 }
 
 impl<'data, T> AddContext<'data, T> for IonParseResult<'data, T> {
-    fn with_context(
+    fn with_context<'a>(
         self,
         label: impl Into<Cow<'static, str>>,
         input: TextBufferView<'data>,
-    ) -> IonResult<(TextBufferView<'data>, T)> {
+    ) -> IonResult<(TextBufferView<'a>, T)>
+    where
+        'data: 'a,
+    {
         match self {
             // No change needed in the ok case
             Ok(matched) => Ok(matched),

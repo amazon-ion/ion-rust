@@ -1,38 +1,37 @@
 use std::fmt::Debug;
 
-use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::macro_evaluator::MacroInvocation;
-use crate::lazy::raw_stream_item::RawStreamItem;
+use bumpalo::Bump as BumpAllocator;
+
+use crate::lazy::expanded::macro_evaluator::RawEExpression;
+use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
-use crate::lazy::text::raw::v1_1::reader::{
-    MacroIdRef, RawTextMacroInvocation, RawTextSExpIterator_1_1,
-};
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef};
 
 /// A family of types that collectively comprise the lazy reader API for an Ion serialization
 /// format. These types operate at the 'raw' level; they do not attempt to resolve symbols
 /// using the active symbol table.
-pub trait LazyDecoder<'data>: Sized + Debug + Clone
-where
-    Self: 'data,
-{
+// Implementations of this trait are typically unit structs that are never instantiated.
+// However, many types are generic over some `D: LazyDecoder`, and having this trait
+// extend 'static, Sized, Debug, Clone and Copy means that those types can #[derive(...)]
+// those traits themselves without boilerplate `where` clauses.
+pub trait LazyDecoder: 'static + Sized + Debug + Clone + Copy {
     /// A lazy reader that yields [`Self::Value`]s representing the top level values in its input.
-    type Reader: LazyRawReader<'data, Self>;
+    type Reader<'data>: LazyRawReader<'data, Self>;
     /// A value (at any depth) in the input. This can be further inspected to access either its
     /// scalar data or, if it is a container, to view it as [`Self::List`], [`Self::SExp`] or
     /// [`Self::Struct`].  
-    type Value: LazyRawValue<'data, Self>;
+    type Value<'top>: LazyRawValue<'top, Self>;
     /// A list whose child values may be accessed iteratively.
-    type SExp: LazyRawSequence<'data, Self>;
+    type SExp<'top>: LazyRawSequence<'top, Self>;
     /// An s-expression whose child values may be accessed iteratively.
-    type List: LazyRawSequence<'data, Self>;
+    type List<'top>: LazyRawSequence<'top, Self>;
     /// A struct whose fields may be accessed iteratively or by field name.
-    type Struct: LazyRawStruct<'data, Self>;
+    type Struct<'top>: LazyRawStruct<'top, Self>;
     /// An iterator over the annotations on the input stream's values.
-    type AnnotationsIterator: Iterator<Item = IonResult<RawSymbolTokenRef<'data>>>;
+    type AnnotationsIterator<'top>: Iterator<Item = IonResult<RawSymbolTokenRef<'top>>>;
     /// An e-expression invoking a macro. (Ion 1.1+)
-    type MacroInvocation: MacroInvocation<'data, Self>;
+    type EExpression<'top>: RawEExpression<'top, Self>;
 }
 
 /// An expression found in value position in either serialized Ion or a template.
@@ -41,7 +40,7 @@ where
 ///
 /// When working with `RawValueExpr`s that always use a given decoder's `Value` and
 /// `MacroInvocation` associated types, consider using [`LazyRawValueExpr`] instead.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RawValueExpr<V, M> {
     /// A value literal. For example: `5`, `foo`, or `"hello"` in text.
     ValueLiteral(V),
@@ -60,8 +59,8 @@ pub enum RawValueExpr<V, M> {
 ///
 /// For a version of this type that is not constrained to a particular encoding, see
 /// [`RawValueExpr`].
-pub type LazyRawValueExpr<'data, D> =
-    RawValueExpr<<D as LazyDecoder<'data>>::Value, <D as LazyDecoder<'data>>::MacroInvocation>;
+pub type LazyRawValueExpr<'top, D> =
+    RawValueExpr<<D as LazyDecoder>::Value<'top>, <D as LazyDecoder>::EExpression<'top>>;
 
 impl<V: Debug, M: Debug> RawValueExpr<V, M> {
     pub fn expect_value(self) -> IonResult<V> {
@@ -89,9 +88,9 @@ impl<V: Debug, M: Debug> RawValueExpr<V, M> {
 ///   * a name/value pair (as it is in Ion 1.0)
 ///   * a name/e-expression pair
 ///   * an e-expression
-#[derive(Debug)]
-pub enum RawFieldExpr<'name, V, M> {
-    NameValuePair(RawSymbolTokenRef<'name>, RawValueExpr<V, M>),
+#[derive(Clone, Debug)]
+pub enum RawFieldExpr<'top, V, M> {
+    NameValuePair(RawSymbolTokenRef<'top>, RawValueExpr<V, M>),
     MacroInvocation(M),
 }
 
@@ -101,11 +100,8 @@ pub enum RawFieldExpr<'name, V, M> {
 
 /// An item found in struct field position an Ion data stream written in the encoding represented
 /// by the LazyDecoder `D`.
-pub type LazyRawFieldExpr<'data, D> = RawFieldExpr<
-    'data,
-    <D as LazyDecoder<'data>>::Value,
-    <D as LazyDecoder<'data>>::MacroInvocation,
->;
+pub type LazyRawFieldExpr<'top, D> =
+    RawFieldExpr<'top, <D as LazyDecoder>::Value<'top>, <D as LazyDecoder>::EExpression<'top>>;
 
 impl<'name, V: Debug, M: Debug> RawFieldExpr<'name, V, M> {
     pub fn expect_name_value(self) -> IonResult<(RawSymbolTokenRef<'name>, V)> {
@@ -157,77 +153,69 @@ pub(crate) mod private {
 
     use super::LazyDecoder;
 
-    pub trait LazyRawFieldPrivate<'data, D: LazyDecoder<'data>> {
+    pub trait LazyRawFieldPrivate<'top, D: LazyDecoder> {
         /// Converts the `LazyRawField` impl to a `LazyRawValue` impl.
         // At the moment, `LazyRawField`s are just thin wrappers around a `LazyRawValue` that can
         // safely assume that the value has a field name associated with it. This method allows
         // us to convert from one to the other when needed.
-        fn into_value(self) -> D::Value;
+        fn into_value(self) -> D::Value<'top>;
     }
 
-    pub trait LazyContainerPrivate<'data, D: LazyDecoder<'data>> {
+    pub trait LazyContainerPrivate<'top, D: LazyDecoder> {
         /// Constructs a new lazy raw container from a lazy raw value that has been confirmed to be
         /// of the correct type.
-        fn from_value(value: D::Value) -> Self;
+        fn from_value(value: D::Value<'top>) -> Self;
     }
 
-    pub trait LazyRawValuePrivate<'data>: RawValueLiteral {
+    pub trait LazyRawValuePrivate<'top>: RawValueLiteral {
         /// Returns the field name associated with this value. If the value is not inside a struct,
         /// returns `IllegalOperation`.
-        fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>>;
+        fn field_name(&self) -> IonResult<RawSymbolTokenRef<'top>>;
     }
 }
 
-impl<'data> MacroInvocation<'data, TextEncoding_1_1> for RawTextMacroInvocation<'data> {
-    type ArgumentExpr = LazyRawValueExpr<'data, TextEncoding_1_1>;
-    type ArgumentsIterator = RawTextSExpIterator_1_1<'data>;
-
-    fn id(&self) -> MacroIdRef {
-        self.id
-    }
-
-    fn arguments(&self) -> Self::ArgumentsIterator {
-        RawTextSExpIterator_1_1::new(self.arguments_bytes())
-    }
-}
-
-pub trait LazyRawReader<'data, D: LazyDecoder<'data>> {
+pub trait LazyRawReader<'data, D: LazyDecoder> {
     fn new(data: &'data [u8]) -> Self;
-    fn next<'a>(&'a mut self) -> IonResult<RawStreamItem<'data, D>>;
+    fn next<'top>(
+        &'top mut self,
+        allocator: &'top BumpAllocator,
+    ) -> IonResult<LazyRawStreamItem<'top, D>>
+    where
+        'data: 'top;
 }
 
-pub trait LazyRawValue<'data, D: LazyDecoder<'data>>:
-    private::LazyRawValuePrivate<'data> + Copy + Clone + Debug
+pub trait LazyRawValue<'top, D: LazyDecoder>:
+    private::LazyRawValuePrivate<'top> + Copy + Clone + Debug
 {
     fn ion_type(&self) -> IonType;
     fn is_null(&self) -> bool;
-    fn annotations(&self) -> D::AnnotationsIterator;
-    fn read(&self) -> IonResult<RawValueRef<'data, D>>;
+    fn annotations(&self) -> D::AnnotationsIterator<'top>;
+    fn read(&self) -> IonResult<RawValueRef<'top, D>>;
 }
 
-pub trait LazyRawSequence<'data, D: LazyDecoder<'data>>:
-    private::LazyContainerPrivate<'data, D> + Debug + Copy + Clone
+pub trait LazyRawSequence<'top, D: LazyDecoder>:
+    private::LazyContainerPrivate<'top, D> + Debug + Copy + Clone
 {
-    type Iterator: Iterator<Item = IonResult<LazyRawValueExpr<'data, D>>>;
-    fn annotations(&self) -> D::AnnotationsIterator;
+    type Iterator: Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>;
+    fn annotations(&self) -> D::AnnotationsIterator<'top>;
     fn ion_type(&self) -> IonType;
     fn iter(&self) -> Self::Iterator;
-    fn as_value(&self) -> D::Value;
+    fn as_value(&self) -> D::Value<'top>;
 }
 
-pub trait LazyRawStruct<'data, D: LazyDecoder<'data>>:
-    private::LazyContainerPrivate<'data, D> + Debug + Copy + Clone
+pub trait LazyRawStruct<'top, D: LazyDecoder>:
+    private::LazyContainerPrivate<'top, D> + Debug + Copy + Clone
 {
-    type Iterator: Iterator<Item = IonResult<LazyRawFieldExpr<'data, D>>>;
+    type Iterator: Iterator<Item = IonResult<LazyRawFieldExpr<'top, D>>>;
 
-    fn annotations(&self) -> D::AnnotationsIterator;
+    fn annotations(&self) -> D::AnnotationsIterator<'top>;
 
     fn iter(&self) -> Self::Iterator;
 }
 
-pub trait LazyRawField<'data, D: LazyDecoder<'data>>:
-    private::LazyRawFieldPrivate<'data, D> + Debug
+pub trait LazyRawField<'top, D: LazyDecoder>:
+    private::LazyRawFieldPrivate<'top, D> + Debug
 {
-    fn name(&self) -> RawSymbolTokenRef<'data>;
-    fn value(&self) -> D::Value;
+    fn name(&self) -> RawSymbolTokenRef<'top>;
+    fn value(&self) -> D::Value<'top>;
 }

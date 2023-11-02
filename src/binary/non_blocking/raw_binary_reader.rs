@@ -299,7 +299,7 @@ impl Container {
 /// A raw binary reader that pulls input bytes from a fixed buffer.
 ///
 /// If any read operation fails due to the buffer containing incomplete data, that method will
-/// return [`IonError::Incomplete`](crate::IonError::Incomplete).
+/// return [`IonError::Incomplete`].
 ///
 /// If the buffer (generic type `A`) is a [`Vec<u8>`], then data can be appended to it between read
 /// operations. This can be useful when reading from a data source that is growing over time, such

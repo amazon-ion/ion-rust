@@ -1,6 +1,7 @@
-use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::expanded::macro_evaluator::{ArgumentKind, MacroInvocation, ToArgumentKind};
-use crate::lazy::expanded::EncodingContext;
+use std::fmt::Debug;
+
+use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
+use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::IonResult;
 
@@ -12,28 +13,21 @@ pub enum Never {
 
 // Ion 1.0 uses `Never` as a placeholder type for MacroInvocation.
 // The compiler should optimize these methods away.
-impl<'data, D: LazyDecoder<'data>> MacroInvocation<'data, D> for Never {
-    type ArgumentExpr = Never;
-    // This uses a Box<dyn> to avoid defining yet another placeholder type.
-    type ArgumentsIterator = Box<dyn Iterator<Item = IonResult<Never>>>;
+impl<'top, D: LazyDecoder<EExpression<'top> = Self>> RawEExpression<'top, D> for Never {
+    // These use Box<dyn> to avoid defining yet another placeholder type.
+    type RawArgumentsIterator<'a> = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>>;
 
-    fn id(&self) -> MacroIdRef<'_> {
+    fn id(&self) -> MacroIdRef<'top> {
         unreachable!("macro in Ion 1.0 (method: id)")
     }
 
-    fn arguments(&self) -> Self::ArgumentsIterator {
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
         unreachable!("macro in Ion 1.0 (method: arguments)")
     }
 }
 
-impl<'data, D: LazyDecoder<'data>> ToArgumentKind<'data, D, Self> for Never {
-    fn to_arg_expr<'top>(
-        self,
-        _context: EncodingContext<'top>,
-    ) -> ArgumentKind<'top, 'data, D, Self>
-    where
-        Self: 'top,
-    {
-        unreachable!("macro in Ion 1.0 (method: to_arg_expr)")
+impl<'top, D: LazyDecoder> From<Never> for MacroExpr<'top, D> {
+    fn from(_value: Never) -> Self {
+        unreachable!("macro in Ion 1.0 (method: into)")
     }
 }

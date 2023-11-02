@@ -39,6 +39,8 @@ jobs:
           args: --verbose --workspace --all-features --no-fail-fast --codecov --output-path codecov.json
       - name: Codecov Upload
         uses: codecov/codecov-action@v3
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: codecov.json
           fail_ci_if_error: true

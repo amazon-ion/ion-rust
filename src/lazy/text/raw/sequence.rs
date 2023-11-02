@@ -165,8 +165,8 @@ impl<'data> Iterator for RawTextListIterator_1_0<'data> {
 // ===== S-Expressions =====
 
 #[derive(Copy, Clone)]
-pub struct LazyRawTextSExp_1_0<'data> {
-    pub(crate) value: LazyRawTextValue_1_0<'data>,
+pub struct LazyRawTextSExp_1_0<'top> {
+    pub(crate) value: LazyRawTextValue_1_0<'top>,
 }
 
 impl<'data> LazyRawTextSExp_1_0<'data> {
@@ -185,22 +185,20 @@ impl<'data> LazyRawTextSExp_1_0<'data> {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct RawTextSExpIterator_1_0<'data> {
-    input: TextBufferView<'data>,
+pub struct RawTextSExpIterator_1_0<'top> {
+    input: TextBufferView<'top>,
     // If this iterator has returned an error, it should return `None` forever afterwards
     has_returned_error: bool,
 }
 
-impl<'data> RawTextSExpIterator_1_0<'data> {
-    pub(crate) fn new(input: TextBufferView<'data>) -> RawTextSExpIterator_1_0<'data> {
+impl<'top> RawTextSExpIterator_1_0<'top> {
+    pub(crate) fn new(input: TextBufferView<'top>) -> RawTextSExpIterator_1_0<'top> {
         RawTextSExpIterator_1_0 {
             input,
             has_returned_error: false,
         }
     }
-}
 
-impl<'data> RawTextSExpIterator_1_0<'data> {
     /// Scans ahead to find the end of this s-expression and reports the input span that it occupies.
     ///
     /// The `initial_bytes_skipped` parameter indicates how many bytes of input that represented the
@@ -311,9 +309,12 @@ mod tests {
     use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
     use crate::IonResult;
 
+    use bumpalo::Bump as BumpAllocator;
+
     fn expect_sequence_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
+        let allocator = BumpAllocator::new();
         let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
-        let value = reader.next()?.expect_value()?;
+        let value = reader.next(&allocator)?.expect_value()?;
         let actual_range = value.matched.encoded_value.data_range();
         assert_eq!(
             actual_range, expected,

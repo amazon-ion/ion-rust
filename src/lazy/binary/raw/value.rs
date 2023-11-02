@@ -29,12 +29,12 @@ use std::{fmt, mem};
 /// includes a text definition for these items whenever one exists, see
 /// [`crate::lazy::value::LazyValue`].
 #[derive(Clone, Copy)]
-pub struct LazyRawBinaryValue<'data> {
+pub struct LazyRawBinaryValue<'top> {
     pub(crate) encoded_value: EncodedValue,
-    pub(crate) input: ImmutableBuffer<'data>,
+    pub(crate) input: ImmutableBuffer<'top>,
 }
 
-impl<'a> Debug for LazyRawBinaryValue<'a> {
+impl<'top> Debug for LazyRawBinaryValue<'top> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -44,10 +44,10 @@ impl<'a> Debug for LazyRawBinaryValue<'a> {
     }
 }
 
-type ValueParseResult<'data, F> = IonResult<RawValueRef<'data, F>>;
+type ValueParseResult<'top, F> = IonResult<RawValueRef<'top, F>>;
 
-impl<'data> LazyRawValuePrivate<'data> for LazyRawBinaryValue<'data> {
-    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>> {
+impl<'top> LazyRawValuePrivate<'top> for LazyRawBinaryValue<'top> {
+    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'top>> {
         if let Some(field_id) = self.encoded_value.field_id {
             Ok(RawSymbolTokenRef::SymbolId(field_id))
         } else {
@@ -58,7 +58,7 @@ impl<'data> LazyRawValuePrivate<'data> for LazyRawBinaryValue<'data> {
     }
 }
 
-impl<'data> LazyRawValue<'data, BinaryEncoding_1_0> for LazyRawBinaryValue<'data> {
+impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue<'top> {
     fn ion_type(&self) -> IonType {
         self.ion_type()
     }
@@ -67,16 +67,16 @@ impl<'data> LazyRawValue<'data, BinaryEncoding_1_0> for LazyRawBinaryValue<'data
         self.is_null()
     }
 
-    fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {
+    fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
         self.annotations()
     }
 
-    fn read(&self) -> IonResult<RawValueRef<'data, BinaryEncoding_1_0>> {
+    fn read(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_0>> {
         self.read()
     }
 }
 
-impl<'data> LazyRawBinaryValue<'data> {
+impl<'top> LazyRawBinaryValue<'top> {
     /// Indicates the Ion data type of this value. Calling this method does not require additional
     /// parsing of the input stream.
     pub fn ion_type(&self) -> IonType {
@@ -94,7 +94,7 @@ impl<'data> LazyRawBinaryValue<'data> {
 
     /// Returns an `ImmutableBuffer` that contains the bytes comprising this value's encoded
     /// annotations sequence.
-    fn annotations_sequence(&self) -> ImmutableBuffer<'data> {
+    fn annotations_sequence(&self) -> ImmutableBuffer<'top> {
         let offset_and_length = self
             .encoded_value
             .annotations_sequence_offset()
@@ -126,7 +126,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Returns an iterator over this value's unresolved annotation symbols.
-    pub fn annotations(&self) -> RawBinaryAnnotationsIterator<'data> {
+    pub fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
         RawBinaryAnnotationsIterator::new(self.annotations_sequence())
     }
 
@@ -134,7 +134,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     /// calling this method will not read additional data; the `RawValueRef` will provide a
     /// [`LazyRawBinarySequence`] or [`LazyStruct`](crate::lazy::struct::LazyStruct)
     /// that can be traversed to access the container's contents.
-    pub fn read(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    pub fn read(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         if self.is_null() {
             let raw_value_ref = RawValueRef::Null(self.ion_type());
             return Ok(raw_value_ref);
@@ -158,7 +158,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Returns the encoded byte slice representing this value's data.
-    fn value_body(&self) -> IonResult<&'data [u8]> {
+    fn value_body(&self) -> IonResult<&'top [u8]> {
         let value_total_length = self.encoded_value.total_length();
         if self.input.len() < value_total_length {
             eprintln!("[value_body] Incomplete {:?}", self);
@@ -175,7 +175,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     /// Returns an [`ImmutableBuffer`] containing whatever bytes of this value's body are currently
     /// available. This method is used to construct lazy containers, which are not required to be
     /// fully buffered before reading begins.
-    pub(crate) fn available_body(&self) -> ImmutableBuffer<'data> {
+    pub(crate) fn available_body(&self) -> ImmutableBuffer<'top> {
         let value_total_length = self.encoded_value.total_length();
         let value_body_length = self.encoded_value.value_length();
         let value_offset = value_total_length - value_body_length;
@@ -192,7 +192,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a bool.
-    fn read_bool(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_bool(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Bool);
         let representation = self.encoded_value.header().length_code;
         let value = match representation {
@@ -209,7 +209,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as an int.
-    fn read_int(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_int(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
         // `value_body()` returns a buffer starting at the body of the value.
         // It also confirms that the entire value is in the buffer.
@@ -236,7 +236,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a float.
-    fn read_float(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_float(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Float);
         let ieee_bytes = self.value_body()?;
         let number_of_bytes = self.encoded_value.value_length();
@@ -250,7 +250,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a decimal.
-    fn read_decimal(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_decimal(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Decimal);
 
         if self.encoded_value.value_length() == 0 {
@@ -277,7 +277,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a timestamp.
-    fn read_timestamp(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_timestamp(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Timestamp);
 
         let input = ImmutableBuffer::new(self.value_body()?);
@@ -387,14 +387,14 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a symbol.
-    fn read_symbol(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_symbol(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         self.read_symbol_id()
             .map(|sid| RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(sid)))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a string.
-    fn read_string(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_string(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::String);
         let raw_bytes = self.value_body()?;
         let text = std::str::from_utf8(raw_bytes)
@@ -403,21 +403,21 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a blob.
-    fn read_blob(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_blob(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Blob);
         let bytes = self.value_body()?;
         Ok(RawValueRef::Blob(bytes.into()))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a clob.
-    fn read_clob(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_clob(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Clob);
         let bytes = self.value_body()?;
         Ok(RawValueRef::Clob(bytes.into()))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as an S-expression.
-    fn read_sexp(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_sexp(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::SExp);
         let lazy_value = LazyRawBinaryValue {
             encoded_value: self.encoded_value,
@@ -431,7 +431,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a list.
-    fn read_list(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_list(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::List);
         let lazy_value = LazyRawBinaryValue {
             encoded_value: self.encoded_value,
@@ -445,7 +445,7 @@ impl<'data> LazyRawBinaryValue<'data> {
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a struct.
-    fn read_struct(&self) -> ValueParseResult<'data, BinaryEncoding_1_0> {
+    fn read_struct(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Struct);
         let lazy_value = LazyRawBinaryValue {
             encoded_value: self.encoded_value,

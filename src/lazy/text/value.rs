@@ -2,10 +2,9 @@
 
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
 
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawValuePrivate};
-use crate::lazy::decoder::LazyRawValue;
+use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::text::buffer::TextBufferView;
@@ -23,12 +22,12 @@ use crate::{IonResult, IonType, RawSymbolTokenRef};
 /// includes a text definition for these items whenever one exists, see
 /// [`crate::lazy::value::LazyValue`].
 #[derive(Copy, Clone)]
-pub struct MatchedRawTextValue<'data> {
-    pub(crate) encoded_value: EncodedTextValue,
-    pub(crate) input: TextBufferView<'data>,
+pub struct MatchedRawTextValue<'top, E: TextEncoding<'top>> {
+    pub(crate) encoded_value: EncodedTextValue<'top, E>,
+    pub(crate) input: TextBufferView<'top>,
 }
 
-impl<'a> Debug for MatchedRawTextValue<'a> {
+impl<'top, E: TextEncoding<'top>> Debug for MatchedRawTextValue<'top, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -42,24 +41,20 @@ impl<'a> Debug for MatchedRawTextValue<'a> {
 //
 // These types provide Ion-version-specific impls of the LazyRawValue trait
 #[derive(Copy, Clone)]
-pub struct LazyRawTextValue<'data, E: TextEncoding<'data> + Copy> {
-    pub(crate) matched: MatchedRawTextValue<'data>,
-    spooky: PhantomData<E>,
+pub struct LazyRawTextValue<'top, E: TextEncoding<'top> + Copy> {
+    pub(crate) matched: MatchedRawTextValue<'top, E>,
 }
 
-impl<'data, E: TextEncoding<'data>> LazyRawTextValue<'data, E> {
-    pub fn new(matched: MatchedRawTextValue<'data>) -> Self {
-        Self {
-            matched,
-            spooky: PhantomData,
-        }
+impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
+    pub fn new(matched: MatchedRawTextValue<'top, E>) -> Self {
+        Self { matched }
     }
 }
 
-pub type LazyRawTextValue_1_0<'data> = LazyRawTextValue<'data, TextEncoding_1_0>;
-pub type LazyRawTextValue_1_1<'data> = LazyRawTextValue<'data, TextEncoding_1_1>;
+pub type LazyRawTextValue_1_0<'top> = LazyRawTextValue<'top, TextEncoding_1_0>;
+pub type LazyRawTextValue_1_1<'top> = LazyRawTextValue<'top, TextEncoding_1_1>;
 
-impl<'data, E: TextEncoding<'data>> Debug for LazyRawTextValue<'data, E> {
+impl<'top, E: TextEncoding<'top>> Debug for LazyRawTextValue<'top, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", E::name())?;
 
@@ -73,37 +68,31 @@ impl<'data, E: TextEncoding<'data>> Debug for LazyRawTextValue<'data, E> {
     }
 }
 
-impl<'data> From<MatchedRawTextValue<'data>> for LazyRawTextValue_1_0<'data> {
-    fn from(matched: MatchedRawTextValue<'data>) -> Self {
+impl<'top> From<MatchedRawTextValue<'top, TextEncoding_1_0>> for LazyRawTextValue_1_0<'top> {
+    fn from(matched: MatchedRawTextValue<'top, TextEncoding_1_0>) -> Self {
         LazyRawTextValue::new(matched)
     }
 }
 
-impl<'data> From<MatchedRawTextValue<'data>> for LazyRawTextValue_1_1<'data> {
-    fn from(matched: MatchedRawTextValue<'data>) -> Self {
+impl<'top> From<MatchedRawTextValue<'top, TextEncoding_1_1>> for LazyRawTextValue_1_1<'top> {
+    fn from(matched: MatchedRawTextValue<'top, TextEncoding_1_1>) -> Self {
         LazyRawTextValue::new(matched)
     }
 }
 
-impl<'data> LazyRawValuePrivate<'data> for MatchedRawTextValue<'data> {
+impl<'top, E: TextEncoding<'top>> LazyRawValuePrivate<'top> for MatchedRawTextValue<'top, E> {
     // TODO: We likely want to move this functionality to the Ion-version-specific LazyDecoder::Field
     //       implementations. See: https://github.com/amazon-ion/ion-rust/issues/631
-    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>> {
+    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'top>> {
         self.encoded_value.field_name(self.input)
     }
 }
 
-impl<'data> MatchedRawTextValue<'data> {
-    /// No-op compiler hint that we want a particular generic flavor of MatchedRawTextValue
-    pub(crate) fn as_version<D: TextEncoding<'data>>(&self) -> &impl LazyRawValue<'data, D> {
-        self
-    }
-}
 // ===== Ion-version-agnostic functionality =====
 //
 // These trait impls are common to all Ion versions, but require the caller to specify a type
 // parameter.
-impl<'data, D: TextEncoding<'data>> LazyRawValue<'data, D> for MatchedRawTextValue<'data> {
+impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for MatchedRawTextValue<'top, E> {
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }
@@ -112,7 +101,7 @@ impl<'data, D: TextEncoding<'data>> LazyRawValue<'data, D> for MatchedRawTextVal
         self.encoded_value.is_null()
     }
 
-    fn annotations(&self) -> D::AnnotationsIterator {
+    fn annotations(&self) -> <E as LazyDecoder>::AnnotationsIterator<'top> {
         let span = self
             .encoded_value
             .annotations_range()
@@ -123,7 +112,7 @@ impl<'data, D: TextEncoding<'data>> LazyRawValue<'data, D> for MatchedRawTextVal
         RawTextAnnotationsIterator::new(annotations_bytes)
     }
 
-    fn read(&self) -> IonResult<RawValueRef<'data, D>> {
+    fn read(&self) -> IonResult<RawValueRef<'top, E>> {
         let matched_input = self.input.slice(
             self.encoded_value.data_offset() - self.input.offset(),
             self.encoded_value.data_length(),
@@ -141,35 +130,35 @@ impl<'data, D: TextEncoding<'data>> LazyRawValue<'data, D> for MatchedRawTextVal
             Symbol(s) => RawValueRef::Symbol(s.read(matched_input)?),
             Blob(b) => RawValueRef::Blob(b.read(matched_input)?),
             Clob(c) => RawValueRef::Clob(c.read(matched_input)?),
-            List => RawValueRef::List(D::List::from_value(D::value_from_matched(*self))),
-            SExp => RawValueRef::SExp(D::SExp::from_value(D::value_from_matched(*self))),
-            Struct => RawValueRef::Struct(D::Struct::from_value(D::value_from_matched(*self))),
+            List(_) => RawValueRef::List(E::List::<'top>::from_value(E::value_from_matched(*self))),
+            SExp(_) => RawValueRef::SExp(E::SExp::<'top>::from_value(E::value_from_matched(*self))),
+            Struct(_) => RawValueRef::Struct(E::Struct::from_value(E::value_from_matched(*self))),
         };
         Ok(value_ref)
     }
 }
 
-impl<'data, E: TextEncoding<'data>> LazyRawValuePrivate<'data> for LazyRawTextValue<'data, E> {
-    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'data>> {
+impl<'top, E: TextEncoding<'top>> LazyRawValuePrivate<'top> for LazyRawTextValue<'top, E> {
+    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'top>> {
         self.matched.field_name()
     }
 }
 
-impl<'data, E: TextEncoding<'data>> LazyRawValue<'data, E> for LazyRawTextValue<'data, E> {
+impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
     fn ion_type(&self) -> IonType {
-        self.matched.as_version::<E>().ion_type()
+        self.matched.ion_type()
     }
 
     fn is_null(&self) -> bool {
-        self.matched.as_version::<E>().is_null()
+        self.matched.is_null()
     }
 
-    fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
-        self.matched.as_version::<E>().annotations()
+    fn annotations(&self) -> <E as LazyDecoder>::AnnotationsIterator<'top> {
+        self.matched.annotations()
     }
 
-    fn read(&self) -> IonResult<RawValueRef<'data, E>> {
-        self.matched.as_version::<E>().read()
+    fn read(&self) -> IonResult<RawValueRef<'top, E>> {
+        self.matched.read()
     }
 }
 
@@ -178,8 +167,8 @@ pub struct RawTextAnnotationsIterator<'data> {
     has_returned_error: bool,
 }
 
-impl<'data> RawTextAnnotationsIterator<'data> {
-    pub(crate) fn new(input: TextBufferView<'data>) -> Self {
+impl<'top> RawTextAnnotationsIterator<'top> {
+    pub(crate) fn new(input: TextBufferView<'top>) -> Self {
         RawTextAnnotationsIterator {
             input,
             has_returned_error: false,
@@ -187,8 +176,8 @@ impl<'data> RawTextAnnotationsIterator<'data> {
     }
 }
 
-impl<'data> Iterator for RawTextAnnotationsIterator<'data> {
-    type Item = IonResult<RawSymbolTokenRef<'data>>;
+impl<'top> Iterator for RawTextAnnotationsIterator<'top> {
+    type Item = IonResult<RawSymbolTokenRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error || self.input.is_empty() {
@@ -218,6 +207,8 @@ impl<'data> Iterator for RawTextAnnotationsIterator<'data> {
 
 #[cfg(test)]
 mod tests {
+    use bumpalo::Bump as BumpAllocator;
+
     use crate::lazy::text::buffer::TextBufferView;
     use crate::lazy::text::value::RawTextAnnotationsIterator;
     use crate::{IonResult, RawSymbolTokenRef};
@@ -225,7 +216,8 @@ mod tests {
     #[test]
     fn iterate_annotations() -> IonResult<()> {
         fn test(input: &str) -> IonResult<()> {
-            let input = TextBufferView::new(input.as_bytes());
+            let allocator = BumpAllocator::new();
+            let input = TextBufferView::new(&allocator, input.as_bytes());
             let mut iter = RawTextAnnotationsIterator::new(input);
             assert_eq!(iter.next().unwrap()?, RawSymbolTokenRef::Text("foo".into()));
             assert_eq!(iter.next().unwrap()?, RawSymbolTokenRef::Text("bar".into()));

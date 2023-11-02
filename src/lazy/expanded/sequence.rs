@@ -1,40 +1,110 @@
+use bumpalo::collections::Vec as BumpVec;
+
+use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{LazyDecoder, LazyRawSequence, LazyRawValueExpr, RawValueExpr};
-use crate::lazy::expanded::macro_evaluator::{TransientEExpEvaluator, TransientTdlMacroEvaluator};
-use crate::lazy::expanded::template::TemplateSequenceIterator;
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression, ValueExpr};
+use crate::lazy::expanded::template::{
+    AnnotationsRange, ExprRange, TemplateMacroRef, TemplateSequenceIterator,
+};
 use crate::lazy::expanded::{
     EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueSource,
     LazyExpandedValue,
 };
-use crate::{Annotations, IonResult, IonType, Sequence};
+use crate::result::IonFailure;
+use crate::{IonError, IonResult, IonType};
 
-#[derive(Clone)]
-pub enum ExpandedListSource<'top, 'data, D: LazyDecoder<'data>> {
-    ValueLiteral(D::List),
-    Template(&'top Annotations, &'top Sequence),
+/// A sequence of not-yet-evaluated expressions passed as arguments to a macro invocation.
+///
+/// The number of expressions is required to match the number of parameters in the macro's signature,
+/// and the order of the expressions corresponds to the order of the parameters.
+///
+/// For example, given this macro definition:
+/// ```ion_1_1
+///     (macro foo (x y z) [x, y, z])
+/// ```
+/// and this invocation:
+/// ```ion_1_1
+///     (:foo 1 2 (:values 3))
+/// ```
+/// The `Environment` would contain the expressions `1`, `2` and `3`, corresponding to parameters
+/// `x`, `y`, and `z` respectively.
+#[derive(Copy, Clone, Debug)]
+pub struct Environment<'top, D: LazyDecoder> {
+    expressions: &'top [ValueExpr<'top, D>],
+}
+
+impl<'top, D: LazyDecoder> Environment<'top, D> {
+    pub(crate) fn new(args: BumpVec<'top, ValueExpr<'top, D>>) -> Self {
+        Environment {
+            expressions: args.into_bump_slice(),
+        }
+    }
+
+    /// Returns the expression for the corresponding signature index -- the variable's offset within
+    /// the template's signature. If the requested index is out of bounds, returns `Err`.
+    pub fn get_expected(&self, signature_index: usize) -> IonResult<&'top ValueExpr<'top, D>> {
+        self.expressions()
+            .get(signature_index)
+            // The TemplateCompiler should detect any invalid variable references prior to evaluation
+            .ok_or_else(|| {
+                IonError::decoding_error(format!(
+                    "reference to variable with signature index {} not valid",
+                    signature_index
+                ))
+            })
+    }
+
+    /// Returns an empty environment without performing any allocations. This is used for evaluating
+    /// e-expressions, which never have named parameters.
+    pub fn empty() -> Environment<'top, D> {
+        Environment { expressions: &[] }
+    }
+    pub fn expressions(&self) -> &'top [ValueExpr<'top, D>] {
+        self.expressions
+    }
+}
+
+/// The data source for a [`LazyExpandedList`].
+#[derive(Clone, Copy)]
+pub enum ExpandedListSource<'top, D: LazyDecoder> {
+    /// The list was a value literal in the input stream.
+    ValueLiteral(D::List<'top>),
+    /// The list was part of a template definition.
+    Template(
+        Environment<'top, D>,
+        TemplateMacroRef<'top>,
+        AnnotationsRange,
+        ExprRange,
+    ),
     // TODO: Constructed
 }
 
-#[derive(Clone)]
-pub struct LazyExpandedList<'top, 'data, D: LazyDecoder<'data>> {
+/// A list that may have come from either a value literal in the input stream or from evaluating
+/// a template.
+#[derive(Clone, Copy)]
+pub struct LazyExpandedList<'top, D: LazyDecoder> {
     pub(crate) context: EncodingContext<'top>,
-    pub(crate) source: ExpandedListSource<'top, 'data, D>,
+    pub(crate) source: ExpandedListSource<'top, D>,
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedList<'top, 'data, D> {
+impl<'top, D: LazyDecoder> LazyExpandedList<'top, D> {
     pub fn from_literal(
         context: EncodingContext<'top>,
-        list: D::List,
-    ) -> LazyExpandedList<'top, 'data, D> {
+        list: D::List<'top>,
+    ) -> LazyExpandedList<'top, D> {
         let source = ExpandedListSource::ValueLiteral(list);
         Self { source, context }
     }
 
     pub fn from_template(
         context: EncodingContext<'top>,
-        annotations: &'top Annotations,
-        sequence: &'top Sequence,
-    ) -> LazyExpandedList<'top, 'data, D> {
-        let source = ExpandedListSource::Template(annotations, sequence);
+        environment: Environment<'top, D>,
+        template: TemplateMacroRef<'top>,
+        annotations_range: AnnotationsRange,
+        step_range: ExprRange,
+    ) -> LazyExpandedList<'top, D> {
+        let source =
+            ExpandedListSource::Template(environment, template, annotations_range, step_range);
         Self { source, context }
     }
 
@@ -42,28 +112,38 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedList<'top, 'data, D> {
         IonType::List
     }
 
-    pub fn annotations(&self) -> ExpandedAnnotationsIterator<'top, 'data, D> {
-        match self.source {
+    pub fn annotations(&self) -> ExpandedAnnotationsIterator<'top, D> {
+        match &self.source {
             ExpandedListSource::ValueLiteral(value) => ExpandedAnnotationsIterator {
                 source: ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
             },
-            ExpandedListSource::Template(annotations, _sequence) => ExpandedAnnotationsIterator {
-                source: ExpandedAnnotationsSource::Template(annotations.iter()),
-            },
+            ExpandedListSource::Template(_environment, template, annotations, _sequence) => {
+                let annotations = template
+                    .body
+                    .annotations_storage()
+                    .get(annotations.ops_range())
+                    .unwrap();
+                ExpandedAnnotationsIterator {
+                    source: ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations)),
+                }
+            }
         }
     }
 
-    pub fn iter(&self) -> ExpandedListIterator<'top, 'data, D> {
+    pub fn iter(&self) -> ExpandedListIterator<'top, D> {
         let source = match &self.source {
             ExpandedListSource::ValueLiteral(list) => {
-                let evaluator = TransientEExpEvaluator::new_transient(self.context);
+                let evaluator = MacroEvaluator::new(self.context, Environment::empty());
                 ExpandedListIteratorSource::ValueLiteral(evaluator, list.iter())
             }
-            ExpandedListSource::Template(_annotations, sequence) => {
+            ExpandedListSource::Template(environment, template, _annotations, steps) => {
+                let steps = template.body.expressions().get(steps.ops_range()).unwrap();
+                let evaluator = MacroEvaluator::new(self.context, *environment);
                 ExpandedListIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
-                    TransientTdlMacroEvaluator::new_transient(self.context),
-                    sequence,
+                    evaluator,
+                    *template,
+                    steps,
                 ))
             }
         };
@@ -74,24 +154,26 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedList<'top, 'data, D> {
     }
 }
 
-pub enum ExpandedListIteratorSource<'top, 'data, D: LazyDecoder<'data>> {
+/// The source of child values iterated over by an [`ExpandedListIterator`].
+pub enum ExpandedListIteratorSource<'top, D: LazyDecoder> {
     ValueLiteral(
         // Giving the list iterator its own evaluator means that we can abandon the iterator
         // at any time without impacting the evaluation state of its parent container.
-        TransientEExpEvaluator<'top, 'data, D>,
-        <D::List as LazyRawSequence<'data, D>>::Iterator,
+        MacroEvaluator<'top, D>,
+        <D::List<'top> as LazyRawSequence<'top, D>>::Iterator,
     ),
-    Template(TemplateSequenceIterator<'top, 'data, D>),
+    Template(TemplateSequenceIterator<'top, D>),
     // TODO: Constructed
 }
 
-pub struct ExpandedListIterator<'top, 'data, D: LazyDecoder<'data>> {
+/// Iterates over the child values of a [`LazyExpandedList`].
+pub struct ExpandedListIterator<'top, D: LazyDecoder> {
     context: EncodingContext<'top>,
-    source: ExpandedListIteratorSource<'top, 'data, D>,
+    source: ExpandedListIteratorSource<'top, D>,
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> Iterator for ExpandedListIterator<'top, 'data, D> {
-    type Item = IonResult<LazyExpandedValue<'top, 'data, D>>;
+impl<'top, D: LazyDecoder> Iterator for ExpandedListIterator<'top, D> {
+    type Item = IonResult<LazyExpandedValue<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.source {
@@ -103,45 +185,65 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for ExpandedListIterator<'top,
     }
 }
 
-#[derive(Clone)]
-pub enum ExpandedSExpSource<'top, 'data, D: LazyDecoder<'data>> {
-    ValueLiteral(D::SExp),
-    Template(&'top Annotations, &'top Sequence),
+/// The data source for a [`LazyExpandedSExp`].
+#[derive(Clone, Copy)]
+pub enum ExpandedSExpSource<'top, D: LazyDecoder> {
+    /// The SExp was a value literal in the input stream.
+    ValueLiteral(D::SExp<'top>),
+    /// The SExp was part of a template definition.
+    Template(
+        Environment<'top, D>,
+        TemplateMacroRef<'top>,
+        AnnotationsRange,
+        ExprRange,
+    ),
 }
 
-#[derive(Clone)]
-pub struct LazyExpandedSExp<'top, 'data, D: LazyDecoder<'data>> {
-    pub(crate) source: ExpandedSExpSource<'top, 'data, D>,
+/// An s-expression that may have come from either a value literal in the input stream or from
+/// evaluating a template.
+#[derive(Clone, Copy)]
+pub struct LazyExpandedSExp<'top, D: LazyDecoder> {
+    pub(crate) source: ExpandedSExpSource<'top, D>,
     pub(crate) context: EncodingContext<'top>,
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedSExp<'top, 'data, D> {
+impl<'top, D: LazyDecoder> LazyExpandedSExp<'top, D> {
     pub fn ion_type(&self) -> IonType {
         IonType::SExp
     }
 
-    pub fn annotations(&self) -> ExpandedAnnotationsIterator<'top, 'data, D> {
-        match self.source {
+    pub fn annotations(&self) -> ExpandedAnnotationsIterator<'top, D> {
+        match &self.source {
             ExpandedSExpSource::ValueLiteral(value) => ExpandedAnnotationsIterator {
                 source: ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
             },
-            ExpandedSExpSource::Template(annotations, _sequence) => ExpandedAnnotationsIterator {
-                source: ExpandedAnnotationsSource::Template(annotations.iter()),
-            },
+            ExpandedSExpSource::Template(_environment, template, annotations, _sequence) => {
+                let annotations = template
+                    .body
+                    .annotations_storage()
+                    .get(annotations.ops_range())
+                    .unwrap();
+                ExpandedAnnotationsIterator {
+                    source: ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations)),
+                }
+            }
         }
     }
 
-    pub fn iter(&self) -> ExpandedSExpIterator<'top, 'data, D> {
+    pub fn iter(&self) -> ExpandedSExpIterator<'top, D> {
         let source = match &self.source {
             ExpandedSExpSource::ValueLiteral(sexp) => {
-                let evaluator = TransientEExpEvaluator::new_transient(self.context);
+                let evaluator = MacroEvaluator::new(self.context, Environment::empty());
                 ExpandedSExpIteratorSource::ValueLiteral(evaluator, sexp.iter())
             }
-            ExpandedSExpSource::Template(_annotations, sequence) => {
+            ExpandedSExpSource::Template(environment, template, _annotations, steps) => {
+                let steps = template.body.expressions().get(steps.ops_range()).unwrap();
+                let evaluator = MacroEvaluator::new(self.context, *environment);
                 ExpandedSExpIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
-                    TransientTdlMacroEvaluator::new_transient(self.context),
-                    sequence,
+                    evaluator,
+                    *template,
+                    steps,
                 ))
             }
         };
@@ -153,40 +255,44 @@ impl<'top, 'data, D: LazyDecoder<'data>> LazyExpandedSExp<'top, 'data, D> {
 
     pub fn from_literal(
         context: EncodingContext<'top>,
-        sexp: D::SExp,
-    ) -> LazyExpandedSExp<'top, 'data, D> {
+        sexp: D::SExp<'top>,
+    ) -> LazyExpandedSExp<'top, D> {
         let source = ExpandedSExpSource::ValueLiteral(sexp);
         Self { source, context }
     }
 
     pub fn from_template(
         context: EncodingContext<'top>,
-        annotations: &'top Annotations,
-        sequence: &'top Sequence,
-    ) -> LazyExpandedSExp<'top, 'data, D> {
-        let source = ExpandedSExpSource::Template(annotations, sequence);
+        environment: Environment<'top, D>,
+        template: TemplateMacroRef<'top>,
+        annotations: AnnotationsRange,
+        expressions: ExprRange,
+    ) -> LazyExpandedSExp<'top, D> {
+        let source = ExpandedSExpSource::Template(environment, template, annotations, expressions);
         Self { source, context }
     }
 }
 
-pub enum ExpandedSExpIteratorSource<'top, 'data, D: LazyDecoder<'data>> {
+/// The source of child values iterated over by an [`ExpandedSExpIterator`].
+pub enum ExpandedSExpIteratorSource<'top, D: LazyDecoder> {
     ValueLiteral(
         // Giving the sexp iterator its own evaluator means that we can abandon the iterator
         // at any time without impacting the evaluation state of its parent container.
-        TransientEExpEvaluator<'top, 'data, D>,
-        <D::SExp as LazyRawSequence<'data, D>>::Iterator,
+        MacroEvaluator<'top, D>,
+        <D::SExp<'top> as LazyRawSequence<'top, D>>::Iterator,
     ),
-    Template(TemplateSequenceIterator<'top, 'data, D>),
+    Template(TemplateSequenceIterator<'top, D>),
     // TODO: Constructed
 }
 
-pub struct ExpandedSExpIterator<'top, 'data, D: LazyDecoder<'data>> {
+/// Iterates over the child values of a [`LazyExpandedSExp`].
+pub struct ExpandedSExpIterator<'top, D: LazyDecoder> {
     context: EncodingContext<'top>,
-    source: ExpandedSExpIteratorSource<'top, 'data, D>,
+    source: ExpandedSExpIteratorSource<'top, D>,
 }
 
-impl<'top, 'data, D: LazyDecoder<'data>> Iterator for ExpandedSExpIterator<'top, 'data, D> {
-    type Item = IonResult<LazyExpandedValue<'top, 'data, D>>;
+impl<'top, D: LazyDecoder> Iterator for ExpandedSExpIterator<'top, D> {
+    type Item = IonResult<LazyExpandedValue<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.source {
@@ -200,15 +306,15 @@ impl<'top, 'data, D: LazyDecoder<'data>> Iterator for ExpandedSExpIterator<'top,
 
 /// For both lists and s-expressions, yields the next sequence value by either continuing a macro
 /// evaluation already in progress or reading the next item from the input stream.
-fn expand_next_sequence_value<'top, 'data, D: LazyDecoder<'data>>(
+fn expand_next_sequence_value<'top, D: LazyDecoder>(
     context: EncodingContext<'top>,
-    evaluator: &mut TransientEExpEvaluator<'top, 'data, D>,
-    iter: &mut impl Iterator<Item = IonResult<LazyRawValueExpr<'data, D>>>,
-) -> Option<IonResult<LazyExpandedValue<'top, 'data, D>>> {
+    evaluator: &mut MacroEvaluator<'top, D>,
+    iter: &mut impl Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>,
+) -> Option<IonResult<LazyExpandedValue<'top, D>>> {
     loop {
         // If the evaluator's stack is not empty, it's still expanding a macro.
-        if evaluator.stack_depth() > 0 {
-            let value = evaluator.next(context, 0).transpose();
+        if evaluator.macro_stack_depth() > 0 {
+            let value = evaluator.next(context).transpose();
             if value.is_some() {
                 // The `Some` may contain a value or an error; either way, that's the next return value.
                 return value;
@@ -226,7 +332,11 @@ fn expand_next_sequence_value<'top, 'data, D: LazyDecoder<'data>>(
                 }))
             }
             Some(Ok(RawValueExpr::MacroInvocation(invocation))) => {
-                let begin_expansion_result = evaluator.push(context, invocation);
+                let resolved_invocation = match invocation.resolve(context) {
+                    Ok(resolved) => resolved,
+                    Err(e) => return Some(Err(e)),
+                };
+                let begin_expansion_result = evaluator.push(context, resolved_invocation);
                 if let Err(e) = begin_expansion_result {
                     return Some(Err(e));
                 }
