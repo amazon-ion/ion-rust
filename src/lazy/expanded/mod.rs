@@ -419,7 +419,7 @@ impl<'data, D: LazyDecoder> LazyExpandingReader<'data, D> {
         };
         let evaluator = Self::ptr_to_evaluator(evaluator_ptr);
 
-        match evaluator.next(self.context(), 0) {
+        match evaluator.next(self.context()) {
             Ok(Some(value)) => {
                 // See if this value was a symbol table that needs interpretation.
                 self.interpret_value(value).map(Some)

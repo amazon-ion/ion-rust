@@ -173,7 +173,7 @@ impl<'top, D: LazyDecoder> Iterator for TemplateSequenceIterator<'top, D> {
         loop {
             // If the evaluator's stack is not empty, give it the opportunity to yield a value.
             if self.evaluator.macro_stack_depth() > 0 {
-                match self.evaluator.next(self.context, 0).transpose() {
+                match self.evaluator.next(self.context).transpose() {
                     Some(value) => return Some(value),
                     None => {
                         // The stack did not produce values and is empty, pull

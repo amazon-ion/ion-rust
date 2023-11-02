@@ -355,6 +355,19 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
 
     /// Continues evaluating the macro at the top of the stack until either:
     ///   * a value is yielded
+    ///   * the macro stack is empty (that is: all macro evaluations are complete)
+    ///
+    /// This is equivalent to calling [`next_at_or_above_depth`](Self::next_at_or_above_depth)
+    /// with a `depth_to_exhaust` of `0`; see that method's documentation for more details.
+    pub fn next(
+        &mut self,
+        context: EncodingContext<'top>,
+    ) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
+        self.next_at_or_above_depth(context, 0)
+    }
+
+    /// Continues evaluating the macro at the top of the stack until either:
+    ///   * a value is yielded
     ///   * the evaluation of the macro at stack depth `depth_to_exhaust` is completed
     ///
     /// If a macro invocation is encountered in the process of expanding the next value, that
@@ -367,8 +380,8 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
     /// is `0`, `next()` will return `None` when all macros on the stack are exhausted.
     ///
     /// The caller must verify that the stack's depth is greater than or equal to `depth_to_exhaust`
-    /// before calling `next()`.
-    pub fn next(
+    /// before calling `next_at_or_above_depth()`.
+    pub fn next_at_or_above_depth(
         &mut self,
         context: EncodingContext<'top>,
         depth_to_exhaust: usize,
@@ -474,7 +487,7 @@ impl<'iter, 'top, D: LazyDecoder> Iterator for EvaluatingIterator<'iter, 'top, D
 
     fn next(&mut self) -> Option<Self::Item> {
         self.evaluator
-            .next(self.context, self.initial_stack_depth)
+            .next_at_or_above_depth(self.context, self.initial_stack_depth)
             .transpose()
     }
 }

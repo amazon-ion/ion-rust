@@ -316,7 +316,7 @@ impl<'top, D: LazyDecoder> ExpandedStructIterator<'top, D> {
                 // macro in field value position, emitting (name, value) pairs for each value
                 // in the expansion, one at a time.
                 ExpandingValueExpr(field_name) => {
-                    match evaluator.next(context, 0) {
+                    match evaluator.next(context) {
                         Err(e) => return Some(Err(e)),
                         Ok(Some(next_value)) => {
                             // We got another value from the macro we're evaluating. Emit
