@@ -9,14 +9,13 @@ use crate::lazy::expanded::macro_evaluator::{
 };
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
-    AnnotationsRange, ExprRange, TemplateBodyValueExpr, TemplateElement, TemplateMacroInvocation,
-    TemplateMacroRef, TemplateStructIndex, TemplateStructRawFieldsIterator,
+    AnnotationsRange, ExprRange, TemplateBodyValueExpr, TemplateElement, TemplateMacroRef,
+    TemplateStructIndex, TemplateStructRawFieldsIterator,
 };
 use crate::lazy::expanded::{
     EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
     ExpandedValueSource, LazyExpandedValue,
 };
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult, RawSymbolTokenRef, SymbolRef};
 

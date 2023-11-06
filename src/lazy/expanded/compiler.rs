@@ -454,9 +454,7 @@ impl TemplateCompiler {
                 match fields.get_mut(text) {
                     Some(value_expr_addresses) => value_expr_addresses.push(value_expr_address),
                     None => {
-                        let mut value_expr_addresses = Vec::new();
-                        value_expr_addresses.push(value_expr_address);
-                        fields.insert(name.clone(), value_expr_addresses);
+                        let _ = fields.insert(name.clone(), vec![value_expr_address]);
                     }
                 }
             }
