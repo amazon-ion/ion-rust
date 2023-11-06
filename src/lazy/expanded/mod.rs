@@ -859,12 +859,13 @@ impl<'top, D: LazyDecoder> ExpandedValueRef<'top, D> {
                 element.annotations_range(),
                 *s,
             )),
-            Struct(s) => ExpandedValueRef::Struct(LazyExpandedStruct::from_template(
+            Struct(s, index) => ExpandedValueRef::Struct(LazyExpandedStruct::from_template(
                 context,
                 environment,
                 element.template(),
                 element.annotations_range(),
                 *s,
+                index,
             )),
         }
     }

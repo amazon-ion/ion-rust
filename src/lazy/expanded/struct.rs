@@ -4,10 +4,13 @@ use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{
     LazyDecoder, LazyRawFieldExpr, LazyRawStruct, RawFieldExpr, RawValueExpr,
 };
-use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
+use crate::lazy::expanded::macro_evaluator::{
+    MacroEvaluator, MacroExpr, RawEExpression, ValueExpr,
+};
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
-    AnnotationsRange, ExprRange, TemplateMacroRef, TemplateStructRawFieldsIterator,
+    AnnotationsRange, ExprRange, TemplateBodyValueExpr, TemplateElement, TemplateMacroInvocation,
+    TemplateMacroRef, TemplateStructIndex, TemplateStructRawFieldsIterator,
 };
 use crate::lazy::expanded::{
     EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
@@ -15,7 +18,7 @@ use crate::lazy::expanded::{
 };
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult, RawSymbolTokenRef};
+use crate::{IonError, IonResult, RawSymbolTokenRef, SymbolRef};
 
 #[derive(Debug, Clone)]
 pub struct LazyExpandedField<'top, D: LazyDecoder> {
@@ -28,8 +31,27 @@ impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
         Self { name, value }
     }
 
-    pub fn name(&self) -> RawSymbolTokenRef<'top> {
+    /// Returns the symbol token that was used to encode the field name. This may be either text
+    /// or a symbol ID whose text resides in the symbol table.
+    pub fn raw_name(&self) -> RawSymbolTokenRef<'top> {
         self.name.clone()
+    }
+
+    /// Attempts to resolve the field name and return it as a [`SymbolRef`].
+    pub fn name(&self) -> IonResult<SymbolRef<'top>> {
+        let field_name_token = self.raw_name();
+        let field_id = match field_name_token {
+            RawSymbolTokenRef::SymbolId(sid) => sid,
+            RawSymbolTokenRef::Text(text) => return Ok(SymbolRef::with_text(text)),
+        };
+        self.value
+            .context
+            .symbol_table
+            .symbol_for(field_id)
+            .map(|symbol| symbol.into())
+            .ok_or_else(|| {
+                IonError::decoding_error("found a symbol ID that was not in the symbol table")
+            })
     }
 
     pub fn value(&self) -> &LazyExpandedValue<'top, D> {
@@ -45,6 +67,7 @@ pub enum ExpandedStructSource<'top, D: LazyDecoder> {
         TemplateMacroRef<'top>,
         AnnotationsRange,
         ExprRange,
+        &'top TemplateStructIndex,
     ),
     // TODO: Constructed
 }
@@ -70,9 +93,10 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
         template: TemplateMacroRef<'top>,
         annotations: AnnotationsRange,
         expressions: ExprRange,
+        index: &'top TemplateStructIndex,
     ) -> LazyExpandedStruct<'top, D> {
         let source =
-            ExpandedStructSource::Template(environment, template, annotations, expressions);
+            ExpandedStructSource::Template(environment, template, annotations, expressions, index);
         Self { source, context }
     }
 
@@ -81,7 +105,13 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
             ExpandedStructSource::ValueLiteral(value) => ExpandedAnnotationsIterator {
                 source: ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
             },
-            ExpandedStructSource::Template(_environment, template, annotations, _expressions) => {
+            ExpandedStructSource::Template(
+                _environment,
+                template,
+                annotations,
+                _expressions,
+                _index,
+            ) => {
                 let annotations = template
                     .body
                     .annotations_storage()
@@ -102,7 +132,13 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
                     raw_struct.iter(),
                 )
             }
-            ExpandedStructSource::Template(environment, template, _annotations, expressions) => {
+            ExpandedStructSource::Template(
+                environment,
+                template,
+                _annotations,
+                expressions,
+                _index,
+            ) => {
                 let evaluator = MacroEvaluator::new(self.context, *environment);
                 ExpandedStructIteratorSource::Template(
                     evaluator,
@@ -125,7 +161,7 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
     fn environment(&self) -> Environment<'top, D> {
         match &self.source {
             ExpandedStructSource::ValueLiteral(_) => Environment::empty(),
-            ExpandedStructSource::Template(environment, _, _, _) => *environment,
+            ExpandedStructSource::Template(environment, _, _, _, _) => *environment,
         }
     }
 
@@ -134,13 +170,75 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
     }
 
     pub fn find(&self, name: &str) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
-        for field_result in self.iter() {
-            let field = field_result?;
-            if field.name() == name.as_raw_symbol_token_ref() {
-                return Ok(Some(*field.value()));
+        match &self.source {
+            // If we're reading from a struct literal, do a linear scan over its fields until we
+            // encounter one with the requested name.
+            ExpandedStructSource::ValueLiteral(_) => {
+                for field_result in self.iter() {
+                    let field = field_result?;
+                    if field.name()?.text() == Some(name) {
+                        return Ok(Some(*field.value()));
+                    }
+                }
+                // If there is no such field, return None.
+                Ok(None)
+            }
+            // If we're reading from a struct in a template, consult its field index to see if one or
+            // more fields with the requested name exist.
+            ExpandedStructSource::Template(environment, template, _, _, index) => {
+                let Some(value_expr_addresses) = index.get(name) else {
+                    // If the field name is not in the index, it's not in the struct.
+                    return Ok(None);
+                };
+                // If there are fields with the requested name, return the first one.
+                // TODO: This is a starting point. There's room for an API that returns an iterator
+                //       over all matching entries. Note, however, that it would be difficult to
+                //       offer an efficient implementation of 'get last' because that could require
+                //       fully evaluating one or more macros to find the last value.
+                let first_result_address = value_expr_addresses[0];
+                let first_result_expr =
+                    template.body.expressions.get(first_result_address).unwrap();
+                match first_result_expr {
+                    // If the expression is a value literal, wrap it in a LazyExpandedValue and return it.
+                    TemplateBodyValueExpr::Element(element) => {
+                        let value = LazyExpandedValue {
+                            context: self.context,
+                            source: ExpandedValueSource::Template(
+                                *environment,
+                                TemplateElement::new(*template, element),
+                            ),
+                        };
+                        Ok(Some(value))
+                    }
+                    // If the expression is a variable, resolve it in the current environment.
+                    TemplateBodyValueExpr::Variable(variable_ref) => {
+                        let value_expr = environment
+                            .expressions()
+                            .get(variable_ref.signature_index())
+                            .unwrap();
+                        match value_expr {
+                            // If the variable maps to a value literal, return it.
+                            ValueExpr::ValueLiteral(value) => Ok(Some(*value)),
+                            // If the variable maps to a macro invocation, evaluate it until we get
+                            // the first value back.
+                            ValueExpr::MacroInvocation(invocation) => {
+                                let mut evaluator = MacroEvaluator::new(self.context, *environment);
+                                // TODO: Remove the context parameter from these; it's baked into MacroEvaluator now.
+                                evaluator.push(self.context, *invocation)?;
+                                evaluator.next(self.context)
+                            }
+                        }
+                    }
+                    TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
+                        let invocation = body_invocation.resolve(*template, self.context);
+                        let mut evaluator = MacroEvaluator::new(self.context, *environment);
+                        // TODO: Remove the context parameter from these; it's baked into MacroEvaluator now.
+                        evaluator.push(self.context, invocation)?;
+                        evaluator.next(self.context)
+                    }
+                }
             }
         }
-        Ok(None)
     }
 
     pub fn get(&self, name: &str) -> IonResult<Option<ExpandedValueRef<'top, D>>> {

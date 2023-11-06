@@ -188,7 +188,7 @@ impl<'data, D: LazyDecoder> LazySystemReader<'data, D> {
 
         for field_result in symbol_table.iter() {
             let field = field_result?;
-            if field.name().matches_sid_or_text(7, "symbols") {
+            if field.raw_name().matches_sid_or_text(7, "symbols") {
                 if found_symbols_field {
                     return IonResult::decoding_error(
                         "found symbol table with multiple 'symbols' fields",
@@ -197,7 +197,7 @@ impl<'data, D: LazyDecoder> LazySystemReader<'data, D> {
                 found_symbols_field = true;
                 Self::process_symbols(pending_lst, field.value())?;
             }
-            if field.name().matches_sid_or_text(6, "imports") {
+            if field.raw_name().matches_sid_or_text(6, "imports") {
                 if found_imports_field {
                     return IonResult::decoding_error(
                         "found symbol table with multiple 'imports' fields",

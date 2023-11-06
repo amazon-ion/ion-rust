@@ -687,7 +687,7 @@ impl<'top> TemplateExpansion<'top> {
                 match e.value() {
                     TemplateValue::List(range)
                     | TemplateValue::SExp(range)
-                    | TemplateValue::Struct(range) => self.step_index += range.len(),
+                    | TemplateValue::Struct(range, _) => self.step_index += range.len(),
                     _ => {}
                 }
                 ValueExpr::ValueLiteral(LazyExpandedValue::from_template(

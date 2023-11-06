@@ -1,11 +1,13 @@
 //! Compiles template definition language (TDL) expressions into a form suitable for fast incremental
 //! evaluation.
+use std::collections::HashMap;
 use std::ops::Range;
 
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::expanded::template::{
     ExprRange, MacroSignature, Parameter, ParameterEncoding, TemplateBody, TemplateBodyElement,
-    TemplateBodyMacroInvocation, TemplateBodyValueExpr, TemplateMacro, TemplateValue,
+    TemplateBodyMacroInvocation, TemplateBodyValueExpr, TemplateMacro, TemplateStructIndex,
+    TemplateValue,
 };
 use crate::lazy::expanded::EncodingContext;
 use crate::lazy::r#struct::LazyStruct;
@@ -425,22 +427,47 @@ impl TemplateCompiler {
         lazy_struct: LazyStruct<'top, D>,
     ) -> IonResult<()> {
         let struct_element_index = definition.expressions.len();
-        // Assume the struct contains zero expressions to start, we'll update this at the end
-        let struct_element =
-            TemplateBodyElement::with_value(TemplateValue::Struct(ExprRange::empty()));
+        let struct_element = TemplateBodyElement::with_value(
+            // Assume the struct contains zero expressions to start, we'll update this entry with
+            // the actual range at the end of the method.
+            TemplateValue::Struct(
+                ExprRange::empty(),
+                // Creating a new HashMap does not allocate; we'll overwrite this value with an
+                // actual map of field names to indexes at the end of the method.
+                HashMap::new(),
+            ),
+        );
         definition.push_element(struct_element);
+
+        let mut fields: TemplateStructIndex = HashMap::new();
         let struct_start = definition.expressions.len();
         for field_result in &lazy_struct {
             let field = field_result?;
             let name = field.name()?.to_owned();
-            let name_element = TemplateBodyElement::with_value(TemplateValue::Symbol(name));
+            let name_element = TemplateBodyElement::with_value(TemplateValue::Symbol(name.clone()));
             definition.push_element(name_element);
+            // If this field name has defined text (which is everything besides `$0` and equivalents),
+            // add that text to the fields map. Future queries for `$0` will require a linear scan,
+            // but that's a niche use case. If there is call for it, this approach can be revised.
+            if let Some(text) = name.text() {
+                let value_expr_address = definition.expressions.len();
+                match fields.get_mut(text) {
+                    Some(value_expr_addresses) => value_expr_addresses.push(value_expr_address),
+                    None => {
+                        let mut value_expr_addresses = Vec::new();
+                        value_expr_addresses.push(value_expr_address);
+                        fields.insert(name.clone(), value_expr_addresses);
+                    }
+                }
+            }
+
             Self::compile_value(context, signature, definition, is_quoted, field.value())?;
         }
         let struct_end = definition.expressions.len();
         // Update the struct entry to reflect the range of expansion steps it contains.
         let struct_element = TemplateBodyElement::with_value(TemplateValue::Struct(
             ExprRange::new(struct_start..struct_end),
+            fields,
         ))
         .with_annotations(annotations_range);
         definition.expressions[struct_element_index] =
@@ -487,6 +514,7 @@ mod tests {
     };
     use crate::lazy::expanded::EncodingContext;
     use crate::{Int, IntoAnnotations, IonResult, Symbol, SymbolTable};
+    use std::collections::HashMap;
 
     // This function only looks at the value portion of the TemplateElement. To compare annotations,
     // see the `expect_annotations` method.
@@ -665,7 +693,13 @@ mod tests {
         expect_value(&template, 4, TemplateValue::Int(Int::from(300)))?;
         expect_annotations(&template, 4, ["a", "b"]);
         expect_variable(&template, 5, 0)?;
-        expect_value(&template, 6, TemplateValue::Struct(ExprRange::new(7..12)))?;
+        let mut struct_index = HashMap::new();
+        struct_index.insert(Symbol::from("y"), vec![8]);
+        expect_value(
+            &template,
+            6,
+            TemplateValue::Struct(ExprRange::new(7..12), struct_index),
+        )?;
         expect_value(&template, 7, TemplateValue::Symbol(Symbol::from("y")))?;
         expect_value(&template, 8, TemplateValue::List(ExprRange::new(9..12)))?;
         expect_value(&template, 9, TemplateValue::Bool(true))?;

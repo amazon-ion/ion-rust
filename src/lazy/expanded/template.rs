@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
@@ -306,7 +307,7 @@ impl<'top, D: LazyDecoder> Iterator for TemplateStructRawFieldsIterator<'top, D>
                 match element.value() {
                     TemplateValue::List(range)
                     | TemplateValue::SExp(range)
-                    | TemplateValue::Struct(range) => self.index += range.len(),
+                    | TemplateValue::Struct(range, _) => self.index += range.len(),
                     _ => {
                         // Otherwise, the value is a scalar and is exactly one expression. We already
                         // accounted for the first expression, so there's nothing else to do here.
@@ -481,7 +482,7 @@ impl TemplateBodyValueExpr {
                 writeln!(f, "sexp")?;
                 return Self::fmt_sequence_body(f, indentation, host_template, *s);
             }
-            Struct(s) => {
+            Struct(s, _) => {
                 writeln!(f, "struct")?;
                 return Self::fmt_struct(f, indentation, host_template, *s);
             }
@@ -762,7 +763,7 @@ impl<'top, D: LazyDecoder> Iterator for TemplateMacroInvocationArgsIterator<'top
                 match e.value() {
                     TemplateValue::List(range)
                     | TemplateValue::SExp(range)
-                    | TemplateValue::Struct(range) => {
+                    | TemplateValue::Struct(range, _) => {
                         self.arg_index += range.len();
                     }
                     _ => {
@@ -901,8 +902,16 @@ pub enum TemplateValue {
     // The range of ensuing `TemplateBodyValueExpr`s that belong to this container.
     List(ExprRange),
     SExp(ExprRange),
-    Struct(ExprRange),
+    // A 'closed' struct quasi-literal. All field names are known at compile time.
+    Struct(ExprRange, TemplateStructIndex),
+    // TODO: Implementation of a `make_struct` macro requires an 'open' struct whose fields will
+    //       often not be known at compile time.
 }
+
+/// A mapping of struct field names to one or more template body addresses that have that
+/// field name. This type is used to allow field lookups within a template struct to happen in
+/// constant rather than linear time.
+pub type TemplateStructIndex = HashMap<Symbol, Vec<usize>>;
 
 impl TemplateValue {
     pub fn is_null(&self) -> bool {
@@ -926,7 +935,7 @@ impl TemplateValue {
             Blob(_) => IonType::Blob,
             List(_) => IonType::List,
             SExp(_) => IonType::SExp,
-            Struct(_) => IonType::Struct,
+            Struct(_, _) => IonType::Struct,
         }
     }
 }
