@@ -224,17 +224,16 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
                             ValueExpr::MacroInvocation(invocation) => {
                                 let mut evaluator = MacroEvaluator::new(self.context, *environment);
                                 // TODO: Remove the context parameter from these; it's baked into MacroEvaluator now.
-                                evaluator.push(self.context, *invocation)?;
-                                evaluator.next(self.context)
+                                evaluator.push(*invocation)?;
+                                evaluator.next()
                             }
                         }
                     }
                     TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
                         let invocation = body_invocation.resolve(*template, self.context);
                         let mut evaluator = MacroEvaluator::new(self.context, *environment);
-                        // TODO: Remove the context parameter from these; it's baked into MacroEvaluator now.
-                        evaluator.push(self.context, invocation)?;
-                        evaluator.next(self.context)
+                        evaluator.push(invocation)?;
+                        evaluator.next()
                     }
                 }
             }
@@ -414,7 +413,7 @@ impl<'top, D: LazyDecoder> ExpandedStructIterator<'top, D> {
                 // macro in field value position, emitting (name, value) pairs for each value
                 // in the expansion, one at a time.
                 ExpandingValueExpr(field_name) => {
-                    match evaluator.next(context) {
+                    match evaluator.next() {
                         Err(e) => return Some(Err(e)),
                         Ok(Some(next_value)) => {
                             // We got another value from the macro we're evaluating. Emit
@@ -474,7 +473,7 @@ impl<'top, D: LazyDecoder> ExpandedStructIterator<'top, D> {
             }
             // (name, macro invocation) pair. For example: `foo: (:bar)`
             Ok(RawFieldExpr::NameValuePair(name, RawValueExpr::MacroInvocation(invocation))) => {
-                if let Err(e) = evaluator.push(context, invocation) {
+                if let Err(e) = evaluator.push(invocation) {
                     return Break(Some(Err(e)));
                 };
                 *state = ExpandedStructIteratorState::ExpandingValueExpr(name);
@@ -489,8 +488,7 @@ impl<'top, D: LazyDecoder> ExpandedStructIterator<'top, D> {
                 //     {a: 1, (:make_struct b 2 c 3), d: 4}
                 // expands to:
                 //     {a: 1, b: 2, c: 3, d: 4}
-                match Self::begin_inlining_struct_from_macro(context, state, evaluator, invocation)
-                {
+                match Self::begin_inlining_struct_from_macro(state, evaluator, invocation) {
                     // If the macro expanded to a struct as expected, continue the evaluation
                     // until we get a field to return.
                     Ok(_) => Continue(()),
@@ -504,12 +502,11 @@ impl<'top, D: LazyDecoder> ExpandedStructIterator<'top, D> {
     /// Pulls the next value from the evaluator, confirms that it's a struct, and then switches
     /// the iterator state to `InliningAStruct` so it can begin merging its fields.
     fn begin_inlining_struct_from_macro<'a, 'name: 'top>(
-        context: EncodingContext<'top>,
         state: &mut ExpandedStructIteratorState<'top, D>,
         evaluator: &mut MacroEvaluator<'top, D>,
         invocation: MacroExpr<'top, D>,
     ) -> IonResult<()> {
-        let mut evaluation = evaluator.evaluate(context, invocation)?;
+        let mut evaluation = evaluator.evaluate(invocation)?;
         let expanded_value = match evaluation.next() {
             Some(Ok(item)) => item,
             Some(Err(e)) => return Err(e),

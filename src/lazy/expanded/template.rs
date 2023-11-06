@@ -174,7 +174,7 @@ impl<'top, D: LazyDecoder> Iterator for TemplateSequenceIterator<'top, D> {
         loop {
             // If the evaluator's stack is not empty, give it the opportunity to yield a value.
             if self.evaluator.macro_stack_depth() > 0 {
-                match self.evaluator.next(self.context).transpose() {
+                match self.evaluator.next().transpose() {
                     Some(value) => return Some(value),
                     None => {
                         // The stack did not produce values and is empty, pull
@@ -215,7 +215,7 @@ impl<'top, D: LazyDecoder> Iterator for TemplateSequenceIterator<'top, D> {
                             .unwrap(),
                     );
                     self.index += invocation.arg_expressions.len();
-                    match self.evaluator.push(self.context, invocation) {
+                    match self.evaluator.push(invocation) {
                         Ok(_) => continue,
                         Err(e) => Some(Err(e)),
                     }
@@ -230,7 +230,7 @@ impl<'top, D: LazyDecoder> Iterator for TemplateSequenceIterator<'top, D> {
                     match arg_expr {
                         ValueExpr::ValueLiteral(value) => Some(Ok(*value)),
                         ValueExpr::MacroInvocation(invocation) => {
-                            match self.evaluator.push(self.context, *invocation) {
+                            match self.evaluator.push(*invocation) {
                                 Ok(_) => continue,
                                 Err(e) => Some(Err(e)),
                             }

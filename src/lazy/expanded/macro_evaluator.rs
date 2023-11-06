@@ -294,10 +294,9 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
     /// or macro invocation from the current environment and then added to the new environment.
     fn make_new_evaluation_environment(
         &mut self,
-        context: EncodingContext<'top>,
         invocation: MacroExpr<'top, D>,
     ) -> IonResult<Environment<'top, D>> {
-        let mut args = BumpVec::new_in(context.allocator);
+        let mut args = BumpVec::new_in(self.context.allocator);
         for arg in invocation.arguments(self.environment()) {
             args.push(arg?);
         }
@@ -311,7 +310,6 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
     /// Returns an error if the invocation is invalid due to missing or malformed arguments.
     fn initialize_expansion(
         &mut self,
-        context: EncodingContext<'top>,
         invocation_to_evaluate: MacroExpr<'top, D>,
     ) -> IonResult<MacroExpansion<'top, D>> {
         // Initialize a `MacroExpansionKind` with the state necessary to evaluate the requested
@@ -329,7 +327,7 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
                 let template_address = invocation_to_evaluate.invoked_macro().address();
                 let template_ref = TemplateMacroRef::new(template_address, template);
                 let new_environment =
-                    self.make_new_evaluation_environment(context, invocation_to_evaluate)?;
+                    self.make_new_evaluation_environment(invocation_to_evaluate)?;
                 self.env_stack.push(new_environment);
                 MacroExpansionKind::Template(TemplateExpansion::new(template_ref))
             }
@@ -342,13 +340,9 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
 
     /// Given a syntactic element representing a macro invocation, attempt to resolve it with the
     /// current encoding context and push the resulting `MacroExpansion` onto the stack.
-    pub fn push(
-        &mut self,
-        context: EncodingContext<'top>,
-        invocation: impl Into<MacroExpr<'top, D>>,
-    ) -> IonResult<()> {
+    pub fn push(&mut self, invocation: impl Into<MacroExpr<'top, D>>) -> IonResult<()> {
         let macro_expr = invocation.into();
-        let expansion = self.initialize_expansion(context, macro_expr)?;
+        let expansion = self.initialize_expansion(macro_expr)?;
         self.macro_stack.push(expansion);
         Ok(())
     }
@@ -359,11 +353,8 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
     ///
     /// This is equivalent to calling [`next_at_or_above_depth`](Self::next_at_or_above_depth)
     /// with a `depth_to_exhaust` of `0`; see that method's documentation for more details.
-    pub fn next(
-        &mut self,
-        context: EncodingContext<'top>,
-    ) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
-        self.next_at_or_above_depth(context, 0)
+    pub fn next(&mut self) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
+        self.next_at_or_above_depth(0)
     }
 
     /// Continues evaluating the macro at the top of the stack until either:
@@ -383,7 +374,6 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
     /// before calling `next_at_or_above_depth()`.
     pub fn next_at_or_above_depth(
         &mut self,
-        context: EncodingContext<'top>,
         depth_to_exhaust: usize,
     ) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
         debug_assert!(
@@ -406,7 +396,7 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
 
             // Ask that expansion to continue its evaluation by one step.
             use ValueExpr::*;
-            match current_expansion.next(context, environment)? {
+            match current_expansion.next(self.context, environment)? {
                 // If we get a value, return it to the caller.
                 Some(ValueLiteral(value)) => {
                     return Ok(Some(value));
@@ -414,7 +404,7 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
                 // If we get another macro, push it onto the stack and continue evaluation.
                 Some(MacroInvocation(invocation)) => {
                     // If we encounter another macro invocation, put it on top of the stack.
-                    self.push(context, invocation)?;
+                    self.push(invocation)?;
                     continue;
                 }
                 // If the current macro reports that its expansion is complete...
@@ -449,14 +439,13 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
     /// its values.
     pub fn evaluate<'iter>(
         &'iter mut self,
-        context: EncodingContext<'top>,
         invocation: impl Into<MacroExpr<'top, D>>,
     ) -> IonResult<EvaluatingIterator<'iter, 'top, D>>
     where
         Self: Sized,
     {
-        self.push(context, invocation.into())?;
-        Ok(EvaluatingIterator::new(self, context))
+        self.push(invocation)?;
+        Ok(EvaluatingIterator::new(self))
     }
 }
 
@@ -464,19 +453,14 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
 /// evaluator's stack when the iterator was created.
 pub struct EvaluatingIterator<'iter, 'top, D: LazyDecoder> {
     evaluator: &'iter mut MacroEvaluator<'top, D>,
-    context: EncodingContext<'top>,
     initial_stack_depth: usize,
 }
 
 impl<'iter, 'top, D: LazyDecoder> EvaluatingIterator<'iter, 'top, D> {
-    pub fn new(
-        evaluator: &'iter mut MacroEvaluator<'top, D>,
-        context: EncodingContext<'top>,
-    ) -> Self {
+    pub fn new(evaluator: &'iter mut MacroEvaluator<'top, D>) -> Self {
         let initial_stack_depth = evaluator.macro_stack_depth();
         Self {
             evaluator,
-            context,
             initial_stack_depth,
         }
     }
@@ -487,7 +471,7 @@ impl<'iter, 'top, D: LazyDecoder> Iterator for EvaluatingIterator<'iter, 'top, D
 
     fn next(&mut self) -> Option<Self::Item> {
         self.evaluator
-            .next_at_or_above_depth(self.context, self.initial_stack_depth)
+            .next_at_or_above_depth(self.initial_stack_depth)
             .transpose()
     }
 }
@@ -593,7 +577,7 @@ impl<'top, D: LazyDecoder> MakeStringExpansion<'top, D> {
                     Self::append_expanded_raw_text_value(context, &mut buffer, value.read()?)?
                 }
                 ValueExpr::MacroInvocation(invocation) => {
-                    for value_result in evaluator.evaluate(context, invocation)? {
+                    for value_result in evaluator.evaluate(invocation)? {
                         let value = value_result?;
                         let expanded = value.read()?;
                         Self::append_expanded_raw_text_value(context, &mut buffer, expanded)?
