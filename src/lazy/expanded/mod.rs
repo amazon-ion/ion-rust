@@ -387,7 +387,7 @@ impl<'data, D: LazyDecoder> LazyExpandingReader<'data, D> {
                             .alloc_with(move || MacroEvaluator::new(context, Environment::empty())),
                     };
                     // Push the invocation onto the evaluation stack.
-                    evaluator.push(context, resolved_e_exp)?;
+                    evaluator.push(resolved_e_exp)?;
                     self.evaluator_ptr
                         .set(Some(Self::evaluator_to_ptr(evaluator)));
 
@@ -419,7 +419,7 @@ impl<'data, D: LazyDecoder> LazyExpandingReader<'data, D> {
         };
         let evaluator = Self::ptr_to_evaluator(evaluator_ptr);
 
-        match evaluator.next(self.context()) {
+        match evaluator.next() {
             Ok(Some(value)) => {
                 // See if this value was a symbol table that needs interpretation.
                 self.interpret_value(value).map(Some)
@@ -859,12 +859,13 @@ impl<'top, D: LazyDecoder> ExpandedValueRef<'top, D> {
                 element.annotations_range(),
                 *s,
             )),
-            Struct(s) => ExpandedValueRef::Struct(LazyExpandedStruct::from_template(
+            Struct(s, index) => ExpandedValueRef::Struct(LazyExpandedStruct::from_template(
                 context,
                 environment,
                 element.template(),
                 element.annotations_range(),
                 *s,
+                index,
             )),
         }
     }

@@ -108,15 +108,11 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     ///# }
     /// ```
     pub fn find(&self, name: &str) -> IonResult<Option<LazyValue<'top, D>>> {
-        for field in self {
-            let field = field?;
-            if field.name()? == name {
-                let expanded_value = *field.expanded_field.value();
-                let value = LazyValue::new(expanded_value);
-                return Ok(Some(value));
-            }
-        }
-        Ok(None)
+        let Some(expanded_value) = self.expanded_struct.find(name)? else {
+            return Ok(None);
+        };
+        let value = LazyValue::new(expanded_value);
+        Ok(Some(value))
     }
 
     /// Like [`LazyStruct::find`], but returns an [`IonError::Decoding`] if no field with the
@@ -251,7 +247,7 @@ impl<'top, D: LazyDecoder> Debug for LazyField<'top, D> {
 impl<'top, D: LazyDecoder> LazyField<'top, D> {
     /// Returns a symbol representing the name of this field.
     pub fn name(&self) -> IonResult<SymbolRef<'top>> {
-        let field_name = self.expanded_field.name();
+        let field_name = self.expanded_field.raw_name();
         let field_id = match field_name {
             RawSymbolTokenRef::SymbolId(sid) => sid,
             RawSymbolTokenRef::Text(text) => return Ok(SymbolRef::with_text(text)),

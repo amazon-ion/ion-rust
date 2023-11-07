@@ -314,7 +314,7 @@ fn expand_next_sequence_value<'top, D: LazyDecoder>(
     loop {
         // If the evaluator's stack is not empty, it's still expanding a macro.
         if evaluator.macro_stack_depth() > 0 {
-            let value = evaluator.next(context).transpose();
+            let value = evaluator.next().transpose();
             if value.is_some() {
                 // The `Some` may contain a value or an error; either way, that's the next return value.
                 return value;
@@ -336,7 +336,7 @@ fn expand_next_sequence_value<'top, D: LazyDecoder>(
                     Ok(resolved) => resolved,
                     Err(e) => return Some(Err(e)),
                 };
-                let begin_expansion_result = evaluator.push(context, resolved_invocation);
+                let begin_expansion_result = evaluator.push(resolved_invocation);
                 if let Err(e) = begin_expansion_result {
                     return Some(Err(e));
                 }

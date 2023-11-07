@@ -117,6 +117,19 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             let _ = black_box(num_values);
         })
     });
+    c.bench_function("text 1.0: read 'format' field", |b| {
+        b.iter(|| {
+            let mut reader =
+                LazyApplicationReader::<'_, TextEncoding_1_1>::new(data_1_0.as_bytes()).unwrap();
+            let mut num_values = 0usize;
+            while let Some(value) = reader.next().unwrap() {
+                let s = value.read().unwrap().expect_struct().unwrap();
+                let parameters_list = s.find_expected("format").unwrap();
+                num_values += count_value_and_children(&parameters_list).unwrap();
+            }
+            let _ = black_box(num_values);
+        })
+    });
     c.bench_function("text 1.1: scan all", |b| {
         b.iter(|| {
             let mut reader = LazyTextReader_1_1::new(data_1_1.as_bytes()).unwrap();
@@ -133,6 +146,20 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             let mut num_values = 0usize;
             while let Some(item) = reader.next().unwrap() {
                 num_values += count_value_and_children(&item).unwrap();
+            }
+            let _ = black_box(num_values);
+        })
+    });
+    c.bench_function("text 1.1: read 'format' field", |b| {
+        b.iter(|| {
+            let mut reader =
+                LazyApplicationReader::<'_, TextEncoding_1_1>::new(data_1_1.as_bytes()).unwrap();
+            reader.register_template(template_text).unwrap();
+            let mut num_values = 0usize;
+            while let Some(value) = reader.next().unwrap() {
+                let s = value.read().unwrap().expect_struct().unwrap();
+                let parameters_list = s.find_expected("format").unwrap();
+                num_values += count_value_and_children(&parameters_list).unwrap();
             }
             let _ = black_box(num_values);
         })
