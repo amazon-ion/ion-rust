@@ -1,4 +1,5 @@
-use crate::Symbol;
+use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::{RawSymbolTokenRef, Symbol};
 use std::borrow::{Borrow, Cow};
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
@@ -15,6 +16,7 @@ impl<'a> Debug for SymbolRef<'a> {
         write!(f, "{}", self.text().unwrap_or("$0"))
     }
 }
+//bar
 
 impl<'a> SymbolRef<'a> {
     /// If this symbol has known text, returns `Some(&str)`. Otherwise, returns `None`.
@@ -137,6 +139,15 @@ impl<'borrow, 'data> AsSymbolRef for &'borrow SymbolRef<'data> {
     fn as_symbol_ref(&self) -> SymbolRef<'data> {
         // This is essentially free; the only data inside is an Option<&str>
         (*self).clone()
+    }
+}
+
+impl<'a> AsRawSymbolTokenRef for SymbolRef<'a> {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
+        match &self.text {
+            None => RawSymbolTokenRef::SymbolId(0),
+            Some(text) => RawSymbolTokenRef::Text(text.as_ref().into()),
+        }
     }
 }
 
