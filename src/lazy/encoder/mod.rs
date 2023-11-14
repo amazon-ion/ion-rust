@@ -57,6 +57,8 @@ impl<W: Write> LazyEncoder<W> for TextEncoding_1_0 {
     type ValueWriter<'a> = TextValueWriter_1_0<'a, W> where W: 'a;
     type AnnotatedValueWriter<'a> = TextAnnotatedValueWriter_1_0<'a, W> where W: 'a;
     type ListWriter<'a> = TextListWriter_1_0<'a, W> where W: 'a;
+
+    // TODO: Implement these associated types.
     type SExpWriter<'a> = ();
     type StructWriter<'a> = ();
     type EExpressionWriter<'a> = ();
@@ -96,7 +98,7 @@ pub trait ValueWriter<'a, W: Write, E: LazyEncoder<W>> {
     fn write_clob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()>;
     fn write_blob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()>;
     fn list_writer(self) -> IonResult<E::ListWriter<'a>>;
-    fn sexp_writer(self) -> IonResult<E::StructWriter<'a>>;
+    fn sexp_writer(self) -> IonResult<E::SExpWriter<'a>>;
     fn struct_writer(self) -> IonResult<E::StructWriter<'a>>;
 }
 
