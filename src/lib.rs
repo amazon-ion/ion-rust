@@ -208,8 +208,8 @@ pub use ion_data::IonData;
 pub use symbol_ref::SymbolRef;
 #[doc(inline)]
 pub use types::{
-    decimal::Decimal, Blob, Bytes, Clob, Int, IonType, List, SExp, Str, Struct, Symbol, SymbolId,
-    Timestamp, TimestampPrecision, UInt,
+    decimal::Decimal, Blob, Bytes, Clob, Int, IonType, List, Null, SExp, Str, Struct, Symbol,
+    SymbolId, Timestamp, TimestampPrecision, UInt,
 };
 
 // Allow access to less commonly used types like decimal::coefficient::{Coefficient, Sign}
