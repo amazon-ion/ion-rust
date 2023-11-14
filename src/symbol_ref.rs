@@ -1,5 +1,5 @@
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{RawSymbolTokenRef, Symbol};
+use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
+use crate::Symbol;
 use std::borrow::{Borrow, Cow};
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
@@ -16,7 +16,6 @@ impl<'a> Debug for SymbolRef<'a> {
         write!(f, "{}", self.text().unwrap_or("$0"))
     }
 }
-//bar
 
 impl<'a> SymbolRef<'a> {
     /// If this symbol has known text, returns `Some(&str)`. Otherwise, returns `None`.
