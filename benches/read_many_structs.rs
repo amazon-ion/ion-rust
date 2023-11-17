@@ -15,6 +15,38 @@ fn rewrite_as(pretty_ion: &str, format: Format) -> IonResult<Vec<u8>> {
     Ok(buffer)
 }
 
+fn count_value_and_children<D: LazyDecoder>(lazy_value: &LazyValue<'_, D>) -> IonResult<usize> {
+    use ValueRef::*;
+    let child_count = match lazy_value.read()? {
+        List(s) => count_sequence_children(s.iter())?,
+        SExp(s) => count_sequence_children(s.iter())?,
+        Struct(s) => count_struct_children(&s)?,
+        scalar => {
+            let _ = black_box(scalar);
+            0
+        }
+    };
+    Ok(1 + child_count)
+}
+
+fn count_sequence_children<'a, D: LazyDecoder>(
+    lazy_sequence: impl Iterator<Item = IonResult<LazyValue<'a, D>>>,
+) -> IonResult<usize> {
+    let mut count = 0;
+    for value in lazy_sequence {
+        count += count_value_and_children(&value?)?;
+    }
+    Ok(count)
+}
+
+fn count_struct_children<D: LazyDecoder>(lazy_struct: &LazyStruct<'_, D>) -> IonResult<usize> {
+    let mut count = 0;
+    for field in lazy_struct {
+        count += count_value_and_children(&field?.value())?;
+    }
+    Ok(count)
+}
+
 pub fn criterion_benchmark(c: &mut Criterion) {
     const NUM_VALUES: usize = 10_000;
     let pretty_data_1_0 = r#"{
@@ -67,39 +99,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         "Ion 1.0 sequence was not equal to the Ion 1.1 sequence"
     );
 
-    fn count_value_and_children<D: LazyDecoder>(lazy_value: &LazyValue<'_, D>) -> IonResult<usize> {
-        use ValueRef::*;
-        let child_count = match lazy_value.read()? {
-            List(s) => count_sequence_children(s.iter())?,
-            SExp(s) => count_sequence_children(s.iter())?,
-            Struct(s) => count_struct_children(&s)?,
-            scalar => {
-                let _ = black_box(scalar);
-                0
-            }
-        };
-        Ok(1 + child_count)
-    }
-
-    fn count_sequence_children<'a, D: LazyDecoder>(
-        lazy_sequence: impl Iterator<Item = IonResult<LazyValue<'a, D>>>,
-    ) -> IonResult<usize> {
-        let mut count = 0;
-        for value in lazy_sequence {
-            count += count_value_and_children(&value?)?;
-        }
-        Ok(count)
-    }
-
-    fn count_struct_children<D: LazyDecoder>(lazy_struct: &LazyStruct<'_, D>) -> IonResult<usize> {
-        let mut count = 0;
-        for field in lazy_struct {
-            count += count_value_and_children(&field?.value())?;
-        }
-        Ok(count)
-    }
-
-    c.bench_function("binary 1.0: scan all", |b| {
+    let mut binary_1_0_group = c.benchmark_group("binary 1.0");
+    binary_1_0_group.bench_function("scan all", |b| {
         b.iter(|| {
             let mut reader = LazyBinaryReader::new(&binary_1_0_data).unwrap();
             while let Some(item) = reader.next().unwrap() {
@@ -107,7 +108,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }
         })
     });
-    c.bench_function("binary 1.0: read all", |b| {
+    binary_1_0_group.bench_function("read all", |b| {
         b.iter(|| {
             let mut reader = LazyBinaryReader::new(&binary_1_0_data).unwrap();
             let mut num_values = 0usize;
@@ -117,7 +118,10 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             let _ = black_box(num_values);
         })
     });
-    c.bench_function("text 1.0: scan all", |b| {
+    binary_1_0_group.finish();
+
+    let mut text_1_0_group = c.benchmark_group("text 1.0");
+    text_1_0_group.bench_function("scan all", |b| {
         b.iter(|| {
             let mut reader =
                 LazyApplicationReader::<'_, TextEncoding_1_1>::new(&text_1_0_data).unwrap();
@@ -126,7 +130,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }
         })
     });
-    c.bench_function("text 1.0: read all", |b| {
+    text_1_0_group.bench_function("read all", |b| {
         b.iter(|| {
             let mut reader =
                 LazyApplicationReader::<'_, TextEncoding_1_1>::new(&text_1_0_data).unwrap();
@@ -137,7 +141,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             let _ = black_box(num_values);
         })
     });
-    c.bench_function("text 1.0: read 'format' field", |b| {
+    text_1_0_group.bench_function("read 'format' field", |b| {
         b.iter(|| {
             let mut reader =
                 LazyApplicationReader::<'_, TextEncoding_1_1>::new(&text_1_0_data).unwrap();
@@ -150,7 +154,10 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             let _ = black_box(num_values);
         })
     });
-    c.bench_function("text 1.1: scan all", |b| {
+    text_1_0_group.finish();
+
+    let mut text_1_1_group = c.benchmark_group("text 1.1");
+    text_1_1_group.bench_function("scan all", |b| {
         b.iter(|| {
             let mut reader = LazyTextReader_1_1::new(text_1_1_data.as_bytes()).unwrap();
             reader.register_template(template_text).unwrap();
@@ -159,7 +166,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }
         })
     });
-    c.bench_function("text 1.1: read all", |b| {
+    text_1_1_group.bench_function("read all", |b| {
         b.iter(|| {
             let mut reader = LazyTextReader_1_1::new(text_1_1_data.as_bytes()).unwrap();
             reader.register_template(template_text).unwrap();
@@ -170,7 +177,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             let _ = black_box(num_values);
         })
     });
-    c.bench_function("text 1.1: read 'format' field", |b| {
+    text_1_1_group.bench_function("read 'format' field", |b| {
         b.iter(|| {
             let mut reader =
                 LazyApplicationReader::<'_, TextEncoding_1_1>::new(text_1_1_data.as_bytes())
@@ -185,6 +192,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             let _ = black_box(num_values);
         })
     });
+    text_1_1_group.finish();
 }
 
 criterion_group!(benches, criterion_benchmark);
