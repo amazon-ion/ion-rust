@@ -5,6 +5,7 @@ pub mod any_encoding;
 pub mod binary;
 pub mod bytes_ref;
 pub mod decoder;
+pub mod encoder;
 pub mod encoding;
 pub mod expanded;
 pub mod lazy_value_cache;

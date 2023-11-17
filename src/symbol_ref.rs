@@ -1,3 +1,4 @@
+use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::Symbol;
 use std::borrow::{Borrow, Cow};
 use std::fmt::{Debug, Formatter};
@@ -137,6 +138,15 @@ impl<'borrow, 'data> AsSymbolRef for &'borrow SymbolRef<'data> {
     fn as_symbol_ref(&self) -> SymbolRef<'data> {
         // This is essentially free; the only data inside is an Option<&str>
         (*self).clone()
+    }
+}
+
+impl<'a> AsRawSymbolTokenRef for SymbolRef<'a> {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
+        match &self.text {
+            None => RawSymbolTokenRef::SymbolId(0),
+            Some(text) => RawSymbolTokenRef::Text(text.as_ref().into()),
+        }
     }
 }
 
