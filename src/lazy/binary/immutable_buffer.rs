@@ -161,7 +161,47 @@ impl<'a> ImmutableBuffer<'a> {
     /// returns an `Ok(_)` containing its [VarUInt] representation.
     ///
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields>
+    #[inline]
     pub fn read_var_uint(self) -> ParseResult<'a, VarUInt> {
+        const LOWER_7_BITMASK: u8 = 0b0111_1111;
+        const HIGHEST_BIT_VALUE: u8 = 0b1000_0000;
+
+        // Reading a `VarUInt` is one of the hottest paths in the binary 1.0 reader.
+        // Because `VarUInt`s represent struct field names, annotations, and value lengths,
+        // smaller values are more common than larger values. As an optimization, we have a
+        // dedicated code path for the decoding of 1- and 2-byte VarUInts. This allows the logic
+        // for the most common cases to be inlined and the logic for the less common cases
+        // (including errors) to be a function call.
+
+        let data = self.bytes();
+        // The 'fast path' first checks whether we have at least two bytes available. This allows us
+        // to do a single length check on the fast path. If there's one byte in the buffer that
+        // happens to be a complete VarUInt (a very rare occurrence), it will still be handled by
+        // `read_var_uint_slow()`.
+        if data.len() >= 2 {
+            let first_byte = data[0];
+            let mut magnitude = (LOWER_7_BITMASK & first_byte) as usize;
+            if first_byte >= HIGHEST_BIT_VALUE {
+                // Fast path for 1-byte VarUInts
+                return Ok((VarUInt::new(magnitude, 1), self.consume(1)));
+            }
+            let second_byte = data[1];
+            if second_byte >= HIGHEST_BIT_VALUE {
+                // Fast path for 2-byte VarUInts
+                let lower_seven = (LOWER_7_BITMASK & second_byte) as usize;
+                magnitude <<= 7;
+                magnitude |= lower_seven;
+                return Ok((VarUInt::new(magnitude, 2), self.consume(2)));
+            }
+        }
+
+        // All other VarUInt sizes and error cases (incomplete data, oversized, etc) are handled by
+        // this more general decoding loop.
+        self.read_var_uint_slow()
+    }
+
+    #[cold]
+    pub fn read_var_uint_slow(self) -> ParseResult<'a, VarUInt> {
         const BITS_PER_ENCODED_BYTE: usize = 7;
         const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<usize>() * 8;
         const MAX_ENCODED_SIZE_IN_BYTES: usize = STORAGE_SIZE_IN_BITS / BITS_PER_ENCODED_BYTE;
