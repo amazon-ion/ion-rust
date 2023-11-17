@@ -181,18 +181,19 @@ impl<'a> ImmutableBuffer<'a> {
         if data.len() >= 2 {
             let first_byte = data[0];
             let mut magnitude = (LOWER_7_BITMASK & first_byte) as usize;
-            if first_byte >= HIGHEST_BIT_VALUE {
-                // Fast path for 1-byte VarUInts
-                return Ok((VarUInt::new(magnitude, 1), self.consume(1)));
-            }
-            let second_byte = data[1];
-            if second_byte >= HIGHEST_BIT_VALUE {
-                // Fast path for 2-byte VarUInts
+            let num_bytes = if first_byte >= HIGHEST_BIT_VALUE {
+                1
+            } else {
+                let second_byte = data[1];
+                if second_byte < HIGHEST_BIT_VALUE {
+                    return self.read_var_uint_slow();
+                }
                 let lower_seven = (LOWER_7_BITMASK & second_byte) as usize;
                 magnitude <<= 7;
                 magnitude |= lower_seven;
-                return Ok((VarUInt::new(magnitude, 2), self.consume(2)));
-            }
+                2
+            };
+            return Ok((VarUInt::new(magnitude, num_bytes), self.consume(num_bytes)));
         }
 
         // All other VarUInt sizes and error cases (incomplete data, oversized, etc) are handled by
