@@ -559,7 +559,6 @@ impl<'a, W: Write, E: LazyEncoder<W>> SequenceWriter<'a, W, E> for TextSExpWrite
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::lazy::encoder::annotate::Annotate;
