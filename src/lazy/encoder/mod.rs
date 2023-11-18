@@ -47,7 +47,9 @@ pub trait LazyEncoder<W: Write>: 'static + Sized + Debug + Clone + Copy {
 
     // TODO: Apply trait constraints to the following associated types
 
-    type SExpWriter<'a>;
+    type SExpWriter<'a>: SequenceWriter<'a, W, Self>
+    where
+        W: 'a;
     type StructWriter<'a>;
     type EExpressionWriter<'a>;
 }
@@ -57,9 +59,9 @@ impl<W: Write> LazyEncoder<W> for TextEncoding_1_0 {
     type ValueWriter<'a> = TextValueWriter_1_0<'a, W> where W: 'a;
     type AnnotatedValueWriter<'a> = TextAnnotatedValueWriter_1_0<'a, W> where W: 'a;
     type ListWriter<'a> = TextListWriter_1_0<'a, W> where W: 'a;
+    type SExpWriter<'a> = TextSExpWriter_1_0<'a, W> where W: 'a;
 
     // TODO: Implement these associated types.
-    type SExpWriter<'a> = ();
     type StructWriter<'a> = ();
     type EExpressionWriter<'a> = ();
 }
@@ -110,6 +112,9 @@ pub trait LazyRawWriter<W: Write, E: LazyEncoder<W>> {
 
     fn list_writer(&mut self) -> IonResult<E::ListWriter<'_>> {
         self.value_writer().list_writer()
+    }
+    fn sexp_writer(&mut self) -> IonResult<E::SExpWriter<'_>> {
+        self.value_writer().sexp_writer()
     }
     fn flush(&mut self) -> IonResult<()>;
 }
@@ -186,6 +191,11 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
     #[inline]
     pub fn list_writer(&mut self) -> IonResult<TextListWriter_1_0<'_, W>> {
         self.value_writer().list_writer()
+    }
+
+    #[inline]
+    pub fn sexp_writer(&mut self) -> IonResult<TextSExpWriter_1_0<'_, W>> {
+        self.value_writer().sexp_writer()
     }
 }
 
@@ -361,8 +371,8 @@ impl<'a, W: Write> ValueWriter<'a, W, TextEncoding_1_0> for TextValueWriter_1_0<
         TextListWriter_1_0::new(self.writer, self.depth + 1)
     }
 
-    fn sexp_writer(self) -> IonResult<<TextEncoding_1_0 as LazyEncoder<W>>::StructWriter<'a>> {
-        todo!()
+    fn sexp_writer(self) -> IonResult<<TextEncoding_1_0 as LazyEncoder<W>>::SExpWriter<'a>> {
+        TextSExpWriter_1_0::new(self.writer, self.depth + 1)
     }
 
     fn struct_writer(self) -> IonResult<<TextEncoding_1_0 as LazyEncoder<W>>::StructWriter<'a>> {
@@ -370,7 +380,7 @@ impl<'a, W: Write> ValueWriter<'a, W, TextEncoding_1_0> for TextValueWriter_1_0<
     }
 }
 
-/// Incrementally encodes a potentially homogeneously typed Ion list.
+/// Incrementally encodes a potentially heterogeneously typed Ion list.
 pub struct TextListWriter_1_0<'a, W: Write> {
     writer: &'a mut LazyRawTextWriter_1_0<W>,
     depth: usize,
@@ -391,9 +401,7 @@ impl<'a, W: Write> TextListWriter_1_0<'a, W> {
             has_been_closed: false,
         })
     }
-}
 
-impl<'a, W: Write> TextListWriter_1_0<'a, W> {
     /// Writes the provided data as a nested value.
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         let indentation = self.whitespace_config().indentation;
@@ -459,6 +467,98 @@ impl<'a, W: Write, E: LazyEncoder<W>> SequenceWriter<'a, W, E> for TextListWrite
         }
     }
 }
+
+// TODO: There's a lot of overlap between the list and sexp writer that we could DRY up.
+
+/// Incrementally encodes a potentially heterogeneously typed Ion s-expression.
+pub struct TextSExpWriter_1_0<'a, W: Write> {
+    writer: &'a mut LazyRawTextWriter_1_0<W>,
+    // Used for writing out indentation
+    depth: usize,
+    // The compiler prevents the sexp writer from being used after `end()` is called.
+    // However, if the user does not call `end()` and the writer goes out of scope, the output
+    // buffer may be left with invalid Ion. This flag is checked in the `Drop` impl to prevent that
+    // from happening quietly.
+    has_been_closed: bool,
+}
+
+impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
+    pub fn new(writer: &'a mut LazyRawTextWriter_1_0<W>, depth: usize) -> IonResult<Self> {
+        let space_after_container_start = writer.whitespace_config.space_after_container_start;
+        write!(writer.output, "({space_after_container_start}")?;
+        Ok(Self {
+            writer,
+            depth,
+            has_been_closed: false,
+        })
+    }
+
+    /// Writes the provided data as a nested value.
+    fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
+        let indentation = self.whitespace_config().indentation;
+        if !indentation.is_empty() {
+            for _ in 0..self.depth {
+                write!(self.output(), "{indentation}")?;
+            }
+        }
+        value.write_as_ion(self.annotated_value_writer())?;
+        let space_between_nested_values = self.whitespace_config().space_between_nested_values;
+        write!(self.output(), "{space_between_nested_values}")?;
+        Ok(self)
+    }
+
+    /// Finalizes the sexp, preventing further values from being written.
+    fn end(mut self) -> IonResult<()> {
+        let space_between_top_level_values =
+            self.whitespace_config().space_between_top_level_values;
+        write!(self.output(), "){space_between_top_level_values}")?;
+        self.has_been_closed = true;
+        Ok(())
+    }
+
+    fn output(&mut self) -> &mut W {
+        &mut self.writer.output
+    }
+
+    fn whitespace_config(&self) -> &WhitespaceConfig {
+        self.writer.whitespace_config
+    }
+
+    #[inline]
+    fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W> {
+        TextValueWriter_1_0 {
+            writer: self.writer,
+            depth: self.depth,
+        }
+    }
+
+    #[inline]
+    fn annotated_value_writer(&mut self) -> TextAnnotatedValueWriter_1_0<'_, W> {
+        TextAnnotatedValueWriter_1_0 {
+            value_writer: self.value_writer(),
+        }
+    }
+}
+
+impl<'a, W: Write> Drop for TextSExpWriter_1_0<'a, W> {
+    fn drop(&mut self) {
+        // If the user didn't call `end`, the closing delimiter was not written to output.
+        // It's too late to call it here because we can't return a Result.
+        if !self.has_been_closed {
+            panic!("SExp writer was dropped without calling `end()`.");
+        }
+    }
+}
+
+impl<'a, W: Write, E: LazyEncoder<W>> SequenceWriter<'a, W, E> for TextSExpWriter_1_0<'a, W> {
+    delegate! {
+        to self {
+            fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self>;
+            fn end(self) -> IonResult<()>;
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -560,6 +660,37 @@ mod tests {
                 .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
                 .write(&[0xE0u8, 0x01, 0x00, 0xEA][..])?;
             list.end()?;
+            Ok(())
+        };
+        writer_test(expected, test)
+    }
+
+    #[test]
+    fn write_sexp() -> IonResult<()> {
+        let expected = r#"
+            (
+              1
+              false
+              3e0
+              "foo"
+              bar
+              2023-11-09T
+              {{4AEA6g==}}
+              // Nested list
+              [1, 2, 3]
+            )
+        "#;
+        let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
+            let mut sexp = writer.sexp_writer()?;
+            sexp.write(1)?
+                .write(false)?
+                .write(3f32)?
+                .write("foo")?
+                .write("bar".as_symbol_ref())?
+                .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
+                .write([0xE0u8, 0x01, 0x00, 0xEA])?
+                .write([1, 2, 3])?;
+            sexp.end()?;
             Ok(())
         };
         writer_test(expected, test)
