@@ -12,19 +12,18 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
-use crate::binary::binary_writer::BinaryWriterBuilder;
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
 use crate::ion_data::{IonEq, IonOrd};
+#[cfg(feature = "experimental-writer")]
 use crate::ion_writer::IonWriter;
 use crate::text::text_formatter::IonValueFormatter;
-use crate::text::text_writer::TextWriterBuilder;
-use crate::{
-    ion_data, Decimal, Format, Int, IonError, IonResult, IonType, Str, Symbol, TextKind, Timestamp,
-};
+use crate::{ion_data, Decimal, Int, IonError, IonResult, IonType, Str, Symbol, Timestamp};
+
+#[cfg(feature = "experimental-writer")]
+use crate::TextKind;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
-use std::io;
 
 mod annotations;
 pub(crate) mod iterators;
@@ -41,11 +40,14 @@ mod sequence;
 
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::data_source::IonDataSource;
-use crate::element::writer::ElementWriter;
+#[cfg(feature = "experimental-writer")]
+use crate::element::writer::WriteConfig;
+#[cfg(feature = "experimental-writer")]
+use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
 use crate::reader::ReaderBuilder;
-use crate::{Blob, Bytes, Clob, List, SExp, Struct};
-
 use crate::result::IonFailure;
+use crate::ElementWriter;
+use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 pub use annotations::{Annotations, IntoAnnotations};
 pub use sequence::Sequence;
 
@@ -750,104 +752,6 @@ impl Element {
     }
 
     #[doc = r##"
-Serializes this [`Element`] as Ion, writing the resulting bytes to the provided [`io::Write`].
-The caller must verify that `output` is either empty or only contains Ion of the same
-format (text or binary) before writing begins.
-
-This method constructs a new writer for each invocation, which means that there will only be a single
-top level value in the output stream. Writing several values to the same stream is preferable to
-maximize encoding efficiency. See [`write_all_as`](Self::write_all_as) for details.
-"##]
-    #[cfg_attr(
-        feature = "experimental-writer",
-        doc = r##"
-To reuse a writer and have greater control over resource
-management, see [`Element::write_to`].
-"##
-    )]
-    #[doc = r##"    
-```
-# use ion_rs::{Format, IonResult, TextKind};
-# fn main() -> IonResult<()> {
-use ion_rs::Element;
-use ion_rs::ion_list;
-
-// Construct an Element
-let element_before: Element = ion_list! [1, 2, 3].into();
-
-// Write the Element to a buffer using a specified format
-let mut buffer = Vec::new();
-element_before.write_as(Format::Text(TextKind::Pretty), &mut buffer)?;
-
-// Read the Element back from the serialized form
-let element_after = Element::read_one(&buffer)?;
-
-// Confirm that no data was lost
-assert_eq!(element_before, element_after);
-# Ok(())
-# }
-```
-"##]
-    pub fn write_as<W: io::Write>(&self, format: Format, output: W) -> IonResult<()> {
-        match format {
-            Format::Text(text_kind) => {
-                let mut text_writer = TextWriterBuilder::new(text_kind).build(output)?;
-                Element::write_element_to(self, &mut text_writer)?;
-                text_writer.flush()
-            }
-            Format::Binary => {
-                let mut binary_writer = BinaryWriterBuilder::default().build(output)?;
-                Element::write_element_to(self, &mut binary_writer)?;
-                binary_writer.flush()
-            }
-        }
-    }
-
-    /// Serializes each of the provided [`Element`]s as Ion, writing the resulting bytes to the
-    /// provided [`io::Write`]. The caller must verify that `output` is either empty or only
-    /// contains Ion of the same format (text or binary) before writing begins.
-    ///
-    /// This method is preferable to [`write_as`](Self::write_as) when writing streams consisting
-    /// of more than one top-level value; the writer can re-use the same symbol table definition
-    /// to encode each value, resulting in a more compact representation.
-    ///
-    /// ```
-    ///# use ion_rs::IonResult;
-    ///# fn main() -> IonResult<()> {
-    /// use ion_rs::{Element, Format, ion_seq};
-    ///
-    /// let elements = ion_seq!("foo", "bar", "baz");
-    /// let mut buffer: Vec<u8> = Vec::new();
-    /// Element::write_all_as(&elements, Format::Binary, &mut buffer)?;
-    /// let roundtrip_elements = Element::read_all(buffer)?;
-    /// assert_eq!(elements, roundtrip_elements);
-    ///# Ok(())
-    ///# }
-    /// ```
-    pub fn write_all_as<'a, W: io::Write, I: IntoIterator<Item = &'a Element>>(
-        elements: I,
-        format: Format,
-        output: W,
-    ) -> IonResult<()> {
-        match format {
-            Format::Text(text_kind) => {
-                let mut text_writer = TextWriterBuilder::new(text_kind).build(output)?;
-                for element in elements {
-                    Element::write_element_to(element, &mut text_writer)?;
-                }
-                text_writer.flush()
-            }
-            Format::Binary => {
-                let mut binary_writer = BinaryWriterBuilder::default().build(output)?;
-                for element in elements {
-                    Element::write_element_to(element, &mut binary_writer)?;
-                }
-                binary_writer.flush()
-            }
-        }
-    }
-
-    #[doc = r##"
 Serializes this [`Element`] as binary Ion, returning the output as a `Vec<u8>`.
 "##]
     #[cfg_attr(
@@ -881,10 +785,15 @@ assert_eq!(element_before, element_after);
 # }
 ```
 "##]
+    #[cfg(feature = "experimental-writer")]
     pub fn to_binary(&self) -> IonResult<Vec<u8>> {
-        let mut buffer = Vec::new();
-        self.write_as(Format::Binary, &mut buffer)?;
-        Ok(buffer)
+        let buffer = Vec::new();
+        let write_config: WriteConfig<BinaryEncoding_1_0> =
+            WriteConfig::<BinaryEncoding_1_0>::new();
+        let mut writer = write_config.build(buffer)?;
+        Element::write_element_to(self, &mut writer)?;
+        writer.flush()?;
+        Ok(writer.output().to_owned().to_owned())
     }
 
     #[doc = r##"
@@ -923,10 +832,15 @@ assert_eq!(element_before, element_after);
 # }
 ```
     "##]
+    #[cfg(feature = "experimental-writer")]
     pub fn to_text(&self, text_kind: TextKind) -> IonResult<String> {
-        let mut buffer = Vec::new();
-        self.write_as(Format::Text(text_kind), &mut buffer)?;
-        Ok(std::str::from_utf8(&buffer)
+        let buffer = Vec::new();
+        let write_config: WriteConfig<TextEncoding_1_0> =
+            WriteConfig::<TextEncoding_1_0>::new(text_kind);
+        let mut writer = write_config.build(buffer)?;
+        Element::write_element_to(self, &mut writer)?;
+        writer.flush()?;
+        Ok(std::str::from_utf8(writer.output())
             .expect("writer produced invalid utf-8")
             .to_string())
     }

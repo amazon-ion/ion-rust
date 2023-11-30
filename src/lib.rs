@@ -130,29 +130,6 @@
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! ## Writing an `Element` to an `io::Write`
-//!
-//! ```
-//! # use ion_rs::IonResult;
-//! # fn main() -> IonResult<()> {
-//! use ion_rs::{Element, Format, TextKind, ion_list, ion_struct};
-//! let element: Element = ion_struct! {
-//!   "foo": "hello",
-//!   "bar": true,
-//!   "baz": ion_list! [4, 5, 6]
-//! }
-//! .into();
-//!
-//! let mut buffer: Vec<u8> = Vec::new();
-//! element.write_as(Format::Text(TextKind::Compact), &mut buffer)?;
-//! assert_eq!(
-//!     "{foo: \"hello\", bar: true, baz: [4, 5, 6]}".as_bytes(),
-//!     buffer.as_slice()
-//! );
-//! # Ok(())
-//! # }
-//! ```
 
 // XXX this top-level import is required because of the macro factoring of rstest_reuse
 // XXX Clippy incorrectly indicates that this is redundant

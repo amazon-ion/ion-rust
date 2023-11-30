@@ -8,7 +8,10 @@ use std::fmt::Debug;
 use std::io::Write;
 use write_as_ion::WriteAsIon;
 
-use crate::lazy::encoding::TextEncoding_1_0;
+use crate::element::writer::WriteConfig;
+use crate::element::writer::WriteConfigKind;
+
+use crate::lazy::encoding::{Encoding, TextEncoding_1_0};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::text::raw_text_writer::{WhitespaceConfig, PRETTY_WHITESPACE_CONFIG};
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, RawTextWriter, Timestamp};
@@ -54,6 +57,9 @@ pub trait LazyEncoder<W: Write>: 'static + Sized + Debug + Clone + Copy {
     where
         W: 'a;
     type EExpressionWriter<'a>;
+
+    /// Build writer based on given writer configuration
+    fn build_writer<E: Encoding>(config: WriteConfig<E>, output: W) -> Self::Writer;
 }
 
 impl<W: Write> LazyEncoder<W> for TextEncoding_1_0 {
@@ -66,6 +72,15 @@ impl<W: Write> LazyEncoder<W> for TextEncoding_1_0 {
 
     // TODO: Implement these associated types.
     type EExpressionWriter<'a> = ();
+
+    fn build_writer<E: Encoding>(config: WriteConfig<E>, output: W) -> Self::Writer {
+        match &config.kind {
+            WriteConfigKind::Text(_) => LazyRawTextWriter_1_0::new(output),
+            WriteConfigKind::Binary(_) => {
+                unreachable!("Binary writer can not be created from text encoding")
+            }
+        }
+    }
 }
 
 /// One-shot methods that take a (possibly empty) sequence of annotations to encode and return a ValueWriter.
