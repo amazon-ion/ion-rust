@@ -9,7 +9,8 @@ use crate::lazy::encoder::binary::value_writer::{
     BinaryAnnotatableValueWriter_1_0, MAX_INLINE_LENGTH,
 };
 use crate::lazy::encoder::private::Sealed;
-use crate::lazy::encoder::value_writer::{MakeValueWriter, SequenceWriter, StructWriter};
+use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
+use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{LazyEncoder, LazyRawWriter};
 use crate::lazy::encoding::BinaryEncoding_1_0;
@@ -71,7 +72,7 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
     }
 
     /// Writes the given Rust value to the output stream as a top-level value.
-    fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
+    pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         value.write_as_ion(self.value_writer())?;
         Ok(self)
     }
@@ -80,7 +81,7 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
     ///
     /// Calling `flush` also releases memory used for bookkeeping and storage, but calling it
     /// frequently can reduce overall throughput.
-    fn flush(&mut self) -> IonResult<()> {
+    pub fn flush(&mut self) -> IonResult<()> {
         // Temporarily break apart `self` to get simultaneous references to its innards.
         let Self {
             output,
@@ -103,7 +104,7 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
         Ok(())
     }
 
-    fn value_writer(&mut self) -> BinaryAnnotatableValueWriter_1_0<'_, '_> {
+    pub fn value_writer(&mut self) -> BinaryAnnotatableValueWriter_1_0<'_, '_> {
         let top_level = match self.encoding_buffer_ptr {
             // If the `encoding_buffer_ptr` is set, we already allocated an encoding buffer on
             // a previous call to `value_writer()`. Dereference the pointer and continue encoding

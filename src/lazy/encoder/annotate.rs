@@ -18,7 +18,7 @@ pub trait Annotate {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::{Element, IonData};
-    /// use ion_rs::lazy::encoder::LazyRawTextWriter_1_0;
+    /// use ion_rs::lazy::encoder::text::LazyRawTextWriter_1_0;
     /// use ion_rs::lazy::encoder::annotate::Annotate;
     ///
     /// let mut buffer = vec![];
