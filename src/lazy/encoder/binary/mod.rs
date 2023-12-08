@@ -216,7 +216,7 @@ impl<'value> BinaryContainerValuesWriter_1_0<'value> {
 
     pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         let annotated_value_writer =
-            BinaryAnnotatableValueWriter_1_0::new(&self.allocator, &mut self.buffer);
+            BinaryAnnotatableValueWriter_1_0::new(self.allocator, &mut self.buffer);
         value.write_as_ion(annotated_value_writer)?;
         Ok(self)
     }
@@ -241,7 +241,7 @@ impl<'value> MakeValueWriter for BinaryListValuesWriter_1_0<'value> {
 
     fn value_writer(&mut self) -> Self::ValueWriter<'_> {
         BinaryAnnotatableValueWriter_1_0::new(
-            &*self.values_writer.allocator,
+            self.values_writer.allocator,
             &mut self.values_writer.buffer,
         )
     }
@@ -298,7 +298,7 @@ impl<'value> MakeValueWriter for BinarySExpValuesWriter_1_0<'value> {
 
     fn value_writer(&mut self) -> Self::ValueWriter<'_> {
         BinaryAnnotatableValueWriter_1_0::new(
-            &*self.values_writer.allocator,
+            self.values_writer.allocator,
             &mut self.values_writer.buffer,
         )
     }

@@ -194,6 +194,12 @@ pub trait WriteAsSExp<T>: Sized
 where
     T: WriteAsIon,
 {
+    // The name `as_sexp` makes common cases read as a short sentence:
+    //     writer.write([1, 2, 3].as_sexp())?;
+    // Clippy complains because in most contexts, `as_*` methods borrow by reference.
+    #[allow(clippy::wrong_self_convention)]
+    /// Wraps `self` (which may be a reference) in a [`SExpTypeHint`], causing the value to be
+    /// serialized as an Ion S-expression instead of a list.
     fn as_sexp(self) -> SExpTypeHint<Self, T>;
 }
 macro_rules! impl_write_as_sexp_for_iterable {

@@ -266,7 +266,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         const STRUCT_TYPE_CODE: u8 = 0xD0;
         Ok(BinaryStructWriter_1_0::new(BinaryContainerWriter_1_0::new(
             STRUCT_TYPE_CODE,
-            &self.allocator,
+            self.allocator,
             self.encoding_buffer,
         )))
     }
@@ -404,7 +404,7 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
     where
         F: for<'a> FnOnce(BinaryAnnotatedValueWriter_1_0<'a, 'top>) -> IonResult<()>,
     {
-        let allocator = &*self.allocator;
+        let allocator = self.allocator;
         let buffer = allocator.alloc_with(|| BumpVec::new_in(allocator));
         {
             let annotated_value_writer =
@@ -415,10 +415,10 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
     }
 
     fn annotate_encoded_value(self, encoded_value: &[u8]) -> IonResult<()> {
-        let mut encoded_annotations_sequence = BumpVec::new_in(&self.allocator);
+        let mut encoded_annotations_sequence = BumpVec::new_in(self.allocator);
         self.encode_annotations_sequence(&mut encoded_annotations_sequence)?;
 
-        let mut encoded_annotations_sequence_length = BumpVec::new_in(&self.allocator);
+        let mut encoded_annotations_sequence_length = BumpVec::new_in(self.allocator);
         VarUInt::write_u64(
             &mut encoded_annotations_sequence_length,
             encoded_annotations_sequence.len() as u64,
@@ -532,7 +532,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
         Self { allocator, buffer }
     }
     pub(crate) fn value_writer(&mut self) -> BinaryValueWriter_1_0<'_, 'top> {
-        BinaryValueWriter_1_0::new(self.allocator, &mut self.buffer)
+        BinaryValueWriter_1_0::new(self.allocator, self.buffer)
     }
 
     pub(crate) fn buffer(&self) -> &[u8] {
