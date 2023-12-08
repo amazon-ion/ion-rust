@@ -48,65 +48,47 @@ where
 
 // ===== WriteAsIonValue implementations for common types =====
 
-impl WriteAsIonValue for Null {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_null(self.0)
-    }
+macro_rules! impl_write_as_ion_value {
+    // End of iteration
+    () => {};
+    // The caller defined an expression to write other than `self` (e.g. `*self`, `*self.0`, etc)
+    ($target_type:ty => $method:ident with $self:ident as $value:expr, $($rest:tt)*) => {
+        impl WriteAsIonValue for $target_type {
+            fn write_as_ion_value<V: ValueWriter>(&$self, writer: V) -> IonResult<()> {
+                writer.$method($value)
+            }
+        }
+        impl_write_as_ion_value!($($rest)*);
+    };
+    // We're writing the expression `self`
+    ($target_type:ty => $method:ident, $($rest:tt)*) => {
+        impl WriteAsIonValue for $target_type {
+            fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+                writer.$method(self)
+            }
+        }
+        impl_write_as_ion_value!($($rest)*);
+    };
 }
 
-impl WriteAsIonValue for bool {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_bool(*self)
-    }
-}
-
-impl WriteAsIonValue for i32 {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_i64(*self as i64)
-    }
-}
-
-impl WriteAsIonValue for i64 {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_i64(*self)
-    }
-}
-
-impl WriteAsIonValue for usize {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_int(&Int::from(*self))
-    }
-}
-
-impl WriteAsIonValue for f32 {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_f32(*self)
-    }
-}
-
-impl WriteAsIonValue for f64 {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_f64(*self)
-    }
-}
-
-impl WriteAsIonValue for Decimal {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_decimal(self)
-    }
-}
-
-impl WriteAsIonValue for Timestamp {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_timestamp(self)
-    }
-}
-
-impl WriteAsIonValue for Symbol {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_symbol(self)
-    }
-}
+impl_write_as_ion_value!(
+    Null => write_null with self as self.0,
+    bool => write_bool with self as *self,
+    i32 => write_i64 with self as *self as i64,
+    i64 => write_i64 with self as *self,
+    usize => write_int with self as &Int::from(*self),
+    f32 => write_f32 with self as *self,
+    f64 => write_f64 with self as *self,
+    Decimal => write_decimal,
+    Timestamp => write_timestamp,
+    Symbol => write_symbol,
+    RawSymbolToken => write_symbol,
+    &str => write_string,
+    String => write_string,
+    &[u8] => write_blob,
+    Blob => write_blob,
+    Clob => write_clob,
+);
 
 impl<'b> WriteAsIonValue for RawSymbolTokenRef<'b> {
     fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
@@ -120,45 +102,9 @@ impl<'b> WriteAsIonValue for SymbolRef<'b> {
     }
 }
 
-impl WriteAsIonValue for RawSymbolToken {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_symbol(self)
-    }
-}
-
-impl<'b> WriteAsIonValue for &'b str {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_string(self)
-    }
-}
-
-impl WriteAsIonValue for String {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_string(self)
-    }
-}
-
-impl<'b> WriteAsIonValue for &'b [u8] {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_blob(self)
-    }
-}
-
 impl<const N: usize> WriteAsIonValue for [u8; N] {
     fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         writer.write_blob(self)
-    }
-}
-
-impl WriteAsIonValue for Blob {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_blob(self)
-    }
-}
-
-impl WriteAsIonValue for Clob {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        writer.write_clob(self)
     }
 }
 

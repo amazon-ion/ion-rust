@@ -119,7 +119,7 @@ mod tests {
                         .build()?
                         .annotated_with(&["Saturn"]),
                 )?
-                .write((&[0xE0u8, 0x01, 0x00, 0xEA][..]).annotated_with(&["Uranus"]))?;
+                .write([0xE0u8, 0x01, 0x00, 0xEA].annotated_with(&["Uranus"]))?;
             Ok(())
         };
         writer_test(expected, test)
@@ -146,7 +146,7 @@ mod tests {
                     .write("foo")?
                     .write("bar".as_symbol_ref())?
                     .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
-                    .write(&[0xE0u8, 0x01, 0x00, 0xEA][..])?;
+                    .write([0xE0u8, 0x01, 0x00, 0xEA])?;
                 Ok(())
             })
         };
