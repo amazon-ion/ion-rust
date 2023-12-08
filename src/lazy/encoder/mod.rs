@@ -47,6 +47,8 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter {
 mod tests {
     use crate::lazy::encoder::annotate::Annotate;
     use crate::lazy::encoder::text::LazyRawTextWriter_1_0;
+    use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
+    use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, StructWriter};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{Element, IonData, IonResult, Timestamp};
 
@@ -123,91 +125,91 @@ mod tests {
         writer_test(expected, test)
     }
 
-    // #[test]
-    // fn write_list() -> IonResult<()> {
-    //     let expected = r#"
-    //         [
-    //           1,
-    //           false,
-    //           3e0,
-    //           "foo",
-    //           bar,
-    //           2023-11-09T,
-    //           {{4AEA6g==}},
-    //         ]
-    //     "#;
-    //     let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
-    //         writer.value_writer().write_list(|list| {
-    //             list.write(1)?
-    //                 .write(false)?
-    //                 .write(3f32)?
-    //                 .write("foo")?
-    //                 .write("bar".as_symbol_ref())?
-    //                 .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
-    //                 .write(&[0xE0u8, 0x01, 0x00, 0xEA][..])?;
-    //             Ok(())
-    //         })
-    //     };
-    //     writer_test(expected, test)
-    // }
-    //
-    // #[test]
-    // fn write_sexp() -> IonResult<()> {
-    //     let expected = r#"
-    //         (
-    //           1
-    //           false
-    //           3e0
-    //           "foo"
-    //           bar
-    //           2023-11-09T
-    //           {{4AEA6g==}}
-    //           // Nested list
-    //           [1, 2, 3]
-    //         )
-    //     "#;
-    //     let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
-    //         writer.value_writer().write_sexp(|sexp| {
-    //             sexp.write(1)?
-    //                 .write(false)?
-    //                 .write(3f32)?
-    //                 .write("foo")?
-    //                 .write("bar".as_symbol_ref())?
-    //                 .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
-    //                 .write([0xE0u8, 0x01, 0x00, 0xEA])?
-    //                 .write([1, 2, 3])?;
-    //             Ok(())
-    //         })
-    //     };
-    //     writer_test(expected, test)
-    // }
-    //
-    // #[test]
-    // fn write_struct() -> IonResult<()> {
-    //     let expected = r#"
-    //         {
-    //           a: 1,
-    //           b: false,
-    //           c: 3e0,
-    //           d: "foo",
-    //           e: bar,
-    //           f: 2023-11-09T,
-    //           g: {{4AEA6g==}},
-    //         }
-    //     "#;
-    //     let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
-    //         writer.value_writer().write_struct(|struct_| {
-    //             struct_
-    //                 .write("a", 1)?
-    //                 .write("b", false)?
-    //                 .write("c", 3f32)?
-    //                 .write("d", "foo")?
-    //                 .write("e", "bar".as_symbol_ref())?
-    //                 .write("f", Timestamp::with_ymd(2023, 11, 9).build()?)?
-    //                 .write("g", [0xE0u8, 0x01, 0x00, 0xEA])?;
-    //             Ok(())
-    //         })
-    //     };
-    //     writer_test(expected, test)
-    // }
+    #[test]
+    fn write_list() -> IonResult<()> {
+        let expected = r#"
+            [
+              1,
+              false,
+              3e0,
+              "foo",
+              bar,
+              2023-11-09T,
+              {{4AEA6g==}},
+            ]
+        "#;
+        let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
+            writer.value_writer().write_list(|list| {
+                list.write(1)?
+                    .write(false)?
+                    .write(3f32)?
+                    .write("foo")?
+                    .write("bar".as_symbol_ref())?
+                    .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
+                    .write(&[0xE0u8, 0x01, 0x00, 0xEA][..])?;
+                Ok(())
+            })
+        };
+        writer_test(expected, test)
+    }
+
+    #[test]
+    fn write_sexp() -> IonResult<()> {
+        let expected = r#"
+            (
+              1
+              false
+              3e0
+              "foo"
+              bar
+              2023-11-09T
+              {{4AEA6g==}}
+              // Nested list
+              [1, 2, 3]
+            )
+        "#;
+        let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
+            writer.value_writer().write_sexp(|sexp| {
+                sexp.write(1)?
+                    .write(false)?
+                    .write(3f32)?
+                    .write("foo")?
+                    .write("bar".as_symbol_ref())?
+                    .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
+                    .write([0xE0u8, 0x01, 0x00, 0xEA])?
+                    .write([1, 2, 3])?;
+                Ok(())
+            })
+        };
+        writer_test(expected, test)
+    }
+
+    #[test]
+    fn write_struct() -> IonResult<()> {
+        let expected = r#"
+            {
+              a: 1,
+              b: false,
+              c: 3e0,
+              d: "foo",
+              e: bar,
+              f: 2023-11-09T,
+              g: {{4AEA6g==}},
+            }
+        "#;
+        let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
+            writer.value_writer().write_struct(|struct_| {
+                struct_
+                    .write("a", 1)?
+                    .write("b", false)?
+                    .write("c", 3f32)?
+                    .write("d", "foo")?
+                    .write("e", "bar".as_symbol_ref())?
+                    .write("f", Timestamp::with_ymd(2023, 11, 9).build()?)?
+                    .write("g", [0xE0u8, 0x01, 0x00, 0xEA])?;
+                Ok(())
+            })
+        };
+        writer_test(expected, test)
+    }
 }

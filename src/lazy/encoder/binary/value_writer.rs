@@ -314,10 +314,10 @@ impl<'value, 'top> ValueWriter for BinaryValueWriter_1_0<'value, 'top> {
             fn write_f64(self, value: f64) -> IonResult<()>;
             fn write_decimal(self, value: &Decimal) -> IonResult<()>;
             fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
-            fn write_string<A: AsRef<str>>(self, value: A) -> IonResult<()>;
-            fn write_symbol<A: AsRawSymbolTokenRef>(self, value: A) -> IonResult<()>;
-            fn write_clob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()>;
-            fn write_blob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()>;
+            fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
+            fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+            fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
+            fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
             fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
                 self,
                 list_fn: F,
@@ -463,6 +463,20 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> Sealed
     // No methods, precludes implementations outside the crate.
 }
 
+/// Takes a series of `TYPE => METHOD` pairs, generating a function for each that calls the
+/// corresponding value writer method and then prefixes the encoded result with an annotations wrapper.
+macro_rules! delegate_and_annotate {
+    // End of iteration
+    () => {};
+    // Recurses one argument pair at a time
+    ($value_type:ty => $method:ident, $($rest:tt)*) => {
+        fn $method(self, value: $value_type) -> IonResult<()> {
+            self.encode_annotated(|value_writer| value_writer.$method(value))
+        }
+        delegate_and_annotate!($($rest)*);
+    };
+}
+
 impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
     for BinaryAnnotationsWrapperWriter<'value, 'top, SymbolType>
 {
@@ -471,53 +485,20 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
 
     type StructWriter<'a> = BinaryStructFieldsWriter_1_0<'a>;
 
-    fn write_null(self, ion_type: IonType) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_null(ion_type))
-    }
-
-    fn write_bool(self, value: bool) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_bool(value))
-    }
-
-    fn write_i64(self, value: i64) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_i64(value))
-    }
-
-    fn write_int(self, value: &Int) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_int(value))
-    }
-
-    fn write_f32(self, value: f32) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_f32(value))
-    }
-
-    fn write_f64(self, value: f64) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_f64(value))
-    }
-
-    fn write_decimal(self, value: &Decimal) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_decimal(value))
-    }
-
-    fn write_timestamp(self, value: &Timestamp) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_timestamp(value))
-    }
-
-    fn write_string<A: AsRef<str>>(self, value: A) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_string(&value))
-    }
-
-    fn write_symbol<A: AsRawSymbolTokenRef>(self, value: A) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_symbol(&value))
-    }
-
-    fn write_clob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_clob(&value))
-    }
-
-    fn write_blob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_blob(&value))
-    }
+    delegate_and_annotate!(
+        IonType => write_null,
+        bool => write_bool,
+        i64 => write_i64,
+        &Int => write_int,
+        f32 => write_f32,
+        f64 => write_f64,
+        &Decimal => write_decimal,
+        &Timestamp => write_timestamp,
+        impl AsRef<str> => write_string,
+        impl AsRawSymbolTokenRef => write_symbol,
+        impl AsRef<[u8]> => write_clob,
+        impl AsRef<[u8]> => write_blob,
+    );
 
     fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
         self,
@@ -539,7 +520,6 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
     }
 }
 
-// TODO: Doc comment. Holds its own buffer to limit the type to a single lifetime.
 pub struct BinaryAnnotatedValueWriter_1_0<'value, 'top> {
     allocator: &'top BumpAllocator,
     // Note that unlike the BinaryValueWriter_1_0, the borrow and the BumpVec here have the same
@@ -576,10 +556,10 @@ impl<'value, 'top: 'value> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value
             fn write_f64(mut self, value: f64) -> IonResult<()>;
             fn write_decimal(mut self, value: &Decimal) -> IonResult<()>;
             fn write_timestamp(mut self, value: &Timestamp) -> IonResult<()>;
-            fn write_string<A: AsRef<str>>(mut self, value: A) -> IonResult<()>;
-            fn write_symbol<A: AsRawSymbolTokenRef>(mut self, value: A) -> IonResult<()>;
-            fn write_clob<A: AsRef<[u8]>>(mut self, value: A) -> IonResult<()>;
-            fn write_blob<A: AsRef<[u8]>>(mut self, value: A) -> IonResult<()>;
+            fn write_string(mut self, value: impl AsRef<str>) -> IonResult<()>;
+            fn write_symbol(mut self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+            fn write_clob(mut self, value: impl AsRef<[u8]>) -> IonResult<()>;
+            fn write_blob(mut self, value: impl AsRef<[u8]>) -> IonResult<()>;
             fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
                 mut self,
                 list_fn: F,

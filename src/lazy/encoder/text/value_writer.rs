@@ -223,7 +223,7 @@ impl<'top, W: Write> TextListWriter_1_0<'top, W> {
     }
 
     /// Writes the provided data as a nested value.
-    fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
+    pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         self.container_writer.write_value(value, ",")?;
         Ok(self)
     }
@@ -344,10 +344,10 @@ impl<'value, W: Write + 'value, SymbolType: AsRawSymbolTokenRef> ValueWriter
             fn write_f64(self, value: f64) -> IonResult<()>;
             fn write_decimal(self, value: &Decimal) -> IonResult<()>;
             fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
-            fn write_string<A: AsRef<str>>(self, value: A) -> IonResult<()>;
-            fn write_symbol<A: AsRawSymbolTokenRef>(self, value: A) -> IonResult<()>;
-            fn write_clob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()>;
-            fn write_blob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()>;
+            fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
+            fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+            fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
+            fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
             fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
                 self,
                 list_fn: F,
@@ -451,19 +451,19 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
         Ok(())
     }
 
-    fn write_string<A: AsRef<str>>(mut self, value: A) -> IonResult<()> {
+    fn write_string(mut self, value: impl AsRef<str>) -> IonResult<()> {
         write!(self.output(), "\"")?;
         RawTextWriter::<W>::write_escaped_text_body(self.output(), value)?;
         write!(self.output(), "\"")?;
         Ok(())
     }
 
-    fn write_symbol<A: AsRawSymbolTokenRef>(mut self, value: A) -> IonResult<()> {
+    fn write_symbol(mut self, value: impl AsRawSymbolTokenRef) -> IonResult<()> {
         RawTextWriter::<W>::write_symbol_token(self.output(), value)?;
         Ok(())
     }
 
-    fn write_clob<A: AsRef<[u8]>>(mut self, value: A) -> IonResult<()> {
+    fn write_clob(mut self, value: impl AsRef<[u8]>) -> IonResult<()> {
         // This type exists solely to enable using the IonValueFormatter (which operates on
         // `std::fmt::Write`) to write to a `std::io::Write`.
         struct ClobShim<'a>(&'a [u8]);
@@ -479,7 +479,7 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
         Ok(())
     }
 
-    fn write_blob<A: AsRef<[u8]>>(mut self, value: A) -> IonResult<()> {
+    fn write_blob(mut self, value: impl AsRef<[u8]>) -> IonResult<()> {
         // Rust format strings escape curly braces by doubling them. The following string is:
         // * The opening {{ from a text Ion blob, with each brace doubled to escape it.
         // * A {} pair used by the format string to indicate where the base64-encoded bytes

@@ -85,10 +85,10 @@ pub trait ValueWriter {
     fn write_f64(self, value: f64) -> IonResult<()>;
     fn write_decimal(self, value: &Decimal) -> IonResult<()>;
     fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
-    fn write_string<A: AsRef<str>>(self, value: A) -> IonResult<()>;
-    fn write_symbol<A: AsRawSymbolTokenRef>(self, value: A) -> IonResult<()>;
-    fn write_clob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()>;
-    fn write_blob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()>;
+    fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
+    fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+    fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
+    fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
 
     fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
         self,
@@ -121,7 +121,7 @@ macro_rules! delegate_and_return_self {
     () => {};
     // Recurses one argument pair at a time
     ($value_type:ty => $method:ident, $($rest:tt)*) => {
-        fn $method<V: WriteAsIon>(&mut self, value: $value_type) -> IonResult<&mut Self> {
+        fn $method(&mut self, value: $value_type) -> IonResult<&mut Self> {
             self.value_writer().without_annotations().$method(value)?;
             Ok(self)
         }
