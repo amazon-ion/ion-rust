@@ -12,7 +12,7 @@ use crate::binary::timestamp::TimestampBinaryEncoder;
 use crate::binary::uint;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
-use crate::lazy::encoder::binary::{
+use crate::lazy::encoder::binary::v1_0::container_writers::{
     BinaryContainerWriter_1_0, BinaryListValuesWriter_1_0, BinaryListWriter_1_0,
     BinarySExpValuesWriter_1_0, BinarySExpWriter_1_0, BinaryStructFieldsWriter_1_0,
     BinaryStructWriter_1_0,
@@ -580,7 +580,7 @@ impl<'value, 'top: 'value> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value
 #[cfg(test)]
 mod tests {
     use crate::lazy::encoder::annotate::Annotate;
-    use crate::lazy::encoder::binary::LazyRawBinaryWriter_1_0;
+    use crate::lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0;
     use crate::lazy::encoder::value_writer::AnnotatableValueWriter;
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
