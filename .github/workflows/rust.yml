@@ -11,12 +11,7 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
-        # In 2022-01-11, GitHub Actions changed the `windows-latest` virtual environment alias so
-        # that it stopped pointing to `windows-2019` and began pointing to `windows-2022` instead.
-        # The pipeline needs to be updated to support the new edition of Windows Server. In the
-        # meantime, the build only tests Windows Server 2019.
-        # See https://github.com/amazon-ion/ion-rust/issues/353
-        os: [ubuntu-latest, windows-2019, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         # build and test for different and interesting crate features
         features: ['default', 'all', 'experimental-ion-hash', 'experimental']
     permissions:
