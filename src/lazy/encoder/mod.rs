@@ -1,8 +1,11 @@
 #![allow(non_camel_case_types)]
 
-use crate::IonResult;
 use std::fmt::Debug;
 use std::io::Write;
+
+use crate::element::writer::WriteConfig;
+use crate::lazy::encoding::Encoding;
+use crate::IonResult;
 use value_writer::SequenceWriter;
 
 pub mod annotate;
@@ -36,6 +39,9 @@ pub(crate) mod private {
 /// An Ion writer without an encoding context (that is: symbol/macro tables).
 pub trait LazyRawWriter<W: Write>: SequenceWriter {
     fn new(output: W) -> IonResult<Self>
+    where
+        Self: Sized;
+    fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self>
     where
         Self: Sized;
     fn flush(&mut self) -> IonResult<()>;

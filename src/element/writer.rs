@@ -3,31 +3,36 @@
 //! Provides utility to serialize Ion data from [`Element`] into common targets
 //! such as byte buffers or files.
 
-#[cfg(feature = "experimental-writer")]
-use crate::binary::binary_writer::{BinaryWriter, BinaryWriterBuilder};
 use crate::ion_writer::IonWriter;
-#[cfg(feature = "experimental-writer")]
-use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0};
 use crate::result::IonResult;
-#[cfg(feature = "experimental-writer")]
-use crate::text::text_writer::{TextWriter, TextWriterBuilder};
 pub use crate::Format::*;
 pub use crate::TextKind::*;
 use crate::{Element, IonType, TextKind, Value};
-#[cfg(feature = "experimental-writer")]
 use std::io;
-#[cfg(feature = "experimental-writer")]
 use std::marker::PhantomData;
+#[cfg(feature = "experimental-lazy-reader")]
+use {
+    crate::lazy::encoder::{LazyEncoder, LazyRawWriter},
+    crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0},
+};
 
 /// Writer configuration to provide format and Ion version details to writer through encoding
 /// This will be used to create a writer without specifying which writer methods to use
-#[cfg(feature = "experimental-writer")]
+#[cfg(feature = "experimental-lazy-reader")]
 pub struct WriteConfig<E: Encoding> {
     pub(crate) kind: WriteConfigKind,
     phantom_data: PhantomData<E>,
 }
 
-#[cfg(feature = "experimental-writer")]
+#[cfg(feature = "experimental-lazy-reader")]
+impl<E: Encoding + LazyEncoder> WriteConfig<E> {
+    /// Builds a writer based on writer configuration
+    pub fn build<W: io::Write>(self, output: W) -> IonResult<<E as LazyEncoder>::Writer<W>> {
+        E::Writer::build(self, output)
+    }
+}
+
+#[cfg(feature = "experimental-lazy-reader")]
 impl WriteConfig<TextEncoding_1_0> {
     pub fn new(text_kind: TextKind) -> Self {
         Self {
@@ -35,21 +40,9 @@ impl WriteConfig<TextEncoding_1_0> {
             phantom_data: Default::default(),
         }
     }
-
-    /// Builds a text writer based on writer configuration
-    pub fn build<W: io::Write>(&self, output: W) -> IonResult<TextWriter<W>> {
-        match &self.kind {
-            WriteConfigKind::Text(text_writer_config) => {
-                TextWriterBuilder::new(text_writer_config.text_kind).build(output)
-            }
-            WriteConfigKind::Binary(_) => {
-                unreachable!("Binary writer can not be created from text encoding")
-            }
-        }
-    }
 }
 
-#[cfg(feature = "experimental-writer")]
+#[cfg(feature = "experimental-lazy-reader")]
 impl WriteConfig<BinaryEncoding_1_0> {
     pub fn new() -> Self {
         Self {
@@ -57,19 +50,9 @@ impl WriteConfig<BinaryEncoding_1_0> {
             phantom_data: Default::default(),
         }
     }
-
-    /// Builds a binary writer based on writer configuration
-    pub fn build<W: io::Write>(&self, output: W) -> IonResult<BinaryWriter<W>> {
-        match &self.kind {
-            WriteConfigKind::Text(_) => {
-                unreachable!("Text writer can not be created from binary encoding")
-            }
-            WriteConfigKind::Binary(_) => BinaryWriterBuilder::default().build(output),
-        }
-    }
 }
 
-#[cfg(feature = "experimental-writer")]
+#[cfg(feature = "experimental-lazy-reader")]
 impl Default for WriteConfig<BinaryEncoding_1_0> {
     fn default() -> Self {
         Self::new()
@@ -82,12 +65,12 @@ pub(crate) enum WriteConfigKind {
     Binary(BinaryWriteConfig),
 }
 
-/// Text writer configuration with text kind to be sued to create a writer
+/// Text writer configuration with text kind to be used to create a writer
 pub(crate) struct TextWriteConfig {
     text_kind: TextKind,
 }
 
-/// Binary writer configuration to be sued to create a writer
+/// Binary writer configuration to be used to create a writer
 // TODO: Add appropriate binary configuration if required for 1.1
 pub(crate) struct BinaryWriteConfig;
 

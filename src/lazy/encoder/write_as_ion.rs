@@ -16,10 +16,12 @@
 //! provided by the [`Annotate`](crate::lazy::encoder::annotate::Annotate) trait.
 use std::marker::PhantomData;
 
-use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, SequenceWriter, ValueWriter};
+use crate::lazy::encoder::value_writer::{
+    AnnotatableValueWriter, SequenceWriter, StructWriter, ValueWriter,
+};
 use crate::{
-    Blob, Clob, Decimal, Int, IonResult, Null, RawSymbolToken, RawSymbolTokenRef, Symbol,
-    SymbolRef, Timestamp,
+    Blob, Clob, Decimal, Element, Int, IonResult, Null, RawSymbolToken, RawSymbolTokenRef, Symbol,
+    SymbolRef, Timestamp, Value,
 };
 
 /// Defines how a Rust type should be serialized as Ion in terms of the methods available
@@ -33,6 +35,19 @@ pub trait WriteAsIonValue {
 /// on [`AnnotatableValueWriter`] and [`ValueWriter`].
 pub trait WriteAsIon {
     fn write_as_ion<V: AnnotatableValueWriter>(&self, writer: V) -> IonResult<()>;
+}
+
+impl WriteAsIon for &Element {
+    fn write_as_ion<V: AnnotatableValueWriter>(&self, writer: V) -> IonResult<()> {
+        let annotations = self.annotations().iter().collect::<Vec<&Symbol>>();
+        if !annotations.is_empty() {
+            self.value()
+                .write_as_ion_value(writer.with_annotations(&annotations))
+        } else {
+            self.value()
+                .write_as_ion_value(writer.without_annotations())
+        }
+    }
 }
 
 // Any type that does not define `WriteAsIon` itself will use this blanket implementation that does
@@ -200,3 +215,38 @@ macro_rules! impl_write_as_ion_value_for_sexp_type_hint {
 impl_write_as_ion_value_for_sexp_type_hint!(Vec<T>, T);
 impl_write_as_ion_value_for_sexp_type_hint!(&[T], T);
 impl_write_as_ion_value_for_sexp_type_hint!([T; N], T, const N: usize);
+
+impl WriteAsIonValue for Value {
+    fn write_as_ion_value<V: ValueWriter>(&self, value_writer: V) -> IonResult<()> {
+        match self {
+            Value::Null(i) => value_writer.write_null(*i),
+            Value::Bool(b) => value_writer.write_bool(*b),
+            Value::Int(i) => value_writer.write_int(i),
+            Value::Float(f) => value_writer.write_f64(*f),
+            Value::Decimal(d) => value_writer.write_decimal(d),
+            Value::Timestamp(t) => value_writer.write_timestamp(t),
+            Value::Symbol(s) => value_writer.write_symbol(s),
+            Value::String(s) => value_writer.write_string(s),
+            Value::Clob(c) => value_writer.write_clob(c),
+            Value::Blob(b) => value_writer.write_blob(b),
+            Value::List(l) => value_writer.write_list(|list| {
+                for value in l {
+                    list.write(value)?;
+                }
+                Ok(())
+            }),
+            Value::SExp(s) => value_writer.write_sexp(|sexp| {
+                for value in s {
+                    sexp.write(value)?;
+                }
+                Ok(())
+            }),
+            Value::Struct(s) => value_writer.write_struct(|struct_value| {
+                for (k, v) in s {
+                    struct_value.write(k, v)?;
+                }
+                Ok(())
+            }),
+        }
+    }
+}

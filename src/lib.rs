@@ -219,6 +219,9 @@ pub use {
     text::text_writer::{TextWriter, TextWriterBuilder},
 };
 
+#[cfg(feature = "experimental-lazy-reader")]
+pub use element::writer::WriteConfig;
+
 #[doc(inline)]
 pub use result::{IonError, IonResult};
 

@@ -1,3 +1,4 @@
+use crate::element::writer::{WriteConfig, WriteConfigKind};
 use crate::lazy::encoder::text::value_writer::{
     TextAnnotatableValueWriter_1_0, TextValueWriter_1_0,
 };
@@ -5,7 +6,7 @@ use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{LazyEncoder, LazyRawWriter};
-use crate::lazy::encoding::TextEncoding_1_0;
+use crate::lazy::encoding::{Encoding, TextEncoding_1_0};
 use crate::text::raw_text_writer::{WhitespaceConfig, PRETTY_WHITESPACE_CONFIG};
 use crate::IonResult;
 use delegate::delegate;
@@ -76,6 +77,16 @@ impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_0<W> {
 impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
     fn new(output: W) -> IonResult<Self> {
         Ok(LazyRawTextWriter_1_0::new(output))
+    }
+
+    /// Build text writer based on given writer configuration
+    fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self> {
+        match &config.kind {
+            WriteConfigKind::Text(_) => Ok(LazyRawTextWriter_1_0::new(output)),
+            WriteConfigKind::Binary(_) => {
+                unreachable!("Binary writer can not be created from text encoding")
+            }
+        }
     }
 
     // Delegate the trait methods to the inherent methods; this allows a version of these
