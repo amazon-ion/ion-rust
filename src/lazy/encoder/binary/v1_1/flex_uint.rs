@@ -36,51 +36,29 @@ impl FlexUInt {
         }
     }
 
-    /// Encodes `value` as a `FlexUInt` and writes the resulting bytes to `output`.
     #[inline]
     pub fn write_u64<W: Write>(output: &mut W, value: u64) -> IonResult<usize> {
-        // This method is on the hot path for encoding Ion. As an optimization, this implementation
-        // checks up front for the most common case in which `value` requires 1-2 bytes to encode.
-        // If it will take more, the method delegates to `write_u64_slow`, a general-purpose
-        // encoding method that can handle any size of value. This arrangement allows the compiler
-        // to inline the logic for the 1- and 2-byte cases at most call sites while still accommodating
-        // larger FlexUInts via delegation.
-
-        if value < 0x80 {
-            // The value to encode fits in a single byte
-            output.write_all(&[(value * 2) as u8 + 1])?;
-            return Ok(1);
-        } else if value < 0x4000 {
-            // The value to encode fits in two bytes
-            output.write_all(&((value * 4) as u16 + 2u16).to_le_bytes())?;
-            return Ok(2);
-        }
-        Self::write_u64_slow(output, value)
-    }
-
-    #[cold]
-    fn write_u64_slow<W: Write>(output: &mut W, value: u64) -> IonResult<usize> {
-        // The value requires 3 or more bytes, fall back to a general-purpose
         let leading_zeros = value.leading_zeros();
         let num_encoded_bytes = BYTES_NEEDED_CACHE[leading_zeros as usize] as usize;
+        if num_encoded_bytes <= 8 {
+            let flag_bits = 1u64 << (num_encoded_bytes - 1);
+            // Left shift the value to accommodate the trailing flag bits and then OR them together
+            let encoded_value = (value << num_encoded_bytes) | flag_bits;
+            output.write_all(&encoded_value.to_le_bytes()[..num_encoded_bytes])?;
+            return Ok(num_encoded_bytes);
+        }
+        Self::write_large_u64(output, value, num_encoded_bytes)
+    }
 
-        match num_encoded_bytes {
-            0..=8 => {
-                // When encoded, the continuation flags and the value all fit in 8 bytes. We can encode
-                // everything in a u64 and then write it to output.
-                //
-                // There's one continuation flag bit for each encoded byte. To set the bits:
-                // * Left shift a `1` by the number of bytes minus one.
-                //
-                // For example, if `num_encoded_bytes` is 5, then:
-                //   1 << 4   =>   1 0000
-                //      End flag --^ ^^^^-- Four more bytes follow
-                let flag_bits = 1u64 << (num_encoded_bytes - 1);
-                // Left shift the value to accommodate the trailing flag bits and then OR them together
-                let encoded_value = (value << num_encoded_bytes) | flag_bits;
-                output.write_all(&encoded_value.to_le_bytes()[..num_encoded_bytes])?;
-                Ok(num_encoded_bytes)
-            }
+    /// Helper method that encodes a signed values that require 9 or 10 bytes to represent.
+    /// This code path is rarely used and requires more instructions than the common case.
+    /// Keeping it in a separate method allows the common case to be inlined in more places.
+    fn write_large_u64<W: Write>(
+        output: &mut W,
+        value: u64,
+        encoded_size_in_bytes: usize,
+    ) -> IonResult<usize> {
+        match encoded_size_in_bytes {
             9 => {
                 // When combined with the continuation flags, the value is too large to be encoded in
                 // a u64. It will be nine bytes in all.
@@ -117,9 +95,12 @@ impl FlexUInt {
                 output.write_all(buffer.as_slice()).unwrap();
                 Ok(10)
             }
-            _ => unreachable!("a u64 value cannot have more than 64 magnitude bits"),
+            _ => unreachable!(
+                "write_large_u64() is only called for values whose encoded size is 9 or 10 bytes"
+            ),
         }
     }
+
     pub fn value(&self) -> u64 {
         self.value
     }

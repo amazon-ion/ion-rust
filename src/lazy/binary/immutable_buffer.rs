@@ -35,7 +35,7 @@ const MAX_INT_SIZE_IN_BYTES: usize = 2048;
 ///
 /// Methods that `peek` at the input stream do not return a copy of the buffer.
 #[derive(PartialEq, Clone, Copy)]
-pub(crate) struct ImmutableBuffer<'a> {
+pub struct ImmutableBuffer<'a> {
     // `data` is a slice of remaining data in the larger input stream.
     // `offset` is the position in the overall input stream where that slice begins.
     //
@@ -133,7 +133,7 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads the first byte in the buffer and returns it as a [TypeDescriptor].
     #[inline]
-    pub fn peek_type_descriptor(&self) -> IonResult<TypeDescriptor> {
+    pub(crate) fn peek_type_descriptor(&self) -> IonResult<TypeDescriptor> {
         if self.is_empty() {
             return IonResult::incomplete("a type descriptor", self.offset());
         }

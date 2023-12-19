@@ -1,8 +1,25 @@
 use crate::IonResult;
 use std::io::Write;
 
-const BITS_PER_U64: usize = 64;
+const BITS_PER_I64: usize = 64;
 const BITS_PER_ENCODED_BYTE: usize = 7;
+
+// Compile-time mapping from number of leading zeros to the number of bytes needed to encode
+const fn init_bytes_needed_cache() -> [u8; 65] {
+    let mut cache = [0u8; 65];
+    let mut leading_zeros = 0usize;
+    while leading_zeros <= BITS_PER_I64 {
+        let magnitude_bits_needed = BITS_PER_I64 - leading_zeros;
+        let encoded_size_in_bytes = (magnitude_bits_needed / BITS_PER_ENCODED_BYTE) + 1;
+        cache[leading_zeros] = encoded_size_in_bytes as u8;
+        leading_zeros += 1;
+    }
+    cache
+}
+
+// Indexes are the number of leading ones (for negative ints) or the number of leading zeros (for
+// non-negative ints), values are the number of bytes needed to encode that value as a FlexInt.
+static BYTES_NEEDED_CACHE: [u8; 65] = init_bytes_needed_cache();
 
 /// An Ion 1.1 encoding primitive that represents a variable-length signed integer.
 #[derive(Debug)]
@@ -21,47 +38,32 @@ impl FlexInt {
 
     #[inline]
     pub fn write_i64<W: Write>(output: &mut W, value: i64) -> IonResult<usize> {
-        match value {
-            // Values that can be encoded in a single byte
-            -64..=63 => {
-                let encoded_byte = ((value << 1) + 1) as u8;
-                output.write_all(&[encoded_byte])?;
-                Ok(1)
-            }
-            // Values that can be encoded in 2 bytes
-            -8_192..=-65 | 64..=8_191 => {
-                let first_byte = ((value << 2) + 2) as u8;
-                let second_byte = (value >> 6) as u8;
-                output.write_all(&[first_byte, second_byte])?;
-                Ok(2)
-            }
-            // Values that require more than 2 bytes to encode
-            _ => Self::write_i64_slow(output, value),
+        let encoded_size_in_bytes = if value < 0 {
+            BYTES_NEEDED_CACHE[value.leading_ones() as usize]
+        } else {
+            BYTES_NEEDED_CACHE[value.leading_zeros() as usize]
+        } as usize;
+        if encoded_size_in_bytes <= 8 {
+            // The entire encoding (including continuation bits) will fit in a u64.
+            // `encoded_size_in_bytes` is also the number of continuation bits we need to include
+            let mut encoded = value << encoded_size_in_bytes;
+            // Set the `end` flag to 1
+            encoded += 1 << (encoded_size_in_bytes - 1);
+            output.write_all(&encoded.to_le_bytes()[..encoded_size_in_bytes])?;
+            return Ok(encoded_size_in_bytes);
         }
+        Self::write_large_i64(output, value, encoded_size_in_bytes)
     }
 
-    /// Helper method that encodes a signed `value` of any size as a `FlexInt` and writes the
-    /// resulting bytes to `output`.
-    #[cold]
-    pub fn write_i64_slow<W: Write>(output: &mut W, value: i64) -> IonResult<usize> {
-        let num_magnitude_bits = if value < 0 {
-            BITS_PER_U64 - value.leading_ones() as usize
-        } else {
-            BITS_PER_U64 - value.leading_zeros() as usize
-        };
-
-        let encoded_size_in_bytes = (num_magnitude_bits / BITS_PER_ENCODED_BYTE) + 1;
-
+    /// Helper method that encodes a signed values that require 9 or 10 bytes to represent.
+    /// This code path is rarely used and requires more instructions than the common case.
+    /// Keeping it in a separate method allows the common case to be inlined in more places.
+    fn write_large_i64<W: Write>(
+        output: &mut W,
+        value: i64,
+        encoded_size_in_bytes: usize,
+    ) -> IonResult<usize> {
         match encoded_size_in_bytes {
-            0 => output.write_all(&[0x01])?,
-            1..=8 => {
-                // The entire encoding (including continuation bits) will fit in a u64.
-                // `encoded_size_in_bytes` is also the number of continuation bits we need to include
-                let mut encoded = (value) << encoded_size_in_bytes;
-                // Set the `end` flag to 1
-                encoded += 1 << (encoded_size_in_bytes - 1);
-                output.write_all(&encoded.to_le_bytes()[..encoded_size_in_bytes])?;
-            }
             9 => {
                 // Write a byte that is only continuation bits--a zero.
                 output.write_all(&[0x00])?;
@@ -88,7 +90,9 @@ impl FlexInt {
                 // Call `write_all()` once with our complete encoding.
                 output.write_all(buffer.as_slice())?;
             }
-            _ => unreachable!("i64 cannot require more than 10 bytes to encode as a FlexInt"),
+            _ => unreachable!(
+                "write_large_i64() is only called for values whose encoded size is 9 or 10 bytes"
+            ),
         };
         Ok(encoded_size_in_bytes)
     }
