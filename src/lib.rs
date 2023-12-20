@@ -245,7 +245,8 @@ pub use {
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
 #[cfg(feature = "experimental-lazy-reader")]
 pub use {
-    binary::var_int::VarInt, binary::var_uint::VarUInt,
+    binary::int::DecodedInt, binary::non_blocking::type_descriptor::Header,
+    binary::uint::DecodedUInt, binary::var_int::VarInt, binary::var_uint::VarUInt,
     lazy::binary::immutable_buffer::ImmutableBuffer,
     lazy::encoder::binary::v1_1::flex_int::FlexInt,
     lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
