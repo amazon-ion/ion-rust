@@ -35,7 +35,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
     /// Constructs a new binary writer and writes an Ion 1.1 Version Marker to output.
     pub fn new(mut output: W) -> IonResult<Self> {
         // Write the Ion 1.1 IVM
-        output.write_all(&[0xE0, 0x01, 0x00, 0xEA])?;
+        output.write_all(&[0xE0, 0x01, 0x01, 0xEA])?;
         // Construct the writer
         Ok(Self {
             output,
