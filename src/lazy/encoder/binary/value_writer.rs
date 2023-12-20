@@ -595,7 +595,6 @@ mod tests {
         let mut writer = LazyRawBinaryWriter_1_0::new(&mut buffer)?;
         test(&mut writer)?;
         writer.flush()?;
-        std::fs::write("/tmp/output.ion", &buffer)?;
         let actual = Element::read_all(buffer)?;
         assert!(
             IonData::eq(&expected, &actual),
