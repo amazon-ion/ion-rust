@@ -102,17 +102,17 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         todo!()
     }
 
-    fn sexp_writer(&mut self) -> IonResult<BinarySExpWriter_1_1<'_, 'top>> {
+    fn sexp_writer(&mut self) -> BinarySExpWriter_1_1<'_, 'top> {
         todo!()
     }
 
-    fn struct_writer(&mut self) -> IonResult<BinaryStructWriter_1_1<'_, 'top>> {
+    fn struct_writer(&mut self) -> BinaryStructWriter_1_1<'_, 'top> {
         const STRUCT_TYPE_CODE: u8 = 0xD0;
-        Ok(BinaryStructWriter_1_1::new(BinaryContainerWriter_1_1::new(
+        BinaryStructWriter_1_1::new(BinaryContainerWriter_1_1::new(
             STRUCT_TYPE_CODE,
             self.allocator,
             self.encoding_buffer,
-        )))
+        ))
     }
 
     fn write_list<
@@ -129,7 +129,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         mut self,
         sexp_fn: F,
     ) -> IonResult<()> {
-        self.sexp_writer()?.write_values(sexp_fn)
+        self.sexp_writer().write_values(sexp_fn)
     }
     fn write_struct<
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::StructWriter<'a>) -> IonResult<()>,
@@ -137,7 +137,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         mut self,
         struct_fn: F,
     ) -> IonResult<()> {
-        self.struct_writer()?.write_fields(struct_fn)
+        self.struct_writer().write_fields(struct_fn)
     }
 }
 
