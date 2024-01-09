@@ -92,7 +92,7 @@ impl FlexUInt {
                 buffer[2..].copy_from_slice(&remaining_magnitude.to_le_bytes()[..]);
 
                 // Call `write_all()` once with our complete encoding.
-                output.write_all(buffer.as_slice()).unwrap();
+                output.write_all(buffer.as_slice())?;
                 Ok(10)
             }
             _ => unreachable!(
@@ -104,6 +104,7 @@ impl FlexUInt {
     pub fn value(&self) -> u64 {
         self.value
     }
+
     pub fn size_in_bytes(&self) -> usize {
         self.size_in_bytes
     }
@@ -116,74 +117,68 @@ mod tests {
     use crate::{IonError, IonResult};
 
     const FLEX_UINT_TEST_CASES: &[(u64, &[u8])] = &[
-        (0u64, &[0b00000001]),
-        (1u64, &[0b00000011]),
-        (2u64, &[0b00000101]),
-        (3u64, &[0b00000111]),
-        (4u64, &[0b00001001]),
-        (5u64, &[0b00001011]),
-        (14u64, &[0b00011101]),
-        (63u64, &[0b01111111]),
-        (64u64, &[0b10000001]),
-        (127u64, &[0b11111111]),
-        (128u64, &[0b00000010, 0b00000010]),
-        (729u64, &[0b01100110, 0b00001011]),
-        (16383u64, &[0b11111110, 0b11111111]),
-        (16384u64, &[0b00000100, 0b00000000, 0b00000010]),
-        (2097151u64, &[0b11111100, 0b11111111, 0b11111111]),
+        (0, &[0b00000001]),
+        (1, &[0b00000011]),
+        (2, &[0b00000101]),
+        (3, &[0b00000111]),
+        (4, &[0b00001001]),
+        (5, &[0b00001011]),
+        (14, &[0b00011101]),
+        (63, &[0b01111111]),
+        (64, &[0b10000001]),
+        (127, &[0b11111111]),
+        (128, &[0b00000010, 0b00000010]),
+        (729, &[0b01100110, 0b00001011]),
+        (16383, &[0b11111110, 0b11111111]),
+        (16384, &[0b00000100, 0b00000000, 0b00000010]),
+        (2097151, &[0b11111100, 0b11111111, 0b11111111]),
+        (2097152, &[0b00001000, 0b00000000, 0b00000000, 0b00000010]),
+        (268435455, &[0b11111000, 0b11111111, 0b11111111, 0b11111111]),
         (
-            2097152u64,
-            &[0b00001000, 0b00000000, 0b00000000, 0b00000010],
-        ),
-        (
-            268435455u64,
-            &[0b11111000, 0b11111111, 0b11111111, 0b11111111],
-        ),
-        (
-            268435456u64,
+            268435456,
             &[0b00010000, 0b00000000, 0b00000000, 0b00000000, 0b00000010],
         ),
         (
-            34359738368u64,
+            34359738368,
             &[
                 0b00100000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000010,
             ],
         ),
         (
-            4398046511104u64,
+            4398046511104,
             &[
                 0b01000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000010,
             ],
         ),
         (
-            562949953421311u64,
+            562949953421311,
             &[
                 0b11000000, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b11111111,
             ],
         ),
         (
-            562949953421312u64,
+            562949953421312,
             &[
                 0b10000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000,
                 0b00000010,
             ],
         ),
         (
-            72057594037927935u64,
+            72057594037927935,
             &[
                 0b10000000, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b11111111,
                 0b11111111,
             ],
         ),
         (
-            72057594037927936u64,
+            72057594037927936,
             &[
                 0b00000000, 0b00000001, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000,
                 0b00000000, 0b00000010,
             ],
         ),
         (
-            9223372036854775807u64,
+            9223372036854775807,
             &[
                 0b00000000, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b11111111,
                 0b11111111, 0b11111111,
@@ -193,10 +188,19 @@ mod tests {
 
     #[test]
     fn decode_flex_uint() -> IonResult<()> {
-        for (expected_value, encoding) in FLEX_UINT_TEST_CASES {
+        let overpadded_test_cases: &[(u64, &[u8])] = &[
+            // Over-padded 5
+            (5, &[0b00010110, 0b00000000]),
+            // Over-padded 128
+            (128, &[0b00000100, 0b00000100, 0b00000000]),
+        ];
+        let mut flex_uint_tests = FLEX_UINT_TEST_CASES.to_vec();
+        flex_uint_tests.extend_from_slice(overpadded_test_cases);
+        for (expected_value, encoding) in flex_uint_tests {
+            println!("-> {expected_value}");
             let (flex_uint, _remaining) = ImmutableBuffer::new(encoding).read_flex_uint()?;
             let actual_value = flex_uint.value();
-            assert_eq!(actual_value, *expected_value, "actual value {actual_value} was != expected value {expected_value} for encoding {encoding:x?}")
+            assert_eq!(actual_value, expected_value, "actual value {actual_value} was != expected value {expected_value} for encoding {encoding:x?}")
         }
         Ok(())
     }

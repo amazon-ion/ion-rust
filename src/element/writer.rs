@@ -6,9 +6,7 @@
 use crate::result::IonResult;
 
 use crate::ion_writer::IonWriter;
-pub use crate::Format::*;
 use crate::IonType;
-pub use crate::TextKind::*;
 use crate::{Element, Value};
 
 /// Serializes [`Element`] instances into some kind of output sink.

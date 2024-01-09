@@ -307,7 +307,9 @@ impl<'a> ImmutableBuffer<'a> {
         if second_byte & 0b11 == 0b00 {
             // The flag bits in the second byte indicate at least two more bytes, meaning the total
             // length is more than 10 bytes. We're not equipped to handle this.
-            return IonResult::decoding_error("found a >10 byte VarUInt too large to fit in a u64");
+            return IonResult::decoding_error(
+                "found a >10 byte Flex(U)Int too large to fit in 64 bits",
+            );
         }
 
         if second_byte & 0b11 == 0b10 {
@@ -354,7 +356,7 @@ impl<'a> ImmutableBuffer<'a> {
         // extension (if enabled). We cannot store the highest 6 bits, so this method just checks
         // to make sure that they do not modify the meaning of the value in the lower 64 bits.
         // For signed values, this means the 6 extra bits must all be the same as the 64th bit.
-        // For unsigned values, this means that the 6 extra bits must all be `1`.
+        // For unsigned values, this means that the 6 extra bits must all be `0`.
         //
         // Little Endian byte diagram:
         //
