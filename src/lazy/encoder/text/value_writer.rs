@@ -210,8 +210,7 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
     }
 }
 
-/// A superset of the functionality offered by the user-facing `TextListWriter_1_0`. In particular,
-/// this type exposes an `end` function that MUST be called to guarantee correct output.
+/// Writes Ion 1.0 lists and implements the `SequenceWriter` trait.
 pub struct TextListWriter_1_0<'top, W: Write> {
     container_writer: TextContainerWriter_1_0<'top, W>,
 }

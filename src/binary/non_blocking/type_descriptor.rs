@@ -9,7 +9,7 @@ use crate::IonType;
 /// [Typed Value Formats](https://amazon-ion.github.io/ion-docs/docs/binary.html#typed-value-formats)
 /// section of the binary Ion spec.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub(crate) struct TypeDescriptor {
+pub struct TypeDescriptor {
     pub ion_type_code: IonTypeCode,
     pub ion_type: Option<IonType>,
     pub length_code: u8,
