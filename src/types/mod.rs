@@ -16,7 +16,6 @@ mod r#struct;
 mod symbol;
 mod timestamp;
 
-pub use crate::element::Sequence;
 pub use crate::types::bytes::Bytes;
 pub use decimal::Decimal;
 pub use integer::{Int, UInt};

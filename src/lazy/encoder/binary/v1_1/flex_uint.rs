@@ -1,4 +1,3 @@
-use crate::lazy::binary::immutable_buffer::ParseResult;
 use crate::result::IonFailure;
 use crate::IonResult;
 use std::io::Write;
