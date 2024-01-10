@@ -1,4 +1,4 @@
-use crate::IonResult;
+use crate::{FlexUInt, IonResult};
 use std::io::Write;
 
 const BITS_PER_I64: usize = 64;
@@ -34,6 +34,36 @@ impl FlexInt {
             value,
             size_in_bytes,
         }
+    }
+
+    /// Reads a [`FlexInt`] from the buffer.
+    ///
+    /// `input` is the byte slice from which to read a `FlexInt`.
+    /// `offset` is the position of the slice in some larger input stream. It is only used to populate
+    ///          an appropriate error message if reading fails.
+    #[inline]
+    pub fn read(input: &[u8], offset: usize) -> IonResult<FlexInt> {
+        // A FlexInt has the same structure as a FlexUInt. We can read a FlexUInt and then re-interpret
+        // its unsigned bytes as two's complement bytes.
+        let flex_uint =
+            FlexUInt::read_flex_primitive_as_uint(input, offset, "reading a FlexInt", true)?;
+        let unsigned_value = flex_uint.value();
+
+        // If the encoded FlexInt required `N` bytes to encode where `N` is fewer than 8, then its
+        // u64 value will have `8 - N` leading zero bytes. If the highest bit in the encoding was a
+        // 1, then then number is negative and we need to flip all of those leading zeros to ones.
+        // Look at the original input to see if the highest bit was a zero (positive) or one (negative).
+        let last_explicit_byte = input[flex_uint.size_in_bytes() - 1];
+        let sign_bit = 0b1000_0000 & last_explicit_byte;
+        let signed_value = if sign_bit == 0 {
+            unsigned_value as i64
+        } else {
+            // Flip all of the leading zeros in the unsigned value to ones and then re-interpret it
+            // as a signed value.
+            let mask = ((1u64 << 63) as i64) >> unsigned_value.leading_zeros();
+            (unsigned_value as i64) | mask
+        };
+        Ok(FlexInt::new(flex_uint.size_in_bytes(), signed_value))
     }
 
     #[inline]
