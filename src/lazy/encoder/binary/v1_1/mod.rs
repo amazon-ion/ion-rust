@@ -4,6 +4,8 @@ use crate::lazy::encoding::BinaryEncoding_1_1;
 use std::io::Write;
 
 pub mod container_writers;
+pub mod fixed_int;
+pub mod fixed_uint;
 pub mod flex_int;
 pub mod flex_uint;
 pub mod value_writer;
