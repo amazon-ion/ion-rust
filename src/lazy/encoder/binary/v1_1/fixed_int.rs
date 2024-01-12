@@ -14,14 +14,14 @@ pub struct FixedInt {
 }
 
 impl FixedInt {
-    pub fn new(size_in_bytes: usize, value: impl Into<Int>) -> Self {
+    fn new(size_in_bytes: usize, value: impl Into<Int>) -> Self {
         Self {
             value: value.into(),
             size_in_bytes,
         }
     }
 
-    /// Reads a [`FixedInt`] from the buffer.
+    /// Reads a [`FixedInt`] from the beginning of `input`.
     ///
     /// `input` is the byte slice from which to read a [`FixedInt`].
     /// `size_in_bytes` is the number of bytes to interpret as an unsigned integer.
@@ -51,12 +51,7 @@ impl FixedInt {
 
     #[inline]
     fn write_i64<W: Write>(output: &mut W, value: i64) -> IonResult<usize> {
-        let num_magnitude_bits = if value < 0 {
-            64 - value.leading_ones()
-        } else {
-            64 - value.leading_zeros()
-        };
-        let num_encoded_bytes = (num_magnitude_bits as usize / 8) + 1;
+        let num_encoded_bytes = Self::encoded_size_i64(value);
 
         let le_bytes = value.to_le_bytes();
         let encoded_bytes = &le_bytes[..num_encoded_bytes];
@@ -76,6 +71,17 @@ impl FixedInt {
             IntData::I64(int) => Self::write_i64(output, *int),
             IntData::BigInt(int) => Self::write_big_int(output, int),
         }
+    }
+
+    #[inline]
+    pub fn encoded_size_i64(value: i64) -> usize {
+        let num_sign_bits = if value < 0 {
+            value.leading_ones()
+        } else {
+            value.leading_zeros()
+        };
+        let num_magnitude_bits = 64 - num_sign_bits;
+        (num_magnitude_bits as usize / 8) + 1
     }
 
     pub fn value(&self) -> &Int {
