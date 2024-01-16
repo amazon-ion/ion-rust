@@ -1,6 +1,8 @@
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use delegate::delegate;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 use crate::lazy::encoder::binary::v1_1::container_writers::{
     BinaryContainerWriter_1_1, BinaryListValuesWriter_1_1, BinaryListWriter_1_1,
@@ -10,7 +12,8 @@ use crate::lazy::encoder::binary::v1_1::container_writers::{
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, ValueWriter};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{Decimal, Int, IonResult, IonType, SymbolId, Timestamp};
+use crate::types::integer::IntData;
+use crate::{Decimal, FlexUInt, Int, IonResult, IonType, SymbolId, Timestamp};
 
 pub struct BinaryValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
@@ -50,28 +53,116 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         todo!()
     }
 
-    pub fn write_null(self, _ion_type: IonType) -> IonResult<()> {
-        todo!()
+    pub fn write_null(mut self, ion_type: IonType) -> IonResult<()> {
+        let type_byte = match ion_type {
+            IonType::Null => {
+                self.push_byte(0xEA);
+                // Untyped null (i.e. `null`, `null.null`) has no trailing type byte
+                return Ok(());
+            }
+            IonType::Bool => 0,
+            IonType::Int => 1,
+            IonType::Float => 2,
+            IonType::Decimal => 3,
+            IonType::Timestamp => 4,
+            IonType::String => 5,
+            IonType::Symbol => 6,
+            IonType::Blob => 7,
+            IonType::Clob => 8,
+            IonType::List => 9,
+            IonType::SExp => 10,
+            IonType::Struct => 11,
+        };
+        self.push_bytes(&[0xEB, type_byte]);
+        Ok(())
     }
 
-    pub fn write_bool(self, _value: bool) -> IonResult<()> {
-        todo!()
+    pub fn write_bool(mut self, value: bool) -> IonResult<()> {
+        let encoding = match value {
+            true => 0x5E,
+            false => 0x5F,
+        };
+        self.push_byte(encoding);
+        Ok(())
     }
 
-    pub fn write_i64(self, _value: i64) -> IonResult<()> {
-        todo!()
+    #[inline]
+    pub fn write_i64(mut self, value: i64) -> IonResult<()> {
+        let mut opcode = 0x50;
+        if value == 0 {
+            self.push_byte(opcode);
+            return Ok(());
+        }
+        let num_sign_bits = if value < 0 {
+            value.leading_ones()
+        } else {
+            value.leading_zeros()
+        };
+        let num_magnitude_bits = 64 - num_sign_bits;
+        let num_encoded_bytes = (num_magnitude_bits as usize / 8) + 1;
+        opcode |= num_encoded_bytes as u8;
+
+        let le_bytes = value.to_le_bytes();
+        let encoded_bytes = &le_bytes[..num_encoded_bytes];
+
+        self.push_byte(opcode);
+        self.push_bytes(encoded_bytes);
+        Ok(())
     }
 
-    pub fn write_int(self, _value: &Int) -> IonResult<()> {
-        todo!()
+    // Helper method for `write_int`.
+    fn write_big_int(mut self, value: &BigInt) -> IonResult<()> {
+        // Try downgrading the value to an i64 if it's small enough. This avoids a Vec allocation and handles the
+        // zero case.
+        if let Some(small_value) = value.to_i64() {
+            return self.write_i64(small_value);
+        }
+        // If it's truly a big int, allocate a Vec of its little-endian bytes.
+        let le_bytes = value.to_signed_bytes_le();
+        let num_encoded_bytes = le_bytes.len();
+
+        // Because we've ruled out numbers small enough to fit in an i64, its encoded length must be greater than 8.
+        // Write the opcode for an integer with a FlexUInt length.
+        self.push_byte(0xF5);
+        // Write the length as a FlexUInt.
+        FlexUInt::write_u64(self.encoding_buffer, num_encoded_bytes as u64)?;
+        // Write the little endian bytes of the integer.
+        self.push_bytes(le_bytes.as_slice());
+        Ok(())
     }
 
-    pub fn write_f32(self, _value: f32) -> IonResult<()> {
-        todo!()
+    #[inline]
+    pub fn write_int(self, value: &Int) -> IonResult<()> {
+        match &value.data {
+            IntData::I64(int) => self.write_i64(*int),
+            IntData::BigInt(int) => self.write_big_int(int),
+        }
     }
 
-    pub fn write_f64(self, _value: f64) -> IonResult<()> {
-        todo!()
+    // TODO: write_f16(...)
+
+    pub fn write_f32(mut self, value: f32) -> IonResult<()> {
+        if value == 0f32 && !value.is_sign_negative() {
+            self.push_byte(0x5A);
+            return Ok(());
+        }
+        self.push_byte(0x5C);
+        // Float endianness is an open question.
+        // See: https://github.com/amazon-ion/ion-docs/issues/294
+        self.push_bytes(&value.to_le_bytes());
+        Ok(())
+    }
+
+    pub fn write_f64(mut self, value: f64) -> IonResult<()> {
+        if value == 0f64 && !value.is_sign_negative() {
+            self.push_byte(0x5A);
+            return Ok(());
+        }
+        self.push_byte(0x5D);
+        // Float endianness is an open question.
+        // See: https://github.com/amazon-ion/ion-docs/issues/294
+        self.push_bytes(&value.to_le_bytes());
+        Ok(())
     }
 
     pub fn write_decimal(self, _value: &Decimal) -> IonResult<()> {
@@ -400,5 +491,162 @@ impl<'value, 'top: 'value> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value
                 struct_fn: F,
             ) -> IonResult<()>;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
+    use crate::{IonResult, IonType, Null};
+
+    fn encoding_test(
+        mut test: impl FnMut(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,
+        expected_encoding: &[u8],
+    ) -> IonResult<()> {
+        let mut buffer = Vec::new();
+        let mut writer = LazyRawBinaryWriter_1_1::new(&mut buffer)?;
+        test(&mut writer)?;
+        writer.flush()?;
+        // Make a byte array that starts with an Ion 1.1 IVM.
+        let mut expected = vec![0xE0, 0x01, 0x01, 0xEA];
+        expected.extend_from_slice(expected_encoding);
+        let expected = expected.as_slice();
+        let actual = buffer.as_slice();
+        assert_eq!(
+            expected, actual,
+            "Actual \n    {actual:x?}\nwas not equal to\n    {expected:x?}\n"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn write_nulls() -> IonResult<()> {
+        let test_cases: &[(IonType, &[u8])] = &[
+            (IonType::Null, &[0xEA]),
+            (IonType::Bool, &[0xEB, 0]),
+            (IonType::Int, &[0xEB, 1]),
+            (IonType::Float, &[0xEB, 2]),
+            (IonType::Decimal, &[0xEB, 3]),
+            (IonType::Timestamp, &[0xEB, 4]),
+            (IonType::String, &[0xEB, 5]),
+            (IonType::Symbol, &[0xEB, 6]),
+            (IonType::Blob, &[0xEB, 7]),
+            (IonType::Clob, &[0xEB, 8]),
+            (IonType::List, &[0xEB, 9]),
+            (IonType::SExp, &[0xEB, 10]),
+            (IonType::Struct, &[0xEB, 11]),
+        ];
+        for (ion_type, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(Null(*ion_type))?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_bools() -> IonResult<()> {
+        let test_cases: &[(bool, &[u8])] = &[(true, &[0x5E]), (false, &[0x5F])];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(*value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_ints() -> IonResult<()> {
+        let test_cases: &[(i64, &[u8])] = &[
+            (0, &[0x50]),
+            (-1, &[0x51, 0xFF]),
+            (1, &[0x51, 0x01]),
+            (100, &[0x51, 0x64]),
+            (-100, &[0x51, 0x9C]),
+            (127, &[0x51, 0x7F]),
+            (-127, &[0x51, 0x81]),
+            (128, &[0x52, 0x80, 0x00]),
+            (-128, &[0x51, 0x80]),
+            (
+                i64::MAX,
+                &[0x58, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F],
+            ),
+            (
+                i64::MIN,
+                &[0x58, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(*value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_f32s() -> IonResult<()> {
+        let test_f64s: &[f32] = &[
+            1.0,
+            1.5,
+            -1.5,
+            10.0,
+            10.5,
+            -10.5,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+        ];
+        for value in test_f64s {
+            let mut expected_encoding = vec![0x5C];
+            expected_encoding.extend_from_slice(&value.to_le_bytes()[..]);
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(value)?;
+                    Ok(())
+                },
+                expected_encoding.as_slice(),
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_f64s() -> IonResult<()> {
+        let test_f64s: &[f64] = &[
+            1.0,
+            1.5,
+            -1.5,
+            10.0,
+            10.5,
+            -10.5,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+        ];
+        for value in test_f64s {
+            let mut expected_encoding = vec![0x5D];
+            expected_encoding.extend_from_slice(&value.to_le_bytes()[..]);
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(value)?;
+                    Ok(())
+                },
+                expected_encoding.as_slice(),
+            )?;
+        }
+        Ok(())
     }
 }
