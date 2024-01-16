@@ -45,7 +45,7 @@ impl FixedUInt {
     }
 
     #[inline]
-    fn write_u64<W: Write>(output: &mut W, value: u64) -> IonResult<usize> {
+    pub(crate) fn write_u64<W: Write>(output: &mut W, value: u64) -> IonResult<usize> {
         let encoded_bytes = value.to_le_bytes();
         let leading_zeros = value.leading_zeros();
         let num_encoded_bytes = (8 - (leading_zeros as usize / 8)).max(1);

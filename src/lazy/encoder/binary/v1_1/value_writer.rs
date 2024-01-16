@@ -13,7 +13,7 @@ use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, ValueWriter};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::types::integer::IntData;
-use crate::{Decimal, FlexUInt, Int, IonResult, IonType, SymbolId, Timestamp};
+use crate::{Decimal, FlexUInt, Int, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp};
 
 pub struct BinaryValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
@@ -43,10 +43,6 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
 
     pub(crate) fn buffer(&self) -> &[u8] {
         self.encoding_buffer.as_slice()
-    }
-
-    pub fn write_symbol_id(self, _symbol_id: SymbolId) -> IonResult<()> {
-        todo!()
     }
 
     pub fn write_lob(self, _value: &[u8], _type_code: u8) -> IonResult<()> {
@@ -173,12 +169,59 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         todo!()
     }
 
-    pub fn write_string<A: AsRef<str>>(self, _value: A) -> IonResult<()> {
-        todo!()
+    pub fn write_string<A: AsRef<str>>(mut self, value: A) -> IonResult<()> {
+        const STRING_OPCODE: u8 = 0x80;
+        const STRING_FLEX_UINT_LEN_OPCODE: u8 = 0xF8;
+        self.write_text(STRING_OPCODE, STRING_FLEX_UINT_LEN_OPCODE, value.as_ref())
     }
 
-    pub fn write_symbol<A: AsRawSymbolTokenRef>(self, _value: A) -> IonResult<()> {
-        todo!()
+    pub fn write_symbol<A: AsRawSymbolTokenRef>(mut self, value: A) -> IonResult<()> {
+        const SYMBOL_OPCODE: u8 = 0x90;
+        const SYMBOL_FLEX_UINT_LEN_OPCODE: u8 = 0xF9;
+        match value.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(sid) => self.write_symbol_id(sid),
+            RawSymbolTokenRef::Text(text) => {
+                self.write_text(SYMBOL_OPCODE, SYMBOL_FLEX_UINT_LEN_OPCODE, text.as_ref())
+            }
+        }
+    }
+
+    #[inline]
+    fn write_symbol_id(&mut self, symbol_id: SymbolId) -> IonResult<()> {
+        match symbol_id {
+            0..=255 => {
+                self.push_bytes(&[0xE1, symbol_id as u8]);
+            }
+            // The u16::MAX range, but biased by 256.
+            256..=65_791 => {
+                self.push_byte(0xE2); // Two-byte biased FixedUInt follows
+                let encoded_length = ((symbol_id - 256) as u16).to_le_bytes();
+                self.push_bytes(encoded_length.as_slice());
+            }
+            // 65,792 and higher
+            _ => {
+                self.push_byte(0xE3); // Biased FlexUInt follows
+                FlexUInt::write_u64(self.encoding_buffer, symbol_id as u64 - 65_792)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Helper method for writing strings and symbols with inline UTF8 bytes.
+    #[inline]
+    fn write_text(&mut self, opcode: u8, var_len_opcode: u8, text: &str) -> IonResult<()> {
+        match text.len() {
+            num_utf8_bytes @ 0..=15 => {
+                // The length is small enough to safely cast it to u8 and include it in the opcode.
+                self.push_byte(opcode | num_utf8_bytes as u8);
+            }
+            num_utf8_bytes => {
+                self.push_byte(var_len_opcode);
+                FlexUInt::write_u64(self.encoding_buffer, num_utf8_bytes as u64)?;
+            }
+        };
+        self.push_bytes(text.as_bytes());
+        Ok(())
     }
 
     pub fn write_clob<A: AsRef<[u8]>>(self, _value: A) -> IonResult<()> {
@@ -497,7 +540,8 @@ impl<'value, 'top: 'value> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value
 #[cfg(test)]
 mod tests {
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
-    use crate::{IonResult, IonType, Null};
+    use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+    use crate::{IonResult, IonType, Null, SymbolId};
 
     fn encoding_test(
         mut test: impl FnMut(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,
@@ -645,6 +689,86 @@ mod tests {
                     Ok(())
                 },
                 expected_encoding.as_slice(),
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_strings() -> IonResult<()> {
+        let test_cases: &[(&str, &[u8])] = &[
+            ("", &[0x80]),
+            //                 f     o     o
+            ("foo", &[0x83, 0x66, 0x6F, 0x6F]),
+            (
+                "foo bar baz quux quuz",
+                &[
+                    0xF8, // Opcode: string with variable-width length
+                    0x2B, // FlexUInt length
+                    0x66, // UTF-8 text bytes
+                    0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a, 0x20, 0x71, 0x75,
+                    0x75, 0x78, 0x20, 0x71, 0x75, 0x75, 0x7a,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(*value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_symbols_with_inline_text() -> IonResult<()> {
+        let test_cases: &[(&str, &[u8])] = &[
+            ("", &[0x90]),
+            //                 f     o     o
+            ("foo", &[0x93, 0x66, 0x6F, 0x6F]),
+            (
+                "foo bar baz quux quuz",
+                &[
+                    0xF9, // Opcode: symbol with variable-width length
+                    0x2B, // FlexUInt length
+                    0x66, // UTF-8 text bytes
+                    0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a, 0x20, 0x71, 0x75,
+                    0x75, 0x78, 0x20, 0x71, 0x75, 0x75, 0x7a,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(value.as_raw_symbol_token_ref())?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_symbol_ids() -> IonResult<()> {
+        let test_cases: &[(SymbolId, &[u8])] = &[
+            (0, &[0xE1, 0x00]),
+            (1, &[0xE1, 0x01]),
+            (255, &[0xE1, 0xFF]),
+            (256, &[0xE2, 0x00, 0x00]),
+            (65_791, &[0xE2, 0xFF, 0xFF]),
+            (65_792, &[0xE3, 0x01]),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(value.as_raw_symbol_token_ref())?;
+                    Ok(())
+                },
+                expected_encoding,
             )?;
         }
         Ok(())
