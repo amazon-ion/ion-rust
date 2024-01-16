@@ -172,20 +172,23 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         let opcode_index = self.encoding_buffer.len();
         self.push_byte(0x60);
 
-        // A positive zero coefficient, unspecified exponent
+        // Whether the decimal has a positive zero coefficient (of any exponent). This value is needed in two places
+        // and is non-trivial, so we compute it up front and store the result.
         let is_positive_zero = value.coefficient().is_positive_zero();
 
+        // If the value is 0.0, then the encoding has no body. The 0x60 opcode is the complete encoding.
         if value.exponent() == 0 && is_positive_zero {
-            // The 0x60 opcode is the complete encoding.
             return Ok(());
         }
 
+        // For any value that is not 0.0, the encoding begins with a FlexInt representing the exponent.
         let encoded_exponent_size = FlexInt::write_i64(self.encoding_buffer, value.exponent())?;
+
         let encoded_coefficient_size = if is_positive_zero {
-            // Write nothing; an implicit zero coefficient is positive.
+            // If the coefficient is zero but the exponent was non-zero, write nothing; an implicit zero is positive.
             0
         } else if value.coefficient.is_negative_zero() {
-            // Write a zero byte; an explicit zero is negative.
+            // If the coefficient is negative zero (of any exponent), write a zero byte; an explicit zero is negative.
             self.push_byte(0x00);
             1
         } else {
@@ -852,7 +855,7 @@ mod tests {
             ),
             (Decimal::new(7, 4), &[0x62, 0x09, 0x07]),
             (
-                // ~PI
+                // ~Pi
                 Decimal::new(3_1415926535i64, -10),
                 &[0x66, 0xED, 0x07, 0xFF, 0x88, 0x50, 0x07],
             ),
