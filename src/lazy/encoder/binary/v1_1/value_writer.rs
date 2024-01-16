@@ -9,7 +9,6 @@ use crate::lazy::encoder::binary::v1_1::container_writers::{
     BinarySExpValuesWriter_1_1, BinarySExpWriter_1_1, BinaryStructFieldsWriter_1_1,
     BinaryStructWriter_1_1,
 };
-use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, ValueWriter};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
