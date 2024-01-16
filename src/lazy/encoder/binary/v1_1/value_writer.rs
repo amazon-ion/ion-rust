@@ -191,8 +191,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     fn write_symbol_id(&mut self, symbol_id: SymbolId) -> IonResult<()> {
         match symbol_id {
             0..=255 => {
-                self.push_byte(0xE1); // Single-byte FixedUInt follows
-                FixedUInt::write_u64(self.encoding_buffer, symbol_id as u64)?;
+                self.push_bytes([0xE1, symbol_id as u8]);
             }
             // The u16::MAX range, but biased by 256.
             256..=65_791 => {
