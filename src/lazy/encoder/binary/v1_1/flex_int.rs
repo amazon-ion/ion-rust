@@ -29,7 +29,7 @@ pub struct FlexInt {
 }
 
 impl FlexInt {
-    pub fn new(size_in_bytes: usize, value: i64) -> Self {
+    fn new(size_in_bytes: usize, value: i64) -> Self {
         Self {
             value,
             size_in_bytes,
