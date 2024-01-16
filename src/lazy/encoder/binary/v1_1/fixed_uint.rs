@@ -14,14 +14,14 @@ pub struct FixedUInt {
 }
 
 impl FixedUInt {
-    pub fn new(size_in_bytes: usize, value: impl Into<UInt>) -> Self {
+    fn new(size_in_bytes: usize, value: impl Into<UInt>) -> Self {
         Self {
             value: value.into(),
             size_in_bytes,
         }
     }
 
-    /// Reads a [`FixedUInt`] from the buffer.
+    /// Reads a [`FixedUInt`] from the beginning of `input`.
     ///
     /// `input` is the byte slice from which to read a [`FixedUInt`].
     /// `size_in_bytes` is the number of bytes to interpret as an unsigned integer.

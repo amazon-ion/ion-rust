@@ -30,7 +30,7 @@ pub struct FlexUInt {
 }
 
 impl FlexUInt {
-    pub fn new(size_in_bytes: usize, value: u64) -> Self {
+    fn new(size_in_bytes: usize, value: u64) -> Self {
         Self {
             value,
             size_in_bytes,
