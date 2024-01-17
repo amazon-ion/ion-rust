@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use delegate::delegate;
@@ -9,11 +10,15 @@ use crate::lazy::encoder::binary::v1_1::container_writers::{
     BinarySExpValuesWriter_1_1, BinarySExpWriter_1_1, BinaryStructFieldsWriter_1_1,
     BinaryStructWriter_1_1,
 };
+use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, ValueWriter};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::result::IonFailure;
 use crate::types::integer::IntData;
-use crate::{Decimal, FlexUInt, Int, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp};
+use crate::{
+    Decimal, FlexInt, FlexUInt, Int, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp,
+};
 
 pub struct BinaryValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
@@ -161,8 +166,69 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_decimal(self, _value: &Decimal) -> IonResult<()> {
-        todo!()
+    pub fn write_decimal(mut self, value: &Decimal) -> IonResult<()> {
+        // Insert a placeholder opcode; we'll overwrite the length nibble with the appropriate value when the encoding
+        // is complete.
+        let opcode_index = self.encoding_buffer.len();
+        self.push_byte(0x60);
+
+        // Whether the decimal has a positive zero coefficient (of any exponent). This value is needed in two places
+        // and is non-trivial, so we compute it up front and store the result.
+        let is_positive_zero = value.coefficient().is_positive_zero();
+
+        // If the value is 0.0, then the encoding has no body. The 0x60 opcode is the complete encoding.
+        if value.exponent() == 0 && is_positive_zero {
+            return Ok(());
+        }
+
+        // For any value that is not 0.0, the encoding begins with a FlexInt representing the exponent.
+        let encoded_exponent_size = FlexInt::write_i64(self.encoding_buffer, value.exponent())?;
+
+        let encoded_coefficient_size = if is_positive_zero {
+            // If the coefficient is zero but the exponent was non-zero, write nothing; an implicit zero is positive.
+            0
+        } else if value.coefficient.is_negative_zero() {
+            // If the coefficient is negative zero (of any exponent), write a zero byte; an explicit zero is negative.
+            self.push_byte(0x00);
+            1
+        } else {
+            // This `TryInto` impl will only fail if the coefficient is negative zero, which we've already ruled out.
+            let coefficient: Int = value.coefficient().try_into().unwrap();
+            FixedInt::write(self.encoding_buffer, &coefficient)?
+        };
+
+        let Some(encoded_body_size) = encoded_exponent_size.checked_add(encoded_coefficient_size)
+        else {
+            // If the decimal's *length* cannot be stored in a `usize`, report an error.
+            return IonResult::encoding_error(format!(
+                "decimal {value} exceeds the currently supported maximum encoding size"
+            ));
+        };
+
+        match encoded_body_size {
+            0..=15 => {
+                // In the common case, the body of a decimal will require fewer than 16 bytes to encode.
+                // In this case, we can write the encoded body length in the low nibble of the opcode we already wrote.
+                self.encoding_buffer[opcode_index] |= encoded_body_size as u8;
+            }
+            16.. => {
+                // If the encoded size ends up being unusually large, we will splice in a corrected header.
+                // Start by overwriting our original opcode with 0xF6, which indicates a Decimal with a FlexUInt length.
+                self.encoding_buffer[opcode_index] = 0xF6;
+                // We'll use an `ArrayVec` as our encoding buffer because it's stack-allocated and implements `io::Write`.
+                // It has a capacity of 16 bytes because it's the smallest power of two that is still large enough to
+                // hold a FlexUInt encoding of usize::MAX on a 64-bit platform.
+                let mut buffer: ArrayVec<u8, 16> = ArrayVec::new();
+                FlexUInt::write_u64(&mut buffer, encoded_body_size as u64)?;
+                let encoded_length_start = opcode_index + 1;
+                // `splice` allows you to overwrite Vec elements as well as insert them.
+                // This is an empty range at the desired location, indicating that we're only inserting.
+                let splice_range = encoded_length_start..encoded_length_start;
+                self.encoding_buffer
+                    .splice(splice_range, buffer.as_slice().iter().copied());
+            }
+        }
+        Ok(())
     }
 
     pub fn write_timestamp(self, _value: &Timestamp) -> IonResult<()> {
@@ -541,7 +607,9 @@ impl<'value, 'top: 'value> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value
 mod tests {
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-    use crate::{IonResult, IonType, Null, SymbolId};
+    use crate::{Decimal, Int, IonResult, IonType, Null, SymbolId};
+    use num_bigint::BigInt;
+    use std::str::FromStr;
 
     fn encoding_test(
         mut test: impl FnMut(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,
@@ -766,6 +834,49 @@ mod tests {
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
                     writer.write(value.as_raw_symbol_token_ref())?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_decimals() -> IonResult<()> {
+        let test_cases: &[(Decimal, &[u8])] = &[
+            (Decimal::new(0, 0), &[0x60]),
+            (Decimal::new(0, 3), &[0x61, 0x07]),
+            (Decimal::negative_zero(), &[0x62, 0x01, 0x00]),
+            (Decimal::negative_zero_with_exponent(3), &[0x62, 0x07, 0x00]),
+            (
+                Decimal::negative_zero_with_exponent(-3),
+                &[0x62, 0xFB, 0x00],
+            ),
+            (Decimal::new(7, 4), &[0x62, 0x09, 0x07]),
+            (
+                // ~Pi
+                Decimal::new(3_1415926535i64, -10),
+                &[0x66, 0xED, 0x07, 0xFF, 0x88, 0x50, 0x07],
+            ),
+            (
+                // ~e
+                Decimal::new(
+                    Int::from(
+                        BigInt::from_str("27182818284590452353602874713526624977572").unwrap(),
+                    ),
+                    -40,
+                ),
+                &[
+                    0xF6, 0x25, 0xB1, 0xA4, 0x2, 0x7E, 0xFA, 0x42, 0x46, 0x53, 0x50, 0xEF, 0x56,
+                    0x73, 0xB, 0xE7, 0x5E, 0x14, 0xE2, 0x4F,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(value)?;
                     Ok(())
                 },
                 expected_encoding,
