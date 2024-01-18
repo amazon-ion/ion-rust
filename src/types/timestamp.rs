@@ -604,19 +604,30 @@ impl Timestamp {
     ///
     /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
     /// number of nanoseconds, losing precision. If it loses precision then truncation is preformed.
-    /// (e.g. a timestamp with fractional seconds of `0.000000000999` would be returned as `0`)
+    /// (e.g. a timestamp with fractional seconds of `0.000000000999` would return `0`)
     pub fn nanoseconds(&self) -> u32 {
         self.fractional_seconds_as_nanoseconds().unwrap_or_default()
+    }
+
+    /// Returns this Timestamp's fractional seconds in microseconds
+    ///
+    /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
+    /// number of microseconds, losing precision. If it loses precision then truncation is preformed.
+    /// (e.g. a timestamp with fractional seconds of `0.000000999` would return `0`)
+    pub fn microseconds(&self) -> u32 {
+        self.fractional_seconds_as_nanoseconds()
+            .map(|s| s / 1_000)
+            .unwrap_or_default()
     }
 
     /// Returns this Timestamp's fractional seconds in milliseconds
     ///
     /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
     /// number of milliseconds, losing precision. If it loses precision then truncation is preformed.
-    /// (e.g. a timestamp with fractional seconds of `0.000999` would be returned as `0`)
+    /// (e.g. a timestamp with fractional seconds of `0.000999` would return `0`)
     pub fn milliseconds(&self) -> u32 {
         self.fractional_seconds_as_nanoseconds()
-            .map(|s| s / 1000000)
+            .map(|s| s / 1_000_000)
             .unwrap_or_default()
     }
 }
