@@ -276,6 +276,12 @@ fn timezone_offset_hours_minutes(input: &str) -> IonParseResult<(i32, i32)> {
     Ok((remaining_input, (hour_int, minute_int)))
 }
 
+/// Matches the next input character if it is a base-10 digit. This wraps [char::is_digit] in the
+/// nom parsing function signature.
+pub(crate) fn digit(input: &str) -> IResult<&str, char> {
+    satisfy(|c| c.is_ascii_digit())(input)
+}
+
 #[cfg(test)]
 mod reader_tests {
     use crate::result::IonResult;
@@ -449,10 +455,4 @@ mod reader_tests {
         );
         Ok(())
     }
-}
-
-/// Matches the next input character if it is a base-10 digit. This wraps [char::is_digit] in the
-/// nom parsing function signature.
-pub(crate) fn digit(input: &str) -> IResult<&str, char> {
-    satisfy(|c| c.is_ascii_digit())(input)
 }

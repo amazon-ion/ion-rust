@@ -11,7 +11,6 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
-        # See https://github.com/amazon-ion/ion-rust/issues/353
         os: [ubuntu-latest, windows-latest, macos-latest]
         # build and test for experimental features with miri
         features: ['experimental']

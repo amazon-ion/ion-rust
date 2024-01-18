@@ -372,7 +372,6 @@ macro_rules! ion_seq {
 }
 
 use crate::{List, SExp};
-pub use {ion_list, ion_sexp, ion_struct};
 
 #[cfg(test)]
 mod tests {

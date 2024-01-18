@@ -180,6 +180,11 @@ impl_write_as_sexp_for_iterable!(Vec<T>, T);
 impl_write_as_sexp_for_iterable!(&[T], T);
 impl_write_as_sexp_for_iterable!([T; N], T, const N: usize);
 
+/// A wrapper type that hints to the Ion writer that the sequence within should be serialized
+/// as an s-expression, not a list.
+///
+/// Slices, `Vec`s, and arrays all implement the [`WriteAsSExp`] trait, which grants them the
+/// [`as_sexp()`](WriteAsSExp::as_sexp) method.
 pub struct SExpTypeHint<S, T> {
     values: S,
     spooky: PhantomData<T>,

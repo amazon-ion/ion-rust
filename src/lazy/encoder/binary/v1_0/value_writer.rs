@@ -12,7 +12,7 @@ use crate::binary::timestamp::TimestampBinaryEncoder;
 use crate::binary::uint;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
-use crate::lazy::encoder::binary::{
+use crate::lazy::encoder::binary::v1_0::container_writers::{
     BinaryContainerWriter_1_0, BinaryListValuesWriter_1_0, BinaryListWriter_1_0,
     BinarySExpValuesWriter_1_0, BinarySExpWriter_1_0, BinaryStructFieldsWriter_1_0,
     BinaryStructWriter_1_0,
@@ -24,8 +24,8 @@ use crate::result::{EncodingError, IonFailure};
 use crate::types::integer::IntData;
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp};
 
-// The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
-// Larger length values will need to be written as a VarUInt following the type descriptor.
+/// The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
+/// Larger length values will need to be written as a VarUInt following the type descriptor.
 pub(crate) const MAX_INLINE_LENGTH: usize = 13;
 
 pub struct BinaryValueWriter_1_0<'value, 'top> {
@@ -253,22 +253,22 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         ))
     }
 
-    fn sexp_writer(&mut self) -> IonResult<BinarySExpWriter_1_0<'_, 'top>> {
+    fn sexp_writer(&mut self) -> BinarySExpWriter_1_0<'_, 'top> {
         const SEXP_TYPE_CODE: u8 = 0xC0;
-        Ok(BinarySExpWriter_1_0::new(BinaryContainerWriter_1_0::new(
+        BinarySExpWriter_1_0::new(BinaryContainerWriter_1_0::new(
             SEXP_TYPE_CODE,
             self.allocator,
             self.encoding_buffer,
-        )))
+        ))
     }
 
-    fn struct_writer(&mut self) -> IonResult<BinaryStructWriter_1_0<'_, 'top>> {
+    fn struct_writer(&mut self) -> BinaryStructWriter_1_0<'_, 'top> {
         const STRUCT_TYPE_CODE: u8 = 0xD0;
-        Ok(BinaryStructWriter_1_0::new(BinaryContainerWriter_1_0::new(
+        BinaryStructWriter_1_0::new(BinaryContainerWriter_1_0::new(
             STRUCT_TYPE_CODE,
             self.allocator,
             self.encoding_buffer,
-        )))
+        ))
     }
 
     fn write_list<
@@ -285,7 +285,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         mut self,
         sexp_fn: F,
     ) -> IonResult<()> {
-        self.sexp_writer()?.write_values(sexp_fn)
+        self.sexp_writer().write_values(sexp_fn)
     }
     fn write_struct<
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::StructWriter<'a>) -> IonResult<()>,
@@ -293,7 +293,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         mut self,
         struct_fn: F,
     ) -> IonResult<()> {
-        self.struct_writer()?.write_fields(struct_fn)
+        self.struct_writer().write_fields(struct_fn)
     }
 }
 
@@ -504,7 +504,7 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
         self,
         list_fn: F,
     ) -> IonResult<()> {
-        self.encode_annotated(move |value_writer| value_writer.write_list(list_fn))
+        self.encode_annotated(|value_writer| value_writer.write_list(list_fn))
     }
     fn write_sexp<F: for<'a> FnOnce(&mut Self::SExpWriter<'a>) -> IonResult<()>>(
         self,
@@ -580,7 +580,7 @@ impl<'value, 'top: 'value> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value
 #[cfg(test)]
 mod tests {
     use crate::lazy::encoder::annotate::Annotate;
-    use crate::lazy::encoder::binary::LazyRawBinaryWriter_1_0;
+    use crate::lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0;
     use crate::lazy::encoder::value_writer::AnnotatableValueWriter;
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
@@ -623,7 +623,6 @@ mod tests {
                 .write(RawSymbolTokenRef::SymbolId(4))?
                 .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
                 .write([0xE0u8, 0x01, 0x00, 0xEA])?;
-            // .write([1, 2, 3])?;
             Ok(())
         };
         writer_test(expected, test)

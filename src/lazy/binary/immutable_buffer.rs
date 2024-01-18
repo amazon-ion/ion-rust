@@ -8,6 +8,8 @@ use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
+use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
+use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::result::IonFailure;
 use crate::types::UInt;
 use crate::{Int, IonError, IonResult, IonType};
@@ -33,7 +35,7 @@ const MAX_INT_SIZE_IN_BYTES: usize = 2048;
 ///
 /// Methods that `peek` at the input stream do not return a copy of the buffer.
 #[derive(PartialEq, Clone, Copy)]
-pub(crate) struct ImmutableBuffer<'a> {
+pub struct ImmutableBuffer<'a> {
     // `data` is a slice of remaining data in the larger input stream.
     // `offset` is the position in the overall input stream where that slice begins.
     //
@@ -131,7 +133,7 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads the first byte in the buffer and returns it as a [TypeDescriptor].
     #[inline]
-    pub fn peek_type_descriptor(&self) -> IonResult<TypeDescriptor> {
+    pub(crate) fn peek_type_descriptor(&self) -> IonResult<TypeDescriptor> {
         if self.is_empty() {
             return IonResult::incomplete("a type descriptor", self.offset());
         }
@@ -155,6 +157,21 @@ impl<'a> ImmutableBuffer<'a> {
             }
             invalid_ivm => IonResult::decoding_error(format!("invalid IVM: {invalid_ivm:?}")),
         }
+    }
+
+    /// Reads a [`FlexInt`] from the buffer.
+    pub fn read_flex_int(self) -> ParseResult<'a, FlexInt> {
+        let flex_int = FlexInt::read(self.bytes(), self.offset())?;
+        let remaining = self.consume(flex_int.size_in_bytes());
+        Ok((flex_int, remaining))
+    }
+
+    /// Reads a [`FlexUInt`] from the buffer.
+    #[inline]
+    pub fn read_flex_uint(self) -> ParseResult<'a, FlexUInt> {
+        let flex_uint = FlexUInt::read(self.bytes(), self.offset())?;
+        let remaining = self.consume(flex_uint.size_in_bytes());
+        Ok((flex_uint, remaining))
     }
 
     /// Reads a `VarUInt` encoding primitive from the beginning of the buffer. If it is successful,

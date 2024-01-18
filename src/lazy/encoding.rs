@@ -33,7 +33,12 @@ pub trait Encoding: Debug + Copy {
 #[derive(Copy, Clone, Debug)]
 pub struct BinaryEncoding_1_0;
 
+/// The Ion 1.1 binary encoding.
+#[derive(Copy, Clone, Debug)]
+pub struct BinaryEncoding_1_1;
+
 impl BinaryEncoding for BinaryEncoding_1_0 {}
+impl BinaryEncoding for BinaryEncoding_1_1 {}
 
 /// The Ion 1.0 text encoding.
 #[derive(Copy, Clone, Debug)]
@@ -46,6 +51,11 @@ pub struct TextEncoding_1_1;
 impl Encoding for BinaryEncoding_1_0 {
     fn name() -> &'static str {
         "binary Ion v1.0"
+    }
+}
+impl Encoding for BinaryEncoding_1_1 {
+    fn name() -> &'static str {
+        "binary Ion v1.1"
     }
 }
 impl Encoding for TextEncoding_1_0 {

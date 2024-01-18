@@ -8,12 +8,13 @@ use crate::result::IonResult;
 pub use crate::Format::*;
 pub use crate::TextKind::*;
 use crate::{Element, IonType, TextKind, Value};
-use std::io;
-use std::marker::PhantomData;
+
 #[cfg(feature = "experimental-lazy-reader")]
 use {
     crate::lazy::encoder::{LazyEncoder, LazyRawWriter},
     crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0},
+    std::io,
+    std::marker::PhantomData,
 };
 
 /// Writer configuration to provide format and Ion version details to writer through encoding

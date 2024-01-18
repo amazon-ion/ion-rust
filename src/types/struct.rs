@@ -167,6 +167,9 @@ impl Struct {
     }
 
     /// Returns an iterator over the field name/value pairs in this Struct.
+    #[allow(clippy::map_identity)]
+    // ^-- This is a temporary workaround for a bug in Clippy that should be fixed in the next release.
+    // See: https://github.com/rust-lang/rust-clippy/issues/9280
     pub fn fields(&self) -> impl Iterator<Item = (&Symbol, &Element)> {
         self.fields
             .iter()
@@ -234,6 +237,9 @@ impl Struct {
         self.fields.get_all(field_name)
     }
 
+    #[allow(clippy::map_identity)]
+    // ^-- This is a temporary workaround for a bug in Clippy that should be fixed in the next release.
+    // See: https://github.com/rust-lang/rust-clippy/issues/9280
     pub(crate) fn get_index(&self, field_index: usize) -> Option<(&Symbol, &Element)> {
         self.fields
             .by_index
