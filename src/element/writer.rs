@@ -5,8 +5,6 @@
 
 use crate::ion_writer::IonWriter;
 use crate::result::IonResult;
-pub use crate::Format::*;
-pub use crate::TextKind::*;
 use crate::{Element, IonType, TextKind, Value};
 
 #[cfg(feature = "experimental-lazy-reader")]
