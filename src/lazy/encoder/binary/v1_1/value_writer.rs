@@ -349,7 +349,8 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
 
         // Because we eagerly (and branchless-ly) encoded all of the time units, we may have populated bits that are
         // irrelevant to the final encoding. To simplify unit testing (and in the current absence of a binary 1.1
-        // reader, we calculate a mask of which bits are relevant to the current opcode and set any bits not in use to `0`.
+        // reader), we calculate a mask of which bits are relevant to the current opcode and set any bits not in use
+        // to `0`.
         // TODO: Remove this logic pending resolution of https://github.com/amazon-ion/ion-docs/issues/295, which
         //       suggests requiring readers to ignore bits not used by the specified opcode
         let mask = 1u64
