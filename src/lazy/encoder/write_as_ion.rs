@@ -39,13 +39,13 @@ pub trait WriteAsIon {
 
 impl WriteAsIon for &Element {
     fn write_as_ion<V: AnnotatableValueWriter>(&self, writer: V) -> IonResult<()> {
-        let annotations = self.annotations().iter().collect::<Vec<&Symbol>>();
-        if !annotations.is_empty() {
-            self.value()
-                .write_as_ion_value(writer.with_annotations(&annotations))
-        } else {
+        if self.annotations().is_empty() {
             self.value()
                 .write_as_ion_value(writer.without_annotations())
+        } else {
+            self.value().write_as_ion_value(
+                writer.with_annotations(&Vec::from_iter(self.annotations().iter())),
+            )
         }
     }
 }
