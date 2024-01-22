@@ -11,6 +11,7 @@ use crate::lazy::encoder::binary::v1_1::container_writers::{
     BinaryStructWriter_1_1,
 };
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
+use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, ValueWriter};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
@@ -274,7 +275,6 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         const NUM_KNOWN_OFFSET_BITS: u32 = 7;
 
         // The bit offsets of each time unit within the encoding
-        const YEAR_BIT_OFFSET: u32 = 0;
         const MONTH_BIT_OFFSET: u32 = NUM_YEAR_BITS;
         const DAY_BIT_OFFSET: u32 = MONTH_BIT_OFFSET + NUM_MONTH_BITS;
         const HOUR_BIT_OFFSET: u32 = DAY_BIT_OFFSET + NUM_DAY_BITS;
@@ -380,8 +380,105 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         Ok(())
     }
 
-    fn write_long_form_timestamp(self, _value: &Timestamp) -> IonResult<()> {
-        todo!("long-form timestamp encoding is not yet implemented");
+    fn write_long_form_timestamp(mut self, value: &Timestamp) -> IonResult<()> {
+        use crate::TimestampPrecision::*;
+
+        // The number of bits dedicated to each time unit in a long-form timestamp
+        const NUM_YEAR_BITS: u32 = 14;
+        const NUM_MONTH_BITS: u32 = 4;
+        const NUM_DAY_BITS: u32 = 5;
+        const NUM_HOUR_BITS: u32 = 5;
+        const NUM_MINUTE_BITS: u32 = 6;
+        const NUM_SECOND_BITS: u32 = 6;
+        // The number of bits dedicated to representing the offset in a long-form timestamp
+        const NUM_OFFSET_BITS: u32 = 12;
+        // The bit offsets of each time unit within the encoding
+        const MONTH_BIT_OFFSET: u32 = NUM_YEAR_BITS;
+        const DAY_BIT_OFFSET: u32 = MONTH_BIT_OFFSET + NUM_MONTH_BITS;
+        const HOUR_BIT_OFFSET: u32 = DAY_BIT_OFFSET + NUM_DAY_BITS;
+        const MINUTE_BIT_OFFSET: u32 = HOUR_BIT_OFFSET + NUM_HOUR_BITS;
+        const OFFSET_BIT_OFFSET: u32 = MINUTE_BIT_OFFSET + NUM_MINUTE_BITS;
+        const SECOND_BIT_OFFSET: u32 = OFFSET_BIT_OFFSET + NUM_OFFSET_BITS;
+
+        let mut encoding: u64 = value.year() as u64;
+        encoding |= (value.month() as u64) << MONTH_BIT_OFFSET;
+        encoding |= (value.day() as u64) << DAY_BIT_OFFSET;
+        encoding |= (value.hour() as u64) << HOUR_BIT_OFFSET;
+        encoding |= (value.minute() as u64) << MINUTE_BIT_OFFSET;
+
+        const MIN_OFFSET: i32 = -24 * 60;
+        const UNKNOWN_OFFSET: u64 = (1 << NUM_OFFSET_BITS) - 1;
+
+        let offset_minutes = match value.offset() {
+            Some(minutes) => (minutes - MIN_OFFSET) as u64,
+            None => UNKNOWN_OFFSET,
+        };
+        encoding |= offset_minutes << OFFSET_BIT_OFFSET;
+        encoding |= (value.second() as u64) << SECOND_BIT_OFFSET;
+
+        let precision = value.precision();
+        let scale = value.fractional_seconds_scale().unwrap_or(0);
+
+        // The encoded bytelength of all components *except* subseconds.
+        let (mut encoded_length, num_bits_in_use) = match precision {
+            Year => (2, 14),
+            Month => (3, MONTH_BIT_OFFSET + NUM_MONTH_BITS),
+            Day => {
+                let bits_in_use = DAY_BIT_OFFSET + NUM_DAY_BITS;
+                // Set the "day-not-month" bit, just beyond the day bits.
+                encoding |= 1 << bits_in_use;
+                (3, bits_in_use + 1)
+            }
+            // (hour, minute, offset) are an atomic unit in the encoding--when one is present they must all be present.
+            HourAndMinute => (6, OFFSET_BIT_OFFSET + NUM_OFFSET_BITS),
+            Second => (7, SECOND_BIT_OFFSET + SECOND_BIT_OFFSET),
+        };
+
+        // Because we eagerly (and branchless-ly) encoded all of the time units, we may have populated bits that are
+        // irrelevant to the final encoding. To simplify unit testing (and in the current absence of a binary 1.1
+        // reader), we calculate a mask of which bits are relevant to the current opcode and set any bits not in use
+        // to `0`.
+        // TODO: Remove this logic pending resolution of https://github.com/amazon-ion/ion-docs/issues/295, which
+        //       suggests requiring readers to ignore bits not used by the specified opcode
+        let mask = 1u64
+            .checked_shl(num_bits_in_use)
+            .unwrap_or(0)
+            .checked_sub(1)
+            .unwrap_or(u64::MAX);
+        encoding &= mask;
+
+        // Push 0xF7 (the opcode for a Timestamp w/FlexUInt length) and 0x01 (a placeholder 0 FlexUInt that we'll
+        // overwrite when the final encoding size is known.
+        self.push_bytes(&[0xF7, 0x01]);
+        let length_byte_index = self.encoding_buffer.len() - 1;
+        self.push_bytes(&encoding.to_le_bytes()[..encoded_length]);
+
+        let subsecond_encoding_size = match scale {
+            0 => 0,
+            _ => {
+                // We've confirmed that there are subseconds, so we can `unwrap()` this safely.
+                let subseconds = value.fractional_seconds_as_decimal().unwrap();
+                let encoded_coefficient_size =
+                    FlexUInt::write(self.encoding_buffer, subseconds.coefficient().magnitude())?;
+                let encoded_scale_size =
+                    FixedUInt::write_u64(self.encoding_buffer, u64::try_from(scale).unwrap())?;
+                encoded_coefficient_size + encoded_scale_size
+            }
+        };
+        encoded_length += subsecond_encoding_size;
+
+        // 127 is the largest size that can be encoded in the single FlexUInt byte that we reserved at the outset
+        // of this method. This limit can be lifted if an appropriate use case arises; for the time being, 127 is
+        // a very high ceiling given that a long-form timestamp with nanosecond precision is ~12 bytes.
+        if encoded_length > 127 {
+            return IonResult::encoding_error(
+                "maximum supported long-form timestamp encoding size is 127 bytes",
+            );
+        }
+        // Now that we know the final length, overwrite the placeholder FlexUInt from earlier.
+        self.encoding_buffer[length_byte_index] = ((encoded_length as u8) << 1) + 1; // FlexUInt encoding
+
+        Ok(())
     }
 
     pub fn write_string<A: AsRef<str>>(mut self, value: A) -> IonResult<()> {
@@ -1623,6 +1720,283 @@ mod tests {
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
+                ],
+            ),
+            //
+            // === Long-form year ===
+            //
+            (
+                "1969T",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x05,        // FlexUInt length 2
+                    0b1011_0001, // YYYY_YYYY
+                    0b0000_0111, // ..YY_YYYY
+                ],
+            ),
+            (
+                "0001T",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x05,        // FlexUInt length 2
+                    0b0000_0001, // YYYY_YYYY
+                    0b0000_0000, // ..YY_YYYY
+                ],
+            ),
+            (
+                "9999T",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x05,        // FlexUInt length 2
+                    0b0000_1111, // YYYY_YYYY
+                    0b0010_0111, // ..YY_YYYY
+                ],
+            ),
+            //
+            // === Long-form month ===
+            //
+            (
+                "1969-01T",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x07,        // FlexUInt length 3
+                    0b1011_0001, // YYYY_YYYY
+                    0b0100_0111, // MMYY_YYYY
+                    0b0000_0000, // h..._..MM
+                ],
+            ),
+            (
+                "1969-06T",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x07,        // FlexUInt length 3
+                    0b1011_0001, // YYYY_YYYY
+                    0b1000_0111, // MMYY_YYYY
+                    0b0000_0001, // h..._..MM
+                ],
+            ),
+            (
+                "1969-12T",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x07,        // FlexUInt length 3
+                    0b1011_0001, // YYYY_YYYY
+                    0b0000_0111, // MMYY_YYYY
+                    0b0000_0011, // h..._..MM
+                ],
+            ),
+            //
+            // === Long-form day ===
+            //
+            (
+                "1969-01-01T",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x07,        // FlexUInt length 3
+                    0b1011_0001, // YYYY_YYYY
+                    0b0100_0111, // MMYY_YYYY
+                    0b1000_0100, // hDDD_DDMM
+                ],
+            ),
+            (
+                "1969-06-15T",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x07,        // FlexUInt length 3
+                    0b1011_0001, // YYYY_YYYY
+                    0b1000_0111, // MMYY_YYYY
+                    0b1011_1101, // hDDD_DDMM
+                ],
+            ),
+            (
+                "1969-12-31T",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x07,        // FlexUInt length 3
+                    0b1011_0001, // YYYY_YYYY
+                    0b0000_0111, // MMYY_YYYY
+                    0b1111_1111, // hDD_DDMM
+                ],
+            ),
+            //
+            // === Long-form hour & minute ===
+            //
+            (
+                "1969-01-01T00:00Z",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x0D,        // FlexUInt length 6
+                    0b1011_0001, // YYYY_YYYY
+                    0b0100_0111, // MMYY_YYYY
+                    0b0000_0100, // hDDD_DDMM
+                    0b0000_0000, // mmmm_HHHH
+                    0b1000_0000, // oooo_oomm
+                    0b0001_0110, // ..oo_oooo
+                ],
+            ),
+            (
+                "1969-06-15T12:30Z",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x0D,        // FlexUInt length 6
+                    0b1011_0001, // YYYY_YYYY
+                    0b1000_0111, // MMYY_YYYY
+                    0b0011_1101, // hDDD_DDMM
+                    0b1110_0110, // mmmm_HHHH
+                    0b1000_0001, // oooo_oomm
+                    0b0001_0110, // ..oo_oooo
+                ],
+            ),
+            (
+                "1969-12-31T18:45Z",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x0D,        // FlexUInt length 6
+                    0b1011_0001, // YYYY_YYYY
+                    0b0000_0111, // MMYY_YYYY
+                    0b0111_1111, // hDDD_DDMM
+                    0b1101_1001, // mmmm_HHHH
+                    0b1000_0010, // oooo_oomm
+                    0b0001_0110, // ..oo_oooo
+                ],
+            ),
+            (
+                "1969-12-31T18:45-00:00", // Unknown offset
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x0D,        // FlexUInt length 6
+                    0b1011_0001, // YYYY_YYYY
+                    0b0000_0111, // MMYY_YYYY
+                    0b0111_1111, // hDDD_DDMM
+                    0b1101_1001, // mmmm_HHHH
+                    0b1111_1110, // oooo_oomm
+                    0b0011_1111, // ..oo_oooo
+                ],
+            ),
+            //
+            // === Long-form seconds ===
+            //
+            (
+                "1969-01-01T00:00:00Z",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x0F,        // FlexUInt length 7
+                    0b1011_0001, // YYYY_YYYY
+                    0b0100_0111, // MMYY_YYYY
+                    0b0000_0100, // hDDD_DDMM
+                    0b0000_0000, // mmmm_HHHH
+                    0b1000_0000, // oooo_oomm
+                    0b0001_0110, // ssoo_oooo
+                    0b0000_0000, // ...._ssss
+                ],
+            ),
+            (
+                "1969-06-15T12:30:30Z",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x0F,        // FlexUInt length 7
+                    0b1011_0001, // YYYY_YYYY
+                    0b1000_0111, // MMYY_YYYY
+                    0b0011_1101, // hDDD_DDMM
+                    0b1110_0110, // mmmm_HHHH
+                    0b1000_0001, // oooo_oomm
+                    0b1001_0110, // ssoo_oooo
+                    0b0000_0111, // ...._ssss
+                ],
+            ),
+            (
+                "1969-12-31T18:45:45Z",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x0F,        // FlexUInt length 7
+                    0b1011_0001, // YYYY_YYYY
+                    0b0000_0111, // MMYY_YYYY
+                    0b0111_1111, // hDDD_DDMM
+                    0b1101_1001, // mmmm_HHHH
+                    0b1000_0010, // oooo_oomm
+                    0b0101_0110, // ssoo_oooo
+                    0b0000_1011, // ...._ssss
+                ],
+            ),
+            (
+                "1969-12-31T18:45:45-00:00", // Unknown offset
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x0F,        // FlexUInt length 7
+                    0b1011_0001, // YYYY_YYYY
+                    0b0000_0111, // MMYY_YYYY
+                    0b0111_1111, // hDDD_DDMM
+                    0b1101_1001, // mmmm_HHHH
+                    0b1111_1110, // oooo_oomm
+                    0b0111_1111, // ssoo_oooo
+                    0b0000_1011, // ...._ssss
+                ],
+            ),
+            //
+            // === Long-form subseconds ===
+            //
+            (
+                "1969-01-01T00:00:00.000Z",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x13,        // FlexUInt length 9
+                    0b1011_0001, // YYYY_YYYY
+                    0b0100_0111, // MMYY_YYYY
+                    0b0000_0100, // hDDD_DDMM
+                    0b0000_0000, // mmmm_HHHH
+                    0b1000_0000, // oooo_oomm
+                    0b0001_0110, // ssoo_oooo
+                    0b0000_0000, // ...._ssss
+                    0b0000_0001, // FlexUInt: 0 subseconds
+                    0b0000_0011, // FixedUInt: scale of 3 (exp: -3)
+                ],
+            ),
+            (
+                "1969-06-15T12:30:30.000030Z",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x13,        // FlexUInt length 9
+                    0b1011_0001, // YYYY_YYYY
+                    0b1000_0111, // MMYY_YYYY
+                    0b0011_1101, // hDDD_DDMM
+                    0b1110_0110, // mmmm_HHHH
+                    0b1000_0001, // oooo_oomm
+                    0b1001_0110, // ssoo_oooo
+                    0b0000_0111, // ...._ssss
+                    0b0011_1101, // FlexUInt: 30 subseconds
+                    0b0000_0110, // FixedUInt: scale of 6 (exp: -6)
+                ],
+            ),
+            (
+                "1969-12-31T18:45:45.000000045Z",
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x13,        // FlexUInt length 7
+                    0b1011_0001, // YYYY_YYYY
+                    0b0000_0111, // MMYY_YYYY
+                    0b0111_1111, // hDDD_DDMM
+                    0b1101_1001, // mmmm_HHHH
+                    0b1000_0010, // oooo_oomm
+                    0b0101_0110, // ssoo_oooo
+                    0b0000_1011, // ...._ssss
+                    0b0101_1011, // FlexUInt: 45 subseconds
+                    0b0000_1001, // FixedUInt: scale of 9 (exp: -9)
+                ],
+            ),
+            (
+                "1969-12-31T18:45:45.000000045-00:00", // Unknown offset
+                &[
+                    0xF7,        // Timestamp w/FlexUInt length
+                    0x13,        // FlexUInt length 7
+                    0b1011_0001, // YYYY_YYYY
+                    0b0000_0111, // MMYY_YYYY
+                    0b0111_1111, // hDDD_DDMM
+                    0b1101_1001, // mmmm_HHHH
+                    0b1111_1110, // oooo_oomm
+                    0b0111_1111, // ssoo_oooo
+                    0b0000_1011, // ...._ssss
+                    0b0101_1011, // FlexUInt: 45 subseconds
+                    0b0000_1001, // FixedUInt: scale of 9 (exp: -9)
                 ],
             ),
         ];

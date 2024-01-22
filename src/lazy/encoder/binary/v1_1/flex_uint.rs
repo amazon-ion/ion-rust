@@ -1,6 +1,10 @@
 use crate::result::IonFailure;
-use crate::IonResult;
+use crate::types::integer::UIntData;
+use crate::{IonResult, UInt};
+use num_bigint::BigUint;
+use num_traits::ToBytes;
 use std::io::Write;
+use std::ops::{BitOr, Shl};
 
 const BITS_PER_U64: usize = 64;
 const BITS_PER_ENCODED_BYTE: usize = 7;
@@ -254,6 +258,25 @@ impl FlexUInt {
         Ok(flex_uint)
     }
 
+    pub fn write<W: Write>(output: &mut W, value: &UInt) -> IonResult<usize> {
+        match &value.data {
+            UIntData::U64(uint) => Self::write_u64(output, *uint),
+            UIntData::BigUInt(uint) => Self::write_big_uint(output, uint),
+        }
+    }
+
+    fn write_big_uint<W: Write>(output: &mut W, value: &BigUint) -> IonResult<usize> {
+        // There's lots of room for optimization here, but this code path is rarely taken.
+        let le_bytes = value.to_bytes_le();
+        let num_le_bytes = le_bytes.len();
+        let encoded_big_uint = value
+            .shl(num_le_bytes)
+            .bitor(BigUint::from(1u64 << (num_le_bytes as u64 - 1)));
+        let encoding = encoded_big_uint.to_le_bytes();
+        output.write_all(encoding.as_slice())?;
+        Ok(encoding.len())
+    }
+
     #[inline]
     pub fn write_u64<W: Write>(output: &mut W, value: u64) -> IonResult<usize> {
         let leading_zeros = value.leading_zeros();
@@ -332,7 +355,8 @@ impl FlexUInt {
 mod tests {
     use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
     use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
-    use crate::{IonError, IonResult};
+    use crate::{IonError, IonResult, UInt};
+    use num_bigint::BigUint;
 
     const FLEX_UINT_TEST_CASES: &[(u64, &[u8])] = &[
         (0, &[0b00000001]),
@@ -424,12 +448,19 @@ mod tests {
     }
 
     #[test]
-    fn encode_flex_int() -> IonResult<()> {
+    fn encode_flex_uint() -> IonResult<()> {
         for (value, expected_encoding) in FLEX_UINT_TEST_CASES {
             let mut buffer = Vec::new();
             FlexUInt::write_u64(&mut buffer, *value)?;
             let encoding = buffer.as_slice();
-            assert_eq!(encoding, *expected_encoding, "actual encoding {encoding:x?} was != expected encoding {expected_encoding:x?} for value {value}");
+            assert_eq!(encoding, *expected_encoding, "[u64] actual encoding {encoding:x?} was != expected encoding {expected_encoding:x?} for value {value}");
+        }
+        // Convert each of the u64s above to BigUints and confirm that the encodings are still correct
+        for (value, expected_encoding) in FLEX_UINT_TEST_CASES {
+            let mut buffer = Vec::new();
+            FlexUInt::write(&mut buffer, &UInt::from(BigUint::from(*value)))?;
+            let encoding = buffer.as_slice();
+            assert_eq!(encoding, *expected_encoding, "[BigUint] actual encoding {encoding:x?} was != expected encoding {expected_encoding:x?} for value {value}");
         }
         Ok(())
     }
