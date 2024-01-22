@@ -7,6 +7,7 @@ use delegate::delegate;
 use crate::binary::constants::v1_0::IVM;
 use crate::binary::non_blocking::raw_binary_reader::RawBinaryReader;
 use crate::blocking_reader::{BlockingRawBinaryReader, BlockingRawTextReader};
+use crate::catalog::Catalog;
 use crate::data_source::IonDataSource;
 use crate::ion_reader::IonReader;
 use crate::raw_reader::{Expandable, RawReader};
@@ -20,13 +21,22 @@ use std::fmt::{Display, Formatter};
 
 use crate::types::Str;
 /// Configures and constructs new instances of [Reader].
-pub struct ReaderBuilder {}
+pub struct ReaderBuilder {
+    // This will be set to to `Some` catalog when the reader builder is created with catalog information.
+    // Default value for this field will be set to `None`.
+    catalog: Option<Box<dyn Catalog>>,
+}
 
 impl ReaderBuilder {
     /// Constructs a [ReaderBuilder] pre-populated with common default settings.
     pub fn new() -> ReaderBuilder {
+        ReaderBuilder { catalog: None }
+    }
+
+    /// Constructs a [ReaderBuilder] with catalog information.
+    pub fn with_catalog(self, catalog: Box<dyn Catalog>) -> ReaderBuilder {
         ReaderBuilder {
-            // Eventually, this will contain settings like a `Catalog` implementation.
+            catalog: Some(catalog),
         }
     }
 
@@ -58,7 +68,7 @@ impl ReaderBuilder {
                 // we can move into the reader.
                 let owned_header = Vec::from(&header[..total_bytes_read]);
                 // The file was too short to be binary Ion. Construct a text Reader.
-                return Self::make_text_reader(owned_header);
+                return self.make_text_reader(owned_header);
             }
             total_bytes_read += bytes_read;
         }
@@ -69,7 +79,7 @@ impl ReaderBuilder {
             [0xe0, 0x01, 0x00, 0xea] => {
                 // Binary Ion v1.0
                 let full_input = io::Cursor::new(header).chain(input);
-                Ok(Self::make_binary_reader(full_input)?)
+                Ok(self.make_binary_reader(full_input)?)
             }
             [0xe0, major, minor, 0xea] => {
                 // Binary Ion v{major}.{minor}
@@ -80,18 +90,24 @@ impl ReaderBuilder {
             _ => {
                 // It's not binary, assume it's text
                 let full_input = io::Cursor::new(header).chain(input);
-                Ok(Self::make_text_reader(full_input)?)
+                Ok(self.make_text_reader(full_input)?)
             }
         }
     }
 
-    fn make_text_reader<'a, I: 'a + IonDataSource>(data: I) -> IonResult<Reader<'a>> {
+    fn make_text_reader<'a, I: 'a + IonDataSource>(self, data: I) -> IonResult<Reader<'a>> {
         let raw_reader = Box::new(BlockingRawTextReader::new(data)?);
+        if let Some(catalog) = self.catalog {
+            return Ok(Reader::with_catalog(raw_reader, catalog));
+        }
         Ok(Reader::new(raw_reader))
     }
 
-    fn make_binary_reader<'a, I: 'a + IonDataSource>(data: I) -> IonResult<Reader<'a>> {
+    fn make_binary_reader<'a, I: 'a + IonDataSource>(self, data: I) -> IonResult<Reader<'a>> {
         let raw_reader = Box::new(BlockingRawBinaryReader::new(data)?);
+        if let Some(catalog) = self.catalog {
+            return Ok(Reader::with_catalog(raw_reader, catalog));
+        }
         Ok(Reader::new(raw_reader))
     }
 }
@@ -118,6 +134,12 @@ impl<R: RawReader> UserReader<R> {
     pub fn new(raw_reader: R) -> UserReader<R> {
         UserReader {
             system_reader: SystemReader::new(raw_reader),
+        }
+    }
+
+    pub fn with_catalog(raw_reader: R, catalog: Box<dyn Catalog>) -> UserReader<R> {
+        UserReader {
+            system_reader: SystemReader::with_catalog(raw_reader, catalog),
         }
     }
 }
