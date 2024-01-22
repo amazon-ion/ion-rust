@@ -211,7 +211,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
                 // In this case, we can write the encoded body length in the low nibble of the opcode we already wrote.
                 self.encoding_buffer[opcode_index] |= encoded_body_size as u8;
             }
-            16.. => {
+            _ => {
                 // If the encoded size ends up being unusually large, we will splice in a corrected header.
                 // Start by overwriting our original opcode with 0xF6, which indicates a Decimal with a FlexUInt length.
                 self.encoding_buffer[opcode_index] = 0xF6;
