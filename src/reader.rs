@@ -34,9 +34,9 @@ impl ReaderBuilder {
     }
 
     /// Constructs a [ReaderBuilder] with catalog information.
-    pub fn with_catalog(self, catalog: Box<dyn Catalog>) -> ReaderBuilder {
+    pub fn with_catalog(self, catalog: impl Catalog + 'static) -> ReaderBuilder {
         ReaderBuilder {
-            catalog: Some(catalog),
+            catalog: Some(Box::new(catalog)),
         }
     }
 
@@ -316,7 +316,9 @@ mod tests {
     use crate::binary::constants::v1_0::IVM;
     use crate::reader::{BlockingRawBinaryReader, StreamItem::Value};
 
+    use crate::catalog::MapCatalog;
     use crate::result::IonResult;
+    use crate::shared_symbol_table::SharedSymbolTable;
     use crate::types::IonType;
 
     type TestDataSource = io::Cursor<Vec<u8>>;
@@ -348,6 +350,13 @@ mod tests {
 
     fn ion_reader_for(bytes: &[u8]) -> Reader {
         ReaderBuilder::new().build(ion_data(bytes)).unwrap()
+    }
+
+    fn ion_reader_with_catalog_for(bytes: &[u8], catalog: impl Catalog + 'static) -> Reader {
+        ReaderBuilder::new()
+            .with_catalog(catalog)
+            .build(bytes)
+            .unwrap()
     }
 
     const EXAMPLE_STREAM: &[u8] = &[
@@ -390,6 +399,31 @@ mod tests {
         assert_eq!(reader.next()?, Value(IonType::Int));
         assert_eq!(reader.field_name()?, "baz");
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_symbol_with_catalog() -> IonResult<()> {
+        let mut map_catalog = MapCatalog::new();
+        map_catalog.insert_table(SharedSymbolTable::new(
+            "shared_table",
+            1,
+            ["foo", "bar", "baz"],
+        )?);
+        let mut reader = ion_reader_with_catalog_for(
+            r#"
+            $ion_symbol_table::{
+                imports: [ { name:"shared_table", version: 1 }],
+            }
+            $10 // "foo"
+            $11 // "bar"
+            $12 // "baz"
+          "#
+            .as_bytes(),
+            map_catalog,
+        );
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
+        assert_eq!(reader.read_symbol()?, "foo");
         Ok(())
     }
 }
