@@ -552,7 +552,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     pub fn write_list<
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::ListWriter<'a>) -> IonResult<()>,
     >(
-        mut self,
+        self,
         list_fn: F,
     ) -> IonResult<()> {
         if self.delimited_containers {
@@ -598,10 +598,10 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     fn write_delimited_list<
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::ListWriter<'a>) -> IonResult<()>,
     >(
-        mut self,
+        self,
         list_fn: F,
     ) -> IonResult<()> {
-        let child_encoding_buffer = &mut *self.encoding_buffer;
+        let child_encoding_buffer = self.encoding_buffer;
         let container_writer =
             BinaryContainerWriter_1_1::new(self.allocator, child_encoding_buffer);
         let list_writer = &mut BinaryListWriter_1_1::new(container_writer);
@@ -614,7 +614,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     fn write_sexp<
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::SExpWriter<'a>) -> IonResult<()>,
     >(
-        mut self,
+        self,
         sexp_fn: F,
     ) -> IonResult<()> {
         if self.delimited_containers {
@@ -660,10 +660,10 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     fn write_delimited_sexp<
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::SExpWriter<'a>) -> IonResult<()>,
     >(
-        mut self,
+        self,
         sexp_fn: F,
     ) -> IonResult<()> {
-        let child_encoding_buffer = &mut *self.encoding_buffer;
+        let child_encoding_buffer = self.encoding_buffer;
         let container_writer =
             BinaryContainerWriter_1_1::new(self.allocator, child_encoding_buffer);
         let sexp_writer = &mut BinarySExpWriter_1_1::new(container_writer);
@@ -676,8 +676,8 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     fn write_struct<
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::StructWriter<'a>) -> IonResult<()>,
     >(
-        mut self,
-        struct_fn: F,
+        self,
+        _struct_fn: F,
     ) -> IonResult<()> {
         todo!()
     }
@@ -745,7 +745,7 @@ impl<'value, 'top> AnnotatableValueWriter for BinaryAnnotatableValueWriter_1_1<'
     BinaryAnnotationsWrapperWriter_1_1<'a, 'top, SymbolType> where Self: 'a;
     fn with_annotations<'a, SymbolType: 'a + AsRawSymbolTokenRef>(
         self,
-        annotations: &'a [SymbolType],
+        _annotations: &'a [SymbolType],
     ) -> Self::AnnotatedValueWriter<'a, SymbolType>
     where
         Self: 'a,
@@ -896,7 +896,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
     pub fn new(allocator: &'top BumpAllocator, buffer: &'value mut BumpVec<'top, u8>) -> Self {
         Self { allocator, buffer }
     }
-    pub(crate) fn value_writer(mut self) -> BinaryValueWriter_1_1<'value, 'top> {
+    pub(crate) fn value_writer(self) -> BinaryValueWriter_1_1<'value, 'top> {
         BinaryValueWriter_1_1::new(self.allocator, self.buffer)
     }
 
@@ -913,30 +913,30 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> 
     type StructWriter<'a> = BinaryStructWriter_1_1<'value, 'top>;
     delegate! {
         to self.value_writer() {
-            fn write_null(mut self, ion_type: IonType) -> IonResult<()>;
-            fn write_bool(mut self, value: bool) -> IonResult<()>;
-            fn write_i64(mut self, value: i64) -> IonResult<()>;
-            fn write_int(mut self, value: &Int) -> IonResult<()>;
-            fn write_f32(mut self, value: f32) -> IonResult<()>;
-            fn write_f64(mut self, value: f64) -> IonResult<()>;
-            fn write_decimal(mut self, value: &Decimal) -> IonResult<()>;
-            fn write_timestamp(mut self, value: &Timestamp) -> IonResult<()>;
-            fn write_string(mut self, value: impl AsRef<str>) -> IonResult<()>;
-            fn write_symbol(mut self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
-            fn write_clob(mut self, value: impl AsRef<[u8]>) -> IonResult<()>;
-            fn write_blob(mut self, value: impl AsRef<[u8]>) -> IonResult<()>;
+            fn write_null(self, ion_type: IonType) -> IonResult<()>;
+            fn write_bool(self, value: bool) -> IonResult<()>;
+            fn write_i64(self, value: i64) -> IonResult<()>;
+            fn write_int(self, value: &Int) -> IonResult<()>;
+            fn write_f32(self, value: f32) -> IonResult<()>;
+            fn write_f64(self, value: f64) -> IonResult<()>;
+            fn write_decimal(self, value: &Decimal) -> IonResult<()>;
+            fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
+            fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
+            fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+            fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
+            fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
             fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
-                mut self,
+                self,
                 list_fn: F,
             ) -> IonResult<()>;
             fn write_sexp<F: for<'a> FnOnce(&mut Self::SExpWriter<'a>) -> IonResult<()>>(
-                mut self,
+                self,
                 sexp_fn: F,
             ) -> IonResult<()>;
             fn write_struct<
                 F: for<'a> FnOnce(&mut Self::StructWriter<'a>) -> IonResult<()>,
             >(
-                mut self,
+                self,
                 struct_fn: F,
             ) -> IonResult<()>;
         }
@@ -950,7 +950,7 @@ mod tests {
     use num_bigint::BigInt;
 
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
-    use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, SequenceWriter, ValueWriter};
+    use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, SequenceWriter};
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
     use crate::{Decimal, Element, Int, IonResult, IonType, Null, SymbolId, Timestamp};

@@ -1,5 +1,3 @@
-use bumpalo::collections::Vec as BumpVec;
-
 /// Helper function that turns a raw pointer into a mutable reference of the specified type.
 pub(crate) unsafe fn ptr_to_mut_ref<'a, T>(ptr: *mut ()) -> &'a mut T {
     let typed_ptr: *mut T = ptr.cast();

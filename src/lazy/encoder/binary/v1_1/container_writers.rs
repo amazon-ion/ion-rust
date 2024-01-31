@@ -1,5 +1,3 @@
-use std::mem;
-
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use delegate::delegate;
@@ -9,7 +7,7 @@ use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{FlexUInt, IonResult, RawSymbolTokenRef};
+use crate::IonResult;
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_1`],
 /// [`BinarySExpWriter_1_1`], and [`BinaryStructWriter_1_1`].
