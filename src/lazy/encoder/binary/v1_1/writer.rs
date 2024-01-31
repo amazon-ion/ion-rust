@@ -4,6 +4,7 @@ use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::LazyRawWriter;
+use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref};
 use crate::IonResult;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
@@ -44,19 +45,6 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
         })
     }
 
-    /// Helper function that turns a raw pointer into a mutable reference of the specified type.
-    unsafe fn ptr_to_mut_ref<'a, T>(ptr: *mut ()) -> &'a mut T {
-        let typed_ptr: *mut T = ptr.cast();
-        &mut *typed_ptr
-    }
-
-    /// Helper function that turns a mutable reference into a raw pointer.
-    fn mut_ref_to_ptr<T>(reference: &mut T) -> *mut () {
-        let ptr: *mut T = reference;
-        let untyped_ptr: *mut () = ptr.cast();
-        untyped_ptr
-    }
-
     /// Writes the given Rust value to the output stream as a top-level value.
     pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         value.write_as_ion(self.value_writer())?;
@@ -77,7 +65,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
 
         let encoding_buffer = match encoding_buffer_ptr {
             // If `encoding_buffer_ptr` is set, get the slice of bytes to which it refers.
-            Some(ptr) => unsafe { Self::ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(*ptr).as_slice() },
+            Some(ptr) => unsafe { ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(*ptr).as_slice() },
             // Otherwise, there's nothing in the buffer. Use an empty slice.
             None => &[],
         };
@@ -90,18 +78,20 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
         Ok(())
     }
 
+    // All methods called on the writer are inherently happening at the top level. At the top level,
+    // the lifetimes `'value` and `'top` are identical. In this method signature, '_ is used for both.
     pub(crate) fn value_writer(&mut self) -> BinaryAnnotatableValueWriter_1_1<'_, '_> {
         let top_level = match self.encoding_buffer_ptr {
             // If the `encoding_buffer_ptr` is set, we already allocated an encoding buffer on
             // a previous call to `value_writer()`. Dereference the pointer and continue encoding
             // to that buffer.
-            Some(ptr) => unsafe { Self::ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(ptr) },
+            Some(ptr) => unsafe { ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(ptr) },
             // Otherwise, allocate a new encoding buffer and set the pointer to refer to it.
             None => {
                 let buffer = self
                     .allocator
                     .alloc_with(|| BumpVec::new_in(&self.allocator));
-                self.encoding_buffer_ptr = Some(Self::mut_ref_to_ptr(buffer));
+                self.encoding_buffer_ptr = Some(mut_ref_to_ptr(buffer));
                 buffer
             }
         };

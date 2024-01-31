@@ -72,7 +72,7 @@ pub trait AnnotatableValueWriter: Sized {
     }
 }
 
-pub trait ValueWriter {
+pub trait ValueWriter: Sized {
     type ListWriter<'a>: SequenceWriter;
     type SExpWriter<'a>: SequenceWriter;
     type StructWriter<'a>: StructWriter;
@@ -99,6 +99,7 @@ pub trait ValueWriter {
         self,
         sexp_fn: F,
     ) -> IonResult<()>;
+
     fn write_struct<F: for<'a> FnOnce(&mut Self::StructWriter<'a>) -> IonResult<()>>(
         self,
         struct_fn: F,
