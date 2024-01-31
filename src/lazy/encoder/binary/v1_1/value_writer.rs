@@ -56,10 +56,6 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         self.encoding_buffer.as_slice()
     }
 
-    pub fn write_lob(self, _value: &[u8], _type_code: u8) -> IonResult<()> {
-        todo!()
-    }
-
     pub fn write_null(mut self, ion_type: IonType) -> IonResult<()> {
         let type_byte = match ion_type {
             IonType::Null => {
@@ -541,12 +537,20 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_clob<A: AsRef<[u8]>>(self, _value: A) -> IonResult<()> {
-        todo!()
+    pub fn write_clob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()> {
+        self.write_lob(0xFF, value)
     }
 
-    pub fn write_blob<A: AsRef<[u8]>>(self, _value: A) -> IonResult<()> {
-        todo!()
+    pub fn write_blob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()> {
+        self.write_lob(0xFE, value)
+    }
+
+    fn write_lob<A: AsRef<[u8]>>(mut self, opcode: u8, value: A) -> IonResult<()> {
+        let bytes = value.as_ref();
+        self.push_byte(opcode);
+        FlexUInt::write_u64(self.encoding_buffer, bytes.len() as u64)?;
+        self.push_bytes(bytes);
+        Ok(())
     }
 
     pub fn write_list<
@@ -2115,6 +2119,128 @@ mod tests {
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
                     writer.write(&value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_blobs() -> IonResult<()> {
+        let test_cases: &[(&[u8], &[u8])] = &[
+            (
+                b"",
+                &[
+                    0xFE, // Blob
+                    0x01, // FlexUInt 0
+                ],
+            ),
+            (
+                b"foo",
+                &[
+                    0xFE, // Blob
+                    0x07, // FlexUInt 3
+                    // f     o     o
+                    0x66, 0x6F, 0x6F,
+                ],
+            ),
+            (
+                b"foo bar",
+                &[
+                    0xFE, // Blob
+                    0x0F, // FlexUInt 7
+                    // f     o     o           b     a     r
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72,
+                ],
+            ),
+            (
+                b"foo bar baz",
+                &[
+                    0xFE, // Blob
+                    0x17, // FlexUInt 11
+                    // f     o     o           b     a     r           b     a     z
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a,
+                ],
+            ),
+            (
+                b"foo bar baz quux quuz",
+                &[
+                    0xFE, // Blob
+                    0x2B, // FlexUInt
+                    // f     o     o           b     a     r           b     a     z           q
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a, 0x20, 0x71,
+                    // u     u     x           q     u     u     z
+                    0x75, 0x75, 0x78, 0x20, 0x71, 0x75, 0x75, 0x7a,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(*value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_clobs() -> IonResult<()> {
+        let test_cases: &[(&[u8], &[u8])] = &[
+            (
+                b"",
+                &[
+                    0xFF, // Clob
+                    0x01, // FlexUInt 0
+                ],
+            ),
+            (
+                b"foo",
+                &[
+                    0xFF, // Clob
+                    0x07, // FlexUInt 3
+                    // f     o     o
+                    0x66, 0x6F, 0x6F,
+                ],
+            ),
+            (
+                b"foo bar",
+                &[
+                    0xFF, // Clob
+                    0x0F, // FlexUInt 7
+                    // f     o     o           b     a     r
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72,
+                ],
+            ),
+            (
+                b"foo bar baz",
+                &[
+                    0xFF, // Clob
+                    0x17, // FlexUInt 11
+                    // f     o     o           b     a     r           b     a     z
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a,
+                ],
+            ),
+            (
+                b"foo bar baz quux quuz",
+                &[
+                    0xFF, // Clob
+                    0x2B, // FlexUInt
+                    // f     o     o           b     a     r           b     a     z           q
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a, 0x20, 0x71,
+                    // u     u     x           q     u     u     z
+                    0x75, 0x75, 0x78, 0x20, 0x71, 0x75, 0x75, 0x7a,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.value_writer().write_clob(value)?;
                     Ok(())
                 },
                 expected_encoding,
