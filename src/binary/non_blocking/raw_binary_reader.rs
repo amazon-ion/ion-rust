@@ -1218,7 +1218,8 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         if type_descriptor.is_nop() {
             if let Some(item) = self.consume_nop_padding(&mut type_descriptor)? {
                 // We may encounter the end of the file or container while reading NOP padding,
-                // in which case `item` will be RawStreamItem::Nothing.
+                // in which case `item` will be RawStreamItem::Nothing. At the top level, it is
+                // possible to encounter an IVM at the end of the NOP pad.
                 return Ok(item);
             }
             // Note that if `consume_nop_padding` reads NOP bytes but doesn't hit EOF, it will
@@ -1361,6 +1362,9 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
                 return Ok(Some(RawStreamItem::Nothing));
             }
             *type_descriptor = self.tx_buffer.peek_type_descriptor()?;
+            if type_descriptor.is_ivm_start() {
+                return self.read_ivm().map(Some);
+            }
         }
         Ok(None)
     }
@@ -1937,6 +1941,29 @@ mod tests {
             0x83, 0x66, 0x6f, 0x6f, // "foo"
         ]; // Empty string
         let mut reader = RawBinaryReader::new(data);
+        let item = reader.next()?;
+        assert_eq!(item, RawStreamItem::VersionMarker(1, 0));
+        let item = reader.next()?;
+        assert_eq!(item, RawStreamItem::Value(IonType::String));
+        assert_eq!(reader.read_str()?, "foo");
+        let item = reader.next()?;
+        assert_eq!(item, RawStreamItem::Nothing);
+        Ok(())
+    }
+
+    #[test]
+    fn ivm_after_nop() -> IonResult<()> {
+        let data = &[
+            0xE0, 0x01, 0x00, 0xEA, // IVM
+            0x00, // 1-byte NOP
+            0x01, 0xff, // 2-byte NOP
+            0xE0, 0x01, 0x00, 0xEA, // IVM
+            0x83, 0x66, 0x6f, 0x6f, // "foo"
+            0x02, 0xff, 0xff, // 3-byte NOP
+        ]; // Empty string
+        let mut reader = RawBinaryReader::new(data);
+        let item = reader.next()?;
+        assert_eq!(item, RawStreamItem::VersionMarker(1, 0));
         let item = reader.next()?;
         assert_eq!(item, RawStreamItem::VersionMarker(1, 0));
         let item = reader.next()?;
