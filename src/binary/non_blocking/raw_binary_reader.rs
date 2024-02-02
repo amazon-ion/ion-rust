@@ -1207,9 +1207,11 @@ impl<'a, A: AsRef<[u8]>> TxReader<'a, A> {
         }
     }
 
-    /// Looks for zero or more NOP pads followed by either:
+    /// Looks for zero or more NOP pads followed by any of these:
     /// * an annotated value
     /// * a value
+    /// * the end of the stream
+    /// * (at the top level) an Ion version marker starting a new stream
     #[inline]
     fn read_sequence_item(
         &mut self,
