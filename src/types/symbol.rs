@@ -233,4 +233,17 @@ mod symbol_tests {
         ];
         assert_eq!(symbols, expected)
     }
+
+    #[test]
+    fn partial_eq_str() {
+        let symbols = vec![
+            Symbol::shared(Arc::from("bar")),
+            Symbol::shared(Arc::from("baz")),
+            Symbol::owned("foo"),
+            Symbol::owned("quux"),
+        ];
+        // Equality testing for a rust str with symbol
+        let expected = vec!["bar", "baz", "foo", "quux"];
+        assert_eq!(symbols, expected)
+    }
 }
