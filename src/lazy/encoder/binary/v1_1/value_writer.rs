@@ -356,8 +356,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         let mask = 1u64
             .checked_shl(bits_populated)
             .unwrap_or(0)
-            .checked_sub(1)
-            .unwrap_or(u64::MAX);
+            .wrapping_sub(1);
         encoding &= mask;
 
         self.push_byte(opcode);
@@ -443,8 +442,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         let mask = 1u64
             .checked_shl(num_bits_in_use)
             .unwrap_or(0)
-            .checked_sub(1)
-            .unwrap_or(u64::MAX);
+            .wrapping_sub(1);
         encoding &= mask;
 
         // Push 0xF7 (the opcode for a Timestamp w/FlexUInt length) and 0x01 (a placeholder 0 FlexUInt that we'll
