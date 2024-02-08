@@ -6,9 +6,7 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use crate::lazy::encoder::binary::v1_1::container_writers::{
-    BinaryContainerWriter_1_1, BinaryListValuesWriter_1_1, BinaryListWriter_1_1,
-    BinarySExpValuesWriter_1_1, BinarySExpWriter_1_1, BinaryStructFieldsWriter_1_1,
-    BinaryStructWriter_1_1,
+    BinaryContainerWriter_1_1, BinaryListWriter_1_1, BinarySExpWriter_1_1, BinaryStructWriter_1_1,
 };
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
@@ -24,6 +22,7 @@ use crate::{
 pub struct BinaryValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     encoding_buffer: &'value mut BumpVec<'top, u8>,
+    delimited_containers: bool,
 }
 
 impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
@@ -34,7 +33,13 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         BinaryValueWriter_1_1 {
             allocator,
             encoding_buffer,
+            delimited_containers: false,
         }
+    }
+
+    pub fn with_delimited_containers(mut self) -> Self {
+        self.delimited_containers = true;
+        self
     }
 
     #[inline]
@@ -542,55 +547,146 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         todo!()
     }
 
-    fn list_writer(&mut self) -> BinaryListWriter_1_1<'_, 'top> {
-        todo!()
+    pub fn write_list<
+        F: for<'a> FnOnce(&mut <Self as ValueWriter>::ListWriter<'a>) -> IonResult<()>,
+    >(
+        self,
+        list_fn: F,
+    ) -> IonResult<()> {
+        if self.delimited_containers {
+            return self.write_delimited_list(list_fn);
+        }
+        self.write_length_prefixed_list(list_fn)
     }
 
-    fn sexp_writer(&mut self) -> BinarySExpWriter_1_1<'_, 'top> {
-        todo!()
-    }
-
-    fn struct_writer(&mut self) -> BinaryStructWriter_1_1<'_, 'top> {
-        const STRUCT_TYPE_CODE: u8 = 0xD0;
-        BinaryStructWriter_1_1::new(BinaryContainerWriter_1_1::new(
-            STRUCT_TYPE_CODE,
-            self.allocator,
-            self.encoding_buffer,
-        ))
-    }
-
-    fn write_list<
+    pub fn write_length_prefixed_list<
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::ListWriter<'a>) -> IonResult<()>,
     >(
         mut self,
         list_fn: F,
     ) -> IonResult<()> {
-        self.list_writer().write_values(list_fn)
+        // We're writing a length-prefixed list, so we need to set up a space to encode the list's children.
+        let child_encoding_buffer = self
+            .allocator
+            .alloc_with(|| BumpVec::new_in(self.allocator));
+        // Create a BinaryListWriter_1_1 to pass to the user's closure.
+        let container_writer =
+            BinaryContainerWriter_1_1::new(self.allocator, child_encoding_buffer);
+        let mut list_writer = BinaryListWriter_1_1::new(container_writer);
+        // Pass it to the closure, allowing the user to encode child values.
+        list_fn(&mut list_writer)?;
+        // Write the appropriate opcode for a list of this length
+        let encoded_length = list_writer.container_writer.buffer().len();
+        match encoded_length {
+            0..=15 => {
+                let opcode = 0xA0 | encoded_length as u8;
+                self.push_byte(opcode);
+            }
+            _ => {
+                let opcode = 0xFA; // List w/FlexUInt length
+                self.push_byte(opcode);
+                FlexUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
+            }
+        }
+        self.encoding_buffer
+            .extend_from_slice(list_writer.container_writer.buffer());
+        Ok(())
     }
+
+    fn write_delimited_list<
+        F: for<'a> FnOnce(&mut <Self as ValueWriter>::ListWriter<'a>) -> IonResult<()>,
+    >(
+        self,
+        list_fn: F,
+    ) -> IonResult<()> {
+        let child_encoding_buffer = self.encoding_buffer;
+        let container_writer =
+            BinaryContainerWriter_1_1::new(self.allocator, child_encoding_buffer);
+        let list_writer = &mut BinaryListWriter_1_1::new(container_writer);
+        list_writer.container_writer.buffer().push(0xF1); // Start delimited list
+        list_fn(list_writer)?;
+        list_writer.container_writer.buffer().push(0xF0); // End delimited container
+        Ok(())
+    }
+
     fn write_sexp<
+        F: for<'a> FnOnce(&mut <Self as ValueWriter>::SExpWriter<'a>) -> IonResult<()>,
+    >(
+        self,
+        sexp_fn: F,
+    ) -> IonResult<()> {
+        if self.delimited_containers {
+            return self.write_delimited_sexp(sexp_fn);
+        }
+        self.write_length_prefixed_sexp(sexp_fn)
+    }
+
+    fn write_length_prefixed_sexp<
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::SExpWriter<'a>) -> IonResult<()>,
     >(
         mut self,
         sexp_fn: F,
     ) -> IonResult<()> {
-        self.sexp_writer().write_values(sexp_fn)
+        // We're writing a length-prefixed sexp, so we need to set up a space to encode the list's children.
+        let child_encoding_buffer = self
+            .allocator
+            .alloc_with(|| BumpVec::new_in(self.allocator));
+        // Create a BinarySExpWriter_1_1 to pass to the user's closure.
+        let container_writer =
+            BinaryContainerWriter_1_1::new(self.allocator, child_encoding_buffer);
+        let mut sexp_writer = BinarySExpWriter_1_1::new(container_writer);
+        // Pass it to the closure, allowing the user to encode child values.
+        sexp_fn(&mut sexp_writer)?;
+        // Write the appropriate opcode for a sexp of this length
+        let encoded_length = sexp_writer.container_writer.buffer().len();
+        match encoded_length {
+            0..=15 => {
+                let opcode = 0xB0 | encoded_length as u8;
+                self.push_byte(opcode);
+            }
+            _ => {
+                let opcode = 0xFB; // SExp w/FlexUInt length
+                self.push_byte(opcode);
+                FlexUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
+            }
+        }
+        self.encoding_buffer
+            .extend_from_slice(sexp_writer.container_writer.buffer());
+        Ok(())
     }
+
+    fn write_delimited_sexp<
+        F: for<'a> FnOnce(&mut <Self as ValueWriter>::SExpWriter<'a>) -> IonResult<()>,
+    >(
+        self,
+        sexp_fn: F,
+    ) -> IonResult<()> {
+        let child_encoding_buffer = self.encoding_buffer;
+        let container_writer =
+            BinaryContainerWriter_1_1::new(self.allocator, child_encoding_buffer);
+        let sexp_writer = &mut BinarySExpWriter_1_1::new(container_writer);
+        sexp_writer.container_writer.buffer().push(0xF2); // Start delimited sexp
+        sexp_fn(sexp_writer)?;
+        sexp_writer.container_writer.buffer().push(0xF0); // End delimited container
+        Ok(())
+    }
+
     fn write_struct<
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::StructWriter<'a>) -> IonResult<()>,
     >(
-        mut self,
-        struct_fn: F,
+        self,
+        _struct_fn: F,
     ) -> IonResult<()> {
-        self.struct_writer().write_fields(struct_fn)
+        todo!()
     }
 }
 
 impl<'value, 'top> Sealed for BinaryValueWriter_1_1<'value, 'top> {}
 
 impl<'value, 'top> ValueWriter for BinaryValueWriter_1_1<'value, 'top> {
-    type ListWriter<'a> = BinaryListValuesWriter_1_1<'a>;
-    type SExpWriter<'a> = BinarySExpValuesWriter_1_1<'a>;
-    type StructWriter<'a> = BinaryStructFieldsWriter_1_1<'a>;
+    type ListWriter<'a> = BinaryListWriter_1_1<'value, 'top>;
+    type SExpWriter<'a> = BinarySExpWriter_1_1<'value, 'top>;
+    type StructWriter<'a> = BinaryStructWriter_1_1<'value, 'top>;
 
     delegate! {
         to self {
@@ -641,20 +737,18 @@ impl<'value, 'top> BinaryAnnotatableValueWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top: 'value> AnnotatableValueWriter
-    for BinaryAnnotatableValueWriter_1_1<'value, 'top>
-{
+impl<'value, 'top> AnnotatableValueWriter for BinaryAnnotatableValueWriter_1_1<'value, 'top> {
     type ValueWriter = BinaryValueWriter_1_1<'value, 'top>;
     type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a> =
     BinaryAnnotationsWrapperWriter_1_1<'a, 'top, SymbolType> where Self: 'a;
-    fn with_annotations<'a, SymbolType: AsRawSymbolTokenRef>(
+    fn with_annotations<'a, SymbolType: 'a + AsRawSymbolTokenRef>(
         self,
-        annotations: &'a [SymbolType],
+        _annotations: &'a [SymbolType],
     ) -> Self::AnnotatedValueWriter<'a, SymbolType>
     where
         Self: 'a,
     {
-        BinaryAnnotationsWrapperWriter_1_1::new(self.allocator, annotations, self.encoding_buffer)
+        todo!("v1.1 annotations")
     }
 
     #[inline(always)]
@@ -690,7 +784,7 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
 {
     fn encode_annotated<F>(self, _encode_value_fn: F) -> IonResult<()>
     where
-        F: for<'a> FnOnce(BinaryAnnotatedValueWriter_1_1<'a, 'top>) -> IonResult<()>,
+        F: for<'a> FnOnce(BinaryAnnotatedValueWriter_1_1<'value, 'top>) -> IonResult<()>,
     {
         todo!()
     }
@@ -717,9 +811,9 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> Sealed
 impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
     for BinaryAnnotationsWrapperWriter_1_1<'value, 'top, SymbolType>
 {
-    type ListWriter<'a> = BinaryListValuesWriter_1_1<'a>;
-    type SExpWriter<'a> = BinarySExpValuesWriter_1_1<'a>;
-    type StructWriter<'a> = BinaryStructFieldsWriter_1_1<'a>;
+    type ListWriter<'a> = BinaryListWriter_1_1<'value, 'top>;
+    type SExpWriter<'a> = BinarySExpWriter_1_1<'value, 'top>;
+    type StructWriter<'a> = BinaryStructWriter_1_1<'value, 'top>;
 
     fn write_null(self, _ion_type: IonType) -> IonResult<()> {
         todo!()
@@ -800,7 +894,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
     pub fn new(allocator: &'top BumpAllocator, buffer: &'value mut BumpVec<'top, u8>) -> Self {
         Self { allocator, buffer }
     }
-    pub(crate) fn value_writer(&mut self) -> BinaryValueWriter_1_1<'_, 'top> {
+    pub(crate) fn value_writer(self) -> BinaryValueWriter_1_1<'value, 'top> {
         BinaryValueWriter_1_1::new(self.allocator, self.buffer)
     }
 
@@ -811,36 +905,36 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 
 impl<'value, 'top> Sealed for BinaryAnnotatedValueWriter_1_1<'value, 'top> {}
 
-impl<'value, 'top: 'value> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> {
-    type ListWriter<'a> = BinaryListValuesWriter_1_1<'a>;
-    type SExpWriter<'a> = BinarySExpValuesWriter_1_1<'a>;
-    type StructWriter<'a> = BinaryStructFieldsWriter_1_1<'a>;
+impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> {
+    type ListWriter<'a> = BinaryListWriter_1_1<'value, 'top>;
+    type SExpWriter<'a> = BinarySExpWriter_1_1<'value, 'top>;
+    type StructWriter<'a> = BinaryStructWriter_1_1<'value, 'top>;
     delegate! {
         to self.value_writer() {
-            fn write_null(mut self, ion_type: IonType) -> IonResult<()>;
-            fn write_bool(mut self, value: bool) -> IonResult<()>;
-            fn write_i64(mut self, value: i64) -> IonResult<()>;
-            fn write_int(mut self, value: &Int) -> IonResult<()>;
-            fn write_f32(mut self, value: f32) -> IonResult<()>;
-            fn write_f64(mut self, value: f64) -> IonResult<()>;
-            fn write_decimal(mut self, value: &Decimal) -> IonResult<()>;
-            fn write_timestamp(mut self, value: &Timestamp) -> IonResult<()>;
-            fn write_string(mut self, value: impl AsRef<str>) -> IonResult<()>;
-            fn write_symbol(mut self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
-            fn write_clob(mut self, value: impl AsRef<[u8]>) -> IonResult<()>;
-            fn write_blob(mut self, value: impl AsRef<[u8]>) -> IonResult<()>;
+            fn write_null(self, ion_type: IonType) -> IonResult<()>;
+            fn write_bool(self, value: bool) -> IonResult<()>;
+            fn write_i64(self, value: i64) -> IonResult<()>;
+            fn write_int(self, value: &Int) -> IonResult<()>;
+            fn write_f32(self, value: f32) -> IonResult<()>;
+            fn write_f64(self, value: f64) -> IonResult<()>;
+            fn write_decimal(self, value: &Decimal) -> IonResult<()>;
+            fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
+            fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
+            fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+            fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
+            fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
             fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
-                mut self,
+                self,
                 list_fn: F,
             ) -> IonResult<()>;
             fn write_sexp<F: for<'a> FnOnce(&mut Self::SExpWriter<'a>) -> IonResult<()>>(
-                mut self,
+                self,
                 sexp_fn: F,
             ) -> IonResult<()>;
             fn write_struct<
                 F: for<'a> FnOnce(&mut Self::StructWriter<'a>) -> IonResult<()>,
             >(
-                mut self,
+                self,
                 struct_fn: F,
             ) -> IonResult<()>;
         }
@@ -854,6 +948,8 @@ mod tests {
     use num_bigint::BigInt;
 
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
+    use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, SequenceWriter};
+    use crate::lazy::encoder::write_as_ion::WriteAsSExp;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
     use crate::{Decimal, Element, Int, IonResult, IonType, Null, SymbolId, Timestamp};
 
@@ -2017,6 +2113,214 @@ mod tests {
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
                     writer.write(&value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_length_prefixed_lists() -> IonResult<()> {
+        let test_cases: &[(&[&str], &[u8])] = &[
+            (&[], &[0xA0]),
+            (
+                &["foo"],
+                &[
+                    //             f     o     o
+                    0xA4, 0x83, 0x66, 0x6F, 0x6F,
+                ],
+            ),
+            (
+                &["foo", "bar"],
+                &[
+                    //             f     o     o           b     a     r
+                    0xA8, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72,
+                ],
+            ),
+            (
+                &["foo", "bar", "baz"],
+                &[
+                    //             f     o     o           b     a     r           b     a     z
+                    0xAC, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61, 0x7a,
+                ],
+            ),
+            (
+                &["foo", "bar", "baz", "quux", "quuz"],
+                &[
+                    //                   f     o     o           b     a     r           b     a
+                    0xFA, 0x2D, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61,
+                    // r           q     u     u     x           q     u     u     z
+                    0x7a, 0x84, 0x71, 0x75, 0x75, 0x78, 0x84, 0x71, 0x75, 0x75, 0x7a,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(*value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_delimited_lists() -> IonResult<()> {
+        let test_cases: &[(&[&str], &[u8])] = &[
+            (&[], &[0xF1, 0xF0]),
+            (
+                &["foo"],
+                &[
+                    //             f     o     o
+                    0xF1, 0x83, 0x66, 0x6F, 0x6F, 0xF0,
+                ],
+            ),
+            (
+                &["foo", "bar"],
+                &[
+                    //             f     o     o           b     a     r
+                    0xF1, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0xF0,
+                ],
+            ),
+            (
+                &["foo", "bar", "baz"],
+                &[
+                    //             f     o     o           b     a     r           b     a     z
+                    0xF1, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61, 0x7a,
+                    0xF0,
+                ],
+            ),
+            (
+                &["foo", "bar", "baz", "quux", "quuz"],
+                &[
+                    //             f     o     o           b     a     r           b     a
+                    0xF1, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61,
+                    // r           q     u     u     x           q     u     u     z
+                    0x7a, 0x84, 0x71, 0x75, 0x75, 0x78, 0x84, 0x71, 0x75, 0x75, 0x7a, 0xF0,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer
+                        .value_writer()
+                        .without_annotations()
+                        .with_delimited_containers()
+                        .write_list(|list| {
+                            for text in *value {
+                                list.write_string(text)?;
+                            }
+                            Ok(())
+                        })?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_length_prefixed_sexps() -> IonResult<()> {
+        let test_cases: &[(&[&str], &[u8])] = &[
+            (&[], &[0xB0]),
+            (
+                &["foo"],
+                &[
+                    //             f     o     o
+                    0xB4, 0x83, 0x66, 0x6F, 0x6F,
+                ],
+            ),
+            (
+                &["foo", "bar"],
+                &[
+                    //             f     o     o           b     a     r
+                    0xB8, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72,
+                ],
+            ),
+            (
+                &["foo", "bar", "baz"],
+                &[
+                    //             f     o     o           b     a     r           b     a     z
+                    0xBC, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61, 0x7a,
+                ],
+            ),
+            (
+                &["foo", "bar", "baz", "quux", "quuz"],
+                &[
+                    //                   f     o     o           b     a     r           b     a
+                    0xFB, 0x2D, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61,
+                    // r           q     u     u     x           q     u     u     z
+                    0x7a, 0x84, 0x71, 0x75, 0x75, 0x78, 0x84, 0x71, 0x75, 0x75, 0x7a,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(value.as_sexp())?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_delimited_sexps() -> IonResult<()> {
+        let test_cases: &[(&[&str], &[u8])] = &[
+            (&[], &[0xF2, 0xF0]),
+            (
+                &["foo"],
+                &[
+                    //             f     o     o
+                    0xF2, 0x83, 0x66, 0x6F, 0x6F, 0xF0,
+                ],
+            ),
+            (
+                &["foo", "bar"],
+                &[
+                    //             f     o     o           b     a     r
+                    0xF2, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0xF0,
+                ],
+            ),
+            (
+                &["foo", "bar", "baz"],
+                &[
+                    //             f     o     o           b     a     r           b     a     z
+                    0xF2, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61, 0x7a,
+                    0xF0,
+                ],
+            ),
+            (
+                &["foo", "bar", "baz", "quux", "quuz"],
+                &[
+                    //             f     o     o           b     a     r           b     a
+                    0xF2, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61,
+                    // r           q     u     u     x           q     u     u     z
+                    0x7a, 0x84, 0x71, 0x75, 0x75, 0x78, 0x84, 0x71, 0x75, 0x75, 0x7a, 0xF0,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer
+                        .value_writer()
+                        .without_annotations()
+                        .with_delimited_containers()
+                        .write_sexp(|sexp| {
+                            for text in *value {
+                                sexp.write_string(text)?;
+                            }
+                            Ok(())
+                        })?;
                     Ok(())
                 },
                 expected_encoding,

@@ -175,6 +175,7 @@ pub mod serde;
 pub mod thunk;
 #[cfg(feature = "experimental-streaming")]
 pub mod tokens;
+pub(crate) mod unsafe_helpers;
 
 pub use element::builders::{SequenceBuilder, StructBuilder};
 pub use element::{
