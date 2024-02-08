@@ -213,7 +213,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
                 // In this case, we can write the encoded body length in the low nibble of the opcode we already wrote.
                 self.encoding_buffer[opcode_index] |= encoded_body_size as u8;
             }
-            16.. => {
+            _ => {
                 // If the encoded size ends up being unusually large, we will splice in a corrected header.
                 // Start by overwriting our original opcode with 0xF6, which indicates a Decimal with a FlexUInt length.
                 self.encoding_buffer[opcode_index] = 0xF6;
@@ -357,8 +357,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         let mask = 1u64
             .checked_shl(bits_populated)
             .unwrap_or(0)
-            .checked_sub(1)
-            .unwrap_or(u64::MAX);
+            .wrapping_sub(1);
         encoding &= mask;
 
         self.push_byte(opcode);
@@ -444,8 +443,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         let mask = 1u64
             .checked_shl(num_bits_in_use)
             .unwrap_or(0)
-            .checked_sub(1)
-            .unwrap_or(u64::MAX);
+            .wrapping_sub(1);
         encoding &= mask;
 
         // Push 0xF7 (the opcode for a Timestamp w/FlexUInt length) and 0x01 (a placeholder 0 FlexUInt that we'll

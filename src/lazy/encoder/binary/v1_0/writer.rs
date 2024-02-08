@@ -1,11 +1,13 @@
+use crate::element::writer::WriteConfigKind;
 use crate::lazy::encoder::binary::v1_0::value_writer::BinaryAnnotatableValueWriter_1_0;
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::LazyRawWriter;
+use crate::lazy::encoding::Encoding;
 use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref};
-use crate::IonResult;
+use crate::{IonResult, WriteConfig};
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use delegate::delegate;
@@ -104,6 +106,16 @@ impl<W: Write> Sealed for LazyRawBinaryWriter_1_0<W> {}
 impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_0<W> {
     fn new(output: W) -> IonResult<Self> {
         Self::new(output)
+    }
+
+    /// Build binary writer based on given writer configuration
+    fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self> {
+        match &config.kind {
+            WriteConfigKind::Text(_) => {
+                unreachable!("Text writer can not be created from binary encoding")
+            }
+            WriteConfigKind::Binary(_) => LazyRawBinaryWriter_1_0::new(output),
+        }
     }
 
     delegate! {
