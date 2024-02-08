@@ -1,5 +1,5 @@
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
-use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsIonValue};
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{Decimal, Int, IonResult, IonType, Timestamp};
 use delegate::delegate;
@@ -68,6 +68,7 @@ pub trait AnnotatableValueWriter: Sized {
                 self,
                 struct_fn: F,
             ) -> IonResult<()>;
+                fn write(self, value: impl WriteAsIonValue) -> IonResult<()>;
         }
     }
 }
@@ -104,6 +105,10 @@ pub trait ValueWriter: Sized {
         self,
         struct_fn: F,
     ) -> IonResult<()>;
+
+    fn write(self, value: impl WriteAsIonValue) -> IonResult<()> {
+        value.write_as_ion_value(self)
+    }
 }
 
 pub trait StructWriter {

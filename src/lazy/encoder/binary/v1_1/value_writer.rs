@@ -627,7 +627,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         mut self,
         sexp_fn: F,
     ) -> IonResult<()> {
-        // We're writing a length-prefixed sexp, so we need to set up a space to encode the list's children.
+        // We're writing a length-prefixed sexp, so we need to set up a space to encode the sexp's children.
         let child_encoding_buffer = self
             .allocator
             .alloc_with(|| BumpVec::new_in(self.allocator));
@@ -675,9 +675,63 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         F: for<'a> FnOnce(&mut <Self as ValueWriter>::StructWriter<'a>) -> IonResult<()>,
     >(
         self,
-        _struct_fn: F,
+        struct_fn: F,
     ) -> IonResult<()> {
-        todo!()
+        if self.delimited_containers {
+            self.write_delimited_struct(struct_fn)
+        } else {
+            self.write_length_prefixed_struct(struct_fn)
+        }
+    }
+
+    fn write_delimited_struct<
+        F: for<'a> FnOnce(&mut <Self as ValueWriter>::StructWriter<'a>) -> IonResult<()>,
+    >(
+        self,
+        struct_fn: F,
+    ) -> IonResult<()> {
+        let fields_encoding_buffer = self.encoding_buffer;
+        let container_writer =
+            BinaryContainerWriter_1_1::new(self.allocator, fields_encoding_buffer);
+        let struct_writer = &mut BinaryStructWriter_1_1::new(container_writer);
+        struct_writer.buffer().push(0xF3); // Start delimited Struct
+        struct_fn(struct_writer)?;
+        struct_writer.buffer().push(0xF0); // End delimited container
+        Ok(())
+    }
+
+    fn write_length_prefixed_struct<
+        F: for<'a> FnOnce(&mut <Self as ValueWriter>::StructWriter<'a>) -> IonResult<()>,
+    >(
+        mut self,
+        struct_fn: F,
+    ) -> IonResult<()> {
+        // We're writing a length-prefixed struct, so we need to set up a space to encode the struct's fields.
+        let field_encoding_buffer = self
+            .allocator
+            .alloc_with(|| BumpVec::new_in(self.allocator));
+        // Create a BinaryStructWriter_1_1 to pass to the user's closure.
+        let container_writer =
+            BinaryContainerWriter_1_1::new(self.allocator, field_encoding_buffer);
+        let mut struct_writer = BinaryStructWriter_1_1::new(container_writer);
+        // Pass it to the closure, allowing the user to encode field names/values.
+        struct_fn(&mut struct_writer)?;
+        // Write the appropriate opcode for a struct of this length
+        let encoded_length = struct_writer.buffer().len();
+        match encoded_length {
+            0..=15 => {
+                let opcode = 0xC0 | encoded_length as u8;
+                self.push_byte(opcode);
+            }
+            _ => {
+                let opcode = 0xFC; // Struct w/FlexUInt length
+                self.push_byte(opcode);
+                FlexUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
+            }
+        }
+        self.encoding_buffer
+            .extend_from_slice(struct_writer.buffer());
+        Ok(())
     }
 }
 
@@ -721,6 +775,7 @@ impl<'value, 'top> ValueWriter for BinaryValueWriter_1_1<'value, 'top> {
 }
 
 pub struct BinaryAnnotatableValueWriter_1_1<'value, 'top> {
+    delimited_containers: bool,
     allocator: &'top BumpAllocator,
     encoding_buffer: &'value mut BumpVec<'top, u8>,
 }
@@ -731,9 +786,15 @@ impl<'value, 'top> BinaryAnnotatableValueWriter_1_1<'value, 'top> {
         encoding_buffer: &'value mut BumpVec<'top, u8>,
     ) -> BinaryAnnotatableValueWriter_1_1<'value, 'top> {
         BinaryAnnotatableValueWriter_1_1 {
+            delimited_containers: false,
             allocator,
             encoding_buffer,
         }
+    }
+
+    pub fn with_delimited_containers(mut self) -> Self {
+        self.delimited_containers = true;
+        self
     }
 }
 
@@ -753,7 +814,9 @@ impl<'value, 'top> AnnotatableValueWriter for BinaryAnnotatableValueWriter_1_1<'
 
     #[inline(always)]
     fn without_annotations(self) -> BinaryValueWriter_1_1<'value, 'top> {
-        BinaryValueWriter_1_1::new(self.allocator, self.encoding_buffer)
+        let mut writer = BinaryValueWriter_1_1::new(self.allocator, self.encoding_buffer);
+        writer.delimited_containers = self.delimited_containers;
+        writer
     }
 }
 
@@ -948,10 +1011,14 @@ mod tests {
     use num_bigint::BigInt;
 
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
-    use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, SequenceWriter};
-    use crate::lazy::encoder::write_as_ion::WriteAsSExp;
+    use crate::lazy::encoder::value_writer::{
+        AnnotatableValueWriter, SequenceWriter, StructWriter, ValueWriter,
+    };
+    use crate::lazy::encoder::write_as_ion::{WriteAsIonValue, WriteAsSExp};
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-    use crate::{Decimal, Element, Int, IonResult, IonType, Null, SymbolId, Timestamp};
+    use crate::{
+        Decimal, Element, Int, IonResult, IonType, Null, RawSymbolToken, SymbolId, Timestamp,
+    };
 
     fn encoding_test(
         mut test: impl FnMut(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,
@@ -2321,6 +2388,284 @@ mod tests {
                             }
                             Ok(())
                         })?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// A list of field name/value pairs that will be serialized as a struct in each test.
+    type TestStruct<'a> = &'a [(RawSymbolToken, Element)];
+    impl<'a> WriteAsIonValue for TestStruct<'a> {
+        fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+            writer.write_struct(|s| {
+                for field in self.iter() {
+                    s.write(&field.0, &field.1)?;
+                }
+                Ok(())
+            })
+        }
+    }
+
+    /// Constructs a field name/value pair out of a symbol token and a value written as Ion text.
+    fn field(name: impl Into<RawSymbolToken>, value: &str) -> (RawSymbolToken, Element) {
+        (
+            name.into(),
+            Element::read_one(value).expect("failed to read field value"),
+        )
+    }
+
+    #[test]
+    fn write_length_prefixed_structs() -> IonResult<()> {
+        #[rustfmt::skip]
+        let test_cases: &[(TestStruct, &[u8])] = &[
+            // Empty struct
+            (&[], &[0xC0]),
+            // Struct with a single FlexUInt field name
+            (
+                &[field(4, "foo")],
+                &[
+                    // 5-byte struct
+                    0xC5,
+                    // FlexUInt symbol ID 4
+                    0x09,
+                    // 3-byte symbol
+                    // ↓     f     o     o
+                    0x93, 0x66, 0x6F, 0x6F,
+                ],
+            ),
+            // Struct with multiple FlexUInt field names
+            (
+                &[field(4, "foo"), field(5, "bar"), field(6, "baz")],
+                &[
+                    // 15-byte struct
+                    0xCF,
+                    // FlexUInt symbol ID 4
+                    0x09,
+                    // 3-byte symbol
+                    // ↓     f     o     o
+                    0x93, 0x66, 0x6F, 0x6F,
+                    // FlexUInt symbol ID 5
+                    0x0B,
+                    // 3-byte symbol
+                    // ↓     b     a     r
+                    0x93, 0x62, 0x61, 0x72,
+                    // --------------------
+                    // FlexUInt symbol ID 6
+                    0x0D,
+                    // 3-byte symbol
+                    // ↓     b     a     z
+                    0x93, 0x62, 0x61, 0x7A,
+                ],
+            ),
+            // Struct with single FlexSym field name
+            (
+                &[field("foo", "bar")],
+                &[
+                    // 8-byte struct
+                    0xC9,
+                    // Enable FlexSym field name encoding
+                    0x00,
+                    // Inline 3-byte field name
+                    // ↓     f     o     o
+                    0xFB, 0x66, 0x6F, 0x6F,
+                    // 3-byte symbol
+                    // ↓     b     a     r
+                    0x93, 0x62, 0x61, 0x72,
+                ],
+            ),
+            // Struct with multiple FlexSym field names
+            (
+                &[field("foo", "bar"), field("baz", "quux")],
+                &[
+                    // Struct with FlexUInt length
+                    0xFC,
+                    // FlexUInt 18
+                    0x25,
+                    // Enable FlexSym field name encoding
+                    0x00,
+                    // Inline 3-byte field name
+                    // ↓     f     o     o
+                    0xFB, 0x66, 0x6F, 0x6F,
+                    // 3-byte symbol
+                    // ↓     b     a     r
+                    0x93, 0x62, 0x61, 0x72,
+                    // Inline 3-byte field name
+                    // ↓     b     a     z
+                    0xFB, 0x62, 0x61, 0x7A,
+                    // 4-byte symbol
+                    // ↓     q     u     u     x
+                    0x94, 0x71, 0x75, 0x75, 0x78
+                ],
+            ),
+            // Struct with multiple FlexUInt field names followed by a FlexSym field name
+            (
+                &[field(4, "foo"), field(5, "bar"), field("quux", "quuz")],
+                &[
+                    // Struct with FlexUInt length
+                    0xFC,
+                    // FlexUInt length 21 
+                    0x2B,
+                    // FlexUInt symbol ID 4
+                    0x09,
+                    // 3-byte symbol
+                    // ↓     f     o     o
+                    0x93, 0x66, 0x6F, 0x6F,
+                    // FlexUInt symbol ID 5
+                    0x0B,
+                    // 3-byte symbol
+                    // ↓     b     a     r
+                    0x93, 0x62, 0x61, 0x72,
+                    // Enable FlexSym field name encoding
+                    0x00,
+                    // Inline 4-byte field name
+                    // ↓     q     u     u     x
+                    0xF9, 0x71, 0x75, 0x75, 0x78,
+                    // 4-byte symbol
+                    // ↓     q     u     u     z
+                    0x94, 0x71, 0x75, 0x75, 0x7A
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(*value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_delimited_structs() -> IonResult<()> {
+        #[rustfmt::skip]
+            let test_cases: &[(TestStruct, &[u8])] = &[
+            // Empty struct
+            (&[], &[0xF3, 0xF0]),
+            // Struct with a single FlexUInt field name
+            (
+                &[field(4, "foo")],
+                &[
+                    // Delimited struct
+                    0xF3,
+                    // FlexUInt symbol ID 4
+                    0x09,
+                    // 3-byte symbol
+                    // ↓     f     o     o
+                    0x93, 0x66, 0x6F, 0x6F,
+                    // End delimited container
+                    0xF0,
+                ],
+            ),
+            // Struct with multiple FlexUInt field names
+            (
+                &[field(4, "foo"), field(5, "bar"), field(6, "baz")],
+                &[
+                    // Delimited struct
+                    0xF3,
+                    // FlexUInt symbol ID 4
+                    0x09,
+                    // 3-byte symbol
+                    // ↓     f     o     o
+                    0x93, 0x66, 0x6F, 0x6F,
+                    // FlexUInt symbol ID 5
+                    0x0B,
+                    // 3-byte symbol
+                    // ↓     b     a     r
+                    0x93, 0x62, 0x61, 0x72,
+                    // --------------------
+                    // FlexUInt symbol ID 6
+                    0x0D,
+                    // 3-byte symbol
+                    // ↓     b     a     z
+                    0x93, 0x62, 0x61, 0x7A,
+                    // End delimited container
+                    0xF0,
+                ],
+            ),
+            // Struct with single FlexSym field name
+            (
+                &[field("foo", "bar")],
+                &[
+                    // Delimited struct
+                    0xF3,
+                    // Enable FlexSym field name encoding
+                    0x00,
+                    // Inline 3-byte field name
+                    // ↓     f     o     o
+                    0xFB, 0x66, 0x6F, 0x6F,
+                    // 3-byte symbol
+                    // ↓     b     a     r
+                    0x93, 0x62, 0x61, 0x72,
+                    // End delimited container
+                    0xF0,
+                ],
+            ),
+            // Struct with multiple FlexSym field names
+            (
+                &[field("foo", "bar"), field("baz", "quux")],
+                &[
+                    // Delimited struct
+                    0xF3,
+                    // Enable FlexSym field name encoding
+                    0x00,
+                    // Inline 3-byte field name
+                    // ↓     f     o     o
+                    0xFB, 0x66, 0x6F, 0x6F,
+                    // 3-byte symbol
+                    // ↓     b     a     r
+                    0x93, 0x62, 0x61, 0x72,
+                    // Inline 3-byte field name
+                    // ↓     b     a     z
+                    0xFB, 0x62, 0x61, 0x7A,
+                    // 4-byte symbol
+                    // ↓     q     u     u     x
+                    0x94, 0x71, 0x75, 0x75, 0x78,
+                    // End delimited container
+                    0xF0,
+                ],
+            ),
+            // Struct with multiple FlexUInt field names followed by a FlexSym field name
+            (
+                &[field(4, "foo"), field(5, "bar"), field("quux", "quuz")],
+                &[
+                    // Delimited struct
+                    0xF3,
+                    // FlexUInt symbol ID 4
+                    0x09,
+                    // 3-byte symbol
+                    // ↓     f     o     o
+                    0x93, 0x66, 0x6F, 0x6F,
+                    // FlexUInt symbol ID 5
+                    0x0B,
+                    // 3-byte symbol
+                    // ↓     b     a     r
+                    0x93, 0x62, 0x61, 0x72,
+                    // Enable FlexSym field name encoding
+                    0x00,
+                    // Inline 4-byte field name
+                    // ↓     q     u     u     x
+                    0xF9, 0x71, 0x75, 0x75, 0x78,
+                    // 4-byte symbol
+                    // ↓     q     u     u     z
+                    0x94, 0x71, 0x75, 0x75, 0x7A,
+                    // End delimited container
+                    0xF0,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer
+                        .value_writer()
+                        .with_delimited_containers()
+                        .write(*value)?;
                     Ok(())
                 },
                 expected_encoding,
