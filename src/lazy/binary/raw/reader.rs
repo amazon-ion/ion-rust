@@ -70,14 +70,25 @@ impl<'data> LazyRawBinaryReader<'data> {
     where
         'data: 'top,
     {
+        // Get a new buffer view starting beyond the last item we returned.
         let mut buffer = self.data.advance_to_next_item()?;
         if buffer.is_empty() {
             return Ok(LazyRawStreamItem::<BinaryEncoding_1_0>::EndOfStream);
         }
-        let type_descriptor = buffer.peek_type_descriptor()?;
+        // Peek at the first byte in the new buffer view
+        let mut type_descriptor = buffer.peek_type_descriptor()?;
+        // If it's a nop...
         if type_descriptor.is_nop() {
+            // ...advance until we find something that isn't a nop.
             (_, buffer) = buffer.consume_nop_padding(type_descriptor)?;
-        } else if type_descriptor.is_ivm_start() {
+            if buffer.is_empty() {
+                return Ok(LazyRawStreamItem::<BinaryEncoding_1_0>::EndOfStream);
+            }
+            type_descriptor = buffer.peek_type_descriptor()?;
+        }
+        // Now that we're past any nop bytes, the next item is guaranteed to be either an IVM
+        // or a value. Check whether the next byte indicates an IVM.
+        if type_descriptor.is_ivm_start() {
             return self.read_ivm(buffer);
         }
 
@@ -301,6 +312,29 @@ mod tests {
         ];
 
         let mut reader = LazyRawBinaryReader::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_null()?,
+            IonType::Null
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn ivm_after_nop() -> IonResult<()> {
+        let data: Vec<u8> = vec![
+            0xe0, 0x01, 0x00, 0xea, // IVM
+            0x00, // 1-byte NOP
+            0x01, 0xff, // 2-byte NOP
+            0xe0, 0x01, 0x00, 0xea, // IVM
+            0x02, 0xff, 0xff, // 3-byte NOP
+            0x0f, // null
+        ];
+
+        let mut reader = LazyRawBinaryReader::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
         let _ivm = reader.next()?.expect_ivm()?;
 
         assert_eq!(
