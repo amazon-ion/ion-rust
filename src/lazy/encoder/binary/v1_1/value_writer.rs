@@ -56,10 +56,6 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         self.encoding_buffer.as_slice()
     }
 
-    pub fn write_lob(self, _value: &[u8], _type_code: u8) -> IonResult<()> {
-        todo!()
-    }
-
     pub fn write_null(mut self, ion_type: IonType) -> IonResult<()> {
         let type_byte = match ion_type {
             IonType::Null => {
@@ -539,12 +535,20 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_clob<A: AsRef<[u8]>>(self, _value: A) -> IonResult<()> {
-        todo!()
+    pub fn write_clob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()> {
+        self.write_lob(0xFF, value)
     }
 
-    pub fn write_blob<A: AsRef<[u8]>>(self, _value: A) -> IonResult<()> {
-        todo!()
+    pub fn write_blob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()> {
+        self.write_lob(0xFE, value)
+    }
+
+    fn write_lob<A: AsRef<[u8]>>(mut self, opcode: u8, value: A) -> IonResult<()> {
+        let bytes = value.as_ref();
+        self.push_byte(opcode);
+        FlexUInt::write_u64(self.encoding_buffer, bytes.len() as u64)?;
+        self.push_bytes(bytes);
+        Ok(())
     }
 
     pub fn write_list<
