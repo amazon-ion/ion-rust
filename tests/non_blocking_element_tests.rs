@@ -16,11 +16,11 @@ impl ElementApi for NonBlockingNativeElementApi {
     type ElementReader<'a> = Reader<'a>;
 
     fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
-        // These imports are visible as a temporary workaround.
+        // This import is visible as a temporary workaround.
         // See: https://github.com/amazon-ion/ion-rust/issues/484
-        use ion_rs::integration_testing::{new_reader, IVM};
+        use ion_rs::integration_testing::new_reader;
         // If the data is binary, create a non-blocking binary reader.
-        if data.starts_with(&IVM) {
+        if data.starts_with(&[0xE0u8, 0x01, 0x00, 0xEA]) {
             let raw_reader = RawBinaryReader::new(data);
             Ok(new_reader(raw_reader))
         } else {

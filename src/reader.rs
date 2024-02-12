@@ -149,8 +149,6 @@ pub mod integration_testing {
     use crate::raw_reader::RawReader;
     use crate::reader::{Reader, UserReader};
 
-    pub use crate::binary::constants::v1_0::IVM;
-
     pub fn new_reader<'a, R: 'a + RawReader>(raw_reader: R) -> Reader<'a> {
         UserReader::new(Box::new(raw_reader))
     }
