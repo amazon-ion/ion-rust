@@ -2193,6 +2193,128 @@ mod tests {
     }
 
     #[test]
+    fn write_blobs() -> IonResult<()> {
+        let test_cases: &[(&[u8], &[u8])] = &[
+            (
+                b"",
+                &[
+                    0xFE, // Blob
+                    0x01, // FlexUInt 0
+                ],
+            ),
+            (
+                b"foo",
+                &[
+                    0xFE, // Blob
+                    0x07, // FlexUInt 3
+                    // f     o     o
+                    0x66, 0x6F, 0x6F,
+                ],
+            ),
+            (
+                b"foo bar",
+                &[
+                    0xFE, // Blob
+                    0x0F, // FlexUInt 7
+                    // f     o     o           b     a     r
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72,
+                ],
+            ),
+            (
+                b"foo bar baz",
+                &[
+                    0xFE, // Blob
+                    0x17, // FlexUInt 11
+                    // f     o     o           b     a     r           b     a     z
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a,
+                ],
+            ),
+            (
+                b"foo bar baz quux quuz",
+                &[
+                    0xFE, // Blob
+                    0x2B, // FlexUInt
+                    // f     o     o           b     a     r           b     a     z           q
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a, 0x20, 0x71,
+                    // u     u     x           q     u     u     z
+                    0x75, 0x75, 0x78, 0x20, 0x71, 0x75, 0x75, 0x7a,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(*value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn write_clobs() -> IonResult<()> {
+        let test_cases: &[(&[u8], &[u8])] = &[
+            (
+                b"",
+                &[
+                    0xFF, // Clob
+                    0x01, // FlexUInt 0
+                ],
+            ),
+            (
+                b"foo",
+                &[
+                    0xFF, // Clob
+                    0x07, // FlexUInt 3
+                    // f     o     o
+                    0x66, 0x6F, 0x6F,
+                ],
+            ),
+            (
+                b"foo bar",
+                &[
+                    0xFF, // Clob
+                    0x0F, // FlexUInt 7
+                    // f     o     o           b     a     r
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72,
+                ],
+            ),
+            (
+                b"foo bar baz",
+                &[
+                    0xFF, // Clob
+                    0x17, // FlexUInt 11
+                    // f     o     o           b     a     r           b     a     z
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a,
+                ],
+            ),
+            (
+                b"foo bar baz quux quuz",
+                &[
+                    0xFF, // Clob
+                    0x2B, // FlexUInt
+                    // f     o     o           b     a     r           b     a     z           q
+                    0x66, 0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a, 0x20, 0x71,
+                    // u     u     x           q     u     u     z
+                    0x75, 0x75, 0x78, 0x20, 0x71, 0x75, 0x75, 0x7a,
+                ],
+            ),
+        ];
+        for (value, expected_encoding) in test_cases {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.value_writer().write_clob(value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[test]
     fn write_length_prefixed_lists() -> IonResult<()> {
         let test_cases: &[(&[&str], &[u8])] = &[
             (&[], &[0xA0]),
