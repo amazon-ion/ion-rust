@@ -12,6 +12,7 @@ use crate::binary::timestamp::TimestampBinaryEncoder;
 use crate::binary::uint;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
+use crate::lazy::encoder::binary::annotate_and_delegate;
 use crate::lazy::encoder::binary::v1_0::container_writers::{
     BinaryContainerWriter_1_0, BinaryListValuesWriter_1_0, BinaryListWriter_1_0,
     BinarySExpValuesWriter_1_0, BinarySExpWriter_1_0, BinaryStructFieldsWriter_1_0,
@@ -463,20 +464,6 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> Sealed
     // No methods, precludes implementations outside the crate.
 }
 
-/// Takes a series of `TYPE => METHOD` pairs, generating a function for each that calls the
-/// corresponding value writer method and then prefixes the encoded result with an annotations wrapper.
-macro_rules! delegate_and_annotate {
-    // End of iteration
-    () => {};
-    // Recurses one argument pair at a time
-    ($value_type:ty => $method:ident, $($rest:tt)*) => {
-        fn $method(self, value: $value_type) -> IonResult<()> {
-            self.encode_annotated(|value_writer| value_writer.$method(value))
-        }
-        delegate_and_annotate!($($rest)*);
-    };
-}
-
 impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
     for BinaryAnnotationsWrapperWriter<'value, 'top, SymbolType>
 {
@@ -485,7 +472,7 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
 
     type StructWriter<'a> = BinaryStructFieldsWriter_1_0<'a>;
 
-    delegate_and_annotate!(
+    annotate_and_delegate!(
         IonType => write_null,
         bool => write_bool,
         i64 => write_i64,
