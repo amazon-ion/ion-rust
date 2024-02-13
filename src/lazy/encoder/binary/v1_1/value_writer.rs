@@ -5,6 +5,7 @@ use delegate::delegate;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
+use crate::lazy::encoder::binary::annotate_and_delegate;
 use crate::lazy::encoder::binary::v1_1::container_writers::{
     BinaryContainerWriter_1_1, BinaryListWriter_1_1, BinarySExpWriter_1_1, BinaryStructWriter_1_1,
 };
@@ -882,73 +883,38 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
     type SExpWriter<'a> = BinarySExpWriter_1_1<'value, 'top>;
     type StructWriter<'a> = BinaryStructWriter_1_1<'value, 'top>;
 
-    fn write_null(self, _ion_type: IonType) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_bool(self, _value: bool) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_i64(self, _value: i64) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_int(self, _value: &Int) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_f32(self, _value: f32) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_f64(self, _value: f64) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_decimal(self, _value: &Decimal) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_timestamp(self, _value: &Timestamp) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_string(self, _value: impl AsRef<str>) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_symbol(self, _value: impl AsRawSymbolTokenRef) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_clob(self, _value: impl AsRef<[u8]>) -> IonResult<()> {
-        todo!()
-    }
-
-    fn write_blob(self, _value: impl AsRef<[u8]>) -> IonResult<()> {
-        todo!()
-    }
+    annotate_and_delegate!(
+        IonType => write_null,
+        bool => write_bool,
+        i64 => write_i64,
+        &Int => write_int,
+        f32 => write_f32,
+        f64 => write_f64,
+        &Decimal => write_decimal,
+        &Timestamp => write_timestamp,
+        impl AsRef<str> => write_string,
+        impl AsRawSymbolTokenRef => write_symbol,
+        impl AsRef<[u8]> => write_clob,
+        impl AsRef<[u8]> => write_blob,
+    );
 
     fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
         self,
-        _list_fn: F,
+        list_fn: F,
     ) -> IonResult<()> {
-        todo!()
+        self.encode_annotated(|value_writer| value_writer.write_list(list_fn))
     }
-
     fn write_sexp<F: for<'a> FnOnce(&mut Self::SExpWriter<'a>) -> IonResult<()>>(
         self,
-        _sexp_fn: F,
+        sexp_fn: F,
     ) -> IonResult<()> {
-        todo!()
+        self.encode_annotated(|value_writer| value_writer.write_sexp(sexp_fn))
     }
-
     fn write_struct<F: for<'a> FnOnce(&mut Self::StructWriter<'a>) -> IonResult<()>>(
         self,
-        _struct_fn: F,
+        struct_fn: F,
     ) -> IonResult<()> {
-        todo!()
+        self.encode_annotated(|value_writer| value_writer.write_struct(struct_fn))
     }
 }
 
