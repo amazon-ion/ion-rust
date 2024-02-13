@@ -806,15 +806,18 @@ impl<'value, 'top> BinaryAnnotatableValueWriter_1_1<'value, 'top> {
 impl<'value, 'top> AnnotatableValueWriter for BinaryAnnotatableValueWriter_1_1<'value, 'top> {
     type ValueWriter = BinaryValueWriter_1_1<'value, 'top>;
     type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a> =
-    BinaryAnnotationsWrapperWriter_1_1<'a, 'top, SymbolType> where Self: 'a;
+    BinaryAnnotatedValueWriter_1_1<'a, 'top, SymbolType> where Self: 'a;
     fn with_annotations<'a, SymbolType: 'a + AsRawSymbolTokenRef>(
         self,
-        _annotations: &'a [SymbolType],
+        annotations: &'a [SymbolType],
     ) -> Self::AnnotatedValueWriter<'a, SymbolType>
     where
         Self: 'a,
     {
-        todo!("v1.1 annotations")
+        let mut writer =
+            BinaryAnnotatedValueWriter_1_1::new(self.allocator, self.encoding_buffer, annotations);
+        writer.delimited_containers = self.delimited_containers;
+        writer
     }
 
     #[inline(always)]
@@ -825,59 +828,97 @@ impl<'value, 'top> AnnotatableValueWriter for BinaryAnnotatableValueWriter_1_1<'
     }
 }
 
-pub struct BinaryAnnotationsWrapperWriter_1_1<'value, 'top, SymbolType: AsRawSymbolTokenRef> {
+pub struct BinaryAnnotatedValueWriter_1_1<'value, 'top, SymbolType: AsRawSymbolTokenRef> {
     annotations: &'value [SymbolType],
     allocator: &'top BumpAllocator,
-    output_buffer: &'value mut BumpVec<'top, u8>,
+    buffer: &'value mut BumpVec<'top, u8>,
+    delimited_containers: bool,
 }
 
 impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
-    BinaryAnnotationsWrapperWriter_1_1<'value, 'top, SymbolType>
+    BinaryAnnotatedValueWriter_1_1<'value, 'top, SymbolType>
 {
-    pub fn new(
-        allocator: &'top BumpAllocator,
-        annotations: &'value [SymbolType],
-        encoding_buffer: &'value mut BumpVec<'top, u8>,
-    ) -> BinaryAnnotationsWrapperWriter_1_1<'value, 'top, SymbolType> {
-        BinaryAnnotationsWrapperWriter_1_1 {
-            annotations,
-            allocator,
-            output_buffer: encoding_buffer,
-        }
-    }
-}
-
-impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
-    BinaryAnnotationsWrapperWriter_1_1<'value, 'top, SymbolType>
-{
-    fn encode_annotated<F>(self, _encode_value_fn: F) -> IonResult<()>
+    fn encode_annotated<F>(mut self, encode_value_fn: F) -> IonResult<()>
     where
-        F: for<'a> FnOnce(BinaryAnnotatedValueWriter_1_1<'value, 'top>) -> IonResult<()>,
+        F: for<'a> FnOnce(BinaryValueWriter_1_1<'value, 'top>) -> IonResult<()>,
     {
-        todo!()
+        // TODO: With some extra analysis, we could determine whether FlexUInt annotation encodings
+        //       were sufficient. These are potentially slightly more compact, but cannot encode
+        //       inline text or `$0`. For now, we simply use FlexSym encoding.
+        match self.annotations {
+            [] => {
+                // There are no annotations; nothing to do.
+            }
+            [a] => {
+                // Opcode 0xE7: A single FlexSym annotation follows
+                self.buffer.push(0xE7);
+                Self::write_flex_sym_annotation(self.buffer, a)?;
+            }
+            [a1, a2] => {
+                // Opcode 0xE8: Two FlexSym annotations follow
+                self.buffer.push(0xE8);
+                Self::write_flex_sym_annotation(self.buffer, a1)?;
+                Self::write_flex_sym_annotation(self.buffer, a2)?;
+            }
+            _ => {
+                self.write_length_prefixed_flex_sym_annotation_sequence()?;
+            }
+        }
+        // We've encoded the annotations, now create a no-annotations ValueWriter to encode the value itself.
+        let value_writer = BinaryValueWriter_1_1::new(self.allocator, self.buffer);
+        encode_value_fn(value_writer)
     }
 
-    fn annotate_encoded_value(self, _encoded_value: &[u8]) -> IonResult<()> {
-        todo!()
+    fn write_flex_sym_annotation(
+        buffer: &mut BumpVec<'top, u8>,
+        annotation: impl AsRawSymbolTokenRef,
+    ) -> IonResult<()> {
+        match annotation.as_raw_symbol_token_ref() {
+            RawSymbolTokenRef::SymbolId(0) => {
+                // FlexSym 0x00 indicates that an opcode follows
+                // Opcode 0x70 is a symbol of length 0, i.e. `$0`.
+                buffer.extend_from_slice(&[0x00, 0x70]);
+            }
+            RawSymbolTokenRef::SymbolId(sid) => {
+                FlexInt::write_i64(buffer, sid as i64)?;
+            }
+            RawSymbolTokenRef::Text(cow_text) => {
+                let text = cow_text.as_ref();
+                if text.is_empty() {
+                    buffer.extend_from_slice(&[0x00, 0x80]);
+                    return Ok(());
+                }
+                let utf8_byte_length = -(text.len() as i64);
+                FlexInt::write_i64(buffer, utf8_byte_length)?;
+                buffer.extend_from_slice(text.as_bytes());
+            }
+        }
+        Ok(())
     }
 
-    fn encode_annotations_sequence(&self, _buffer: &'_ mut BumpVec<'_, u8>) -> IonResult<()> {
-        todo!()
-    }
-
-    fn todo_value_writer_impl(self) -> Self {
-        todo!()
+    #[cold]
+    fn write_length_prefixed_flex_sym_annotation_sequence(&mut self) -> IonResult<()> {
+        // A FlexUInt follows with the byte length of the FlexSym sequence that follows
+        let mut annotations_buffer = BumpVec::new_in(self.allocator);
+        for annotation in self.annotations {
+            Self::write_flex_sym_annotation(&mut annotations_buffer, annotation)?;
+        }
+        // A FlexUInt follows that represents the length of a sequence of FlexSym-encoded annotations
+        self.buffer.push(0xE9);
+        FlexUInt::write_u64(self.buffer, annotations_buffer.len() as u64)?;
+        self.buffer.extend_from_slice(annotations_buffer.as_slice());
+        Ok(())
     }
 }
 
 impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> Sealed
-    for BinaryAnnotationsWrapperWriter_1_1<'value, 'top, SymbolType>
+    for BinaryAnnotatedValueWriter_1_1<'value, 'top, SymbolType>
 {
     // No methods, precludes implementations outside the crate.
 }
 
 impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
-    for BinaryAnnotationsWrapperWriter_1_1<'value, 'top, SymbolType>
+    for BinaryAnnotatedValueWriter_1_1<'value, 'top, SymbolType>
 {
     type ListWriter<'a> = BinaryListWriter_1_1<'value, 'top>;
     type SExpWriter<'a> = BinarySExpWriter_1_1<'value, 'top>;
@@ -918,59 +959,29 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
     }
 }
 
-pub struct BinaryAnnotatedValueWriter_1_1<'value, 'top> {
-    allocator: &'top BumpAllocator,
-    buffer: &'value mut BumpVec<'top, u8>,
-}
-
-impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
-    pub fn new(allocator: &'top BumpAllocator, buffer: &'value mut BumpVec<'top, u8>) -> Self {
-        Self { allocator, buffer }
+impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
+    BinaryAnnotatedValueWriter_1_1<'value, 'top, SymbolType>
+{
+    pub fn new(
+        allocator: &'top BumpAllocator,
+        buffer: &'value mut BumpVec<'top, u8>,
+        annotations: &'value [SymbolType],
+    ) -> Self {
+        Self {
+            allocator,
+            buffer,
+            annotations,
+            delimited_containers: false,
+        }
     }
     pub(crate) fn value_writer(self) -> BinaryValueWriter_1_1<'value, 'top> {
-        BinaryValueWriter_1_1::new(self.allocator, self.buffer)
+        let mut writer = BinaryValueWriter_1_1::new(self.allocator, self.buffer);
+        writer.delimited_containers = self.delimited_containers;
+        writer
     }
 
     pub(crate) fn buffer(&self) -> &[u8] {
         self.buffer.as_slice()
-    }
-}
-
-impl<'value, 'top> Sealed for BinaryAnnotatedValueWriter_1_1<'value, 'top> {}
-
-impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> {
-    type ListWriter<'a> = BinaryListWriter_1_1<'value, 'top>;
-    type SExpWriter<'a> = BinarySExpWriter_1_1<'value, 'top>;
-    type StructWriter<'a> = BinaryStructWriter_1_1<'value, 'top>;
-    delegate! {
-        to self.value_writer() {
-            fn write_null(self, ion_type: IonType) -> IonResult<()>;
-            fn write_bool(self, value: bool) -> IonResult<()>;
-            fn write_i64(self, value: i64) -> IonResult<()>;
-            fn write_int(self, value: &Int) -> IonResult<()>;
-            fn write_f32(self, value: f32) -> IonResult<()>;
-            fn write_f64(self, value: f64) -> IonResult<()>;
-            fn write_decimal(self, value: &Decimal) -> IonResult<()>;
-            fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
-            fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
-            fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
-            fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
-            fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
-            fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
-                self,
-                list_fn: F,
-            ) -> IonResult<()>;
-            fn write_sexp<F: for<'a> FnOnce(&mut Self::SExpWriter<'a>) -> IonResult<()>>(
-                self,
-                sexp_fn: F,
-            ) -> IonResult<()>;
-            fn write_struct<
-                F: for<'a> FnOnce(&mut Self::StructWriter<'a>) -> IonResult<()>,
-            >(
-                self,
-                struct_fn: F,
-            ) -> IonResult<()>;
-        }
     }
 }
 
@@ -980,6 +991,7 @@ mod tests {
 
     use num_bigint::BigInt;
 
+    use crate::lazy::encoder::annotate::{Annotate, Annotated};
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
     use crate::lazy::encoder::value_writer::{
         AnnotatableValueWriter, SequenceWriter, StructWriter, ValueWriter,
@@ -991,7 +1003,7 @@ mod tests {
     };
 
     fn encoding_test(
-        mut test: impl FnMut(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,
+        test: impl FnOnce(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,
         expected_encoding: &[u8],
     ) -> IonResult<()> {
         let mut buffer = Vec::new();
@@ -2763,6 +2775,176 @@ mod tests {
                 expected_encoding,
             )?;
         }
+        Ok(())
+    }
+
+    #[test]
+    fn write_annotated() -> IonResult<()> {
+        fn case<ValueType: WriteAsIonValue, SymbolType: AsRawSymbolTokenRef>(
+            value: Annotated<'_, ValueType, SymbolType>,
+            expected_encoding: &[u8],
+        ) -> IonResult<()> {
+            encoding_test(
+                |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                    writer.write(value)?;
+                    Ok(())
+                },
+                expected_encoding,
+            )?;
+            Ok(())
+        }
+
+        // Explicitly empty annotations set with a type hint the compiler can use in a generic context.
+        const NO_ANNOTATIONS: &[SymbolId] = &[];
+
+        // === Symbol ID annotations ===
+        case(
+            0.annotated_with(NO_ANNOTATIONS),
+            &[
+                // Integer 0
+                0x50,
+            ],
+        )?;
+        case(
+            0.annotated_with(&[4]),
+            &[
+                0xE7, // One FlexSym annotation follows
+                0x09, // FlexSym $4
+                0x50, // Integer 0
+            ],
+        )?;
+        case(
+            0.annotated_with(&[4, 5]),
+            &[
+                0xE8, // Two FlexSym annotations follow
+                0x09, // FlexSym $4
+                0x0B, // FlexSym $5
+                0x50, // Integer 0
+            ],
+        )?;
+        case(
+            0.annotated_with(&[4, 5, 6]),
+            &[
+                0xE9, // A FlexUInt follows that indicates the byte length of the FlexSym annotations sequence
+                0x07, // FlexUInt length 3
+                0x09, // FlexSym $4
+                0x0B, // FlexSym $5
+                0x0D, // FlexSym $6
+                0x50, // Integer 0
+            ],
+        )?;
+
+        // === Inline text annotations ===
+        case(
+            0.annotated_with(&["foo"]),
+            &[
+                0xE7, // One FlexSym annotation follows
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x66, 0x6F, 0x6F, // foo
+                0x50, // Integer 0
+            ],
+        )?;
+        case(
+            0.annotated_with(&["foo", "bar"]),
+            &[
+                0xE8, // Two FlexSym annotations follow
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x66, 0x6F, 0x6F, // foo
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x62, 0x61, 0x72, // bar
+                0x50, // Integer 0
+            ],
+        )?;
+        case(
+            0.annotated_with(&["foo", "bar", "baz"]),
+            &[
+                0xE9, // A FlexUInt follows that indicates the byte length of the FlexSym annotations sequence
+                0x19, // FlexUInt 12
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x66, 0x6F, 0x6F, // foo
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x62, 0x61, 0x72, // bar
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x62, 0x61, 0x7a, // baz
+                0x50, // Integer 0
+            ],
+        )?;
+
+        // === Mixed symbol IDs and inline text ===
+
+        case(
+            0.annotated_with(&[
+                RawSymbolToken::SymbolId(4),
+                RawSymbolToken::Text("foo".into()),
+            ]),
+            &[
+                0xE8, // Two FlexSym annotations follow
+                0x09, // FlexSym $4,
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x66, 0x6F, 0x6F, // foo
+                0x50, // Integer 0
+            ],
+        )?;
+        case(
+            0.annotated_with(&[
+                RawSymbolToken::Text("foo".into()),
+                RawSymbolToken::SymbolId(4),
+            ]),
+            &[
+                0xE8, // Two FlexSym annotations follow
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x66, 0x6F, 0x6F, // foo
+                0x09, // FlexSym $4,
+                0x50, // Integer 0
+            ],
+        )?;
+        case(
+            0.annotated_with(&[
+                RawSymbolToken::Text("foo".into()),
+                RawSymbolToken::SymbolId(4),
+                RawSymbolToken::Text("baz".into()),
+            ]),
+            &[
+                0xE9, // A FlexUInt follows that indicates the byte length of the FlexSym annotations sequence
+                0x13, // FlexUInt 9
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x66, 0x6F, 0x6F, // foo
+                0x09, // FlexSym $4
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x62, 0x61, 0x7a, // baz
+                0x50, // Integer 0
+            ],
+        )?;
+        case(
+            0.annotated_with(&[
+                RawSymbolToken::SymbolId(4),
+                RawSymbolToken::Text("foo".into()),
+                RawSymbolToken::SymbolId(5),
+            ]),
+            &[
+                0xE9, // A FlexUInt follows that indicates the byte length of the FlexSym annotations sequence
+                0x0D, // FlexUInt 6
+                0x09, // FlexSym $4
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                0x66, 0x6F, 0x6F, // foo
+                0x0B, // FlexSym $5
+                0x50, // Integer 0
+            ],
+        )?;
+
+        // === Special cases: "" and $0 ===
+        case(
+            0.annotated_with(&[RawSymbolToken::Text("".into()), RawSymbolToken::SymbolId(0)]),
+            &[
+                0xE8, // Two FlexSym annotations follow
+                0x00, // Opcode follows
+                0x80, // String of length 0
+                0x00, // Opcode follows
+                0x70, // Symbol ID $0
+                0x50, // Integer 0
+            ],
+        )?;
+
         Ok(())
     }
 }
