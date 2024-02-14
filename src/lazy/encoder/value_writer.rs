@@ -1,10 +1,11 @@
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsIonValue};
+use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{Decimal, Int, IonResult, IonType, Timestamp};
 use delegate::delegate;
 
-pub(crate) mod internal {
+pub mod internal {
     use crate::lazy::encoder::value_writer::AnnotatableValueWriter;
 
     pub trait MakeValueWriter {
@@ -12,7 +13,7 @@ pub(crate) mod internal {
         where
             Self: 'a;
 
-        fn value_writer(&mut self) -> Self::ValueWriter<'_>;
+        fn make_value_writer(&mut self) -> Self::ValueWriter<'_>;
     }
 }
 
@@ -40,6 +41,7 @@ pub trait AnnotatableValueWriter: Sized {
 
     // Users can call `ValueWriter` methods on the `AnnotatedValueWriter` directly. Doing so
     // will implicitly call `without_annotations`.
+
     delegate! {
         to self.without_annotations() {
             fn write_null(self, ion_type: IonType) -> IonResult<()>;
@@ -69,14 +71,24 @@ pub trait AnnotatableValueWriter: Sized {
                 struct_fn: F,
             ) -> IonResult<()>;
                 fn write(self, value: impl WriteAsIonValue) -> IonResult<()>;
+            fn write_eexp<'macro_id, F: for<'a> FnOnce(&mut <Self::ValueWriter as ValueWriter>::MacroArgsWriter<'a>) -> IonResult<()>>(
+                self,
+                _macro_id: impl Into<MacroIdRef<'macro_id>>,
+                _macro_fn: F,
+            ) -> IonResult<()>;
         }
     }
+}
+
+pub trait MacroArgsWriter: SequenceWriter {
+    // TODO: methods for writing tagless encodings
 }
 
 pub trait ValueWriter: Sized {
     type ListWriter<'a>: SequenceWriter;
     type SExpWriter<'a>: SequenceWriter;
     type StructWriter<'a>: StructWriter;
+    type MacroArgsWriter<'a>: MacroArgsWriter;
 
     fn write_null(self, ion_type: IonType) -> IonResult<()>;
     fn write_bool(self, value: bool) -> IonResult<()>;
@@ -106,10 +118,111 @@ pub trait ValueWriter: Sized {
         struct_fn: F,
     ) -> IonResult<()>;
 
+    fn write_eexp<'macro_id, F: for<'a> FnOnce(&mut Self::MacroArgsWriter<'a>) -> IonResult<()>>(
+        self,
+        _macro_id: impl Into<MacroIdRef<'macro_id>>,
+        _macro_fn: F,
+    ) -> IonResult<()>;
+
     fn write(self, value: impl WriteAsIonValue) -> IonResult<()> {
         value.write_as_ion_value(self)
     }
 }
+
+/// There are several implementations of `ValueWriter` that simply delegate calls to an expression.
+/// This macro takes an expression and calls the `delegate!` proc macro on it for all of the methods
+/// in the ValueWriter trait. For example:
+/// ```text
+///     delegate_value_writer_to!(foo) => delegate! { to self.foo { ...signatures ... } }
+///     delegate_value_writer_to!(0)   => delegate! { to self.0 { ...signatures ... } }
+///     delegate_value_writer_to!()    => delegate! { to self { ...signatures ... } }
+/// ```
+///
+/// Notice that if no parameter expression is passed, it results in delegation to `self`, which is helpful if
+/// the trait is implemented by calling methods on the type's inherent impls.
+///
+/// Using this macro for such use cases centralizes the method signatures of ValueWriter, simplifying refactoring.
+macro_rules! delegate_value_writer_to {
+    // Declarative Rust macros (those defined with `macro_rules!`) cannot work with a `self` instance
+    // from the enclosing context. Callers can pass `self` as an argument, but the macro's parameter
+    // cannot be named `self`. The `delegate!` macro circumvents this by being a proc macro, which
+    // does not have to adhere to the same macro hygiene rules as declarative macros.
+    //
+    // All of the patterns that this macro accepts are transformed into invocations of the final
+    // `fallible closure` pattern, allowing us to only write out all of the trait method signatures
+    // once.
+    //
+    // If no arguments are passed, trait method calls are delegated to inherent impl methods on `self`.
+    () => {
+        $crate::lazy::encoder::value_writer::delegate_value_writer_to!(closure (|self_: Self| {self_}));
+    };
+    // If an identifier is passed, it is treated as the name of a subfield of `self`.
+    ($name:ident) => {
+       $crate::lazy::encoder::value_writer::delegate_value_writer_to!(closure (|self_: Self| self_.$name));
+    };
+    // If a closure is provided, trait method calls are delegated to the closure's return value.
+    (closure $f:expr) => {
+        // In order to forward this call to the `fallible closure` pattern, the provided closure is
+        // wrapped in another closure that wraps the closure's output in IonResult::Ok(_). The
+        // compiler can eliminate the redundant closure call.
+        $crate::lazy::encoder::value_writer::delegate_value_writer_to!(fallible closure |self_: Self| {$crate::IonResult::Ok($f(self_))});
+    };
+    // If a fallible closure is provided, it will be called. If it returns an `Err`, the method
+    // will return. Otherwise, trait method calls are delegated to the `Ok(_)` value.
+    (fallible closure $f:expr) => {
+        // The `self` keyword can only be used within the `delegate!` proc macro.
+        delegate! {
+            to {let f = $f; f(self)?} {
+                fn write_null(self, ion_type: IonType) -> IonResult<()>;
+                fn write_bool(self, value: bool) -> IonResult<()>;
+                fn write_i64(self, value: i64) -> IonResult<()>;
+                fn write_int(self, value: &Int) -> IonResult<()>;
+                fn write_f32(self, value: f32) -> IonResult<()>;
+                fn write_f64(self, value: f64) -> IonResult<()>;
+                fn write_decimal(self, value: &Decimal) -> IonResult<()>;
+                fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
+                fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
+                fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+                fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
+                fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
+                fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
+                    self,
+                    list_fn: F,
+                ) -> IonResult<()>;
+                fn write_sexp<F: for<'a> FnOnce(&mut Self::SExpWriter<'a>) -> IonResult<()>>(
+                    self,
+                    sexp_fn: F,
+                ) -> IonResult<()>;
+                fn write_struct<
+                    F: for<'a> FnOnce(&mut Self::StructWriter<'a>) -> IonResult<()>,
+                >(
+                    self,
+                    struct_fn: F,
+                ) -> IonResult<()>;
+                fn write_eexp<
+                    'macro_id,
+                    F: for<'a> FnOnce(&mut Self::MacroArgsWriter<'a>) -> IonResult<()>
+                >(
+                    self,
+                    macro_id: impl Into<MacroIdRef<'macro_id>>,
+                    macro_fn: F
+                ) -> IonResult<()>;
+            }
+        }
+    };
+}
+
+/// [`delegate_value_writer_to`] allows you to omit arguments altogether, but that makes its effect
+/// a bit unclear. This macro calls [`delegate_value_writer_to`] with no parameters but has a more
+/// informative name.
+macro_rules! delegate_value_writer_to_self {
+    () => {
+        $crate::lazy::encoder::value_writer::delegate_value_writer_to!();
+    };
+}
+
+pub(crate) use delegate_value_writer_to;
+pub(crate) use delegate_value_writer_to_self;
 
 pub trait StructWriter {
     /// Writes a struct field using the provided name/value pair.
@@ -136,6 +249,10 @@ macro_rules! delegate_and_return_self {
 }
 
 pub trait SequenceWriter: MakeValueWriter {
+    fn value_writer(&mut self) -> Self::ValueWriter<'_> {
+        <Self as MakeValueWriter>::make_value_writer(self)
+    }
+
     fn annotate<'a, A: AsRawSymbolTokenRef>(
         &'a mut self,
         annotations: &'a [A],
@@ -147,7 +264,7 @@ pub trait SequenceWriter: MakeValueWriter {
     /// Writes a value in the current context (list, s-expression, or stream) and upon success
     /// returns another reference to `self` to enable method chaining.
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
-        value.write_as_ion(self.value_writer())?;
+        value.write_as_ion(self.make_value_writer())?;
         Ok(self)
     }
 
@@ -168,10 +285,15 @@ pub trait SequenceWriter: MakeValueWriter {
         impl AsRef<[u8]> => write_blob,
     );
 
-    // XXX: For now, it's not possible to offer versions of `write_list`, `write_sexp`, or
-    //      `write_struct`. This is due to a point-in-time limitation in the borrow checker[1].
+    // XXX: For now, it's not possible to offer versions of `write_list`, `write_sexp`,
+    //      `write_struct` or `write_eexp`. This is due to a point-in-time limitation in the borrow checker[1].
     //      It is still possible to call (e.g.)
     //          self.value_writer().list_writer(...)
     //      as a workaround.
     // [1]: https://blog.rust-lang.org/2022/10/28/gats-stabilization.html#implied-static-requirement-from-higher-ranked-trait-bounds
+    //
+    // The ValueWriter implementation of these methods moves `self`. In contrast, all of the methods
+    // in the SequenceWriter interface take `&mut self`, which adds another lifetime to the mix. The
+    // borrow checker is not currently able to tell that `&mut self`'s lifetime will outlive the
+    // closure argument's.
 }

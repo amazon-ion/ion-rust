@@ -1,3 +1,4 @@
+use ice_code::ice as cold_path;
 use std::borrow::Cow;
 use thiserror::Error;
 
@@ -11,7 +12,7 @@ pub struct EncodingError {
 impl EncodingError {
     pub(crate) fn new(description: impl Into<Cow<'static, str>>) -> Self {
         EncodingError {
-            description: description.into(),
+            description: cold_path! { encoding_error => description.into()},
         }
     }
 }

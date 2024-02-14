@@ -143,7 +143,7 @@ mod tests {
             ]
         "#;
         let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
-            writer.value_writer().write_list(|list| {
+            writer.make_value_writer().write_list(|list| {
                 list.write(1)?
                     .write(false)?
                     .write(3f32)?
@@ -173,7 +173,7 @@ mod tests {
             )
         "#;
         let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
-            writer.value_writer().write_sexp(|sexp| {
+            writer.make_value_writer().write_sexp(|sexp| {
                 sexp.write(1)?
                     .write(false)?
                     .write(3f32)?
@@ -202,7 +202,7 @@ mod tests {
             }
         "#;
         let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
-            writer.value_writer().write_struct(|struct_| {
+            writer.make_value_writer().write_struct(|struct_| {
                 struct_
                     .write("a", 1)?
                     .write("b", false)?

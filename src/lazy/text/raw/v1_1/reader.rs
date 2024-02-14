@@ -34,11 +34,24 @@ pub type MacroAddress = usize;
 
 /// The index at which a value expression can be found within a template's body.
 pub type TemplateBodyExprAddress = usize;
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MacroIdRef<'data> {
     LocalName(&'data str),
     LocalAddress(usize),
     // TODO: Addresses and qualified names
+}
+
+impl<'data> From<usize> for MacroIdRef<'data> {
+    fn from(address: usize) -> Self {
+        MacroIdRef::LocalAddress(address)
+    }
+}
+
+impl<'data> From<&'data str> for MacroIdRef<'data> {
+    fn from(name: &'data str) -> Self {
+        MacroIdRef::LocalName(name)
+    }
 }
 
 #[derive(Copy, Clone)]

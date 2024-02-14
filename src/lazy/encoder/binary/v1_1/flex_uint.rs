@@ -1,6 +1,8 @@
 use crate::result::IonFailure;
 use crate::types::integer::UIntData;
 use crate::{IonResult, UInt};
+use bumpalo::collections::Vec as BumpVec;
+use ice_code::ice as cold_path;
 use num_bigint::BigUint;
 use num_traits::ToBytes;
 use std::io::Write;
@@ -146,48 +148,50 @@ impl FlexUInt {
             return Ok(flex_uint);
         }
 
-        // If we reach this point, the first byte was a zero. The FlexUInt is at least 9 bytes in size.
-        // We need to inspect the second byte to see how many more prefix bits there are.
-        if bytes_available < 2 {
-            return incomplete();
-        }
-        let second_byte = bytes[1];
-
-        if second_byte & 0b11 == 0b00 {
-            // The flag bits in the second byte indicate at least two more bytes, meaning the total
-            // length is more than 10 bytes. We're not equipped to handle this.
-            return IonResult::decoding_error(
-                "found a >10 byte Flex(U)Int too large to fit in 64 bits",
-            );
-        }
-
-        if second_byte & 0b11 == 0b10 {
-            // The lowest bit of the second byte is empty, the next lowest is not. The encoding
-            // is 10 bytes.
-
-            if bytes_available < 10 {
+        cold_path! {{
+            // If we reach this point, the first byte was a zero. The FlexUInt is at least 9 bytes in size.
+            // We need to inspect the second byte to see how many more prefix bits there are.
+            if bytes_available < 2 {
                 return incomplete();
             }
+            let second_byte = bytes[1];
 
-            let flex_uint = Self::read_10_byte_flex_primitive_as_uint(
-                support_sign_extension,
-                bytes,
-                second_byte,
-            )?;
-            return Ok(flex_uint);
-        }
+            if second_byte & 0b11 == 0b00 {
+                // The flag bits in the second byte indicate at least two more bytes, meaning the total
+                // length is more than 10 bytes. We're not equipped to handle this.
+                return IonResult::decoding_error(
+                    "found a >10 byte Flex(U)Int too large to fit in 64 bits",
+                );
+            }
 
-        // The lowest bit of the second byte is set. The encoding is 9 bytes.
-        if bytes_available < 9 {
-            return incomplete();
-        }
-        // There are 57-63 bits of magnitude. We can decode the remaining bytes in a u64.
-        let remaining_data = &bytes[1..9];
-        // We know that the slice is 8 bytes long, so we can unwrap() the conversion to [u8; 8]
-        // Lop off the lowest bit to discard the `end` flag.
-        let value = u64::from_le_bytes(remaining_data[..8].try_into().unwrap()) >> 1;
-        let flex_uint = FlexUInt::new(9, value);
-        Ok(flex_uint)
+            if second_byte & 0b11 == 0b10 {
+                // The lowest bit of the second byte is empty, the next lowest is not. The encoding
+                // is 10 bytes.
+
+                if bytes_available < 10 {
+                    return incomplete();
+                }
+
+                let flex_uint = Self::read_10_byte_flex_primitive_as_uint(
+                    support_sign_extension,
+                    bytes,
+                    second_byte,
+                )?;
+                return Ok(flex_uint);
+            }
+
+            // The lowest bit of the second byte is set. The encoding is 9 bytes.
+            if bytes_available < 9 {
+                return incomplete();
+            }
+            // There are 57-63 bits of magnitude. We can decode the remaining bytes in a u64.
+            let remaining_data = &bytes[1..9];
+            // We know that the slice is 8 bytes long, so we can unwrap() the conversion to [u8; 8]
+            // Lop off the lowest bit to discard the `end` flag.
+            let value = u64::from_le_bytes(remaining_data[..8].try_into().unwrap()) >> 1;
+            let flex_uint = FlexUInt::new(9, value);
+            Ok(flex_uint)
+        }}
     }
 
     /// Helper method to handle flex primitives whose encoding requires 10 bytes. This case is
@@ -258,13 +262,17 @@ impl FlexUInt {
         Ok(flex_uint)
     }
 
+    #[inline]
     pub fn write<W: Write>(output: &mut W, value: &UInt) -> IonResult<usize> {
         match &value.data {
             UIntData::U64(uint) => Self::write_u64(output, *uint),
-            UIntData::BigUInt(uint) => Self::write_big_uint(output, uint),
+            UIntData::BigUInt(uint) => cold_path! {
+                Self::write_big_uint(output, uint)
+            },
         }
     }
 
+    #[cold]
     fn write_big_uint<W: Write>(output: &mut W, value: &BigUint) -> IonResult<usize> {
         // There's lots of room for optimization here, but this code path is rarely taken.
         let le_bytes = value.to_bytes_le();
@@ -277,7 +285,62 @@ impl FlexUInt {
         Ok(encoding.len())
     }
 
+    /// This is equivalent to calling `write_u64(my_bump_vec).unwrap()`, but optimized for writing
+    /// to a `BumpVec` instead of a `W: Write`. Writing to a BumpVec cannot fail (barring out-of-
+    /// memory errors and the like), which eliminates some branching, a loop inside
+    /// `io::Write::write_all`, and the construction of a return value.
     #[inline]
+    pub(crate) fn encode_u64(output: &mut BumpVec<u8>, value: u64) {
+        // This code will be inlined at the call site...
+        if value < 127 {
+            let flex_uint_byte = (value << 1) as u8 + 1;
+            return output.extend_from_slice_copy(&[flex_uint_byte]);
+        }
+
+        //...while this code will not.
+        cold_path! {
+            general_case => Self::encode_u64_general_case(output, value)
+        }
+    }
+
+    /// Can encode a u64 of any size to the provided [`BumpVec`]. Some other methods are optimized
+    /// for encoding small u64s and fall back to this method to encode values that are larger.
+    fn encode_u64_general_case(output: &mut BumpVec<u8>, value: u64) {
+        let leading_zeros = value.leading_zeros();
+        let num_encoded_bytes = BYTES_NEEDED_CACHE[leading_zeros as usize] as usize;
+        if num_encoded_bytes <= 8 {
+            let flag_bits = 1u64 << (num_encoded_bytes - 1);
+            // Left shift the value to accommodate the trailing flag bits and then OR them together
+            let encoded_value = (value << num_encoded_bytes) | flag_bits;
+            output.extend_from_slice_copy(&encoded_value.to_le_bytes()[..num_encoded_bytes]);
+            return;
+        }
+        cold_path! {
+            // NB: There is not a BumpVec-specialized `encoding_*` version of `write_large_u64` as
+            // it is very rarely called.
+            encode_xl_u64 => {
+                let _ = Self::write_large_u64(output, value, num_encoded_bytes);
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn encode_opcode_and_length(output: &mut BumpVec<u8>, opcode: u8, length: u64) {
+        // In the common case, the length fits in a single FlexUInt byte. We can perform a single
+        // `reserve`/`memcopy` to get both the opcode and the length into the buffer.
+        if length < 127 {
+            let flex_uint_byte = (length << 1) as u8 + 1;
+            return output.extend_from_slice_copy(&[opcode, flex_uint_byte]);
+        }
+
+        // If there's call for it, we could also do this for 2-byte FlexUInts. For now, we fall
+        // back to the general-purpose.
+        cold_path! { encode_opcode_and_length_general_case => {
+            output.push(opcode);
+            FlexUInt::encode_u64_general_case(output, length)
+        }}
+    }
+
     pub fn write_u64<W: Write>(output: &mut W, value: u64) -> IonResult<usize> {
         let leading_zeros = value.leading_zeros();
         let num_encoded_bytes = BYTES_NEEDED_CACHE[leading_zeros as usize] as usize;
@@ -288,7 +351,9 @@ impl FlexUInt {
             output.write_all(&encoded_value.to_le_bytes()[..num_encoded_bytes])?;
             return Ok(num_encoded_bytes);
         }
-        Self::write_large_u64(output, value, num_encoded_bytes)
+        cold_path! {
+            write_xl_u64 => Self::write_large_u64(output, value, num_encoded_bytes)
+        }
     }
 
     /// Helper method that encodes a signed values that require 9 or 10 bytes to represent.

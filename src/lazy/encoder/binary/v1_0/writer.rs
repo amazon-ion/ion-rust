@@ -42,7 +42,7 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
         // Construct the writer
         Ok(Self {
             output,
-            allocator: BumpAllocator::new(),
+            allocator: BumpAllocator::with_capacity(16 * 1024),
             encoding_buffer_ptr: None,
         })
     }
@@ -128,10 +128,8 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_0<W> {
 impl<W: Write> MakeValueWriter for LazyRawBinaryWriter_1_0<W> {
     type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_0<'a, 'a> where Self: 'a;
 
-    delegate! {
-        to self {
-            fn value_writer(&mut self) -> Self::ValueWriter<'_>;
-        }
+    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+        self.value_writer()
     }
 }
 

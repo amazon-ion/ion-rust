@@ -1,12 +1,20 @@
 use std::io;
+use std::io::Error;
 use thiserror::Error;
 
 /// Indicates that a read or write operation failed due to an I/O error.
 #[derive(Debug, Error)]
 #[error("{source:?}")]
 pub struct IoError {
-    #[from]
     source: io::Error,
+}
+
+impl From<io::Error> for IoError {
+    #[cold]
+    #[inline(never)]
+    fn from(value: Error) -> Self {
+        IoError { source: value }
+    }
 }
 
 impl IoError {

@@ -2,23 +2,34 @@ use arrayvec::ArrayVec;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use delegate::delegate;
+use ice_code::ice as cold_path;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use crate::lazy::encoder::binary::annotate_and_delegate;
 use crate::lazy::encoder::binary::v1_1::container_writers::{
-    BinaryContainerWriter_1_1, BinaryListWriter_1_1, BinarySExpWriter_1_1, BinaryStructWriter_1_1,
+    BinaryContainerWriter_1_1, BinaryListWriter_1_1, BinaryMacroArgsWriter_1_1,
+    BinarySExpWriter_1_1, BinaryStructWriter_1_1,
 };
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::private::Sealed;
-use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, ValueWriter};
+use crate::lazy::encoder::value_writer::{
+    delegate_value_writer_to_self, AnnotatableValueWriter, ValueWriter,
+};
+use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
 use crate::types::integer::IntData;
 use crate::{
     Decimal, FlexInt, FlexUInt, Int, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp,
 };
+
+/// The initial size of the bump-allocated buffer created to hold a container's child elements.
+// This number was chosen somewhat arbitrarily and can be updated as needed.
+// TODO: Writers could track the largest container size they've seen and use that as their initial
+//       size to minimize reallocations.
+const DEFAULT_CONTAINER_BUFFER_SIZE: usize = 512;
 
 pub struct BinaryValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
@@ -50,7 +61,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
 
     #[inline]
     fn push_bytes(&mut self, bytes: &[u8]) {
-        self.encoding_buffer.extend_from_slice(bytes)
+        self.encoding_buffer.extend_from_slice_copy(bytes)
     }
 
     pub(crate) fn buffer(&self) -> &[u8] {
@@ -481,59 +492,73 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         Ok(())
     }
 
+    #[inline]
     pub fn write_string<A: AsRef<str>>(mut self, value: A) -> IonResult<()> {
         const STRING_OPCODE: u8 = 0x80;
         const STRING_FLEX_UINT_LEN_OPCODE: u8 = 0xF8;
-        self.write_text(STRING_OPCODE, STRING_FLEX_UINT_LEN_OPCODE, value.as_ref())
+        self.write_text(STRING_OPCODE, STRING_FLEX_UINT_LEN_OPCODE, value.as_ref());
+        Ok(())
     }
 
+    #[inline]
     pub fn write_symbol<A: AsRawSymbolTokenRef>(mut self, value: A) -> IonResult<()> {
         const SYMBOL_OPCODE: u8 = 0x90;
         const SYMBOL_FLEX_UINT_LEN_OPCODE: u8 = 0xF9;
         match value.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(sid) => self.write_symbol_id(sid),
             RawSymbolTokenRef::Text(text) => {
-                self.write_text(SYMBOL_OPCODE, SYMBOL_FLEX_UINT_LEN_OPCODE, text.as_ref())
+                self.write_text(SYMBOL_OPCODE, SYMBOL_FLEX_UINT_LEN_OPCODE, text.as_ref());
+                Ok(())
             }
         }
     }
 
     #[inline]
     fn write_symbol_id(&mut self, symbol_id: SymbolId) -> IonResult<()> {
-        match symbol_id {
+        let mut buffer = [0u8; 4];
+        let encoded_bytes = match symbol_id {
             0..=255 => {
-                self.push_bytes(&[0xE1, symbol_id as u8]);
+                buffer[0] = 0xE1; // Symbol ID value opcode; one-byte FixedUInt follows
+                buffer[1] = symbol_id as u8;
+                &buffer[0..2]
             }
             // The u16::MAX range, but biased by 256.
             256..=65_791 => {
-                self.push_byte(0xE2); // Two-byte biased FixedUInt follows
-                let encoded_length = ((symbol_id - 256) as u16).to_le_bytes();
-                self.push_bytes(encoded_length.as_slice());
+                let le_bytes = ((symbol_id - 256) as u16).to_le_bytes();
+                buffer[0] = 0xE2; // Symbol ID value opcode; two-byte FixedUInt follows
+                buffer[1] = le_bytes[0];
+                buffer[2] = le_bytes[1];
+                &buffer[0..3]
             }
             // 65,792 and higher
             _ => {
-                self.push_byte(0xE3); // Biased FlexUInt follows
-                FlexUInt::write_u64(self.encoding_buffer, symbol_id as u64 - 65_792)?;
+                cold_path! {
+                    xl_symbol_id_value => {
+                        self.push_byte(0xE3); // Biased FlexUInt follows
+                        FlexUInt::encode_u64(self.encoding_buffer, symbol_id as u64 - 65_792)
+                    }
+                };
+                return Ok(());
             }
-        }
+        };
+        self.push_bytes(encoded_bytes);
         Ok(())
     }
 
     /// Helper method for writing strings and symbols with inline UTF8 bytes.
     #[inline]
-    fn write_text(&mut self, opcode: u8, var_len_opcode: u8, text: &str) -> IonResult<()> {
-        match text.len() {
-            num_utf8_bytes @ 0..=15 => {
-                // The length is small enough to safely cast it to u8 and include it in the opcode.
-                self.push_byte(opcode | num_utf8_bytes as u8);
-            }
-            num_utf8_bytes => {
-                self.push_byte(var_len_opcode);
-                FlexUInt::write_u64(self.encoding_buffer, num_utf8_bytes as u64)?;
-            }
-        };
+    fn write_text(&mut self, opcode: u8, var_len_opcode: u8, text: &str) {
+        if text.len() < 16 {
+            self.encoding_buffer
+                .extend_from_slice_copy(&[opcode | text.len() as u8]);
+        } else {
+            FlexUInt::encode_opcode_and_length(
+                self.encoding_buffer,
+                var_len_opcode,
+                text.len() as u64,
+            );
+        }
         self.push_bytes(text.as_bytes());
-        Ok(())
     }
 
     pub fn write_clob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()> {
@@ -571,9 +596,9 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         list_fn: F,
     ) -> IonResult<()> {
         // We're writing a length-prefixed list, so we need to set up a space to encode the list's children.
-        let child_encoding_buffer = self
-            .allocator
-            .alloc_with(|| BumpVec::new_in(self.allocator));
+        let child_encoding_buffer = self.allocator.alloc_with(|| {
+            BumpVec::with_capacity_in(DEFAULT_CONTAINER_BUFFER_SIZE, self.allocator)
+        });
         // Create a BinaryListWriter_1_1 to pass to the user's closure.
         let container_writer =
             BinaryContainerWriter_1_1::new(self.allocator, child_encoding_buffer);
@@ -593,8 +618,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
                 FlexUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
             }
         }
-        self.encoding_buffer
-            .extend_from_slice(list_writer.container_writer.buffer());
+        self.push_bytes(list_writer.container_writer.buffer());
         Ok(())
     }
 
@@ -633,9 +657,9 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         sexp_fn: F,
     ) -> IonResult<()> {
         // We're writing a length-prefixed sexp, so we need to set up a space to encode the sexp's children.
-        let child_encoding_buffer = self
-            .allocator
-            .alloc_with(|| BumpVec::new_in(self.allocator));
+        let child_encoding_buffer = self.allocator.alloc_with(|| {
+            BumpVec::with_capacity_in(DEFAULT_CONTAINER_BUFFER_SIZE, self.allocator)
+        });
         // Create a BinarySExpWriter_1_1 to pass to the user's closure.
         let container_writer =
             BinaryContainerWriter_1_1::new(self.allocator, child_encoding_buffer);
@@ -655,8 +679,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
                 FlexUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
             }
         }
-        self.encoding_buffer
-            .extend_from_slice(sexp_writer.container_writer.buffer());
+        self.push_bytes(sexp_writer.container_writer.buffer());
         Ok(())
     }
 
@@ -698,7 +721,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         let fields_encoding_buffer = self.encoding_buffer;
         let container_writer =
             BinaryContainerWriter_1_1::new(self.allocator, fields_encoding_buffer);
-        let struct_writer = &mut BinaryStructWriter_1_1::new(container_writer);
+        let struct_writer = &mut BinaryStructWriter_1_1::new_delimited(container_writer);
         struct_writer.buffer().push(0xF3); // Start delimited Struct
         struct_fn(struct_writer)?;
         struct_writer.buffer().push(0xF0); // End delimited container
@@ -712,13 +735,13 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         struct_fn: F,
     ) -> IonResult<()> {
         // We're writing a length-prefixed struct, so we need to set up a space to encode the struct's fields.
-        let field_encoding_buffer = self
-            .allocator
-            .alloc_with(|| BumpVec::new_in(self.allocator));
+        let field_encoding_buffer = self.allocator.alloc_with(|| {
+            BumpVec::with_capacity_in(DEFAULT_CONTAINER_BUFFER_SIZE, self.allocator)
+        });
         // Create a BinaryStructWriter_1_1 to pass to the user's closure.
         let container_writer =
             BinaryContainerWriter_1_1::new(self.allocator, field_encoding_buffer);
-        let mut struct_writer = BinaryStructWriter_1_1::new(container_writer);
+        let mut struct_writer = BinaryStructWriter_1_1::new_length_prefixed(container_writer);
         // Pass it to the closure, allowing the user to encode field names/values.
         struct_fn(&mut struct_writer)?;
         // Write the appropriate opcode for a struct of this length
@@ -734,9 +757,34 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
                 FlexUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
             }
         }
-        self.encoding_buffer
-            .extend_from_slice(struct_writer.buffer());
+        self.push_bytes(struct_writer.buffer());
         Ok(())
+    }
+
+    fn write_eexp<
+        'macro_id,
+        F: for<'a> FnOnce(&mut <Self as ValueWriter>::MacroArgsWriter<'a>) -> IonResult<()>,
+    >(
+        self,
+        macro_id: impl Into<MacroIdRef<'macro_id>>,
+        macro_fn: F,
+    ) -> IonResult<()> {
+        match macro_id.into() {
+            MacroIdRef::LocalName(_name) => {
+                // This would be handled by the system writer
+                todo!("macro invocation by name");
+            }
+            MacroIdRef::LocalAddress(address) if address < 64 => {
+                // Invoke this ID with a one-byte opcode
+                self.encoding_buffer.push(address as u8);
+            }
+            MacroIdRef::LocalAddress(_address) => {
+                todo!("macros with addresses higher than 64");
+            }
+        }
+        let container_writer = BinaryContainerWriter_1_1::new(self.allocator, self.encoding_buffer);
+        let mut args_writer = BinaryMacroArgsWriter_1_1 { container_writer };
+        macro_fn(&mut args_writer)
     }
 }
 
@@ -747,36 +795,9 @@ impl<'value, 'top> ValueWriter for BinaryValueWriter_1_1<'value, 'top> {
     type SExpWriter<'a> = BinarySExpWriter_1_1<'value, 'top>;
     type StructWriter<'a> = BinaryStructWriter_1_1<'value, 'top>;
 
-    delegate! {
-        to self {
-            fn write_null(self, ion_type: IonType) -> IonResult<()>;
-            fn write_bool(self, value: bool) -> IonResult<()>;
-            fn write_i64(self, value: i64) -> IonResult<()>;
-            fn write_int(self, value: &Int) -> IonResult<()>;
-            fn write_f32(self, value: f32) -> IonResult<()>;
-            fn write_f64(self, value: f64) -> IonResult<()>;
-            fn write_decimal(self, value: &Decimal) -> IonResult<()>;
-            fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
-            fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
-            fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
-            fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
-            fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
-            fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
-                self,
-                list_fn: F,
-            ) -> IonResult<()>;
-            fn write_sexp<F: for<'a> FnOnce(&mut Self::SExpWriter<'a>) -> IonResult<()>>(
-                self,
-                sexp_fn: F,
-            ) -> IonResult<()>;
-            fn write_struct<
-                F: for<'a> FnOnce(&mut Self::StructWriter<'a>) -> IonResult<()>,
-            >(
-                self,
-                struct_fn: F,
-            ) -> IonResult<()>;
-        }
-    }
+    type MacroArgsWriter<'a> = BinaryMacroArgsWriter_1_1<'value, 'top>;
+
+    delegate_value_writer_to_self!();
 }
 
 pub struct BinaryAnnotatableValueWriter_1_1<'value, 'top> {
@@ -906,7 +927,8 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
         // A FlexUInt follows that represents the length of a sequence of FlexSym-encoded annotations
         self.buffer.push(0xE9);
         FlexUInt::write_u64(self.buffer, annotations_buffer.len() as u64)?;
-        self.buffer.extend_from_slice(annotations_buffer.as_slice());
+        self.buffer
+            .extend_from_slice_copy(annotations_buffer.as_slice());
         Ok(())
     }
 }
@@ -923,6 +945,7 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
     type ListWriter<'a> = BinaryListWriter_1_1<'value, 'top>;
     type SExpWriter<'a> = BinarySExpWriter_1_1<'value, 'top>;
     type StructWriter<'a> = BinaryStructWriter_1_1<'value, 'top>;
+    type MacroArgsWriter<'a> = BinaryMacroArgsWriter_1_1<'value, 'top>;
 
     annotate_and_delegate!(
         IonType => write_null,
@@ -956,6 +979,13 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
         struct_fn: F,
     ) -> IonResult<()> {
         self.encode_annotated(|value_writer| value_writer.write_struct(struct_fn))
+    }
+    fn write_eexp<'macro_id, F: for<'a> FnOnce(&mut Self::MacroArgsWriter<'a>) -> IonResult<()>>(
+        self,
+        macro_id: impl Into<MacroIdRef<'macro_id>>,
+        macro_fn: F,
+    ) -> IonResult<()> {
+        self.encode_annotated(|value_writer| value_writer.write_eexp(macro_id, macro_fn))
     }
 }
 
@@ -2571,7 +2601,7 @@ mod tests {
                     // 8-byte struct
                     0xC9,
                     // Enable FlexSym field name encoding
-                    0x00,
+                    0x01,
                     // Inline 3-byte field name
                     // ↓     f     o     o
                     0xFB, 0x66, 0x6F, 0x6F,
@@ -2589,7 +2619,7 @@ mod tests {
                     // FlexUInt 18
                     0x25,
                     // Enable FlexSym field name encoding
-                    0x00,
+                    0x01,
                     // Inline 3-byte field name
                     // ↓     f     o     o
                     0xFB, 0x66, 0x6F, 0x6F,
@@ -2623,7 +2653,7 @@ mod tests {
                     // ↓     b     a     r
                     0x93, 0x62, 0x61, 0x72,
                     // Enable FlexSym field name encoding
-                    0x00,
+                    0x01,
                     // Inline 4-byte field name
                     // ↓     q     u     u     x
                     0xF9, 0x71, 0x75, 0x75, 0x78,
@@ -2651,7 +2681,7 @@ mod tests {
             let test_cases: &[(TestStruct, &[u8])] = &[
             // Empty struct
             (&[], &[0xF3, 0xF0]),
-            // Struct with a single FlexUInt field name
+            // Struct with a single symbol ID field name
             (
                 &[field(4, "foo")],
                 &[
@@ -2666,7 +2696,7 @@ mod tests {
                     0xF0,
                 ],
             ),
-            // Struct with multiple FlexUInt field names
+            // Struct with multiple symbol ID field names
             (
                 &[field(4, "foo"), field(5, "bar"), field(6, "baz")],
                 &[
@@ -2692,14 +2722,12 @@ mod tests {
                     0xF0,
                 ],
             ),
-            // Struct with single FlexSym field name
+            // Struct with single inline-text field name
             (
                 &[field("foo", "bar")],
                 &[
                     // Delimited struct
                     0xF3,
-                    // Enable FlexSym field name encoding
-                    0x00,
                     // Inline 3-byte field name
                     // ↓     f     o     o
                     0xFB, 0x66, 0x6F, 0x6F,
@@ -2710,14 +2738,12 @@ mod tests {
                     0xF0,
                 ],
             ),
-            // Struct with multiple FlexSym field names
+            // Struct with multiple inline-text field names
             (
                 &[field("foo", "bar"), field("baz", "quux")],
                 &[
                     // Delimited struct
                     0xF3,
-                    // Enable FlexSym field name encoding
-                    0x00,
                     // Inline 3-byte field name
                     // ↓     f     o     o
                     0xFB, 0x66, 0x6F, 0x6F,
@@ -2734,7 +2760,7 @@ mod tests {
                     0xF0,
                 ],
             ),
-            // Struct with multiple FlexUInt field names followed by a FlexSym field name
+            // Struct with multiple symbol ID field names followed by an inline text field name
             (
                 &[field(4, "foo"), field(5, "bar"), field("quux", "quuz")],
                 &[
@@ -2750,8 +2776,6 @@ mod tests {
                     // 3-byte symbol
                     // ↓     b     a     r
                     0x93, 0x62, 0x61, 0x72,
-                    // Enable FlexSym field name encoding
-                    0x00,
                     // Inline 4-byte field name
                     // ↓     q     u     u     x
                     0xF9, 0x71, 0x75, 0x75, 0x78,
@@ -2945,6 +2969,31 @@ mod tests {
             ],
         )?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn write_macro_invocations() -> IonResult<()> {
+        encoding_test(
+            |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                writer
+                    .value_writer()
+                    .without_annotations()
+                    .write_eexp(0, |args| {
+                        args.write_symbol("foo")?
+                            .write_symbol("bar")?
+                            .write_symbol("baz")?;
+                        Ok(())
+                    })?;
+                Ok(())
+            },
+            &[
+                0x00, // Invoke macro address 0
+                0x93, 0x66, 0x6f, 0x6f, // foo
+                0x93, 0x62, 0x61, 0x72, // bar
+                0x93, 0x62, 0x61, 0x7a, // baz
+            ],
+        )?;
         Ok(())
     }
 }

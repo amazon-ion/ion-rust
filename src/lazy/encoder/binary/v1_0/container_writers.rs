@@ -57,7 +57,7 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
             self.parent_buffer.push(self.type_code | 0xE);
             VarUInt::write_u64(&mut self.parent_buffer, body_length as u64)?;
         }
-        self.parent_buffer.extend_from_slice(body);
+        self.parent_buffer.extend_from_slice_copy(body);
         Ok(())
     }
 }
@@ -67,9 +67,14 @@ pub struct BinaryContainerValuesWriter_1_0<'value> {
     buffer: BumpVec<'value, u8>,
 }
 
+// This value was chosen somewhat arbitrarily and can be modified as needed. Choosing a value that
+// is too low will lead to performance degradation as the buffer will require multiple
+// reallocations/copies.
+const DEFAULT_CONTAINER_BUFFER_SIZE: usize = 512;
+
 impl<'value> BinaryContainerValuesWriter_1_0<'value> {
     pub fn new(allocator: &'value BumpAllocator) -> Self {
-        let buffer = BumpVec::new_in(allocator);
+        let buffer = BumpVec::with_capacity_in(DEFAULT_CONTAINER_BUFFER_SIZE, allocator);
         Self { allocator, buffer }
     }
 
@@ -98,7 +103,7 @@ impl<'value> BinaryListValuesWriter_1_0<'value> {
 impl<'value> MakeValueWriter for BinaryListValuesWriter_1_0<'value> {
     type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_0<'a, 'value> where Self: 'a;
 
-    fn value_writer(&mut self) -> Self::ValueWriter<'_> {
+    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         BinaryAnnotatableValueWriter_1_0::new(
             self.values_writer.allocator,
             &mut self.values_writer.buffer,
@@ -155,7 +160,7 @@ impl<'value> BinarySExpValuesWriter_1_0<'value> {
 impl<'value> MakeValueWriter for BinarySExpValuesWriter_1_0<'value> {
     type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_0<'a, 'value> where Self: 'a;
 
-    fn value_writer(&mut self) -> Self::ValueWriter<'_> {
+    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         BinaryAnnotatableValueWriter_1_0::new(
             self.values_writer.allocator,
             &mut self.values_writer.buffer,

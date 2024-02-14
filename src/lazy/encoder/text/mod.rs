@@ -68,7 +68,7 @@ impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_0<W> {
     where
         Self: 'a;
 
-    fn value_writer(&mut self) -> Self::ValueWriter<'_> {
+    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         let value_writer = TextValueWriter_1_0::new(self, 0);
         TextAnnotatableValueWriter_1_0::new(value_writer)
     }

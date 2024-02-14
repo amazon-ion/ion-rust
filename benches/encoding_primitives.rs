@@ -142,7 +142,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 }
 
 fn roundtrip_var_uint_test(unsigned_values: &[u64]) -> IonResult<Vec<u8>> {
-    println!("Roundtripping unsigned values as VarUInts to check for correctness.");
     let mut encoded_values_buffer = Vec::new();
     for value in unsigned_values {
         VarUInt::write_u64(&mut encoded_values_buffer, *value)?;
@@ -159,7 +158,6 @@ fn roundtrip_var_uint_test(unsigned_values: &[u64]) -> IonResult<Vec<u8>> {
 }
 
 fn roundtrip_var_int_test(signed_values: &[i64]) -> IonResult<Vec<u8>> {
-    println!("Roundtripping signed values as VarInts to check for correctness.");
     let mut encoded_values_buffer = Vec::new();
     for value in signed_values {
         VarInt::write_i64(&mut encoded_values_buffer, *value)?;
@@ -176,7 +174,6 @@ fn roundtrip_var_int_test(signed_values: &[i64]) -> IonResult<Vec<u8>> {
 }
 
 fn roundtrip_flex_uint_test(unsigned_values: &[u64]) -> IonResult<Vec<u8>> {
-    println!("Roundtripping unsigned values as FlexUInts to check for correctness.");
     let mut encoded_values_buffer = Vec::new();
     for value in unsigned_values {
         FlexUInt::write_u64(&mut encoded_values_buffer, *value)?;
@@ -193,7 +190,6 @@ fn roundtrip_flex_uint_test(unsigned_values: &[u64]) -> IonResult<Vec<u8>> {
 }
 
 fn roundtrip_flex_int_test(signed_values: &[i64]) -> IonResult<Vec<u8>> {
-    println!("Roundtripping signed values as FlexInts to check for correctness.");
     let mut encoded_values_buffer = Vec::new();
     for value in signed_values {
         FlexInt::write_i64(&mut encoded_values_buffer, *value)?;
