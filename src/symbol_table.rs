@@ -53,18 +53,12 @@ impl SymbolTable {
         }
 
         // Otherwise, intern it and return the new ID.
-        let id = self.symbols_by_id.len();
-        let arc: Arc<str> = Arc::from(text);
-        let symbol = Symbol::shared(arc);
-        self.symbols_by_id.push(symbol.clone());
-        self.ids_by_text.insert(symbol, id);
-        id
+        self.add_symbol(text)
     }
 
     /// adds `text` to the symbol table and returns the newly assigned [SymbolId].
     pub(crate) fn add_symbol<A: AsRef<str>>(&mut self, text: A) -> SymbolId {
         let text = text.as_ref();
-        // Otherwise, intern it and return the new ID.
         let id = self.symbols_by_id.len();
         let arc: Arc<str> = Arc::from(text);
         let symbol = Symbol::shared(arc);

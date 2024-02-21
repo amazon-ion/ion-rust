@@ -345,7 +345,7 @@ impl<R: RawReader> SystemReader<R> {
                     Ok(field_name_token) => {
                         let field_name = match field_name_token {
                             RawSymbolToken::SymbolId(sid) => self.symbol_table.text_for(sid),
-                            RawSymbolToken::Text(_) => field_name_token.text(),
+                            RawSymbolToken::Text(ref text) => Some(text.as_str()),
                         };
                         if let Some(field_name) = field_name {
                             match field_name {
@@ -1137,12 +1137,15 @@ mod tests {
                 0x88, // $8 `max_id`
                 0x21, 0x02, // INT 2
                 0x71, 0x04, // $4 `name`
+                0x71, 0x0a, // $10 `name`
                 0x71, 0x0b, // $11 `foo`
             ],
             Box::new(map_catalog),
         );
         assert_eq!(reader.next()?, VersionMarker(1, 0));
         assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
+        assert_eq!(reader.read_symbol()?, Symbol::shared(Arc::from("name")));
         assert_eq!(reader.next()?, Value(IonType::Symbol));
         assert_eq!(reader.read_symbol()?, Symbol::shared(Arc::from("name")));
         assert_eq!(reader.next()?, Value(IonType::Symbol));
