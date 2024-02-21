@@ -53,6 +53,12 @@ impl SymbolTable {
         }
 
         // Otherwise, intern it and return the new ID.
+        self.add_symbol(text)
+    }
+
+    /// adds `text` to the symbol table and returns the newly assigned [SymbolId].
+    pub(crate) fn add_symbol<A: AsRef<str>>(&mut self, text: A) -> SymbolId {
+        let text = text.as_ref();
         let id = self.symbols_by_id.len();
         let arc: Arc<str> = Arc::from(text);
         let symbol = Symbol::shared(arc);
@@ -67,6 +73,18 @@ impl SymbolTable {
         let sid = self.symbols_by_id.len();
         self.symbols_by_id.push(Symbol::unknown_text());
         sid
+    }
+
+    /// If `maybe_text` is `Some(text)`, this method is equivalent to `add_symbol(text)`.
+    /// If `maybe_text` is `None`, this method is equivalent to `add_placeholder()`.
+    pub(crate) fn add_symbol_or_placeholder<A: AsRef<str>>(
+        &mut self,
+        maybe_text: Option<A>,
+    ) -> SymbolId {
+        match maybe_text {
+            Some(text) => self.add_symbol(text),
+            None => self.add_placeholder(),
+        }
     }
 
     /// If `maybe_text` is `Some(text)`, this method is equivalent to `intern(text)`.

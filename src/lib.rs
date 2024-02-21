@@ -177,12 +177,14 @@ pub mod thunk;
 pub mod tokens;
 pub(crate) mod unsafe_helpers;
 
+pub use catalog::{Catalog, MapCatalog};
 pub use element::builders::{SequenceBuilder, StructBuilder};
 pub use element::{
     reader::ElementReader, writer::ElementWriter, Annotations, Element, IntoAnnotatedElement,
     IntoAnnotations, Sequence, Value,
 };
 pub use ion_data::IonData;
+pub use shared_symbol_table::SharedSymbolTable;
 pub use symbol_ref::SymbolRef;
 #[doc(inline)]
 pub use types::{
