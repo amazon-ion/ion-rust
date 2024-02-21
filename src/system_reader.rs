@@ -343,13 +343,16 @@ impl<R: RawReader> SystemReader<R> {
             AtLstImportStart | BetweenLstImportFields => {
                 match self.raw_reader.field_name() {
                     Ok(field_name_token) => {
-                        if let Some(field_name) = field_name_token.text() {
-                            if field_name == "name" {
-                                self.lst.state = AtImportName;
-                            } else if field_name == "version" {
-                                self.lst.state = AtImportVersion;
-                            } else if field_name == "max_id" {
-                                self.lst.state = AtImportMaxId;
+                        let field_name = match field_name_token {
+                            RawSymbolToken::SymbolId(sid) => self.symbol_table.text_for(sid),
+                            RawSymbolToken::Text(_) => field_name_token.text(),
+                        };
+                        if let Some(field_name) = field_name {
+                            match field_name {
+                                "name" => self.lst.state = AtImportName,
+                                "version" => self.lst.state = AtImportVersion,
+                                "max_id" => self.lst.state = AtImportMaxId,
+                                _ => {}
                             }
                         }
                     }
@@ -432,9 +435,10 @@ impl<R: RawReader> SystemReader<R> {
             // This is not an append. Clear the current symbol table.
             self.symbol_table.reset();
         }
+
         // This for loop consumes the `String` values, clearing `self.lst.imported_symbols`
         for value in self.lst.imported_symbols.drain(..) {
-            self.symbol_table.intern_or_add_placeholder(value);
+            self.symbol_table.add_symbol_or_placeholder(value);
         }
         // This for loop consumes the `String` values, clearing `self.lst.symbols`.
         for value in self.lst.symbols.drain(..) {
@@ -859,6 +863,7 @@ mod tests {
     use crate::blocking_reader::*;
     use crate::catalog::MapCatalog;
     use crate::shared_symbol_table::SharedSymbolTable;
+    use std::sync::Arc;
 
     use super::*;
 
@@ -872,6 +877,14 @@ mod tests {
         catalog: Box<dyn Catalog>,
     ) -> SystemReader<BlockingRawTextReader<&str>> {
         let raw_reader = BlockingRawTextReader::new(ion).expect("unable to initialize reader");
+        SystemReader::with_catalog(raw_reader, catalog)
+    }
+
+    fn binary_system_reader_with_catalog_for(
+        ion: &[u8],
+        catalog: Box<dyn Catalog>,
+    ) -> SystemReader<BlockingRawBinaryReader<&[u8]>> {
+        let raw_reader = BlockingRawBinaryReader::new(ion).expect("unable to initialize reader");
         SystemReader::with_catalog(raw_reader, catalog)
     }
 
@@ -1097,6 +1110,43 @@ mod tests {
         assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
         // ...but expect error as the reader would not be able to process a non existing shared symbol table
         assert!(reader.next().is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn shared_symbol_table_import_binary() -> IonResult<()> {
+        let mut map_catalog = MapCatalog::new();
+        // add a table with system symbol `name` and a new symbol `foo`
+        // reader should still add this system symbol `name` again($10), but whenever writing this symbol
+        // smallest ID($4) will be used
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table", 1, ["name", "foo"])?);
+        // The stream contains a shared symbol table import
+        let mut reader = binary_system_reader_with_catalog_for(
+            &[
+                0xe0, 0x01, 0x00, 0xea, // Ion 1.0 Version Marker
+                0xee, 0x9d, 0x81, 0x83, // '$ion_symbol_table'::
+                0xde, 0x99, // 26 bytes struct
+                0x86, // Field $6 `imports`
+                0xbe, 0x96, // List
+                0xde, 0x94, // 21 bytes struct
+                0x84, // Field $4 `name`
+                0x8c, 0x73, 0x68, 0x61, 0x72, 0x65, 0x64, 0x5f, 0x74, 0x61, 0x62, 0x6c,
+                0x65, // "shared_table"
+                0x85, // Field $5 `version`
+                0x21, 0x01, // INT 1
+                0x88, // $8 `max_id`
+                0x21, 0x02, // INT 2
+                0x71, 0x04, // $4 `name`
+                0x71, 0x0b, // $11 `foo`
+            ],
+            Box::new(map_catalog),
+        );
+        assert_eq!(reader.next()?, VersionMarker(1, 0));
+        assert_eq!(reader.next()?, SymbolTableValue(IonType::Struct));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
+        assert_eq!(reader.read_symbol()?, Symbol::shared(Arc::from("name")));
+        assert_eq!(reader.next()?, Value(IonType::Symbol));
+        assert_eq!(reader.read_symbol()?, Symbol::shared(Arc::from("foo")));
         Ok(())
     }
 

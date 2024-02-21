@@ -61,12 +61,36 @@ impl SymbolTable {
         id
     }
 
+    /// adds `text` to the symbol table and returns the newly assigned [SymbolId].
+    pub(crate) fn add_symbol<A: AsRef<str>>(&mut self, text: A) -> SymbolId {
+        let text = text.as_ref();
+        // Otherwise, intern it and return the new ID.
+        let id = self.symbols_by_id.len();
+        let arc: Arc<str> = Arc::from(text);
+        let symbol = Symbol::shared(arc);
+        self.symbols_by_id.push(symbol.clone());
+        self.ids_by_text.insert(symbol, id);
+        id
+    }
+
     /// Assigns unknown text to the next available symbol ID. This is used when an Ion reader
     /// encounters null or non-string values in a stream's symbol table.
     pub(crate) fn add_placeholder(&mut self) -> SymbolId {
         let sid = self.symbols_by_id.len();
         self.symbols_by_id.push(Symbol::unknown_text());
         sid
+    }
+
+    /// If `maybe_text` is `Some(text)`, this method is equivalent to `add_symbol(text)`.
+    /// If `maybe_text` is `None`, this method is equivalent to `add_placeholder()`.
+    pub(crate) fn add_symbol_or_placeholder<A: AsRef<str>>(
+        &mut self,
+        maybe_text: Option<A>,
+    ) -> SymbolId {
+        match maybe_text {
+            Some(text) => self.add_symbol(text),
+            None => self.add_placeholder(),
+        }
     }
 
     /// If `maybe_text` is `Some(text)`, this method is equivalent to `intern(text)`.
