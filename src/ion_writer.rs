@@ -97,6 +97,10 @@ pub trait IonWriter {
     /// This method can only be called when the writer is at the top level.
     fn flush(&mut self) -> IonResult<()>;
 
+    /// Flushes any buffered data to be written to the underlying io::Write implementation,
+    /// and returns the writer's output.
+    fn finish(self) -> IonResult<Self::Output>;
+
     // This portion of the doc comment is always visible
     #[doc = r##"
 Returns a reference to the writer's output.

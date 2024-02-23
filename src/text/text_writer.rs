@@ -181,6 +181,7 @@ impl<W: Write> IonWriter for TextWriter<W> {
             fn depth(&self) -> usize;
             fn step_out(&mut self) -> IonResult<()>;
             fn flush(&mut self) -> IonResult<()>;
+            fn finish(self) -> IonResult<Self::Output>;
             fn output(&self) -> &Self::Output;
             fn output_mut(&mut self) -> &mut Self::Output;
         }
@@ -219,6 +220,23 @@ mod tests {
         assert_eq!("name", reader.field_name()?);
         assert_eq!("version", reader.read_symbol()?);
 
+        Ok(())
+    }
+
+    #[test]
+    fn finish_test() -> IonResult<()> {
+        let buffer = Vec::new();
+        let mut text_writer = TextWriterBuilder::default().build(buffer)?;
+        text_writer.write_string("foo")?;
+        text_writer.write_i64(5)?;
+        let output = text_writer.finish()?;
+
+        let mut reader = ReaderBuilder::new().build(output)?;
+        assert_eq!(Value(IonType::String), reader.next()?);
+        assert_eq!("foo", reader.read_string()?);
+
+        assert_eq!(Value(IonType::Int), reader.next()?);
+        assert_eq!(5, reader.read_i64()?);
         Ok(())
     }
 }
