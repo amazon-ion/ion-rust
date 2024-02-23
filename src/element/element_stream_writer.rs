@@ -284,6 +284,10 @@ where
         Ok(())
     }
 
+    fn finish(self) -> IonResult<Self::Output> {
+        Ok(self.output)
+    }
+
     fn output(&self) -> &Self::Output {
         &self.output
     }

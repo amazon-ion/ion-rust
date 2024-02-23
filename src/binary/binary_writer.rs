@@ -192,6 +192,7 @@ impl<W: Write> IonWriter for BinaryWriter<W> {
             fn parent_type(&self) -> Option<IonType>;
             fn depth(&self) -> usize;
             fn step_out(&mut self) -> IonResult<()>;
+            fn finish(self) -> IonResult<Self::Output>;
             fn output(&self) -> &Self::Output;
             fn output_mut(&mut self) -> &mut Self::Output;
         }
@@ -260,6 +261,23 @@ mod tests {
         assert_eq!(Value(IonType::Symbol), reader.next()?);
         assert_eq!("baz", reader.read_symbol()?);
 
+        Ok(())
+    }
+
+    #[test]
+    fn finish_test() -> IonResult<()> {
+        let buffer = Vec::new();
+        let mut binary_writer = BinaryWriterBuilder::new().build(buffer)?;
+        binary_writer.write_string("foo")?;
+        binary_writer.write_i64(5)?;
+        let output = binary_writer.finish()?;
+
+        let mut reader = ReaderBuilder::new().build(output)?;
+        assert_eq!(Value(IonType::String), reader.next()?);
+        assert_eq!("foo", reader.read_string()?);
+
+        assert_eq!(Value(IonType::Int), reader.next()?);
+        assert_eq!(5, reader.read_i64()?);
         Ok(())
     }
 }

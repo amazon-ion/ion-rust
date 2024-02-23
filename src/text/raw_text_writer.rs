@@ -726,6 +726,11 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         Ok(())
     }
 
+    fn finish(mut self) -> IonResult<W> {
+        self.output.flush()?;
+        Ok(self.output.into_inner().map_err(|e| e.into_error())?)
+    }
+
     fn output(&self) -> &W {
         self.output.get_ref()
     }

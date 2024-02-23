@@ -891,6 +891,11 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         Ok(())
     }
 
+    fn finish(mut self) -> IonResult<Self::Output> {
+        self.flush()?;
+        Ok(self.out)
+    }
+
     fn output(&self) -> &Self::Output {
         &self.out
     }
