@@ -182,12 +182,10 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
         name: A,
         value: V,
     ) -> IonResult<&mut Self> {
-        if self.flex_uint_encoding {
-            // This is the first time we're writing a FlexSym field. Emit a FlexUInt 0 to tell
-            // readers that we're switching from FlexUInt to FlexSym.
-            self.buffer().push(0x01);
-            self.flex_uint_encoding = false;
-        }
+        // This is the first time we're writing a FlexSym field. Emit a FlexUInt 0 to tell
+        // readers that we're switching from FlexUInt to FlexSym.
+        self.buffer().push(0x01);
+        self.flex_uint_encoding = false;
         self.write_flex_sym_field(name, value)
     }
 

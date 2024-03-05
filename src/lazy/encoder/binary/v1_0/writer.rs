@@ -34,6 +34,10 @@ pub struct LazyRawBinaryWriter_1_0<W: Write> {
     encoding_buffer_ptr: Option<*mut ()>,
 }
 
+/// The initial size of the backing array for the writer's bump allocator.
+// This value was chosen somewhat arbitrarily and can be changed as needed.
+const DEFAULT_BUMP_SIZE: usize = 16 * 1024;
+
 impl<W: Write> LazyRawBinaryWriter_1_0<W> {
     /// Constructs a new binary writer and writes an Ion 1.0 Version Marker to output.
     pub fn new(mut output: W) -> IonResult<Self> {
@@ -42,7 +46,7 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
         // Construct the writer
         Ok(Self {
             output,
-            allocator: BumpAllocator::with_capacity(16 * 1024),
+            allocator: BumpAllocator::with_capacity(DEFAULT_BUMP_SIZE),
             encoding_buffer_ptr: None,
         })
     }

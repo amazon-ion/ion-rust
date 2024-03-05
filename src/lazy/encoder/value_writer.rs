@@ -133,9 +133,21 @@ pub trait ValueWriter: Sized {
 /// This macro takes an expression and calls the `delegate!` proc macro on it for all of the methods
 /// in the ValueWriter trait. For example:
 /// ```text
-///     delegate_value_writer_to!(foo) => delegate! { to self.foo { ...signatures ... } }
-///     delegate_value_writer_to!(0)   => delegate! { to self.0 { ...signatures ... } }
-///     delegate_value_writer_to!()    => delegate! { to self { ...signatures ... } }
+///     delegate_value_writer_to!()     => delegate! { to self { ...signatures ... } }
+///     delegate_value_writer_to!(foo)  => delegate! { to self.foo { ...signatures ... } }
+///     delegate_value_writer_to!(0)    => delegate! { to self.0 { ...signatures ... } }
+///     delegate_value_writer_to!(
+///         closure
+///         |self_: Self| {
+///             self_.value_writer()
+///         }
+///     )                               => delegate! { to self.value_writer() { ...signatures ... } }
+///     delegate_value_writer_to!(
+///         fallible closure
+///         |self_: Self| {
+///             self_.returns_result()
+///         }
+///     )                               => delegate! { to self.returns_result()? { ...signatures ... } }
 /// ```
 ///
 /// Notice that if no parameter expression is passed, it results in delegation to `self`, which is helpful if
