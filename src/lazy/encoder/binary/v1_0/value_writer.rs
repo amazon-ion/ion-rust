@@ -541,7 +541,7 @@ impl<'value, 'top: 'value> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value
     // Ion 1.0 does not support macros
     type MacroArgsWriter<'a> = Never;
 
-    delegate_value_writer_to!(closure(|self_: Self| self_.value_writer()));
+    delegate_value_writer_to!(closure |self_: Self| self_.value_writer());
 }
 #[cfg(test)]
 mod tests {

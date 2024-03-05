@@ -154,18 +154,21 @@ macro_rules! delegate_value_writer_to {
     //
     // If no arguments are passed, trait method calls are delegated to inherent impl methods on `self`.
     () => {
-        $crate::lazy::encoder::value_writer::delegate_value_writer_to!(closure (|self_: Self| {self_}));
+        $crate::lazy::encoder::value_writer::delegate_value_writer_to!(closure |self_: Self| self_);
     };
     // If an identifier is passed, it is treated as the name of a subfield of `self`.
     ($name:ident) => {
-       $crate::lazy::encoder::value_writer::delegate_value_writer_to!(closure (|self_: Self| self_.$name));
+       $crate::lazy::encoder::value_writer::delegate_value_writer_to!(closure |self_: Self| self_.$name);
     };
     // If a closure is provided, trait method calls are delegated to the closure's return value.
     (closure $f:expr) => {
         // In order to forward this call to the `fallible closure` pattern, the provided closure is
         // wrapped in another closure that wraps the closure's output in IonResult::Ok(_). The
         // compiler can eliminate the redundant closure call.
-        $crate::lazy::encoder::value_writer::delegate_value_writer_to!(fallible closure |self_: Self| {$crate::IonResult::Ok($f(self_))});
+        $crate::lazy::encoder::value_writer::delegate_value_writer_to!(fallible closure |self_: Self| {
+            let infallible_closure = $f;
+            $crate::IonResult::Ok(infallible_closure(self_))
+        });
     };
     // If a fallible closure is provided, it will be called. If it returns an `Err`, the method
     // will return. Otherwise, trait method calls are delegated to the `Ok(_)` value.
