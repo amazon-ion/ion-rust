@@ -7,6 +7,7 @@ pub mod container_writers;
 pub mod fixed_int;
 pub mod fixed_uint;
 pub mod flex_int;
+pub mod flex_sym;
 pub mod flex_uint;
 pub mod value_writer;
 pub mod writer;

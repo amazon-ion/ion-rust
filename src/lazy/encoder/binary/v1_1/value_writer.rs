@@ -13,6 +13,7 @@ use crate::lazy::encoder::binary::v1_1::container_writers::{
 };
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
+use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::{
     delegate_value_writer_to_self, AnnotatableValueWriter, ValueWriter,
@@ -873,16 +874,16 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
             [a] => {
                 // Opcode 0xE7: A single FlexSym annotation follows
                 self.buffer.push(0xE7);
-                Self::write_flex_sym_annotation(self.buffer, a)?;
+                FlexSym::encode_symbol(self.buffer, a);
             }
             [a1, a2] => {
                 // Opcode 0xE8: Two FlexSym annotations follow
                 self.buffer.push(0xE8);
-                Self::write_flex_sym_annotation(self.buffer, a1)?;
-                Self::write_flex_sym_annotation(self.buffer, a2)?;
+                FlexSym::encode_symbol(self.buffer, a1);
+                FlexSym::encode_symbol(self.buffer, a2);
             }
             _ => {
-                self.write_length_prefixed_flex_sym_annotation_sequence()?;
+                self.write_length_prefixed_flex_sym_annotation_sequence();
             }
         }
         // We've encoded the annotations, now create a no-annotations ValueWriter to encode the value itself.
@@ -893,43 +894,22 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
     fn write_flex_sym_annotation(
         buffer: &mut BumpVec<'top, u8>,
         annotation: impl AsRawSymbolTokenRef,
-    ) -> IonResult<()> {
-        match annotation.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(0) => {
-                // FlexSym 0x00 indicates that an opcode follows
-                // Opcode 0x70 is a symbol of length 0, i.e. `$0`.
-                buffer.extend_from_slice(&[0x00, 0x70]);
-            }
-            RawSymbolTokenRef::SymbolId(sid) => {
-                FlexInt::write_i64(buffer, sid as i64)?;
-            }
-            RawSymbolTokenRef::Text(cow_text) => {
-                let text = cow_text.as_ref();
-                if text.is_empty() {
-                    buffer.extend_from_slice(&[0x00, 0x80]);
-                    return Ok(());
-                }
-                let utf8_byte_length = -(text.len() as i64);
-                FlexInt::write_i64(buffer, utf8_byte_length)?;
-                buffer.extend_from_slice(text.as_bytes());
-            }
-        }
-        Ok(())
+    ) {
+        FlexSym::encode_symbol(buffer, annotation);
     }
 
     #[cold]
-    fn write_length_prefixed_flex_sym_annotation_sequence(&mut self) -> IonResult<()> {
+    fn write_length_prefixed_flex_sym_annotation_sequence(&mut self) {
         // A FlexUInt follows with the byte length of the FlexSym sequence that follows
         let mut annotations_buffer = BumpVec::new_in(self.allocator);
         for annotation in self.annotations {
-            Self::write_flex_sym_annotation(&mut annotations_buffer, annotation)?;
+            FlexSym::encode_symbol(&mut annotations_buffer, annotation);
         }
         // A FlexUInt follows that represents the length of a sequence of FlexSym-encoded annotations
         self.buffer.push(0xE9);
-        FlexUInt::write_u64(self.buffer, annotations_buffer.len() as u64)?;
+        FlexUInt::encode_u64(self.buffer, annotations_buffer.len() as u64);
         self.buffer
             .extend_from_slice_copy(annotations_buffer.as_slice());
-        Ok(())
     }
 }
 
@@ -2961,10 +2941,11 @@ mod tests {
             0.annotated_with(&[RawSymbolToken::Text("".into()), RawSymbolToken::SymbolId(0)]),
             &[
                 0xE8, // Two FlexSym annotations follow
-                0x00, // Opcode follows
+                0x01, // Opcode follows
                 0x80, // String of length 0
-                0x00, // Opcode follows
-                0x70, // Symbol ID $0
+                0x01, // Opcode follows
+                0xE1, // 1-byte FixedUInt symbol ID follows
+                0x00, // Symbol ID 0
                 0x50, // Integer 0
             ],
         )?;

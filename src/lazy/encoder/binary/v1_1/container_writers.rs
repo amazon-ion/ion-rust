@@ -1,14 +1,14 @@
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use delegate::delegate;
-use ice_code::ice as cold_path;
 
+use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::value_writer::BinaryAnnotatableValueWriter_1_1;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::{MacroArgsWriter, SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{FlexInt, FlexUInt, IonResult, RawSymbolTokenRef, SymbolId};
+use crate::{FlexUInt, IonResult, RawSymbolTokenRef, SymbolId};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_1`],
 /// [`BinarySExpWriter_1_1`], and [`BinaryStructWriter_1_1`].
@@ -194,37 +194,10 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
         name: A,
         value: V,
     ) -> IonResult<&mut Self> {
-        use RawSymbolTokenRef::*;
-
         // Write the field name
-        match name.as_raw_symbol_token_ref() {
-            SymbolId(0) => {
-                // Encoding `$0` requires a zero byte to indicate an opcode follows,
-                // and then opcode 0x90, which indicates symbol ID 0.
-                cold_path! {
-                    write_symbol_id_zero => self.buffer().extend_from_slice_copy(&[0, 0x90])
-                }
-            }
-            SymbolId(sid) => {
-                FlexInt::encode_i64(self.buffer(), sid as i64);
-            }
-            Text(text_token) => {
-                let text = text_token.as_ref();
-                let num_bytes = text.len();
-                if num_bytes == 0 {
-                    // Encoding the empty string requires a zero byte to indicate an opcode follows,
-                    // and then opcode 0x80, which indicates a string of length 0.
-                    cold_path! {
-                        write_empty_string => self.buffer().extend_from_slice_copy(&[0, 0x80])
-                    }
-                } else {
-                    let negated_num_bytes = -(text.len() as i64);
-                    FlexInt::encode_i64(self.buffer(), negated_num_bytes);
-                    self.buffer().extend_from_slice_copy(text.as_bytes());
-                }
-            }
-        };
+        FlexSym::encode_symbol(self.buffer(), name);
 
+        // Write the value
         self.container_writer.write(value)?;
         Ok(self)
     }
