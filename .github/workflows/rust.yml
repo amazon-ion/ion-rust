@@ -11,9 +11,17 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest, codebuild-ion-rust-arm-3.0-large, codebuild-ion-rust-al2-5.0-large ]
         # build and test for different and interesting crate features
         features: ['default', 'all', 'experimental-ion-hash', 'experimental']
+        # Forks cannot use the codebuild runners. The job will hang indefinitely waiting to be picked up by a worker.
+        isFork:
+          - ${{ github.repository_owner != 'amazon-ion' }}
+        exclude:
+          - isFork: true
+            os: codebuild-ion-rust-arm-3.0-large
+          - isFork: true
+            os: codebuild-ion-rust-al2-5.0-large
     permissions:
       checks: write
 
