@@ -22,8 +22,6 @@ use std::fmt::{Display, Formatter};
 use crate::types::Str;
 /// Configures and constructs new instances of [Reader].
 pub struct ReaderBuilder {
-    // This will be set to to `Some` catalog when the reader builder is created with catalog information.
-    // Default value for this field will be set to `None`.
     catalog: Box<dyn Catalog>,
 }
 
@@ -31,6 +29,8 @@ impl ReaderBuilder {
     /// Constructs a [ReaderBuilder] pre-populated with common default settings.
     pub fn new() -> ReaderBuilder {
         ReaderBuilder {
+            // `EmptyCatalog` is a zero-sized type; creating a Box<EmptyCatalog> does not actually
+            // cause a heap allocation.
             catalog: Box::<EmptyCatalog>::default(),
         }
     }

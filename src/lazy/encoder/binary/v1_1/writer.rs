@@ -34,6 +34,10 @@ pub struct LazyRawBinaryWriter_1_1<W: Write> {
     encoding_buffer_ptr: Option<*mut ()>,
 }
 
+/// The initial size of the backing array for the writer's bump allocator.
+// This value was chosen somewhat arbitrarily and can be changed as needed.
+const DEFAULT_BUMP_SIZE: usize = 16 * 1024;
+
 impl<W: Write> LazyRawBinaryWriter_1_1<W> {
     /// Constructs a new binary writer and writes an Ion 1.1 Version Marker to output.
     pub fn new(mut output: W) -> IonResult<Self> {
@@ -42,7 +46,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
         // Construct the writer
         Ok(Self {
             output,
-            allocator: BumpAllocator::new(),
+            allocator: BumpAllocator::with_capacity(DEFAULT_BUMP_SIZE),
             encoding_buffer_ptr: None,
         })
     }
@@ -90,9 +94,12 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
             Some(ptr) => unsafe { ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(ptr) },
             // Otherwise, allocate a new encoding buffer and set the pointer to refer to it.
             None => {
-                let buffer = self
-                    .allocator
-                    .alloc_with(|| BumpVec::new_in(&self.allocator));
+                let buffer = self.allocator.alloc_with(|| {
+                    // Use half of the bump allocator's backing array as an encoding space for this
+                    // top level value. The other half of the bump can be used for incidental
+                    // bookkeeping.
+                    BumpVec::with_capacity_in(DEFAULT_BUMP_SIZE / 2, &self.allocator)
+                });
                 self.encoding_buffer_ptr = Some(mut_ref_to_ptr(buffer));
                 buffer
             }
@@ -132,10 +139,8 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_1<W> {
 impl<W: Write> MakeValueWriter for LazyRawBinaryWriter_1_1<W> {
     type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_1<'a, 'a> where Self: 'a;
 
-    delegate! {
-        to self {
-            fn value_writer(&mut self) -> Self::ValueWriter<'_>;
-        }
+    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+        self.value_writer()
     }
 }
 

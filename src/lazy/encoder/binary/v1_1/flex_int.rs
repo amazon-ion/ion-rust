@@ -1,4 +1,6 @@
 use crate::{FlexUInt, IonResult};
+use bumpalo::collections::Vec as BumpVec;
+use ice_code::ice as cold_path;
 use std::io::Write;
 
 const BITS_PER_I64: usize = 64;
@@ -66,6 +68,31 @@ impl FlexInt {
         Ok(FlexInt::new(flex_uint.size_in_bytes(), signed_value))
     }
 
+    // This is equivalent to calling `write_i64(my_bump_vec).unwrap()`, but optimized for writing
+    // to a `BumpVec` instead of a `W: Write`. Writing to a BumpVec cannot fail (barring out-of-
+    // memory errors and the like), which eliminates some branching, a loop inside
+    // `io::Write::write_all`, and the construction of a return value.
+    #[inline]
+    pub fn encode_i64(output: &mut BumpVec<u8>, value: i64) {
+        let encoded_size_in_bytes = if value < 0 {
+            BYTES_NEEDED_CACHE[value.leading_ones() as usize]
+        } else {
+            BYTES_NEEDED_CACHE[value.leading_zeros() as usize]
+        } as usize;
+        if encoded_size_in_bytes <= 8 {
+            // The entire encoding (including continuation bits) will fit in a u64.
+            // `encoded_size_in_bytes` is also the number of continuation bits we need to include
+            let mut encoded = value << encoded_size_in_bytes;
+            // Set the `end` flag to 1
+            encoded += 1 << (encoded_size_in_bytes - 1);
+            output.extend_from_slice_copy(&encoded.to_le_bytes()[..encoded_size_in_bytes]);
+            return;
+        }
+        cold_path! {{
+            let _ = Self::write_large_i64(output, value, encoded_size_in_bytes);
+        }}
+    }
+
     #[inline]
     pub fn write_i64<W: Write>(output: &mut W, value: i64) -> IonResult<usize> {
         let encoded_size_in_bytes = if value < 0 {
@@ -82,7 +109,9 @@ impl FlexInt {
             output.write_all(&encoded.to_le_bytes()[..encoded_size_in_bytes])?;
             return Ok(encoded_size_in_bytes);
         }
-        Self::write_large_i64(output, value, encoded_size_in_bytes)
+        cold_path! {
+            Self::write_large_i64(output, value, encoded_size_in_bytes)
+        }
     }
 
     /// Helper method that encodes a signed values that require 9 or 10 bytes to represent.

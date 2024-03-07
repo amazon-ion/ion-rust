@@ -69,6 +69,7 @@ macro_rules! impl_write_as_ion_value {
     // The caller defined an expression to write other than `self` (e.g. `*self`, `*self.0`, etc)
     ($target_type:ty => $method:ident with $self:ident as $value:expr, $($rest:tt)*) => {
         impl WriteAsIonValue for $target_type {
+            #[inline]
             fn write_as_ion_value<V: ValueWriter>(&$self, writer: V) -> IonResult<()> {
                 writer.$method($value)
             }
@@ -78,6 +79,7 @@ macro_rules! impl_write_as_ion_value {
     // We're writing the expression `self`
     ($target_type:ty => $method:ident, $($rest:tt)*) => {
         impl WriteAsIonValue for $target_type {
+            #[inline]
             fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
                 writer.$method(self)
             }
@@ -106,12 +108,14 @@ impl_write_as_ion_value!(
 );
 
 impl<'b> WriteAsIonValue for RawSymbolTokenRef<'b> {
+    #[inline]
     fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         writer.write_symbol(self)
     }
 }
 
 impl<'b> WriteAsIonValue for SymbolRef<'b> {
+    #[inline]
     fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         writer.write_symbol(self)
     }
@@ -124,6 +128,7 @@ impl<const N: usize> WriteAsIonValue for [u8; N] {
 }
 
 impl<T: WriteAsIonValue> WriteAsIonValue for &T {
+    #[inline]
     fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         (*self).write_as_ion_value(writer)
     }

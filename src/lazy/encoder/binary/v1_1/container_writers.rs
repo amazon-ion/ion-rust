@@ -2,12 +2,13 @@ use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use delegate::delegate;
 
+use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::value_writer::BinaryAnnotatableValueWriter_1_1;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
-use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
+use crate::lazy::encoder::value_writer::{MacroArgsWriter, SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{FlexInt, FlexUInt, IonResult, RawSymbolTokenRef};
+use crate::{FlexUInt, IonResult, RawSymbolTokenRef, SymbolId};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_1`],
 /// [`BinarySExpWriter_1_1`], and [`BinaryStructWriter_1_1`].
@@ -41,6 +42,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
     }
 
     /// Encodes the provided `value` to the [`BinaryContainerWriter_1_1`]'s buffer.
+    #[inline]
     pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         let annotated_value_writer = self.value_writer();
         value.write_as_ion(annotated_value_writer)?;
@@ -67,7 +69,7 @@ impl<'value, 'top> BinaryListWriter_1_1<'value, 'top> {
 impl<'value, 'top> MakeValueWriter for BinaryListWriter_1_1<'value, 'top> {
     type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_1<'a, 'top> where Self: 'a;
 
-    fn value_writer(&mut self) -> Self::ValueWriter<'_> {
+    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         self.container_writer.value_writer()
     }
 }
@@ -94,7 +96,7 @@ impl<'value, 'top> BinarySExpWriter_1_1<'value, 'top> {
 impl<'value, 'top> MakeValueWriter for BinarySExpWriter_1_1<'value, 'top> {
     type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_1<'a, 'top> where Self: 'a;
 
-    fn value_writer(&mut self) -> Self::ValueWriter<'_> {
+    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         BinaryAnnotatableValueWriter_1_1::new(
             self.container_writer.allocator(),
             self.container_writer.buffer(),
@@ -120,20 +122,20 @@ pub struct BinaryStructWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
-    pub(crate) fn new(container_writer: BinaryContainerWriter_1_1<'value, 'top>) -> Self {
+    pub(crate) fn new_length_prefixed(
+        container_writer: BinaryContainerWriter_1_1<'value, 'top>,
+    ) -> Self {
         Self {
             flex_uint_encoding: true,
             container_writer,
         }
     }
 
-    fn enable_flex_sym_encoding(&mut self) {
-        if self.flex_uint_encoding {
-            // Write a zero byte out to signal to future readers that we are switching from
-            // FlexUInt to FlexSym.
-            self.container_writer.buffer().push(0x00);
-            // Remember that we've already done this step.
-            self.flex_uint_encoding = false;
+    pub(crate) fn new_delimited(container_writer: BinaryContainerWriter_1_1<'value, 'top>) -> Self {
+        Self {
+            // Delimited structs always use FlexSym encoding.
+            flex_uint_encoding: false,
+            container_writer,
         }
     }
 
@@ -141,6 +143,7 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
         self.container_writer.buffer
     }
 
+    #[inline]
     pub fn write<A: AsRawSymbolTokenRef, V: WriteAsIon>(
         &mut self,
         name: A,
@@ -148,36 +151,53 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
     ) -> IonResult<&mut Self> {
         use RawSymbolTokenRef::*;
 
-        // Write the field name
-        match name.as_raw_symbol_token_ref() {
-            SymbolId(0) => {
-                self.enable_flex_sym_encoding();
-                // Encoding `$0` requires a zero byte to indicate an opcode follows,
-                // and then opcode 0x70, which indicates symbol ID 0.
-                self.buffer().extend_from_slice(&[0, 0x70]);
+        match (self.flex_uint_encoding, name.as_raw_symbol_token_ref()) {
+            // We're already in FlexSym encoding mode
+            (false, _) => self.write_flex_sym_field(name, value),
+            // We're still in FlexUInt encoding mode, but this value requires FlexSym encoding
+            (_, Text(_)) | (_, SymbolId(0)) =>
+            // This can only happen up to once inside a length-prefixed struct
+            {
+                self.enable_flex_sym_and_write_field(name, value)
             }
-            SymbolId(sid) if self.flex_uint_encoding => {
-                FlexUInt::write_u64(self.buffer(), sid as u64)?;
-            }
-            SymbolId(sid) => {
-                FlexInt::write_i64(self.buffer(), sid as i64)?;
-            }
-            Text(text_token) => {
-                self.enable_flex_sym_encoding();
-                let text = text_token.as_ref();
-                let num_bytes = text.len();
-                if num_bytes == 0 {
-                    // Encoding the empty string requires a zero byte to indicate an opcode follows,
-                    // and then opcode 0x80, which indicates a string of length 0.
-                    self.buffer().extend_from_slice(&[0, 0x80])
-                } else {
-                    let negated_num_bytes = -(text.len() as i64);
-                    FlexInt::write_i64(self.buffer(), negated_num_bytes)?;
-                    self.buffer().extend_from_slice(text.as_bytes());
-                }
-            }
-        };
+            // We're in FlexUInt encoding mode and can write this field without switching modes
+            (_, SymbolId(sid)) => self.write_flex_uint_field(sid, value),
+        }
+    }
 
+    #[inline]
+    fn write_flex_uint_field<V: WriteAsIon>(
+        &mut self,
+        name: SymbolId,
+        value: V,
+    ) -> IonResult<&mut Self> {
+        FlexUInt::encode_u64(self.buffer(), name as u64);
+        self.container_writer.write(value)?;
+        Ok(self)
+    }
+
+    #[inline(never)]
+    fn enable_flex_sym_and_write_field<A: AsRawSymbolTokenRef, V: WriteAsIon>(
+        &mut self,
+        name: A,
+        value: V,
+    ) -> IonResult<&mut Self> {
+        // This is the first time we're writing a FlexSym field. Emit a FlexUInt 0 to tell
+        // readers that we're switching from FlexUInt to FlexSym.
+        self.buffer().push(0x01);
+        self.flex_uint_encoding = false;
+        self.write_flex_sym_field(name, value)
+    }
+
+    pub fn write_flex_sym_field<A: AsRawSymbolTokenRef, V: WriteAsIon>(
+        &mut self,
+        name: A,
+        value: V,
+    ) -> IonResult<&mut Self> {
+        // Write the field name
+        FlexSym::encode_symbol(self.buffer(), name);
+
+        // Write the value
         self.container_writer.write(value)?;
         Ok(self)
     }
@@ -194,3 +214,19 @@ impl<'value, 'top> StructWriter for BinaryStructWriter_1_1<'value, 'top> {
         }
     }
 }
+
+pub struct BinaryMacroArgsWriter_1_1<'value, 'top> {
+    pub(crate) container_writer: BinaryContainerWriter_1_1<'value, 'top>,
+}
+
+impl<'value, 'top> MakeValueWriter for BinaryMacroArgsWriter_1_1<'value, 'top> {
+    type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_1<'a, 'top> where Self: 'a;
+
+    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+        self.container_writer.value_writer()
+    }
+}
+
+impl<'value, 'top> SequenceWriter for BinaryMacroArgsWriter_1_1<'value, 'top> {}
+
+impl<'value, 'top> MacroArgsWriter for BinaryMacroArgsWriter_1_1<'value, 'top> {}

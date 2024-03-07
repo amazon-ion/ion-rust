@@ -316,7 +316,7 @@ impl From<crate::tokens::ScalarValue> for Value {
 /// // and then into an `Element`...
 /// let mut boolean_element: Element = boolean_value.into();
 /// // and then adding annotations to the `Element`.
-/// boolean_element = boolean_element.with_annotations(["foo", "bar"]);
+/// let boolean_element = boolean_element.with_annotations(["foo", "bar"]);
 ///
 /// // Much more concise equivalent leveraging the `IntoAnnotatedElement` trait.
 /// let boolean_element = true.with_annotations(["foo", "bar"]);
