@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::ops::Range;
 
 use bumpalo::Bump as BumpAllocator;
 
@@ -18,6 +19,11 @@ use crate::{IonResult, IonType, RawSymbolTokenRef};
 pub trait LazyDecoder: 'static + Sized + Debug + Clone + Copy {
     /// A lazy reader that yields [`Self::Value`]s representing the top level values in its input.
     type Reader<'data>: LazyRawReader<'data, Self>;
+    /// Additional data (beyond the offset) that the reader will need in order to resume reading
+    /// from a different point in the stream.
+    // At the moment this feature is only used by `LazyAnyRawReader`, which needs to remember what
+    // encoding the stream was using during earlier read operations.
+    type ReaderSavedState: Copy + Default;
     /// A value (at any depth) in the input. This can be further inspected to access either its
     /// scalar data or, if it is a container, to view it as [`Self::List`], [`Self::SExp`] or
     /// [`Self::Struct`].  
@@ -174,14 +180,28 @@ pub(crate) mod private {
     }
 }
 
-pub trait LazyRawReader<'data, D: LazyDecoder> {
-    fn new(data: &'data [u8]) -> Self;
+pub trait LazyRawReader<'data, D: LazyDecoder>: Sized {
+    fn new(data: &'data [u8]) -> Self {
+        Self::resume_at_offset(data, 0, D::ReaderSavedState::default())
+    }
+
+    fn resume_at_offset(data: &'data [u8], offset: usize, saved_state: D::ReaderSavedState)
+        -> Self;
     fn next<'top>(
         &'top mut self,
         allocator: &'top BumpAllocator,
     ) -> IonResult<LazyRawStreamItem<'top, D>>
     where
         'data: 'top;
+
+    fn save_state(&self) -> D::ReaderSavedState {
+        D::ReaderSavedState::default()
+    }
+
+    /// The stream byte offset at which the reader will begin parsing the next item to return.
+    /// This position is not necessarily the first byte of the next value; it may be (e.g.) a NOP,
+    /// a comment, or whitespace that the reader will traverse as part of matching the next item.
+    fn position(&self) -> usize;
 }
 
 pub trait LazyRawValue<'top, D: LazyDecoder>:
@@ -191,6 +211,9 @@ pub trait LazyRawValue<'top, D: LazyDecoder>:
     fn is_null(&self) -> bool;
     fn annotations(&self) -> D::AnnotationsIterator<'top>;
     fn read(&self) -> IonResult<RawValueRef<'top, D>>;
+
+    fn range(&self) -> Range<usize>;
+    fn span(&self) -> &[u8];
 }
 
 pub trait LazyRawSequence<'top, D: LazyDecoder>:

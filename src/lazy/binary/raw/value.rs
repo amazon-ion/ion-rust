@@ -17,6 +17,7 @@ use crate::types::SymbolId;
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use bytes::{BigEndian, ByteOrder};
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 use std::{fmt, mem};
 
 /// A value that has been identified in the input stream but whose data has not yet been read.
@@ -73,6 +74,17 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue<'top> {
 
     fn read(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_0>> {
         self.read()
+    }
+
+    fn range(&self) -> Range<usize> {
+        self.encoded_value.annotated_value_range()
+    }
+
+    fn span(&self) -> &[u8] {
+        let range = self.range();
+        // Subtract the `offset()` of the ImmutableBuffer to get the local indexes for start/end
+        let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
+        &self.input.bytes()[local_range]
     }
 }
 
