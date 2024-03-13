@@ -10,6 +10,7 @@ use crate::IonResult;
 
 pub struct StreamingRawReader<Encoding: LazyDecoder, Input: IntoIonInput> {
     encoding: Encoding,
+    // TODO: Explain
     saved_state: Encoding::ReaderSavedState,
     stream_position: usize,
     // XXX: The `UnsafeCell` wrappers around the field below is a workaround for a limitation in
