@@ -76,12 +76,14 @@ impl<Encoding: LazyDecoder, Input: IntoIonInput> LazyApplicationReader<Encoding,
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
     /// If the next value is incomplete (that is: only part of it is in the input buffer) or if the
     /// input buffer contains invalid data, returns `Err(ion_error)`.
-    pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, Encoding>>> {
+    #[allow(clippy::should_implement_trait)]
+    // ^-- Clippy objects that the method name `next` will be confused for `Iterator::next()`
+    pub fn next(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
         self.system_reader.next_value()
     }
 
     /// Like [`Self::next`], but returns an `IonError` if there are no more values in the stream.
-    pub fn expect_next<'top>(&'top mut self) -> IonResult<LazyValue<'top, Encoding>> {
+    pub fn expect_next(&mut self) -> IonResult<LazyValue<Encoding>> {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
     }

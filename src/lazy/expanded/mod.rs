@@ -338,7 +338,12 @@ impl<Encoding: LazyDecoder, Input: IntoIonInput> LazyExpandingReader<Encoding, I
 
     /// Returns the next [`SystemStreamItem`] either by continuing to evaluate a macro invocation
     /// in progress or by pulling another expression from the input stream.
-    pub fn next_item<'top>(&'top self) -> IonResult<SystemStreamItem<'top, Encoding>> {
+    pub fn next_item(&self) -> IonResult<SystemStreamItem<'_, Encoding>> {
+        // NB: This method takes an immutable reference to `self` but uses `UnsafeCell` to modify
+        //     `self` safely. This allows `next_item` to be used in a loop from next_value without
+        //     encountering the borrow checker limitations this method skirts. If/when the borrow
+        //     checker issue is addressed, we may change this to `&mut self`.
+
         // If there's already an active macro evaluator, that means the reader is still in the process
         // of expanding a macro invocation it previously encountered. See if it has a value to give us.
         if let Some(stream_item) = self.next_from_evaluator()? {

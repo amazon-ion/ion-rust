@@ -137,13 +137,13 @@ impl<Encoding: LazyDecoder, Input: IntoIonInput> LazySystemReader<Encoding, Inpu
 
     /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
     /// [`SystemStreamItem`].
-    pub fn next_item<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, Encoding>> {
+    pub fn next_item(&mut self) -> IonResult<SystemStreamItem<'_, Encoding>> {
         self.expanding_reader.next_item()
     }
 
     /// Returns the next value that is part of the application data model, bypassing all encoding
     /// artifacts (IVMs, symbol tables).
-    pub fn next_value<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, Encoding>>> {
+    pub fn next_value(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
         self.expanding_reader.next_value()
     }
 
