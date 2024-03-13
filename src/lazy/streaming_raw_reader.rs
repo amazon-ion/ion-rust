@@ -8,7 +8,7 @@ use crate::lazy::decoder::{LazyDecoder, LazyRawReader};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::IonResult;
 
-struct StreamingRawReader<Encoding: LazyDecoder, Input: IonInput> {
+pub struct StreamingRawReader<Encoding: LazyDecoder, Input: IntoIonInput> {
     encoding: Encoding,
     saved_state: Encoding::ReaderSavedState,
     stream_position: usize,
@@ -28,16 +28,13 @@ struct StreamingRawReader<Encoding: LazyDecoder, Input: IonInput> {
     //      overhead to each access. Given that this is the hottest path in the code and that a
     //      fix is inbound, I think this use of `unsafe` is warranted for now.
     //
-    input: UnsafeCell<Input>,
+    input: UnsafeCell<Input::IonInput>,
 }
 
 const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 
-impl<Encoding: LazyDecoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
-    pub fn new<I: IntoIonInput<IonInput = Input>>(
-        encoding: Encoding,
-        input: I,
-    ) -> StreamingRawReader<Encoding, I::IonInput> {
+impl<Encoding: LazyDecoder, Input: IntoIonInput> StreamingRawReader<Encoding, Input> {
+    pub fn new(encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
         StreamingRawReader {
             encoding,
             input: input.into_ion_input().into(),
@@ -63,16 +60,19 @@ impl<Encoding: LazyDecoder, Input: IonInput> StreamingRawReader<Encoding, Input>
             let slice_reader = unsafe { &mut *unsafe_cell_reader.get() };
             let starting_position = slice_reader.position();
             let result = slice_reader.next(allocator);
-            // We're done modifying `slice_reader`, but we need to access its `position` field
-            // We have to circumvent the borrow checker's limitation (described in a comment on the
-            // StreamingRawReader type) by getting a second (read-only) reference to the reader.
+            // We're done modifying `slice_reader`, but we need to read some of its fields. These
+            // fields are _not_ the data to which `result` holds a reference. We have to circumvent
+            // the borrow checker's limitation (described in a comment on the StreamingRawReader type)
+            // by getting a second (read-only) reference to the reader.
             let slice_reader_ref = unsafe { &*unsafe_cell_reader.get() };
             let end_position = slice_reader_ref.position();
+            // For the RawAnyReader, remember what encoding we detected for next time.
+            self.saved_state = slice_reader_ref.save_state();
 
             let bytes_read = end_position - starting_position;
             let input = unsafe { &mut *self.input.get() };
             // If we've exhausted the buffer but not the data source...
-            if bytes_read == available_bytes.len() && !input.stream_has_ended() {
+            if bytes_read >= available_bytes.len() && !input.stream_has_ended() {
                 // ...we need to pull more data from the source and try again to make sure that the
                 // buffer didn't contain incomplete data.
                 input.fill_buffer()?;
@@ -85,33 +85,6 @@ impl<Encoding: LazyDecoder, Input: IonInput> StreamingRawReader<Encoding, Input>
             self.stream_position = end_position;
 
             return result;
-            // let result = match slice_reader.next(allocator) {
-            //     incomplete @ Err(IonError::Incomplete(_)) => {
-            //         let input = unsafe { &mut *self.input.get() };
-            //         if input.stream_has_ended() {
-            //             incomplete
-            //         } else {
-            //             input.fill_buffer()?;
-            //             // Try decoding again on the next iteration.
-            //             continue;
-            //         }
-            //     }
-            //     // TODO: If it's incomplete OR we get EndOfStream, we try to read
-            //     result => result,
-            // };
-            // // We're done modifying `slice_reader`'s data, but we need to access its `position`
-            // // field. We have to circumvent the borrow checker's limitation (described in a comment
-            // // on the StreamingRawReader type) by getting a second (read-only) reference to the reader.
-            // let slice_reader_ref = unsafe { &*unsafe_cell_reader.get() };
-            // let end_position = slice_reader_ref.position();
-            // // Update the streaming reader's position to reflect the number of bytes we
-            // // just read.
-            // let bytes_read = end_position - starting_position;
-            // self.stream_position = end_position;
-            // // Mark those input bytes as having been consumed so they are not read again.
-            // let input = unsafe { &mut *self.input.get() };
-            // input.consume(bytes_read);
-            // return result;
         }
     }
 }

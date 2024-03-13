@@ -30,7 +30,7 @@ use crate::{
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;
 ///
-/// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
+/// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
@@ -80,7 +80,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     /// let element: Element = "hello".into();
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -109,7 +109,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -143,7 +143,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -237,7 +237,7 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
     /// let binary_ion = element.to_binary()?;
-    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
     ///
     /// // Get the first value from the stream
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -279,7 +279,7 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
     /// let binary_ion = element.to_binary()?;
-    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
     ///
     /// // Get the first value from the stream
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -351,7 +351,7 @@ mod tests {
     #[test]
     fn annotations_are() -> IonResult<()> {
         let ion_data = to_binary_ion("foo::bar::baz::5")?;
-        let mut reader = LazyBinaryReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(ion_data)?;
         let first = reader.expect_next()?;
         assert!(first.annotations().are(["foo", "bar", "baz"])?);
 
@@ -369,7 +369,7 @@ mod tests {
     }
 
     fn lazy_value_equals(ion_text: &str, expected: impl Into<Element>) -> IonResult<()> {
-        let binary_ion = &to_binary_ion(ion_text)?;
+        let binary_ion = to_binary_ion(ion_text)?;
         let mut reader = LazyBinaryReader::new(binary_ion)?;
         let value = reader.expect_next()?;
         let actual: Element = value.try_into()?;
@@ -406,6 +406,27 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn try_into_element_error() -> IonResult<()> {
+        #[rustfmt::skip]
+            let binary_ion: &[u8] = &[
+            // IVM
+            0xE0, 0x01, 0x00, 0xEA,
+            // Opcode for a 4-byte list
+            0xB4,
+            // There are 4 bytes here, so reading the list (not yet reading its contents) will
+            // succeed. However, the 4 bytes are another IVM in value position, which is illegal.
+            // When the reader goes to materialize the contents of the list, it will produce
+            // an error.
+            0xE0, 0x01, 0x00, 0xEA,
+        ];
+        let mut reader = LazyBinaryReader::new(binary_ion)?;
+        let list = reader.expect_next()?.read()?.expect_list()?;
+        let result: IonResult<Element> = list.try_into();
+        assert!(result.is_err());
+        Ok(())
+    }
+
     #[rstest]
     #[case::negative_int("-1")]
     #[case::positive_int("1")]
@@ -420,13 +441,12 @@ mod tests {
     #[case::list("[1, 2, 3]")]
     #[case::sexp("(1 2 3)")]
     #[case::struct_("{foo: 1, bar: 2}")]
-    fn try_into_element_error(#[case] ion_text: &str) -> IonResult<()> {
+    fn try_into_element_incomplete(#[case] ion_text: &str) -> IonResult<()> {
         let mut binary_ion = to_binary_ion(ion_text)?;
         let _oops_i_lost_a_byte = binary_ion.pop().unwrap();
-        let mut reader = LazyBinaryReader::new(&binary_ion)?;
-        let value = reader.expect_next()?;
-        let result: IonResult<Element> = value.try_into();
-        assert!(result.is_err());
+        let mut reader = LazyBinaryReader::new(binary_ion)?;
+        let result = reader.expect_next();
+        assert!(matches!(result, Err(crate::IonError::Incomplete(_))));
         Ok(())
     }
 }

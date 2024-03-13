@@ -139,6 +139,18 @@ pub struct LazyRawAnyReader<'data> {
     encoding: RawReaderKind<'data>,
 }
 
+impl<'data> LazyRawAnyReader<'data> {
+    fn detect_encoding(data: &[u8]) -> RawReaderType {
+        const BINARY_1_0_IVM: &[u8] = &[0xEA, 0x01, 0x00, 0xE0];
+
+        match data {
+            &[0xE0, 0x01, 0x00, 0xEA, ..] => RawReaderType::Binary_1_0,
+            // TODO: Binary Ion 1.1
+            _ => RawReaderType::Text_1_0,
+        }
+    }
+}
+
 pub enum RawReaderKind<'data> {
     Text_1_0(LazyRawTextReader_1_0<'data>),
     Binary_1_0(LazyRawBinaryReader<'data>),
@@ -172,18 +184,20 @@ impl<'data> From<LazyRawBinaryReader<'data>> for LazyRawAnyReader<'data> {
 
 impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
     fn new(data: &'data [u8]) -> Self {
-        const BINARY_1_0_IVM: &[u8] = &[0xEA, 0x01, 0x00, 0xE0];
-
-        let reader_type = match data {
-            &[0xE0, 0x01, 0x00, 0xEA, ..] => RawReaderType::Binary_1_0,
-            // TODO: Binary Ion 1.1
-            _ => RawReaderType::Text_1_0,
-        };
-
+        let reader_type = Self::detect_encoding(data);
         Self::resume_at_offset(data, 0, reader_type)
     }
 
-    fn resume_at_offset(data: &'data [u8], offset: usize, raw_reader_type: RawReaderType) -> Self {
+    fn resume_at_offset(
+        data: &'data [u8],
+        offset: usize,
+        mut raw_reader_type: RawReaderType,
+    ) -> Self {
+        if offset == 0 {
+            // If we're at the beginning of the stream, the provided `raw_reader_type` may be a
+            // default. We need to inspect the bytes to see if we should override it.
+            raw_reader_type = Self::detect_encoding(data);
+        }
         match raw_reader_type {
             RawReaderType::Text_1_0 => {
                 LazyRawTextReader_1_0::resume_at_offset(data, offset, ()).into()

@@ -264,7 +264,7 @@ mod tests {
             {this: is, a: struct}
         "#,
         )?;
-        let mut reader = LazyBinaryReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(ion_data)?;
         assert_eq!(reader.expect_next()?.read()?.expect_null()?, IonType::Null);
         assert!(reader.expect_next()?.read()?.expect_bool()?);
         assert_eq!(reader.expect_next()?.read()?.expect_i64()?, 1);
@@ -313,7 +313,7 @@ mod tests {
             {{"Clob"}}
         "#,
         )?;
-        let mut reader = LazyBinaryReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(ion_data)?;
         let first_value = reader.expect_next()?.read()?;
         assert_ne!(first_value, ValueRef::String("it's not a string".into()));
         assert_eq!(first_value, ValueRef::Null(IonType::Null));

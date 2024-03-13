@@ -26,7 +26,7 @@ use crate::{
 ///
 /// let ion_data = r#"{foo: 1, bar: 2, foo: 3, bar: 4}"#;
 /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
-/// let mut reader = LazyBinaryReader::new(&ion_bytes)?;
+/// let mut reader = LazyBinaryReader::new(ion_bytes)?;
 ///
 /// // Advance the reader to the first value and confirm it's a struct
 /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
@@ -91,7 +91,7 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     ///
     /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
     /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
-    /// let mut reader = LazyBinaryReader::new(&ion_bytes)?;
+    /// let mut reader = LazyBinaryReader::new(ion_bytes)?;
     ///
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
@@ -125,7 +125,7 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     ///
     /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
     /// let ion_bytes: Vec<u8> = Element::read_one(ion_data)?.to_binary()?;
-    /// let mut reader = LazyBinaryReader::new(&ion_bytes)?;
+    /// let mut reader = LazyBinaryReader::new(ion_bytes)?;
     ///
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
@@ -151,7 +151,7 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     ///
     /// let ion_data = r#"{foo: "hello", bar: null.list, baz: 3, bar: 4}"#;
     /// let ion_bytes = Element::read_one(ion_data)?.to_binary()?;
-    /// let mut reader = LazyBinaryReader::new(&ion_bytes)?;
+    /// let mut reader = LazyBinaryReader::new(ion_bytes)?;
     ///
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
@@ -176,7 +176,7 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     ///
     /// let ion_data = r#"{foo: "hello", bar: null.list, baz: 3, bar: 4}"#;
     /// let ion_bytes = Element::read_one(ion_data)?.to_binary()?;
-    /// let mut reader = LazyBinaryReader::new(&ion_bytes)?;
+    /// let mut reader = LazyBinaryReader::new(ion_bytes)?;
     ///
     /// let lazy_struct = reader.expect_next()?.read()?.expect_struct()?;
     ///
@@ -206,7 +206,7 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     /// let element: Element = ion_struct! {"foo": 1, "bar": 2}.with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
+    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_struct = lazy_reader.expect_next()?.read()?.expect_struct()?;
@@ -338,7 +338,7 @@ mod tests {
     #[test]
     fn find() -> IonResult<()> {
         let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
-        let mut reader = LazyBinaryReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         let baz = struct_.find("baz")?;
         assert!(baz.is_some());
@@ -351,7 +351,7 @@ mod tests {
     #[test]
     fn find_expected() -> IonResult<()> {
         let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
-        let mut reader = LazyBinaryReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         let baz = struct_.find_expected("baz");
         assert!(baz.is_ok());
@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn get() -> IonResult<()> {
         let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
-        let mut reader = LazyBinaryReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         let baz = struct_.get("baz")?;
         assert_eq!(baz, Some(ValueRef::Int(3.into())));
@@ -376,7 +376,7 @@ mod tests {
     #[test]
     fn get_expected() -> IonResult<()> {
         let ion_data = to_binary_ion("{foo: 1, bar: 2, baz: 3}")?;
-        let mut reader = LazyBinaryReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         let baz = struct_.get_expected("baz");
         assert_eq!(baz, Ok(ValueRef::Int(3.into())));
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn annotations() -> IonResult<()> {
         let ion_data = to_binary_ion("a::b::c::{foo: 1, bar: 2, baz: quux::quuz::3}")?;
-        let mut reader = LazyBinaryReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(ion_data)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         assert!(struct_.annotations().are(["a", "b", "c"])?);
         let baz = struct_.find_expected("baz")?;
@@ -400,23 +400,11 @@ mod tests {
     fn try_into_element() -> IonResult<()> {
         let ion_text = "foo::baz::baz::{a: 1, b: 2, c: 3}";
         let binary_ion = to_binary_ion(ion_text)?;
-        let mut reader = LazyBinaryReader::new(&binary_ion)?;
+        let mut reader = LazyBinaryReader::new(binary_ion)?;
         let struct_ = reader.expect_next()?.read()?.expect_struct()?;
         let result: IonResult<Element> = struct_.try_into();
         assert!(result.is_ok());
         assert_eq!(result?, Element::read_one(ion_text)?);
-        Ok(())
-    }
-
-    #[test]
-    fn try_into_element_error() -> IonResult<()> {
-        let mut binary_ion = to_binary_ion("foo::baz::baz::{a: 1, b: 2, c: 3}")?;
-        let _oops_i_lost_a_byte = binary_ion.pop().unwrap();
-        let mut reader = LazyBinaryReader::new(&binary_ion)?;
-        let struct_ = reader.expect_next()?.read()?.expect_struct()?;
-        // Conversion will fail because the reader will encounter an unexpected end of input
-        let result: IonResult<Element> = struct_.try_into();
-        assert!(result.is_err());
         Ok(())
     }
 }

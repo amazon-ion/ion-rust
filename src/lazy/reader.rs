@@ -1,11 +1,11 @@
 #![allow(non_camel_case_types)]
 
-use crate::binary::constants::v1_0::IVM;
 use crate::element::reader::ElementReader;
 use crate::element::Element;
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::streaming_raw_reader::IntoIonInput;
 use crate::lazy::system_reader::{
     LazySystemAnyReader, LazySystemBinaryReader, LazySystemReader, LazySystemTextReader_1_1,
 };
@@ -38,7 +38,7 @@ use crate::{IonError, IonResult};
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;
 ///
-/// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
+/// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
@@ -61,8 +61,8 @@ use crate::{IonError, IonResult};
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazyApplicationReader<'data, D: LazyDecoder> {
-    system_reader: LazySystemReader<'data, D>,
+pub struct LazyApplicationReader<Encoding: LazyDecoder, Input: IntoIonInput> {
+    system_reader: LazySystemReader<Encoding, Input>,
 }
 
 pub(crate) enum NextApplicationValue<'top, D: LazyDecoder> {
@@ -71,55 +71,43 @@ pub(crate) enum NextApplicationValue<'top, D: LazyDecoder> {
     EndOfStream,
 }
 
-impl<'data, D: LazyDecoder> LazyApplicationReader<'data, D> {
+impl<Encoding: LazyDecoder, Input: IntoIonInput> LazyApplicationReader<Encoding, Input> {
     /// Returns the next top-level value in the input stream as `Ok(Some(lazy_value))`.
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
     /// If the next value is incomplete (that is: only part of it is in the input buffer) or if the
     /// input buffer contains invalid data, returns `Err(ion_error)`.
-    pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, D>>>
-    where
-        'data: 'top,
-    {
+    pub fn next<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, Encoding>>> {
         self.system_reader.next_value()
     }
 
     /// Like [`Self::next`], but returns an `IonError` if there are no more values in the stream.
-    pub fn expect_next<'top>(&'top mut self) -> IonResult<LazyValue<'top, D>>
-    where
-        'data: 'top,
-    {
+    pub fn expect_next<'top>(&'top mut self) -> IonResult<LazyValue<'top, Encoding>> {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
     }
 }
 
-pub type LazyBinaryReader<'data> = LazyApplicationReader<'data, BinaryEncoding_1_0>;
-pub type LazyTextReader_1_0<'data> = LazyApplicationReader<'data, TextEncoding_1_0>;
-pub type LazyTextReader_1_1<'data> = LazyApplicationReader<'data, TextEncoding_1_1>;
-pub type LazyReader<'data> = LazyApplicationReader<'data, AnyEncoding>;
+pub type LazyBinaryReader<Input> = LazyApplicationReader<BinaryEncoding_1_0, Input>;
+pub type LazyTextReader_1_0<Input> = LazyApplicationReader<TextEncoding_1_0, Input>;
+pub type LazyTextReader_1_1<Input> = LazyApplicationReader<TextEncoding_1_1, Input>;
+pub type LazyReader<Input> = LazyApplicationReader<AnyEncoding, Input>;
 
-impl<'data> LazyReader<'data> {
-    pub fn new(ion_data: &'data [u8]) -> LazyReader<'data> {
+impl<Input: IntoIonInput> LazyReader<Input> {
+    pub fn new(ion_data: Input) -> LazyReader<Input> {
         let system_reader = LazySystemAnyReader::new(ion_data);
         LazyApplicationReader { system_reader }
     }
 }
 
-impl<'data> LazyBinaryReader<'data> {
-    pub fn new(ion_data: &'data [u8]) -> IonResult<LazyBinaryReader<'data>> {
-        if ion_data.len() < IVM.len() {
-            return IonResult::decoding_error("input is too short to be recognized as Ion");
-        } else if ion_data[..IVM.len()] != IVM {
-            return IonResult::decoding_error("input does not begin with an Ion version marker");
-        }
-
+impl<Input: IntoIonInput> LazyBinaryReader<Input> {
+    pub fn new(ion_data: Input) -> IonResult<LazyBinaryReader<Input>> {
         let system_reader = LazySystemBinaryReader::new(ion_data);
         Ok(LazyApplicationReader { system_reader })
     }
 }
 
-impl<'data> LazyTextReader_1_1<'data> {
-    pub fn new(ion_data: &'data [u8]) -> IonResult<LazyTextReader_1_1<'data>> {
+impl<Input: IntoIonInput> LazyTextReader_1_1<Input> {
+    pub fn new(ion_data: Input) -> IonResult<LazyTextReader_1_1<Input>> {
         let system_reader = LazySystemTextReader_1_1::new(ion_data);
         Ok(LazyApplicationReader { system_reader })
     }
@@ -133,11 +121,13 @@ impl<'data> LazyTextReader_1_1<'data> {
     }
 }
 
-pub struct LazyElementIterator<'iter, 'data, D: LazyDecoder> {
-    lazy_reader: &'iter mut LazyApplicationReader<'data, D>,
+pub struct LazyElementIterator<'iter, Encoding: LazyDecoder, Input: IntoIonInput> {
+    lazy_reader: &'iter mut LazyApplicationReader<Encoding, Input>,
 }
 
-impl<'iter, 'data, D: LazyDecoder> Iterator for LazyElementIterator<'iter, 'data, D> {
+impl<'iter, Encoding: LazyDecoder, Input: IntoIonInput> Iterator
+    for LazyElementIterator<'iter, Encoding, Input>
+{
     type Item = IonResult<Element>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -149,8 +139,10 @@ impl<'iter, 'data, D: LazyDecoder> Iterator for LazyElementIterator<'iter, 'data
     }
 }
 
-impl<'data, D: LazyDecoder> ElementReader for LazyApplicationReader<'data, D> {
-    type ElementIterator<'a> = LazyElementIterator<'a, 'data, D> where Self: 'a,;
+impl<Encoding: LazyDecoder, Input: IntoIonInput> ElementReader
+    for LazyApplicationReader<Encoding, Input>
+{
+    type ElementIterator<'a> = LazyElementIterator<'a, Encoding, Input> where Self: 'a,;
 
     fn read_next_element(&mut self) -> IonResult<Option<Element>> {
         let lazy_value = match self.next()? {
@@ -196,7 +188,7 @@ mod tests {
                 (a b c)
         "#,
         )?;
-        let mut reader = LazyBinaryReader::new(&ion_data)?;
+        let mut reader = LazyBinaryReader::new(ion_data)?;
         // For each top-level value...
         while let Some(top_level_value) = reader.next()? {
             // ...see if it's an S-expression...
@@ -212,7 +204,7 @@ mod tests {
 
     #[test]
     fn test_rewind() -> IonResult<()> {
-        let data = &to_binary_ion(
+        let data = to_binary_ion(
             r#"
             [
                 "yo",
@@ -235,7 +227,7 @@ mod tests {
 
     #[test]
     fn materialize() -> IonResult<()> {
-        let data = &to_binary_ion(
+        let data = to_binary_ion(
             r#"
             [
                 "yo",
