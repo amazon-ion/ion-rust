@@ -8,8 +8,8 @@ use crate::lazy::decoder::{LazyDecoder, LazyRawReader};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::IonResult;
 
-/// Wraps an implementation of [`IonInput`] and reads one top level value at a time from the input.
-pub struct StreamingRawReader<Encoding: LazyDecoder, Input: IntoIonInput> {
+/// Wraps an implementation of [`IonDataSource`] and reads one top level value at a time from the input.
+pub struct StreamingRawReader<Encoding: LazyDecoder, Input: IonInput> {
     // The Ion encoding that this reader recognizes.
     encoding: Encoding,
     // The StreamingRawReader works by reading the next value from the bytes currently available
@@ -40,12 +40,12 @@ pub struct StreamingRawReader<Encoding: LazyDecoder, Input: IntoIonInput> {
     //      overhead to each access. Given that this is the hottest path in the code and that a
     //      fix is inbound, I think this use of `unsafe` is warranted for now.
     //
-    input: UnsafeCell<Input::IonInput>,
+    input: UnsafeCell<Input::DataSource>,
 }
 
 const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 
-impl<Encoding: LazyDecoder, Input: IntoIonInput> StreamingRawReader<Encoding, Input> {
+impl<Encoding: LazyDecoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     pub fn new(encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
         StreamingRawReader {
             encoding,
@@ -84,11 +84,16 @@ impl<Encoding: LazyDecoder, Input: IntoIonInput> StreamingRawReader<Encoding, In
             let bytes_read = end_position - starting_position;
             let input = unsafe { &mut *self.input.get() };
             // If we've exhausted the buffer but not the data source...
-            if bytes_read >= available_bytes.len() && !input.stream_has_ended() {
+            // If we've exhausted the buffer...
+            if bytes_read >= available_bytes.len() {
+                // && !input.stream_has_ended() {
                 // ...we need to pull more data from the source and try again to make sure that the
                 // buffer didn't contain incomplete data.
-                input.fill_buffer()?;
-                continue;
+                // ...try to pull more data from the buffer. If there's nothing available, return
+                // the result we got.
+                if input.fill_buffer()? > 0 {
+                    continue;
+                }
             }
             // Mark those input bytes as having been consumed so they are not read again.
             input.consume(bytes_read);
@@ -103,15 +108,14 @@ impl<Encoding: LazyDecoder, Input: IntoIonInput> StreamingRawReader<Encoding, In
 
 /// An input source--typically an implementation of either `AsRef<[u8]>` or `io::Read`--from which
 /// Ion can be read, paying the cost of buffering and I/O copies only when necessary.
-pub trait IonInput {
+pub trait IonDataSource {
     /// Returns a slice of all unread bytes that are currently available in the buffer.
     fn buffer(&self) -> &[u8];
 
-    // /// Indicates whether the data source from which this `IonInput` reads has been exhausted.
-    // fn stream_has_ended(&self) -> bool;
-
     /// Attempts to read more input from the data source into the buffer of available bytes.
-    fn fill_buffer(&mut self) -> IonResult<()>;
+    /// A return value of `Ok(0)` indicates that there is no more data, but does not preclude the
+    /// possibility that more data will become available in the future.
+    fn fill_buffer(&mut self) -> IonResult<usize>;
 
     /// Marks `number_of_bytes` in the buffer as having been read. The caller is responsible for
     /// confirming that the buffer contains at least `number_of_bytes` bytes.
@@ -147,22 +151,17 @@ impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
     }
 }
 
-impl<SliceType: AsRef<[u8]>> IonInput for IonSlice<SliceType> {
+impl<SliceType: AsRef<[u8]>> IonDataSource for IonSlice<SliceType> {
     #[inline]
     fn buffer(&self) -> &[u8] {
         // Return the input slice containing all of the as-of-yet unread bytes.
         &self.stream_bytes()[self.position..]
     }
 
-    // fn stream_has_ended(&self) -> bool {
-    //     // Because the input is fixed, all of the input data is already available. There is no more
-    //     // data to read in, making this trivially `true`.
-    //     true
-    // }
-
-    fn fill_buffer(&mut self) -> IonResult<()> {
+    #[inline]
+    fn fill_buffer(&mut self) -> IonResult<usize> {
         // For fixed inputs, this is a no-op.
-        Ok(())
+        Ok(0)
     }
 
     fn consume(&mut self, number_of_bytes: usize) {
@@ -190,8 +189,6 @@ pub struct IonStream<R: Read> {
     position: usize,
     // The index of the first unoccupied byte in the buffer *at or after* `position`.
     limit: usize,
-    // // Whether an `input.read()` has returned `0` so far.
-    // is_end_of_stream: bool,
 }
 
 impl<R: Read> IonStream<R> {
@@ -205,15 +202,13 @@ impl<R: Read> IonStream<R> {
             position: 0,
             // The index of the first unoccupied byte in the buffer *at or after* `position`.
             limit: 0,
-            // // Whether `input` has returned EOF yet
-            // is_end_of_stream: false,
         }
     }
 }
 
 impl<R: Read> IonStream<R> {
-    /// Moves all of the bytes from `self.position` to `self.limit` to the beginning of the buffer,
-    /// reclaiming space that was previously occupied by bytes that have been consumed.
+    /// Moves all of the bytes in the range `self.position..self.limit` to the beginning of the buffer,
+    /// reclaiming space that was previously occupied by bytes that have since been consumed.
     fn shift_remaining_bytes_to_index_zero(&mut self) {
         // Shift everything after `remaining_data_start_index` to the beginning of the Vec and
         // update the limit.
@@ -225,16 +220,12 @@ impl<R: Read> IonStream<R> {
     }
 }
 
-impl<R: Read> IonInput for IonStream<R> {
+impl<R: Read> IonDataSource for IonStream<R> {
     fn buffer(&self) -> &[u8] {
         &self.buffer[self.position..self.limit]
     }
 
-    // fn stream_has_ended(&self) -> bool {
-    //     self.is_end_of_stream
-    // }
-
-    fn fill_buffer(&mut self) -> IonResult<()> {
+    fn fill_buffer(&mut self) -> IonResult<usize> {
         // If
         if self.position > 0 {
             // We've consumed bytes (advancing `position`) and can therefore reclaim some of the
@@ -250,14 +241,10 @@ impl<R: Read> IonInput for IonStream<R> {
         // Attempt to read as many bytes as will fit in the currently allocated capacity beyond
         // `limit`.
         let bytes_read = self.input.read(&mut self.buffer[self.limit..])?;
-        // If the input source returns `Ok(0)`, there's no more data coming. We can mark the stream
-        // as complete.
-        // if bytes_read == 0 {
-        //     self.is_end_of_stream = true;
-        // }
+
         // Update `self.limit` to mark the newly read in bytes as available.
         self.limit += bytes_read;
-        Ok(())
+        Ok(bytes_read)
     }
 
     fn consume(&mut self, number_of_bytes: usize) {
@@ -266,21 +253,21 @@ impl<R: Read> IonInput for IonStream<R> {
     }
 }
 
-pub trait IntoIonInput {
-    type IonInput: IonInput;
+pub trait IonInput {
+    type DataSource: IonDataSource;
 
-    fn into_ion_input(self) -> Self::IonInput;
+    fn into_ion_input(self) -> Self::DataSource;
 }
 
-/// Implements `IntoIonInput` for types that represent a complete Ion stream (i.e. that do not and
+/// Implements `IonInput` for types that represent a complete Ion stream (i.e. that do not and
 /// cannot read more data from another source once exhausted).
 macro_rules! impl_into_ion_input_for_slice_types {
     ($($ty:ty),* $(,)?) => {
         $(
-            impl <'a> IntoIonInput for $ty {
-                type IonInput = IonSlice<$ty>;
+            impl <'a> IonInput for $ty {
+                type DataSource = IonSlice<$ty>;
 
-                fn into_ion_input(self) -> Self::IonInput {
+                fn into_ion_input(self) -> Self::DataSource {
                     IonSlice::new(self)
                 }
             }
@@ -290,26 +277,26 @@ macro_rules! impl_into_ion_input_for_slice_types {
 
 impl_into_ion_input_for_slice_types!(&'a [u8], &'a str, String, Vec<u8>,);
 
-impl IntoIonInput for File {
-    type IonInput = IonStream<BufReader<Self>>;
+impl IonInput for File {
+    type DataSource = IonStream<BufReader<Self>>;
 
-    fn into_ion_input(self) -> Self::IonInput {
+    fn into_ion_input(self) -> Self::DataSource {
         IonStream::new(BufReader::new(self))
     }
 }
 
-impl<R: Read> IntoIonInput for BufReader<R> {
-    type IonInput = IonStream<Self>;
+impl<R: Read> IonInput for BufReader<R> {
+    type DataSource = IonStream<Self>;
 
-    fn into_ion_input(self) -> Self::IonInput {
+    fn into_ion_input(self) -> Self::DataSource {
         IonStream::new(self)
     }
 }
 
-impl<'a> IntoIonInput for StdinLock<'a> {
-    type IonInput = IonStream<Self>;
+impl<'a> IonInput for StdinLock<'a> {
+    type DataSource = IonStream<Self>;
 
-    fn into_ion_input(self) -> Self::IonInput {
+    fn into_ion_input(self) -> Self::DataSource {
         IonStream::new(self)
     }
 }
@@ -324,7 +311,7 @@ mod tests {
     use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
     use crate::lazy::raw_stream_item::LazyRawStreamItem;
     use crate::lazy::raw_value_ref::RawValueRef;
-    use crate::lazy::streaming_raw_reader::{IntoIonInput, StreamingRawReader};
+    use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
     use crate::{IonError, IonResult};
 
     fn expect_value<'a, D: LazyDecoder>(
@@ -360,7 +347,7 @@ mod tests {
         Ok(())
     }
 
-    fn read_example_stream(input: impl IntoIonInput) -> IonResult<()> {
+    fn read_example_stream(input: impl IonInput) -> IonResult<()> {
         let bump = BumpAllocator::new();
         let mut reader = StreamingRawReader::new(AnyEncoding, input);
         expect_string(reader.next(&bump)?, "foo")?;
@@ -407,7 +394,7 @@ mod tests {
 
     const INVALID_EXAMPLE_STREAM: &str = "2024-03-12T16:33.000-05:"; // Missing offset minutes
 
-    fn read_invalid_example_stream(input: impl IntoIonInput) -> IonResult<()> {
+    fn read_invalid_example_stream(input: impl IonInput) -> IonResult<()> {
         let bump = BumpAllocator::new();
         let mut reader = StreamingRawReader::new(AnyEncoding, input);
         let result = reader.next(&bump);

@@ -5,7 +5,7 @@ use crate::element::Element;
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
-use crate::lazy::streaming_raw_reader::IntoIonInput;
+use crate::lazy::streaming_raw_reader::IonInput;
 use crate::lazy::system_reader::{
     LazySystemAnyReader, LazySystemBinaryReader, LazySystemReader, LazySystemTextReader_1_1,
 };
@@ -61,7 +61,7 @@ use crate::{IonError, IonResult};
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazyApplicationReader<Encoding: LazyDecoder, Input: IntoIonInput> {
+pub struct LazyApplicationReader<Encoding: LazyDecoder, Input: IonInput> {
     system_reader: LazySystemReader<Encoding, Input>,
 }
 
@@ -71,7 +71,7 @@ pub(crate) enum NextApplicationValue<'top, D: LazyDecoder> {
     EndOfStream,
 }
 
-impl<Encoding: LazyDecoder, Input: IntoIonInput> LazyApplicationReader<Encoding, Input> {
+impl<Encoding: LazyDecoder, Input: IonInput> LazyApplicationReader<Encoding, Input> {
     /// Returns the next top-level value in the input stream as `Ok(Some(lazy_value))`.
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
     /// If the next value is incomplete (that is: only part of it is in the input buffer) or if the
@@ -94,21 +94,21 @@ pub type LazyTextReader_1_0<Input> = LazyApplicationReader<TextEncoding_1_0, Inp
 pub type LazyTextReader_1_1<Input> = LazyApplicationReader<TextEncoding_1_1, Input>;
 pub type LazyReader<Input> = LazyApplicationReader<AnyEncoding, Input>;
 
-impl<Input: IntoIonInput> LazyReader<Input> {
+impl<Input: IonInput> LazyReader<Input> {
     pub fn new(ion_data: Input) -> LazyReader<Input> {
         let system_reader = LazySystemAnyReader::new(ion_data);
         LazyApplicationReader { system_reader }
     }
 }
 
-impl<Input: IntoIonInput> LazyBinaryReader<Input> {
+impl<Input: IonInput> LazyBinaryReader<Input> {
     pub fn new(ion_data: Input) -> IonResult<LazyBinaryReader<Input>> {
         let system_reader = LazySystemBinaryReader::new(ion_data);
         Ok(LazyApplicationReader { system_reader })
     }
 }
 
-impl<Input: IntoIonInput> LazyTextReader_1_1<Input> {
+impl<Input: IonInput> LazyTextReader_1_1<Input> {
     pub fn new(ion_data: Input) -> IonResult<LazyTextReader_1_1<Input>> {
         let system_reader = LazySystemTextReader_1_1::new(ion_data);
         Ok(LazyApplicationReader { system_reader })
@@ -123,11 +123,11 @@ impl<Input: IntoIonInput> LazyTextReader_1_1<Input> {
     }
 }
 
-pub struct LazyElementIterator<'iter, Encoding: LazyDecoder, Input: IntoIonInput> {
+pub struct LazyElementIterator<'iter, Encoding: LazyDecoder, Input: IonInput> {
     lazy_reader: &'iter mut LazyApplicationReader<Encoding, Input>,
 }
 
-impl<'iter, Encoding: LazyDecoder, Input: IntoIonInput> Iterator
+impl<'iter, Encoding: LazyDecoder, Input: IonInput> Iterator
     for LazyElementIterator<'iter, Encoding, Input>
 {
     type Item = IonResult<Element>;
@@ -141,7 +141,7 @@ impl<'iter, Encoding: LazyDecoder, Input: IntoIonInput> Iterator
     }
 }
 
-impl<Encoding: LazyDecoder, Input: IntoIonInput> ElementReader
+impl<Encoding: LazyDecoder, Input: IonInput> ElementReader
     for LazyApplicationReader<Encoding, Input>
 {
     type ElementIterator<'a> = LazyElementIterator<'a, Encoding, Input> where Self: 'a,;

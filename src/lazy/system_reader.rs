@@ -4,7 +4,7 @@ use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::{ExpandedValueRef, LazyExpandedValue, LazyExpandingReader};
-use crate::lazy::streaming_raw_reader::{IntoIonInput, StreamingRawReader};
+use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
@@ -67,7 +67,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazySystemReader<Encoding: LazyDecoder, Input: IntoIonInput> {
+pub struct LazySystemReader<Encoding: LazyDecoder, Input: IonInput> {
     pub(crate) expanding_reader: LazyExpandingReader<Encoding, Input>,
 }
 
@@ -96,7 +96,7 @@ impl PendingLst {
     }
 }
 
-impl<Input: IntoIonInput> LazySystemAnyReader<Input> {
+impl<Input: IonInput> LazySystemAnyReader<Input> {
     pub(crate) fn new(ion_data: Input) -> LazySystemAnyReader<Input> {
         let raw_reader = StreamingRawReader::new(AnyEncoding, ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
@@ -104,7 +104,7 @@ impl<Input: IntoIonInput> LazySystemAnyReader<Input> {
     }
 }
 
-impl<Input: IntoIonInput> LazySystemBinaryReader<Input> {
+impl<Input: IonInput> LazySystemBinaryReader<Input> {
     pub(crate) fn new(ion_data: Input) -> LazySystemBinaryReader<Input> {
         let raw_reader = StreamingRawReader::new(BinaryEncoding_1_0, ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
@@ -112,7 +112,7 @@ impl<Input: IntoIonInput> LazySystemBinaryReader<Input> {
     }
 }
 
-impl<Input: IntoIonInput> LazySystemTextReader_1_1<Input> {
+impl<Input: IonInput> LazySystemTextReader_1_1<Input> {
     pub(crate) fn new(ion_data: Input) -> LazySystemTextReader_1_1<Input> {
         let raw_reader = StreamingRawReader::new(TextEncoding_1_1, ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
@@ -120,7 +120,7 @@ impl<Input: IntoIonInput> LazySystemTextReader_1_1<Input> {
     }
 }
 
-impl<Encoding: LazyDecoder, Input: IntoIonInput> LazySystemReader<Encoding, Input> {
+impl<Encoding: LazyDecoder, Input: IonInput> LazySystemReader<Encoding, Input> {
     // Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
     // `$ion_symbol_table`.
     pub fn is_symbol_table_struct(

@@ -54,7 +54,7 @@ use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
-use crate::lazy::streaming_raw_reader::{IntoIonInput, StreamingRawReader};
+use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_reader::{LazySystemReader, PendingLst};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
@@ -133,7 +133,7 @@ impl<'top, D: LazyDecoder> ExpandedStreamItem<'top, D> {
 
 /// A reader that evaluates macro invocations in the data stream and surfaces the resulting
 /// raw values to the caller.
-pub struct LazyExpandingReader<Encoding: LazyDecoder, Input: IntoIonInput> {
+pub struct LazyExpandingReader<Encoding: LazyDecoder, Input: IonInput> {
     raw_reader: UnsafeCell<StreamingRawReader<Encoding, Input>>,
     // The expanding raw reader needs to be able to return multiple values from a single expression.
     // For example, if the raw reader encounters this e-expression:
@@ -194,7 +194,7 @@ pub struct LazyExpandingReader<Encoding: LazyDecoder, Input: IntoIonInput> {
     macro_table: UnsafeCell<MacroTable>,
 }
 
-impl<Encoding: LazyDecoder, Input: IntoIonInput> LazyExpandingReader<Encoding, Input> {
+impl<Encoding: LazyDecoder, Input: IonInput> LazyExpandingReader<Encoding, Input> {
     pub(crate) fn new(raw_reader: StreamingRawReader<Encoding, Input>) -> Self {
         Self {
             raw_reader: raw_reader.into(),
