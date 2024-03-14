@@ -76,6 +76,34 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazyApplicationReader<Encoding, Inp
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
     /// If the next value is incomplete (that is: only part of it is in the input buffer) or if the
     /// input buffer contains invalid data, returns `Err(ion_error)`.
+    ///
+    /// <div class="warning">A warning when reading from growing input streams</div>
+    ///
+    /// If reader's [`IonInput`] indicates that the stream is complete, the reader will
+    /// also consider any remaining available data to be complete. In select circumstances--namely,
+    /// when reading top-level text Ion scalars or keywords from an input stream that continues
+    /// to grow over time--this can lead to unexpected results.
+    ///
+    /// For example: consider the case of following a growing file (as `tail -f` would do).
+    /// When the reader encounters the (temporary!) end of the file and a [`std::io::Read::read`]
+    /// operation returns `Ok(0)`, the reader would consider its input buffer's contents to be final.
+    /// This has the potential to result in **incorrect data** when the data that was available
+    /// happened to be legal Ion data. Here are some examples:
+    ///
+    /// | On `Ok(0)`, `next()` returns... | A later call to `next()` returns... |
+    /// | ------------------------------- | ------------------------------------|
+    /// | `false`                         | `_teeth`                            |
+    /// | `123`                           | `456`                               |
+    /// | `null`                          | `.struct`                           |
+    /// | `$ion`                          | `_1_0`                              |
+    /// | `2024-03-14T`                   | `12:00:30.000Z`                     |
+    /// | `// Discarded start of comment` | `words treated as symbols`          |
+    ///
+    /// This is not an issue in binary Ion as incomplete items can always be detected. When following
+    /// a text Ion data source, it is recommended to only trust values returned after an `Ok(None)`
+    /// (i.e. an end-of-stream, indicating an empty buffer) or an `Ok(container_value)` as incomplete
+    /// containers can be detected reliably. This should only be attempted when you have control over
+    /// the format of the data being read.
     #[allow(clippy::should_implement_trait)]
     // ^-- Clippy objects that the method name `next` will be confused for `Iterator::next()`
     pub fn next(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {

@@ -49,7 +49,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> StreamingRawReader<Encoding, Input>
     pub fn new(encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
         StreamingRawReader {
             encoding,
-            input: input.into_ion_input().into(),
+            input: input.into_data_source().into(),
             saved_state: Default::default(),
             stream_position: 0,
         }
@@ -253,21 +253,27 @@ impl<R: Read> IonDataSource for IonStream<R> {
     }
 }
 
+/// Types that can be used as a source of Ion data.
+///
+/// In general, this trait is implemented by mapping `Self` to either:
+///   * [`IonSlice`], if `Self` is an implementation of `AsRef<[u8]>`
+/// OR
+///   * [`IonStream`], if `Self` is an implementation of `io::Read`
 pub trait IonInput {
     type DataSource: IonDataSource;
 
-    fn into_ion_input(self) -> Self::DataSource;
+    fn into_data_source(self) -> Self::DataSource;
 }
 
 /// Implements `IonInput` for types that represent a complete Ion stream (i.e. that do not and
 /// cannot read more data from another source once exhausted).
-macro_rules! impl_into_ion_input_for_slice_types {
+macro_rules! impl_ion_input_for_slice_types {
     ($($ty:ty),* $(,)?) => {
         $(
             impl <'a> IonInput for $ty {
                 type DataSource = IonSlice<$ty>;
 
-                fn into_ion_input(self) -> Self::DataSource {
+                fn into_data_source(self) -> Self::DataSource {
                     IonSlice::new(self)
                 }
             }
@@ -275,12 +281,12 @@ macro_rules! impl_into_ion_input_for_slice_types {
     };
 }
 
-impl_into_ion_input_for_slice_types!(&'a [u8], &'a str, String, Vec<u8>,);
+impl_ion_input_for_slice_types!(&'a [u8], &'a str, String, &'a String, Vec<u8>, &'a Vec<u8>);
 
 impl IonInput for File {
     type DataSource = IonStream<BufReader<Self>>;
 
-    fn into_ion_input(self) -> Self::DataSource {
+    fn into_data_source(self) -> Self::DataSource {
         IonStream::new(BufReader::new(self))
     }
 }
@@ -288,7 +294,7 @@ impl IonInput for File {
 impl<R: Read> IonInput for BufReader<R> {
     type DataSource = IonStream<Self>;
 
-    fn into_ion_input(self) -> Self::DataSource {
+    fn into_data_source(self) -> Self::DataSource {
         IonStream::new(self)
     }
 }
@@ -296,7 +302,7 @@ impl<R: Read> IonInput for BufReader<R> {
 impl<'a> IonInput for StdinLock<'a> {
     type DataSource = IonStream<Self>;
 
-    fn into_ion_input(self) -> Self::DataSource {
+    fn into_data_source(self) -> Self::DataSource {
         IonStream::new(self)
     }
 }
