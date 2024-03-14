@@ -23,7 +23,7 @@ edition = "2021"
 rust-version = "1.65"
 
 [features]
-default = []
+default = ["experimental"]
 experimental-ion-hash = ["digest"]
 
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
