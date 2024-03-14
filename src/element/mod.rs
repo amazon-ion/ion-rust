@@ -42,9 +42,10 @@ mod sequence;
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::data_source::IonDataSource;
 use crate::element::writer::ElementWriter;
-use crate::reader::ReaderBuilder;
 use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 
+use crate::lazy::reader::LazyReader;
+use crate::lazy::streaming_raw_reader::{IonSlice, IonStream};
 use crate::result::IonFailure;
 pub use annotations::{Annotations, IntoAnnotations};
 pub use sequence::Sequence;
@@ -680,18 +681,14 @@ impl Element {
     /// If the data source has at least one value, returns `Ok(Some(Element))`.
     /// If the data source has invalid data, returns `Err`.
     pub fn read_first<A: AsRef<[u8]>>(data: A) -> IonResult<Option<Element>> {
-        let bytes: &[u8] = data.as_ref();
-        // Create an iterator over the Elements in the data
-        let mut reader = ReaderBuilder::default().build(bytes)?;
+        let mut reader = LazyReader::new(IonSlice::new(data));
         reader.read_next_element()
     }
 
     /// Reads a single Ion [`Element`] from the provided data source. If the input has invalid
     /// data or does not contain at exactly one Ion value, returns `Err(IonError)`.
     pub fn read_one<A: AsRef<[u8]>>(data: A) -> IonResult<Element> {
-        let bytes: &[u8] = data.as_ref();
-        // Create an iterator over the Elements in the data
-        let mut reader = ReaderBuilder::default().build(bytes)?;
+        let mut reader = LazyReader::new(IonSlice::new(data));
         reader.read_one_element()
     }
 
@@ -700,7 +697,10 @@ impl Element {
     /// If the input has valid data, returns `Ok(Sequence)`.
     /// If the input has invalid data, returns `Err(IonError)`.
     pub fn read_all<A: AsRef<[u8]>>(data: A) -> IonResult<Sequence> {
-        Element::iter(data.as_ref())?.collect()
+        Ok(LazyReader::new(IonSlice::new(data))
+            .into_elements()
+            .collect::<IonResult<Vec<_>>>()?
+            .into())
     }
 
     /// Returns an iterator over the Elements in the provided Ion data source.
@@ -709,7 +709,7 @@ impl Element {
     pub fn iter<'a, I: IonDataSource + 'a>(
         source: I,
     ) -> IonResult<impl Iterator<Item = IonResult<Element>> + 'a> {
-        Ok(ReaderBuilder::default().build(source)?.into_elements())
+        Ok(LazyReader::new(IonStream::new(source.to_ion_data_source())).into_elements())
     }
 
     /// Serializes this element to the provided writer.

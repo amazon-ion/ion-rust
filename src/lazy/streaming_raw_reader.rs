@@ -194,7 +194,7 @@ pub struct IonStream<R: Read> {
 impl<R: Read> IonStream<R> {
     const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 
-    fn new(input: R) -> Self {
+    pub(crate) fn new(input: R) -> Self {
         IonStream {
             input,
             buffer: vec![0u8; Self::DEFAULT_IO_BUFFER_SIZE],
@@ -263,6 +263,22 @@ pub trait IonInput {
     type DataSource: IonDataSource;
 
     fn into_data_source(self) -> Self::DataSource;
+}
+
+impl<SliceType: AsRef<[u8]>> IonInput for IonSlice<SliceType> {
+    type DataSource = Self;
+
+    fn into_data_source(self) -> Self::DataSource {
+        self
+    }
+}
+
+impl<Input: Read> IonInput for IonStream<Input> {
+    type DataSource = Self;
+
+    fn into_data_source(self) -> Self::DataSource {
+        self
+    }
 }
 
 /// Implements `IonInput` for types that represent a complete Ion stream (i.e. that do not and

@@ -476,4 +476,44 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn ranges_and_spans() -> IonResult<()> {
+        let bump = bumpalo::Bump::new();
+        let data = b"foo 2024T bar::38 [1, 2, 3]";
+        let mut reader = LazyRawTextReader_1_0::new(data);
+
+        let foo = reader.next(&bump)?.expect_value()?;
+        assert_eq!(foo.span(), b"foo");
+        assert_eq!(foo.range(), 0..3);
+
+        let timestamp = reader.next(&bump)?.expect_value()?;
+        assert_eq!(timestamp.span(), b"2024T");
+        assert_eq!(timestamp.range(), 4..9);
+
+        let annotated_int = reader.next(&bump)?.expect_value()?;
+        assert_eq!(annotated_int.span(), b"bar::38");
+        assert_eq!(annotated_int.range(), 10..17);
+
+        let list_value = reader.next(&bump)?.expect_value()?;
+        assert_eq!(list_value.span(), b"[1, 2, 3]");
+        assert_eq!(list_value.range(), 18..27);
+
+        let list = list_value.read()?.expect_list()?;
+        let mut child_values = list.iter();
+
+        let value1 = child_values.next().unwrap()?.expect_value()?;
+        assert_eq!(value1.span(), b"1");
+        assert_eq!(value1.range(), 19..20);
+
+        let value2 = child_values.next().unwrap()?.expect_value()?;
+        assert_eq!(value2.span(), b"2");
+        assert_eq!(value2.range(), 22..23);
+
+        let value3 = child_values.next().unwrap()?.expect_value()?;
+        assert_eq!(value3.span(), b"3");
+        assert_eq!(value3.range(), 25..26);
+
+        Ok(())
+    }
 }

@@ -97,13 +97,12 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazyApplicationReader<Encoding, Inp
     /// | `null`                          | `.struct`                           |
     /// | `$ion`                          | `_1_0`                              |
     /// | `2024-03-14T`                   | `12:00:30.000Z`                     |
-    /// | `// Discarded start of comment` | `words treated as symbols`          |
+    /// | `// Discarded start of comment` | ` with words treated as symbols`    |
     ///
     /// This is not an issue in binary Ion as incomplete items can always be detected. When following
-    /// a text Ion data source, it is recommended to only trust values returned after an `Ok(None)`
-    /// (i.e. an end-of-stream, indicating an empty buffer) or an `Ok(container_value)` as incomplete
-    /// containers can be detected reliably. This should only be attempted when you have control over
-    /// the format of the data being read.
+    /// a text Ion data source, it is recommended that you only trust values returned after an
+    /// `Ok(container_value)`, as incomplete containers can be detected reliably. This should only
+    /// be attempted when you have control over the format of the data being read.
     #[allow(clippy::should_implement_trait)]
     // ^-- Clippy objects that the method name `next` will be confused for `Iterator::next()`
     pub fn next(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
