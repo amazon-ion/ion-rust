@@ -83,14 +83,10 @@ impl<Encoding: LazyDecoder, Input: IonInput> StreamingRawReader<Encoding, Input>
 
             let bytes_read = end_position - starting_position;
             let input = unsafe { &mut *self.input.get() };
-            // If we've exhausted the buffer but not the data source...
             // If we've exhausted the buffer...
             if bytes_read >= available_bytes.len() {
-                // && !input.stream_has_ended() {
-                // ...we need to pull more data from the source and try again to make sure that the
-                // buffer didn't contain incomplete data.
-                // ...try to pull more data from the buffer. If there's nothing available, return
-                // the result we got.
+                // ...try to pull more data from the data source. If there's nothing available,
+                // return the result we got.
                 if input.fill_buffer()? > 0 {
                     continue;
                 }
@@ -226,7 +222,6 @@ impl<R: Read> IonDataSource for IonStream<R> {
     }
 
     fn fill_buffer(&mut self) -> IonResult<usize> {
-        // If
         if self.position > 0 {
             // We've consumed bytes (advancing `position`) and can therefore reclaim some of the
             // space at the beginning of our buffer.
