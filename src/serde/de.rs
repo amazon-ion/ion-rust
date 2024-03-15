@@ -20,7 +20,8 @@ where
     I: IonInput,
 {
     let mut reader = LazyReader::new(input);
-    let value_deserializer = ValueDeserializer::new(&reader.expect_next()?);
+    let value = reader.expect_next()?;
+    let value_deserializer = ValueDeserializer::new(&value);
     T::deserialize(value_deserializer)
 }
 

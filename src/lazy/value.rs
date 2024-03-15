@@ -106,16 +106,17 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     /// use ion_rs::{Element, IonType};
     /// use ion_rs::lazy::reader::LazyBinaryReader;;
     ///
-    /// let element: Element = "null.string".into();
+    /// let element = Element::string("hello");
     /// let binary_ion = element.to_binary()?;
-    ///
     /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
-    ///
-    /// // Get the first lazy value from the stream.
     /// let lazy_value = lazy_reader.expect_next()?;
+    /// assert!(!lazy_value.is_null());
     ///
-    /// // See whether it's null
-    /// assert!(lazy_value.is_true());
+    /// let element: Element = Element::null(IonType::String);
+    /// let binary_ion = element.to_binary()?;
+    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+    /// let lazy_value = lazy_reader.expect_next()?;
+    /// assert!(lazy_value.is_null());
     ///
     ///# Ok(())
     ///# }
