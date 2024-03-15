@@ -1,8 +1,10 @@
 //! # Serialization and deserialization of Ion data
 //!
-//! This module offers APIs for serialization of Rust data structures into Ion data and deserialization of Ion data into Rust data structures.
-//! The APIs uses serde framework for serialization and deserialization. See the Serde website <https://serde.rs/> for additional documentation and usage examples.
-//! This feature doesn't support [Ion annotations] and [Ion SExpressions] for serialization and deserialization.
+//! This module offers APIs for serialization of Rust data structures into Ion data and deserialization
+//! of Ion data into Rust data structures. The APIs use the `serde` framework for serialization and
+//! deserialization. See [the Serde website](https://serde.rs/) for additional documentation and
+//! usage examples. This feature doesn't yet support [Ion annotations] and [Ion SExpressions] for
+//! serialization and deserialization.
 //!
 //! There are three different APIs for serializing Ion data:
 //!
@@ -14,37 +16,38 @@
 //!
 //! ## Mapping of Ion data types to Rust and serde data types
 //!
-//!| Ion data type | Rust data structure | Serde data type |
-//!|---------------|---------------------|-----------------|
-//!| int           | u64, i64, u32, i32, u16, i16, u8, i8 | u64, i64, u32, i32, u16, i16, u8, i8 |
-//!| float         | f32, f64            | f32, f64  |
-//!| decimal       | Decimal(Ion Element API) | newtype_struct (with name as `$__ion_rs_decimal__`) |
-//!| timestamp       | Timestamp(Ion Element API) | newtype_struct (with name as `$__ion_rs_timestamp__`) |
-//!| blob          | byte array               | byte array |
-//!| clob          | byte array               | byte array |
-//!| bool          | bool                | bool |
-//!| symbol        | string              | string |
-//!| string        | string              | string |
-//!| struct        | struct              | struct |
-//!| list          | vector              | seq |
-//!| null          | None                | unit |
+//!| Ion data type | Rust data structure                  | Serde data type                                       |
+//!|---------------|--------------------------------------|-------------------------------------------------------|
+//!| int           | u64, i64, u32, i32, u16, i16, u8, i8 | u64, i64, u32, i32, u16, i16, u8, i8                  |
+//!| float         | f32, f64                             | f32, f64                                              |
+//!| decimal       | Decimal(Ion Element API)             | newtype_struct (with name as `$__ion_rs_decimal__`)   |
+//!| timestamp     | Timestamp(Ion Element API)           | newtype_struct (with name as `$__ion_rs_timestamp__`) |
+//!| blob          | byte array                           | byte array                                            |
+//!| clob          | byte array                           | byte array                                            |
+//!| bool          | bool                                 | bool                                                  |
+//!| symbol        | string                               | string                                                |
+//!| string        | string                               | string                                                |
+//!| struct        | struct                               | struct                                                |
+//!| list          | vector                               | seq                                                   |
+//!| null          | None                                 | unit                                                  |
 //!
 //! ## Mapping of serde data types to Ion data types
 //!
-//!| Serde data type | Ion data type |
-//!|---------------|---------------------|
-//!| u64, i64, u32, i32, u16, i16, u8, i8 | int |
-//!| char, string, unit_variant | string |
-//!| byte-array | blob |
-//!| option | None - null, Some - based on other mappings |
-//!| unit, unit_struct | null |
-//!| seq, tuple, tuple_struct, tuple_variant | list |
-//!| newtype_struct, newtype_variant, map, struct, struct_variant | struct |
+//!| Serde data type                                              | Ion data type                               |
+//!|--------------------------------------------------------------|---------------------------------------------|
+//!| u64, i64, u32, i32, u16, i16, u8, i8                         | int                                         |
+//!| char, string, unit_variant                                   | string                                      |
+//!| byte-array                                                   | blob                                        |
+//!| option                                                       | None - null, Some - based on other mappings |
+//!| unit, unit_struct                                            | null                                        |
+//!| seq, tuple, tuple_struct, tuple_variant                      | list                                        |
+//!| newtype_struct, newtype_variant, map, struct, struct_variant | struct                                      |
 //!
-//! _Note: Since the serde framework doesn't support [Ion decimal] and [Ion timestamp] types, distinct serialization and deserialization of these types are defined in this module.
-//! It uses `newtype_struct` with `$__ion_rs_decimal__` and `$__ion_rs_timestamp__` as struct names from [serde data model],
-//! to indicate serde framework to use Ion's implementation of decimal and timestamp serialization and deserialization.
-//! If one wants to use [chrono::DateTime], it needs to be tagged with `#[serde_as(as = crate::Timestamp)]`._
+//! _Note: Since the serde framework doesn't support [Ion decimal] and [Ion timestamp] types, distinct serialization
+//! and deserialization of these types are defined in this module. It uses `newtype_struct` with `$__ion_rs_decimal__`
+//! and `$__ion_rs_timestamp__` as struct names from [serde data model], to indicate serde framework to use Ion's
+//! implementation of decimal and timestamp serialization and deserialization. If one wants to use [chrono::DateTime],
+//! it needs to be tagged with `#[serde_as(as = crate::Timestamp)]`._
 //!
 //! ## Example of serialization of Rust struct into Ion data
 //! ```
