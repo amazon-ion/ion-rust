@@ -1,6 +1,6 @@
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue;
-use crate::lazy::decoder::LazyRawReader;
+use crate::lazy::decoder::{LazyDecoder, LazyRawReader};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
 use crate::result::IonFailure;
@@ -97,8 +97,17 @@ impl<'data> LazyRawBinaryReader<'data> {
 }
 
 impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader<'data> {
-    fn new(data: &'data [u8]) -> Self {
-        LazyRawBinaryReader::new(data)
+    fn resume_at_offset(
+        data: &'data [u8],
+        offset: usize,
+        _config: <BinaryEncoding_1_0 as LazyDecoder>::ReaderSavedState,
+    ) -> Self {
+        LazyRawBinaryReader {
+            data: DataSource {
+                buffer: ImmutableBuffer::new_with_offset(data, offset),
+                bytes_to_skip: 0,
+            },
+        }
     }
 
     fn next<'top>(
@@ -109,6 +118,10 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader<'da
         'data: 'top,
     {
         self.next()
+    }
+
+    fn position(&self) -> usize {
+        self.data.buffer.offset() + self.data.bytes_to_skip
     }
 }
 

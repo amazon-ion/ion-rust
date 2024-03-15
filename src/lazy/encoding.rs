@@ -101,6 +101,7 @@ impl EncodingWithMacroSupport for TextEncoding_1_1 {}
 
 impl LazyDecoder for BinaryEncoding_1_0 {
     type Reader<'data> = LazyRawBinaryReader<'data>;
+    type ReaderSavedState = ();
     type Value<'top> = LazyRawBinaryValue<'top>;
     type SExp<'top> = LazyRawBinarySExp<'top>;
     type List<'top> = LazyRawBinaryList<'top>;
@@ -112,6 +113,7 @@ impl LazyDecoder for BinaryEncoding_1_0 {
 
 impl LazyDecoder for TextEncoding_1_0 {
     type Reader<'data> = LazyRawTextReader_1_0<'data>;
+    type ReaderSavedState = ();
     type Value<'top> = LazyRawTextValue_1_0<'top>;
     type SExp<'top> = LazyRawTextSExp_1_0<'top>;
     type List<'top> = LazyRawTextList_1_0<'top>;
@@ -123,6 +125,7 @@ impl LazyDecoder for TextEncoding_1_0 {
 
 impl LazyDecoder for TextEncoding_1_1 {
     type Reader<'data> = LazyRawTextReader_1_1<'data>;
+    type ReaderSavedState = ();
     type Value<'top> = LazyRawTextValue_1_1<'top>;
     type SExp<'top> = LazyRawTextSExp_1_1<'top>;
     type List<'top> = LazyRawTextList_1_1<'top>;

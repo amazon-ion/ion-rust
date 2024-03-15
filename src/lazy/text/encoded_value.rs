@@ -207,6 +207,12 @@ impl<'top, E: TextEncoding<'top>> EncodedTextValue<'top, E> {
         self.data_length + u32::max(self.annotations_offset, self.field_name_offset) as usize
     }
 
+    pub fn annotated_value_range(&self) -> Range<usize> {
+        let start = self.data_offset - self.annotations_length as usize;
+        let end = self.data_offset + self.data_length;
+        start..end
+    }
+
     pub fn field_name_syntax(&self) -> Option<MatchedFieldNameSyntax> {
         self.field_name_syntax
     }

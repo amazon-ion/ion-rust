@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawValuePrivate};
 use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
@@ -136,6 +137,17 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for MatchedRawTextValue<
         };
         Ok(value_ref)
     }
+
+    fn range(&self) -> Range<usize> {
+        self.encoded_value.annotated_value_range()
+    }
+
+    fn span(&self) -> &[u8] {
+        let range = self.range();
+        let input_offset = self.input.offset();
+        let local_range = (range.start - input_offset)..(range.end - input_offset);
+        &self.input.bytes()[local_range]
+    }
 }
 
 impl<'top, E: TextEncoding<'top>> LazyRawValuePrivate<'top> for LazyRawTextValue<'top, E> {
@@ -159,6 +171,14 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
 
     fn read(&self) -> IonResult<RawValueRef<'top, E>> {
         self.matched.read()
+    }
+
+    fn range(&self) -> Range<usize> {
+        self.matched.range()
+    }
+
+    fn span(&self) -> &[u8] {
+        self.matched.span()
     }
 }
 

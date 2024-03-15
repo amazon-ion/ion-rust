@@ -211,6 +211,16 @@ impl EncodedValue {
         self.total_length
     }
 
+    /// The offset Range (starting from the beginning of the stream) that contains this value's
+    /// complete encoding, including annotations. (It does not include the leading field ID, if
+    /// any.)
+    pub fn annotated_value_range(&self) -> Range<usize> {
+        // [ field_id? | annotations? | header (type descriptor) | header_length? | value ]
+        let start = self.header_offset - self.annotations_header_length as usize;
+        let end = start - self.field_id_length as usize + self.total_length;
+        start..end
+    }
+
     pub fn ion_type(&self) -> IonType {
         self.header.ion_type
     }

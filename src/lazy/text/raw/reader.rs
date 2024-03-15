@@ -1,5 +1,5 @@
 #![allow(non_camel_case_types)]
-use crate::lazy::decoder::LazyRawReader;
+use crate::lazy::decoder::{LazyDecoder, LazyRawReader};
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::never::Never;
 use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
@@ -14,7 +14,10 @@ use bumpalo::Bump as BumpAllocator;
 /// in the provided input stream.
 pub struct LazyRawTextReader_1_0<'data> {
     input: &'data [u8],
-    offset: usize,
+    // The offset from the beginning of the overall stream at which the `input` slice begins
+    stream_offset: usize,
+    // The offset from the beginning of `input` at which the reader is positioned
+    local_offset: usize,
 }
 
 impl<'data> LazyRawTextReader_1_0<'data> {
@@ -30,7 +33,11 @@ impl<'data> LazyRawTextReader_1_0<'data> {
     fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawTextReader_1_0<'data> {
         LazyRawTextReader_1_0 {
             input: data,
-            offset,
+            // `data` begins at position `offset` within some larger stream. If `data` contains
+            // the entire stream, this will be zero.
+            stream_offset: offset,
+            // Start reading from the beginning of the slice `data`
+            local_offset: 0,
         }
     }
 
@@ -41,8 +48,11 @@ impl<'data> LazyRawTextReader_1_0<'data> {
     where
         'data: 'top,
     {
-        let input =
-            TextBufferView::new_with_offset(allocator, &self.input[self.offset..], self.offset);
+        let input = TextBufferView::new_with_offset(
+            allocator,
+            &self.input[self.local_offset..],
+            self.stream_offset + self.local_offset,
+        );
         let (buffer_after_whitespace, _whitespace) = input
             .match_optional_comments_and_whitespace()
             .with_context("reading whitespace/comments at the top level", input)?;
@@ -68,14 +78,18 @@ impl<'data> LazyRawTextReader_1_0<'data> {
         }
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
-        self.offset = remaining.offset();
+        self.local_offset = remaining.offset() - self.stream_offset;
         Ok(matched_item)
     }
 }
 
 impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'data> {
-    fn new(data: &'data [u8]) -> Self {
-        LazyRawTextReader_1_0::new(data)
+    fn resume_at_offset(
+        data: &'data [u8],
+        offset: usize,
+        _config: <TextEncoding_1_0 as LazyDecoder>::ReaderSavedState,
+    ) -> Self {
+        LazyRawTextReader_1_0::new_with_offset(data, offset)
     }
 
     fn next<'top>(
@@ -86,6 +100,10 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
         'data: 'top,
     {
         self.next(allocator)
+    }
+
+    fn position(&self) -> usize {
+        self.stream_offset + self.local_offset
     }
 }
 
@@ -455,6 +473,46 @@ mod tests {
             annotations.next().unwrap()?,
             RawSymbolTokenRef::Text("baz".into())
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn ranges_and_spans() -> IonResult<()> {
+        let bump = bumpalo::Bump::new();
+        let data = b"foo 2024T bar::38 [1, 2, 3]";
+        let mut reader = LazyRawTextReader_1_0::new(data);
+
+        let foo = reader.next(&bump)?.expect_value()?;
+        assert_eq!(foo.span(), b"foo");
+        assert_eq!(foo.range(), 0..3);
+
+        let timestamp = reader.next(&bump)?.expect_value()?;
+        assert_eq!(timestamp.span(), b"2024T");
+        assert_eq!(timestamp.range(), 4..9);
+
+        let annotated_int = reader.next(&bump)?.expect_value()?;
+        assert_eq!(annotated_int.span(), b"bar::38");
+        assert_eq!(annotated_int.range(), 10..17);
+
+        let list_value = reader.next(&bump)?.expect_value()?;
+        assert_eq!(list_value.span(), b"[1, 2, 3]");
+        assert_eq!(list_value.range(), 18..27);
+
+        let list = list_value.read()?.expect_list()?;
+        let mut child_values = list.iter();
+
+        let value1 = child_values.next().unwrap()?.expect_value()?;
+        assert_eq!(value1.span(), b"1");
+        assert_eq!(value1.range(), 19..20);
+
+        let value2 = child_values.next().unwrap()?.expect_value()?;
+        assert_eq!(value2.span(), b"2");
+        assert_eq!(value2.range(), 22..23);
+
+        let value3 = child_values.next().unwrap()?.expect_value()?;
+        assert_eq!(value3.span(), b"3");
+        assert_eq!(value3.range(), 25..26);
 
         Ok(())
     }

@@ -1,9 +1,11 @@
 #![allow(non_camel_case_types)]
 
 use std::fmt::Debug;
+use std::ops::Range;
 
 use bumpalo::Bump as BumpAllocator;
 
+use crate::lazy::any_encoding::RawReaderKind::{Binary_1_0, Text_1_0};
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryStruct, RawBinaryStructIterator};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
@@ -44,6 +46,7 @@ pub struct AnyEncoding;
 // underlying type.
 impl LazyDecoder for AnyEncoding {
     type Reader<'data> = LazyRawAnyReader<'data>;
+    type ReaderSavedState = RawReaderType;
     type Value<'top> = LazyRawAnyValue<'top>;
     type SExp<'top> = LazyRawAnySExp<'top>;
     type List<'top> = LazyRawAnyList<'top>;
@@ -136,15 +139,37 @@ pub struct LazyRawAnyReader<'data> {
     encoding: RawReaderKind<'data>,
 }
 
+impl<'data> LazyRawAnyReader<'data> {
+    fn detect_encoding(data: &[u8]) -> RawReaderType {
+        const BINARY_1_0_IVM: &[u8] = &[0xEA, 0x01, 0x00, 0xE0];
+
+        match data {
+            &[0xE0, 0x01, 0x00, 0xEA, ..] => RawReaderType::Binary_1_0,
+            // TODO: Binary Ion 1.1
+            _ => RawReaderType::Text_1_0,
+        }
+    }
+}
+
 pub enum RawReaderKind<'data> {
     Text_1_0(LazyRawTextReader_1_0<'data>),
     Binary_1_0(LazyRawBinaryReader<'data>),
 }
 
+#[derive(Default, Copy, Clone)]
+pub enum RawReaderType {
+    // In the absence of a binary IVM, readers must assume Ion 1.0 text data until a
+    // text Ion 1.1 version marker is found.
+    #[default]
+    Text_1_0,
+    Binary_1_0,
+    // TODO: v1.1
+}
+
 impl<'data> From<LazyRawTextReader_1_0<'data>> for LazyRawAnyReader<'data> {
     fn from(reader: LazyRawTextReader_1_0<'data>) -> Self {
         LazyRawAnyReader {
-            encoding: RawReaderKind::Text_1_0(reader),
+            encoding: Text_1_0(reader),
         }
     }
 }
@@ -152,17 +177,34 @@ impl<'data> From<LazyRawTextReader_1_0<'data>> for LazyRawAnyReader<'data> {
 impl<'data> From<LazyRawBinaryReader<'data>> for LazyRawAnyReader<'data> {
     fn from(reader: LazyRawBinaryReader<'data>) -> Self {
         LazyRawAnyReader {
-            encoding: RawReaderKind::Binary_1_0(reader),
+            encoding: Binary_1_0(reader),
         }
     }
 }
 
 impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
     fn new(data: &'data [u8]) -> Self {
-        if data.starts_with(&[0xE0u8, 0x01, 0x00, 0xEA]) {
-            LazyRawBinaryReader::new(data).into()
-        } else {
-            LazyRawTextReader_1_0::new(data).into()
+        let reader_type = Self::detect_encoding(data);
+        Self::resume_at_offset(data, 0, reader_type)
+    }
+
+    fn resume_at_offset(
+        data: &'data [u8],
+        offset: usize,
+        mut raw_reader_type: RawReaderType,
+    ) -> Self {
+        if offset == 0 {
+            // If we're at the beginning of the stream, the provided `raw_reader_type` may be a
+            // default. We need to inspect the bytes to see if we should override it.
+            raw_reader_type = Self::detect_encoding(data);
+        }
+        match raw_reader_type {
+            RawReaderType::Text_1_0 => {
+                LazyRawTextReader_1_0::resume_at_offset(data, offset, ()).into()
+            }
+            RawReaderType::Binary_1_0 => {
+                LazyRawBinaryReader::resume_at_offset(data, offset, ()).into()
+            }
         }
     }
 
@@ -174,8 +216,24 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
         'data: 'top,
     {
         match &mut self.encoding {
-            RawReaderKind::Text_1_0(r) => Ok(r.next(allocator)?.into()),
-            RawReaderKind::Binary_1_0(r) => Ok(r.next()?.into()),
+            Text_1_0(r) => Ok(r.next(allocator)?.into()),
+            Binary_1_0(r) => Ok(r.next()?.into()),
+        }
+    }
+
+    #[inline]
+    fn save_state(&self) -> <AnyEncoding as LazyDecoder>::ReaderSavedState {
+        use RawReaderKind::*;
+        match &self.encoding {
+            Text_1_0(_) => RawReaderType::Text_1_0,
+            Binary_1_0(_) => RawReaderType::Binary_1_0,
+        }
+    }
+
+    fn position(&self) -> usize {
+        match &self.encoding {
+            Text_1_0(r) => r.position(),
+            Binary_1_0(r) => r.position(),
         }
     }
 }
@@ -392,50 +450,73 @@ impl<'top> From<LazyRawStreamItem<'top, TextEncoding_1_1>>
 
 impl<'top> LazyRawValuePrivate<'top> for LazyRawAnyValue<'top> {
     fn field_name(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+        use LazyRawValueKind::*;
         match &self.encoding {
-            LazyRawValueKind::Text_1_0(v) => v.field_name(),
-            LazyRawValueKind::Binary_1_0(v) => v.field_name(),
-            LazyRawValueKind::Text_1_1(v) => v.field_name(),
+            Text_1_0(v) => v.field_name(),
+            Binary_1_0(v) => v.field_name(),
+            Text_1_1(v) => v.field_name(),
         }
     }
 }
 
 impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
     fn ion_type(&self) -> IonType {
+        use LazyRawValueKind::*;
         match &self.encoding {
-            LazyRawValueKind::Text_1_0(v) => v.ion_type(),
-            LazyRawValueKind::Binary_1_0(v) => v.ion_type(),
-            LazyRawValueKind::Text_1_1(v) => v.ion_type(),
+            Text_1_0(v) => v.ion_type(),
+            Binary_1_0(v) => v.ion_type(),
+            Text_1_1(v) => v.ion_type(),
         }
     }
 
     fn is_null(&self) -> bool {
+        use LazyRawValueKind::*;
         match &self.encoding {
-            LazyRawValueKind::Text_1_0(v) => v.is_null(),
-            LazyRawValueKind::Binary_1_0(v) => v.is_null(),
-            LazyRawValueKind::Text_1_1(v) => v.is_null(),
+            Text_1_0(v) => v.is_null(),
+            Binary_1_0(v) => v.is_null(),
+            Text_1_1(v) => v.is_null(),
         }
     }
 
     fn annotations(&self) -> RawAnyAnnotationsIterator<'top> {
+        use LazyRawValueKind::*;
         match &self.encoding {
-            LazyRawValueKind::Text_1_0(v) => RawAnyAnnotationsIterator {
+            Text_1_0(v) => RawAnyAnnotationsIterator {
                 encoding: RawAnnotationsIteratorKind::Text_1_0(v.annotations()),
             },
-            LazyRawValueKind::Binary_1_0(v) => RawAnyAnnotationsIterator {
+            Binary_1_0(v) => RawAnyAnnotationsIterator {
                 encoding: RawAnnotationsIteratorKind::Binary_1_0(v.annotations()),
             },
-            LazyRawValueKind::Text_1_1(v) => RawAnyAnnotationsIterator {
+            Text_1_1(v) => RawAnyAnnotationsIterator {
                 encoding: RawAnnotationsIteratorKind::Text_1_1(v.annotations()),
             },
         }
     }
 
     fn read(&self) -> IonResult<RawValueRef<'top, AnyEncoding>> {
+        use LazyRawValueKind::*;
         match &self.encoding {
-            LazyRawValueKind::Text_1_0(v) => Ok(v.read()?.into()),
-            LazyRawValueKind::Binary_1_0(v) => Ok(v.read()?.into()),
-            LazyRawValueKind::Text_1_1(v) => Ok(v.read()?.into()),
+            Text_1_0(v) => Ok(v.read()?.into()),
+            Binary_1_0(v) => Ok(v.read()?.into()),
+            Text_1_1(v) => Ok(v.read()?.into()),
+        }
+    }
+
+    fn range(&self) -> Range<usize> {
+        use LazyRawValueKind::*;
+        match &self.encoding {
+            Text_1_0(v) => v.range(),
+            Binary_1_0(v) => v.range(),
+            Text_1_1(v) => v.range(),
+        }
+    }
+
+    fn span(&self) -> &[u8] {
+        use LazyRawValueKind::*;
+        match &self.encoding {
+            Text_1_0(v) => v.span(),
+            Binary_1_0(v) => v.span(),
+            Text_1_1(v) => v.span(),
         }
     }
 }

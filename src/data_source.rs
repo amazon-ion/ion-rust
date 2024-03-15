@@ -1,11 +1,11 @@
 use std::fs::File;
 use std::io;
-use std::io::{BufRead, BufReader, Read, StdinLock};
+use std::io::{BufReader, Read, StdinLock};
 
-/// Types that implement this trait can be converted into an implementation of [BufRead], allowing
+/// Types that implement this trait can be converted into an implementation of [Read], allowing
 /// users to deserialize Ion from a variety of types that might not define I/O operations on their own.
 pub trait IonDataSource {
-    type DataSource: BufRead;
+    type DataSource: Read;
     fn to_ion_data_source(self) -> Self::DataSource;
 }
 
@@ -49,7 +49,7 @@ impl IonDataSource for Vec<u8> {
     }
 }
 
-impl<T: BufRead, U: BufRead> IonDataSource for io::Chain<T, U> {
+impl<T: Read, U: Read> IonDataSource for io::Chain<T, U> {
     type DataSource = Self;
 
     fn to_ion_data_source(self) -> Self::DataSource {

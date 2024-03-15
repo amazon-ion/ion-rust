@@ -738,6 +738,13 @@ impl<'a> ImmutableBuffer<'a> {
                 + length_length as usize
                 + value_length;
 
+        if total_length > input.len() {
+            return IonResult::incomplete(
+                "the stream ended unexpectedly in the middle of a value",
+                header_offset,
+            );
+        }
+
         let encoded_value = EncodedValue {
             header,
             // If applicable, these are populated by the caller: `peek_field()`

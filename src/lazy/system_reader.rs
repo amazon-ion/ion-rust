@@ -1,13 +1,11 @@
 #![allow(non_camel_case_types)]
 
-use crate::lazy::any_encoding::{AnyEncoding, LazyRawAnyReader};
-use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
+use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::decoder::LazyRawReader;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::{ExpandedValueRef, LazyExpandedValue, LazyExpandingReader};
+use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
-use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
@@ -46,7 +44,7 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;
 ///
-/// let mut lazy_reader = LazyBinaryReader::new(&binary_ion)?;
+/// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
@@ -69,15 +67,15 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazySystemReader<'data, D: LazyDecoder> {
-    pub(crate) expanding_reader: LazyExpandingReader<'data, D>,
+pub struct LazySystemReader<Encoding: LazyDecoder, Input: IonInput> {
+    pub(crate) expanding_reader: LazyExpandingReader<Encoding, Input>,
 }
 
-pub type LazySystemBinaryReader<'data> = LazySystemReader<'data, BinaryEncoding_1_0>;
-pub type LazySystemTextReader_1_0<'data> = LazySystemReader<'data, TextEncoding_1_0>;
-pub type LazySystemTextReader_1_1<'data> = LazySystemReader<'data, TextEncoding_1_1>;
+pub type LazySystemBinaryReader<Input> = LazySystemReader<BinaryEncoding_1_0, Input>;
+pub type LazySystemTextReader_1_0<Input> = LazySystemReader<TextEncoding_1_0, Input>;
+pub type LazySystemTextReader_1_1<Input> = LazySystemReader<TextEncoding_1_1, Input>;
 
-pub type LazySystemAnyReader<'data> = LazySystemReader<'data, AnyEncoding>;
+pub type LazySystemAnyReader<Input> = LazySystemReader<AnyEncoding, Input>;
 
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
 // the table defines in this structure so that they may be applied when the reader next advances.
@@ -98,34 +96,36 @@ impl PendingLst {
     }
 }
 
-impl<'data> LazySystemAnyReader<'data> {
-    pub fn new(ion_data: &'data [u8]) -> LazySystemAnyReader<'data> {
-        let raw_reader = LazyRawAnyReader::new(ion_data);
+impl<Input: IonInput> LazySystemAnyReader<Input> {
+    pub(crate) fn new(ion_data: Input) -> LazySystemAnyReader<Input> {
+        let raw_reader = StreamingRawReader::new(AnyEncoding, ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader { expanding_reader }
     }
 }
 
-impl<'data> LazySystemBinaryReader<'data> {
-    pub(crate) fn new(ion_data: &'data [u8]) -> LazySystemBinaryReader<'data> {
-        let raw_reader = LazyRawBinaryReader::new(ion_data);
+impl<Input: IonInput> LazySystemBinaryReader<Input> {
+    pub(crate) fn new(ion_data: Input) -> LazySystemBinaryReader<Input> {
+        let raw_reader = StreamingRawReader::new(BinaryEncoding_1_0, ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader { expanding_reader }
     }
 }
 
-impl<'data> LazySystemTextReader_1_1<'data> {
-    pub(crate) fn new(ion_data: &'data [u8]) -> LazySystemTextReader_1_1<'data> {
-        let raw_reader = LazyRawTextReader_1_1::new(ion_data);
+impl<Input: IonInput> LazySystemTextReader_1_1<Input> {
+    pub(crate) fn new(ion_data: Input) -> LazySystemTextReader_1_1<Input> {
+        let raw_reader = StreamingRawReader::new(TextEncoding_1_1, ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader { expanding_reader }
     }
 }
 
-impl<'data, D: LazyDecoder> LazySystemReader<'data, D> {
+impl<Encoding: LazyDecoder, Input: IonInput> LazySystemReader<Encoding, Input> {
     // Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
     // `$ion_symbol_table`.
-    pub fn is_symbol_table_struct(lazy_value: &'_ LazyExpandedValue<'_, D>) -> IonResult<bool> {
+    pub fn is_symbol_table_struct(
+        lazy_value: &'_ LazyExpandedValue<'_, Encoding>,
+    ) -> IonResult<bool> {
         if lazy_value.ion_type() != IonType::Struct {
             return Ok(false);
         }
@@ -137,19 +137,13 @@ impl<'data, D: LazyDecoder> LazySystemReader<'data, D> {
 
     /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
     /// [`SystemStreamItem`].
-    pub fn next_item<'top>(&'top mut self) -> IonResult<SystemStreamItem<'top, D>>
-    where
-        'data: 'top,
-    {
+    pub fn next_item(&mut self) -> IonResult<SystemStreamItem<'_, Encoding>> {
         self.expanding_reader.next_item()
     }
 
     /// Returns the next value that is part of the application data model, bypassing all encoding
     /// artifacts (IVMs, symbol tables).
-    pub fn next_value<'top>(&'top mut self) -> IonResult<Option<LazyValue<'top, D>>>
-    where
-        'data: 'top,
-    {
+    pub fn next_value(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
         self.expanding_reader.next_value()
     }
 
@@ -178,7 +172,7 @@ impl<'data, D: LazyDecoder> LazySystemReader<'data, D> {
     // populate the `PendingLst`.
     pub(crate) fn process_symbol_table(
         pending_lst: &mut PendingLst,
-        symbol_table: &LazyExpandedValue<'_, D>,
+        symbol_table: &LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
         // We've already confirmed this is an annotated struct
         let symbol_table = symbol_table.read()?.expect_struct()?;
@@ -214,7 +208,7 @@ impl<'data, D: LazyDecoder> LazySystemReader<'data, D> {
     // Store any strings defined in the `symbols` field in the `PendingLst` for future application.
     fn process_symbols(
         pending_lst: &mut PendingLst,
-        symbols: &LazyExpandedValue<'_, D>,
+        symbols: &LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
         if let ExpandedValueRef::List(list) = symbols.read()? {
             for symbol_text_result in list.iter() {
@@ -232,7 +226,7 @@ impl<'data, D: LazyDecoder> LazySystemReader<'data, D> {
     // Check for `imports: $ion_symbol_table`.
     fn process_imports(
         pending_lst: &mut PendingLst,
-        imports: &LazyExpandedValue<'_, D>,
+        imports: &LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
         match imports.read()? {
             ExpandedValueRef::Symbol(symbol_ref) => {
@@ -278,7 +272,7 @@ mod tests {
         hello
         "#,
         )?;
-        let mut system_reader = LazySystemBinaryReader::new(&ion_data);
+        let mut system_reader = LazySystemBinaryReader::new(ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::VersionMarker(major, minor) => {
@@ -303,7 +297,7 @@ mod tests {
         )
         "#,
         )?;
-        let mut system_reader = LazySystemBinaryReader::new(&ion_data);
+        let mut system_reader = LazySystemBinaryReader::new(ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {
@@ -330,7 +324,7 @@ mod tests {
         }
         "#,
         )?;
-        let mut system_reader = LazySystemBinaryReader::new(&ion_data);
+        let mut system_reader = LazySystemBinaryReader::new(ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {

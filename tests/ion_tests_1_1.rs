@@ -11,7 +11,7 @@ use test_generator::test_resources;
 struct LazyReaderElementApi;
 
 impl ElementApi for LazyReaderElementApi {
-    type ElementReader<'a> = LazyTextReader_1_1<'a>;
+    type ElementReader<'a> = LazyTextReader_1_1<&'a [u8]>;
 
     fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
         Ok(LazyTextReader_1_1::new(data).unwrap())
