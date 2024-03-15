@@ -260,7 +260,7 @@ impl TryFrom<&Int> for UInt {
     }
 }
 
-macro_rules! impl_small_signed_int_try_from_int {
+macro_rules! impl_small_int_try_from_int {
     ($($t:ty),*) => ($(
         impl TryFrom<Int> for $t {
             type Error = IonError;
@@ -279,7 +279,8 @@ macro_rules! impl_small_signed_int_try_from_int {
     )*)
 }
 
-impl_small_signed_int_try_from_int!(i8, i16, i32, i64, i128, isize);
+impl_small_int_try_from_int!(i8, i16, i32, i64, i128, isize);
+impl_small_int_try_from_int!(u8, u16, u32, u64, u128, usize);
 
 macro_rules! impl_small_unsigned_int_try_from_uint {
     ($($t:ty),*) => ($(

@@ -194,7 +194,7 @@ mod decimal;
 pub mod ser;
 mod timestamp;
 
-pub use de::{from_ion, Deserializer};
+pub use de::from_ion;
 pub use ser::{to_binary, to_pretty, to_string, Serializer};
 
 #[cfg(test)]
