@@ -179,6 +179,17 @@ impl<'top, D: LazyDecoder> ValueRef<'top, D> {
         }
     }
 
+    pub fn expect_text(&self) -> IonResult<&'_ str> {
+        use ValueRef::*;
+        match self {
+            String(string) => Ok(string.text()),
+            Symbol(symbol) => symbol.text().ok_or_else(|| {
+                IonError::decoding_error("expected text but found a symbol with undefined text")
+            }),
+            _ => IonResult::decoding_error("expected a string or symbol"),
+        }
+    }
+
     pub fn expect_blob(self) -> IonResult<BytesRef<'top>> {
         if let ValueRef::Blob(b) = self {
             Ok(b)
@@ -192,6 +203,14 @@ impl<'top, D: LazyDecoder> ValueRef<'top, D> {
             Ok(c)
         } else {
             IonResult::decoding_error("expected a clob")
+        }
+    }
+
+    pub fn expect_lob(self) -> IonResult<BytesRef<'top>> {
+        use ValueRef::*;
+        match self {
+            Blob(b) | Clob(b) => Ok(b),
+            _ => IonResult::decoding_error("expected a blob or clob"),
         }
     }
 

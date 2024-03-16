@@ -85,6 +85,12 @@ impl From<String> for Str {
     }
 }
 
+impl From<Str> for String {
+    fn from(value: Str) -> Self {
+        value.text
+    }
+}
+
 impl AsRef<str> for Str {
     fn as_ref(&self) -> &str {
         self.text()

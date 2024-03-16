@@ -90,36 +90,6 @@ impl IonOrd for IonType {
     }
 }
 
-#[cfg(feature = "experimental-streaming")]
-impl From<crate::tokens::ScalarType> for IonType {
-    fn from(value: crate::tokens::ScalarType) -> Self {
-        use crate::tokens::ScalarType::*;
-        match value {
-            Bool => IonType::Bool,
-            Int => IonType::Int,
-            Float => IonType::Float,
-            Decimal => IonType::Decimal,
-            Timestamp => IonType::Timestamp,
-            String => IonType::String,
-            Symbol => IonType::Symbol,
-            Blob => IonType::Blob,
-            Clob => IonType::Clob,
-        }
-    }
-}
-
-#[cfg(feature = "experimental-streaming")]
-impl From<crate::tokens::ContainerType> for IonType {
-    fn from(value: crate::tokens::ContainerType) -> Self {
-        use crate::tokens::ContainerType::*;
-        match value {
-            SExp => IonType::SExp,
-            List => IonType::List,
-            Struct => IonType::Struct,
-        }
-    }
-}
-
 // Represents a level into which the writer has stepped.
 // A writer that has not yet called step_in() is at the top level.
 #[derive(Debug, PartialEq, Default)]

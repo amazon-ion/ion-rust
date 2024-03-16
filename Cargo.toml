@@ -33,12 +33,8 @@ experimental = [
   "experimental-lazy-reader",
   "experimental-reader",
   "experimental-writer",
-  "experimental-streaming",
   "experimental-serde",
 ]
-
-# Experimental streaming APIs
-experimental-streaming = []
 
 # Access to the `IonReader` trait, its implementations, and the `ReaderBuilder`.
 # These APIs are functional and well-tested, but are not yet stable.

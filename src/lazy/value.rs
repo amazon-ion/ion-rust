@@ -95,6 +95,36 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
         self.expanded_value.ion_type()
     }
 
+    /// Returns `true` if this value is any form of `null`, including
+    /// `null`, `null.string`, `null.int`, etc. Otherwise, returns `false`.
+    ///
+    /// ```
+    ///# use ion_rs::IonResult;
+    ///# fn main() -> IonResult<()> {
+    ///
+    /// // Construct an Element and serialize it as binary Ion.
+    /// use ion_rs::{Element, IonType};
+    /// use ion_rs::lazy::reader::LazyBinaryReader;;
+    ///
+    /// let element = Element::string("hello");
+    /// let binary_ion = element.to_binary()?;
+    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+    /// let lazy_value = lazy_reader.expect_next()?;
+    /// assert!(!lazy_value.is_null());
+    ///
+    /// let element: Element = Element::null(IonType::String);
+    /// let binary_ion = element.to_binary()?;
+    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+    /// let lazy_value = lazy_reader.expect_next()?;
+    /// assert!(lazy_value.is_null());
+    ///
+    ///# Ok(())
+    ///# }
+    /// ```
+    pub fn is_null(&self) -> bool {
+        self.expanded_value.is_null()
+    }
+
     /// Returns an iterator over the annotations on this value. If this value has no annotations,
     /// the resulting iterator will be empty.
     ///

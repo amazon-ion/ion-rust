@@ -171,10 +171,6 @@ pub mod lazy;
 mod position;
 #[cfg(feature = "experimental-serde")]
 pub mod serde;
-#[cfg(feature = "experimental-streaming")]
-pub mod thunk;
-#[cfg(feature = "experimental-streaming")]
-pub mod tokens;
 pub(crate) mod unsafe_helpers;
 
 pub use catalog::{Catalog, MapCatalog};
