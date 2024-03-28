@@ -91,8 +91,13 @@ macro_rules! impl_write_as_ion_value {
 impl_write_as_ion_value!(
     Null => write_null with self as self.0,
     bool => write_bool with self as *self,
+    i16 => write_i64 with self as *self as i64,
     i32 => write_i64 with self as *self as i64,
     i64 => write_i64 with self as *self,
+    isize => write_i64 with self as *self as i64,
+    u16 => write_i64 with self as i64::from(*self),
+    u32 => write_i64 with self as i64::from(*self),
+    u64 => write_int with self as &Int::from(*self),
     usize => write_int with self as &Int::from(*self),
     f32 => write_f32 with self as *self,
     f64 => write_f64 with self as *self,
