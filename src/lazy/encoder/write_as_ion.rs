@@ -88,6 +88,11 @@ macro_rules! impl_write_as_ion_value {
     };
 }
 
+// TODO: For the moment, `i8` and `u8` do not directly implement `WriteAsIon` because this causes
+//       the desired serialization for `&[u8]` and `&[i8]` to be ambiguous. They could be serialized
+//       either as blobs or as lists of integers. We should use the same trick that `SExpTypeHint`
+//       employs to make it possible for users to override the default blob serialization by writing:
+//           writer.write(&[1u8, 2, 3].as_list())
 impl_write_as_ion_value!(
     Null => write_null with self as self.0,
     bool => write_bool with self as *self,
