@@ -1494,7 +1494,7 @@ mod value_tests {
         let list: Element = ion_list![1, 2, 3].into();
         thread::scope(|_| {
             // Move `list` into this scope, demonstrating `Send`
-            let elements = vec![list];
+            let elements = [list];
             // Trivial assertion to use `elements`
             assert_eq!(elements.len(), 1);
         });

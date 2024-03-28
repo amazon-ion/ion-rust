@@ -52,7 +52,7 @@ mod tests {
     use crate::lazy::encoder::annotate::Annotate;
     use crate::lazy::encoder::text::LazyRawTextWriter_1_0;
     use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
-    use crate::lazy::encoder::value_writer::{AnnotatableValueWriter, StructWriter};
+    use crate::lazy::encoder::value_writer::{StructWriter, ValueWriter};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{Element, IonData, IonResult, Timestamp};
 

@@ -38,46 +38,6 @@ pub trait AnnotatableValueWriter: Sized {
 
     /// Performs no operations and returns a [`ValueWriter`].
     fn without_annotations(self) -> Self::ValueWriter;
-
-    // Users can call `ValueWriter` methods on the `AnnotatedValueWriter` directly. Doing so
-    // will implicitly call `without_annotations`.
-
-    delegate! {
-        to self.without_annotations() {
-            fn write_null(self, ion_type: IonType) -> IonResult<()>;
-            fn write_bool(self, value: bool) -> IonResult<()>;
-            fn write_i64(self, value: i64) -> IonResult<()>;
-            fn write_int(self, value: &Int) -> IonResult<()>;
-            fn write_f32(self, value: f32) -> IonResult<()>;
-            fn write_f64(self, value: f64) -> IonResult<()>;
-            fn write_decimal(self, value: &Decimal) -> IonResult<()>;
-            fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
-            fn write_string<A: AsRef<str>>(self, value: A) -> IonResult<()>;
-            fn write_symbol<A: AsRawSymbolTokenRef>(self, value: A) -> IonResult<()>;
-            fn write_clob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()>;
-            fn write_blob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()>;
-            fn write_list<F: for<'a> FnOnce(&mut <Self::ValueWriter as ValueWriter>::ListWriter<'a>) -> IonResult<()>>(
-                self,
-                list_fn: F,
-            ) -> IonResult<()>;
-            fn write_sexp<F: for<'a> FnOnce(&mut <Self::ValueWriter as ValueWriter>::SExpWriter<'a>) -> IonResult<()>>(
-                self,
-                sexp_fn: F,
-            ) -> IonResult<()>;
-            fn write_struct<
-                F: for<'a> FnOnce(&mut <Self::ValueWriter as ValueWriter>::StructWriter<'a>) -> IonResult<()>,
-            >(
-                self,
-                struct_fn: F,
-            ) -> IonResult<()>;
-                fn write(self, value: impl WriteAsIonValue) -> IonResult<()>;
-            fn write_eexp<'macro_id, F: for<'a> FnOnce(&mut <Self::ValueWriter as ValueWriter>::MacroArgsWriter<'a>) -> IonResult<()>>(
-                self,
-                _macro_id: impl Into<MacroIdRef<'macro_id>>,
-                _macro_fn: F,
-            ) -> IonResult<()>;
-        }
-    }
 }
 
 pub trait MacroArgsWriter: SequenceWriter {
@@ -238,6 +198,20 @@ macro_rules! delegate_value_writer_to_self {
 
 pub(crate) use delegate_value_writer_to;
 pub(crate) use delegate_value_writer_to_self;
+
+impl<V> ValueWriter for V
+where
+    V: AnnotatableValueWriter,
+{
+    type ListWriter<'a> = <V::ValueWriter as ValueWriter>::ListWriter<'a>;
+    type SExpWriter<'a> = <V::ValueWriter as ValueWriter>::SExpWriter<'a>;
+    type StructWriter<'a> = <V::ValueWriter as ValueWriter>::StructWriter<'a>;
+    type MacroArgsWriter<'a> = <V::ValueWriter as ValueWriter>::MacroArgsWriter<'a>;
+
+    delegate_value_writer_to!(closure |self_: Self| {
+       self_.without_annotations()
+    });
+}
 
 pub trait StructWriter {
     /// Writes a struct field using the provided name/value pair.
