@@ -15,7 +15,7 @@ fn main() -> IonResult<()> {
 
 #[cfg(feature = "experimental-lazy-reader")]
 mod example {
-    use chrono::{DateTime, FixedOffset, NaiveDateTime};
+    use chrono::{DateTime, FixedOffset};
     use ion_rs::lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0;
     use ion_rs::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
     use ion_rs::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
@@ -301,16 +301,10 @@ mod example {
     ) -> LogEvent<'statements> {
         // Each event is 1 second after the previous event
         let event_epoch_millis = INITIAL_EPOCH_MILLIS + (event_index as i64 * 1000);
-        let naive_datetime = NaiveDateTime::from_timestamp_millis(event_epoch_millis)
+        let datetime: DateTime<FixedOffset> = DateTime::from_timestamp_millis(event_epoch_millis)
             .unwrap()
             .into();
-
-        // Timestamps have an offset of UTC-5:00
-        let timestamp: Timestamp = DateTime::<FixedOffset>::from_naive_utc_and_offset(
-            naive_datetime,
-            FixedOffset::east_opt(5 * 60 * 60).unwrap(),
-        )
-        .into();
+        let timestamp: Timestamp = datetime.into();
 
         let thread_id = rng.gen_range(1..=128);
         let thread_name = format!("{THREAD_NAME_PREFIX}{}", rng.gen_range(1..=8));
