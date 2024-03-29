@@ -1,3 +1,4 @@
+use crate::lazy::encoder::container_fn::{ListFn, MacroArgsFn, SExpFn, StructFn};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::text::LazyRawTextWriter_1_0;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
@@ -331,23 +332,23 @@ impl<'a, W: Write> StructWriter for TextStructWriter_1_0<'a, W> {
 impl<'value, W: Write + 'value, SymbolType: AsRawSymbolTokenRef> ValueWriter
     for TextAnnotatedValueWriter_1_0<'value, W, SymbolType>
 {
-    type ListWriter<'a> = TextListWriter_1_0<'value, W>;
-    type SExpWriter<'a> = TextSExpWriter_1_0<'value, W>;
-    type StructWriter<'a> = TextStructWriter_1_0<'value, W>;
+    type ListWriter = TextListWriter_1_0<'value, W>;
+    type SExpWriter = TextSExpWriter_1_0<'value, W>;
+    type StructWriter = TextStructWriter_1_0<'value, W>;
 
     // Ion 1.0 does not support macros
-    type MacroArgsWriter<'a> = Never;
+    type MacroArgsWriter = Never;
 
     delegate_value_writer_to!(fallible closure |self_: Self| self_.encode_annotations());
 }
 
 impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
-    type ListWriter<'a> = TextListWriter_1_0<'value, W>;
-    type SExpWriter<'a> = TextSExpWriter_1_0<'value, W>;
-    type StructWriter<'a> = TextStructWriter_1_0<'value, W>;
+    type ListWriter = TextListWriter_1_0<'value, W>;
+    type SExpWriter = TextSExpWriter_1_0<'value, W>;
+    type StructWriter = TextStructWriter_1_0<'value, W>;
 
     // Ion 1.0 does not support macros
-    type MacroArgsWriter<'a> = Never;
+    type MacroArgsWriter = Never;
     fn write_null(mut self, ion_type: IonType) -> IonResult<()> {
         use crate::IonType::*;
         let null_text = match ion_type {
@@ -467,35 +468,26 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
         Ok(())
     }
 
-    fn write_list<F: for<'a> FnOnce(&mut Self::ListWriter<'a>) -> IonResult<()>>(
-        self,
-        list_fn: F,
-    ) -> IonResult<()> {
+    fn write_list(self, list_fn: impl ListFn<Self>) -> IonResult<()> {
         let mut list_writer = TextListWriter_1_0::new(self.writer, self.depth + 1)?;
         list_fn(&mut list_writer)?;
         list_writer.end()
     }
-    fn write_sexp<F: for<'a> FnOnce(&mut Self::SExpWriter<'a>) -> IonResult<()>>(
-        self,
-        sexp_fn: F,
-    ) -> IonResult<()> {
+    fn write_sexp(self, sexp_fn: impl SExpFn<Self>) -> IonResult<()> {
         let mut sexp_writer = TextSExpWriter_1_0::new(self.writer, self.depth + 1)?;
         sexp_fn(&mut sexp_writer)?;
         sexp_writer.end()
     }
-    fn write_struct<F: for<'a> FnOnce(&mut Self::StructWriter<'a>) -> IonResult<()>>(
-        self,
-        struct_fn: F,
-    ) -> IonResult<()> {
+    fn write_struct(self, struct_fn: impl StructFn<Self>) -> IonResult<()> {
         let mut struct_writer = TextStructWriter_1_0::new(self.writer, self.depth + 1)?;
         struct_fn(&mut struct_writer)?;
         struct_writer.end()
     }
 
-    fn write_eexp<'macro_id, F: for<'a> FnOnce(&mut Self::MacroArgsWriter<'a>) -> IonResult<()>>(
+    fn write_eexp<'macro_id>(
         self,
         macro_id: impl Into<MacroIdRef<'macro_id>>,
-        _macro_fn: F,
+        _macro_fn: impl MacroArgsFn<Self>,
     ) -> IonResult<()> {
         let id = macro_id.into();
         IonResult::encoding_error(format!(
