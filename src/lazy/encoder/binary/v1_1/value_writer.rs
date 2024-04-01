@@ -624,20 +624,14 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         Ok(())
     }
 
-    fn write_sexp(
-        self,
-        sexp_fn: impl SExpFn<Self>,
-    ) -> IonResult<()> {
+    fn write_sexp(self, sexp_fn: impl SExpFn<Self>) -> IonResult<()> {
         if self.delimited_containers {
             return self.write_delimited_sexp(sexp_fn);
         }
         self.write_length_prefixed_sexp(sexp_fn)
     }
 
-    fn write_length_prefixed_sexp(
-        mut self,
-        sexp_fn: impl SExpFn<Self>,
-    ) -> IonResult<()> {
+    fn write_length_prefixed_sexp(mut self, sexp_fn: impl SExpFn<Self>) -> IonResult<()> {
         // We're writing a length-prefixed sexp, so we need to set up a space to encode the sexp's children.
         let child_encoding_buffer = self.allocator.alloc_with(|| {
             BumpVec::with_capacity_in(DEFAULT_CONTAINER_BUFFER_SIZE, self.allocator)
@@ -665,10 +659,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         Ok(())
     }
 
-    fn write_delimited_sexp(
-        self,
-        sexp_fn: impl SExpFn<Self>,
-    ) -> IonResult<()> {
+    fn write_delimited_sexp(self, sexp_fn: impl SExpFn<Self>) -> IonResult<()> {
         let child_encoding_buffer = self.encoding_buffer;
         let container_writer =
             BinaryContainerWriter_1_1::new(self.allocator, child_encoding_buffer);

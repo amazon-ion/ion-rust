@@ -1,14 +1,14 @@
-use bumpalo::Bump as BumpAllocator;
 use bumpalo::collections::Vec as BumpVec;
+use bumpalo::Bump as BumpAllocator;
 
-use crate::{IonError, IonResult, RawSymbolTokenRef};
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::encoder::binary::v1_0::value_writer::BinaryAnnotatableValueWriter_1_0;
-use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
+use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::EncodingError;
+use crate::{IonError, IonResult, RawSymbolTokenRef};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_0`],
 /// [`BinarySExpWriter_1_0`], and [`BinaryStructWriter_1_0`].

@@ -17,7 +17,9 @@ use crate::lazy::encoder::binary::v1_0::container_writers::{
 };
 use crate::lazy::encoder::container_fn::{ListFn, MacroArgsFn, SExpFn, StructFn};
 use crate::lazy::encoder::private::Sealed;
-use crate::lazy::encoder::value_writer::{delegate_value_writer_to, AnnotatableValueWriter, ValueWriter};
+use crate::lazy::encoder::value_writer::{
+    delegate_value_writer_to, AnnotatableValueWriter, ValueWriter,
+};
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
