@@ -1,6 +1,6 @@
 //! Container population traits that allow closures to be used in places where the borrow checker
-//! would normally balk due to point-in-time limitations [1].
-//! [1] https://blog.rust-lang.org/2022/10/28/gats-stabilization.html#implied-static-requirement-from-higher-ranked-trait-bounds
+//! would normally balk due to point-in-time limitations.
+//! See: <https://blog.rust-lang.org/2022/10/28/gats-stabilization.html#implied-static-requirement-from-higher-ranked-trait-bounds>
 
 use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::IonResult;

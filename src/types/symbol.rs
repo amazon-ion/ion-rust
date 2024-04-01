@@ -201,6 +201,7 @@ impl PartialEq<Symbol> for &str {
 
 // Note that if the Symbol has no text, this will return the empty string. This is unfortunate,
 // but implementing this trait is necessary to allow `Symbol` to be used as a HashMap key.
+// See issue https://github.com/amazon-ion/ion-rust/issues/444 for more information.
 impl Borrow<str> for Symbol {
     fn borrow(&self) -> &str {
         // If the

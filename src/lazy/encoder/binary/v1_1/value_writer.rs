@@ -833,9 +833,6 @@ macro_rules! annotate_and_delegate_1_1 {
             // We've encoded the annotations, now create a no-annotations ValueWriter to encode the value itself.
             let value_writer = $crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1::new(self.allocator, self.buffer);
             value_writer.$method(value)
-            // encode_value_fn(value_writer)
-            // self.encode_annotated(|value_writer| value_writer.$method(value))
-            // <Self as AnnotateAndDelegate>::encode_annotated(self, |value_writer| value_writer.$method(value))
         }
         annotate_and_delegate_1_1!($($rest)*);
     };
