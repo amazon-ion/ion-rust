@@ -31,9 +31,9 @@
 //!| list          | vector                               | seq                                                   |
 //!| null          | None                                 | unit                                                  |
 //!
-//! ## Mapping of serde data types to Ion data types
+//! ## Mapping of serde data types to Ion representation
 //!
-//!| Serde data type                                              | Ion data type                               |
+//!| Serde data type                                              | Ion representation                          |
 //!|--------------------------------------------------------------|---------------------------------------------|
 //!| u64, i64, u32, i32, u16, i16, u8, i8                         | int                                         |
 //!| char, string, unit_variant                                   | string                                      |
