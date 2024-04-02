@@ -10,6 +10,7 @@ use value_writer::SequenceWriter;
 
 pub mod annotate;
 pub mod binary;
+pub(crate) mod container_fn;
 pub mod text;
 pub mod value_writer;
 pub mod write_as_ion;

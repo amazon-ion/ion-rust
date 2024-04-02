@@ -151,7 +151,7 @@ macro_rules! impl_write_as_ion_value_for_iterable {
             for<'a> &'a $item: WriteAsIon,
         {
             fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-                writer.write_list(|list| {
+                writer.write_list(|list: &mut V::ListWriter| {
                     for value in self.iter() {
                         list.write(value)?;
                     }
