@@ -1,13 +1,13 @@
 //! Defines traits that allow Rust values to be serialized as Ion.
 //!
 //! In order for a [`LazyRawWriter`](crate::lazy::encoder::LazyRawWriter) to serialize a Rust value
-//! as Ion, that Rust type must implement [`WriteAsIonValue`] and may optionally also
+//! as Ion, that Rust type must implement [`WriteAsIon`] and may optionally also
 //! implement [`WriteAsIon`].
 //!
-//! [`WriteAsIonValue`] allows the implementor to map the Rust value to an unannotated Ion value.
+//! [`WriteAsIon`] allows the implementor to map the Rust value to an unannotated Ion value.
 //!
-//! [`WriteAsIon`] builds on [`WriteAsIonValue`], offering a staged writer that requires the
-//! implementor to specify what annotations to write before delegating to [`WriteAsIonValue`]
+//! [`WriteAsIon`] builds on [`WriteAsIon`], offering a staged writer that requires the
+//! implementor to specify what annotations to write before delegating to [`WriteAsIon`]
 //! to serialize the value itself.
 //!
 //! Types that do not explicitly implement [`WriteAsIon`] will fall back to a blanket implementation
@@ -16,48 +16,26 @@
 //! provided by the [`Annotate`](crate::lazy::encoder::annotate::Annotate) trait.
 use std::marker::PhantomData;
 
-use crate::lazy::encoder::value_writer::{
-    AnnotatableValueWriter, SequenceWriter, StructWriter, ValueWriter,
-};
+use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::{
     Blob, Clob, Decimal, Element, Int, IonResult, Null, RawSymbolToken, RawSymbolTokenRef, Symbol,
     SymbolRef, Timestamp, Value,
 };
 
 /// Defines how a Rust type should be serialized as Ion in terms of the methods available
-/// on [`ValueWriter`]. To annotate instances of your type with a sequence of text values,
-/// implement the [`WriteAsIon`] trait instaed.
-pub trait WriteAsIonValue {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()>;
-}
-
-/// Defines how a Rust type should be serialized as Ion in terms of the methods available
-/// on [`AnnotatableValueWriter`] and [`ValueWriter`].
+/// on [`ValueWriter`].
 pub trait WriteAsIon {
-    fn write_as_ion<V: AnnotatableValueWriter>(&self, writer: V) -> IonResult<()>;
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()>;
 }
 
 impl WriteAsIon for &Element {
-    fn write_as_ion<V: AnnotatableValueWriter>(&self, writer: V) -> IonResult<()> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         if self.annotations().is_empty() {
-            self.value()
-                .write_as_ion_value(writer.without_annotations())
+            self.value().write_as_ion(writer)
         } else {
-            self.value().write_as_ion_value(
-                writer.with_annotations(&Vec::from_iter(self.annotations().iter())),
-            )
+            self.value()
+                .write_as_ion(writer.with_annotations(self.annotations().as_ref()))
         }
-    }
-}
-
-// Any type that does not define `WriteAsIon` itself will use this blanket implementation that does
-// not write any annotations.
-impl<T> WriteAsIon for T
-where
-    T: WriteAsIonValue,
-{
-    fn write_as_ion<V: AnnotatableValueWriter>(&self, writer: V) -> IonResult<()> {
-        self.write_as_ion_value(writer.without_annotations())
     }
 }
 
@@ -68,9 +46,9 @@ macro_rules! impl_write_as_ion_value {
     () => {};
     // The caller defined an expression to write other than `self` (e.g. `*self`, `*self.0`, etc)
     ($target_type:ty => $method:ident with $self:ident as $value:expr, $($rest:tt)*) => {
-        impl WriteAsIonValue for $target_type {
+        impl WriteAsIon for $target_type {
             #[inline]
-            fn write_as_ion_value<V: ValueWriter>(&$self, writer: V) -> IonResult<()> {
+            fn write_as_ion<V: ValueWriter>(&$self, writer: V) -> IonResult<()> {
                 writer.$method($value)
             }
         }
@@ -78,9 +56,9 @@ macro_rules! impl_write_as_ion_value {
     };
     // We're writing the expression `self`
     ($target_type:ty => $method:ident, $($rest:tt)*) => {
-        impl WriteAsIonValue for $target_type {
+        impl WriteAsIon for $target_type {
             #[inline]
-            fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+            fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
                 writer.$method(self)
             }
         }
@@ -117,46 +95,41 @@ impl_write_as_ion_value!(
     Clob => write_clob,
 );
 
-impl<'b> WriteAsIonValue for RawSymbolTokenRef<'b> {
+impl<'b> WriteAsIon for RawSymbolTokenRef<'b> {
     #[inline]
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         writer.write_symbol(self)
     }
 }
 
-impl<'b> WriteAsIonValue for SymbolRef<'b> {
+impl<'b> WriteAsIon for SymbolRef<'b> {
     #[inline]
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         writer.write_symbol(self)
     }
 }
 
-impl<const N: usize> WriteAsIonValue for [u8; N] {
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+impl<const N: usize> WriteAsIon for [u8; N] {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         writer.write_blob(self)
     }
 }
 
-impl<T: WriteAsIonValue> WriteAsIonValue for &T {
+impl<T: WriteAsIon> WriteAsIon for &T {
     #[inline]
-    fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        (*self).write_as_ion_value(writer)
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        (*self).write_as_ion(writer)
     }
 }
 
 macro_rules! impl_write_as_ion_value_for_iterable {
     ($iterable:ty, $item:ident $(, const $n:ident: $n_type:ty)?) => {
-        impl<$item $(, const $n: $n_type)?> WriteAsIonValue for $iterable
+        impl<'a, $item $(, const $n: $n_type)?> WriteAsIon for $iterable
         where
-            for<'a> &'a $item: WriteAsIon,
+            $item: WriteAsIon + 'a,
         {
-            fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-                writer.write_list(|list: &mut V::ListWriter| {
-                    for value in self.iter() {
-                        list.write(value)?;
-                    }
-                    Ok(())
-                })
+            fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+                writer.write_list(self.into_iter())
             }
         }
     };
@@ -216,17 +189,13 @@ impl<S, T> SExpTypeHint<S, T> {
 
 macro_rules! impl_write_as_ion_value_for_sexp_type_hint {
     ($iterable:ty, $item:ident $(, const $n:ident: $n_type:ty)?) => {
-        impl<$item $(, const $n: $n_type)?> WriteAsIonValue for SExpTypeHint<$iterable, $item>
+        impl<$item $(, const $n: $n_type)?> WriteAsIon for SExpTypeHint<$iterable, $item>
         where
+            $item: WriteAsIon,
             for<'a> &'a $item: WriteAsIon,
         {
-            fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-                writer.write_sexp(|sexp| {
-                    for value in self.values.iter() {
-                        sexp.write(value)?;
-                    }
-                    Ok(())
-                })
+            fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+                writer.write_sexp((&self.values).into_iter())
             }
         }
     };
@@ -236,8 +205,8 @@ impl_write_as_ion_value_for_sexp_type_hint!(Vec<T>, T);
 impl_write_as_ion_value_for_sexp_type_hint!(&[T], T);
 impl_write_as_ion_value_for_sexp_type_hint!([T; N], T, const N: usize);
 
-impl WriteAsIonValue for Value {
-    fn write_as_ion_value<V: ValueWriter>(&self, value_writer: V) -> IonResult<()> {
+impl WriteAsIon for Value {
+    fn write_as_ion<V: ValueWriter>(&self, value_writer: V) -> IonResult<()> {
         match self {
             Value::Null(i) => value_writer.write_null(*i),
             Value::Bool(b) => value_writer.write_bool(*b),
@@ -249,24 +218,9 @@ impl WriteAsIonValue for Value {
             Value::String(s) => value_writer.write_string(s),
             Value::Clob(c) => value_writer.write_clob(c),
             Value::Blob(b) => value_writer.write_blob(b),
-            Value::List(l) => value_writer.write_list(|list| {
-                for value in l {
-                    list.write(value)?;
-                }
-                Ok(())
-            }),
-            Value::SExp(s) => value_writer.write_sexp(|sexp| {
-                for value in s {
-                    sexp.write(value)?;
-                }
-                Ok(())
-            }),
-            Value::Struct(s) => value_writer.write_struct(|struct_value| {
-                for (k, v) in s {
-                    struct_value.write(k, v)?;
-                }
-                Ok(())
-            }),
+            Value::List(l) => value_writer.write_list(l),
+            Value::SExp(s) => value_writer.write_sexp(s),
+            Value::Struct(s) => value_writer.write_struct(s.iter()),
         }
     }
 }

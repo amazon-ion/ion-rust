@@ -77,8 +77,32 @@ impl AsRawSymbolTokenRef for RawSymbolToken {
     }
 }
 
+impl<'a> From<&'a RawSymbolToken> for RawSymbolTokenRef<'a> {
+    fn from(value: &'a RawSymbolToken) -> Self {
+        value.as_raw_symbol_token_ref()
+    }
+}
+
+impl<'a, 'b> From<&'a RawSymbolTokenRef<'b>> for RawSymbolTokenRef<'b> {
+    fn from(value: &'a RawSymbolTokenRef<'b>) -> Self {
+        value.clone()
+    }
+}
+
 impl<'a> From<&'a str> for RawSymbolTokenRef<'a> {
     fn from(value: &'a str) -> Self {
         RawSymbolTokenRef::Text(Cow::Borrowed(value))
+    }
+}
+
+impl<'a> From<SymbolId> for RawSymbolTokenRef<'a> {
+    fn from(value: SymbolId) -> Self {
+        RawSymbolTokenRef::SymbolId(value)
+    }
+}
+
+impl<'a> From<&'a Symbol> for RawSymbolTokenRef<'a> {
+    fn from(value: &'a Symbol) -> Self {
+        value.as_raw_symbol_token_ref()
     }
 }

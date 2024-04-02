@@ -1,14 +1,13 @@
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
-use delegate::delegate;
 
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
-use crate::lazy::encoder::binary::v1_1::value_writer::BinaryAnnotatableValueWriter_1_1;
-use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
-use crate::lazy::encoder::value_writer::{MacroArgsWriter, SequenceWriter, StructWriter};
+use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
+use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
+use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{FlexUInt, IonResult, RawSymbolTokenRef, SymbolId};
+use crate::{FlexUInt, IonResult};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_1`],
 /// [`BinarySExpWriter_1_1`], and [`BinaryStructWriter_1_1`].
@@ -22,23 +21,90 @@ use crate::{FlexUInt, IonResult, RawSymbolTokenRef, SymbolId};
 pub(crate) struct BinaryContainerWriter_1_1<'value, 'top> {
     // An allocator reference that can be shared with nested container writers
     allocator: &'top BumpAllocator,
-    // The buffer to which child values will be encoded. In the case of:
-    //   1. a length-prefixed container, this will be a new buffer bump-allocated specifically for this
-    //      container.
-    //   2. a delimited container, this will be the parent's own encoding buffer, to which the delimited
-    //      container start opcode has already been written.
+    encoder: ContainerEncodingKind<'value, 'top>,
+}
+
+enum ContainerEncodingKind<'value, 'top> {
+    Delimited(DelimitedEncoder<'value, 'top>),
+    LengthPrefixed(LengthPrefixedEncoder<'value, 'top>),
+}
+
+impl<'value, 'top> ContainerEncodingKind<'value, 'top> {
+    fn target_buffer(&mut self) -> &mut BumpVec<'top, u8> {
+        match self {
+            ContainerEncodingKind::Delimited(encoder) => encoder.buffer,
+            ContainerEncodingKind::LengthPrefixed(encoder) => &mut encoder.child_values_buffer,
+        }
+    }
+}
+
+struct DelimitedEncoder<'value, 'top> {
+    start_opcode: u8,
     buffer: &'value mut BumpVec<'top, u8>,
 }
 
+struct LengthPrefixedEncoder<'value, 'top> {
+    type_code: u8,
+    flex_len_type_code: u8,
+    parent_buffer: &'value mut BumpVec<'top, u8>,
+    child_values_buffer: BumpVec<'top, u8>,
+}
+
 impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
-    pub fn new(allocator: &'top BumpAllocator, buffer: &'value mut BumpVec<'top, u8>) -> Self {
-        Self { allocator, buffer }
+    const DELIMITED_END_OPCODE: u8 = 0xF0;
+
+    pub fn new_delimited(
+        start_opcode: u8,
+        allocator: &'top BumpAllocator,
+        buffer: &'value mut BumpVec<'top, u8>,
+    ) -> Self {
+        buffer.push(start_opcode);
+        let encoder = ContainerEncodingKind::Delimited(DelimitedEncoder {
+            start_opcode,
+            buffer,
+        });
+        Self { allocator, encoder }
     }
 
-    /// Constructs a new [`BinaryAnnotatableValueWriter_1_1`] using this [`BinaryContainerWriter_1_1`]'s
-    /// allocator and targeting its buffer.
-    fn value_writer<'a>(&'a mut self) -> BinaryAnnotatableValueWriter_1_1<'a, 'top> {
-        BinaryAnnotatableValueWriter_1_1::new(self.allocator, self.buffer())
+    pub fn new_length_prefixed(
+        type_code: u8,
+        flex_len_type_code: u8,
+        allocator: &'top BumpAllocator,
+        buffer: &'value mut BumpVec<'top, u8>,
+    ) -> Self {
+        const DEFAULT_CAPACITY: usize = 512;
+        let encoder = ContainerEncodingKind::LengthPrefixed(LengthPrefixedEncoder {
+            type_code,
+            flex_len_type_code,
+            parent_buffer: buffer,
+            child_values_buffer: BumpVec::with_capacity_in(DEFAULT_CAPACITY, allocator),
+        });
+        Self { allocator, encoder }
+    }
+
+    pub fn allocator(&self) -> &'top BumpAllocator {
+        self.allocator
+    }
+
+    /// The buffer to which this ContainerWriter encodes child values.
+    pub fn child_values_buffer(&mut self) -> &'_ mut BumpVec<'top, u8> {
+        self.encoder.target_buffer()
+    }
+
+    pub fn has_delimited_containers(&self) -> bool {
+        matches!(self.encoder, ContainerEncodingKind::Delimited(_))
+    }
+
+    /// Constructs a new [`BinaryValueWriter_1_1`] using this [`BinaryContainerWriter_1_1`]'s
+    /// allocator and targeting its child values buffer.
+    fn value_writer<'a>(&'a mut self) -> BinaryValueWriter_1_1<'a, 'top> {
+        // Create a value writer that will use the same container encodings it does by default
+        let delimited_containers = self.has_delimited_containers();
+        BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.child_values_buffer(),
+            delimited_containers,
+        )
     }
 
     /// Encodes the provided `value` to the [`BinaryContainerWriter_1_1`]'s buffer.
@@ -48,11 +114,31 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
         value.write_as_ion(annotated_value_writer)?;
         Ok(self)
     }
-    pub fn allocator(&self) -> &'top BumpAllocator {
-        self.allocator
-    }
-    pub fn buffer(&mut self) -> &'_ mut BumpVec<'top, u8> {
-        self.buffer
+
+    pub fn end(self) -> IonResult<()> {
+        match self.encoder {
+            ContainerEncodingKind::Delimited(encoder) => {
+                encoder.buffer.push(Self::DELIMITED_END_OPCODE)
+            }
+            ContainerEncodingKind::LengthPrefixed(encoder) => {
+                let encoded_length = encoder.child_values_buffer.len();
+                match encoded_length {
+                    0..=15 => {
+                        let opcode = encoder.type_code | encoded_length as u8;
+                        encoder.parent_buffer.push(opcode);
+                    }
+                    _ => {
+                        let opcode = encoder.flex_len_type_code;
+                        encoder.parent_buffer.push(opcode);
+                        FlexUInt::write_u64(encoder.parent_buffer, encoded_length as u64)?;
+                    }
+                }
+                encoder
+                    .parent_buffer
+                    .extend_from_slice_copy(encoder.child_values_buffer.as_slice());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -61,13 +147,40 @@ pub struct BinaryListWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> BinaryListWriter_1_1<'value, 'top> {
-    pub(crate) fn new(container_writer: BinaryContainerWriter_1_1<'value, 'top>) -> Self {
+    pub(crate) fn with_container_writer(
+        container_writer: BinaryContainerWriter_1_1<'value, 'top>,
+    ) -> Self {
         Self { container_writer }
+    }
+
+    pub(crate) fn new_delimited(
+        allocator: &'top BumpAllocator,
+        buffer: &'value mut BumpVec<'top, u8>,
+    ) -> Self {
+        const DELIMITED_LIST_OPCODE: u8 = 0xF1;
+        let container_writer =
+            BinaryContainerWriter_1_1::new_delimited(DELIMITED_LIST_OPCODE, allocator, buffer);
+        Self::with_container_writer(container_writer)
+    }
+
+    pub(crate) fn new_length_prefixed(
+        allocator: &'top BumpAllocator,
+        buffer: &'value mut BumpVec<'top, u8>,
+    ) -> Self {
+        const LENGTH_PREFIXED_LIST_TYPE_CODE: u8 = 0xA0;
+        const LENGTH_PREFIXED_FLEX_LEN_LIST_TYPE_CODE: u8 = 0xFA;
+        let container_writer = BinaryContainerWriter_1_1::new_length_prefixed(
+            LENGTH_PREFIXED_LIST_TYPE_CODE,
+            LENGTH_PREFIXED_FLEX_LEN_LIST_TYPE_CODE,
+            allocator,
+            buffer,
+        );
+        Self::with_container_writer(container_writer)
     }
 }
 
 impl<'value, 'top> MakeValueWriter for BinaryListWriter_1_1<'value, 'top> {
-    type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_1<'a, 'top> where Self: 'a;
+    type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'top> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         self.container_writer.value_writer()
@@ -75,9 +188,15 @@ impl<'value, 'top> MakeValueWriter for BinaryListWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> SequenceWriter for BinaryListWriter_1_1<'value, 'top> {
+    type End = ();
+
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         self.container_writer.write(value)?;
         Ok(self)
+    }
+
+    fn end(self) -> IonResult<Self::End> {
+        self.container_writer.end()
     }
 }
 
@@ -86,28 +205,61 @@ pub struct BinarySExpWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> BinarySExpWriter_1_1<'value, 'top> {
-    pub(crate) fn new(sequence_writer: BinaryContainerWriter_1_1<'value, 'top>) -> Self {
-        Self {
-            container_writer: sequence_writer,
-        }
+    pub(crate) fn with_container_writer(
+        container_writer: BinaryContainerWriter_1_1<'value, 'top>,
+    ) -> Self {
+        Self { container_writer }
+    }
+
+    pub(crate) fn new_delimited(
+        allocator: &'top BumpAllocator,
+        buffer: &'value mut BumpVec<'top, u8>,
+    ) -> Self {
+        const DELIMITED_SEXP_OPCODE: u8 = 0xF2;
+        let container_writer =
+            BinaryContainerWriter_1_1::new_delimited(DELIMITED_SEXP_OPCODE, allocator, buffer);
+        Self::with_container_writer(container_writer)
+    }
+
+    pub(crate) fn new_length_prefixed(
+        allocator: &'top BumpAllocator,
+        buffer: &'value mut BumpVec<'top, u8>,
+    ) -> Self {
+        const LENGTH_PREFIXED_SEXP_TYPE_CODE: u8 = 0xB0;
+        const LENGTH_PREFIXED_FLEX_LEN_SEXP_TYPE_CODE: u8 = 0xFB;
+        let container_writer = BinaryContainerWriter_1_1::new_length_prefixed(
+            LENGTH_PREFIXED_SEXP_TYPE_CODE,
+            LENGTH_PREFIXED_FLEX_LEN_SEXP_TYPE_CODE,
+            allocator,
+            buffer,
+        );
+        Self::with_container_writer(container_writer)
     }
 }
 
 impl<'value, 'top> MakeValueWriter for BinarySExpWriter_1_1<'value, 'top> {
-    type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_1<'a, 'top> where Self: 'a;
+    type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'top> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
-        BinaryAnnotatableValueWriter_1_1::new(
+        let delimited_containers = self.container_writer.has_delimited_containers();
+        BinaryValueWriter_1_1::new(
             self.container_writer.allocator(),
-            self.container_writer.buffer(),
+            self.container_writer.child_values_buffer(),
+            delimited_containers,
         )
     }
 }
 
 impl<'value, 'top> SequenceWriter for BinarySExpWriter_1_1<'value, 'top> {
+    type End = ();
+
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         self.container_writer.write(value)?;
         Ok(self)
+    }
+
+    fn end(self) -> IonResult<Self::End> {
+        self.container_writer.end()
     }
 }
 
@@ -123,15 +275,30 @@ pub struct BinaryStructWriter_1_1<'value, 'top> {
 
 impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
     pub(crate) fn new_length_prefixed(
-        container_writer: BinaryContainerWriter_1_1<'value, 'top>,
+        allocator: &'top BumpAllocator,
+        buffer: &'value mut BumpVec<'top, u8>,
     ) -> Self {
+        const LENGTH_PREFIXED_STRUCT_TYPE_CODE: u8 = 0xC0;
+        const LENGTH_PREFIXED_FLEX_LEN_STRUCT_TYPE_CODE: u8 = 0xFC;
+        let container_writer = BinaryContainerWriter_1_1::new_length_prefixed(
+            LENGTH_PREFIXED_STRUCT_TYPE_CODE,
+            LENGTH_PREFIXED_FLEX_LEN_STRUCT_TYPE_CODE,
+            allocator,
+            buffer,
+        );
         Self {
             flex_uint_encoding: true,
             container_writer,
         }
     }
 
-    pub(crate) fn new_delimited(container_writer: BinaryContainerWriter_1_1<'value, 'top>) -> Self {
+    pub(crate) fn new_delimited(
+        allocator: &'top BumpAllocator,
+        buffer: &'value mut BumpVec<'top, u8>,
+    ) -> Self {
+        const DELIMITED_STRUCT_OPCODE: u8 = 0xF3;
+        let container_writer =
+            BinaryContainerWriter_1_1::new_delimited(DELIMITED_STRUCT_OPCODE, allocator, buffer);
         Self {
             // Delimited structs always use FlexSym encoding.
             flex_uint_encoding: false,
@@ -139,94 +306,90 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
         }
     }
 
-    pub(crate) fn buffer(&mut self) -> &'_ mut BumpVec<'top, u8> {
-        self.container_writer.buffer
+    pub(crate) fn fields_buffer(&mut self) -> &'_ mut BumpVec<'top, u8> {
+        self.container_writer.child_values_buffer()
     }
+}
 
-    #[inline]
-    pub fn write<A: AsRawSymbolTokenRef, V: WriteAsIon>(
-        &mut self,
-        name: A,
-        value: V,
-    ) -> IonResult<&mut Self> {
-        use RawSymbolTokenRef::*;
+impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_1<'value, 'top> {
+    fn encode_field_name(&mut self, name: impl AsRawSymbolTokenRef) -> IonResult<()> {
+        use crate::RawSymbolTokenRef::*;
 
         match (self.flex_uint_encoding, name.as_raw_symbol_token_ref()) {
             // We're already in FlexSym encoding mode
-            (false, _) => self.write_flex_sym_field(name, value),
+            (false, _) => FlexSym::encode_symbol(self.fields_buffer(), name),
             // We're still in FlexUInt encoding mode, but this value requires FlexSym encoding
-            (_, Text(_)) | (_, SymbolId(0)) =>
-            // This can only happen up to once inside a length-prefixed struct
-            {
-                self.enable_flex_sym_and_write_field(name, value)
+            (_, Text(_)) | (_, SymbolId(0)) => {
+                self.fields_buffer().push(0x01);
+                self.flex_uint_encoding = false;
+                FlexSym::encode_symbol(self.fields_buffer(), name)
             }
             // We're in FlexUInt encoding mode and can write this field without switching modes
-            (_, SymbolId(sid)) => self.write_flex_uint_field(sid, value),
-        }
-    }
-
-    #[inline]
-    fn write_flex_uint_field<V: WriteAsIon>(
-        &mut self,
-        name: SymbolId,
-        value: V,
-    ) -> IonResult<&mut Self> {
-        FlexUInt::encode_u64(self.buffer(), name as u64);
-        self.container_writer.write(value)?;
-        Ok(self)
-    }
-
-    #[inline(never)]
-    fn enable_flex_sym_and_write_field<A: AsRawSymbolTokenRef, V: WriteAsIon>(
-        &mut self,
-        name: A,
-        value: V,
-    ) -> IonResult<&mut Self> {
-        // This is the first time we're writing a FlexSym field. Emit a FlexUInt 0 to tell
-        // readers that we're switching from FlexUInt to FlexSym.
-        self.buffer().push(0x01);
-        self.flex_uint_encoding = false;
-        self.write_flex_sym_field(name, value)
-    }
-
-    pub fn write_flex_sym_field<A: AsRawSymbolTokenRef, V: WriteAsIon>(
-        &mut self,
-        name: A,
-        value: V,
-    ) -> IonResult<&mut Self> {
-        // Write the field name
-        FlexSym::encode_symbol(self.buffer(), name);
-
-        // Write the value
-        self.container_writer.write(value)?;
-        Ok(self)
+            (_, SymbolId(sid)) => {
+                FlexUInt::encode_u64(self.fields_buffer(), sid as u64);
+            }
+        };
+        Ok(())
     }
 }
 
-impl<'value, 'top> StructWriter for BinaryStructWriter_1_1<'value, 'top> {
-    delegate! {
-        to self {
-            fn write<A: AsRawSymbolTokenRef, V: WriteAsIon>(
-                &mut self,
-                name: A,
-                value: V,
-            ) -> IonResult<&mut Self>;
-        }
-    }
-}
-
-pub struct BinaryMacroArgsWriter_1_1<'value, 'top> {
-    pub(crate) container_writer: BinaryContainerWriter_1_1<'value, 'top>,
-}
-
-impl<'value, 'top> MakeValueWriter for BinaryMacroArgsWriter_1_1<'value, 'top> {
-    type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_1<'a, 'top> where Self: 'a;
+impl<'value, 'top> MakeValueWriter for BinaryStructWriter_1_1<'value, 'top> {
+    type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'top>
+    where
+        Self: 'a,;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         self.container_writer.value_writer()
     }
 }
 
-impl<'value, 'top> SequenceWriter for BinaryMacroArgsWriter_1_1<'value, 'top> {}
+impl<'value, 'top> StructWriter for BinaryStructWriter_1_1<'value, 'top> {
+    fn end(mut self) -> IonResult<()> {
+        if let ContainerEncodingKind::Delimited(_) = &mut self.container_writer.encoder {
+            // Write the FlexSym escape (FlexUInt 0). The container writer can emit the closing
+            // delimited END opcode.
+            self.fields_buffer().push(0x01);
+        }
+        self.container_writer.end()
+    }
+}
 
-impl<'value, 'top> MacroArgsWriter for BinaryMacroArgsWriter_1_1<'value, 'top> {}
+pub struct BinaryEExpWriter_1_1<'value, 'top> {
+    allocator: &'top BumpAllocator,
+    buffer: &'value mut BumpVec<'top, u8>,
+    delimited_containers: bool,
+}
+
+impl<'value, 'top> BinaryEExpWriter_1_1<'value, 'top> {
+    pub fn new(
+        allocator: &'top BumpAllocator,
+        buffer: &'value mut BumpVec<'top, u8>,
+        delimited_containers: bool,
+    ) -> Self {
+        Self {
+            allocator,
+            buffer,
+            delimited_containers,
+        }
+    }
+}
+
+impl<'value, 'top> MakeValueWriter for BinaryEExpWriter_1_1<'value, 'top> {
+    type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'top> where Self: 'a;
+
+    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+        BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.delimited_containers)
+    }
+}
+
+impl<'value, 'top> SequenceWriter for BinaryEExpWriter_1_1<'value, 'top> {
+    type End = ();
+
+    fn end(self) -> IonResult<Self::End> {
+        // Nothing to do
+        // TODO: When we have length-prefixed macro invocations, this will require a step to flush the buffered encoding.
+        Ok(())
+    }
+}
+
+impl<'value, 'top> EExpWriter for BinaryEExpWriter_1_1<'value, 'top> {}

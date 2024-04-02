@@ -19,7 +19,7 @@ mod example {
     use ion_rs::lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0;
     use ion_rs::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
     use ion_rs::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
-    use ion_rs::lazy::encoder::write_as_ion::WriteAsIonValue;
+    use ion_rs::lazy::encoder::write_as_ion::WriteAsIon;
     use ion_rs::*;
     use std::env::args;
 
@@ -165,11 +165,11 @@ mod example {
 
     // ===== Serialization logic for the above types =====
 
-    impl WriteAsIonValue for Parameter {
-        fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+    impl WriteAsIon for Parameter {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             match self {
-                Parameter::Int(i) => i.write_as_ion_value(writer),
-                Parameter::String(s) => s.as_str().write_as_ion_value(writer),
+                Parameter::Int(i) => i.write_as_ion(writer),
+                Parameter::String(s) => s.as_str().write_as_ion(writer),
             }
         }
     }
@@ -184,22 +184,21 @@ mod example {
     // field name/value pair. In the case of recurring strings, we take the liberty of writing
     // out symbol IDs instead of the full text; this silent type coercion from string to symbol
     // is technically data loss, but results in a much more compact encoding.
-    impl<'a, 'b> WriteAsIonValue for SerializeWithoutMacros<'a, 'b> {
-        fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+    impl<'a, 'b> WriteAsIon for SerializeWithoutMacros<'a, 'b> {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             let event = self.0;
-            writer.write_struct(|fields| {
-                fields
-                    //            v--- Each field name is a symbol ID
-                    .write(10, &event.timestamp)?
-                    .write(11, event.thread_id)?
-                    .write(12, &event.thread_name)?
-                    //                 v--- The fixed strings from the log statement are also SIDs
-                    .write(13, RawSymbolToken::SymbolId(17))? // logger name
-                    .write(14, RawSymbolToken::SymbolId(18))? // log level
-                    .write(15, RawSymbolToken::SymbolId(19))? // format
-                    .write(16, &event.parameters)?;
-                Ok(())
-            })
+            let mut struct_ = writer.struct_writer()?;
+            struct_
+                //            v--- Each field name is a symbol ID
+                .write(10, &event.timestamp)?
+                .write(11, event.thread_id)?
+                .write(12, &event.thread_name)?
+                //                 v--- The fixed strings from the log statement are also SIDs
+                .write(13, RawSymbolToken::SymbolId(17))? // logger name
+                .write(14, RawSymbolToken::SymbolId(18))? // log level
+                .write(15, RawSymbolToken::SymbolId(19))? // format
+                .write(16, &event.parameters)?;
+            struct_.end()
         }
     }
 
@@ -208,28 +207,27 @@ mod example {
     // behavior for the thread name.
     struct ThreadName<'a>(&'a str);
 
-    impl<'a> WriteAsIonValue for ThreadName<'a> {
-        fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+    impl<'a> WriteAsIon for ThreadName<'a> {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             // ID 12 chosen arbitrarily, but aligns with Ion 1.0 encoding above
-            writer.write_eexp(12, |args| {
+            let mut eexp = writer.eexp_writer(12)?;
+            eexp
                 // Ignore the part of the thread name that starts with the recurring prefix.
-                args.write(&self.0[THREAD_NAME_PREFIX.len()..])?;
-                Ok(())
-            })
+                .write(&self.0[THREAD_NAME_PREFIX.len()..])?;
+            eexp.end()
         }
     }
 
-    impl<'a, 'b> WriteAsIonValue for SerializeWithMacros<'a, 'b> {
-        fn write_as_ion_value<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+    impl<'a, 'b> WriteAsIon for SerializeWithMacros<'a, 'b> {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             let event = self.0;
-            writer.write_eexp(event.statement.index, |args| {
-                args.write(&event.timestamp)?
-                    .write(event.thread_id)?
-                    // Wrap the thread name in the `ThreadName` wrapper to change its serialization.
-                    .write(ThreadName(&event.thread_name))?
-                    .write(&event.parameters)?;
-                Ok(())
-            })
+            let mut eexp = writer.eexp_writer(event.statement.index)?;
+            eexp.write(&event.timestamp)?
+                .write(event.thread_id)?
+                // Wrap the thread name in the `ThreadName` wrapper to change its serialization.
+                .write(ThreadName(&event.thread_name))?
+                .write(&event.parameters)?;
+            eexp.end()
         }
     }
 

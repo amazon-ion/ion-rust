@@ -10,7 +10,6 @@ use value_writer::SequenceWriter;
 
 pub mod annotate;
 pub mod binary;
-pub(crate) mod container_fn;
 pub mod text;
 pub mod value_writer;
 pub mod write_as_ion;
@@ -38,7 +37,7 @@ pub(crate) mod private {
 }
 
 /// An Ion writer without an encoding context (that is: symbol/macro tables).
-pub trait LazyRawWriter<W: Write>: SequenceWriter {
+pub trait LazyRawWriter<W: Write>: SequenceWriter<End = W> {
     fn new(output: W) -> IonResult<Self>
     where
         Self: Sized;
@@ -46,14 +45,15 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter {
     where
         Self: Sized;
     fn flush(&mut self) -> IonResult<()>;
+
+    fn finish(self) -> IonResult<W>;
 }
 
 #[cfg(test)]
 mod tests {
     use crate::lazy::encoder::annotate::Annotate;
     use crate::lazy::encoder::text::LazyRawTextWriter_1_0;
-    use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
-    use crate::lazy::encoder::value_writer::{StructWriter, ValueWriter};
+    use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{Element, IonData, IonResult, Timestamp};
 
@@ -66,6 +66,7 @@ mod tests {
         let mut writer = LazyRawTextWriter_1_0::new(&mut buffer);
         test(&mut writer)?;
         writer.flush()?;
+        println!("{}", String::from_utf8_lossy(buffer.as_slice()));
         let actual = Element::read_all(buffer)?;
         assert!(
             IonData::eq(&expected, &actual),
@@ -144,16 +145,15 @@ mod tests {
             ]
         "#;
         let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
-            writer.make_value_writer().write_list(|list| {
-                list.write(1)?
-                    .write(false)?
-                    .write(3f32)?
-                    .write("foo")?
-                    .write("bar".as_symbol_ref())?
-                    .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
-                    .write([0xE0u8, 0x01, 0x00, 0xEA])?;
-                Ok(())
-            })
+            let mut list = writer.list_writer()?;
+            list.write(1)?
+                .write(false)?
+                .write(3f32)?
+                .write("foo")?
+                .write("bar".as_symbol_ref())?
+                .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
+                .write([0xE0u8, 0x01, 0x00, 0xEA])?;
+            list.end()
         };
         writer_test(expected, test)
     }
@@ -174,17 +174,16 @@ mod tests {
             )
         "#;
         let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
-            writer.make_value_writer().write_sexp(|sexp| {
-                sexp.write(1)?
-                    .write(false)?
-                    .write(3f32)?
-                    .write("foo")?
-                    .write("bar".as_symbol_ref())?
-                    .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
-                    .write([0xE0u8, 0x01, 0x00, 0xEA])?
-                    .write([1, 2, 3])?;
-                Ok(())
-            })
+            let mut sexp = writer.sexp_writer()?;
+            sexp.write(1)?
+                .write(false)?
+                .write(3f32)?
+                .write("foo")?
+                .write("bar".as_symbol_ref())?
+                .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
+                .write([0xE0u8, 0x01, 0x00, 0xEA])?
+                .write([1, 2, 3])?;
+            sexp.end()
         };
         writer_test(expected, test)
     }
@@ -203,17 +202,16 @@ mod tests {
             }
         "#;
         let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
-            writer.make_value_writer().write_struct(|struct_| {
-                struct_
-                    .write("a", 1)?
-                    .write("b", false)?
-                    .write("c", 3f32)?
-                    .write("d", "foo")?
-                    .write("e", "bar".as_symbol_ref())?
-                    .write("f", Timestamp::with_ymd(2023, 11, 9).build()?)?
-                    .write("g", [0xE0u8, 0x01, 0x00, 0xEA])?;
-                Ok(())
-            })
+            let mut struct_ = writer.struct_writer()?;
+            struct_
+                .write("a", 1)?
+                .write("b", false)?
+                .write("c", 3f32)?
+                .write("d", "foo")?
+                .write("e", "bar".as_symbol_ref())?
+                .write("f", Timestamp::with_ymd(2023, 11, 9).build()?)?
+                .write("g", [0xE0u8, 0x01, 0x00, 0xEA])?;
+            struct_.end()
         };
         writer_test(expected, test)
     }
