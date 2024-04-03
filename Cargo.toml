@@ -51,7 +51,7 @@ experimental-writer = []
 # A reader API that parks on a top-level value and yields 'lazy' handles to the data
 # contained therein. These lazy handles can be read multiple times, allowing for
 # an inexpensive form of 'rewind' functionality.
-experimental-lazy-reader = []
+experimental-lazy-reader = ["experimental-reader"]
 
 # Experimental serde API to serialize and deserialize Ion data into Rust objects using serde crate
 experimental-serde = ["dep:serde_with", "dep:serde"]
