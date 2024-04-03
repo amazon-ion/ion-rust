@@ -31,17 +31,20 @@
 //!| list          | vector                               | seq                                                   |
 //!| null          | None                                 | unit                                                  |
 //!
-//! ## Mapping of serde data types to Ion data types
+//! ## Mapping of serde data types to Ion representation
 //!
-//!| Serde data type                                              | Ion data type                               |
+//!| Serde data type                                              | Ion representation                          |
 //!|--------------------------------------------------------------|---------------------------------------------|
 //!| u64, i64, u32, i32, u16, i16, u8, i8                         | int                                         |
 //!| char, string, unit_variant                                   | string                                      |
 //!| byte-array                                                   | blob                                        |
 //!| option                                                       | None - null, Some - based on other mappings |
 //!| unit, unit_struct                                            | null                                        |
-//!| seq, tuple, tuple_struct, tuple_variant                      | list                                        |
-//!| newtype_struct, newtype_variant, map, struct, struct_variant | struct                                      |
+//!| seq, tuple, tuple_struct                                     | list                                        |
+//!| newtype_struct, map, struct                                  | struct                                      |
+//!| newtype_variant                                              | variant value with annotation               |
+//!| struct_variant                                               | struct with annotation                      |
+//!| tuple_variant                                                | list with annotation                        |
 //!
 //! _Note: Since the serde framework doesn't support [Ion decimal] and [Ion timestamp] types, distinct serialization
 //! and deserialization of these types are defined in this module. It uses `newtype_struct` with `$__ion_rs_decimal__`
@@ -223,6 +226,9 @@ mod tests {
             #[serde_as(as = "crate::Timestamp")]
             date1: DateTime<FixedOffset>,
             nested_struct: NestedTest,
+            unit_struct: UnitStruct,
+            newtype_struct: NewTypeStruct,
+            tuple_struct: TupleStruct,
             optional: Option<i64>,
         }
 
@@ -232,6 +238,18 @@ mod tests {
             boolean: bool,
             str: String,
         }
+
+        #[serde_as]
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct UnitStruct;
+
+        #[serde_as]
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct NewTypeStruct(i64);
+
+        #[serde_as]
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct TupleStruct(i64, i64);
 
         let datetime: DateTime<FixedOffset> = Utc::now().into();
         let my_date0 = Utc::now();
@@ -250,6 +268,10 @@ mod tests {
                 boolean: true,
                 str: "hello".to_string(),
             },
+
+            unit_struct: UnitStruct,
+            newtype_struct: NewTypeStruct(5),
+            tuple_struct: TupleStruct(5, 10),
             optional: None,
         };
 
@@ -269,6 +291,41 @@ mod tests {
         assert_eq!(back_result.date1, datetime.clone());
         assert!(back_result.nested_struct.boolean);
         assert_eq!(&back_result.nested_struct.str, "hello");
+        assert_eq!(back_result.unit_struct, UnitStruct);
+        assert_eq!(back_result.newtype_struct, NewTypeStruct(5));
+        assert_eq!(back_result.tuple_struct, TupleStruct(5, 10));
         assert_eq!(back_result.optional, None);
+    }
+
+    #[test]
+    fn test_enum() {
+        #[serde_as]
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        enum E {
+            Unit,
+            Newtype(u32),
+            Tuple(u32, u32),
+            Struct { a: u32 },
+        }
+
+        let i = r#""Unit""#;
+        let expected = E::Unit;
+        assert_eq!(expected, from_ion(i).unwrap());
+        assert_eq!(i, to_string(&expected).unwrap());
+
+        let i = r#"Newtype::1"#;
+        let expected = E::Newtype(1);
+        assert_eq!(expected, from_ion(i).unwrap());
+        assert_eq!(i, to_string(&expected).unwrap());
+
+        let i = r#"Tuple::[1, 2]"#;
+        let expected = E::Tuple(1, 2);
+        assert_eq!(expected, from_ion(i).unwrap());
+        assert_eq!(i, to_string(&expected).unwrap());
+
+        let i = r#"Struct::{a: 1}"#;
+        let expected = E::Struct { a: 1 };
+        assert_eq!(expected, from_ion(i).unwrap());
+        assert_eq!(i, to_string(&expected).unwrap());
     }
 }

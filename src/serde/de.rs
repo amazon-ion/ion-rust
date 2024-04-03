@@ -401,8 +401,8 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
         use IonType::*;
         match self.value.ion_type() {
             String => visitor.visit_enum(UnitVariantAccess::new(self)),
-            Struct => visitor.visit_enum(VariantAccess::new(self)),
-            _ => IonResult::decoding_error("expected a string or struct enum representation"),
+            // All the parameterized Rust enums uses annotations for representing enum variant
+            _ => visitor.visit_enum(VariantAccess::new(self)),
         }
     }
 
@@ -410,7 +410,12 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_str(self.value.read()?.expect_text()?)
+        // annotations are currently only supported with parameterized Rust enums
+        if let Some(annotation) = self.value.annotations().next() {
+            visitor.visit_str(annotation?.text().unwrap())
+        } else {
+            visitor.visit_str(self.value.read()?.expect_text()?)
+        }
     }
 
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>

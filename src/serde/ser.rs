@@ -228,10 +228,8 @@ where
     where
         T: Serialize,
     {
-        self.writer.step_in(IonType::Struct)?;
-        self.writer.set_field_name(variant);
-        value.serialize(&mut *self)?;
-        self.writer.step_out()
+        self.writer.set_annotations(vec![variant]);
+        value.serialize(&mut *self)
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
@@ -257,9 +255,10 @@ where
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
+        self.writer.set_annotations(vec![variant]);
         self.writer.step_in(IonType::List)?;
         Ok(self)
     }
@@ -282,9 +281,10 @@ where
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
+        self.writer.set_annotations(vec![variant]);
         self.writer.step_in(IonType::Struct)?;
         Ok(self)
     }
