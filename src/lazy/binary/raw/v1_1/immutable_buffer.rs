@@ -1,13 +1,14 @@
-use crate::binary::constants::v1_0::{length_codes, IVM};
+use crate::binary::constants::v1_1::{length_codes, IVM};
 use crate::binary::int::DecodedInt;
-use crate::binary::non_blocking::type_descriptor::{
-    Header, TypeDescriptor, ION_1_0_TYPE_DESCRIPTORS,
-};
+// use crate::binary::non_blocking::type_descriptor::{
+//     Header, TypeDescriptor, ION_1_0_TYPE_DESCRIPTORS,
+// };
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
+use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
+use crate::lazy::binary::raw::v1_1::{Header, TypeDescriptor, ION_1_1_TYPE_DESCRIPTORS};
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::result::IonFailure;
@@ -45,6 +46,10 @@ pub struct ImmutableBuffer<'a> {
     //                          offset: 6
     data: &'a [u8],
     offset: usize,
+
+    // Each time something is parsed from the buffer successfully, the caller will mark the number
+    // of bytes that may be skipped the next time `advance_to_next_item` is called.
+    pub bytes_to_skip: usize,
 }
 
 impl<'a> Debug for ImmutableBuffer<'a> {
@@ -67,7 +72,11 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     pub fn new_with_offset(data: &[u8], offset: usize) -> ImmutableBuffer {
-        ImmutableBuffer { data, offset }
+        ImmutableBuffer {
+            data,
+            offset,
+            bytes_to_skip: 0,
+        }
     }
 
     /// Returns a slice containing all of the buffer's bytes.
@@ -88,6 +97,7 @@ impl<'a> ImmutableBuffer<'a> {
         ImmutableBuffer {
             data: self.bytes_range(offset, length),
             offset: self.offset + offset,
+            bytes_to_skip: 0,
         }
     }
 
@@ -128,6 +138,7 @@ impl<'a> ImmutableBuffer<'a> {
         Self {
             data: &self.data[num_bytes_to_consume..],
             offset: self.offset + num_bytes_to_consume,
+            bytes_to_skip: 0,
         }
     }
 
@@ -138,7 +149,7 @@ impl<'a> ImmutableBuffer<'a> {
             return IonResult::incomplete("a type descriptor", self.offset());
         }
         let next_byte = self.data[0];
-        Ok(ION_1_0_TYPE_DESCRIPTORS[next_byte as usize])
+        Ok(ION_1_1_TYPE_DESCRIPTORS[next_byte as usize])
     }
 
     /// Reads the first four bytes in the buffer as an Ion version marker. If it is successful,
@@ -468,6 +479,15 @@ impl<'a> ImmutableBuffer<'a> {
             return IonResult::decoding_error("found an annotations wrapper with no annotations");
         }
 
+        println!(
+            "Annotations and value lengths: {}",
+            annotations_and_value_length
+        );
+        println!("Annotations length: {}", annotations_length.size_in_bytes());
+        println!(
+            "Annotations length .. Value: {}",
+            annotations_length.value()
+        );
         // Validate that the annotated value is not missing.
         let expected_value_length = annotations_and_value_length
             - annotations_length.size_in_bytes()
@@ -514,6 +534,7 @@ impl<'a> ImmutableBuffer<'a> {
     // allow the hot path to be better optimized.
     pub fn read_nop_pad(self) -> ParseResult<'a, usize> {
         let type_descriptor = self.peek_type_descriptor()?;
+        println!("type descriptor: {:?}", type_descriptor);
         // Advance beyond the type descriptor
         let remaining = self.consume(1);
         // If the type descriptor says we should skip more bytes, skip them.
@@ -609,7 +630,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Reads a field ID and a value from the buffer.
-    pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawBinaryValue_1_0<'a>>> {
+    pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
         let mut input = self;
         if self.is_empty() {
             // We're at the end of the struct
@@ -689,7 +710,7 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
-    pub(crate) fn peek_sequence_value(self) -> IonResult<Option<LazyRawBinaryValue_1_0<'a>>> {
+    pub(crate) fn peek_sequence_value(self) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -711,7 +732,7 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
     /// the next byte (`type_descriptor`) is not a NOP.
-    fn read_value(self, type_descriptor: TypeDescriptor) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
+    fn read_value(self, type_descriptor: TypeDescriptor) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
         if type_descriptor.is_annotation_wrapper() {
             self.read_annotated_value(type_descriptor)
         } else {
@@ -724,7 +745,7 @@ impl<'a> ImmutableBuffer<'a> {
     fn read_value_without_annotations(
         self,
         type_descriptor: TypeDescriptor,
-    ) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
+    ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
         let input = self;
         let header = type_descriptor
             .to_header()
@@ -737,13 +758,6 @@ impl<'a> ImmutableBuffer<'a> {
         let total_length = 1 // Header byte
                 + length_length as usize
                 + value_length;
-
-        if total_length > input.len() {
-            return IonResult::incomplete(
-                "the stream ended unexpectedly in the middle of a value",
-                header_offset,
-            );
-        }
 
         let encoded_value = EncodedValue {
             header,
@@ -758,7 +772,7 @@ impl<'a> ImmutableBuffer<'a> {
             value_length,
             total_length,
         };
-        let lazy_value = LazyRawBinaryValue_1_0 {
+        let lazy_value = LazyRawBinaryValue_1_1 {
             encoded_value,
             // If this value has a field ID or annotations, this will be replaced by the caller.
             input: self,
@@ -771,7 +785,7 @@ impl<'a> ImmutableBuffer<'a> {
     fn read_annotated_value(
         self,
         mut type_descriptor: TypeDescriptor,
-    ) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
+    ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
         let input = self;
         let (wrapper, input_after_annotations) = input.read_annotations_wrapper(type_descriptor)?;
         type_descriptor = input_after_annotations.peek_type_descriptor()?;
@@ -800,6 +814,46 @@ impl<'a> ImmutableBuffer<'a> {
         lazy_value.input = input;
 
         Ok(lazy_value)
+    }
+
+    // DataSource Functionality
+
+    pub(crate) fn advance_to_next_item(&mut self) -> IonResult<Self> {
+        if self.len() < self.bytes_to_skip {
+            return IonResult::incomplete(
+                "cannot advance to next item, insufficient data in buffer",
+                self.offset(),
+            );
+        }
+
+        if self.bytes_to_skip > 0 {
+            Ok(self.consume(self.bytes_to_skip))
+        } else {
+            Ok(*self)
+        }
+    }
+
+    /// Runs the provided parsing function on this DataSource's buffer.
+    /// If it succeeds, marks the `DataSource` as ready to advance by the 'n' bytes
+    /// that were consumed.
+    /// If it does not succeed, the `DataSource` remains unchanged.
+    pub(crate) fn try_parse_next<F: Fn(Self) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>>>(
+        &mut self,
+        parser: F,
+    ) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
+        let buffer = self.advance_to_next_item()?;
+
+        let lazy_value = match parser(buffer) {
+            Ok(Some(output)) => output,
+            Ok(None) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+
+        // If the value we read doesn't start where we began reading, there was a NOP.
+        let num_nop_bytes = lazy_value.input.offset() - buffer.offset();
+        self.consume(num_nop_bytes);
+        self.bytes_to_skip = lazy_value.encoded_value.total_length();
+        Ok(Some(lazy_value))
     }
 }
 

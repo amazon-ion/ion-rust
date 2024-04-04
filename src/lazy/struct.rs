@@ -1,9 +1,11 @@
+#![allow(non_camel_case_types)]
+
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
 use crate::element::builders::StructBuilder;
 use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::encoding::BinaryEncoding_1_0;
+use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1};
 use crate::lazy::expanded::r#struct::{
     ExpandedStructIterator, LazyExpandedField, LazyExpandedStruct,
 };
@@ -49,7 +51,7 @@ pub struct LazyStruct<'top, D: LazyDecoder> {
     pub(crate) expanded_struct: LazyExpandedStruct<'top, D>,
 }
 
-pub type LazyBinaryStruct<'top> = LazyStruct<'top, BinaryEncoding_1_0>;
+pub type LazyBinaryStruct_1_0<'top> = LazyStruct<'top, BinaryEncoding_1_0>;
 
 // Best-effort debug formatting for LazyStruct. Any failures that occur during reading will result
 // in the output being silently truncated.

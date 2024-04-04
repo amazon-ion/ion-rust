@@ -2,10 +2,17 @@
 
 use crate::lazy::any_encoding::LazyRawAnyValue;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
-use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct;
-use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
-use crate::lazy::binary::raw::sequence::{LazyRawBinaryList, LazyRawBinarySExp};
-use crate::lazy::binary::raw::value::LazyRawBinaryValue;
+use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct_1_0;
+use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
+use crate::lazy::binary::raw::sequence::{LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0};
+use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
+use crate::lazy::binary::raw::v1_1::{
+    RawBinaryAnnotationsIterator as RawBinaryAnnotationsIterator_1_1,
+    r#struct::LazyRawBinaryStruct_1_1,
+    sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1},
+    value::LazyRawBinaryValue_1_1,
+};
+use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::r#struct::LazyRawTextStruct_1_0;
@@ -37,8 +44,8 @@ pub struct BinaryEncoding_1_0;
 #[derive(Copy, Clone, Debug)]
 pub struct BinaryEncoding_1_1;
 
-impl BinaryEncoding for BinaryEncoding_1_0 {}
-impl BinaryEncoding for BinaryEncoding_1_1 {}
+impl<'top> BinaryEncoding<'top> for BinaryEncoding_1_0 {}
+impl<'top> BinaryEncoding<'top> for BinaryEncoding_1_1 {}
 
 /// The Ion 1.0 text encoding.
 #[derive(Copy, Clone, Debug)]
@@ -70,7 +77,7 @@ impl Encoding for TextEncoding_1_1 {
 }
 
 /// Marker trait for binary encodings of any version.
-pub trait BinaryEncoding: Encoding {}
+pub trait BinaryEncoding<'top>: Encoding + LazyDecoder {}
 
 /// Marker trait for text encodings.
 pub trait TextEncoding<'top>:
@@ -100,12 +107,12 @@ pub trait EncodingWithMacroSupport {}
 impl EncodingWithMacroSupport for TextEncoding_1_1 {}
 
 impl LazyDecoder for BinaryEncoding_1_0 {
-    type Reader<'data> = LazyRawBinaryReader<'data>;
+    type Reader<'data> = LazyRawBinaryReader_1_0<'data>;
     type ReaderSavedState = ();
-    type Value<'top> = LazyRawBinaryValue<'top>;
-    type SExp<'top> = LazyRawBinarySExp<'top>;
-    type List<'top> = LazyRawBinaryList<'top>;
-    type Struct<'top> = LazyRawBinaryStruct<'top>;
+    type Value<'top> = LazyRawBinaryValue_1_0<'top>;
+    type SExp<'top> = LazyRawBinarySExp_1_0<'top>;
+    type List<'top> = LazyRawBinaryList_1_0<'top>;
+    type Struct<'top> = LazyRawBinaryStruct_1_0<'top>;
     type AnnotationsIterator<'top> = RawBinaryAnnotationsIterator<'top>;
     // Macros are not supported in Ion 1.0
     type EExpression<'top> = Never;
@@ -134,6 +141,18 @@ impl LazyDecoder for TextEncoding_1_1 {
     type EExpression<'top> = RawTextEExpression_1_1<'top>;
 }
 
+impl LazyDecoder for BinaryEncoding_1_1 {
+    type Reader<'data> = LazyRawBinaryReader_1_1<'data>;
+    type ReaderSavedState = ();
+    type Value<'top> = LazyRawBinaryValue_1_1<'top>;
+    type SExp<'top> = LazyRawBinarySExp_1_1<'top>;
+    type List<'top> = LazyRawBinaryList_1_1<'top>;
+    type Struct<'top> = LazyRawBinaryStruct_1_1<'top>;
+    type AnnotationsIterator<'top> = RawBinaryAnnotationsIterator_1_1<'top>;
+    // Macros are not supported in Ion 1.0
+    type EExpression<'top> = Never;
+}
+
 /// Marker trait for types that represent value literals in an Ion stream of some encoding.
 // This trait is used to provide generic conversion implementation of types used as a
 // `LazyDecoder::Value` to `ExpandedValueSource`. That is:
@@ -148,5 +167,6 @@ pub trait RawValueLiteral {}
 
 impl<'top, E: TextEncoding<'top>> RawValueLiteral for MatchedRawTextValue<'top, E> {}
 impl<'top, E: TextEncoding<'top>> RawValueLiteral for LazyRawTextValue<'top, E> {}
-impl<'top> RawValueLiteral for LazyRawBinaryValue<'top> {}
+impl<'top> RawValueLiteral for LazyRawBinaryValue_1_0<'top> {}
+impl<'top> RawValueLiteral for LazyRawBinaryValue_1_1<'top> {}
 impl<'top> RawValueLiteral for LazyRawAnyValue<'top> {}
