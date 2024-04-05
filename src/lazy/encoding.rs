@@ -7,10 +7,10 @@ use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
 use crate::lazy::binary::raw::sequence::{LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0};
 use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
 use crate::lazy::binary::raw::v1_1::{
-    RawBinaryAnnotationsIterator as RawBinaryAnnotationsIterator_1_1,
     r#struct::LazyRawBinaryStruct_1_1,
     sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1},
     value::LazyRawBinaryValue_1_1,
+    RawBinaryAnnotationsIterator as RawBinaryAnnotationsIterator_1_1,
 };
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::LazyDecoder;

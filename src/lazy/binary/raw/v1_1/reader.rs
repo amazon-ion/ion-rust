@@ -79,17 +79,14 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
 
         let mut type_descriptor = buffer.peek_type_descriptor()?;
         if type_descriptor.is_nop() {
-            println!("Nop, reading sled");
             (_, buffer) = buffer.consume_nop_padding(type_descriptor)?;
             if buffer.is_empty() {
-                println!("Reached end of stream");
                 return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream);
             }
         }
         if type_descriptor.is_ivm_start() {
             return self.read_ivm(buffer);
         }
-        println!("Reading value");
         self.read_value(buffer)
     }
 }
@@ -111,9 +108,11 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
         self.next()
     }
 
-    fn resume_at_offset(data: &'data [u8], offset: usize, _saved_state: <BinaryEncoding_1_1 as LazyDecoder>::ReaderSavedState)
-        -> Self
-    {
+    fn resume_at_offset(
+        data: &'data [u8],
+        offset: usize,
+        _saved_state: <BinaryEncoding_1_1 as LazyDecoder>::ReaderSavedState,
+    ) -> Self {
         Self::new_with_offset(data, offset)
     }
 

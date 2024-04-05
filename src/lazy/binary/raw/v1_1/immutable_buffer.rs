@@ -479,15 +479,6 @@ impl<'a> ImmutableBuffer<'a> {
             return IonResult::decoding_error("found an annotations wrapper with no annotations");
         }
 
-        println!(
-            "Annotations and value lengths: {}",
-            annotations_and_value_length
-        );
-        println!("Annotations length: {}", annotations_length.size_in_bytes());
-        println!(
-            "Annotations length .. Value: {}",
-            annotations_length.value()
-        );
         // Validate that the annotated value is not missing.
         let expected_value_length = annotations_and_value_length
             - annotations_length.size_in_bytes()
@@ -534,7 +525,6 @@ impl<'a> ImmutableBuffer<'a> {
     // allow the hot path to be better optimized.
     pub fn read_nop_pad(self) -> ParseResult<'a, usize> {
         let type_descriptor = self.peek_type_descriptor()?;
-        println!("type descriptor: {:?}", type_descriptor);
         // Advance beyond the type descriptor
         let remaining = self.consume(1);
         // If the type descriptor says we should skip more bytes, skip them.

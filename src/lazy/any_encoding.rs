@@ -7,11 +7,24 @@ use bumpalo::Bump as BumpAllocator;
 
 use crate::lazy::any_encoding::RawReaderKind::{Binary_1_0, Text_1_0};
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator as RawBinaryAnnotationsIterator_1_0;
-use crate::lazy::binary::raw::r#struct::{LazyRawBinaryStruct_1_0, RawBinaryStructIterator as RawBinaryStructIterator_1_0};
+use crate::lazy::binary::raw::r#struct::{
+    LazyRawBinaryStruct_1_0, RawBinaryStructIterator as RawBinaryStructIterator_1_0,
+};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
 use crate::lazy::binary::raw::sequence::{
-    LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0, RawBinarySequenceIterator as RawBinarySequenceIterator_1_0,
+    LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0,
+    RawBinarySequenceIterator as RawBinarySequenceIterator_1_0,
 };
+use crate::lazy::binary::raw::v1_1::r#struct::{
+    LazyRawBinaryStruct_1_1, RawBinaryStructIterator_1_1,
+};
+use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
+use crate::lazy::binary::raw::v1_1::sequence::{
+    LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1,
+    RawBinarySequenceIterator as RawBinarySequenceIterator_1_1,
+};
+use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
+use crate::lazy::binary::raw::v1_1::RawBinaryAnnotationsIterator as RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawValuePrivate};
 use crate::lazy::decoder::{
@@ -30,16 +43,9 @@ use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
 use crate::lazy::text::raw::sequence::{
     LazyRawTextList_1_0, LazyRawTextSExp_1_0, RawTextListIterator_1_0, RawTextSExpIterator_1_0,
 };
-use crate::lazy::binary::raw::v1_1::RawBinaryAnnotationsIterator as RawBinaryAnnotationsIterator_1_1;
-use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1; 
-use crate::lazy::binary::raw::v1_1::r#struct::{LazyRawBinaryStruct_1_1, RawBinaryStructIterator_1_1};
-use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
-use crate::lazy::binary::raw::v1_1::sequence::{
-    LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1, RawBinarySequenceIterator as RawBinarySequenceIterator_1_1
-};
 use crate::lazy::text::raw::v1_1::reader::{
-    LazyRawTextList_1_1, LazyRawTextSExp_1_1, LazyRawTextStruct_1_1, MacroIdRef, RawTextEExpression_1_1,
-    RawTextSequenceCacheIterator_1_1, RawTextStructCacheIterator_1_1,
+    LazyRawTextList_1_1, LazyRawTextSExp_1_1, LazyRawTextStruct_1_1, MacroIdRef,
+    RawTextEExpression_1_1, RawTextSequenceCacheIterator_1_1, RawTextStructCacheIterator_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, RawTextAnnotationsIterator,
@@ -95,7 +101,9 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
             LazyRawAnyEExpressionKind::Text_1_0(_) => unreachable!("macro in text Ion 1.0"),
             LazyRawAnyEExpressionKind::Binary_1_0(_) => unreachable!("macro in binary Ion 1.0"),
             LazyRawAnyEExpressionKind::Text_1_1(ref m) => m.id(),
-            LazyRawAnyEExpressionKind::Binary_1_1(_) => unimplemented!("macro in binary Ion 1.1 not implemented"),
+            LazyRawAnyEExpressionKind::Binary_1_1(_) => {
+                unimplemented!("macro in binary Ion 1.1 not implemented")
+            }
         }
     }
 
@@ -106,7 +114,9 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
             LazyRawAnyEExpressionKind::Text_1_1(m) => LazyRawAnyMacroArgsIterator {
                 encoding: LazyRawAnyMacroArgsIteratorKind::Text_1_1(m.raw_arguments()),
             },
-            LazyRawAnyEExpressionKind::Binary_1_1(_) => unimplemented!("macro in binary Ion 1.0 not implemented"),
+            LazyRawAnyEExpressionKind::Binary_1_1(_) => {
+                unimplemented!("macro in binary Ion 1.0 not implemented")
+            }
         }
     }
 }
@@ -713,7 +723,7 @@ impl<'data> Iterator for RawAnyListIterator<'data> {
             RawAnyListIteratorKind::Text_1_1(i) => i
                 .next()
                 .map(|value_result| value_result.map(|value| value.into())),
-            RawAnyListIteratorKind::Binary_1_1(i) => i 
+            RawAnyListIteratorKind::Binary_1_1(i) => i
                 .next()
                 .map(|value_result| value_result.map(|value| value.into())),
         }
@@ -824,7 +834,7 @@ impl<'data> LazyContainerPrivate<'data, AnyEncoding> for LazyRawAnySExp<'data> {
             },
             LazyRawValueKind::Binary_1_1(v) => LazyRawAnySExp {
                 encoding: LazyRawSExpKind::Binary_1_1(LazyRawBinarySExp_1_1::from_value(v)),
-            }
+            },
         }
     }
 }

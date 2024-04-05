@@ -8,7 +8,7 @@ use crate::lazy::encoder::value_writer::{
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::{RawSymbolTokenRef, AsRawSymbolTokenRef};
+use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::IonResult;
 
 /// An uninhabited type that signals to the compiler that related code paths are not reachable.

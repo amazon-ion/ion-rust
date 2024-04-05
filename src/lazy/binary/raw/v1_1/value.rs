@@ -67,7 +67,6 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for LazyRawBinaryValue_1_1<'to
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         &self.input.bytes()[local_range]
     }
-
 }
 
 impl<'top> LazyRawBinaryValue_1_1<'top> {
