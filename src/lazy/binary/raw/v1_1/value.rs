@@ -5,7 +5,7 @@ use std::ops::Range;
 use crate::{
     lazy::{
         binary::{
-            encoded_value::EncodedValue,
+            encoded_value::{EncodedHeader, EncodedValue},
             raw::{
                 v1_1::{
                     annotations_iterator::RawBinaryAnnotationsIterator,
