@@ -6,9 +6,12 @@ use crate::binary::int::DecodedInt;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::lazy::binary::encoded_value::EncodedValue;
+use crate::lazy::binary::encoded_value::{EncodedHeader, EncodedValue};
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
-use crate::lazy::binary::raw::v1_1::{Header, TypeDescriptor, ION_1_1_TYPE_DESCRIPTORS};
+use crate::lazy::binary::raw::v1_1::{
+    Header, LengthType, TypeDescriptor, ION_1_1_TYPE_DESCRIPTORS,
+};
+use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::result::IonFailure;
@@ -525,16 +528,24 @@ impl<'a> ImmutableBuffer<'a> {
     // allow the hot path to be better optimized.
     pub fn read_nop_pad(self) -> ParseResult<'a, usize> {
         let type_descriptor = self.peek_type_descriptor()?;
-        // Advance beyond the type descriptor
-        let remaining = self.consume(1);
-        // If the type descriptor says we should skip more bytes, skip them.
-        let (length, remaining) = remaining.read_length(type_descriptor.length_code)?;
-        if remaining.len() < length.value() {
-            return IonResult::incomplete("a NOP", remaining.offset());
-        }
-        let remaining = remaining.consume(length.value());
-        let total_nop_pad_size = 1 + length.size_in_bytes() + length.value();
-        Ok((total_nop_pad_size, remaining))
+
+        // We need to determine the size of the nop..
+        let (size, remaining) = if type_descriptor.length_code == 0xC {
+            (1, self.consume(1))
+        } else if type_descriptor.length_code == 0xD {
+            // We have a flexuint telling us how long our nop is.
+            let after_header = self.consume(1);
+            let (len, rest) = after_header.read_flex_uint()?;
+            (
+                len.value() as usize + len.size_in_bytes(),
+                rest.consume(len.value() as usize),
+            )
+        } else {
+            return IonResult::decoding_error("Invalid NOP sub-type");
+        };
+
+        let total_nop_pad_size = 1 + size;
+        Ok((total_nop_pad_size as usize, remaining))
     }
 
     /// Calls [`Self::read_nop_pad`] in a loop until the buffer is empty or a type descriptor
@@ -561,62 +572,20 @@ impl<'a> ImmutableBuffer<'a> {
     /// from the buffer to interpret as the value's length. If it is successful, returns an `Ok(_)`
     /// containing a [VarUInt] representation of the value's length. If no additional bytes were
     /// read, the returned `VarUInt`'s `size_in_bytes()` method will return `0`.
-    pub fn read_value_length(self, header: Header) -> ParseResult<'a, VarUInt> {
-        use IonType::*;
-        // Some type-specific `length` field overrides
-        let length_code = match header.ion_type {
-            // Null (0x0F) and Boolean (0x10, 0x11) are the only types that don't have/use a `length`
-            // field; the header contains the complete value.
-            Null | Bool => 0,
-            // If a struct has length = 1, its fields are ordered and the actual length follows.
-            // For the time being, this reader does not have any special handling for this case.
-            // Use `0xE` (14) as the length code instead so the call to `read_length` below
-            // consumes a VarUInt.
-            Struct if header.length_code == 1 => length_codes::VAR_UINT,
-            // For any other type, use the header's declared length code.
-            _ => header.length_code,
+    pub fn read_value_length(self, header: Header) -> ParseResult<'a, FlexUInt> {
+        let length = match header.length_type() {
+            LengthType::InHeader(n) => FlexUInt::new(1, n as u64),
+            LengthType::FlexUIntFollows => {
+                let (flexuint, _) = self.read_flex_uint()?;
+                flexuint
+            }
         };
 
-        // Read the length, potentially consuming a VarUInt in the process.
-        let (length, remaining) = self.read_length(length_code)?;
+        let remaining = self;
 
-        // After we get the length, perform some type-specific validation.
-        match header.ion_type {
-            Float => match header.length_code {
-                0 | 4 | 8 | 15 => {}
-                _ => return IonResult::decoding_error("found a float with an illegal length code"),
-            },
-            Timestamp if !header.is_null() && length.value() <= 1 => {
-                return IonResult::decoding_error("found a timestamp with length <= 1")
-            }
-            Struct if header.length_code == 1 && length.value() == 0 => {
-                return IonResult::decoding_error("found an empty ordered struct")
-            }
-            _ => {}
-        };
+        // TODO: Validate length to ensure it is a reasonable value.
 
         Ok((length, remaining))
-    }
-
-    /// Interprets a type descriptor's `L` nibble (length) in the way used by most Ion types.
-    ///
-    /// If `L` is...
-    ///   * `f`: the value is a typed `null` and its length is `0`.
-    ///   * `e`: the length is encoded as a `VarUInt` that follows the type descriptor.
-    ///   * anything else: the `L` represents the actual length.
-    ///
-    /// If successful, returns an `Ok(_)` that contains the [VarUInt] representation
-    /// of the value's length.
-    pub fn read_length(self, length_code: u8) -> ParseResult<'a, VarUInt> {
-        let length = match length_code {
-            length_codes::NULL => VarUInt::new(0, 0),
-            length_codes::VAR_UINT => return self.read_var_uint(),
-            magnitude => VarUInt::new(magnitude as usize, 0),
-        };
-
-        // If we reach this point, the length was in the header byte and no additional bytes were
-        // consumed
-        Ok((length, self))
     }
 
     /// Reads a field ID and a value from the buffer.
@@ -744,7 +713,7 @@ impl<'a> ImmutableBuffer<'a> {
         let header_offset = input.offset();
         let (length, _) = input.consume(1).read_value_length(header)?;
         let length_length = length.size_in_bytes() as u8;
-        let value_length = length.value(); // ha
+        let value_length = length.value() as usize; // ha
         let total_length = 1 // Header byte
                 + length_length as usize
                 + value_length;

@@ -1,21 +1,12 @@
 #![allow(non_camel_case_types)]
 
-// use crate::lazy::binary::encoded_value::EncodedValue;
-// use crate::lazy::raw_value_ref::RawValueRef;
-// use crate::lazy::r#struct::LazyStruct;
-use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
-use crate::lazy::binary::raw::v1_1::r#struct::RawBinaryStructIterator_1_1 as RawBinaryStructIterator;
-use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
-use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawValuePrivate};
-use crate::lazy::decoder::{
-    LazyDecoder, LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
-};
+use crate::lazy::decoder::{LazyDecoder, LazyRawReader};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
 use crate::result::IonFailure;
-use crate::{IonResult, IonType, RawSymbolTokenRef};
+use crate::IonResult;
 
 use bumpalo::Bump as BumpAllocator;
 

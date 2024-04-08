@@ -43,53 +43,23 @@ impl TypeDescriptor {
         let (high_nibble, low_nibble) = (byte >> 4, byte & 0x0F);
         use IonTypeCode::*;
 
-        let (ion_type_code, length_code) = match (high_nibble, low_nibble) {
-            (0xE, 0x0) => (IonVersionMarker, 3),
-            (0xE, 0xA) => (NullNull, 0),
-            (0xE, 0xC..=0xD) => (Nop, 0),
-            _ => (Nop, 0),
-            // 1 => Boolean,
-            // 2 => PositiveInteger,
-            // 3 => NegativeInteger,
-            // 4 => Float,
-            // 5 => Decimal,
-            // 6 => Timestamp,
-            // 7 => Symbol,
-            // 8 => String,
-            // 9 => Clob,
-            // 10 => Blob,
-            // 11 => List,
-            // 12 => SExpression,
-            // 13 => Struct,
-            // 14 => AnnotationOrIvm,
-            // 15 => Reserved,
-            // _ => panic!("type code was larger than a nibble"),
+        let ion_type_code = match (high_nibble, low_nibble) {
+            (0xE, 0x0) => IonVersionMarker,
+            (0xE, 0xA) => NullNull,
+            (0xE, 0xC..=0xD) => Nop,
+            _ => Boolean, // Temporary, until everything is implemented to satisfy the LUT.
         };
         let ion_type = match ion_type_code {
             NullNull => Some(IonType::Null),
-            _ => Some(IonType::Null),
-            // NullOrNop if length_code == length_codes::NULL => Some(IonType::Null),
-            // NullOrNop => None,
-            // Boolean => Some(IonType::Bool),
-            // PositiveInteger => Some(IonType::Int),
-            // NegativeInteger => Some(IonType::Int),
-            // Float => Some(IonType::Float),
-            // Decimal => Some(IonType::Decimal),
-            // Timestamp => Some(IonType::Timestamp),
-            // Symbol => Some(IonType::Symbol),
-            // String => Some(IonType::String),
-            // Clob => Some(IonType::Clob),
-            // Blob => Some(IonType::Blob),
-            // List => Some(IonType::List),
-            // SExpression => Some(IonType::SExp),
-            // Struct => Some(IonType::Struct),
-            // AnnotationOrIvm => None,
-            // Reserved => None,
+            Nop => None,
+            IonVersionMarker => None,
+            Boolean => Some(IonType::Bool),
+            _ => panic!("the provided ion type code is either not implemented, or invalid"),
         };
         TypeDescriptor {
             ion_type,
             ion_type_code,
-            length_code,
+            length_code: low_nibble,
         }
     }
 
@@ -123,6 +93,11 @@ impl TypeDescriptor {
     }
 }
 
+pub enum LengthType {
+    InHeader(usize),
+    FlexUIntFollows,
+}
+
 /// Represents a `TypeDescriptor` that appears before an Ion value (and not a NOP, IVM,
 /// or annotations wrapper).
 ///
@@ -135,6 +110,17 @@ pub struct Header {
     // and negative integers.
     pub ion_type_code: IonTypeCode,
     pub length_code: u8,
+}
+
+impl Header {
+    pub fn length_type(&self) -> LengthType {
+        use LengthType::*;
+        match (self.ion_type_code, self.length_code) {
+            (IonTypeCode::Nop, 0xC) => InHeader(0),
+            (IonTypeCode::NullNull, 0xA) => InHeader(0),
+            _ => FlexUIntFollows,
+        }
+    }
 }
 
 impl EncodedHeader for Header {
@@ -153,12 +139,6 @@ impl EncodedHeader for Header {
     }
 
     fn is_null(&self) -> bool {
-        todo!()
-    }
-}
-
-impl Header {
-    pub fn is_null(&self) -> bool {
         self.ion_type_code == IonTypeCode::NullNull || self.ion_type_code == IonTypeCode::TypedNull
     }
 }
