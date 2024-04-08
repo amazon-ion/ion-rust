@@ -9,7 +9,7 @@ use crate::{
             raw::{
                 v1_1::{
                     annotations_iterator::RawBinaryAnnotationsIterator_1_1,
-                    immutable_buffer::ImmutableBuffer, Header,
+                    immutable_buffer::ImmutableBuffer, Header, OpcodeType,
                 },
                 value::ValueParseResult,
             },
@@ -186,7 +186,20 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a bool.
     fn read_bool(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        debug_assert!(self.encoded_value.ion_type() == IonType::Bool);
+        let header = &self.encoded_value.header();
+        let representation = header.type_code();
+        let value = match (representation, header.length_code) {
+            (OpcodeType::Boolean, 0xE) => true,
+            (OpcodeType::Boolean, 0xF) => false,
+            invalid => {
+                return IonResult::decoding_error(format!(
+                    "found a boolean value with an illegal type code representation: {:?}",
+                    invalid
+                ))
+            }
+        };
+        Ok(RawValueRef::Bool(value))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as an int.

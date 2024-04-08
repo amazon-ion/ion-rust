@@ -229,7 +229,10 @@ impl<'a> ImmutableBuffer<'a> {
     /// read, the returned `FlexUInt`'s `size_in_bytes()` method will return `0`.
     pub fn read_value_length(self, header: Header) -> ParseResult<'a, FlexUInt> {
         let length = match header.length_type() {
-            LengthType::InOpcode(n) => FlexUInt::new(1, n as u64),
+            LengthType::InOpcode(n) => {
+                // FlexUInt represents the length, but is not physically present, hence the 0 size.
+                FlexUInt::new(0, n as u64)
+            }
             LengthType::FlexUIntFollows => {
                 let (flexuint, _) = self.read_flex_uint()?;
                 flexuint

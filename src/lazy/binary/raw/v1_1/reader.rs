@@ -182,4 +182,22 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn bools() -> IonResult<()> {
+        let data: Vec<u8> = vec![
+            0xE0, 0x01, 0x01, 0xEA, // IVM
+            0x5E, // true
+            0x5F, // false
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(reader.next()?.expect_value()?.read()?.expect_bool()?, true,);
+
+        assert_eq!(reader.next()?.expect_value()?.read()?.expect_bool()?, false,);
+
+        Ok(())
+    }
 }

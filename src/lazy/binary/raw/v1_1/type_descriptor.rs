@@ -40,6 +40,7 @@ impl Opcode {
         use OpcodeType::*;
 
         let opcode_type = match (high_nibble, low_nibble) {
+            (0x5, 0xE..=0xF) => Boolean,
             (0xE, 0x0) => IonVersionMarker,
             (0xE, 0xA) => NullNull,
             (0xE, 0xC..=0xD) => Nop,
@@ -110,6 +111,7 @@ impl Header {
     pub fn length_type(&self) -> LengthType {
         use LengthType::*;
         match (self.ion_type_code, self.length_code) {
+            (OpcodeType::Boolean, 0xE..=0xF) => InOpcode(0),
             (OpcodeType::Nop, 0xC) => InOpcode(0),
             (OpcodeType::NullNull, 0xA) => InOpcode(0),
             _ => FlexUIntFollows,
