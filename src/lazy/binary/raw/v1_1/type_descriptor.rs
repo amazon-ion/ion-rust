@@ -1,4 +1,3 @@
-use crate::binary::constants::v1_1::length_codes;
 use crate::lazy::binary::encoded_value::EncodedHeader;
 use crate::lazy::binary::raw::v1_1::IonTypeCode;
 use crate::IonType;
@@ -64,7 +63,7 @@ impl TypeDescriptor {
     }
 
     pub fn is_null(&self) -> bool {
-        self.ion_type.is_some() && self.length_code == length_codes::NULL
+        self.ion_type_code == IonTypeCode::NullNull || self.ion_type_code == IonTypeCode::TypedNull
     }
 
     pub fn is_nop(&self) -> bool {
@@ -73,12 +72,10 @@ impl TypeDescriptor {
 
     pub fn is_ivm_start(&self) -> bool {
         self.ion_type_code == IonTypeCode::IonVersionMarker
-        // self.ion_type_code == IonTypeCode::AnnotationOrIvm && self.length_code == 0
     }
 
     pub fn is_annotation_wrapper(&self) -> bool {
         false
-        // self.ion_type_code == IonTypeCode::AnnotationOrIvm && self.length_code > 0
     }
 
     #[inline]

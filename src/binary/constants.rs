@@ -16,10 +16,4 @@ pub mod v1_0 {
 pub mod v1_1 {
     /// Ion Version Marker byte sequence
     pub const IVM: [u8; 4] = [0xE0, 0x01, 0x01, 0xEA];
-
-    /// Constants for interpreting the length (`L`) code of binary values
-    pub mod length_codes {
-        pub const NULL: u8 = 15;
-        pub const VAR_UINT: u8 = 14;
-    }
 }
