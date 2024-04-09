@@ -8,7 +8,7 @@ use crate::lazy::encoder::value_writer::{
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
+use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::IonResult;
 
 /// An uninhabited type that signals to the compiler that related code paths are not reachable.
@@ -35,14 +35,6 @@ impl<'top, D: LazyDecoder<EExpression<'top> = Self>> RawEExpression<'top, D> for
 impl<'top, D: LazyDecoder> From<Never> for MacroExpr<'top, D> {
     fn from(_value: Never) -> Self {
         unreachable!("macro in Ion 1.0 (method: into)")
-    }
-}
-
-impl Iterator for Never {
-    type Item = IonResult<RawSymbolTokenRef<'static>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        unreachable!("Never implementation cannot iterate")
     }
 }
 
