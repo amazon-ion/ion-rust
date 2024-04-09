@@ -68,7 +68,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
             return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream);
         }
 
-        let mut type_descriptor = buffer.peek_type_descriptor()?;
+        let type_descriptor = buffer.peek_type_descriptor()?;
         if type_descriptor.is_nop() {
             (_, buffer) = buffer.consume_nop_padding(type_descriptor)?;
             if buffer.is_empty() {
@@ -91,7 +91,7 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
 
     fn next<'top>(
         &'top mut self,
-        allocator: &'top BumpAllocator,
+        _allocator: &'top BumpAllocator,
     ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_1>>
     where
         'data: 'top,

@@ -11,9 +11,9 @@ use crate::lazy::decoder::private::{
     LazyContainerPrivate, LazyRawFieldPrivate, LazyRawValuePrivate,
 };
 use crate::lazy::decoder::{
-    LazyRawField, LazyRawFieldExpr, LazyRawStruct, LazyRawValue, RawFieldExpr, RawValueExpr,
+    LazyRawField, LazyRawFieldExpr, LazyRawStruct, RawFieldExpr, RawValueExpr,
 };
-use crate::lazy::encoding::{BinaryEncoding, BinaryEncoding_1_1};
+use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::{IonResult, RawSymbolTokenRef};
 
 #[derive(Copy, Clone)]

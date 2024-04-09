@@ -1,6 +1,4 @@
 use crate::binary::non_blocking::type_descriptor::Header;
-use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::encoding::BinaryEncoding;
 use crate::types::SymbolId;
 use crate::IonType;
 use std::ops::Range;

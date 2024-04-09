@@ -5,7 +5,7 @@ use std::fmt::{Debug, Formatter};
 
 use crate::element::builders::StructBuilder;
 use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1};
+use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::r#struct::{
     ExpandedStructIterator, LazyExpandedField, LazyExpandedStruct,
 };

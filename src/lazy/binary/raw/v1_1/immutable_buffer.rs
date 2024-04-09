@@ -1,22 +1,18 @@
 use crate::binary::constants::v1_1::{length_codes, IVM};
 use crate::binary::int::DecodedInt;
-// use crate::binary::non_blocking::type_descriptor::{
-//     Header, TypeDescriptor, ION_1_0_TYPE_DESCRIPTORS,
-// };
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::lazy::binary::encoded_value::{EncodedHeader, EncodedValue};
+use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
 use crate::lazy::binary::raw::v1_1::{
     Header, LengthType, TypeDescriptor, ION_1_1_TYPE_DESCRIPTORS,
 };
-use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::result::IonFailure;
 use crate::types::UInt;
-use crate::{Int, IonError, IonResult, IonType};
+use crate::{Int, IonError, IonResult};
 use num_bigint::{BigInt, BigUint, Sign};
 use std::fmt::{Debug, Formatter};
 use std::mem;

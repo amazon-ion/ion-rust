@@ -6,7 +6,7 @@ use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{LazyRawSequence, LazyRawValueExpr, RawValueExpr};
-use crate::lazy::encoding::{BinaryEncoding, BinaryEncoding_1_0};
+use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::{IonResult, IonType};
 use std::fmt::{Debug, Formatter};
 

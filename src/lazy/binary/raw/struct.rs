@@ -13,7 +13,7 @@ use crate::lazy::decoder::private::{
 use crate::lazy::decoder::{
     LazyRawField, LazyRawFieldExpr, LazyRawStruct, RawFieldExpr, RawValueExpr,
 };
-use crate::lazy::encoding::{BinaryEncoding, BinaryEncoding_1_0};
+use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::{IonResult, RawSymbolTokenRef};
 
 #[derive(Copy, Clone)]
