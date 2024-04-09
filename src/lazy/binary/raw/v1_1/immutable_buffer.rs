@@ -214,7 +214,7 @@ impl<'a> ImmutableBuffer<'a> {
         };
 
         let total_nop_pad_size = 1 + size;
-        Ok((total_nop_pad_size as usize, remaining))
+        Ok((total_nop_pad_size, remaining))
     }
 
     /// Calls [`Self::read_nop_pad`] in a loop until the buffer is empty or a type descriptor
