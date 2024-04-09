@@ -115,7 +115,7 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
                 encoding: LazyRawAnyMacroArgsIteratorKind::Text_1_1(m.raw_arguments()),
             },
             LazyRawAnyEExpressionKind::Binary_1_1(_) => {
-                unimplemented!("macro in binary Ion 1.0 not implemented")
+                unimplemented!("macro in binary Ion 1.1 not implemented")
             }
         }
     }
@@ -167,7 +167,7 @@ impl<'data> LazyRawAnyReader<'data> {
 
         match data {
             &[0xE0, 0x01, 0x00, 0xEA, ..] => RawReaderType::Binary_1_0,
-            &[0xE0, 0x01, 0x01, 0xEA, ..] => RawReaderType::Binary_1_0,
+            &[0xE0, 0x01, 0x01, 0xEA, ..] => RawReaderType::Binary_1_1,
             _ => RawReaderType::Text_1_0,
         }
     }
@@ -299,8 +299,6 @@ impl<'top> From<LazyRawTextValue_1_0<'top>> for LazyRawAnyValue<'top> {
         }
     }
 }
-
-// TODO: Can we have a function to convert E to LazyRawValueKind?
 
 impl<'top> From<LazyRawBinaryValue_1_0<'top>> for LazyRawAnyValue<'top> {
     fn from(value: LazyRawBinaryValue_1_0<'top>) -> Self {
