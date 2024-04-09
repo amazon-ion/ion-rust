@@ -15,7 +15,7 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
-        os: ${{ env.USE_CODEBUILD_RUNNERS && fromJSON(env.os_with_codebuild) || fromJSON(env.os_without_codebuild) }}
+        os: ${{ vars.USE_CODEBUILD_RUNNERS && fromJSON(env.os_with_codebuild) || fromJSON(env.os_without_codebuild) }}
         # build and test for different and interesting crate features
         features: ['default', 'all', 'experimental-ion-hash', 'experimental']
     permissions:
