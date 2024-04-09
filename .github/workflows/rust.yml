@@ -9,7 +9,7 @@ env:
 jobs:
   build:
     name: Build and Test
-    runs-on: ${{ format(matrix.os, "codebuild-ion-rust-${{ github.run_id }}-${{ github.run_attempt }}") }}
+    runs-on: ${{ format(matrix.os, format('codebuild-ion-rust-{0}-{1}', github.run_id, github.run_attempt)) }}
     # We want to run on external PRs, but not on internal ones as push automatically builds
     # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
