@@ -3,13 +3,13 @@ name: CI Build
 on: [push, pull_request]
 
 env:
-  os_with_codebuild: [ ubuntu-latest, windows-latest, macos-latest, "codebuild-ion-rust-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large", "codebuild-ion-rust-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large" ]
-  os_without_codebuild: [ ubuntu-latest, windows-latest, macos-latest ]
+  os_with_codebuild: '["ubuntu-latest", "windows-latest", "macos-latest", "{0}-arm-3.0-large", "{0}-al2-5.0-large"]'
+  os_without_codebuild: '["ubuntu-latest", "windows-latest", "macos-latest"]'
 
 jobs:
   build:
     name: Build and Test
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ format(matrix.os, "codebuild-ion-rust-${{ github.run_id }}-${{ github.run_attempt }}") }}
     # We want to run on external PRs, but not on internal ones as push automatically builds
     # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
