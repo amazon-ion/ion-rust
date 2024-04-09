@@ -178,15 +178,6 @@ impl<'a> ImmutableBuffer<'a> {
         Ok((flex_uint, remaining))
     }
 
-    #[inline(never)]
-    // This method is inline(never) because it is rarely invoked and its allocations/formatting
-    // compile to a non-trivial number of instructions.
-    fn value_too_large<T>(label: &str, length: usize, max_length: usize) -> IonResult<T> {
-        IonResult::decoding_error(format!(
-            "found {label} that was too large; size = {length}, max size = {max_length}"
-        ))
-    }
-
     /// Attempts to decode an annotations wrapper at the beginning of the buffer and returning
     /// its subfields in an [`AnnotationsWrapper`].
     pub fn read_annotations_wrapper(
@@ -354,36 +345,9 @@ impl<'a> ImmutableBuffer<'a> {
     /// that the next byte in the buffer (`type_descriptor`) begins an annotations wrapper.
     fn read_annotated_value(
         self,
-        mut type_descriptor: TypeDescriptor,
+        mut _type_descriptor: TypeDescriptor,
     ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
-        let input = self;
-        let (wrapper, input_after_annotations) = input.read_annotations_wrapper(type_descriptor)?;
-        type_descriptor = input_after_annotations.peek_type_descriptor()?;
-
-        // Confirm that the next byte begins a value, not a NOP or another annotations wrapper.
-        if type_descriptor.is_annotation_wrapper() {
-            return IonResult::decoding_error(
-                "found an annotations wrapper inside an annotations wrapper",
-            );
-        } else if type_descriptor.is_nop() {
-            return IonResult::decoding_error("found a NOP inside an annotations wrapper");
-        }
-
-        let mut lazy_value =
-            input_after_annotations.read_value_without_annotations(type_descriptor)?;
-        if wrapper.expected_value_length != lazy_value.encoded_value.total_length() {
-            return IonResult::decoding_error(
-                "value length did not match length declared by annotations wrapper",
-            );
-        }
-
-        lazy_value.encoded_value.annotations_header_length = wrapper.header_length;
-        lazy_value.encoded_value.annotations_sequence_length = wrapper.sequence_length;
-        lazy_value.encoded_value.total_length += wrapper.header_length as usize;
-        // Modify the input to include the annotations
-        lazy_value.input = input;
-
-        Ok(lazy_value)
+        unimplemented!();
     }
 
     // DataSource Functionality
