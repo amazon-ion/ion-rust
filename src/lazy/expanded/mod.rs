@@ -114,7 +114,7 @@ pub enum ExpandedStreamItem<'top, D: LazyDecoder> {
     VersionMarker(u8, u8),
     /// An Ion value whose data has not yet been read. For more information about how to read its
     /// data and (in the case of containers) access any nested values, see the documentation
-    /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue).
+    /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0).
     Value(LazyExpandedValue<'top, D>),
     /// The end of the stream
     EndOfStream,

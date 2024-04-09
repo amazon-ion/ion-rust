@@ -10,7 +10,7 @@ use crate::IonResult;
 
 use bumpalo::Bump as BumpAllocator;
 
-/// A binary Ion 1.0 reader that yields [`LazyRawBinaryValue`]s representing the top level values found
+/// A binary Ion 1.0 reader that yields [`LazyRawBinaryValue_1_0`]s representing the top level values found
 /// in the provided input stream.
 pub struct LazyRawBinaryReader_1_0<'data> {
     data: DataSource<'data>,

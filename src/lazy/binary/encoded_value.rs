@@ -35,7 +35,7 @@ impl EncodedHeader for Header {
 /// Represents the type, offset, and length metadata of the various components of an encoded value
 /// in an input stream.
 ///
-/// Each [`LazyRawValue`](super::raw::value::LazyRawBinaryValue) contains an `EncodedValue`,
+/// Each [`LazyRawValue`](super::raw::value::LazyRawBinaryValue_1_0) contains an `EncodedValue`,
 /// allowing a user to re-read (that is: parse) the body of the value as many times as necessary
 /// without re-parsing its header information each time.
 #[derive(Clone, Copy, Debug, PartialEq)]
