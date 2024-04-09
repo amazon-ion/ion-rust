@@ -25,13 +25,14 @@ jobs:
         # We're using a matrix with a single entry so that we can define some config as YAML rather than
         # having to write escaped json in a string
         include:
-          - use-codebuild: ${{ github.repository_owner != 'amazon-ion' }}
+          - use-codebuild: ${{ github.repository_owner == 'amazon-ion' }}
             # ${{ vars.CODEBUILD_PROJECT_NAME != '' }}
             runs-on-names-cb: [ windows, macos, ubuntu, al2-intel, al2-arm ]
             runs-on-names: [ windows, macos, ubuntu ]
             # runs-on-versions:
     env:
       use-codebuild: ${{ vars.CODEBUILD_PROJECT_NAME != '' }}
+      codebuild-project-name: ${{ vars.CODEBUILD_PROJECT_NAME }}
     outputs:
       available-runners: ${{ matrix.use-codebuild && toJSON(matrix.runs-on-names-cb) || toJSON(matrix.runs-on-names) }}
       windows: windows-latest
@@ -41,8 +42,13 @@ jobs:
       al2-arm: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large"
       # runs-on-versions: ${{ toJSON(matrix.runs-on-versions) }}
     steps:
-      - run: (:)
-        if: false
+      - name: Dump Config
+        run: |
+          echo '---- Matrix ----'
+          echo '${{ toJSON(matrix) }}'
+          echo 'vars.CODEBUILD_PROJECT_NAME = ${{vars.CODEBUILD_PROJECT_NAME}}'
+          env
+
 #    steps:
 #      - name: Pass
 #        id: setup-runners
