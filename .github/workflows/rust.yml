@@ -25,7 +25,7 @@ jobs:
         # We're using a matrix with a single entry so that we can define some config as YAML rather than
         # having to write escaped json in a string
         include:
-          - use-codebuild: ${{ vars.CODEBUILD_PROJECT_NAME == '' }}
+          - use-codebuild: ${{ vars.CODEBUILD_PROJECT_NAME != '' }}
             runs-on-names-cb: [ windows, macos, ubuntu, al2-intel, al2-arm ]
             runs-on-names: [ windows, macos, ubuntu ]
             # runs-on-versions:
