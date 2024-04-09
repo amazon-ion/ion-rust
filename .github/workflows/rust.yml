@@ -11,7 +11,7 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest, codebuild-ion-rust-arm-3.0-large, codebuild-ion-rust-al2-5.0-large ]
+        os: [ ubuntu-latest, windows-latest, macos-latest, "codebuild-ion-rust-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large", "codebuild-ion-rust-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large" ]
         # build and test for different and interesting crate features
         features: ['default', 'all', 'experimental-ion-hash', 'experimental']
         # Forks cannot use the codebuild runners. The job will hang indefinitely waiting to be picked up by a worker.
@@ -19,9 +19,9 @@ jobs:
           - ${{ github.repository_owner != 'amazon-ion' }}
         exclude:
           - isFork: true
-            os: codebuild-ion-rust-arm-3.0-large
+            os: "codebuild-ion-rust-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large"
           - isFork: true
-            os: codebuild-ion-rust-al2-5.0-large
+            os: "codebuild-ion-rust-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large"
     permissions:
       checks: write
 
@@ -92,3 +92,13 @@ jobs:
         with:
           command: doc
           args: --document-private-items --all-features
+  confirm_build:
+    # This job is just a "join" on all parallel strategies for the `build` job so that we can require it in our branch protection rules.
+    needs: build
+    name: Build and Test (all) Success
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pass
+        run: echo "ok"
+
