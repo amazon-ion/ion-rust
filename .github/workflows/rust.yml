@@ -35,8 +35,8 @@ jobs:
               al2-intel: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large"
               al2-arm: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large"
     outputs:
-      runners: ${{ matrix.use-codebuild && matrix.runs-on-names-cb || matrix.runs-on-names }}
-      runs-on-versions: ${{ matrix.runs-on-versions }}
+      runners: ${{ matrix.use-codebuild && toJSON(matrix.runs-on-names-cb) || toJSON(matrix.runs-on-names) }}
+      runs-on-versions: ${{ toJSON(matrix.runs-on-versions) }}
     steps:
       - run: (:)
         if: false
@@ -52,14 +52,14 @@ jobs:
   build:
     name: Build and Test
     needs: setup
-    runs-on: ${{ needs.setup.outputs.runner-versions[matrix.runner] }}
+    runs-on: ${{ fromJSON(needs.setup.outputs.runner-versions)[matrix.runner] }}
     # runs-on: ${{ format(matrix.os, format('codebuild-ion-rust-{0}-{1}', github.run_id, github.run_attempt)) }}
     # We want to run on external PRs, but not on internal ones as push automatically builds
     # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
-        runner: ${{ needs.setup.outputs.runners }}
+        runner: ${{ fromJSON(needs.setup.outputs.runners) }}
         # os: ${{ vars.USE_CODEBUILD_RUNNERS && fromJSON(env.os_with_codebuild) || fromJSON(env.os_without_codebuild) }}
         # build and test for different and interesting crate features
         features: ['default', 'all', 'experimental-ion-hash', 'experimental']
