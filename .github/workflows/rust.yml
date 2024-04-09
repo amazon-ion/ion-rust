@@ -25,12 +25,15 @@ jobs:
         # We're using a matrix with a single entry so that we can define some config as YAML rather than
         # having to write escaped json in a string
         include:
-          - use-codebuild: ${{ vars.CODEBUILD_PROJECT_NAME != '' }}
+          - use-codebuild: ${{ github.repository_owner != 'amazon-ion' }}
+            # ${{ vars.CODEBUILD_PROJECT_NAME != '' }}
             runs-on-names-cb: [ windows, macos, ubuntu, al2-intel, al2-arm ]
             runs-on-names: [ windows, macos, ubuntu ]
             # runs-on-versions:
+    env:
+      use-codebuild: ${{ vars.CODEBUILD_PROJECT_NAME != '' }}
     outputs:
-      runners: ${{ matrix.use-codebuild && toJSON(matrix.runs-on-names-cb) || toJSON(matrix.runs-on-names) }}
+      available-runners: ${{ matrix.use-codebuild && toJSON(matrix.runs-on-names-cb) || toJSON(matrix.runs-on-names) }}
       windows: windows-latest
       macos: macos-latest
       ubuntu: ubuntu-latest
@@ -54,7 +57,7 @@ jobs:
     needs: setup
     strategy:
       matrix:
-        runner: ${{ fromJSON(needs.setup.outputs.runners) }}
+        runner: ${{ fromJSON(needs.setup.outputs.available-runners) }}
         # os: ${{ vars.USE_CODEBUILD_RUNNERS && fromJSON(env.os_with_codebuild) || fromJSON(env.os_without_codebuild) }}
         # build and test for different and interesting crate features
         features: [ 'default', 'all', 'experimental-ion-hash', 'experimental' ]
@@ -136,10 +139,10 @@ jobs:
   confirm-build:
     # This job is just a "join" on all parallel strategies for the `build` job so that we can require it in our branch protection rules.
     needs: build
-    name: Build and Test (all) Success
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
+    name: Build and Test Confirmation
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Pass
-        run: echo "ok"
+      - if: needs.build.output.result != 'success'
+        run: exit 1
 
