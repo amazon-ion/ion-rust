@@ -28,15 +28,15 @@ jobs:
           - use-codebuild: ${{ vars.CODEBUILD_PROJECT_NAME == '' }}
             runs-on-names-cb: [ windows, macos, ubuntu, al2-intel, al2-arm ]
             runs-on-names: [ windows, macos, ubuntu ]
-            runs-on-versions:
-              windows: windows-latest
-              macos: macos-latest
-              ubuntu: ubuntu-latest
-              al2-intel: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large"
-              al2-arm: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large"
+            # runs-on-versions:
     outputs:
       runners: ${{ matrix.use-codebuild && toJSON(matrix.runs-on-names-cb) || toJSON(matrix.runs-on-names) }}
-      runs-on-versions: ${{ toJSON(matrix.runs-on-versions) }}
+      windows: windows-latest
+      macos: macos-latest
+      ubuntu: ubuntu-latest
+      al2-intel: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large"
+      al2-arm: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large"
+      # runs-on-versions: ${{ toJSON(matrix.runs-on-versions) }}
     steps:
       - run: (:)
         if: false
@@ -52,17 +52,17 @@ jobs:
   build:
     name: Build and Test
     needs: setup
-    runs-on: ${{ fromJSON(needs.setup.outputs.runner-versions)[matrix.runner] }}
-    # runs-on: ${{ format(matrix.os, format('codebuild-ion-rust-{0}-{1}', github.run_id, github.run_attempt)) }}
-    # We want to run on external PRs, but not on internal ones as push automatically builds
-    # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
         runner: ${{ fromJSON(needs.setup.outputs.runners) }}
         # os: ${{ vars.USE_CODEBUILD_RUNNERS && fromJSON(env.os_with_codebuild) || fromJSON(env.os_without_codebuild) }}
         # build and test for different and interesting crate features
-        features: ['default', 'all', 'experimental-ion-hash', 'experimental']
+        features: [ 'default', 'all', 'experimental-ion-hash', 'experimental' ]
+    runs-on: ${{ needs.setup.outputs[matrix.runner] }}
+    # runs-on: ${{ format(matrix.os, format('codebuild-ion-rust-{0}-{1}', github.run_id, github.run_attempt)) }}
+    # We want to run on external PRs, but not on internal ones as push automatically builds
+    # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     permissions:
       checks: write
 
@@ -115,10 +115,10 @@ jobs:
         # The clippy check depends on setup steps defined above, but we don't want it to run
         # for every OS because it posts its comments to the PR. These `if` checks limit clippy to
         # only running on the Linux test. (The choice of OS was arbitrary.)
-        if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
+        if: matrix.runner == 'ubuntu' && matrix.features == 'all'
         run: rustup component add clippy
       - name: Run Clippy 
-        if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
+        if: matrix.runner == 'ubuntu' && matrix.features == 'all'
         uses: actions-rs/clippy-check@v1
         with:
           # Adding comments to the PR requires the GITHUB_TOKEN secret.
@@ -128,7 +128,7 @@ jobs:
           args: --workspace --all-features --tests -- -Dwarnings
       - name: Rustdoc on Everything
         # We really only need to run this once--ubuntu/all features mode is as good as any
-        if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
+        if: matrix.runner == 'ubuntu' && matrix.features == 'all'
         uses: actions-rs/cargo@v1
         with:
           command: doc
