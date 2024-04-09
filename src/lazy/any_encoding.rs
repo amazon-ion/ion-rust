@@ -545,7 +545,7 @@ impl<'top> From<LazyRawStreamItem<'top, BinaryEncoding_1_1>>
                 LazyRawStreamItem::<AnyEncoding>::Value(value.into())
             }
             LazyRawStreamItem::<BinaryEncoding_1_1>::EExpression(_) => {
-                unreachable!("Ion 1.0 does not support macro invocations")
+                unimplemented!("Macro invocations not yet implemented in binary 1.1")
             }
             LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream => {
                 LazyRawStreamItem::<AnyEncoding>::EndOfStream
