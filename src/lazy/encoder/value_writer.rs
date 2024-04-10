@@ -264,7 +264,7 @@ pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
         Ok(self)
     }
 
-    fn write_all<'a, A: AsRawSymbolTokenRef, V: WriteAsIon, I: IntoIterator<Item = (A, V)>>(
+    fn write_all<A: AsRawSymbolTokenRef, V: WriteAsIon, I: IntoIterator<Item = (A, V)>>(
         &mut self,
         fields: I,
     ) -> IonResult<&mut Self> {
@@ -274,7 +274,7 @@ pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
         Ok(self)
     }
 
-    fn field<'a>(
+    fn field_writer<'a>(
         &'a mut self,
         name: impl Into<RawSymbolTokenRef<'a>>,
     ) -> FieldWriter<'_, 'a, Self, RawSymbolTokenRef<'a>, SymbolId> {
