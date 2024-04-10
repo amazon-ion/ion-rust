@@ -37,7 +37,14 @@ jobs:
               al2-arm: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large"
     outputs:
       available-runners: ${{ matrix.use-codebuild && toJSON(matrix.runs-on-names-cb) || toJSON(matrix.runs-on-names) }}
-      runner-labels: ${{ env.runner-labels }}
+      runner-labels: |
+        {
+          "windows": "windows-latest",
+          "macos": "macos-latest",
+          "ubuntu": "ubuntu-latest",
+          "al2-intel": "${{ matrix.al2-intel }}",
+          "al2-arm": "${{ matrix.al2-arm }}"
+        }
       windows: windows-latest
       macos: macos-latest
       ubuntu: ubuntu-latest
