@@ -48,7 +48,7 @@ jobs:
     strategy:
       matrix:
         # use the available runner types that were determined by the setup step
-        runner: ${{ fromJSON(needs.setup.outputs.available-runners) }}
+        os: ${{ fromJSON(needs.setup.outputs.available-runners) }}
         # build and test for different and interesting crate features
         features: [ 'default', 'all', 'experimental-ion-hash', 'experimental' ]
     # Map the friendly names from `available-runners` to the actual runner labels.
