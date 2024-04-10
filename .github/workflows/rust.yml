@@ -56,7 +56,7 @@ jobs:
           echo '${{ toJSON(matrix) }}'
           echo '${{ env.runner-labels}}'
           
-          echo '${{ fromJSON(env.runner-labels).macos }}'
+          echo '${{ (fromJSON(env.runner-labels)).macos }}'
           echo '{{ fromJSON(needs.setup.outputs).runner-labels['windows'] }}'
           echo '{{ fromJSON(needs.setup.outputs.runner-labels).${{ env.os }} }}'
 
