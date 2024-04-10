@@ -131,6 +131,7 @@ jobs:
     needs: build
     name: Build and Test Confirmation
     runs-on: ubuntu-latest
+    if: always()
     steps:
       - run: echo ${{ needs.build.outputs.result }}
       - if: needs.build.outputs.result != 'success'
