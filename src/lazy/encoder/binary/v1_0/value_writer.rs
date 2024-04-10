@@ -334,7 +334,6 @@ macro_rules! annotate_and_delegate_1_0 {
                     &mut buffer,
                 );
             value_writer.$method(value)?;
-            println!("{}, {buffer:0x?}", stringify!($value_type));
             self.annotate_encoded_value(buffer.as_slice())
         }
         annotate_and_delegate_1_0!($($rest)*);
