@@ -45,7 +45,7 @@ jobs:
         {
           "windows": "windows-latest",
           "macos": "macos-latest",
-          "ubuntu": "ubuntu-latest,
+          "ubuntu": "ubuntu-latest",
           "al2-intel": "${{ matrix.al2-intel }}",
           "al2-arm": "${{ matrix.al2-arm }}"
         }
@@ -54,11 +54,11 @@ jobs:
       - name: Dump Config
         run: |
           echo '${{ toJSON(matrix) }}'
-          echo '${{ env.runner-labels}}'
+          echo '${{ env.runner-labels }}'
           
           echo '${{ (fromJSON(env.runner-labels)).macos }}'
-          echo '{{ fromJSON(needs.setup.outputs).runner-labels['windows'] }}'
-          echo '{{ fromJSON(needs.setup.outputs.runner-labels).${{ env.os }} }}'
+          echo '${{ fromJSON(env.runner-labels)['windows'] }}'
+          echo '${{ fromJSON(env.runner-labels).${{ env.os }} }}'
 
   build:
     name: Build and Test
