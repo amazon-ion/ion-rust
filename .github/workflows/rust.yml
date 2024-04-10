@@ -130,7 +130,6 @@ jobs:
     # This job is just a "join" on all parallel strategies for the `build` job so that we can require it in our branch protection rules.
     needs: build
     name: Build and Test Confirmation
-    if: always()
     runs-on: ubuntu-latest
     steps:
       - run: echo ${{ needs.build.outputs.result }}
