@@ -35,8 +35,8 @@ impl VarUInt {
     /// Returns the number of bytes needed to encode `value` as a `VarUInt`.
     pub fn encoded_size_of(value: u64) -> usize {
         let leading_zeros = value.leading_zeros() as usize;
-        let bits_used = dbg!(usize::BITS as usize - leading_zeros);
-        let (full_bytes, remaining_bits) = dbg!(bits_used.div_rem(&BITS_PER_ENCODED_BYTE));
+        let bits_used = usize::BITS as usize - leading_zeros;
+        let (full_bytes, remaining_bits) = bits_used.div_rem(&BITS_PER_ENCODED_BYTE);
         match (full_bytes, remaining_bits) {
             (0, 0) => 1,
             (_, 0) => full_bytes,
