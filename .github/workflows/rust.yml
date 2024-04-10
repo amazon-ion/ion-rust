@@ -67,7 +67,7 @@ jobs:
         # build and test for different and interesting crate features
         features: [ 'default', 'all', 'experimental-ion-hash', 'experimental' ]
     # Map the friendly names from `available-runners` to the actual runner labels.
-    runs-on: ${{ needs.setup.outputs[matrix.os] }}
+    runs-on: ${{ fromJSON(needs.setup.outputs.runner-labels)[matrix.os] }}
     # We want to run on external PRs, but not on internal ones as push automatically builds
     # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
