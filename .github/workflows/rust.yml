@@ -26,7 +26,7 @@ jobs:
             # Repository vars are not available for fork->source pull requests, so if we want to use codebuild runners
             # for PRs, we need a fallback to check the repository owner.
           - use-codebuild: ${{ vars.CODEBUILD_PROJECT_NAME != '' || github.repository_owner == 'amazon-ion' }}
-            codebuild-project-name: ${{ vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}
+            codebuild-project-name: ${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}
             runs-on-names-cb: [ windows, macos, ubuntu, al2-intel, al2-arm ]
             runs-on-names: [ windows, macos, ubuntu ]
             al2-intel: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large"
