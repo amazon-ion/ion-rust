@@ -93,8 +93,8 @@ fn write_eexp_with_symbol_values(value_writer: impl ValueWriter) -> IonResult<()
         .write(symbol_id(black_box(11)))?
         // $12 = "2022-12-07T20:59:59.744000Z" (string, not timestamp)
         .write(symbol_id(black_box(12)))?;
-    nested_eexp.end()?;
-    eexp.end()
+    nested_eexp.close()?;
+    eexp.close()
 }
 
 fn write_eexp_with_string_values(value_writer: impl ValueWriter) -> IonResult<()> {
@@ -108,8 +108,8 @@ fn write_eexp_with_string_values(value_writer: impl ValueWriter) -> IonResult<()
     nested_eexp
         .write(black_box("region 4"))?
         .write(black_box("2022-12-07T20:59:59.744000Z"))?;
-    nested_eexp.end()?;
-    eexp.end()
+    nested_eexp.close()?;
+    eexp.close()
 }
 
 fn symbol_id(sid: usize) -> RawSymbolTokenRef<'static> {

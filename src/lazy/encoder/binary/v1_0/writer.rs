@@ -84,11 +84,6 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
         Ok(())
     }
 
-    pub fn finish(mut self) -> IonResult<W> {
-        self.flush()?;
-        Ok(self.output)
-    }
-
     pub(crate) fn value_writer(&mut self) -> BinaryValueWriter_1_0<'_, '_> {
         let top_level = match self.encoding_buffer_ptr {
             // If the `encoding_buffer_ptr` is set, we already allocated an encoding buffer on
@@ -129,7 +124,6 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_0<W> {
     delegate! {
         to self {
             fn flush(&mut self) -> IonResult<()>;
-            fn finish(self) -> IonResult<W>;
         }
     }
 }
@@ -143,10 +137,11 @@ impl<W: Write> MakeValueWriter for LazyRawBinaryWriter_1_0<W> {
 }
 
 impl<W: Write> SequenceWriter for LazyRawBinaryWriter_1_0<W> {
-    type End = W;
+    type Resources = W;
 
-    fn end(self) -> IonResult<Self::End> {
-        self.finish()
+    fn close(mut self) -> IonResult<Self::Resources> {
+        self.flush()?;
+        Ok(self.output)
     }
     // Uses the default method implementations from SequenceWriter
 }

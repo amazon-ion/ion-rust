@@ -225,13 +225,13 @@ impl<'top, W: Write> MakeValueWriter for TextListWriter_1_0<'top, W> {
 }
 
 impl<'top, W: Write> SequenceWriter for TextListWriter_1_0<'top, W> {
-    type End = ();
+    type Resources = ();
 
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         self.write(value)
     }
 
-    fn end(self) -> IonResult<Self::End> {
+    fn close(self) -> IonResult<Self::Resources> {
         self.end()
     }
 }
@@ -270,7 +270,7 @@ impl<'value, W: Write> MakeValueWriter for TextSExpWriter_1_0<'value, W> {
 }
 
 impl<'a, W: Write> SequenceWriter for TextSExpWriter_1_0<'a, W> {
-    type End = ();
+    type Resources = ();
 
     delegate! {
         to self {
@@ -278,7 +278,7 @@ impl<'a, W: Write> SequenceWriter for TextSExpWriter_1_0<'a, W> {
         }
     }
 
-    fn end(self) -> IonResult<Self::End> {
+    fn close(self) -> IonResult<Self::Resources> {
         self.end()
     }
 }

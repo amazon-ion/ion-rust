@@ -37,9 +37,9 @@ impl<'top, D: LazyDecoder> From<Never> for MacroExpr<'top, D> {
 }
 
 impl SequenceWriter for Never {
-    type End = ();
+    type Resources = ();
 
-    fn end(self) -> IonResult<()> {
+    fn close(self) -> IonResult<()> {
         unreachable!("SequenceWriter::end() in Never")
     }
 }

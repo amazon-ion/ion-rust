@@ -2224,7 +2224,7 @@ mod tests {
                         .with_delimited_containers()
                         .list_writer()?;
                     list.write_all(*value)?;
-                    list.end()
+                    list.close()
                 },
                 expected_encoding,
             )?;
@@ -2323,7 +2323,7 @@ mod tests {
                         .with_delimited_containers()
                         .sexp_writer()?;
                     sexp.write_all(*value)?;
-                    sexp.end()
+                    sexp.close()
                 },
                 expected_encoding,
             )?;
@@ -2781,7 +2781,7 @@ mod tests {
                 args.write_symbol("foo")?
                     .write_symbol("bar")?
                     .write_symbol("baz")?;
-                args.end()
+                args.close()
             },
             &[
                 0x00, // Invoke macro address 0

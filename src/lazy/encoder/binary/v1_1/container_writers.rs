@@ -188,14 +188,14 @@ impl<'value, 'top> MakeValueWriter for BinaryListWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> SequenceWriter for BinaryListWriter_1_1<'value, 'top> {
-    type End = ();
+    type Resources = ();
 
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         self.container_writer.write(value)?;
         Ok(self)
     }
 
-    fn end(self) -> IonResult<Self::End> {
+    fn close(self) -> IonResult<Self::Resources> {
         self.container_writer.end()
     }
 }
@@ -251,14 +251,14 @@ impl<'value, 'top> MakeValueWriter for BinarySExpWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> SequenceWriter for BinarySExpWriter_1_1<'value, 'top> {
-    type End = ();
+    type Resources = ();
 
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         self.container_writer.write(value)?;
         Ok(self)
     }
 
-    fn end(self) -> IonResult<Self::End> {
+    fn close(self) -> IonResult<Self::Resources> {
         self.container_writer.end()
     }
 }
@@ -383,9 +383,9 @@ impl<'value, 'top> MakeValueWriter for BinaryEExpWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> SequenceWriter for BinaryEExpWriter_1_1<'value, 'top> {
-    type End = ();
+    type Resources = ();
 
-    fn end(self) -> IonResult<Self::End> {
+    fn close(self) -> IonResult<Self::Resources> {
         // Nothing to do
         // TODO: When we have length-prefixed macro invocations, this will require a step to flush the buffered encoding.
         Ok(())

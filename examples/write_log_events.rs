@@ -214,7 +214,7 @@ mod example {
             eexp
                 // Ignore the part of the thread name that starts with the recurring prefix.
                 .write(&self.0[THREAD_NAME_PREFIX.len()..])?;
-            eexp.end()
+            eexp.close()
         }
     }
 
@@ -227,7 +227,7 @@ mod example {
                 // Wrap the thread name in the `ThreadName` wrapper to change its serialization.
                 .write(ThreadName(&event.thread_name))?
                 .write(&event.parameters)?;
-            eexp.end()
+            eexp.close()
         }
     }
 

@@ -38,10 +38,10 @@ pub trait ValueWriter: Sized {
     type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a>: ValueWriter
     where
         Self: 'a;
-    type ListWriter: SequenceWriter<End = ()>;
-    type SExpWriter: SequenceWriter<End = ()>;
+    type ListWriter: SequenceWriter<Resources = ()>;
+    type SExpWriter: SequenceWriter<Resources = ()>;
     type StructWriter: StructWriter;
-    type EExpWriter: EExpWriter<End = ()>;
+    type EExpWriter: EExpWriter<Resources = ()>;
 
     fn write_null(self, ion_type: IonType) -> IonResult<()>;
     fn write_bool(self, value: bool) -> IonResult<()>;
@@ -75,13 +75,13 @@ pub trait ValueWriter: Sized {
     fn write_list<V: WriteAsIon, I: IntoIterator<Item = V>>(self, values: I) -> IonResult<()> {
         let mut list = self.list_writer()?;
         list.write_all(values)?;
-        list.end()
+        list.close()
     }
 
     fn write_sexp<V: WriteAsIon, I: IntoIterator<Item = V>>(self, values: I) -> IonResult<()> {
         let mut sexp = self.sexp_writer()?;
         sexp.write_all(values)?;
-        sexp.end()
+        sexp.close()
     }
 
     fn write_struct<K: AsRawSymbolTokenRef, V: WriteAsIon, I: IntoIterator<Item = (K, V)>>(
@@ -300,7 +300,7 @@ macro_rules! delegate_and_return_self {
 }
 
 pub trait SequenceWriter: MakeValueWriter {
-    /// The type returned by the [`end`](Self::end) method.
+    /// The type returned by the [`end`](Self::close) method.
     ///
     /// For top-level writers, this can be any resource(s) owned by the writer that need to survive
     /// after the writer is dropped. (For example, a `BufWriter` or `Vec` serving as the output.)
@@ -308,7 +308,7 @@ pub trait SequenceWriter: MakeValueWriter {
     /// Containers and E-expressions must use `()`.
     //  ^^^ This constraint could be loosened if needed, but it requires using verbose references
     //      to `<MyType as SequenceWriter>::End` in a variety of APIs.
-    type End;
+    type Resources;
 
     fn value_writer(&mut self) -> Self::ValueWriter<'_> {
         <Self as MakeValueWriter>::make_value_writer(self)
@@ -334,7 +334,7 @@ pub trait SequenceWriter: MakeValueWriter {
     /// Closes out the sequence being written. Delimited writers can use this opportunity to emit
     /// a sentinel value, and length-prefixed writers can flush any buffered data to the output
     /// buffer.
-    fn end(self) -> IonResult<Self::End>;
+    fn close(self) -> IonResult<Self::Resources>;
 
     // Creates functions that delegate to the ValueWriter method of the same name but which then
     // return `self` so it can be re-used/chained.

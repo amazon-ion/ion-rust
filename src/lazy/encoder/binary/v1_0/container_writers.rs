@@ -208,9 +208,9 @@ impl<'value, 'top> MakeValueWriter for BinaryListWriter_1_0<'value, 'top> {
 }
 
 impl<'value, 'top> SequenceWriter for BinaryListWriter_1_0<'value, 'top> {
-    type End = ();
+    type Resources = ();
 
-    fn end(self) -> IonResult<Self::End> {
+    fn close(self) -> IonResult<Self::Resources> {
         self.container_writer.end()
     }
 }
@@ -227,9 +227,9 @@ impl<'value, 'top> MakeValueWriter for BinarySExpWriter_1_0<'value, 'top> {
 }
 
 impl<'value, 'top> SequenceWriter for BinarySExpWriter_1_0<'value, 'top> {
-    type End = ();
+    type Resources = ();
 
-    fn end(self) -> IonResult<Self::End> {
+    fn close(self) -> IonResult<Self::Resources> {
         self.container_writer.end()
     }
 }

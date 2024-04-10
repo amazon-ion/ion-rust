@@ -37,7 +37,7 @@ pub(crate) mod private {
 }
 
 /// An Ion writer without an encoding context (that is: symbol/macro tables).
-pub trait LazyRawWriter<W: Write>: SequenceWriter<End = W> {
+pub trait LazyRawWriter<W: Write>: SequenceWriter<Resources = W> {
     fn new(output: W) -> IonResult<Self>
     where
         Self: Sized;
@@ -45,8 +45,6 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter<End = W> {
     where
         Self: Sized;
     fn flush(&mut self) -> IonResult<()>;
-
-    fn finish(self) -> IonResult<W>;
 }
 
 #[cfg(test)]

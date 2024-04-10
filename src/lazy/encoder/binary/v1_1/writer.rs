@@ -84,11 +84,6 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
         Ok(())
     }
 
-    pub fn finish(mut self) -> IonResult<W> {
-        self.flush()?;
-        Ok(self.output)
-    }
-
     // All methods called on the writer are inherently happening at the top level. At the top level,
     // the lifetimes `'value` and `'top` are identical. In this method signature, '_ is used for both.
     pub(crate) fn value_writer(&mut self) -> BinaryValueWriter_1_1<'_, '_> {
@@ -140,7 +135,6 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_1<W> {
     delegate! {
         to self {
             fn flush(&mut self) -> IonResult<()>;
-            fn finish(self) -> IonResult<W>;
         }
     }
 }
@@ -154,10 +148,10 @@ impl<W: Write> MakeValueWriter for LazyRawBinaryWriter_1_1<W> {
 }
 
 impl<W: Write> SequenceWriter for LazyRawBinaryWriter_1_1<W> {
-    type End = W;
+    type Resources = W;
 
-    fn end(self) -> IonResult<Self::End> {
-        // Ending the top-level sequence is the same as calling `finish` on the writer itself.
-        self.finish()
+    fn close(mut self) -> IonResult<Self::Resources> {
+        self.flush()?;
+        Ok(self.output)
     }
 }

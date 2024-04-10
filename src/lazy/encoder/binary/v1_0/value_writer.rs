@@ -465,7 +465,7 @@ mod tests {
         let expected = Element::read_all(expected)?;
         let mut writer = LazyRawBinaryWriter_1_0::new(Vec::new())?;
         test(&mut writer)?;
-        let buffer = writer.finish()?;
+        let buffer = writer.close()?;
         let actual = Element::read_all(buffer)?;
         assert!(
             IonData::eq(&expected, &actual),
@@ -502,7 +502,7 @@ mod tests {
     #[test]
     fn write_empty_list() -> IonResult<()> {
         let expected = "[]";
-        writer_test(expected, |writer| writer.list_writer()?.end())
+        writer_test(expected, |writer| writer.list_writer()?.close())
     }
 
     #[test]
@@ -530,14 +530,14 @@ mod tests {
                 .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
                 .write([0xE0u8, 0x01, 0x00, 0xEA])?
                 .write([1, 2, 3])?;
-            list.end()
+            list.close()
         })
     }
 
     #[test]
     fn write_empty_sexp() -> IonResult<()> {
         let expected = "()";
-        writer_test(expected, |writer| writer.sexp_writer()?.end())
+        writer_test(expected, |writer| writer.sexp_writer()?.close())
     }
 
     #[test]
@@ -565,7 +565,7 @@ mod tests {
                 .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
                 .write([0xE0u8, 0x01, 0x00, 0xEA])?
                 .write([1, 2, 3])?;
-            sexp.end()
+            sexp.close()
         })
     }
 
