@@ -56,7 +56,8 @@ jobs:
           echo '${{ env.runner-labels}}'
           
           echo '${{ fromJSON(needs.setup.outputs.runner-labels).macos }}'
-          echo '${{ fromJSON(needs.setup.outputs).runner-labels['windows'] }}'
+          echo '{{ fromJSON(needs.setup.outputs).runner-labels['windows'] }}'
+          echo '{{ fromJSON(needs.setup.outputs.runner-labels).${{ format("{0}", "ubuntu") }} }}'
 
   build:
     name: Build and Test
