@@ -49,6 +49,7 @@ jobs:
           "al2-intel": "${{ matrix.al2-intel }}",
           "al2-arm": "${{ matrix.al2-arm }}"
         }
+      os: ubuntu
     steps:
       - name: Dump Config
         run: |
@@ -57,7 +58,7 @@ jobs:
           
           echo '${{ fromJSON(needs.setup.outputs.runner-labels).macos }}'
           echo '{{ fromJSON(needs.setup.outputs).runner-labels['windows'] }}'
-          echo '{{ fromJSON(needs.setup.outputs.runner-labels).${{ format("{0}", "ubuntu") }} }}'
+          echo '{{ fromJSON(needs.setup.outputs.runner-labels).${{ env.os }} }}'
 
   build:
     name: Build and Test
