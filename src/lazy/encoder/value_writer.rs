@@ -17,7 +17,7 @@ pub mod internal {
         fn make_value_writer(&mut self) -> Self::ValueWriter<'_>;
     }
 
-    /// A (private) prerequisite for [`StructWriter`] implementations.
+    /// A (private) prerequisite for [`StructWriter`](super::StructWriter) implementations.
     pub trait FieldEncoder {
         /// Encodes the field name portion of a field.
         ///
