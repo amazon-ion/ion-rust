@@ -29,18 +29,33 @@ jobs:
             codebuild-project-name: ${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}
             runs-on-names-cb: [ windows, macos, ubuntu, al2-intel, al2-arm ]
             runs-on-names: [ windows, macos, ubuntu ]
-            al2-intel: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large"
-            al2-arm: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large"
+            al2-intel: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large"
+            al2-arm: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large"
     outputs:
       available-runners: ${{ matrix.use-codebuild && toJSON(matrix.runs-on-names-cb) || toJSON(matrix.runs-on-names) }}
+      runner-labels: ${{ env.runner-labels }}
       windows: windows-latest
       macos: macos-latest
       ubuntu: ubuntu-latest
       al2-intel: ${{ matrix.al2-intel }}
       al2-arm: ${{ matrix.al2-arm }}
+    env:
+      codebuild-project-name: ${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}
+      runner-labels: |
+        {
+          "windows": "windows-latest"
+          "macos": "macos-latest"
+          "ubuntu": "ubuntu-latest
+          "al2-intel": "${{ matrix.al2-intel }}"
+          "al2-arm": "${{ matrix.al2-arm }}"
+        }
     steps:
       - name: Dump Config
-        run: echo '${{ toJSON(matrix) }}'
+        run: |
+          echo '${{ toJSON(matrix) }}'
+          echo '${{ env.runner-labels}}'
+      - id: set-matrix
+        run: echo "runner-labels={\"include\":[{\"project\":\"foo\",\"config\":\"Debug\"},{\"project\":\"bar\",\"config\":\"Release\"}]}" >> $GITHUB_OUTPUT
 
   build:
     name: Build and Test
