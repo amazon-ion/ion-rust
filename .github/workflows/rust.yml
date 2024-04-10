@@ -36,8 +36,8 @@ jobs:
       windows: windows-latest
       macos: macos-latest
       ubuntu: ubuntu-latest
-      al2-intel: matrix.al2-intel
-      al2-arm: matrix.al2-arm
+      al2-intel: ${{ matrix.al2-intel }}
+      al2-arm: ${{ matrix.al2-arm }}
     steps:
       - name: Dump Config
         run: echo '${{ toJSON(matrix) }}'
