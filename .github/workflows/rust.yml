@@ -43,10 +43,10 @@ jobs:
       codebuild-project-name: ${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}
       runner-labels: |
         {
-          "windows": "windows-latest"
-          "macos": "macos-latest"
-          "ubuntu": "ubuntu-latest
-          "al2-intel": "${{ matrix.al2-intel }}"
+          "windows": "windows-latest",
+          "macos": "macos-latest",
+          "ubuntu": "ubuntu-latest,
+          "al2-intel": "${{ matrix.al2-intel }}",
           "al2-arm": "${{ matrix.al2-arm }}"
         }
     steps:
@@ -148,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - run: echo ${{ needs.build.outputs.result }}
-      - if: needs.build.outputs.result != 'success'
+      - run: echo ${{ needs.build.result }}
+      - if: needs.build.result != 'success'
         run: exit 1
 
