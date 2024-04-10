@@ -55,7 +55,7 @@ jobs:
           echo '${{ toJSON(matrix) }}'
           echo '${{ env.runner-labels}}'
           
-          echo '${{ fromJSON(needs.setup.outputs.runner-labels)["macos"] }}'
+          echo '${{ fromJSON(needs.setup.outputs.runner-labels)['macos'] }}'
 
       - id: set-matrix
         run: echo "runner-labels={\"include\":[{\"project\":\"foo\",\"config\":\"Debug\"},{\"project\":\"bar\",\"config\":\"Release\"}]}" >> $GITHUB_OUTPUT
