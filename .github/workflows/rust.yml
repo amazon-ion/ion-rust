@@ -29,8 +29,12 @@ jobs:
             codebuild-project-name: ${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}
             runs-on-names-cb: [ windows, macos, ubuntu, al2-intel, al2-arm ]
             runs-on-names: [ windows, macos, ubuntu ]
-            al2-intel: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large"
-            al2-arm: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large"
+            runner-labels:
+              windows: windows-latest
+              ubuntu: ubuntu-latest
+              macos: macos-latest
+              al2-intel: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}-${{ github.run_id }}-${{ github.run_attempt }}-al2-5.0-large"
+              al2-arm: "codebuild-${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}-${{ github.run_id }}-${{ github.run_attempt }}-arm-3.0-large"
     outputs:
       available-runners: ${{ matrix.use-codebuild && toJSON(matrix.runs-on-names-cb) || toJSON(matrix.runs-on-names) }}
       runner-labels: ${{ env.runner-labels }}
@@ -57,8 +61,7 @@ jobs:
           echo '${{ env.runner-labels }}'
           
           echo '${{ (fromJSON(env.runner-labels)).macos }}'
-          echo '${{ fromJSON(env.runner-labels)['windows'] }}'
-          echo '${{ fromJSON(env.runner-labels).${{ env.os }} }}'
+          echo '${{ fromJSON(env.runner-labels)[env.os] }}'
 
   build:
     name: Build and Test
