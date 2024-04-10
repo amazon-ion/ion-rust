@@ -56,7 +56,7 @@ impl VarUInt {
         #[rustfmt::skip]
         let mut buffer: [u8; VAR_UINT_BUFFER_SIZE] = [
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0b1000_0000
-            //                        ^-- Set the 'end' flag of the final byte to 1
+            //                           ^-- Set the 'end' flag of the final byte to 1
         ];
 
         if magnitude == 0 {
