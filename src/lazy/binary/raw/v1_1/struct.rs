@@ -3,7 +3,7 @@
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
-use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator;
+use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::v1_1::{
     immutable_buffer::ImmutableBuffer, value::LazyRawBinaryValue_1_1,
 };
@@ -44,7 +44,7 @@ impl<'top> Debug for LazyRawBinaryStruct_1_1<'top> {
 }
 
 impl<'top> LazyRawBinaryStruct_1_1<'top> {
-    fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
+    fn annotations(&self) -> RawBinaryAnnotationsIterator_1_1<'top> {
         self.value.annotations()
     }
 
@@ -65,7 +65,7 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinaryStruc
 impl<'top> LazyRawStruct<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'top> {
     type Iterator = RawBinaryStructIterator_1_1<'top>;
 
-    fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
+    fn annotations(&self) -> RawBinaryAnnotationsIterator_1_1<'top> {
         self.annotations()
     }
 

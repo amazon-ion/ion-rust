@@ -10,7 +10,7 @@ use crate::lazy::binary::raw::v1_1::{
     r#struct::LazyRawBinaryStruct_1_1,
     sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1},
     value::LazyRawBinaryValue_1_1,
-    RawBinaryAnnotationsIterator as RawBinaryAnnotationsIterator_1_1,
+    RawBinaryAnnotationsIterator_1_1,
 };
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::LazyDecoder;
@@ -149,7 +149,7 @@ impl LazyDecoder for BinaryEncoding_1_1 {
     type List<'top> = LazyRawBinaryList_1_1<'top>;
     type Struct<'top> = LazyRawBinaryStruct_1_1<'top>;
     type AnnotationsIterator<'top> = RawBinaryAnnotationsIterator_1_1<'top>;
-    // Macros are not supported in Ion 1.0
+    // TODO: implement macros in 1.1
     type EExpression<'top> = Never;
 }
 

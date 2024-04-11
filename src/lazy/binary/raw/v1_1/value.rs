@@ -8,7 +8,7 @@ use crate::{
             encoded_value::{EncodedHeader, EncodedValue},
             raw::{
                 v1_1::{
-                    annotations_iterator::RawBinaryAnnotationsIterator,
+                    annotations_iterator::RawBinaryAnnotationsIterator_1_1,
                     immutable_buffer::ImmutableBuffer, Header,
                 },
                 value::ValueParseResult,
@@ -119,8 +119,8 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     }
 
     /// Returns an iterator over this value's unresolved annotation symbols.
-    pub fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
-        RawBinaryAnnotationsIterator::new(self.annotations_sequence())
+    pub fn annotations(&self) -> RawBinaryAnnotationsIterator_1_1<'top> {
+        RawBinaryAnnotationsIterator_1_1::new(self.annotations_sequence())
     }
 
     /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,

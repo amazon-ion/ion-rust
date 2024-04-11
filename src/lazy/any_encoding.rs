@@ -7,24 +7,20 @@ use bumpalo::Bump as BumpAllocator;
 
 use crate::lazy::any_encoding::RawReaderKind::{Binary_1_0, Text_1_0};
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator as RawBinaryAnnotationsIterator_1_0;
-use crate::lazy::binary::raw::r#struct::{
-    LazyRawBinaryStruct_1_0, RawBinaryStructIterator as RawBinaryStructIterator_1_0,
-};
+use crate::lazy::binary::raw::r#struct::{LazyRawBinaryStruct_1_0, RawBinaryStructIterator_1_0};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
 use crate::lazy::binary::raw::sequence::{
-    LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0,
-    RawBinarySequenceIterator as RawBinarySequenceIterator_1_0,
+    LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0, RawBinarySequenceIterator_1_0,
 };
 use crate::lazy::binary::raw::v1_1::r#struct::{
     LazyRawBinaryStruct_1_1, RawBinaryStructIterator_1_1,
 };
 use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
 use crate::lazy::binary::raw::v1_1::sequence::{
-    LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1,
-    RawBinarySequenceIterator as RawBinarySequenceIterator_1_1,
+    LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1, RawBinarySequenceIterator_1_1,
 };
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
-use crate::lazy::binary::raw::v1_1::RawBinaryAnnotationsIterator as RawBinaryAnnotationsIterator_1_1;
+use crate::lazy::binary::raw::v1_1::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawValuePrivate};
 use crate::lazy::decoder::{
@@ -102,7 +98,7 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
             LazyRawAnyEExpressionKind::Binary_1_0(_) => unreachable!("macro in binary Ion 1.0"),
             LazyRawAnyEExpressionKind::Text_1_1(ref m) => m.id(),
             LazyRawAnyEExpressionKind::Binary_1_1(_) => {
-                unimplemented!("macro in binary Ion 1.1 not implemented")
+                todo!("macros in binary Ion 1.1 are not implemented")
             }
         }
     }
@@ -115,7 +111,7 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
                 encoding: LazyRawAnyMacroArgsIteratorKind::Text_1_1(m.raw_arguments()),
             },
             LazyRawAnyEExpressionKind::Binary_1_1(_) => {
-                unimplemented!("macro in binary Ion 1.1 not implemented")
+                todo!("macros in binary Ion 1.1 are not implemented")
             }
         }
     }

@@ -23,7 +23,7 @@ pub struct LazyRawBinaryStruct_1_0<'top> {
 
 impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct_1_0<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_0>>;
-    type IntoIter = RawBinaryStructIterator<'top>;
+    type IntoIter = RawBinaryStructIterator_1_0<'top>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -48,11 +48,11 @@ impl<'top> LazyRawBinaryStruct_1_0<'top> {
         self.value.annotations()
     }
 
-    pub fn iter(&self) -> RawBinaryStructIterator<'top> {
+    pub fn iter(&self) -> RawBinaryStructIterator_1_0<'top> {
         // Get as much of the struct's body as is available in the input buffer.
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
-        RawBinaryStructIterator::new(buffer_slice)
+        RawBinaryStructIterator_1_0::new(buffer_slice)
     }
 }
 
@@ -63,7 +63,7 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryStruc
 }
 
 impl<'top> LazyRawStruct<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct_1_0<'top> {
-    type Iterator = RawBinaryStructIterator<'top>;
+    type Iterator = RawBinaryStructIterator_1_0<'top>;
 
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
         self.annotations()
@@ -74,19 +74,19 @@ impl<'top> LazyRawStruct<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct_1_0<'
     }
 }
 
-pub struct RawBinaryStructIterator<'top> {
+pub struct RawBinaryStructIterator_1_0<'top> {
     source: DataSource<'top>,
 }
 
-impl<'top> RawBinaryStructIterator<'top> {
-    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinaryStructIterator<'top> {
-        RawBinaryStructIterator {
+impl<'top> RawBinaryStructIterator_1_0<'top> {
+    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinaryStructIterator_1_0<'top> {
+        RawBinaryStructIterator_1_0 {
             source: DataSource::new(input),
         }
     }
 }
 
-impl<'top> Iterator for RawBinaryStructIterator<'top> {
+impl<'top> Iterator for RawBinaryStructIterator_1_0<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {

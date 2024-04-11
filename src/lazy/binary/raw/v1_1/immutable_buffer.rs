@@ -2,9 +2,7 @@ use crate::binary::constants::v1_1::IVM;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
-use crate::lazy::binary::raw::v1_1::{
-    Header, LengthType, TypeDescriptor, ION_1_1_TYPE_DESCRIPTORS,
-};
+use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, ION_1_1_OPCODES};
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::result::IonFailure;
@@ -39,10 +37,6 @@ pub struct ImmutableBuffer<'a> {
     //                          offset: 6
     data: &'a [u8],
     offset: usize,
-
-    // Each time something is parsed from the buffer successfully, the caller will mark the number
-    // of bytes that may be skipped the next time `advance_to_next_item` is called.
-    pub bytes_to_skip: usize,
 }
 
 impl<'a> Debug for ImmutableBuffer<'a> {
@@ -65,11 +59,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     pub fn new_with_offset(data: &[u8], offset: usize) -> ImmutableBuffer {
-        ImmutableBuffer {
-            data,
-            offset,
-            bytes_to_skip: 0,
-        }
+        ImmutableBuffer { data, offset }
     }
 
     /// Returns a slice containing all of the buffer's bytes.
@@ -90,7 +80,6 @@ impl<'a> ImmutableBuffer<'a> {
         ImmutableBuffer {
             data: self.bytes_range(offset, length),
             offset: self.offset + offset,
-            bytes_to_skip: 0,
         }
     }
 
@@ -131,18 +120,17 @@ impl<'a> ImmutableBuffer<'a> {
         Self {
             data: &self.data[num_bytes_to_consume..],
             offset: self.offset + num_bytes_to_consume,
-            bytes_to_skip: 0,
         }
     }
 
     /// Reads the first byte in the buffer and returns it as a [TypeDescriptor].
     #[inline]
-    pub(crate) fn peek_type_descriptor(&self) -> IonResult<TypeDescriptor> {
+    pub(crate) fn peek_opcode(&self) -> IonResult<Opcode> {
         if self.is_empty() {
-            return IonResult::incomplete("a type descriptor", self.offset());
+            return IonResult::incomplete("an opcode", self.offset());
         }
         let next_byte = self.data[0];
-        Ok(ION_1_1_TYPE_DESCRIPTORS[next_byte as usize])
+        Ok(ION_1_1_OPCODES[next_byte as usize])
     }
 
     /// Reads the first four bytes in the buffer as an Ion version marker. If it is successful,
@@ -180,10 +168,7 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Attempts to decode an annotations wrapper at the beginning of the buffer and returning
     /// its subfields in an [`AnnotationsWrapper`].
-    pub fn read_annotations_wrapper(
-        &self,
-        _type_descriptor: TypeDescriptor,
-    ) -> ParseResult<'a, AnnotationsWrapper> {
+    pub fn read_annotations_wrapper(&self, _opcode: Opcode) -> ParseResult<'a, AnnotationsWrapper> {
         unimplemented!();
     }
 
@@ -196,12 +181,13 @@ impl<'a> ImmutableBuffer<'a> {
     // expose the ability to write them. As such, this method has been marked `inline(never)` to
     // allow the hot path to be better optimized.
     pub fn read_nop_pad(self) -> ParseResult<'a, usize> {
-        let type_descriptor = self.peek_type_descriptor()?;
+        let opcode = self.peek_opcode()?;
 
         // We need to determine the size of the nop..
-        let (size, remaining) = if type_descriptor.length_code == 0xC {
-            (1, self.consume(1))
-        } else if type_descriptor.length_code == 0xD {
+        let (size, remaining) = if opcode.length_code == 0xC {
+            // Size 0; the nop is contained entirely within the OpCode.
+            (0, self.consume(1))
+        } else if opcode.length_code == 0xD {
             // We have a flexuint telling us how long our nop is.
             let after_header = self.consume(1);
             let (len, rest) = after_header.read_flex_uint()?;
@@ -213,37 +199,37 @@ impl<'a> ImmutableBuffer<'a> {
             return IonResult::decoding_error("Invalid NOP sub-type");
         };
 
-        let total_nop_pad_size = 1 + size;
+        let total_nop_pad_size = 1 + size; // 1 for OpCode, plus any additional NOP bytes.
         Ok((total_nop_pad_size, remaining))
     }
 
-    /// Calls [`Self::read_nop_pad`] in a loop until the buffer is empty or a type descriptor
+    /// Calls [`Self::read_nop_pad`] in a loop until the buffer is empty or an opcode
     /// is encountered that is not a NOP.
     #[inline(never)]
     // NOP padding is not widely used in Ion 1.0. This method is annotated with `inline(never)`
     // to avoid the compiler bloating other methods on the hot path with its rarely used
     // instructions.
-    pub fn consume_nop_padding(self, mut type_descriptor: TypeDescriptor) -> ParseResult<'a, ()> {
+    pub fn consume_nop_padding(self, mut opcode: Opcode) -> ParseResult<'a, ()> {
         let mut buffer = self;
         // Skip over any number of NOP regions
-        while type_descriptor.is_nop() {
+        while opcode.is_nop() {
             let (_, buffer_after_nop) = buffer.read_nop_pad()?;
             buffer = buffer_after_nop;
             if buffer.is_empty() {
                 break;
             }
-            type_descriptor = buffer.peek_type_descriptor()?
+            opcode = buffer.peek_opcode()?
         }
         Ok(((), buffer))
     }
 
     /// Interprets the length code in the provided [Header]; if necessary, will read more bytes
     /// from the buffer to interpret as the value's length. If it is successful, returns an `Ok(_)`
-    /// containing a [VarUInt] representation of the value's length. If no additional bytes were
-    /// read, the returned `VarUInt`'s `size_in_bytes()` method will return `0`.
+    /// containing a [FlexUInt] representation of the value's length. If no additional bytes were
+    /// read, the returned `FlexUInt`'s `size_in_bytes()` method will return `0`.
     pub fn read_value_length(self, header: Header) -> ParseResult<'a, FlexUInt> {
         let length = match header.length_type() {
-            LengthType::InHeader(n) => FlexUInt::new(1, n as u64),
+            LengthType::InOpcode(n) => FlexUInt::new(1, n as u64),
             LengthType::FlexUIntFollows => {
                 let (flexuint, _) = self.read_flex_uint()?;
                 flexuint
@@ -276,7 +262,7 @@ impl<'a> ImmutableBuffer<'a> {
             return Ok(None);
         }
         let mut input = self;
-        let mut type_descriptor = input.peek_type_descriptor()?;
+        let mut type_descriptor = input.peek_opcode()?;
         // If we find a NOP...
         if type_descriptor.is_nop() {
             // ...skip through NOPs until we found the next non-NOP byte.
@@ -286,14 +272,14 @@ impl<'a> ImmutableBuffer<'a> {
                 return Ok(None);
             }
             // Otherwise, there's a value.
-            type_descriptor = input.peek_type_descriptor()?;
+            type_descriptor = input.peek_opcode()?;
         }
         Ok(Some(input.read_value(type_descriptor)?))
     }
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
     /// the next byte (`type_descriptor`) is not a NOP.
-    fn read_value(self, type_descriptor: TypeDescriptor) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+    fn read_value(self, type_descriptor: Opcode) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
         if type_descriptor.is_annotation_wrapper() {
             self.read_annotated_value(type_descriptor)
         } else {
@@ -305,7 +291,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// the next byte (`type_descriptor`) is neither a NOP nor an annotations wrapper.
     fn read_value_without_annotations(
         self,
-        type_descriptor: TypeDescriptor,
+        type_descriptor: Opcode,
     ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
         let input = self;
         let header = type_descriptor
@@ -345,26 +331,9 @@ impl<'a> ImmutableBuffer<'a> {
     /// that the next byte in the buffer (`type_descriptor`) begins an annotations wrapper.
     fn read_annotated_value(
         self,
-        mut _type_descriptor: TypeDescriptor,
+        mut _type_descriptor: Opcode,
     ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
         unimplemented!();
-    }
-
-    // DataSource Functionality
-
-    pub(crate) fn advance_to_next_item(&mut self) -> IonResult<Self> {
-        if self.len() < self.bytes_to_skip {
-            return IonResult::incomplete(
-                "cannot advance to next item, insufficient data in buffer",
-                self.offset(),
-            );
-        }
-
-        if self.bytes_to_skip > 0 {
-            Ok(self.consume(self.bytes_to_skip))
-        } else {
-            Ok(*self)
-        }
     }
 
     /// Runs the provided parsing function on this DataSource's buffer.
@@ -375,7 +344,8 @@ impl<'a> ImmutableBuffer<'a> {
         &mut self,
         parser: F,
     ) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
-        let buffer = self.advance_to_next_item()?;
+        // let buffer = self.advance_to_next_item()?;
+        let buffer = *self;
 
         let lazy_value = match parser(buffer) {
             Ok(Some(output)) => output,
@@ -386,7 +356,7 @@ impl<'a> ImmutableBuffer<'a> {
         // If the value we read doesn't start where we began reading, there was a NOP.
         let num_nop_bytes = lazy_value.input.offset() - buffer.offset();
         self.consume(num_nop_bytes);
-        self.bytes_to_skip = lazy_value.encoded_value.total_length();
+        // self.bytes_to_skip = lazy_value.encoded_value.total_length();
         Ok(Some(lazy_value))
     }
 }
@@ -432,5 +402,19 @@ mod tests {
     #[test]
     fn vec_test() {
         input_test(Vec::from("foo bar baz".as_bytes()));
+    }
+
+    #[test]
+    fn validate_nop_length() {
+        // read_nop_pad reads a single NOP value, this test ensures that we're tracking the right
+        // size for these values.
+
+        let buffer = ImmutableBuffer::new(&[0xECu8]);
+        let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
+        assert_eq!(pad_size, 1);
+
+        let buffer = ImmutableBuffer::new(&[0xEDu8, 0x05, 0x00, 0x00]);
+        let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
+        assert_eq!(pad_size, 4);
     }
 }

@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
 
-use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator;
+use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
 use crate::lazy::decoder::private::LazyContainerPrivate;
@@ -28,9 +28,9 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinaryList_
 }
 
 impl<'top> LazyRawSequence<'top, BinaryEncoding_1_1> for LazyRawBinaryList_1_1<'top> {
-    type Iterator = RawBinarySequenceIterator<'top>;
+    type Iterator = RawBinarySequenceIterator_1_1<'top>;
 
-    fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
+    fn annotations(&self) -> RawBinaryAnnotationsIterator_1_1<'top> {
         self.sequence.value.annotations()
     }
 
@@ -56,9 +56,9 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinarySExp_
 }
 
 impl<'top> LazyRawSequence<'top, BinaryEncoding_1_1> for LazyRawBinarySExp_1_1<'top> {
-    type Iterator = RawBinarySequenceIterator<'top>;
+    type Iterator = RawBinarySequenceIterator_1_1<'top>;
 
-    fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
+    fn annotations(&self) -> RawBinaryAnnotationsIterator_1_1<'top> {
         self.sequence.value.annotations()
     }
 
@@ -85,17 +85,17 @@ impl<'top> LazyRawBinarySequence_1_1<'top> {
         self.value.ion_type()
     }
 
-    pub fn iter(&self) -> RawBinarySequenceIterator<'top> {
+    pub fn iter(&self) -> RawBinarySequenceIterator_1_1<'top> {
         // Get as much of the sequence's body as is available in the input buffer.
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
-        RawBinarySequenceIterator::new(buffer_slice)
+        RawBinarySequenceIterator_1_1::new(buffer_slice)
     }
 }
 
 impl<'a, 'top> IntoIterator for &'a LazyRawBinarySequence_1_1<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_1>>;
-    type IntoIter = RawBinarySequenceIterator<'top>;
+    type IntoIter = RawBinarySequenceIterator_1_1<'top>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -126,23 +126,23 @@ impl<'a> Debug for LazyRawBinarySequence_1_1<'a> {
     }
 }
 
-pub struct RawBinarySequenceIterator<'top> {
+pub struct RawBinarySequenceIterator_1_1<'top> {
     source: ImmutableBuffer<'top>,
 }
 
-impl<'top> RawBinarySequenceIterator<'top> {
-    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinarySequenceIterator<'top> {
-        RawBinarySequenceIterator { source: input }
+impl<'top> RawBinarySequenceIterator_1_1<'top> {
+    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinarySequenceIterator_1_1<'top> {
+        RawBinarySequenceIterator_1_1 { source: input }
     }
 }
 
-impl<'top> Iterator for RawBinarySequenceIterator<'top> {
+impl<'top> Iterator for RawBinarySequenceIterator_1_1<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self
             .source
-            .try_parse_next(ImmutableBuffer::<'top>::peek_sequence_value)
+            .try_parse_next(ImmutableBuffer::peek_sequence_value)
         {
             Ok(Some(value)) => Some(Ok(RawValueExpr::ValueLiteral(value))),
             Ok(None) => None,

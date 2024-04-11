@@ -1,77 +1,74 @@
 use crate::lazy::binary::encoded_value::EncodedHeader;
-use crate::lazy::binary::raw::v1_1::IonTypeCode;
+use crate::lazy::binary::raw::v1_1::OpcodeType;
 use crate::IonType;
 
-/// Contains all of the information that can be extracted from the one-octet type descriptor
+/// Contains all of the information that can be extracted from the one-octet Opcode
 /// found at the beginning of each value, annotations wrapper, IVM, or NOP in a binary Ion stream.
-/// For more information, consult the
-/// [Typed Value Formats](https://amazon-ion.github.io/ion-docs/docs/binary.html#typed-value-formats)
-/// section of the binary Ion spec.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct TypeDescriptor {
-    pub ion_type_code: IonTypeCode,
+pub struct Opcode {
+    pub opcode_type: OpcodeType,
     pub ion_type: Option<IonType>,
     pub length_code: u8,
 }
 
 /// A statically defined array of TypeDescriptor that allows a binary reader to map a given
 /// byte (`u8`) to a `TypeDescriptor` without having to perform any masking or bitshift operations.
-pub(crate) static ION_1_1_TYPE_DESCRIPTORS: &[TypeDescriptor; 256] = &init_type_descriptor_cache();
+pub(crate) static ION_1_1_OPCODES: &[Opcode; 256] = &init_opcode_cache();
 
-const DEFAULT_HEADER: TypeDescriptor = TypeDescriptor {
-    ion_type_code: IonTypeCode::Nop,
+const DEFAULT_HEADER: Opcode = Opcode {
+    opcode_type: OpcodeType::Nop,
     ion_type: None,
     length_code: 0,
 };
 
-pub(crate) const fn init_type_descriptor_cache() -> [TypeDescriptor; 256] {
+pub(crate) const fn init_opcode_cache() -> [Opcode; 256] {
     let mut jump_table = [DEFAULT_HEADER; 256];
     let mut index: usize = 0;
     while index < 256 {
         let byte = index as u8;
-        jump_table[index] = TypeDescriptor::from_byte(byte);
+        jump_table[index] = Opcode::from_byte(byte);
         index += 1;
     }
     jump_table
 }
 
-impl TypeDescriptor {
-    /// Attempts to parse the provided byte. If the type code is unrecognized or the
-    /// type code + length code combination is illegal, an error will be returned.
-    pub const fn from_byte(byte: u8) -> TypeDescriptor {
+impl Opcode {
+    /// Attempts to parse the provided byte. If the opcode is unrecognized or the
+    /// opcode + length code combination is illegal, an error will be returned.
+    pub const fn from_byte(byte: u8) -> Opcode {
         let (high_nibble, low_nibble) = (byte >> 4, byte & 0x0F);
-        use IonTypeCode::*;
+        use OpcodeType::*;
 
-        let ion_type_code = match (high_nibble, low_nibble) {
+        let opcode_type = match (high_nibble, low_nibble) {
             (0xE, 0x0) => IonVersionMarker,
             (0xE, 0xA) => NullNull,
             (0xE, 0xC..=0xD) => Nop,
             _ => Boolean, // Temporary, until everything is implemented to satisfy the LUT.
         };
-        let ion_type = match ion_type_code {
+        let ion_type = match opcode_type {
             NullNull => Some(IonType::Null),
             Nop => None,
             IonVersionMarker => None,
             Boolean => Some(IonType::Bool),
             _ => panic!("the provided ion type code is either not implemented, or invalid"),
         };
-        TypeDescriptor {
+        Opcode {
             ion_type,
-            ion_type_code,
+            opcode_type,
             length_code: low_nibble,
         }
     }
 
     pub fn is_null(&self) -> bool {
-        self.ion_type_code == IonTypeCode::NullNull || self.ion_type_code == IonTypeCode::TypedNull
+        self.opcode_type == OpcodeType::NullNull || self.opcode_type == OpcodeType::TypedNull
     }
 
     pub fn is_nop(&self) -> bool {
-        self.ion_type_code == IonTypeCode::Nop
+        self.opcode_type == OpcodeType::Nop
     }
 
     pub fn is_ivm_start(&self) -> bool {
-        self.ion_type_code == IonTypeCode::IonVersionMarker
+        self.opcode_type == OpcodeType::IonVersionMarker
     }
 
     pub fn is_annotation_wrapper(&self) -> bool {
@@ -83,7 +80,7 @@ impl TypeDescriptor {
         let ion_type = self.ion_type?;
         let header = Header {
             ion_type,
-            ion_type_code: self.ion_type_code,
+            ion_type_code: self.opcode_type,
             length_code: self.length_code,
         };
         Some(header)
@@ -91,7 +88,7 @@ impl TypeDescriptor {
 }
 
 pub enum LengthType {
-    InHeader(usize),
+    InOpcode(u8),
     FlexUIntFollows,
 }
 
@@ -105,7 +102,7 @@ pub struct Header {
     pub ion_type: IonType,
     // The only time the `ion_type_code` is required is to distinguish between positive
     // and negative integers.
-    pub ion_type_code: IonTypeCode,
+    pub ion_type_code: OpcodeType,
     pub length_code: u8,
 }
 
@@ -113,15 +110,15 @@ impl Header {
     pub fn length_type(&self) -> LengthType {
         use LengthType::*;
         match (self.ion_type_code, self.length_code) {
-            (IonTypeCode::Nop, 0xC) => InHeader(0),
-            (IonTypeCode::NullNull, 0xA) => InHeader(0),
+            (OpcodeType::Nop, 0xC) => InOpcode(0),
+            (OpcodeType::NullNull, 0xA) => InOpcode(0),
             _ => FlexUIntFollows,
         }
     }
 }
 
 impl EncodedHeader for Header {
-    type TypeCode = IonTypeCode;
+    type TypeCode = OpcodeType;
 
     fn ion_type(&self) -> IonType {
         self.ion_type
@@ -136,6 +133,6 @@ impl EncodedHeader for Header {
     }
 
     fn is_null(&self) -> bool {
-        self.ion_type_code == IonTypeCode::NullNull || self.ion_type_code == IonTypeCode::TypedNull
+        self.ion_type_code == OpcodeType::NullNull || self.ion_type_code == OpcodeType::TypedNull
     }
 }

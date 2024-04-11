@@ -29,7 +29,7 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryList_
 }
 
 impl<'top> LazyRawSequence<'top, BinaryEncoding_1_0> for LazyRawBinaryList_1_0<'top> {
-    type Iterator = RawBinarySequenceIterator<'top>;
+    type Iterator = RawBinarySequenceIterator_1_0<'top>;
 
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
         self.sequence.value.annotations()
@@ -57,7 +57,7 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinarySExp_
 }
 
 impl<'top> LazyRawSequence<'top, BinaryEncoding_1_0> for LazyRawBinarySExp_1_0<'top> {
-    type Iterator = RawBinarySequenceIterator<'top>;
+    type Iterator = RawBinarySequenceIterator_1_0<'top>;
 
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
         self.sequence.value.annotations()
@@ -86,17 +86,17 @@ impl<'top> LazyRawBinarySequence_1_0<'top> {
         self.value.ion_type()
     }
 
-    pub fn iter(&self) -> RawBinarySequenceIterator<'top> {
+    pub fn iter(&self) -> RawBinarySequenceIterator_1_0<'top> {
         // Get as much of the sequence's body as is available in the input buffer.
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
-        RawBinarySequenceIterator::new(buffer_slice)
+        RawBinarySequenceIterator_1_0::new(buffer_slice)
     }
 }
 
 impl<'a, 'top> IntoIterator for &'a LazyRawBinarySequence_1_0<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_0>>;
-    type IntoIter = RawBinarySequenceIterator<'top>;
+    type IntoIter = RawBinarySequenceIterator_1_0<'top>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -127,19 +127,19 @@ impl<'a> Debug for LazyRawBinarySequence_1_0<'a> {
     }
 }
 
-pub struct RawBinarySequenceIterator<'top> {
+pub struct RawBinarySequenceIterator_1_0<'top> {
     source: DataSource<'top>,
 }
 
-impl<'top> RawBinarySequenceIterator<'top> {
-    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinarySequenceIterator<'top> {
-        RawBinarySequenceIterator {
+impl<'top> RawBinarySequenceIterator_1_0<'top> {
+    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinarySequenceIterator_1_0<'top> {
+        RawBinarySequenceIterator_1_0 {
             source: DataSource::new(input),
         }
     }
 }
 
-impl<'top> Iterator for RawBinarySequenceIterator<'top> {
+impl<'top> Iterator for RawBinarySequenceIterator_1_0<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {
