@@ -169,7 +169,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// Attempts to decode an annotations wrapper at the beginning of the buffer and returning
     /// its subfields in an [`AnnotationsWrapper`].
     pub fn read_annotations_wrapper(&self, _opcode: Opcode) -> ParseResult<'a, AnnotationsWrapper> {
-        unimplemented!();
+        todo!();
     }
 
     /// Reads a `NOP` encoding primitive from the buffer. If it is successful, returns an `Ok(_)`
@@ -245,14 +245,14 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a field ID and a value from the buffer.
     pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
-        unimplemented!();
+        todo!();
     }
 
     #[cold]
     /// Consumes (field ID, NOP pad) pairs until a non-NOP value is encountered in field position or
     /// the buffer is empty. Returns a buffer starting at the field ID before the non-NOP value.
     fn read_struct_field_nop_pad(self) -> IonResult<Option<(usize, VarUInt, ImmutableBuffer<'a>)>> {
-        unimplemented!();
+        todo!();
     }
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
@@ -333,7 +333,7 @@ impl<'a> ImmutableBuffer<'a> {
         self,
         mut _type_descriptor: Opcode,
     ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
-        unimplemented!();
+        todo!();
     }
 
     /// Runs the provided parsing function on this DataSource's buffer.

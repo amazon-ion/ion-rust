@@ -541,7 +541,7 @@ impl<'top> From<LazyRawStreamItem<'top, BinaryEncoding_1_1>>
                 LazyRawStreamItem::<AnyEncoding>::Value(value.into())
             }
             LazyRawStreamItem::<BinaryEncoding_1_1>::EExpression(_) => {
-                unimplemented!("Macro invocations not yet implemented in binary 1.1")
+                todo!("Macro invocations not yet implemented in binary 1.1")
             }
             LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream => {
                 LazyRawStreamItem::<AnyEncoding>::EndOfStream
@@ -1042,7 +1042,7 @@ impl<'data> From<LazyRawFieldExpr<'data, BinaryEncoding_1_1>>
         let (name, value) = match binary_field {
             RawFieldExpr::NameValuePair(name, value) => (name, value),
             RawFieldExpr::MacroInvocation(_) => {
-                unimplemented!("macro invocation in Ion 1.1 binary not implemented")
+                todo!("macro invocation in Ion 1.1 binary not implemented")
             }
         };
         // Convert the binary-encoded value into an any-encoded value

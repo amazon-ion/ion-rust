@@ -18,6 +18,6 @@ impl<'a> Iterator for RawBinaryAnnotationsIterator_1_1<'a> {
     type Item = IonResult<RawSymbolTokenRef<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        unimplemented!()
+        todo!()
     }
 }

@@ -186,66 +186,66 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a bool.
     fn read_bool(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as an int.
     fn read_int(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a float.
     fn read_float(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a decimal.
     fn read_decimal(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a timestamp.
     fn read_timestamp(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.
     fn read_symbol_id(&self) -> IonResult<SymbolId> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a symbol.
     fn read_symbol(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a string.
     fn read_string(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a blob.
     fn read_blob(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a clob.
     fn read_clob(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as an S-expression.
     fn read_sexp(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a list.
     fn read_list(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a struct.
     fn read_struct(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        unimplemented!();
+        todo!();
     }
 }
