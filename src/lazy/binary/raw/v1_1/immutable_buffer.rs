@@ -123,7 +123,7 @@ impl<'a> ImmutableBuffer<'a> {
         }
     }
 
-    /// Reads the first byte in the buffer and returns it as a [TypeDescriptor].
+    /// Reads the first byte in the buffer and returns it as an [Opcode].
     #[inline]
     pub(crate) fn peek_opcode(&self) -> IonResult<Opcode> {
         if self.is_empty() {
