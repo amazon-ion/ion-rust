@@ -18,6 +18,9 @@ jobs:
     # TODO: See if this job can be turned into a reusable component
     name: Setup Build Matrix
     runs-on: ubuntu-latest
+    # We want to run on external PRs, but not on internal ones as push automatically builds
+    # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
         # We're using a matrix with a single entry so that we can define some config as YAML rather than
@@ -131,7 +134,9 @@ jobs:
     needs: build
     name: Build and Test Confirmation
     runs-on: ubuntu-latest
-    if: always()
+    # We must include always() even with additional conditions in order to override the default status check of
+    # success() that is automatically applied to if conditions that don't contain a status check function.
+    if: ${{ always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust') }}
     steps:
       - run: echo ${{ needs.build.result }}
       - if: needs.build.result != 'success'
