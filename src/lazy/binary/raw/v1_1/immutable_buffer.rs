@@ -344,7 +344,6 @@ impl<'a> ImmutableBuffer<'a> {
         &mut self,
         parser: F,
     ) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
-        // let buffer = self.advance_to_next_item()?;
         let buffer = *self;
 
         let lazy_value = match parser(buffer) {
@@ -356,7 +355,6 @@ impl<'a> ImmutableBuffer<'a> {
         // If the value we read doesn't start where we began reading, there was a NOP.
         let num_nop_bytes = lazy_value.input.offset() - buffer.offset();
         self.consume(num_nop_bytes);
-        // self.bytes_to_skip = lazy_value.encoded_value.total_length();
         Ok(Some(lazy_value))
     }
 }
