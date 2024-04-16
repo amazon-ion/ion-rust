@@ -4,7 +4,6 @@ use crate::{IonResult, UInt};
 use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;
 use num_bigint::BigUint;
-use num_traits::ToBytes;
 use std::io::Write;
 use std::ops::{BitOr, Shl};
 
@@ -280,7 +279,7 @@ impl FlexUInt {
         let encoded_big_uint = value
             .shl(num_le_bytes)
             .bitor(BigUint::from(1u64 << (num_le_bytes as u64 - 1)));
-        let encoding = encoded_big_uint.to_le_bytes();
+        let encoding = encoded_big_uint.to_bytes_le();
         output.write_all(encoding.as_slice())?;
         Ok(encoding.len())
     }

@@ -189,14 +189,12 @@ mod example {
             let event = self.0;
             writer.write_struct(|fields| {
                 fields
-                    //            v--- Each field name is a symbol ID
                     .write(10, &event.timestamp)?
-                    .write(11, event.thread_id)?
+                    .write(11, &event.thread_id)?
                     .write(12, &event.thread_name)?
-                    //                 v--- The fixed strings from the log statement are also SIDs
-                    .write(13, RawSymbolToken::SymbolId(17))? // logger name
-                    .write(14, RawSymbolToken::SymbolId(18))? // log level
-                    .write(15, RawSymbolToken::SymbolId(19))? // format
+                    .write(13, &RawSymbolToken::SymbolId(17))?
+                    .write(14, &RawSymbolToken::SymbolId(18))?
+                    .write(15, &RawSymbolToken::SymbolId(19))?
                     .write(16, &event.parameters)?;
                 Ok(())
             })
@@ -301,9 +299,14 @@ mod example {
     ) -> LogEvent<'statements> {
         // Each event is 1 second after the previous event
         let event_epoch_millis = INITIAL_EPOCH_MILLIS + (event_index as i64 * 1000);
-        let datetime: DateTime<FixedOffset> = DateTime::from_timestamp_millis(event_epoch_millis)
-            .unwrap()
-            .into();
+        let datetime: DateTime<FixedOffset> = match DateTime::from_timestamp(0, event_epoch_millis as u32) {
+            Some(dt) => dt.into(),
+            None => {
+                // Eh... I just wanted the example to run...
+                let default_timestamp = DateTime::from_timestamp(0, 0).unwrap();
+                default_timestamp.into()
+            }
+        };
         let timestamp: Timestamp = datetime.into();
 
         let thread_id = rng.gen_range(1..=128);
