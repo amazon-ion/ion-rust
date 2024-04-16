@@ -6,19 +6,30 @@ use std::ops::Range;
 use bumpalo::Bump as BumpAllocator;
 
 use crate::lazy::any_encoding::RawReaderKind::{Binary_1_0, Text_1_0};
-use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
-use crate::lazy::binary::raw::r#struct::{LazyRawBinaryStruct, RawBinaryStructIterator};
-use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
+use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator as RawBinaryAnnotationsIterator_1_0;
+use crate::lazy::binary::raw::r#struct::{LazyRawBinaryStruct_1_0, RawBinaryStructIterator_1_0};
+use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
 use crate::lazy::binary::raw::sequence::{
-    LazyRawBinaryList, LazyRawBinarySExp, RawBinarySequenceIterator,
+    LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0, RawBinarySequenceIterator_1_0,
 };
-use crate::lazy::binary::raw::value::LazyRawBinaryValue;
+use crate::lazy::binary::raw::v1_1::r#struct::{
+    LazyRawBinaryStruct_1_1, RawBinaryStructIterator_1_1,
+};
+use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
+use crate::lazy::binary::raw::v1_1::sequence::{
+    LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1, RawBinarySequenceIterator_1_1,
+};
+use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
+use crate::lazy::binary::raw::v1_1::RawBinaryAnnotationsIterator_1_1;
+use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawValuePrivate};
 use crate::lazy::decoder::{
     LazyDecoder, LazyRawFieldExpr, LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue,
     LazyRawValueExpr, RawFieldExpr, RawValueExpr,
 };
-use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::encoding::{
+    BinaryEncoding_1_0, BinaryEncoding_1_1, TextEncoding_1_0, TextEncoding_1_1,
+};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::never::Never;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
@@ -67,6 +78,7 @@ enum LazyRawAnyEExpressionKind<'top> {
     Text_1_0(Never),
     Binary_1_0(Never),
     Text_1_1(RawTextEExpression_1_1<'top>),
+    Binary_1_1(Never),
 }
 
 impl<'top> From<RawTextEExpression_1_1<'top>> for LazyRawAnyEExpression<'top> {
@@ -85,6 +97,9 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
             LazyRawAnyEExpressionKind::Text_1_0(_) => unreachable!("macro in text Ion 1.0"),
             LazyRawAnyEExpressionKind::Binary_1_0(_) => unreachable!("macro in binary Ion 1.0"),
             LazyRawAnyEExpressionKind::Text_1_1(ref m) => m.id(),
+            LazyRawAnyEExpressionKind::Binary_1_1(_) => {
+                todo!("macros in binary Ion 1.1 are not implemented")
+            }
         }
     }
 
@@ -95,6 +110,9 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
             LazyRawAnyEExpressionKind::Text_1_1(m) => LazyRawAnyMacroArgsIterator {
                 encoding: LazyRawAnyMacroArgsIteratorKind::Text_1_1(m.raw_arguments()),
             },
+            LazyRawAnyEExpressionKind::Binary_1_1(_) => {
+                todo!("macros in binary Ion 1.1 are not implemented")
+            }
         }
     }
 }
@@ -143,9 +161,9 @@ impl<'data> LazyRawAnyReader<'data> {
     fn detect_encoding(data: &[u8]) -> RawReaderType {
         const BINARY_1_0_IVM: &[u8] = &[0xEA, 0x01, 0x00, 0xE0];
 
-        match data {
-            &[0xE0, 0x01, 0x00, 0xEA, ..] => RawReaderType::Binary_1_0,
-            // TODO: Binary Ion 1.1
+        match *data {
+            [0xE0, 0x01, 0x00, 0xEA, ..] => RawReaderType::Binary_1_0,
+            [0xE0, 0x01, 0x01, 0xEA, ..] => RawReaderType::Binary_1_1,
             _ => RawReaderType::Text_1_0,
         }
     }
@@ -153,7 +171,8 @@ impl<'data> LazyRawAnyReader<'data> {
 
 pub enum RawReaderKind<'data> {
     Text_1_0(LazyRawTextReader_1_0<'data>),
-    Binary_1_0(LazyRawBinaryReader<'data>),
+    Binary_1_0(LazyRawBinaryReader_1_0<'data>),
+    Binary_1_1(LazyRawBinaryReader_1_1<'data>),
 }
 
 #[derive(Default, Copy, Clone)]
@@ -163,7 +182,7 @@ pub enum RawReaderType {
     #[default]
     Text_1_0,
     Binary_1_0,
-    // TODO: v1.1
+    Binary_1_1,
 }
 
 impl<'data> From<LazyRawTextReader_1_0<'data>> for LazyRawAnyReader<'data> {
@@ -174,10 +193,18 @@ impl<'data> From<LazyRawTextReader_1_0<'data>> for LazyRawAnyReader<'data> {
     }
 }
 
-impl<'data> From<LazyRawBinaryReader<'data>> for LazyRawAnyReader<'data> {
-    fn from(reader: LazyRawBinaryReader<'data>) -> Self {
+impl<'data> From<LazyRawBinaryReader_1_0<'data>> for LazyRawAnyReader<'data> {
+    fn from(reader: LazyRawBinaryReader_1_0<'data>) -> Self {
         LazyRawAnyReader {
             encoding: Binary_1_0(reader),
+        }
+    }
+}
+
+impl<'data> From<LazyRawBinaryReader_1_1<'data>> for LazyRawAnyReader<'data> {
+    fn from(reader: LazyRawBinaryReader_1_1<'data>) -> Self {
+        LazyRawAnyReader {
+            encoding: RawReaderKind::Binary_1_1(reader),
         }
     }
 }
@@ -203,7 +230,10 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
                 LazyRawTextReader_1_0::resume_at_offset(data, offset, ()).into()
             }
             RawReaderType::Binary_1_0 => {
-                LazyRawBinaryReader::resume_at_offset(data, offset, ()).into()
+                LazyRawBinaryReader_1_0::resume_at_offset(data, offset, ()).into()
+            }
+            RawReaderType::Binary_1_1 => {
+                LazyRawBinaryReader_1_1::resume_at_offset(data, offset, ()).into()
             }
         }
     }
@@ -215,9 +245,11 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
     where
         'data: 'top,
     {
+        use RawReaderKind::*;
         match &mut self.encoding {
             Text_1_0(r) => Ok(r.next(allocator)?.into()),
             Binary_1_0(r) => Ok(r.next()?.into()),
+            Binary_1_1(r) => Ok(r.next()?.into()),
         }
     }
 
@@ -227,13 +259,16 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
         match &self.encoding {
             Text_1_0(_) => RawReaderType::Text_1_0,
             Binary_1_0(_) => RawReaderType::Binary_1_0,
+            Binary_1_1(_) => RawReaderType::Binary_1_1,
         }
     }
 
     fn position(&self) -> usize {
+        use RawReaderKind::*;
         match &self.encoding {
             Text_1_0(r) => r.position(),
             Binary_1_0(r) => r.position(),
+            Binary_1_1(r) => r.position(),
         }
     }
 }
@@ -248,8 +283,9 @@ pub struct LazyRawAnyValue<'top> {
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawValueKind<'top> {
     Text_1_0(LazyRawTextValue_1_0<'top>),
-    Binary_1_0(LazyRawBinaryValue<'top>),
+    Binary_1_0(LazyRawBinaryValue_1_0<'top>),
     Text_1_1(LazyRawTextValue_1_1<'top>),
+    Binary_1_1(LazyRawBinaryValue_1_1<'top>),
 }
 
 impl<'top> From<LazyRawTextValue_1_0<'top>> for LazyRawAnyValue<'top> {
@@ -260,8 +296,8 @@ impl<'top> From<LazyRawTextValue_1_0<'top>> for LazyRawAnyValue<'top> {
     }
 }
 
-impl<'top> From<LazyRawBinaryValue<'top>> for LazyRawAnyValue<'top> {
-    fn from(value: LazyRawBinaryValue<'top>) -> Self {
+impl<'top> From<LazyRawBinaryValue_1_0<'top>> for LazyRawAnyValue<'top> {
+    fn from(value: LazyRawBinaryValue_1_0<'top>) -> Self {
         LazyRawAnyValue {
             encoding: LazyRawValueKind::Binary_1_0(value),
         }
@@ -272,6 +308,14 @@ impl<'top> From<LazyRawTextValue_1_1<'top>> for LazyRawAnyValue<'top> {
     fn from(value: LazyRawTextValue_1_1<'top>) -> Self {
         LazyRawAnyValue {
             encoding: LazyRawValueKind::Text_1_1(value),
+        }
+    }
+}
+
+impl<'top> From<LazyRawBinaryValue_1_1<'top>> for LazyRawAnyValue<'top> {
+    fn from(value: LazyRawBinaryValue_1_1<'top>) -> Self {
+        LazyRawAnyValue {
+            encoding: LazyRawValueKind::Binary_1_1(value),
         }
     }
 }
@@ -313,6 +357,22 @@ impl<'top> From<LazyRawValueExpr<'top, TextEncoding_1_1>> for LazyRawValueExpr<'
             RawValueExpr::MacroInvocation(m) => {
                 let invocation = LazyRawAnyEExpression {
                     encoding: LazyRawAnyEExpressionKind::Text_1_1(m),
+                };
+                RawValueExpr::MacroInvocation(invocation)
+            }
+        }
+    }
+}
+
+impl<'top> From<LazyRawValueExpr<'top, BinaryEncoding_1_1>>
+    for LazyRawValueExpr<'top, AnyEncoding>
+{
+    fn from(value: LazyRawValueExpr<'top, BinaryEncoding_1_1>) -> Self {
+        match value {
+            RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
+            RawValueExpr::MacroInvocation(m) => {
+                let invocation = LazyRawAnyEExpression {
+                    encoding: LazyRawAnyEExpressionKind::Binary_1_1(m),
                 };
                 RawValueExpr::MacroInvocation(invocation)
             }
@@ -364,6 +424,27 @@ impl<'top> From<RawValueRef<'top, BinaryEncoding_1_0>> for RawValueRef<'top, Any
 
 impl<'top> From<RawValueRef<'top, TextEncoding_1_1>> for RawValueRef<'top, AnyEncoding> {
     fn from(value: RawValueRef<'top, TextEncoding_1_1>) -> Self {
+        use RawValueRef::*;
+        match value {
+            Null(ion_type) => Null(ion_type),
+            Bool(value) => Bool(value),
+            Int(value) => Int(value),
+            Float(value) => Float(value),
+            Decimal(value) => Decimal(value),
+            Timestamp(value) => Timestamp(value),
+            String(value) => String(value),
+            Symbol(value) => Symbol(value),
+            Blob(value) => Blob(value),
+            Clob(value) => Clob(value),
+            SExp(value) => SExp(value.into()),
+            List(value) => List(value.into()),
+            Struct(value) => Struct(value.into()),
+        }
+    }
+}
+
+impl<'top> From<RawValueRef<'top, BinaryEncoding_1_1>> for RawValueRef<'top, AnyEncoding> {
+    fn from(value: RawValueRef<'top, BinaryEncoding_1_1>) -> Self {
         use RawValueRef::*;
         match value {
             Null(ion_type) => Null(ion_type),
@@ -448,6 +529,27 @@ impl<'top> From<LazyRawStreamItem<'top, TextEncoding_1_1>>
     }
 }
 
+impl<'top> From<LazyRawStreamItem<'top, BinaryEncoding_1_1>>
+    for LazyRawStreamItem<'top, AnyEncoding>
+{
+    fn from(value: LazyRawStreamItem<'top, BinaryEncoding_1_1>) -> Self {
+        match value {
+            LazyRawStreamItem::<BinaryEncoding_1_1>::VersionMarker(major, minor) => {
+                LazyRawStreamItem::<AnyEncoding>::VersionMarker(major, minor)
+            }
+            LazyRawStreamItem::<BinaryEncoding_1_1>::Value(value) => {
+                LazyRawStreamItem::<AnyEncoding>::Value(value.into())
+            }
+            LazyRawStreamItem::<BinaryEncoding_1_1>::EExpression(_) => {
+                todo!("Macro invocations not yet implemented in binary 1.1")
+            }
+            LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream => {
+                LazyRawStreamItem::<AnyEncoding>::EndOfStream
+            }
+        }
+    }
+}
+
 impl<'top> LazyRawValuePrivate<'top> for LazyRawAnyValue<'top> {
     fn field_name(&self) -> IonResult<RawSymbolTokenRef<'top>> {
         use LazyRawValueKind::*;
@@ -455,6 +557,7 @@ impl<'top> LazyRawValuePrivate<'top> for LazyRawAnyValue<'top> {
             Text_1_0(v) => v.field_name(),
             Binary_1_0(v) => v.field_name(),
             Text_1_1(v) => v.field_name(),
+            Binary_1_1(v) => v.field_name(),
         }
     }
 }
@@ -466,6 +569,7 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             Text_1_0(v) => v.ion_type(),
             Binary_1_0(v) => v.ion_type(),
             Text_1_1(v) => v.ion_type(),
+            Binary_1_1(v) => v.ion_type(),
         }
     }
 
@@ -475,6 +579,7 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             Text_1_0(v) => v.is_null(),
             Binary_1_0(v) => v.is_null(),
             Text_1_1(v) => v.is_null(),
+            Binary_1_1(v) => v.is_null(),
         }
     }
 
@@ -490,6 +595,9 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             Text_1_1(v) => RawAnyAnnotationsIterator {
                 encoding: RawAnnotationsIteratorKind::Text_1_1(v.annotations()),
             },
+            Binary_1_1(v) => RawAnyAnnotationsIterator {
+                encoding: RawAnnotationsIteratorKind::Binary_1_1(v.annotations()),
+            },
         }
     }
 
@@ -499,6 +607,7 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             Text_1_0(v) => Ok(v.read()?.into()),
             Binary_1_0(v) => Ok(v.read()?.into()),
             Text_1_1(v) => Ok(v.read()?.into()),
+            Binary_1_1(v) => Ok(v.read()?.into()),
         }
     }
 
@@ -508,6 +617,7 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             Text_1_0(v) => v.range(),
             Binary_1_0(v) => v.range(),
             Text_1_1(v) => v.range(),
+            Binary_1_1(v) => v.range(),
         }
     }
 
@@ -517,6 +627,7 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             Text_1_0(v) => v.span(),
             Binary_1_0(v) => v.span(),
             Text_1_1(v) => v.span(),
+            Binary_1_1(v) => v.span(),
         }
     }
 }
@@ -529,8 +640,9 @@ pub struct RawAnyAnnotationsIterator<'top> {
 
 pub enum RawAnnotationsIteratorKind<'top> {
     Text_1_0(RawTextAnnotationsIterator<'top>),
-    Binary_1_0(RawBinaryAnnotationsIterator<'top>),
+    Binary_1_0(RawBinaryAnnotationsIterator_1_0<'top>),
     Text_1_1(RawTextAnnotationsIterator<'top>),
+    Binary_1_1(RawBinaryAnnotationsIterator_1_1<'top>),
 }
 
 impl<'top> Iterator for RawAnyAnnotationsIterator<'top> {
@@ -541,6 +653,7 @@ impl<'top> Iterator for RawAnyAnnotationsIterator<'top> {
             RawAnnotationsIteratorKind::Text_1_0(i) => i.next(),
             RawAnnotationsIteratorKind::Binary_1_0(i) => i.next(),
             RawAnnotationsIteratorKind::Text_1_1(i) => i.next(),
+            RawAnnotationsIteratorKind::Binary_1_1(i) => i.next(),
         }
     }
 }
@@ -555,8 +668,9 @@ pub struct LazyRawAnyList<'top> {
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawListKind<'top> {
     Text_1_0(LazyRawTextList_1_0<'top>),
-    Binary_1_0(LazyRawBinaryList<'top>),
+    Binary_1_0(LazyRawBinaryList_1_0<'top>),
     Text_1_1(LazyRawTextList_1_1<'top>),
+    Binary_1_1(LazyRawBinaryList_1_1<'top>),
 }
 
 impl<'top> LazyContainerPrivate<'top, AnyEncoding> for LazyRawAnyList<'top> {
@@ -566,10 +680,13 @@ impl<'top> LazyContainerPrivate<'top, AnyEncoding> for LazyRawAnyList<'top> {
                 encoding: LazyRawListKind::Text_1_0(LazyRawTextList_1_0::from_value(v)),
             },
             LazyRawValueKind::Binary_1_0(v) => LazyRawAnyList {
-                encoding: LazyRawListKind::Binary_1_0(LazyRawBinaryList::from_value(v)),
+                encoding: LazyRawListKind::Binary_1_0(LazyRawBinaryList_1_0::from_value(v)),
             },
             LazyRawValueKind::Text_1_1(v) => LazyRawAnyList {
                 encoding: LazyRawListKind::Text_1_1(LazyRawTextList_1_1::from_value(v)),
+            },
+            LazyRawValueKind::Binary_1_1(v) => LazyRawAnyList {
+                encoding: LazyRawListKind::Binary_1_1(LazyRawBinaryList_1_1::from_value(v)),
             },
         }
     }
@@ -581,8 +698,9 @@ pub struct RawAnyListIterator<'data> {
 
 pub enum RawAnyListIteratorKind<'data> {
     Text_1_0(RawTextListIterator_1_0<'data>),
-    Binary_1_0(RawBinarySequenceIterator<'data>),
+    Binary_1_0(RawBinarySequenceIterator_1_0<'data>),
     Text_1_1(RawTextSequenceCacheIterator_1_1<'data>),
+    Binary_1_1(RawBinarySequenceIterator_1_1<'data>),
 }
 
 impl<'data> Iterator for RawAnyListIterator<'data> {
@@ -597,6 +715,9 @@ impl<'data> Iterator for RawAnyListIterator<'data> {
                 .next()
                 .map(|value_result| value_result.map(|value| value.into())),
             RawAnyListIteratorKind::Text_1_1(i) => i
+                .next()
+                .map(|value_result| value_result.map(|value| value.into())),
+            RawAnyListIteratorKind::Binary_1_1(i) => i
                 .next()
                 .map(|value_result| value_result.map(|value| value.into())),
         }
@@ -615,6 +736,7 @@ impl<'top> LazyRawSequence<'top, AnyEncoding> for LazyRawAnyList<'top> {
             LazyRawListKind::Text_1_0(s) => s.ion_type(),
             LazyRawListKind::Binary_1_0(s) => s.ion_type(),
             LazyRawListKind::Text_1_1(s) => s.ion_type(),
+            LazyRawListKind::Binary_1_1(s) => s.ion_type(),
         }
     }
 
@@ -629,6 +751,9 @@ impl<'top> LazyRawSequence<'top, AnyEncoding> for LazyRawAnyList<'top> {
             LazyRawListKind::Text_1_1(s) => RawAnyListIterator {
                 encoding: RawAnyListIteratorKind::Text_1_1(s.iter()),
             },
+            LazyRawListKind::Binary_1_1(s) => RawAnyListIterator {
+                encoding: RawAnyListIteratorKind::Binary_1_1(s.iter()),
+            },
         }
     }
 
@@ -637,6 +762,7 @@ impl<'top> LazyRawSequence<'top, AnyEncoding> for LazyRawAnyList<'top> {
             LazyRawListKind::Text_1_0(s) => s.as_value().into(),
             LazyRawListKind::Binary_1_0(s) => s.as_value().into(),
             LazyRawListKind::Text_1_1(s) => s.as_value().into(),
+            LazyRawListKind::Binary_1_1(s) => s.as_value().into(),
         }
     }
 }
@@ -649,8 +775,8 @@ impl<'data> From<LazyRawTextList_1_0<'data>> for LazyRawAnyList<'data> {
     }
 }
 
-impl<'data> From<LazyRawBinaryList<'data>> for LazyRawAnyList<'data> {
-    fn from(value: LazyRawBinaryList<'data>) -> Self {
+impl<'data> From<LazyRawBinaryList_1_0<'data>> for LazyRawAnyList<'data> {
+    fn from(value: LazyRawBinaryList_1_0<'data>) -> Self {
         LazyRawAnyList {
             encoding: LazyRawListKind::Binary_1_0(value),
         }
@@ -665,6 +791,14 @@ impl<'data> From<LazyRawTextList_1_1<'data>> for LazyRawAnyList<'data> {
     }
 }
 
+impl<'data> From<LazyRawBinaryList_1_1<'data>> for LazyRawAnyList<'data> {
+    fn from(value: LazyRawBinaryList_1_1<'data>) -> Self {
+        LazyRawAnyList {
+            encoding: LazyRawListKind::Binary_1_1(value),
+        }
+    }
+}
+
 // ===== SExps =====
 
 #[derive(Debug, Copy, Clone)]
@@ -675,8 +809,9 @@ pub struct LazyRawAnySExp<'data> {
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawSExpKind<'data> {
     Text_1_0(LazyRawTextSExp_1_0<'data>),
-    Binary_1_0(LazyRawBinarySExp<'data>),
+    Binary_1_0(LazyRawBinarySExp_1_0<'data>),
     Text_1_1(LazyRawTextSExp_1_1<'data>),
+    Binary_1_1(LazyRawBinarySExp_1_1<'data>),
 }
 
 impl<'data> LazyContainerPrivate<'data, AnyEncoding> for LazyRawAnySExp<'data> {
@@ -686,10 +821,13 @@ impl<'data> LazyContainerPrivate<'data, AnyEncoding> for LazyRawAnySExp<'data> {
                 encoding: LazyRawSExpKind::Text_1_0(LazyRawTextSExp_1_0::from_value(v)),
             },
             LazyRawValueKind::Binary_1_0(v) => LazyRawAnySExp {
-                encoding: LazyRawSExpKind::Binary_1_0(LazyRawBinarySExp::from_value(v)),
+                encoding: LazyRawSExpKind::Binary_1_0(LazyRawBinarySExp_1_0::from_value(v)),
             },
             LazyRawValueKind::Text_1_1(v) => LazyRawAnySExp {
                 encoding: LazyRawSExpKind::Text_1_1(LazyRawTextSExp_1_1::from_value(v)),
+            },
+            LazyRawValueKind::Binary_1_1(v) => LazyRawAnySExp {
+                encoding: LazyRawSExpKind::Binary_1_1(LazyRawBinarySExp_1_1::from_value(v)),
             },
         }
     }
@@ -701,8 +839,9 @@ pub struct RawAnySExpIterator<'data> {
 
 pub enum RawAnySExpIteratorKind<'data> {
     Text_1_0(RawTextSExpIterator_1_0<'data>),
-    Binary_1_0(RawBinarySequenceIterator<'data>),
+    Binary_1_0(RawBinarySequenceIterator_1_0<'data>),
     Text_1_1(RawTextSequenceCacheIterator_1_1<'data>),
+    Binary_1_1(RawBinarySequenceIterator_1_1<'data>),
 }
 
 impl<'data> Iterator for RawAnySExpIterator<'data> {
@@ -717,6 +856,9 @@ impl<'data> Iterator for RawAnySExpIterator<'data> {
                 .next()
                 .map(|value_result| value_result.map(|value| value.into())),
             RawAnySExpIteratorKind::Text_1_1(i) => i
+                .next()
+                .map(|value_result| value_result.map(|value| value.into())),
+            RawAnySExpIteratorKind::Binary_1_1(i) => i
                 .next()
                 .map(|value_result| value_result.map(|value| value.into())),
         }
@@ -735,6 +877,7 @@ impl<'top> LazyRawSequence<'top, AnyEncoding> for LazyRawAnySExp<'top> {
             LazyRawSExpKind::Text_1_0(s) => s.ion_type(),
             LazyRawSExpKind::Binary_1_0(s) => s.ion_type(),
             LazyRawSExpKind::Text_1_1(s) => s.ion_type(),
+            LazyRawSExpKind::Binary_1_1(s) => s.ion_type(),
         }
     }
 
@@ -749,6 +892,9 @@ impl<'top> LazyRawSequence<'top, AnyEncoding> for LazyRawAnySExp<'top> {
             LazyRawSExpKind::Text_1_1(s) => RawAnySExpIterator {
                 encoding: RawAnySExpIteratorKind::Text_1_1(s.iter()),
             },
+            LazyRawSExpKind::Binary_1_1(s) => RawAnySExpIterator {
+                encoding: RawAnySExpIteratorKind::Binary_1_1(s.iter()),
+            },
         }
     }
 
@@ -757,6 +903,7 @@ impl<'top> LazyRawSequence<'top, AnyEncoding> for LazyRawAnySExp<'top> {
             LazyRawSExpKind::Text_1_0(s) => (s.as_value()).into(),
             LazyRawSExpKind::Binary_1_0(s) => (s.as_value()).into(),
             LazyRawSExpKind::Text_1_1(s) => (s.as_value()).into(),
+            LazyRawSExpKind::Binary_1_1(s) => (s.as_value()).into(),
         }
     }
 }
@@ -769,8 +916,8 @@ impl<'data> From<LazyRawTextSExp_1_0<'data>> for LazyRawAnySExp<'data> {
     }
 }
 
-impl<'data> From<LazyRawBinarySExp<'data>> for LazyRawAnySExp<'data> {
-    fn from(value: LazyRawBinarySExp<'data>) -> Self {
+impl<'data> From<LazyRawBinarySExp_1_0<'data>> for LazyRawAnySExp<'data> {
+    fn from(value: LazyRawBinarySExp_1_0<'data>) -> Self {
         LazyRawAnySExp {
             encoding: LazyRawSExpKind::Binary_1_0(value),
         }
@@ -785,6 +932,14 @@ impl<'data> From<LazyRawTextSExp_1_1<'data>> for LazyRawAnySExp<'data> {
     }
 }
 
+impl<'data> From<LazyRawBinarySExp_1_1<'data>> for LazyRawAnySExp<'data> {
+    fn from(value: LazyRawBinarySExp_1_1<'data>) -> Self {
+        LazyRawAnySExp {
+            encoding: LazyRawSExpKind::Binary_1_1(value),
+        }
+    }
+}
+
 // ===== Structs =====
 
 #[derive(Debug, Copy, Clone)]
@@ -795,8 +950,9 @@ pub struct LazyRawAnyStruct<'data> {
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawStructKind<'data> {
     Text_1_0(LazyRawTextStruct_1_0<'data>),
-    Binary_1_0(LazyRawBinaryStruct<'data>),
+    Binary_1_0(LazyRawBinaryStruct_1_0<'data>),
     Text_1_1(LazyRawTextStruct_1_1<'data>),
+    Binary_1_1(LazyRawBinaryStruct_1_1<'data>),
 }
 
 pub struct RawAnyStructIterator<'data> {
@@ -805,8 +961,9 @@ pub struct RawAnyStructIterator<'data> {
 
 pub enum RawAnyStructIteratorKind<'data> {
     Text_1_0(RawTextStructIterator_1_0<'data>),
-    Binary_1_0(RawBinaryStructIterator<'data>),
+    Binary_1_0(RawBinaryStructIterator_1_0<'data>),
     Text_1_1(RawTextStructCacheIterator_1_1<'data>),
+    Binary_1_1(RawBinaryStructIterator_1_1<'data>),
 }
 
 impl<'data> Iterator for RawAnyStructIterator<'data> {
@@ -821,6 +978,9 @@ impl<'data> Iterator for RawAnyStructIterator<'data> {
                 .next()
                 .map(|field_result| field_result.map(|field| field.into())),
             RawAnyStructIteratorKind::Text_1_1(i) => i
+                .next()
+                .map(|field_result| field_result.map(|field| field.into())),
+            RawAnyStructIteratorKind::Binary_1_1(i) => i
                 .next()
                 .map(|field_result| field_result.map(|field| field.into())),
         }
@@ -875,6 +1035,21 @@ impl<'data> From<LazyRawFieldExpr<'data, TextEncoding_1_1>>
     }
 }
 
+impl<'data> From<LazyRawFieldExpr<'data, BinaryEncoding_1_1>>
+    for LazyRawFieldExpr<'data, AnyEncoding>
+{
+    fn from(binary_field: LazyRawFieldExpr<'data, BinaryEncoding_1_1>) -> Self {
+        let (name, value) = match binary_field {
+            RawFieldExpr::NameValuePair(name, value) => (name, value),
+            RawFieldExpr::MacroInvocation(_) => {
+                todo!("macro invocation in Ion 1.1 binary not implemented")
+            }
+        };
+        // Convert the binary-encoded value into an any-encoded value
+        RawFieldExpr::NameValuePair(name, value.into())
+    }
+}
+
 impl<'data> LazyContainerPrivate<'data, AnyEncoding> for LazyRawAnyStruct<'data> {
     fn from_value(value: LazyRawAnyValue<'data>) -> Self {
         match value.encoding {
@@ -882,10 +1057,13 @@ impl<'data> LazyContainerPrivate<'data, AnyEncoding> for LazyRawAnyStruct<'data>
                 encoding: LazyRawStructKind::Text_1_0(LazyRawTextStruct_1_0::from_value(v)),
             },
             LazyRawValueKind::Binary_1_0(v) => LazyRawAnyStruct {
-                encoding: LazyRawStructKind::Binary_1_0(LazyRawBinaryStruct::from_value(v)),
+                encoding: LazyRawStructKind::Binary_1_0(LazyRawBinaryStruct_1_0::from_value(v)),
             },
             LazyRawValueKind::Text_1_1(v) => LazyRawAnyStruct {
                 encoding: LazyRawStructKind::Text_1_1(LazyRawTextStruct_1_1::from_value(v)),
+            },
+            LazyRawValueKind::Binary_1_1(v) => LazyRawAnyStruct {
+                encoding: LazyRawStructKind::Binary_1_1(LazyRawBinaryStruct_1_1::from_value(v)),
             },
         }
     }
@@ -905,6 +1083,9 @@ impl<'top> LazyRawStruct<'top, AnyEncoding> for LazyRawAnyStruct<'top> {
             LazyRawStructKind::Text_1_1(s) => RawAnyAnnotationsIterator {
                 encoding: RawAnnotationsIteratorKind::Text_1_1(s.annotations()),
             },
+            LazyRawStructKind::Binary_1_1(s) => RawAnyAnnotationsIterator {
+                encoding: RawAnnotationsIteratorKind::Binary_1_1(s.annotations()),
+            },
         }
     }
 
@@ -919,6 +1100,9 @@ impl<'top> LazyRawStruct<'top, AnyEncoding> for LazyRawAnyStruct<'top> {
             LazyRawStructKind::Text_1_1(s) => RawAnyStructIterator {
                 encoding: RawAnyStructIteratorKind::Text_1_1(s.iter()),
             },
+            LazyRawStructKind::Binary_1_1(s) => RawAnyStructIterator {
+                encoding: RawAnyStructIteratorKind::Binary_1_1(s.iter()),
+            },
         }
     }
 }
@@ -931,8 +1115,8 @@ impl<'data> From<LazyRawTextStruct_1_0<'data>> for LazyRawAnyStruct<'data> {
     }
 }
 
-impl<'data> From<LazyRawBinaryStruct<'data>> for LazyRawAnyStruct<'data> {
-    fn from(value: LazyRawBinaryStruct<'data>) -> Self {
+impl<'data> From<LazyRawBinaryStruct_1_0<'data>> for LazyRawAnyStruct<'data> {
+    fn from(value: LazyRawBinaryStruct_1_0<'data>) -> Self {
         LazyRawAnyStruct {
             encoding: LazyRawStructKind::Binary_1_0(value),
         }
@@ -943,6 +1127,14 @@ impl<'data> From<LazyRawTextStruct_1_1<'data>> for LazyRawAnyStruct<'data> {
     fn from(value: LazyRawTextStruct_1_1<'data>) -> Self {
         LazyRawAnyStruct {
             encoding: LazyRawStructKind::Text_1_1(value),
+        }
+    }
+}
+
+impl<'data> From<LazyRawBinaryStruct_1_1<'data>> for LazyRawAnyStruct<'data> {
+    fn from(value: LazyRawBinaryStruct_1_1<'data>) -> Self {
+        LazyRawAnyStruct {
+            encoding: LazyRawStructKind::Binary_1_1(value),
         }
     }
 }

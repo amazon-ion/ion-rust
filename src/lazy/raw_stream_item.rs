@@ -11,7 +11,7 @@ pub enum RawStreamItem<V: Debug, E: Debug> {
     VersionMarker(u8, u8),
     /// An Ion value whose data has not yet been read. For more information about how to read its
     /// data and (in the case of containers) access any nested values, see the documentation
-    /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue).
+    /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0).
     Value(V),
     /// An Ion 1.1+ macro invocation. Ion 1.0 readers will never return a macro invocation.
     EExpression(E),

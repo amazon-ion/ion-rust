@@ -18,7 +18,7 @@ mod lazy_reader_example {
 
     use memmap::MmapOptions;
 
-    use ion_rs::lazy::r#struct::LazyBinaryStruct;
+    use ion_rs::lazy::r#struct::LazyBinaryStruct_1_0 as LazyBinaryStruct;
     use ion_rs::lazy::reader::LazyBinaryReader;
     use ion_rs::lazy::value::LazyBinaryValue;
     use ion_rs::lazy::value_ref::ValueRef;
