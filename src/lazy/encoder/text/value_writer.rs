@@ -1,7 +1,10 @@
+use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::text::LazyRawTextWriter_1_0;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
-use crate::lazy::encoder::value_writer::{delegate_value_writer_to, ValueWriter};
+use crate::lazy::encoder::value_writer::{
+    delegate_value_writer_to, AnnotatableWriter, ValueWriter,
+};
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::never::Never;
@@ -61,20 +64,20 @@ impl<'value, W: Write> TextValueWriter_1_0<'value, W> {
     }
 }
 
-pub struct TextAnnotatedValueWriter_1_0<'value, W: Write, SymbolType: AsRawSymbolTokenRef + 'value>
-{
-    annotations: &'value [SymbolType],
+pub struct TextAnnotatedValueWriter_1_0<'value, W: Write> {
+    annotations: AnnotationsVec<'value>,
     value_writer: TextValueWriter_1_0<'value, W>,
 }
 
-impl<'value, W: Write, SymbolType: AsRawSymbolTokenRef>
-    TextAnnotatedValueWriter_1_0<'value, W, SymbolType>
-{
+impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
     fn encode_annotations(self) -> IonResult<TextValueWriter_1_0<'value, W>> {
         let output = &mut self.value_writer.writer.output;
         for annotation in self.annotations {
             match annotation.as_raw_symbol_token_ref() {
-                RawSymbolTokenRef::Text(token) => write!(output, "{}::", token.as_ref()),
+                RawSymbolTokenRef::Text(token) => {
+                    RawTextWriter::<W>::write_symbol_token(output, token.as_ref())?;
+                    write!(output, "::")
+                }
                 RawSymbolTokenRef::SymbolId(sid) => write!(output, "${sid}::"),
             }?;
         }
@@ -83,10 +86,7 @@ impl<'value, W: Write, SymbolType: AsRawSymbolTokenRef>
     }
 }
 
-impl<'value, W: Write + 'value, SymbolType: AsRawSymbolTokenRef> Sealed
-    for TextAnnotatedValueWriter_1_0<'value, W, SymbolType>
-{
-}
+impl<'value, W: Write + 'value> Sealed for TextAnnotatedValueWriter_1_0<'value, W> {}
 
 impl<'value, W: Write> Sealed for TextValueWriter_1_0<'value, W> {}
 
@@ -105,6 +105,7 @@ struct TextContainerWriter_1_0<'a, W: Write> {
     // used for more informative error messages.
     ion_type: IonType,
     value_delimiter: &'static str,
+    trailing_delimiter: &'static str,
 }
 
 impl<'a, W: Write> Drop for TextContainerWriter_1_0<'a, W> {
@@ -127,6 +128,7 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
         ion_type: IonType,
         opening_delimiter: &str,
         value_delimiter: &'static str,
+        trailing_delimiter: &'static str,
     ) -> IonResult<Self> {
         let space_after_container_start = writer.whitespace_config.space_after_container_start;
         write!(
@@ -139,6 +141,7 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
             ion_type,
             has_been_closed: false,
             value_delimiter,
+            trailing_delimiter,
         })
     }
 
@@ -162,12 +165,13 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
     }
 
     /// Finalizes the container, preventing further values from being written.
-    fn end(mut self, closing_delimiter: &str) -> IonResult<()> {
+    fn close(mut self, closing_delimiter: &str) -> IonResult<()> {
         let space_between_top_level_values =
             self.whitespace_config().space_between_top_level_values;
+        let trailing_delimiter = self.trailing_delimiter;
         write!(
             self.output(),
-            "{closing_delimiter}{space_between_top_level_values}"
+            "{closing_delimiter}{trailing_delimiter}{space_between_top_level_values}"
         )?;
         self.has_been_closed = true;
         Ok(())
@@ -197,9 +201,19 @@ pub struct TextListWriter_1_0<'top, W: Write> {
 }
 
 impl<'top, W: Write> TextListWriter_1_0<'top, W> {
-    pub fn new(writer: &'top mut LazyRawTextWriter_1_0<W>, depth: usize) -> IonResult<Self> {
-        let container_writer =
-            TextContainerWriter_1_0::new(writer, depth, IonType::List, "[", ",")?;
+    pub fn new(
+        writer: &'top mut LazyRawTextWriter_1_0<W>,
+        depth: usize,
+        trailing_delimiter: &'static str,
+    ) -> IonResult<Self> {
+        let container_writer = TextContainerWriter_1_0::new(
+            writer,
+            depth,
+            IonType::List,
+            "[",
+            ",",
+            trailing_delimiter,
+        )?;
         Ok(Self { container_writer })
     }
 
@@ -211,7 +225,7 @@ impl<'top, W: Write> TextListWriter_1_0<'top, W> {
 
     /// Finalizes the list, preventing further values from being written.
     pub fn end(self) -> IonResult<()> {
-        self.container_writer.end("]")?;
+        self.container_writer.close("]")?;
         Ok(())
     }
 }
@@ -242,9 +256,19 @@ pub struct TextSExpWriter_1_0<'a, W: Write> {
 }
 
 impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
-    pub fn new(writer: &'a mut LazyRawTextWriter_1_0<W>, depth: usize) -> IonResult<Self> {
-        let container_writer =
-            TextContainerWriter_1_0::new(writer, depth, IonType::SExp, "(", " ")?;
+    pub fn new(
+        writer: &'a mut LazyRawTextWriter_1_0<W>,
+        depth: usize,
+        trailing_delimiter: &'static str,
+    ) -> IonResult<Self> {
+        let container_writer = TextContainerWriter_1_0::new(
+            writer,
+            depth,
+            IonType::SExp,
+            "(",
+            " ",
+            trailing_delimiter,
+        )?;
         Ok(Self { container_writer })
     }
 
@@ -256,7 +280,7 @@ impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
 
     /// Finalizes the sexp, preventing further values from being written.
     pub fn end(self) -> IonResult<()> {
-        self.container_writer.end(")")?;
+        self.container_writer.close(")")?;
         Ok(())
     }
 }
@@ -289,14 +313,24 @@ pub struct TextStructWriter_1_0<'a, W: Write> {
 }
 
 impl<'a, W: Write> TextStructWriter_1_0<'a, W> {
-    pub fn new(writer: &'a mut LazyRawTextWriter_1_0<W>, depth: usize) -> IonResult<Self> {
-        let container_writer =
-            TextContainerWriter_1_0::new(writer, depth, IonType::Struct, "{", ",")?;
+    pub fn new(
+        writer: &'a mut LazyRawTextWriter_1_0<W>,
+        depth: usize,
+        trailing_delimiter: &'static str,
+    ) -> IonResult<Self> {
+        let container_writer = TextContainerWriter_1_0::new(
+            writer,
+            depth,
+            IonType::Struct,
+            "{",
+            ",",
+            trailing_delimiter,
+        )?;
         Ok(Self { container_writer })
     }
 
     pub fn end(self) -> IonResult<()> {
-        self.container_writer.end("}")?;
+        self.container_writer.close("}")?;
         Ok(())
     }
 }
@@ -332,15 +366,29 @@ impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_0<'value, W> {
 }
 
 impl<'value, W: Write> StructWriter for TextStructWriter_1_0<'value, W> {
-    fn end(self) -> IonResult<()> {
+    fn close(self) -> IonResult<()> {
         self.end()
     }
 }
 
-impl<'value, W: Write + 'value, SymbolType: AsRawSymbolTokenRef> ValueWriter
-    for TextAnnotatedValueWriter_1_0<'value, W, SymbolType>
-{
-    type AnnotatedValueWriter<'a, S: AsRawSymbolTokenRef + 'a> = TextAnnotatedValueWriter_1_0<'a, W, S> where Self: 'a;
+impl<'value, W: Write + 'value> AnnotatableWriter for TextAnnotatedValueWriter_1_0<'value, W> {
+    type AnnotatedValueWriter<'a> = TextAnnotatedValueWriter_1_0<'a, W> where Self: 'a;
+
+    fn with_annotations<'a>(
+        self,
+        annotations: impl AnnotationSeq<'a>,
+    ) -> IonResult<Self::AnnotatedValueWriter<'a>>
+    where
+        Self: 'a,
+    {
+        Ok(TextAnnotatedValueWriter_1_0 {
+            annotations: annotations.into_annotations_vec(),
+            value_writer: self.value_writer,
+        })
+    }
+}
+
+impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_0<'value, W> {
     type ListWriter = TextListWriter_1_0<'value, W>;
     type SExpWriter = TextSExpWriter_1_0<'value, W>;
     type StructWriter = TextStructWriter_1_0<'value, W>;
@@ -349,23 +397,26 @@ impl<'value, W: Write + 'value, SymbolType: AsRawSymbolTokenRef> ValueWriter
     type EExpWriter = Never;
 
     delegate_value_writer_to!(fallible closure |self_: Self| self_.encode_annotations());
+}
 
-    fn with_annotations<'a, S: 'a + AsRawSymbolTokenRef>(
+impl<'value, W: Write> AnnotatableWriter for TextValueWriter_1_0<'value, W> {
+    type AnnotatedValueWriter<'a> = TextAnnotatedValueWriter_1_0<'a, W> where Self: 'a;
+
+    fn with_annotations<'a>(
         self,
-        annotations: &'a [S],
-    ) -> Self::AnnotatedValueWriter<'a, S>
+        annotations: impl AnnotationSeq<'a>,
+    ) -> IonResult<Self::AnnotatedValueWriter<'a>>
     where
         Self: 'a,
     {
-        TextAnnotatedValueWriter_1_0 {
-            annotations,
-            value_writer: self.value_writer,
-        }
+        Ok(TextAnnotatedValueWriter_1_0 {
+            annotations: annotations.into_annotations_vec(),
+            value_writer: self,
+        })
     }
 }
 
 impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
-    type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a> = TextAnnotatedValueWriter_1_0<'a, W, SymbolType> where Self: 'a;
     type ListWriter = TextListWriter_1_0<'value, W>;
     type SExpWriter = TextSExpWriter_1_0<'value, W>;
     type StructWriter = TextStructWriter_1_0<'value, W>;
@@ -492,28 +543,15 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     }
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {
-        TextListWriter_1_0::new(self.writer, self.depth + 1)
+        TextListWriter_1_0::new(self.writer, self.depth + 1, self.value_delimiter)
     }
     fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
-        TextSExpWriter_1_0::new(self.writer, self.depth + 1)
+        TextSExpWriter_1_0::new(self.writer, self.depth + 1, self.value_delimiter)
     }
     fn struct_writer(self) -> IonResult<Self::StructWriter> {
-        TextStructWriter_1_0::new(self.writer, self.depth + 1)
+        TextStructWriter_1_0::new(self.writer, self.depth + 1, self.value_delimiter)
     }
     fn eexp_writer<'a>(self, _macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
         IonResult::encoding_error("macros are not supported in Ion 1.0")
-    }
-
-    fn with_annotations<'a, SymbolType: 'a + AsRawSymbolTokenRef>(
-        self,
-        annotations: &'a [SymbolType],
-    ) -> Self::AnnotatedValueWriter<'a, SymbolType>
-    where
-        Self: 'a,
-    {
-        TextAnnotatedValueWriter_1_0 {
-            annotations,
-            value_writer: self,
-        }
     }
 }

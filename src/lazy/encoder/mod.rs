@@ -9,10 +9,12 @@ use crate::IonResult;
 use value_writer::SequenceWriter;
 
 pub mod annotate;
+pub mod annotation_seq;
 pub mod binary;
 pub mod text;
 pub mod value_writer;
 pub mod write_as_ion;
+pub mod writer;
 
 /// A family of types that collectively comprise the writer API for an Ion serialization
 /// format. These types operate at the 'raw' level; they do not attempt to resolve symbols
@@ -21,14 +23,32 @@ pub mod write_as_ion;
 // However, many types are generic over some `E: LazyEncoder`, and having this trait
 // extend 'static, Sized, Debug, Clone and Copy means that those types can #[derive(...)]
 // those traits themselves without boilerplate `where` clauses.
-pub trait LazyEncoder: 'static + Sized + Debug + Clone + Copy {
+pub trait LazyEncoder: 'static + Encoding + Sized + Debug + Clone + Copy {
     // XXX: ^-- This is named 'Lazy' for symmetry with the `LazyDecoder`. In reality, there's nothing
     //      lazy about it. We should revisit the Lazy* naming scheme, as eventually it will be the
     //      only implementation of a reader and won't need the word 'Lazy' to distinguish itself.
+    const SUPPORTS_TEXT_TOKENS: bool;
+    const DEFAULT_SYMBOL_CREATION_POLICY: SymbolCreationPolicy;
 
     /// A writer that serializes Rust values as Ion, emitting the resulting data to an implementation
     /// of [`Write`].
     type Writer<W: Write>: LazyRawWriter<W>;
+
+    fn default_write_config() -> WriteConfig<Self>;
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum SymbolCreationPolicy {
+    // Prefer a compact encoding; create symbol table entries for all field names, annotations,
+    // and symbol values. For text Ion, this will result in less human-friendly output.
+    RequireSymbolId,
+    // When the encoding supports it, write whatever token (symbol ID or text) that the user provided.
+    // Do not create new symbol table entries.
+    WriteProvidedToken,
+    // TODO: Other potential policies, such as:
+    //         * Require text (if a SID doesn't map to text, it's an error)
+    //         * Wait until the next `flush()` operation to add new symbol definitions in bulk.
+    //         * Using a symbol detection mechanism to intern recurring symbols after `N` usages.
 }
 
 pub(crate) mod private {
@@ -45,11 +65,15 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter<Resources = W> {
     where
         Self: Sized;
     fn flush(&mut self) -> IonResult<()>;
+
+    fn output(&self) -> &W;
+
+    fn output_mut(&mut self) -> &mut W;
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::encoder::annotate::Annotate;
+    use crate::lazy::encoder::annotate::Annotatable;
     use crate::lazy::encoder::text::LazyRawTextWriter_1_0;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::symbol_ref::AsSymbolRef;
@@ -113,17 +137,17 @@ mod tests {
         "#;
         let test = |writer: &mut LazyRawTextWriter_1_0<&mut Vec<u8>>| {
             writer
-                .write(1.annotated_with(&["foo", "bar"]))?
-                .write(false.annotated_with(&["quux", "quuz", "gary"]))?
-                .write(3f32.annotated_with(&["Mercury", "Venus"]))?
-                .write("foo".annotated_with(&["Earth"]))?
-                .write("bar".as_symbol_ref().annotated_with(&["Mars", "Jupiter"]))?
+                .write(1.annotated_with(["foo", "bar"]))?
+                .write(false.annotated_with(["quux", "quuz", "gary"]))?
+                .write(3f32.annotated_with(["Mercury", "Venus"]))?
+                .write("foo".annotated_with(["Earth"]))?
+                .write("bar".as_symbol_ref().annotated_with(["Mars", "Jupiter"]))?
                 .write(
                     Timestamp::with_ymd(2023, 11, 9)
                         .build()?
-                        .annotated_with(&["Saturn"]),
+                        .annotated_with(["Saturn"]),
                 )?
-                .write([0xE0u8, 0x01, 0x00, 0xEA].annotated_with(&["Uranus"]))?;
+                .write([0xE0u8, 0x01, 0x00, 0xEA].annotated_with(["Uranus"]))?;
             Ok(())
         };
         writer_test(expected, test)

@@ -198,7 +198,7 @@ mod example {
                 .write(14, RawSymbolToken::SymbolId(18))? // log level
                 .write(15, RawSymbolToken::SymbolId(19))? // format
                 .write(16, &event.parameters)?;
-            struct_.end()
+            struct_.close()
         }
     }
 

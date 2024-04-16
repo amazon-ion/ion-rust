@@ -11,12 +11,13 @@ use crate::binary::timestamp::TimestampBinaryEncoder;
 use crate::binary::uint;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
+use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::binary::v1_0::container_writers::{
     BinaryListWriter_1_0, BinarySExpWriter_1_0, BinaryStructWriter_1_0,
 };
 use crate::lazy::encoder::private::Sealed;
-use crate::lazy::encoder::value_writer::delegate_value_writer_to_self;
 use crate::lazy::encoder::value_writer::ValueWriter;
+use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
@@ -274,8 +275,25 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
 
 impl<'value, 'top> Sealed for BinaryValueWriter_1_0<'value, 'top> {}
 
+impl<'value, 'top> AnnotatableWriter for BinaryValueWriter_1_0<'value, 'top> {
+    type AnnotatedValueWriter<'a> = BinaryAnnotatedValueWriter_1_0<'a, 'top> where Self: 'a;
+
+    fn with_annotations<'a>(
+        self,
+        annotations: impl AnnotationSeq<'a>,
+    ) -> IonResult<Self::AnnotatedValueWriter<'a>>
+    where
+        Self: 'a,
+    {
+        Ok(BinaryAnnotatedValueWriter_1_0::new(
+            self.allocator,
+            annotations.into_annotations_vec(),
+            self.encoding_buffer,
+        ))
+    }
+}
+
 impl<'value, 'top> ValueWriter for BinaryValueWriter_1_0<'value, 'top> {
-    type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a> = BinaryAnnotatedValueWriter_1_0<'a, 'top, SymbolType> where Self: 'a;
     type ListWriter = BinaryListWriter_1_0<'value, 'top>;
     type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
     type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
@@ -283,32 +301,20 @@ impl<'value, 'top> ValueWriter for BinaryValueWriter_1_0<'value, 'top> {
     type EExpWriter = Never;
 
     delegate_value_writer_to_self!();
-
-    fn with_annotations<'a, SymbolType: 'a + AsRawSymbolTokenRef>(
-        self,
-        annotations: &'a [SymbolType],
-    ) -> Self::AnnotatedValueWriter<'a, SymbolType>
-    where
-        Self: 'a,
-    {
-        BinaryAnnotatedValueWriter_1_0::new(self.allocator, annotations, self.encoding_buffer)
-    }
 }
 
-pub struct BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType: AsRawSymbolTokenRef> {
-    annotations: &'value [SymbolType],
+pub struct BinaryAnnotatedValueWriter_1_0<'value, 'top> {
+    annotations: AnnotationsVec<'value>,
     allocator: &'top BumpAllocator,
     output_buffer: &'value mut BumpVec<'top, u8>,
 }
 
-impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
-    BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType>
-{
+impl<'value, 'top> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
     pub fn new(
         allocator: &'top BumpAllocator,
-        annotations: &'value [SymbolType],
+        annotations: AnnotationsVec<'value>,
         encoding_buffer: &'value mut BumpVec<'top, u8>,
-    ) -> BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType> {
+    ) -> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
         BinaryAnnotatedValueWriter_1_0 {
             annotations,
             allocator,
@@ -340,9 +346,7 @@ macro_rules! annotate_and_delegate_1_0 {
     };
 }
 
-impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
-    BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType>
-{
+impl<'value, 'top> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
     pub(crate) fn annotate_encoded_value(&mut self, encoded_value: &[u8]) -> IonResult<()> {
         let mut encoded_annotations_sequence = BumpVec::new_in(self.allocator);
         self.encode_annotations_sequence(&mut encoded_annotations_sequence)?;
@@ -374,7 +378,7 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
     }
 
     fn encode_annotations_sequence(&self, buffer: &'_ mut BumpVec<'_, u8>) -> IonResult<()> {
-        for annotation in self.annotations {
+        for annotation in &self.annotations {
             let RawSymbolTokenRef::SymbolId(sid) = annotation.as_raw_symbol_token_ref() else {
                 return Err(IonError::Encoding(EncodingError::new(
                     "binary Ion 1.0 cannot encode text literal annotations",
@@ -386,16 +390,29 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
     }
 }
 
-impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> Sealed
-    for BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType>
-{
+impl<'value, 'top> Sealed for BinaryAnnotatedValueWriter_1_0<'value, 'top> {
     // No methods, precludes implementations outside the crate.
 }
 
-impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
-    for BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType>
-{
-    type AnnotatedValueWriter<'a, S: AsRawSymbolTokenRef + 'a> = BinaryAnnotatedValueWriter_1_0<'a, 'top, S> where Self: 'a;
+impl<'value, 'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> {
+    type AnnotatedValueWriter<'a> = BinaryAnnotatedValueWriter_1_0<'a, 'top> where Self: 'a;
+
+    fn with_annotations<'a>(
+        self,
+        annotations: impl AnnotationSeq<'a>,
+    ) -> IonResult<Self::AnnotatedValueWriter<'a>>
+    where
+        Self: 'a,
+    {
+        Ok(BinaryAnnotatedValueWriter_1_0 {
+            annotations: annotations.into_annotations_vec(),
+            allocator: self.allocator,
+            output_buffer: self.output_buffer,
+        })
+    }
+}
+
+impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> {
     type ListWriter = BinaryListWriter_1_0<'value, 'top>;
     type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
     type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
@@ -432,25 +449,11 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
     fn eexp_writer<'a>(self, _macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
         IonResult::encoding_error("binary Ion 1.0 does not support macros")
     }
-
-    fn with_annotations<'a, S: 'a + AsRawSymbolTokenRef>(
-        self,
-        annotations: &'a [S],
-    ) -> Self::AnnotatedValueWriter<'a, S>
-    where
-        Self: 'a,
-    {
-        BinaryAnnotatedValueWriter_1_0 {
-            annotations,
-            allocator: self.allocator,
-            output_buffer: self.output_buffer,
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::encoder::annotate::Annotate;
+    use crate::lazy::encoder::annotate::Annotatable;
     use crate::lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0;
     use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::value_writer::StructWriter;
@@ -572,7 +575,7 @@ mod tests {
     #[test]
     fn write_empty_struct() -> IonResult<()> {
         let expected = "{}";
-        writer_test(expected, |writer| writer.struct_writer()?.end())
+        writer_test(expected, |writer| writer.struct_writer()?.close())
     }
 
     #[test]
@@ -602,7 +605,7 @@ mod tests {
                 .write(5, Timestamp::with_ymd(2023, 11, 9).build()?)?
                 .write(6, [0xE0u8, 0x01, 0x00, 0xEA])?
                 .write(7, [1, 2, 3])?;
-            struct_.end()
+            struct_.close()
         })
     }
 
@@ -621,17 +624,13 @@ mod tests {
         "#;
         writer_test(expected, |writer| {
             writer
-                .write(1.annotated_with(&[4]))?
-                .write(false.annotated_with(&[5]))?
-                .write(3f32.annotated_with(&[6, 7]))?
-                .write("foo".annotated_with(&[8, 5]))?
-                .write(4usize.as_raw_symbol_token_ref().annotated_with(&[1]))?
-                .write(
-                    Timestamp::with_ymd(2023, 11, 9)
-                        .build()?
-                        .annotated_with(&[3]),
-                )?
-                .write((&[0xE0u8, 0x01, 0x00, 0xEA][..]).annotated_with(&[2]))?;
+                .write(1.annotated_with(4))?
+                .write(false.annotated_with([5]))?
+                .write(3f32.annotated_with([6, 7]))?
+                .write("foo".annotated_with([8, 5]))?
+                .write(4usize.as_raw_symbol_token_ref().annotated_with(1))?
+                .write(Timestamp::with_ymd(2023, 11, 9).build()?.annotated_with(3))?
+                .write((&[0xE0u8, 0x01, 0x00, 0xEA][..]).annotated_with(2))?;
             Ok(())
         })
     }
@@ -660,30 +659,30 @@ mod tests {
             writer
                 .write(empty_sequence)?
                 // $4::[]
-                .write(empty_sequence.annotated_with(&[4]))?
+                .write(empty_sequence.annotated_with([4]))?
                 // $4::[1, 2, 3]
-                .write([1, 2, 3].annotated_with(&[4]))?
+                .write([1, 2, 3].annotated_with([4]))?
                 // $4::$7::[1, 2, 3]
-                .write([1, 2, 3].annotated_with(&[4, 7]))?
+                .write([1, 2, 3].annotated_with([4, 7]))?
                 // $4::$7::[
                 //      $4::$7::[1, 2, 3]
                 // ]
-                .write([[1usize, 2, 3].annotated_with(&[4, 7])].annotated_with(&[4, 7]))?
+                .write([[1usize, 2, 3].annotated_with([4, 7])].annotated_with([4, 7]))?
                 // ()
                 .write(empty_sequence.as_sexp())?
                 // $4::()
-                .write(empty_sequence.as_sexp().annotated_with(&[4]))?
+                .write(empty_sequence.as_sexp().annotated_with([4]))?
                 // $4::(1 2 3)
-                .write([1, 2, 3].as_sexp().annotated_with(&[4]))?
+                .write([1, 2, 3].as_sexp().annotated_with([4]))?
                 // $4::$7::()
-                .write(empty_sequence.as_sexp().annotated_with(&[4, 7]))?
+                .write(empty_sequence.as_sexp().annotated_with([4, 7]))?
                 // $4::$7::(
                 //   $4::$7::(1 2 3)
                 // )
                 .write(
-                    [[1, 2, 3].as_sexp().annotated_with(&[4, 7])]
+                    [[1, 2, 3].as_sexp().annotated_with([4, 7])]
                         .as_sexp()
-                        .annotated_with(&[4, 7]),
+                        .annotated_with([4, 7]),
                 )?;
             Ok(())
         })

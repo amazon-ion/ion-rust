@@ -335,7 +335,7 @@ impl<'value, 'top> MakeValueWriter for BinaryStructWriter_1_0<'value, 'top> {
 }
 
 impl<'value, 'top> StructWriter for BinaryStructWriter_1_0<'value, 'top> {
-    fn end(self) -> IonResult<()> {
+    fn close(self) -> IonResult<()> {
         self.container_writer.end()
     }
 }

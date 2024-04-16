@@ -13,7 +13,7 @@ mod null;
 mod sexp;
 mod string;
 mod r#struct;
-mod symbol;
+pub(crate) mod symbol;
 mod timestamp;
 
 pub use crate::types::bytes::Bytes;

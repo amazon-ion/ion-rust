@@ -79,6 +79,8 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
         output.write_all(encoding_buffer)?;
         // Flush the output sink, which may have its own buffers.
         output.flush()?;
+        // Now that we've written the encoding buffer's contents to output, clear it.
+        self.encoding_buffer_ptr = None;
         // Clear the allocator. A new encoding buffer will be allocated on the next write.
         allocator.reset();
         Ok(())
@@ -125,6 +127,14 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_0<W> {
         to self {
             fn flush(&mut self) -> IonResult<()>;
         }
+    }
+
+    fn output(&self) -> &W {
+        &self.output
+    }
+
+    fn output_mut(&mut self) -> &mut W {
+        &mut self.output
     }
 }
 

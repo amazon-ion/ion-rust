@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 /// Stores or points to the text of a given [Symbol].
 #[derive(Debug, Eq)]
-enum SymbolText {
+pub(crate) enum SymbolText {
     // This Symbol refers to a string in the symbol table
     Shared(Arc<str>),
     // This Symbol owns its own text
@@ -79,7 +79,7 @@ impl Ord for SymbolText {
 /// reference to text in a symbol table.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct Symbol {
-    text: SymbolText,
+    pub(crate) text: SymbolText,
 }
 
 impl Symbol {

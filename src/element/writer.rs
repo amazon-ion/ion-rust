@@ -7,6 +7,7 @@ use crate::ion_writer::IonWriter;
 use crate::result::IonResult;
 use crate::{Element, IonType, TextKind, Value};
 
+use crate::lazy::encoding::BinaryEncoding_1_1;
 #[cfg(feature = "experimental-lazy-reader")]
 use {
     crate::lazy::encoder::{LazyEncoder, LazyRawWriter},
@@ -18,6 +19,7 @@ use {
 /// Writer configuration to provide format and Ion version details to writer through encoding
 /// This will be used to create a writer without specifying which writer methods to use
 #[cfg(feature = "experimental-lazy-reader")]
+#[derive(Clone, Debug)]
 pub struct WriteConfig<E: Encoding> {
     pub(crate) kind: WriteConfigKind,
     phantom_data: PhantomData<E>,
@@ -52,6 +54,16 @@ impl WriteConfig<BinaryEncoding_1_0> {
 }
 
 #[cfg(feature = "experimental-lazy-reader")]
+impl WriteConfig<BinaryEncoding_1_1> {
+    pub fn new() -> Self {
+        Self {
+            kind: WriteConfigKind::Binary(BinaryWriteConfig),
+            phantom_data: Default::default(),
+        }
+    }
+}
+
+#[cfg(feature = "experimental-lazy-reader")]
 impl Default for WriteConfig<BinaryEncoding_1_0> {
     fn default() -> Self {
         Self::new()
@@ -59,18 +71,21 @@ impl Default for WriteConfig<BinaryEncoding_1_0> {
 }
 
 /// Writer configuration type enum for text and binary configuration
+#[derive(Clone, Debug)]
 pub(crate) enum WriteConfigKind {
     Text(TextWriteConfig),
     Binary(BinaryWriteConfig),
 }
 
 /// Text writer configuration with text kind to be used to create a writer
+#[derive(Clone, Debug)]
 pub(crate) struct TextWriteConfig {
     text_kind: TextKind,
 }
 
 /// Binary writer configuration to be used to create a writer
 // TODO: Add appropriate binary configuration if required for 1.1
+#[derive(Clone, Debug)]
 pub(crate) struct BinaryWriteConfig;
 
 /// Serializes [`Element`] instances into some kind of output sink.

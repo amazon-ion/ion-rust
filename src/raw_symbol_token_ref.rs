@@ -1,4 +1,5 @@
 use crate::raw_symbol_token::RawSymbolToken;
+use crate::types::symbol::SymbolText;
 use crate::{Symbol, SymbolId};
 use std::borrow::Cow;
 
@@ -77,6 +78,15 @@ impl AsRawSymbolTokenRef for RawSymbolToken {
     }
 }
 
+impl<'a> From<RawSymbolToken> for RawSymbolTokenRef<'a> {
+    fn from(value: RawSymbolToken) -> Self {
+        match value {
+            RawSymbolToken::SymbolId(sid) => RawSymbolTokenRef::SymbolId(sid),
+            RawSymbolToken::Text(text) => RawSymbolTokenRef::Text(text.into()),
+        }
+    }
+}
+
 impl<'a> From<&'a RawSymbolToken> for RawSymbolTokenRef<'a> {
     fn from(value: &'a RawSymbolToken) -> Self {
         value.as_raw_symbol_token_ref()
@@ -95,9 +105,34 @@ impl<'a> From<&'a str> for RawSymbolTokenRef<'a> {
     }
 }
 
+impl<'a> From<&'a &str> for RawSymbolTokenRef<'a> {
+    fn from(value: &'a &str) -> Self {
+        RawSymbolTokenRef::Text(Cow::Borrowed(value))
+    }
+}
+
 impl<'a> From<SymbolId> for RawSymbolTokenRef<'a> {
     fn from(value: SymbolId) -> Self {
         RawSymbolTokenRef::SymbolId(value)
+    }
+}
+
+impl<'a> From<&'a SymbolId> for RawSymbolTokenRef<'a> {
+    fn from(value: &'a SymbolId) -> Self {
+        RawSymbolTokenRef::SymbolId(*value)
+    }
+}
+
+impl<'a> From<Symbol> for RawSymbolTokenRef<'a> {
+    fn from(value: Symbol) -> Self {
+        let Symbol { text } = value;
+        match text {
+            SymbolText::Shared(shared) => {
+                RawSymbolTokenRef::Text(String::from(shared.as_ref()).into())
+            }
+            SymbolText::Owned(owned) => RawSymbolTokenRef::Text(owned.into()),
+            SymbolText::Unknown => RawSymbolTokenRef::SymbolId(0),
+        }
     }
 }
 
