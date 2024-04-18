@@ -20,7 +20,7 @@ use crate::{
     },
     result::IonFailure,
     types::SymbolId,
-    IonResult, IonType, RawSymbolTokenRef,
+    IonError, IonResult, IonType, RawSymbolTokenRef,
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -252,7 +252,13 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a string.
     fn read_string(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        use crate::lazy::str_ref::StrRef;
+
+        debug_assert!(self.encoded_value.ion_type() == IonType::String);
+        let raw_bytes = self.value_body()?;
+        let text = std::str::from_utf8(raw_bytes)
+            .map_err(|_| IonError::decoding_error("found string with invalid UTF-8 data"))?;
+        Ok(RawValueRef::String(StrRef::from(text)))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a blob.
