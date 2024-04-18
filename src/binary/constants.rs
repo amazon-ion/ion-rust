@@ -12,3 +12,8 @@ pub mod v1_0 {
         pub const VAR_UINT: u8 = 14;
     }
 }
+
+pub mod v1_1 {
+    /// Ion Version Marker byte sequence
+    pub const IVM: [u8; 4] = [0xE0, 0x01, 0x01, 0xEA];
+}

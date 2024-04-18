@@ -3,14 +3,43 @@ use crate::types::SymbolId;
 use crate::IonType;
 use std::ops::Range;
 
+pub(crate) trait EncodedHeader: Copy {
+    type TypeCode;
+    fn ion_type(&self) -> IonType;
+    fn type_code(&self) -> Self::TypeCode;
+    fn length_code(&self) -> u8;
+
+    fn is_null(&self) -> bool;
+}
+
+impl EncodedHeader for Header {
+    type TypeCode = crate::binary::type_code::IonTypeCode;
+
+    fn ion_type(&self) -> IonType {
+        self.ion_type
+    }
+
+    fn type_code(&self) -> Self::TypeCode {
+        self.ion_type_code
+    }
+
+    fn length_code(&self) -> u8 {
+        self.length_code
+    }
+
+    fn is_null(&self) -> bool {
+        self.is_null()
+    }
+}
+
 /// Represents the type, offset, and length metadata of the various components of an encoded value
 /// in an input stream.
 ///
-/// Each [`LazyRawValue`](super::raw::value::LazyRawBinaryValue) contains an `EncodedValue`,
+/// Each [`LazyRawValue`](super::raw::value::LazyRawBinaryValue_1_0) contains an `EncodedValue`,
 /// allowing a user to re-read (that is: parse) the body of the value as many times as necessary
 /// without re-parsing its header information each time.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct EncodedValue {
+pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
     // If the compiler decides that a value is too large to be moved/copied with inline code,
     // it will relocate the value using memcpy instead. This can be quite slow by comparison.
     //
@@ -22,7 +51,7 @@ pub(crate) struct EncodedValue {
 
     // The type descriptor byte that identified this value; includes the type code, length code,
     // and IonType.
-    pub(crate) header: Header,
+    pub(crate) header: HeaderType,
 
     // Each encoded value has up to five components, appearing in the following order:
     //
@@ -69,8 +98,8 @@ pub(crate) struct EncodedValue {
     pub total_length: usize,
 }
 
-impl EncodedValue {
-    pub fn header(&self) -> Header {
+impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
+    pub fn header(&self) -> HeaderType {
         self.header
     }
 
@@ -222,7 +251,7 @@ impl EncodedValue {
     }
 
     pub fn ion_type(&self) -> IonType {
-        self.header.ion_type
+        self.header.ion_type()
     }
 }
 

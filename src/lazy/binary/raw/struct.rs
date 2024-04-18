@@ -1,10 +1,12 @@
+#![allow(non_camel_case_types)]
+
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::reader::DataSource;
-use crate::lazy::binary::raw::value::LazyRawBinaryValue;
+use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::private::{
     LazyContainerPrivate, LazyRawFieldPrivate, LazyRawValuePrivate,
 };
@@ -15,20 +17,20 @@ use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::{IonResult, RawSymbolTokenRef};
 
 #[derive(Copy, Clone)]
-pub struct LazyRawBinaryStruct<'top> {
-    pub(crate) value: LazyRawBinaryValue<'top>,
+pub struct LazyRawBinaryStruct_1_0<'top> {
+    pub(crate) value: LazyRawBinaryValue_1_0<'top>,
 }
 
-impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct<'top> {
+impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct_1_0<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_0>>;
-    type IntoIter = RawBinaryStructIterator<'top>;
+    type IntoIter = RawBinaryStructIterator_1_0<'top>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'top> Debug for LazyRawBinaryStruct<'top> {
+impl<'top> Debug for LazyRawBinaryStruct_1_0<'top> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {
@@ -41,27 +43,27 @@ impl<'top> Debug for LazyRawBinaryStruct<'top> {
     }
 }
 
-impl<'top> LazyRawBinaryStruct<'top> {
+impl<'top> LazyRawBinaryStruct_1_0<'top> {
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
         self.value.annotations()
     }
 
-    pub fn iter(&self) -> RawBinaryStructIterator<'top> {
+    pub fn iter(&self) -> RawBinaryStructIterator_1_0<'top> {
         // Get as much of the struct's body as is available in the input buffer.
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
-        RawBinaryStructIterator::new(buffer_slice)
+        RawBinaryStructIterator_1_0::new(buffer_slice)
     }
 }
 
-impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct<'top> {
-    fn from_value(value: LazyRawBinaryValue<'top>) -> Self {
-        LazyRawBinaryStruct { value }
+impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct_1_0<'top> {
+    fn from_value(value: LazyRawBinaryValue_1_0<'top>) -> Self {
+        LazyRawBinaryStruct_1_0 { value }
     }
 }
 
-impl<'top> LazyRawStruct<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct<'top> {
-    type Iterator = RawBinaryStructIterator<'top>;
+impl<'top> LazyRawStruct<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct_1_0<'top> {
+    type Iterator = RawBinaryStructIterator_1_0<'top>;
 
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
         self.annotations()
@@ -72,19 +74,19 @@ impl<'top> LazyRawStruct<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct<'top>
     }
 }
 
-pub struct RawBinaryStructIterator<'top> {
+pub struct RawBinaryStructIterator_1_0<'top> {
     source: DataSource<'top>,
 }
 
-impl<'top> RawBinaryStructIterator<'top> {
-    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinaryStructIterator<'top> {
-        RawBinaryStructIterator {
+impl<'top> RawBinaryStructIterator_1_0<'top> {
+    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinaryStructIterator_1_0<'top> {
+        RawBinaryStructIterator_1_0 {
             source: DataSource::new(input),
         }
     }
 }
 
-impl<'top> Iterator for RawBinaryStructIterator<'top> {
+impl<'top> Iterator for RawBinaryStructIterator_1_0<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -101,11 +103,11 @@ impl<'top> Iterator for RawBinaryStructIterator<'top> {
 
 #[derive(Copy, Clone)]
 pub struct LazyRawBinaryField<'top> {
-    pub(crate) value: LazyRawBinaryValue<'top>,
+    pub(crate) value: LazyRawBinaryValue_1_0<'top>,
 }
 
 impl<'top> LazyRawBinaryField<'top> {
-    pub(crate) fn new(value: LazyRawBinaryValue<'top>) -> Self {
+    pub(crate) fn new(value: LazyRawBinaryValue_1_0<'top>) -> Self {
         LazyRawBinaryField { value }
     }
 
@@ -115,17 +117,17 @@ impl<'top> LazyRawBinaryField<'top> {
         RawSymbolTokenRef::SymbolId(field_id)
     }
 
-    pub fn value(&self) -> LazyRawBinaryValue<'top> {
+    pub fn value(&self) -> LazyRawBinaryValue_1_0<'top> {
         self.value
     }
 
-    pub(crate) fn into_value(self) -> LazyRawBinaryValue<'top> {
+    pub(crate) fn into_value(self) -> LazyRawBinaryValue_1_0<'top> {
         self.value
     }
 }
 
 impl<'top> LazyRawFieldPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryField<'top> {
-    fn into_value(self) -> LazyRawBinaryValue<'top> {
+    fn into_value(self) -> LazyRawBinaryValue_1_0<'top> {
         self.value
     }
 }
@@ -135,7 +137,7 @@ impl<'top> LazyRawField<'top, BinaryEncoding_1_0> for LazyRawBinaryField<'top> {
         LazyRawBinaryField::name(self)
     }
 
-    fn value(&self) -> LazyRawBinaryValue<'top> {
+    fn value(&self) -> LazyRawBinaryValue_1_0<'top> {
         self.value()
     }
 }

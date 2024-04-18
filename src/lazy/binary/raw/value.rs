@@ -1,11 +1,14 @@
+#![allow(non_camel_case_types)]
+
 use crate::binary::int::DecodedInt;
+use crate::binary::non_blocking::type_descriptor::Header;
 use crate::binary::uint::DecodedUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
-use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct;
+use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct_1_0;
 use crate::lazy::binary::raw::sequence::{
-    LazyRawBinaryList, LazyRawBinarySExp, LazyRawBinarySequence,
+    LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0, LazyRawBinarySequence_1_0,
 };
 use crate::lazy::decoder::private::LazyRawValuePrivate;
 use crate::lazy::decoder::LazyRawValue;
@@ -22,7 +25,7 @@ use std::{fmt, mem};
 
 /// A value that has been identified in the input stream but whose data has not yet been read.
 ///
-/// If only part of the value is in the input buffer, calls to [`LazyRawBinaryValue::read`] (which examines
+/// If only part of the value is in the input buffer, calls to [`LazyRawBinaryValue_1_0::read`] (which examines
 /// bytes beyond the value's header) may return [crate::IonError::Incomplete].
 ///
 /// `LazyRawValue`s are "unresolved," which is to say that symbol values, annotations, and
@@ -30,24 +33,24 @@ use std::{fmt, mem};
 /// includes a text definition for these items whenever one exists, see
 /// [`crate::lazy::value::LazyValue`].
 #[derive(Clone, Copy)]
-pub struct LazyRawBinaryValue<'top> {
-    pub(crate) encoded_value: EncodedValue,
+pub struct LazyRawBinaryValue_1_0<'top> {
+    pub(crate) encoded_value: EncodedValue<Header>,
     pub(crate) input: ImmutableBuffer<'top>,
 }
 
-impl<'top> Debug for LazyRawBinaryValue<'top> {
+impl<'top> Debug for LazyRawBinaryValue_1_0<'top> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "LazyRawBinaryValue {{\n  val={:?},\n  buf={:?}\n}}\n",
+            "LazyRawBinaryValue_1_0 {{\n  val={:?},\n  buf={:?}\n}}\n",
             self.encoded_value, self.input
         )
     }
 }
 
-type ValueParseResult<'top, F> = IonResult<RawValueRef<'top, F>>;
+pub type ValueParseResult<'top, F> = IonResult<RawValueRef<'top, F>>;
 
-impl<'top> LazyRawValuePrivate<'top> for LazyRawBinaryValue<'top> {
+impl<'top> LazyRawValuePrivate<'top> for LazyRawBinaryValue_1_0<'top> {
     fn field_name(&self) -> IonResult<RawSymbolTokenRef<'top>> {
         if let Some(field_id) = self.encoded_value.field_id {
             Ok(RawSymbolTokenRef::SymbolId(field_id))
@@ -59,7 +62,7 @@ impl<'top> LazyRawValuePrivate<'top> for LazyRawBinaryValue<'top> {
     }
 }
 
-impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue<'top> {
+impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'top> {
     fn ion_type(&self) -> IonType {
         self.ion_type()
     }
@@ -88,7 +91,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue<'top> {
     }
 }
 
-impl<'top> LazyRawBinaryValue<'top> {
+impl<'top> LazyRawBinaryValue_1_0<'top> {
     /// Indicates the Ion data type of this value. Calling this method does not require additional
     /// parsing of the input stream.
     pub fn ion_type(&self) -> IonType {
@@ -144,7 +147,7 @@ impl<'top> LazyRawBinaryValue<'top> {
 
     /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,
     /// calling this method will not read additional data; the `RawValueRef` will provide a
-    /// [`LazyRawBinarySequence`] or [`LazyStruct`](crate::lazy::struct::LazyStruct)
+    /// [`LazyRawBinarySequence_1_0`] or [`LazyStruct`](crate::lazy::struct::LazyStruct)
     /// that can be traversed to access the container's contents.
     pub fn read(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         if self.is_null() {
@@ -431,12 +434,12 @@ impl<'top> LazyRawBinaryValue<'top> {
     /// Helper method called by [`Self::read`]. Reads the current value as an S-expression.
     fn read_sexp(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::SExp);
-        let lazy_value = LazyRawBinaryValue {
+        let lazy_value = LazyRawBinaryValue_1_0 {
             encoded_value: self.encoded_value,
             input: self.input,
         };
-        let lazy_sequence = LazyRawBinarySequence { value: lazy_value };
-        let lazy_sexp = LazyRawBinarySExp {
+        let lazy_sequence = LazyRawBinarySequence_1_0 { value: lazy_value };
+        let lazy_sexp = LazyRawBinarySExp_1_0 {
             sequence: lazy_sequence,
         };
         Ok(RawValueRef::SExp(lazy_sexp))
@@ -445,12 +448,12 @@ impl<'top> LazyRawBinaryValue<'top> {
     /// Helper method called by [`Self::read`]. Reads the current value as a list.
     fn read_list(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::List);
-        let lazy_value = LazyRawBinaryValue {
+        let lazy_value = LazyRawBinaryValue_1_0 {
             encoded_value: self.encoded_value,
             input: self.input,
         };
-        let lazy_sequence = LazyRawBinarySequence { value: lazy_value };
-        let lazy_list = LazyRawBinaryList {
+        let lazy_sequence = LazyRawBinarySequence_1_0 { value: lazy_value };
+        let lazy_list = LazyRawBinaryList_1_0 {
             sequence: lazy_sequence,
         };
         Ok(RawValueRef::List(lazy_list))
@@ -459,18 +462,18 @@ impl<'top> LazyRawBinaryValue<'top> {
     /// Helper method called by [`Self::read`]. Reads the current value as a struct.
     fn read_struct(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Struct);
-        let lazy_value = LazyRawBinaryValue {
+        let lazy_value = LazyRawBinaryValue_1_0 {
             encoded_value: self.encoded_value,
             input: self.input,
         };
-        let lazy_struct = LazyRawBinaryStruct { value: lazy_value };
+        let lazy_struct = LazyRawBinaryStruct_1_0 { value: lazy_value };
         Ok(RawValueRef::Struct(lazy_struct))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
+    use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::IonResult;
 
@@ -482,7 +485,7 @@ mod tests {
             foo // binary writer will omit the symtab if we don't use a symbol 
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(data);
+        let mut reader = LazyRawBinaryReader_1_0::new(data);
         let _ivm = reader.next()?.expect_ivm()?;
         let value = reader.next()?.expect_value()?;
         let annotations_sequence = value.annotations_sequence();

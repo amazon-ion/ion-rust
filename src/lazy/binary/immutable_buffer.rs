@@ -7,7 +7,7 @@ use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::raw::value::LazyRawBinaryValue;
+use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::result::IonFailure;
@@ -609,7 +609,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Reads a field ID and a value from the buffer.
-    pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawBinaryValue<'a>>> {
+    pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawBinaryValue_1_0<'a>>> {
         let mut input = self;
         if self.is_empty() {
             // We're at the end of the struct
@@ -689,7 +689,7 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
-    pub(crate) fn peek_sequence_value(self) -> IonResult<Option<LazyRawBinaryValue<'a>>> {
+    pub(crate) fn peek_sequence_value(self) -> IonResult<Option<LazyRawBinaryValue_1_0<'a>>> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -711,7 +711,7 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
     /// the next byte (`type_descriptor`) is not a NOP.
-    fn read_value(self, type_descriptor: TypeDescriptor) -> IonResult<LazyRawBinaryValue<'a>> {
+    fn read_value(self, type_descriptor: TypeDescriptor) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
         if type_descriptor.is_annotation_wrapper() {
             self.read_annotated_value(type_descriptor)
         } else {
@@ -724,7 +724,7 @@ impl<'a> ImmutableBuffer<'a> {
     fn read_value_without_annotations(
         self,
         type_descriptor: TypeDescriptor,
-    ) -> IonResult<LazyRawBinaryValue<'a>> {
+    ) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
         let input = self;
         let header = type_descriptor
             .to_header()
@@ -758,7 +758,7 @@ impl<'a> ImmutableBuffer<'a> {
             value_length,
             total_length,
         };
-        let lazy_value = LazyRawBinaryValue {
+        let lazy_value = LazyRawBinaryValue_1_0 {
             encoded_value,
             // If this value has a field ID or annotations, this will be replaced by the caller.
             input: self,
@@ -771,7 +771,7 @@ impl<'a> ImmutableBuffer<'a> {
     fn read_annotated_value(
         self,
         mut type_descriptor: TypeDescriptor,
-    ) -> IonResult<LazyRawBinaryValue<'a>> {
+    ) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
         let input = self;
         let (wrapper, input_after_annotations) = input.read_annotations_wrapper(type_descriptor)?;
         type_descriptor = input_after_annotations.peek_type_descriptor()?;

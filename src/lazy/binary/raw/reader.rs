@@ -1,5 +1,7 @@
+#![allow(non_camel_case_types)]
+
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
-use crate::lazy::binary::raw::value::LazyRawBinaryValue;
+use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::{LazyDecoder, LazyRawReader};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
@@ -8,15 +10,15 @@ use crate::IonResult;
 
 use bumpalo::Bump as BumpAllocator;
 
-/// A binary Ion 1.0 reader that yields [`LazyRawBinaryValue`]s representing the top level values found
+/// A binary Ion 1.0 reader that yields [`LazyRawBinaryValue_1_0`]s representing the top level values found
 /// in the provided input stream.
-pub struct LazyRawBinaryReader<'data> {
+pub struct LazyRawBinaryReader_1_0<'data> {
     data: DataSource<'data>,
 }
 
-impl<'data> LazyRawBinaryReader<'data> {
+impl<'data> LazyRawBinaryReader_1_0<'data> {
     /// Constructs a `LazyRawReader` positioned at the beginning of the provided input stream.
-    pub fn new(data: &'data [u8]) -> LazyRawBinaryReader<'data> {
+    pub fn new(data: &'data [u8]) -> LazyRawBinaryReader_1_0<'data> {
         Self::new_with_offset(data, 0)
     }
 
@@ -24,9 +26,9 @@ impl<'data> LazyRawBinaryReader<'data> {
     /// The provided input stream is itself a slice starting `offset` bytes from the beginning
     /// of a larger data stream. This offset is used for reporting the absolute (stream-level)
     /// position of values encountered in `data`.
-    fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawBinaryReader<'data> {
+    fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawBinaryReader_1_0<'data> {
         let data = DataSource::new(ImmutableBuffer::new_with_offset(data, offset));
-        LazyRawBinaryReader { data }
+        Self { data }
     }
 
     /// Helper method called by [`Self::next`]. Reads the current stream item as an Ion version
@@ -96,13 +98,13 @@ impl<'data> LazyRawBinaryReader<'data> {
     }
 }
 
-impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader<'data> {
+impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0<'data> {
     fn resume_at_offset(
         data: &'data [u8],
         offset: usize,
         _config: <BinaryEncoding_1_0 as LazyDecoder>::ReaderSavedState,
     ) -> Self {
-        LazyRawBinaryReader {
+        LazyRawBinaryReader_1_0 {
             data: DataSource {
                 buffer: ImmutableBuffer::new_with_offset(data, offset),
                 bytes_to_skip: 0,
@@ -167,11 +169,11 @@ impl<'data> DataSource<'data> {
     /// that were consumed.
     /// If it does not succeed, the `DataSource` remains unchanged.
     pub(crate) fn try_parse_next<
-        F: Fn(ImmutableBuffer<'data>) -> IonResult<Option<LazyRawBinaryValue<'data>>>,
+        F: Fn(ImmutableBuffer<'data>) -> IonResult<Option<LazyRawBinaryValue_1_0<'data>>>,
     >(
         &mut self,
         parser: F,
-    ) -> IonResult<Option<LazyRawBinaryValue<'data>>> {
+    ) -> IonResult<Option<LazyRawBinaryValue_1_0<'data>>> {
         let buffer = self.advance_to_next_item()?;
 
         let lazy_value = match parser(buffer) {
@@ -190,7 +192,7 @@ impl<'data> DataSource<'data> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::raw::reader::LazyRawBinaryReader;
+    use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::raw_stream_item::RawStreamItem;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
@@ -204,7 +206,7 @@ mod tests {
             {name:"hi", name: "hello"}
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(data);
+        let mut reader = LazyRawBinaryReader_1_0::new(data);
         let _ivm = reader.next()?.expect_ivm()?;
         let value = reader.next()?.expect_value()?;
         let lazy_struct = value.read()?.expect_struct()?;
@@ -222,7 +224,7 @@ mod tests {
             [1, true, foo]
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(data);
+        let mut reader = LazyRawBinaryReader_1_0::new(data);
         let _ivm = reader.next()?.expect_ivm()?;
         let _symbol_table = reader.next()?.expect_value()?;
         let lazy_list = reader.next()?.expect_value()?.read()?.expect_list()?;
@@ -266,7 +268,7 @@ mod tests {
             {name:"hi", name: "hello"}
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(data);
+        let mut reader = LazyRawBinaryReader_1_0::new(data);
         loop {
             use RawStreamItem::*;
             match reader.next()? {
@@ -289,7 +291,7 @@ mod tests {
             foo::bar::baz::7             
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(data);
+        let mut reader = LazyRawBinaryReader_1_0::new(data);
         let _ivm = reader.next()?.expect_ivm()?;
 
         // Read annotations from $ion_symbol_table::{...}
@@ -324,7 +326,7 @@ mod tests {
             0x0f, // null
         ];
 
-        let mut reader = LazyRawBinaryReader::new(&data);
+        let mut reader = LazyRawBinaryReader_1_0::new(&data);
         let _ivm = reader.next()?.expect_ivm()?;
 
         assert_eq!(
@@ -346,7 +348,7 @@ mod tests {
             0x0f, // null
         ];
 
-        let mut reader = LazyRawBinaryReader::new(&data);
+        let mut reader = LazyRawBinaryReader_1_0::new(&data);
         let _ivm = reader.next()?.expect_ivm()?;
         let _ivm = reader.next()?.expect_ivm()?;
 
