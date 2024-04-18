@@ -1,5 +1,5 @@
 use crate::element::writer::WriteConfigKind;
-use crate::lazy::encoder::binary::v1_1::value_writer::BinaryAnnotatableValueWriter_1_1;
+use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
@@ -86,7 +86,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
 
     // All methods called on the writer are inherently happening at the top level. At the top level,
     // the lifetimes `'value` and `'top` are identical. In this method signature, '_ is used for both.
-    pub(crate) fn value_writer(&mut self) -> BinaryAnnotatableValueWriter_1_1<'_, '_> {
+    pub(crate) fn value_writer(&mut self) -> BinaryValueWriter_1_1<'_, '_> {
         let top_level = match self.encoding_buffer_ptr {
             // If the `encoding_buffer_ptr` is set, we already allocated an encoding buffer on
             // a previous call to `value_writer()`. Dereference the pointer and continue encoding
@@ -104,9 +104,12 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
                 buffer
             }
         };
-        let annotated_value_writer =
-            BinaryAnnotatableValueWriter_1_1::new(&self.allocator, top_level);
-        annotated_value_writer
+        BinaryValueWriter_1_1::new(
+            &self.allocator,
+            top_level,
+            // By default, writers use length-prefixed encodings.
+            false,
+        )
     }
 }
 
@@ -137,7 +140,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_1<W> {
 }
 
 impl<W: Write> MakeValueWriter for LazyRawBinaryWriter_1_1<W> {
-    type ValueWriter<'a> = BinaryAnnotatableValueWriter_1_1<'a, 'a> where Self: 'a;
+    type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'a> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         self.value_writer()
@@ -145,5 +148,10 @@ impl<W: Write> MakeValueWriter for LazyRawBinaryWriter_1_1<W> {
 }
 
 impl<W: Write> SequenceWriter for LazyRawBinaryWriter_1_1<W> {
-    // Uses the default method implementations from SequenceWriter
+    type Resources = W;
+
+    fn close(mut self) -> IonResult<Self::Resources> {
+        self.flush()?;
+        Ok(self.output)
+    }
 }

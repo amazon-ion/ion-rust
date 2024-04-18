@@ -3,7 +3,6 @@ use std::mem;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use bytes::BufMut;
-use delegate::delegate;
 use num_bigint::Sign;
 use num_traits::Zero;
 
@@ -13,13 +12,11 @@ use crate::binary::uint;
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::encoder::binary::v1_0::container_writers::{
-    BinaryContainerWriter_1_0, BinaryListWriter_1_0, BinarySExpWriter_1_0, BinaryStructWriter_1_0,
+    BinaryListWriter_1_0, BinarySExpWriter_1_0, BinaryStructWriter_1_0,
 };
-use crate::lazy::encoder::container_fn::{ListFn, MacroArgsFn, SExpFn, StructFn};
 use crate::lazy::encoder::private::Sealed;
-use crate::lazy::encoder::value_writer::{
-    delegate_value_writer_to, AnnotatableValueWriter, ValueWriter,
-};
+use crate::lazy::encoder::value_writer::delegate_value_writer_to_self;
+use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
@@ -67,7 +64,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         self.encoding_buffer.as_slice()
     }
 
-    pub fn write_symbol_id(&mut self, symbol_id: SymbolId) -> IonResult<()> {
+    pub fn write_symbol_id(mut self, symbol_id: SymbolId) -> IonResult<()> {
         const SYMBOL_BUFFER_SIZE: usize = mem::size_of::<u64>();
         let mut buffer = [0u8; SYMBOL_BUFFER_SIZE];
         let mut writer = std::io::Cursor::new(&mut buffer).writer();
@@ -87,7 +84,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_lob(&mut self, value: &[u8], type_code: u8) -> IonResult<()> {
+    pub fn write_lob(mut self, value: &[u8], type_code: u8) -> IonResult<()> {
         let encoded_length = value.len();
         let type_descriptor: u8;
         if encoded_length <= MAX_INLINE_LENGTH {
@@ -102,7 +99,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_null(&mut self, ion_type: IonType) -> IonResult<()> {
+    pub fn write_null(mut self, ion_type: IonType) -> IonResult<()> {
         let byte: u8 = match ion_type {
             IonType::Null => 0x0F,
             IonType::Bool => 0x1F,
@@ -122,13 +119,13 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_bool(&mut self, value: bool) -> IonResult<()> {
+    pub fn write_bool(mut self, value: bool) -> IonResult<()> {
         let byte: u8 = if value { 0x11 } else { 0x10 };
         self.push_byte(byte);
         Ok(())
     }
 
-    pub fn write_i64(&mut self, value: i64) -> IonResult<()> {
+    pub fn write_i64(mut self, value: i64) -> IonResult<()> {
         // Get the absolute value of the i64 and store it in a u64.
         let magnitude: u64 = value.unsigned_abs();
         let encoded = uint::encode_u64(magnitude);
@@ -148,7 +145,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_int(&mut self, value: &Int) -> IonResult<()> {
+    pub fn write_int(mut self, value: &Int) -> IonResult<()> {
         // If the `value` is an `i64`, use `write_i64` and return.
         let value = match &value.data {
             IntData::I64(i) => return self.write_i64(*i),
@@ -183,7 +180,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_f32(&mut self, value: f32) -> IonResult<()> {
+    pub fn write_f32(mut self, value: f32) -> IonResult<()> {
         if value == 0f32 && !value.is_sign_negative() {
             self.push_byte(0x40);
             return Ok(());
@@ -194,7 +191,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_f64(&mut self, value: f64) -> IonResult<()> {
+    pub fn write_f64(mut self, value: f64) -> IonResult<()> {
         if value == 0f64 && !value.is_sign_negative() {
             self.push_byte(0x40);
             return Ok(());
@@ -205,17 +202,17 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_decimal(&mut self, value: &Decimal) -> IonResult<()> {
+    pub fn write_decimal(self, value: &Decimal) -> IonResult<()> {
         let _encoded_size = self.encoding_buffer.encode_decimal_value(value)?;
         Ok(())
     }
 
-    pub fn write_timestamp(&mut self, value: &Timestamp) -> IonResult<()> {
+    pub fn write_timestamp(self, value: &Timestamp) -> IonResult<()> {
         let _ = self.encoding_buffer.encode_timestamp_value(value)?;
         Ok(())
     }
 
-    pub fn write_string<A: AsRef<str>>(&mut self, value: A) -> IonResult<()> {
+    pub fn write_string<A: AsRef<str>>(mut self, value: A) -> IonResult<()> {
         let text: &str = value.as_ref();
         let encoded_length = text.len(); // The number of utf8 bytes
 
@@ -232,7 +229,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
+    pub fn write_symbol<A: AsRawSymbolTokenRef>(self, value: A) -> IonResult<()> {
         match value.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(sid) => self.write_symbol_id(sid),
             RawSymbolTokenRef::Text(text) => IonResult::illegal_operation(format!(
@@ -241,131 +238,36 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         }
     }
 
-    pub fn write_clob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
+    pub fn write_clob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()> {
         let bytes: &[u8] = value.as_ref();
         // The clob type descriptor's high nibble is type code 9
         self.write_lob(bytes, 0x90)
     }
 
-    pub fn write_blob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
+    pub fn write_blob<A: AsRef<[u8]>>(self, value: A) -> IonResult<()> {
         let bytes: &[u8] = value.as_ref();
         // The blob type descriptor's high nibble is type code 10 (0xA)
         self.write_lob(bytes, 0xA0)
     }
 
-    fn sexp_writer(&mut self) -> BinarySExpWriter_1_0<'_, 'top> {
-        const SEXP_TYPE_CODE: u8 = 0xC0;
-        BinarySExpWriter_1_0::new(BinaryContainerWriter_1_0::new(
-            SEXP_TYPE_CODE,
+    fn list_writer(self) -> IonResult<BinaryListWriter_1_0<'value, 'top>> {
+        Ok(BinaryListWriter_1_0::new(
             self.allocator,
             self.encoding_buffer,
         ))
     }
 
-    fn struct_writer(&mut self) -> BinaryStructWriter_1_0<'_, 'top> {
-        const STRUCT_TYPE_CODE: u8 = 0xD0;
-        BinaryStructWriter_1_0::new(BinaryContainerWriter_1_0::new(
-            STRUCT_TYPE_CODE,
+    fn sexp_writer(self) -> IonResult<BinarySExpWriter_1_0<'value, 'top>> {
+        Ok(BinarySExpWriter_1_0::new(
             self.allocator,
             self.encoding_buffer,
         ))
     }
 
-    fn write_list(&mut self, list_fn: impl ListFn<Self>) -> IonResult<()> {
-        const LIST_TYPE_CODE: u8 = 0xB0;
-        let child_encoding_buffer = self.allocator.alloc_with(|| {
-            BumpVec::with_capacity_in(DEFAULT_CONTAINER_BUFFER_SIZE, self.allocator)
-        });
-        // Create a BinaryListWriter_1_0 to pass to the user's closure.
-        let mut list_writer = BinaryListWriter_1_0::new(BinaryContainerWriter_1_0::new(
-            LIST_TYPE_CODE,
+    fn struct_writer(self) -> IonResult<BinaryStructWriter_1_0<'value, 'top>> {
+        Ok(BinaryStructWriter_1_0::new(
             self.allocator,
-            child_encoding_buffer,
-        ));
-        // Pass it to the closure, allowing the user to encode child values.
-        list_fn(&mut list_writer)?;
-        // Write the appropriate opcode for a list of this length.
-        let encoded_length = list_writer.buffer().len();
-        match encoded_length {
-            0..=15 => {
-                let opcode = 0xB0 | encoded_length as u8;
-                self.push_byte(opcode);
-            }
-            _ => {
-                let opcode = 0xBE; // List w/VarUInt length
-                self.push_byte(opcode);
-                VarUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
-            }
-        }
-        self.push_bytes(list_writer.buffer());
-        Ok(())
-    }
-    fn write_sexp(&mut self, sexp_fn: impl SExpFn<Self>) -> IonResult<()> {
-        const SEXP_TYPE_CODE: u8 = 0xC0;
-        let child_encoding_buffer = self.allocator.alloc_with(|| {
-            BumpVec::with_capacity_in(DEFAULT_CONTAINER_BUFFER_SIZE, self.allocator)
-        });
-        // Create a BinarySExpWriter_1_0 to pass to the user's closure.
-        let mut sexp_writer = BinarySExpWriter_1_0::new(BinaryContainerWriter_1_0::new(
-            SEXP_TYPE_CODE,
-            self.allocator,
-            child_encoding_buffer,
-        ));
-        // Pass it to the closure, allowing the user to encode child values.
-        sexp_fn(&mut sexp_writer)?;
-        // Write the appropriate opcode for a sexp of this length.
-        let encoded_length = sexp_writer.buffer().len();
-        match encoded_length {
-            0..=15 => {
-                let opcode = 0xC0 | encoded_length as u8;
-                self.push_byte(opcode);
-            }
-            _ => {
-                let opcode = 0xCE; // SExp w/VarUInt length
-                self.push_byte(opcode);
-                VarUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
-            }
-        }
-        self.push_bytes(sexp_writer.buffer());
-        Ok(())
-    }
-    fn write_struct(&mut self, struct_fn: impl StructFn<Self>) -> IonResult<()> {
-        const STRUCT_TYPE_CODE: u8 = 0xD0;
-        let child_encoding_buffer = self.allocator.alloc_with(|| {
-            BumpVec::with_capacity_in(DEFAULT_CONTAINER_BUFFER_SIZE, self.allocator)
-        });
-        // Create a BinarySExpWriter_1_0 to pass to the user's closure.
-        let mut struct_writer = BinaryStructWriter_1_0::new(BinaryContainerWriter_1_0::new(
-            STRUCT_TYPE_CODE,
-            self.allocator,
-            child_encoding_buffer,
-        ));
-        // Pass it to the closure, allowing the user to encode child values.
-        struct_fn(&mut struct_writer)?;
-        // Write the appropriate opcode for a struct of this length.
-        let encoded_length = struct_writer.buffer().len();
-        match encoded_length {
-            0..=15 => {
-                let opcode = 0xD0 | encoded_length as u8;
-                self.push_byte(opcode);
-            }
-            _ => {
-                let opcode = 0xDE; // Struct w/VarUInt length
-                self.push_byte(opcode);
-                VarUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
-            }
-        }
-        self.push_bytes(struct_writer.buffer());
-        Ok(())
-    }
-    fn write_eexp<'macro_id>(
-        &mut self,
-        macro_id: impl Into<MacroIdRef<'macro_id>>,
-        _macro_fn: impl MacroArgsFn<Self>,
-    ) -> IonResult<()> {
-        let id = macro_id.into();
-        IonResult::encoding_error(format!(
-            "attempted to call macro {id:?}; macros are not supported in Ion 1.0"
+            self.encoding_buffer,
         ))
     }
 }
@@ -373,83 +275,41 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
 impl<'value, 'top> Sealed for BinaryValueWriter_1_0<'value, 'top> {}
 
 impl<'value, 'top> ValueWriter for BinaryValueWriter_1_0<'value, 'top> {
+    type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a> = BinaryAnnotatedValueWriter_1_0<'a, 'top, SymbolType> where Self: 'a;
     type ListWriter = BinaryListWriter_1_0<'value, 'top>;
     type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
     type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
 
-    type MacroArgsWriter = Never;
+    type EExpWriter = Never;
 
-    delegate_value_writer_to!(closure |_self: Self| BinaryValueWriterRef_1_0(_self));
-}
+    delegate_value_writer_to_self!();
 
-// TODO: Doc comment
-pub(crate) struct BinaryValueWriterRef_1_0<'value, 'top>(
-    pub(crate) BinaryValueWriter_1_0<'value, 'top>,
-);
-
-impl<'value, 'top> ValueWriter for &mut BinaryValueWriterRef_1_0<'value, 'top> {
-    type ListWriter = BinaryListWriter_1_0<'value, 'top>;
-    type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
-    type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
-    type MacroArgsWriter = Never;
-
-    delegate_value_writer_to!(closure |self_: Self| &mut self_.0);
-}
-
-pub struct BinaryAnnotatableValueWriter_1_0<'value, 'top> {
-    allocator: &'top BumpAllocator,
-    encoding_buffer: &'value mut BumpVec<'top, u8>,
-}
-
-impl<'value, 'top> BinaryAnnotatableValueWriter_1_0<'value, 'top> {
-    pub fn new(
-        allocator: &'top BumpAllocator,
-        encoding_buffer: &'value mut BumpVec<'top, u8>,
-    ) -> BinaryAnnotatableValueWriter_1_0<'value, 'top> {
-        BinaryAnnotatableValueWriter_1_0 {
-            allocator,
-            encoding_buffer,
-        }
-    }
-}
-
-impl<'value, 'top: 'value> AnnotatableValueWriter
-    for BinaryAnnotatableValueWriter_1_0<'value, 'top>
-{
-    type ValueWriter = BinaryValueWriter_1_0<'value, 'top>;
-    type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a> =
-    BinaryAnnotationsWrapperWriter<'a, 'top, SymbolType> where Self: 'a;
-    fn with_annotations<'a, SymbolType: AsRawSymbolTokenRef>(
+    fn with_annotations<'a, SymbolType: 'a + AsRawSymbolTokenRef>(
         self,
         annotations: &'a [SymbolType],
     ) -> Self::AnnotatedValueWriter<'a, SymbolType>
     where
         Self: 'a,
     {
-        BinaryAnnotationsWrapperWriter::new(self.allocator, annotations, self.encoding_buffer)
-    }
-
-    #[inline(always)]
-    fn without_annotations(self) -> BinaryValueWriter_1_0<'value, 'top> {
-        BinaryValueWriter_1_0::new(self.allocator, self.encoding_buffer)
+        BinaryAnnotatedValueWriter_1_0::new(self.allocator, annotations, self.encoding_buffer)
     }
 }
 
-pub struct BinaryAnnotationsWrapperWriter<'value, 'top, SymbolType: AsRawSymbolTokenRef> {
+pub struct BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType: AsRawSymbolTokenRef> {
     annotations: &'value [SymbolType],
     allocator: &'top BumpAllocator,
     output_buffer: &'value mut BumpVec<'top, u8>,
 }
 
 impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
-    BinaryAnnotationsWrapperWriter<'value, 'top, SymbolType>
+    BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType>
 {
     pub fn new(
         allocator: &'top BumpAllocator,
         annotations: &'value [SymbolType],
         encoding_buffer: &'value mut BumpVec<'top, u8>,
-    ) -> BinaryAnnotationsWrapperWriter<'value, 'top, SymbolType> {
-        BinaryAnnotationsWrapperWriter {
+    ) -> BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType> {
+        BinaryAnnotatedValueWriter_1_0 {
             annotations,
             allocator,
             output_buffer: encoding_buffer,
@@ -465,13 +325,13 @@ macro_rules! annotate_and_delegate_1_0 {
     () => {};
     // Recurses one argument pair at a time
     ($value_type:ty => $method:ident, $($rest:tt)*) => {
-        fn $method(self, value: $value_type) -> IonResult<()> {
+        fn $method(mut self, value: $value_type) -> IonResult<()> {
             let allocator = self.allocator;
-            let buffer = allocator.alloc_with(|| BumpVec::new_in(allocator));
+            let mut buffer = BumpVec::new_in(allocator);
             let value_writer =
                 $crate::lazy::encoder::binary::v1_0::value_writer::BinaryValueWriter_1_0::new(
                     self.allocator,
-                    buffer,
+                    &mut buffer,
                 );
             value_writer.$method(value)?;
             self.annotate_encoded_value(buffer.as_slice())
@@ -480,39 +340,10 @@ macro_rules! annotate_and_delegate_1_0 {
     };
 }
 
-trait EncodeValueFn<V>: FnOnce(&mut V) -> IonResult<()>
-where
-    for<'a> &'a mut V: ValueWriter,
-{
-    fn encode_value(self, value_writer: &mut V) -> IonResult<()>;
-}
-
-impl<V, F> EncodeValueFn<V> for F
-where
-    F: FnOnce(&mut V) -> IonResult<()>,
-    for<'a> &'a mut V: ValueWriter,
-{
-    fn encode_value(self, value_writer: &mut V) -> IonResult<()> {
-        self(value_writer)
-    }
-}
-
 impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
-    BinaryAnnotationsWrapperWriter<'value, 'top, SymbolType>
+    BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType>
 {
-    fn encode_annotated(
-        self,
-        encode_value_fn: impl EncodeValueFn<BinaryValueWriterRef_1_0<'value, 'top>>,
-    ) -> IonResult<()> {
-        let allocator = self.allocator;
-        let buffer = allocator.alloc_with(|| BumpVec::new_in(allocator));
-        let value_writer = BinaryValueWriter_1_0::new(self.allocator, buffer);
-        let vw_ref = &mut BinaryValueWriterRef_1_0(value_writer);
-        encode_value_fn.encode_value(vw_ref)?;
-        self.annotate_encoded_value(vw_ref.0.buffer())
-    }
-
-    pub(crate) fn annotate_encoded_value(self, encoded_value: &[u8]) -> IonResult<()> {
+    pub(crate) fn annotate_encoded_value(&mut self, encoded_value: &[u8]) -> IonResult<()> {
         let mut encoded_annotations_sequence = BumpVec::new_in(self.allocator);
         self.encode_annotations_sequence(&mut encoded_annotations_sequence)?;
 
@@ -556,21 +387,21 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef>
 }
 
 impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> Sealed
-    for BinaryAnnotationsWrapperWriter<'value, 'top, SymbolType>
+    for BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType>
 {
     // No methods, precludes implementations outside the crate.
 }
 
 impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
-    for BinaryAnnotationsWrapperWriter<'value, 'top, SymbolType>
+    for BinaryAnnotatedValueWriter_1_0<'value, 'top, SymbolType>
 {
+    type AnnotatedValueWriter<'a, S: AsRawSymbolTokenRef + 'a> = BinaryAnnotatedValueWriter_1_0<'a, 'top, S> where Self: 'a;
     type ListWriter = BinaryListWriter_1_0<'value, 'top>;
     type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
-
     type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
 
     // Ion 1.0
-    type MacroArgsWriter = Never;
+    type EExpWriter = Never;
 
     annotate_and_delegate_1_0!(
         IonType => write_null,
@@ -586,25 +417,34 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
         impl AsRef<[u8]> => write_clob,
         impl AsRef<[u8]> => write_blob,
     );
-    fn write_list(self, list_fn: impl ListFn<Self>) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_list(list_fn))
+    fn list_writer(self) -> IonResult<Self::ListWriter> {
+        BinaryListWriter_1_0::new(self.allocator, self.output_buffer)
+            .with_annotations(self.annotations)
     }
-    fn write_sexp(self, sexp_fn: impl SExpFn<Self>) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_sexp(sexp_fn))
+    fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
+        BinarySExpWriter_1_0::new(self.allocator, self.output_buffer)
+            .with_annotations(self.annotations)
     }
-    fn write_struct(self, struct_fn: impl StructFn<Self>) -> IonResult<()> {
-        self.encode_annotated(|value_writer| value_writer.write_struct(struct_fn))
+    fn struct_writer(self) -> IonResult<Self::StructWriter> {
+        BinaryStructWriter_1_0::new(self.allocator, self.output_buffer)
+            .with_annotations(self.annotations)
+    }
+    fn eexp_writer<'a>(self, _macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
+        IonResult::encoding_error("binary Ion 1.0 does not support macros")
     }
 
-    fn write_eexp<'macro_id>(
+    fn with_annotations<'a, S: 'a + AsRawSymbolTokenRef>(
         self,
-        macro_id: impl Into<MacroIdRef<'macro_id>>,
-        _macro_fn: impl MacroArgsFn<Self>,
-    ) -> IonResult<()> {
-        let id = macro_id.into();
-        IonResult::encoding_error(format!(
-            "attempted to call macro {id:?}; macros are not supported in Ion 1.0"
-        ))
+        annotations: &'a [S],
+    ) -> Self::AnnotatedValueWriter<'a, S>
+    where
+        Self: 'a,
+    {
+        BinaryAnnotatedValueWriter_1_0 {
+            annotations,
+            allocator: self.allocator,
+            output_buffer: self.output_buffer,
+        }
     }
 }
 
@@ -612,7 +452,6 @@ impl<'value, 'top, SymbolType: AsRawSymbolTokenRef> ValueWriter
 mod tests {
     use crate::lazy::encoder::annotate::Annotate;
     use crate::lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0;
-    use crate::lazy::encoder::value_writer::AnnotatableValueWriter;
     use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::value_writer::StructWriter;
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
@@ -621,13 +460,12 @@ mod tests {
 
     fn writer_test(
         expected: &str,
-        mut test: impl FnMut(&mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>) -> IonResult<()>,
+        test: impl FnOnce(&mut LazyRawBinaryWriter_1_0<Vec<u8>>) -> IonResult<()>,
     ) -> IonResult<()> {
         let expected = Element::read_all(expected)?;
-        let mut buffer = Vec::new();
-        let mut writer = LazyRawBinaryWriter_1_0::new(&mut buffer)?;
+        let mut writer = LazyRawBinaryWriter_1_0::new(Vec::new())?;
         test(&mut writer)?;
-        writer.flush()?;
+        let buffer = writer.close()?;
         let actual = Element::read_all(buffer)?;
         assert!(
             IonData::eq(&expected, &actual),
@@ -647,7 +485,8 @@ mod tests {
             2023-11-09T
             {{4AEA6g==}}
         "#;
-        let test = |writer: &mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>| {
+
+        writer_test(expected, |writer| {
             writer
                 .write(1)?
                 .write(false)?
@@ -657,20 +496,13 @@ mod tests {
                 .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
                 .write([0xE0u8, 0x01, 0x00, 0xEA])?;
             Ok(())
-        };
-        writer_test(expected, test)
+        })
     }
 
     #[test]
     fn write_empty_list() -> IonResult<()> {
         let expected = "[]";
-        let test = |writer: &mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>| {
-            let value_writer = writer.value_writer();
-            value_writer
-                .without_annotations()
-                .write_list(|_list| Ok(()))
-        };
-        writer_test(expected, test)
+        writer_test(expected, |writer| writer.list_writer()?.close())
     }
 
     #[test]
@@ -688,35 +520,24 @@ mod tests {
                 [1, 2, 3],
             ]
         "#;
-        let test = |writer: &mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>| {
-            writer
-                .value_writer()
-                .without_annotations()
-                .write_list(|list| {
-                    list.write(1)?
-                        .write(false)?
-                        .write(3f32)?
-                        .write("foo")?
-                        .write(RawSymbolTokenRef::SymbolId(4))?
-                        .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
-                        .write([0xE0u8, 0x01, 0x00, 0xEA])?
-                        .write([1, 2, 3])?;
-                    Ok(())
-                })
-        };
-        writer_test(expected, test)
+        writer_test(expected, |writer| {
+            let mut list = writer.list_writer()?;
+            list.write(1)?
+                .write(false)?
+                .write(3f32)?
+                .write("foo")?
+                .write(RawSymbolTokenRef::SymbolId(4))?
+                .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
+                .write([0xE0u8, 0x01, 0x00, 0xEA])?
+                .write([1, 2, 3])?;
+            list.close()
+        })
     }
 
     #[test]
     fn write_empty_sexp() -> IonResult<()> {
         let expected = "()";
-        let test = |writer: &mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>| {
-            writer
-                .value_writer()
-                .without_annotations()
-                .write_sexp(|_sexp| Ok(()))
-        };
-        writer_test(expected, test)
+        writer_test(expected, |writer| writer.sexp_writer()?.close())
     }
 
     #[test]
@@ -734,35 +555,24 @@ mod tests {
                 [1, 2, 3]
             )
         "#;
-        let test = |writer: &mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>| {
-            writer
-                .value_writer()
-                .without_annotations()
-                .write_sexp(|sexp| {
-                    sexp.write(1)?
-                        .write(false)?
-                        .write(3f32)?
-                        .write("foo")?
-                        .write(RawSymbolTokenRef::SymbolId(4))?
-                        .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
-                        .write([0xE0u8, 0x01, 0x00, 0xEA])?
-                        .write([1, 2, 3])?;
-                    Ok(())
-                })
-        };
-        writer_test(expected, test)
+        writer_test(expected, |writer| {
+            let mut sexp = writer.sexp_writer()?;
+            sexp.write(1)?
+                .write(false)?
+                .write(3f32)?
+                .write("foo")?
+                .write(RawSymbolTokenRef::SymbolId(4))?
+                .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
+                .write([0xE0u8, 0x01, 0x00, 0xEA])?
+                .write([1, 2, 3])?;
+            sexp.close()
+        })
     }
 
     #[test]
     fn write_empty_struct() -> IonResult<()> {
         let expected = "{}";
-        let test = |writer: &mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>| {
-            writer
-                .value_writer()
-                .without_annotations()
-                .write_struct(|_struct| Ok(()))
-        };
-        writer_test(expected, test)
+        writer_test(expected, |writer| writer.struct_writer()?.end())
     }
 
     #[test]
@@ -781,24 +591,19 @@ mod tests {
                 $7: [1, 2, 3],
             }
         "#;
-        let test = |writer: &mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>| {
-            writer
-                .value_writer()
-                .without_annotations()
-                .write_struct(|struct_| {
-                    struct_
-                        .write(0, 1)?
-                        .write(1, false)?
-                        .write(2, 3f32)?
-                        .write(3, "foo")?
-                        .write(4, RawSymbolTokenRef::SymbolId(4))?
-                        .write(5, Timestamp::with_ymd(2023, 11, 9).build()?)?
-                        .write(6, [0xE0u8, 0x01, 0x00, 0xEA])?
-                        .write(7, [1, 2, 3])?;
-                    Ok(())
-                })
-        };
-        writer_test(expected, test)
+        writer_test(expected, |writer| {
+            let mut struct_ = writer.struct_writer()?;
+            struct_
+                .write(0, 1)?
+                .write(1, false)?
+                .write(2, 3f32)?
+                .write(3, "foo")?
+                .write(4, RawSymbolTokenRef::SymbolId(4))?
+                .write(5, Timestamp::with_ymd(2023, 11, 9).build()?)?
+                .write(6, [0xE0u8, 0x01, 0x00, 0xEA])?
+                .write(7, [1, 2, 3])?;
+            struct_.end()
+        })
     }
 
     #[test]
@@ -814,7 +619,7 @@ mod tests {
             $ion_symbol_table::2023-11-09T
             $ion_1_0::{{4AEA6g==}}
         "#;
-        let test = |writer: &mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>| {
+        writer_test(expected, |writer| {
             writer
                 .write(1.annotated_with(&[4]))?
                 .write(false.annotated_with(&[5]))?
@@ -828,8 +633,7 @@ mod tests {
                 )?
                 .write((&[0xE0u8, 0x01, 0x00, 0xEA][..]).annotated_with(&[2]))?;
             Ok(())
-        };
-        writer_test(expected, test)
+        })
     }
 
     #[test]
@@ -850,48 +654,38 @@ mod tests {
                 $4::$7::(1 2 3)
             )
         "#;
-        let test = |writer: &mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>| {
+        writer_test(expected, |writer| {
             let empty_sequence: &[i32] = &[];
             // []
-            writer.write(empty_sequence)?;
-
-            // $4::[]
-            writer.write(empty_sequence.annotated_with(&[4]))?;
-
-            // $4::[1, 2, 3]
-            writer.write([1, 2, 3].annotated_with(&[4]))?;
-
-            // $4::$7::[1, 2, 3]
-            writer.write([1, 2, 3].annotated_with(&[4, 7]))?;
-
-            // $4::$7::[
-            //      $4::$7::[1, 2, 3]
-            // ]
-            writer.write([[1, 2, 3].annotated_with(&[4, 7])].annotated_with(&[4, 7]))?;
-
-            // ()
-            writer.write(empty_sequence.as_sexp())?;
-
-            // $4::()
-            writer.write(empty_sequence.as_sexp().annotated_with(&[4]))?;
-
-            // $4::(1 2 3)
-            writer.write([1, 2, 3].as_sexp().annotated_with(&[4]))?;
-
-            // $4::$7::()
-            writer.write(empty_sequence.as_sexp().annotated_with(&[4, 7]))?;
-
-            // $4::$7::(
-            //   $4::$7::(1 2 3)
-            // )
-            writer.write(
-                [[1, 2, 3].as_sexp().annotated_with(&[4, 7])]
-                    .as_sexp()
-                    .annotated_with(&[4, 7]),
-            )?;
-
+            writer
+                .write(empty_sequence)?
+                // $4::[]
+                .write(empty_sequence.annotated_with(&[4]))?
+                // $4::[1, 2, 3]
+                .write([1, 2, 3].annotated_with(&[4]))?
+                // $4::$7::[1, 2, 3]
+                .write([1, 2, 3].annotated_with(&[4, 7]))?
+                // $4::$7::[
+                //      $4::$7::[1, 2, 3]
+                // ]
+                .write([[1usize, 2, 3].annotated_with(&[4, 7])].annotated_with(&[4, 7]))?
+                // ()
+                .write(empty_sequence.as_sexp())?
+                // $4::()
+                .write(empty_sequence.as_sexp().annotated_with(&[4]))?
+                // $4::(1 2 3)
+                .write([1, 2, 3].as_sexp().annotated_with(&[4]))?
+                // $4::$7::()
+                .write(empty_sequence.as_sexp().annotated_with(&[4, 7]))?
+                // $4::$7::(
+                //   $4::$7::(1 2 3)
+                // )
+                .write(
+                    [[1, 2, 3].as_sexp().annotated_with(&[4, 7])]
+                        .as_sexp()
+                        .annotated_with(&[4, 7]),
+                )?;
             Ok(())
-        };
-        writer_test(expected, test)
+        })
     }
 }

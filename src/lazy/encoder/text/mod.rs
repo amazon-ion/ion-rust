@@ -1,7 +1,5 @@
 use crate::element::writer::{WriteConfig, WriteConfigKind};
-use crate::lazy::encoder::text::value_writer::{
-    TextAnnotatableValueWriter_1_0, TextValueWriter_1_0,
-};
+use crate::lazy::encoder::text::value_writer::TextValueWriter_1_0;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
@@ -31,7 +29,7 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
 
     /// Writes the provided data as a top-level value.
     pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
-        value.write_as_ion(self.annotatable_value_writer())?;
+        value.write_as_ion(self.value_writer())?;
         write!(
             self.output,
             "{}",
@@ -49,28 +47,30 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
     /// Helper method to construct this format's `ValueWriter` implementation.
     #[inline]
     fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W> {
-        TextValueWriter_1_0::new(self, 0)
-    }
-
-    /// Helper method to construct this format's `AnnotatedValueWriter` implementation.
-    #[inline]
-    fn annotatable_value_writer(&mut self) -> TextAnnotatableValueWriter_1_0<'_, W> {
-        TextAnnotatableValueWriter_1_0::new(self.value_writer())
+        TextValueWriter_1_0::new(
+            self,
+            0,
+            self.whitespace_config.space_between_top_level_values,
+        )
     }
 }
 
 impl<W: Write> SequenceWriter for LazyRawTextWriter_1_0<W> {
-    // All default method impls
+    type Resources = W;
+
+    fn close(mut self) -> IonResult<Self::Resources> {
+        self.flush()?;
+        Ok(self.output)
+    }
 }
 
 impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_0<W> {
-    type ValueWriter<'a> = TextAnnotatableValueWriter_1_0<'a, W>
+    type ValueWriter<'a> = TextValueWriter_1_0<'a, W>
     where
         Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
-        let value_writer = TextValueWriter_1_0::new(self, 0);
-        TextAnnotatableValueWriter_1_0::new(value_writer)
+        self.value_writer()
     }
 }
 

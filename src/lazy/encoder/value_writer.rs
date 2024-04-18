@@ -1,54 +1,48 @@
-use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
-use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsIonValue};
+use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
+use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{Decimal, Int, IonResult, IonType, Timestamp};
-use delegate::delegate;
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp};
 
 pub mod internal {
-    use crate::lazy::encoder::value_writer::AnnotatableValueWriter;
+    use crate::lazy::encoder::value_writer::ValueWriter;
+    use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+    use crate::IonResult;
 
     pub trait MakeValueWriter {
-        type ValueWriter<'a>: AnnotatableValueWriter
+        type ValueWriter<'a>: ValueWriter
         where
             Self: 'a;
 
         fn make_value_writer(&mut self) -> Self::ValueWriter<'_>;
     }
+
+    /// A (private) prerequisite for [`StructWriter`](super::StructWriter) implementations.
+    pub trait FieldEncoder {
+        /// Encodes the field name portion of a field.
+        ///
+        /// For binary implementations, this is typically an encoding primitive (`VarUInt`,
+        /// `FlexUInt`, or `FlexSym`).
+        ///
+        /// For text implementations, this typically includes indentation, a symbol token representing
+        /// the field name itself, and the delimiting `:`.
+        fn encode_field_name(&mut self, name: impl AsRawSymbolTokenRef) -> IonResult<()>;
+    }
 }
 
-/// One-shot methods that take a (possibly empty) sequence of annotations to encode and return a ValueWriter.
-pub trait AnnotatableValueWriter: Sized {
-    type ValueWriter: ValueWriter;
-    type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a>: ValueWriter
-    where
-        Self: 'a;
-    /// Writes the provided annotations to the output stream and returns a [`ValueWriter`] that can
-    /// be used to serialize the value itself.
-    ///
-    /// If there are no annotations, use [`Self::without_annotations`] instead. This method will loop
-    /// over the empty sequence, incurring minor performance overhead while `without_annotations`
-    /// is a true no-op.
-    fn with_annotations<'a, SymbolType: AsRawSymbolTokenRef>(
-        self,
-        annotations: &'a [SymbolType],
-    ) -> Self::AnnotatedValueWriter<'a, SymbolType>
-    where
-        Self: 'a;
-
-    /// Performs no operations and returns a [`ValueWriter`].
-    fn without_annotations(self) -> Self::ValueWriter;
-}
-
-pub trait MacroArgsWriter: SequenceWriter {
+pub trait EExpWriter: SequenceWriter {
     // TODO: methods for writing tagless encodings
 }
 
 pub trait ValueWriter: Sized {
-    type ListWriter: SequenceWriter;
-    type SExpWriter: SequenceWriter;
+    type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a>: ValueWriter
+    where
+        Self: 'a;
+    type ListWriter: SequenceWriter<Resources = ()>;
+    type SExpWriter: SequenceWriter<Resources = ()>;
     type StructWriter: StructWriter;
-    type MacroArgsWriter: MacroArgsWriter;
+    type EExpWriter: EExpWriter<Resources = ()>;
+
     fn write_null(self, ion_type: IonType) -> IonResult<()>;
     fn write_bool(self, value: bool) -> IonResult<()>;
     fn write_i64(self, value: i64) -> IonResult<()>;
@@ -62,20 +56,41 @@ pub trait ValueWriter: Sized {
     fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
     fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
 
-    fn write_list(self, list_fn: impl ListFn<Self>) -> IonResult<()>;
+    fn list_writer(self) -> IonResult<Self::ListWriter>;
+    fn sexp_writer(self) -> IonResult<Self::SExpWriter>;
+    fn struct_writer(self) -> IonResult<Self::StructWriter>;
+    fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter>;
 
-    fn write_sexp(self, sexp_fn: impl SExpFn<Self>) -> IonResult<()>;
-
-    fn write_struct(self, struct_fn: impl StructFn<Self>) -> IonResult<()>;
-
-    fn write_eexp<'macro_id>(
+    fn with_annotations<'a, SymbolType: 'a + AsRawSymbolTokenRef>(
         self,
-        _macro_id: impl Into<MacroIdRef<'macro_id>>,
-        _macro_fn: impl MacroArgsFn<Self>,
-    ) -> IonResult<()>;
+        annotations: &'a [SymbolType],
+    ) -> Self::AnnotatedValueWriter<'a, SymbolType>
+    where
+        Self: 'a;
 
-    fn write(self, value: impl WriteAsIonValue) -> IonResult<()> {
-        value.write_as_ion_value(self)
+    fn write(self, value: impl WriteAsIon) -> IonResult<()> {
+        value.write_as_ion(self)
+    }
+
+    fn write_list<V: WriteAsIon, I: IntoIterator<Item = V>>(self, values: I) -> IonResult<()> {
+        let mut list = self.list_writer()?;
+        list.write_all(values)?;
+        list.close()
+    }
+
+    fn write_sexp<V: WriteAsIon, I: IntoIterator<Item = V>>(self, values: I) -> IonResult<()> {
+        let mut sexp = self.sexp_writer()?;
+        sexp.write_all(values)?;
+        sexp.close()
+    }
+
+    fn write_struct<K: AsRawSymbolTokenRef, V: WriteAsIon, I: IntoIterator<Item = (K, V)>>(
+        self,
+        values: I,
+    ) -> IonResult<()> {
+        let mut strukt = self.struct_writer()?;
+        strukt.write_all(values)?;
+        strukt.end()
     }
 }
 
@@ -116,7 +131,7 @@ macro_rules! delegate_value_writer_to {
     //
     // If no arguments are passed, trait method calls are delegated to inherent impl methods on `self`.
     () => {
-        $crate::lazy::encoder::value_writer::delegate_value_writer_to!(closure |self_: Self| self_);
+        $crate::lazy::encoder::value_writer::delegate_value_writer_to!(closure std::convert::identity);
     };
     // If an identifier is passed, it is treated as the name of a subfield of `self`.
     ($name:ident) => {
@@ -127,7 +142,7 @@ macro_rules! delegate_value_writer_to {
         // In order to forward this call to the `fallible closure` pattern, the provided closure is
         // wrapped in another closure that wraps the closure's output in IonResult::Ok(_). The
         // compiler can eliminate the redundant closure call.
-        $crate::lazy::encoder::value_writer::delegate_value_writer_to!(fallible closure |self_: Self| {
+        $crate::lazy::encoder::value_writer::delegate_value_writer_to!(fallible closure |self_| {
             let infallible_closure = $f;
             $crate::IonResult::Ok(infallible_closure(self_))
         });
@@ -136,7 +151,7 @@ macro_rules! delegate_value_writer_to {
     // will return. Otherwise, trait method calls are delegated to the `Ok(_)` value.
     (fallible closure $f:expr) => {
         // The `self` keyword can only be used within the `delegate!` proc macro.
-        delegate! {
+        delegate::delegate! {
             to {let f = $f; f(self)?} {
                 fn write_null(self, ion_type: IonType) -> IonResult<()>;
                 fn write_bool(self, value: bool) -> IonResult<()>;
@@ -150,22 +165,13 @@ macro_rules! delegate_value_writer_to {
                 fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
                 fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
                 fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
-                fn write_list(self, list_fn: impl $crate::lazy::encoder::container_fn::ListFn<Self>) -> IonResult<()>;
-                fn write_sexp(
+                fn list_writer(self) -> IonResult<Self::ListWriter>;
+                fn sexp_writer(self) -> IonResult<Self::SExpWriter>;
+                fn struct_writer(self) -> IonResult<Self::StructWriter>;
+                fn eexp_writer<'a>(
                     self,
-                    sexp_fn: impl $crate::lazy::encoder::container_fn::SExpFn<Self>,
-                ) -> IonResult<()>;
-                fn write_struct(
-                    self,
-                    struct_fn: impl $crate::lazy::encoder::container_fn::StructFn<Self>,
-                ) -> IonResult<()>;
-                fn write_eexp<
-                    'macro_id,
-                >(
-                    self,
-                    macro_id: impl Into<MacroIdRef<'macro_id>>,
-                    macro_fn: impl $crate::lazy::encoder::container_fn::MacroArgsFn<Self>,
-                ) -> IonResult<()>;
+                    macro_id: impl Into<MacroIdRef<'a>>,
+                 ) -> IonResult<Self::EExpWriter>;
             }
         }
     };
@@ -180,31 +186,102 @@ macro_rules! delegate_value_writer_to_self {
     };
 }
 
-use crate::lazy::encoder::container_fn::{ListFn, MacroArgsFn, SExpFn, StructFn};
 pub(crate) use delegate_value_writer_to;
 pub(crate) use delegate_value_writer_to_self;
 
-impl<V> ValueWriter for V
-where
-    V: AnnotatableValueWriter,
-{
-    type ListWriter = <V::ValueWriter as ValueWriter>::ListWriter;
-    type SExpWriter = <V::ValueWriter as ValueWriter>::SExpWriter;
-    type StructWriter = <V::ValueWriter as ValueWriter>::StructWriter;
-    type MacroArgsWriter = <V::ValueWriter as ValueWriter>::MacroArgsWriter;
-
-    delegate_value_writer_to!(closure |self_: Self| {
-       self_.without_annotations()
-    });
+pub struct FieldWriter<'annotations, 'field, StructWriterType, FieldNameType, AnnotationsType> {
+    name: FieldNameType,
+    annotations: &'annotations [AnnotationsType],
+    struct_writer: &'field mut StructWriterType,
 }
 
-pub trait StructWriter {
+impl<'annotations, 'field, StructWriterType: StructWriter>
+    FieldWriter<'annotations, 'field, StructWriterType, RawSymbolTokenRef<'field>, SymbolId>
+{
+    pub fn new(
+        name: RawSymbolTokenRef<'field>,
+        struct_writer: &'field mut StructWriterType,
+    ) -> Self {
+        Self {
+            name,
+            annotations: &[],
+            struct_writer,
+        }
+    }
+}
+
+impl<
+        'annotations,
+        'field,
+        StructWriterType: StructWriter,
+        FieldNameType: AsRawSymbolTokenRef,
+        AnnotationsType: AsRawSymbolTokenRef,
+    > ValueWriter
+    for FieldWriter<'annotations, 'field, StructWriterType, FieldNameType, AnnotationsType>
+{
+    type AnnotatedValueWriter<'a, NewAnnotationsType: AsRawSymbolTokenRef + 'a> = FieldWriter<'a, 'field, StructWriterType, FieldNameType, NewAnnotationsType>
+        where
+            Self: 'a;
+    type ListWriter =
+        <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::ListWriter;
+    type SExpWriter =
+        <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::SExpWriter;
+    type StructWriter =
+        <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::StructWriter;
+    type EExpWriter =
+        <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::EExpWriter;
+
+    delegate_value_writer_to!(fallible closure |self_: Self| {
+        self_.struct_writer.encode_field_name(self_.name)?;
+        let value_writer = self_.struct_writer.make_value_writer();
+        IonResult::Ok(value_writer)
+    });
+
+    fn with_annotations<'a, S: 'a + AsRawSymbolTokenRef>(
+        self,
+        annotations: &'a [S],
+    ) -> Self::AnnotatedValueWriter<'a, S>
+    where
+        Self: 'a,
+    {
+        FieldWriter {
+            name: self.name,
+            annotations,
+            struct_writer: self.struct_writer,
+        }
+    }
+}
+
+pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
     /// Writes a struct field using the provided name/value pair.
     fn write<A: AsRawSymbolTokenRef, V: WriteAsIon>(
         &mut self,
         name: A,
         value: V,
-    ) -> IonResult<&mut Self>;
+    ) -> IonResult<&mut Self> {
+        self.encode_field_name(name)?;
+        value.write_as_ion(self.make_value_writer())?;
+        Ok(self)
+    }
+
+    fn write_all<A: AsRawSymbolTokenRef, V: WriteAsIon, I: IntoIterator<Item = (A, V)>>(
+        &mut self,
+        fields: I,
+    ) -> IonResult<&mut Self> {
+        for field in fields {
+            self.write(field.0, field.1)?;
+        }
+        Ok(self)
+    }
+
+    fn field_writer<'a>(
+        &'a mut self,
+        name: impl Into<RawSymbolTokenRef<'a>>,
+    ) -> FieldWriter<'_, 'a, Self, RawSymbolTokenRef<'a>, SymbolId> {
+        FieldWriter::new(name.into(), self)
+    }
+
+    fn end(self) -> IonResult<()>;
 }
 
 /// Takes a series of `TYPE => METHOD` pairs, generating a function for each that calls the
@@ -215,7 +292,7 @@ macro_rules! delegate_and_return_self {
     // Recurses one argument pair at a time
     ($value_type:ty => $method:ident, $($rest:tt)*) => {
         fn $method(&mut self, value: $value_type) -> IonResult<&mut Self> {
-            self.value_writer().without_annotations().$method(value)?;
+            self.value_writer().$method(value)?;
             Ok(self)
         }
         delegate_and_return_self!($($rest)*);
@@ -223,16 +300,18 @@ macro_rules! delegate_and_return_self {
 }
 
 pub trait SequenceWriter: MakeValueWriter {
+    /// The type returned by the [`end`](Self::close) method.
+    ///
+    /// For top-level writers, this can be any resource(s) owned by the writer that need to survive
+    /// after the writer is dropped. (For example, a `BufWriter` or `Vec` serving as the output.)
+    ///
+    /// Containers and E-expressions must use `()`.
+    //  ^^^ This constraint could be loosened if needed, but it requires using verbose references
+    //      to `<MyType as SequenceWriter>::End` in a variety of APIs.
+    type Resources;
+
     fn value_writer(&mut self) -> Self::ValueWriter<'_> {
         <Self as MakeValueWriter>::make_value_writer(self)
-    }
-
-    fn annotate<'a, A: AsRawSymbolTokenRef>(
-        &'a mut self,
-        annotations: &'a [A],
-    ) -> <<Self as MakeValueWriter>::ValueWriter<'_> as AnnotatableValueWriter>::AnnotatedValueWriter<'a, A>
-    {
-        self.value_writer().with_annotations(annotations)
     }
 
     /// Writes a value in the current context (list, s-expression, or stream) and upon success
@@ -241,6 +320,21 @@ pub trait SequenceWriter: MakeValueWriter {
         value.write_as_ion(self.make_value_writer())?;
         Ok(self)
     }
+
+    fn write_all<V: WriteAsIon, I: IntoIterator<Item = V>>(
+        &mut self,
+        values: I,
+    ) -> IonResult<&mut Self> {
+        for value in values {
+            self.write(value)?;
+        }
+        Ok(self)
+    }
+
+    /// Closes out the sequence being written. Delimited writers can use this opportunity to emit
+    /// a sentinel value, and length-prefixed writers can flush any buffered data to the output
+    /// buffer.
+    fn close(self) -> IonResult<Self::Resources>;
 
     // Creates functions that delegate to the ValueWriter method of the same name but which then
     // return `self` so it can be re-used/chained.
@@ -259,15 +353,22 @@ pub trait SequenceWriter: MakeValueWriter {
         impl AsRef<[u8]> => write_blob,
     );
 
-    // XXX: For now, it's not possible to offer versions of `write_list`, `write_sexp`,
-    //      `write_struct` or `write_eexp`. This is due to a point-in-time limitation in the borrow checker[1].
-    //      It is still possible to call (e.g.)
-    //          self.value_writer().list_writer(...)
-    //      as a workaround.
-    // [1]: https://blog.rust-lang.org/2022/10/28/gats-stabilization.html#implied-static-requirement-from-higher-ranked-trait-bounds
-    //
-    // The ValueWriter implementation of these methods moves `self`. In contrast, all of the methods
-    // in the SequenceWriter interface take `&mut self`, which adds another lifetime to the mix. The
-    // borrow checker is not currently able to tell that `&mut self`'s lifetime will outlive the
-    // closure argument's.
+    fn list_writer(&mut self) -> IonResult<<Self::ValueWriter<'_> as ValueWriter>::ListWriter> {
+        self.value_writer().list_writer()
+    }
+
+    fn sexp_writer(&mut self) -> IonResult<<Self::ValueWriter<'_> as ValueWriter>::SExpWriter> {
+        self.value_writer().sexp_writer()
+    }
+
+    fn struct_writer(&mut self) -> IonResult<<Self::ValueWriter<'_> as ValueWriter>::StructWriter> {
+        self.value_writer().struct_writer()
+    }
+
+    fn eexp_writer<'a>(
+        &'a mut self,
+        macro_id: impl Into<MacroIdRef<'a>>,
+    ) -> IonResult<<Self::ValueWriter<'a> as ValueWriter>::EExpWriter> {
+        self.value_writer().eexp_writer(macro_id)
+    }
 }

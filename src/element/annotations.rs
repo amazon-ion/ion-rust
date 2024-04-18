@@ -105,6 +105,12 @@ impl Annotations {
     }
 }
 
+impl AsRef<[Symbol]> for Annotations {
+    fn as_ref(&self) -> &[Symbol] {
+        self.symbols.as_slice()
+    }
+}
+
 impl From<Vec<Symbol>> for Annotations {
     fn from(value: Vec<Symbol>) -> Self {
         Annotations::new(value)

@@ -1,15 +1,13 @@
 use std::fmt::Debug;
 
 use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
-use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
-use crate::lazy::encoder::value_writer::{
-    AnnotatableValueWriter, MacroArgsWriter, SequenceWriter, StructWriter,
-};
-use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
+use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, ValueWriter};
+use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
 use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::IonResult;
+use crate::{Decimal, Int, IonResult, IonType, Timestamp};
 
 /// An uninhabited type that signals to the compiler that related code paths are not reachable.
 #[derive(Debug, Copy, Clone)]
@@ -38,34 +36,23 @@ impl<'top, D: LazyDecoder> From<Never> for MacroExpr<'top, D> {
     }
 }
 
-impl AnnotatableValueWriter for Never {
-    type ValueWriter = Never;
-    type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a> = Never where Self: 'a;
+impl SequenceWriter for Never {
+    type Resources = ();
 
-    fn with_annotations<'a, SymbolType: AsRawSymbolTokenRef>(
-        self,
-        _annotations: &'a [SymbolType],
-    ) -> Self::AnnotatedValueWriter<'a, SymbolType>
-    where
-        Self: 'a,
-    {
-        unreachable!("AnnotatableValueWriter::with_annotations in Never")
-    }
-
-    fn without_annotations(self) -> Self::ValueWriter {
-        unreachable!("AnnotatableValueWriter::without_annotations in Never")
+    fn close(self) -> IonResult<()> {
+        unreachable!("SequenceWriter::end() in Never")
     }
 }
 
-impl SequenceWriter for Never {}
+impl FieldEncoder for Never {
+    fn encode_field_name(&mut self, _name: impl AsRawSymbolTokenRef) -> IonResult<()> {
+        unreachable!("FieldEncoder::encode_field_name in Never")
+    }
+}
 
 impl StructWriter for Never {
-    fn write<A: AsRawSymbolTokenRef, V: WriteAsIon>(
-        &mut self,
-        _name: A,
-        _value: V,
-    ) -> IonResult<&mut Self> {
-        unreachable!("StructWriter::write in Never")
+    fn end(self) -> IonResult<()> {
+        unreachable!("StructWriter::end in Never")
     }
 }
 
@@ -77,4 +64,24 @@ impl MakeValueWriter for Never {
     }
 }
 
-impl MacroArgsWriter for Never {}
+impl EExpWriter for Never {}
+
+impl ValueWriter for Never {
+    type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a> = Never where Self: 'a;
+    type ListWriter = Never;
+    type SExpWriter = Never;
+    type StructWriter = Never;
+    type EExpWriter = Never;
+
+    delegate_value_writer_to_self!();
+
+    fn with_annotations<'a, SymbolType: 'a + AsRawSymbolTokenRef>(
+        self,
+        _annotations: &'a [SymbolType],
+    ) -> Self::AnnotatedValueWriter<'a, SymbolType>
+    where
+        Self: 'a,
+    {
+        unreachable!("Never as MutRefValueWriter")
+    }
+}
