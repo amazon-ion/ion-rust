@@ -15,17 +15,16 @@ use crate::IonType;
 pub enum OpcodeType {
     EExpressionWithAddress,    // 0x00-0x4F -
     EExpressionAddressFollows, // 0x40-0x4F -
-
-    Integer,      // 0x50-0x58 - Integer up to 8 bytes wide.
-    Float,        // 0x5A-0x5D -
-    Boolean,      // 0x5E-0x5F -
-    Decimal,      // 0x60-0x6F -
-    Timestamp,    // 0x70-0x7F -
-    String,       // 0x80-0x80 -
-    InlineSymbol, // 0x90-0x9F -
-    List,         // 0xA0-0xAF -
-    SExpression,  // 0xB0-0xBF -
-    StructEmpty,  // 0xC0      -
+    Integer,                   // 0x50-0x58 - Integer up to 8 bytes wide
+    Float,                     // 0x5A-0x5D -
+    Boolean,                   // 0x5E-0x5F -
+    Decimal,                   // 0x60-0x6F -
+    Timestamp,                 // 0x70-0x7F -
+    String,                    // 0x80-0x80 -
+    InlineSymbol,              // 0x90-0x9F -
+    List,                      // 0xA0-0xAF -
+    SExpression,               // 0xB0-0xBF -
+    StructEmpty,               // 0xC0      -
     // reserved
     StructSymAddress, // 0xD2-0xDF -
     // reserved
@@ -40,9 +39,10 @@ pub enum OpcodeType {
     Nop,                  // 0xEC-0xED -
     // Reserved
     SystemMacroInvoke, // 0xEF      -
-                       // delimited container end
-                       // delimited list start
-                       // delimited s-expression start
+    // delimited container end
+    // delimited list start
+    // delimited s-expression start
+    LargeInteger, // 0xF5 - Integer preceeded by FlexUInt length
 }
 
 impl TryFrom<OpcodeType> for IonType {

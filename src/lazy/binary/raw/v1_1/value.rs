@@ -199,7 +199,30 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as an int.
     fn read_int(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        debug_assert!(self.encoded_value.ion_type() == IonType::Int);
+
+        let header = &self.encoded_value.header();
+        let representation = header.type_code();
+        let value = match (representation, header.length_code as usize) {
+            (OpcodeType::Integer, 0x0) => 0.into(),
+            (OpcodeType::Integer, n) => {
+                // We have n bytes following that make up our integer.
+                let (our_int, _) = self.input.consume(1).read_fixed_int(n)?;
+                our_int.value().clone()
+            }
+            (OpcodeType::LargeInteger, 0x5) => {
+                // We have a FlexUInt size, then big int.
+                let value_body_length = self.encoded_value.value_length();
+                let value_offset = self.encoded_value.total_length() - value_body_length;
+                let (our_int, _) = self
+                    .input
+                    .consume(value_offset)
+                    .read_fixed_int(value_body_length)?;
+                our_int.value().clone()
+            }
+            _ => unreachable!("integer encoding with illegal length_code found"),
+        };
+        Ok(RawValueRef::Int(value))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a float.

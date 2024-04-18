@@ -200,4 +200,37 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn integers() -> IonResult<()> {
+        let data: Vec<u8> = vec![
+            0xE0, 0x01, 0x01, 0xEA, // IVM
+            0x50, // Integer: 0
+            0x51, 0x11, // Integer: 17
+            0x52, 0x50, 0xFC, // Integer: -944
+            0xF5, 0x03, 0x01, // Integer: 1 (not using more than 8 bytes however)
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            0.into()
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            17.into()
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            (-944).into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            1.into()
+        );
+        Ok(())
+    }
 }

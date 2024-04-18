@@ -40,17 +40,21 @@ impl Opcode {
         use OpcodeType::*;
 
         let opcode_type = match (high_nibble, low_nibble) {
+            (0x5, 0x0..=0x8) => Integer,
             (0x5, 0xE..=0xF) => Boolean,
             (0xE, 0x0) => IonVersionMarker,
             (0xE, 0xA) => NullNull,
             (0xE, 0xC..=0xD) => Nop,
+            (0xF, 0x5) => LargeInteger,
             _ => Boolean, // Temporary, until everything is implemented to satisfy the LUT.
         };
         let ion_type = match opcode_type {
+            Integer => Some(IonType::Int),
             NullNull => Some(IonType::Null),
             Nop => None,
             IonVersionMarker => None,
             Boolean => Some(IonType::Bool),
+            LargeInteger => Some(IonType::Int),
             _ => panic!("the provided ion type code is either not implemented, or invalid"),
         };
         Opcode {
@@ -112,6 +116,7 @@ impl Header {
         use LengthType::*;
         match (self.ion_type_code, self.length_code) {
             (OpcodeType::Boolean, 0xE..=0xF) => InOpcode(0),
+            (OpcodeType::Integer, n) => InOpcode(n),
             (OpcodeType::Nop, 0xC) => InOpcode(0),
             (OpcodeType::NullNull, 0xA) => InOpcode(0),
             _ => FlexUIntFollows,
