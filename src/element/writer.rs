@@ -80,7 +80,7 @@ pub(crate) enum WriteConfigKind {
 /// Text writer configuration with text kind to be used to create a writer
 #[derive(Clone, Debug)]
 pub(crate) struct TextWriteConfig {
-    text_kind: TextKind,
+    pub(crate) text_kind: TextKind,
 }
 
 /// Binary writer configuration to be used to create a writer

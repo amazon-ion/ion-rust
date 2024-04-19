@@ -7,7 +7,7 @@ use crate::raw_symbol_token::RawSymbolToken;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{IonFailure, IonResult};
 use crate::text::text_formatter::STRING_ESCAPE_CODES;
-use crate::types::ContainerType;
+use crate::types::ParentType;
 use crate::{Decimal, Int, IonType, TextKind, Timestamp};
 
 pub struct RawTextWriterBuilder {
@@ -32,7 +32,7 @@ impl RawTextWriterBuilder {
     /// ```
     pub fn compact() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            whitespace_config: COMPACT_WHITESPACE_CONFIG.clone(),
+            whitespace_config: COMPACT_WHITESPACE_CONFIG,
         }
     }
 
@@ -50,7 +50,7 @@ impl RawTextWriterBuilder {
     //TODO: https://github.com/amazon-ion/ion-rust/issues/437
     pub fn lines() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            whitespace_config: LINES_WHITESPACE_CONFIG.clone(),
+            whitespace_config: LINES_WHITESPACE_CONFIG,
         }
     }
 
@@ -73,7 +73,7 @@ impl RawTextWriterBuilder {
     /// ```
     pub fn pretty() -> RawTextWriterBuilder {
         RawTextWriterBuilder {
-            whitespace_config: PRETTY_WHITESPACE_CONFIG.clone(),
+            whitespace_config: PRETTY_WHITESPACE_CONFIG,
         }
     }
 
@@ -141,11 +141,11 @@ impl Default for RawTextWriterBuilder {
 
 #[derive(Debug, PartialEq, Default)]
 struct EncodingLevel {
-    container_type: ContainerType,
+    container_type: ParentType,
     child_count: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(crate) struct WhitespaceConfig {
     // Top-level values are independent of other values in the stream, we may separate differently
     pub(crate) space_between_top_level_values: &'static str,
@@ -203,7 +203,7 @@ pub struct RawTextWriter<W: Write> {
 impl<W: Write> RawTextWriter<W> {
     /// Returns true if the RawTextWriter is currently positioned within a Struct.
     pub fn is_in_struct(&self) -> bool {
-        self.parent_level().container_type == ContainerType::Struct
+        self.parent_level().container_type == ParentType::Struct
     }
 
     /// Returns the number of values that have already been written in this container.
@@ -227,11 +227,11 @@ impl<W: Write> RawTextWriter<W> {
 
     /// Called after each value is written to emit an appropriate delimiter before the next value.
     fn write_value_delimiter(&mut self) -> IonResult<()> {
-        use ContainerType::*;
+        use ParentType::*;
         let delimiter = match self.parent_level().container_type {
             TopLevel => "",
             Struct | List => ",",
-            SExpression => "",
+            SExp => "",
         };
         write!(self.output, "{delimiter}")?;
         Ok(())
@@ -644,15 +644,15 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
         let container_type = match ion_type {
             Struct => {
                 write!(self.output, "{{")?;
-                ContainerType::Struct
+                ParentType::Struct
             }
             List => {
                 write!(self.output, "[")?;
-                ContainerType::List
+                ParentType::List
             }
             SExp => {
                 write!(self.output, "(")?;
-                ContainerType::SExpression
+                ParentType::SExp
             }
             _ => {
                 return IonResult::illegal_operation(format!("Cannot step into a(n) {ion_type:?}"))
@@ -679,10 +679,10 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
 
     fn parent_type(&self) -> Option<IonType> {
         match self.parent_level().container_type {
-            ContainerType::TopLevel => None,
-            ContainerType::List => Some(IonType::List),
-            ContainerType::SExpression => Some(IonType::SExp),
-            ContainerType::Struct => Some(IonType::Struct),
+            ParentType::TopLevel => None,
+            ParentType::List => Some(IonType::List),
+            ParentType::SExp => Some(IonType::SExp),
+            ParentType::Struct => Some(IonType::Struct),
         }
     }
 
@@ -693,11 +693,11 @@ impl<W: Write> IonWriter for RawTextWriter<W> {
     /// Completes the current container. If the TextWriter is not currently positioned inside a
     /// container, `step_out` will return an Err(IllegalOperation).
     fn step_out(&mut self) -> IonResult<()> {
-        use ContainerType::*;
+        use ParentType::*;
         let end_delimiter = match self.parent_level().container_type {
             Struct => "}",
             List => "]",
-            SExpression => ")",
+            SExp => ")",
             TopLevel => return IonResult::illegal_operation("cannot step out of the top level"),
         };
         // Wait to pop() the encoding level until after we've confirmed it wasn't TopLevel

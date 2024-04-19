@@ -66,16 +66,17 @@
 //!
 //! fn main() -> IonResult<()> {
 //!     // data structure for representing address
+//!     use ion_rs::{Element, ion_struct};
 //!     let address = Address {
 //!         street: "10 Downing Street".to_owned(),
 //!         city: "London".to_owned(),
 //!     };
 //!
-//!     // serialize it to an Ion data
+//!     // serialize it to Ion text
 //!     let ion = to_string(&address)?;
 //!
 //!     // assert that the serialized Ion data is as expected
-//!     assert_eq!(r#"{street: "10 Downing Street", city: "London"}"#, ion);
+//!     assert_eq!(r#"{street: "10 Downing Street", city: "London", } "#, ion);
 //!
 //!     Ok(())
 //! }
@@ -198,14 +199,14 @@ pub mod ser;
 mod timestamp;
 
 pub use de::from_ion;
-pub use ser::{to_binary, to_pretty, to_string, Serializer};
+pub use ser::{to_binary, to_pretty, to_string};
 
 #[cfg(test)]
 #[cfg(feature = "experimental-serde")]
 mod tests {
-    use crate::serde::{from_ion, to_string};
+    use crate::serde::{from_ion, to_pretty, to_string};
 
-    use crate::{Decimal, Timestamp};
+    use crate::{Decimal, Element, Timestamp};
     use chrono::{DateTime, FixedOffset, Utc};
     use serde::{Deserialize, Serialize};
     use serde_with::serde_as;
@@ -275,8 +276,8 @@ mod tests {
             optional: None,
         };
 
-        let result = to_string(&test).expect("failed to serialize");
-
+        let result = to_pretty(&test).expect("failed to serialize");
+        println!("result: {}", result);
         let back_result: Test = from_ion(result.as_str()).expect("failed to deserialize");
 
         assert_eq!(back_result.int, 1);
@@ -308,24 +309,36 @@ mod tests {
             Struct { a: u32 },
         }
 
-        let i = r#""Unit""#;
+        let i = r#"E::Unit"#;
         let expected = E::Unit;
         assert_eq!(expected, from_ion(i).unwrap());
-        assert_eq!(i, to_string(&expected).unwrap());
+        assert_eq!(
+            Element::read_first(i),
+            Element::read_first(to_string(&expected).unwrap())
+        );
 
-        let i = r#"Newtype::1"#;
+        let i = r#"E::Newtype::1"#;
         let expected = E::Newtype(1);
         assert_eq!(expected, from_ion(i).unwrap());
-        assert_eq!(i, to_string(&expected).unwrap());
+        assert_eq!(
+            Element::read_first(i),
+            Element::read_first(to_string(&expected).unwrap())
+        );
 
-        let i = r#"Tuple::[1, 2]"#;
+        let i = r#"E::Tuple::[1, 2]"#;
         let expected = E::Tuple(1, 2);
         assert_eq!(expected, from_ion(i).unwrap());
-        assert_eq!(i, to_string(&expected).unwrap());
+        assert_eq!(
+            Element::read_first(i),
+            Element::read_first(to_string(&expected).unwrap())
+        );
 
-        let i = r#"Struct::{a: 1}"#;
+        let i = r#"E::Struct::{a: 1}"#;
         let expected = E::Struct { a: 1 };
         assert_eq!(expected, from_ion(i).unwrap());
-        assert_eq!(i, to_string(&expected).unwrap());
+        assert_eq!(
+            Element::read_first(i),
+            Element::read_first(to_string(&expected).unwrap())
+        );
     }
 }

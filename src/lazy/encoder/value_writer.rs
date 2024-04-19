@@ -195,18 +195,16 @@ pub(crate) use delegate_value_writer_to_self;
 
 pub struct FieldWriter<'field, StructWriterType> {
     name: RawSymbolTokenRef<'field>,
-    annotations: AnnotationsVec<'field>,
     struct_writer: &'field mut StructWriterType,
 }
 
-impl<'field, StructWriterType: StructWriter> FieldWriter<'field, StructWriterType> {
+impl<'field, StructWriterType> FieldWriter<'field, StructWriterType> {
     pub fn new(
         name: RawSymbolTokenRef<'field>,
         struct_writer: &'field mut StructWriterType,
     ) -> Self {
         Self {
             name,
-            annotations: AnnotationsVec::new(), // This does not allocate
             struct_writer,
         }
     }
@@ -215,7 +213,7 @@ impl<'field, StructWriterType: StructWriter> FieldWriter<'field, StructWriterTyp
 impl<'field, StructWriterType: StructWriter> AnnotatableWriter
     for FieldWriter<'field, StructWriterType>
 {
-    type AnnotatedValueWriter<'a> = FieldWriter<'a, StructWriterType> where Self: 'a;
+    type AnnotatedValueWriter<'a> = AnnotatedFieldWriter<'a, StructWriterType> where Self: 'a;
 
     fn with_annotations<'a>(
         self,
@@ -224,11 +222,11 @@ impl<'field, StructWriterType: StructWriter> AnnotatableWriter
     where
         Self: 'a,
     {
-        Ok(FieldWriter {
-            name: self.name,
-            annotations: annotations.into_annotations_vec(),
-            struct_writer: self.struct_writer,
-        })
+        Ok(AnnotatedFieldWriter::new(
+            self.name,
+            annotations,
+            self.struct_writer,
+        ))
     }
 }
 
@@ -245,6 +243,65 @@ impl<'field, StructWriterType: StructWriter> ValueWriter for FieldWriter<'field,
     delegate_value_writer_to!(fallible closure |self_: Self| {
         self_.struct_writer.encode_field_name(self_.name)?;
         let value_writer = self_.struct_writer.make_value_writer();
+        IonResult::Ok(value_writer)
+    });
+}
+
+pub struct AnnotatedFieldWriter<'field, StructWriterType> {
+    name: RawSymbolTokenRef<'field>,
+    annotations: AnnotationsVec<'field>,
+    struct_writer: &'field mut StructWriterType,
+}
+
+impl<'field, StructWriterType: StructWriter> AnnotatedFieldWriter<'field, StructWriterType> {
+    pub(crate) fn new(
+        name: RawSymbolTokenRef<'field>,
+        annotations: impl AnnotationSeq<'field>,
+        struct_writer: &'field mut StructWriterType,
+    ) -> Self {
+        Self {
+            name,
+            annotations: annotations.into_annotations_vec(),
+            struct_writer,
+        }
+    }
+}
+
+impl<'field, StructWriterType: StructWriter> AnnotatableWriter
+    for AnnotatedFieldWriter<'field, StructWriterType>
+{
+    type AnnotatedValueWriter<'a> = AnnotatedFieldWriter<'a, StructWriterType> where Self: 'a;
+
+    fn with_annotations<'a>(
+        self,
+        annotations: impl AnnotationSeq<'a>,
+    ) -> IonResult<Self::AnnotatedValueWriter<'a>>
+    where
+        Self: 'a,
+    {
+        Ok(AnnotatedFieldWriter {
+            name: self.name,
+            annotations: annotations.into_annotations_vec(),
+            struct_writer: self.struct_writer,
+        })
+    }
+}
+
+impl<'field, StructWriterType: StructWriter> ValueWriter
+    for AnnotatedFieldWriter<'field, StructWriterType>
+{
+    type ListWriter =
+        <<<StructWriterType as MakeValueWriter>::ValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::ListWriter;
+    type SExpWriter =
+    <<<StructWriterType as MakeValueWriter>::ValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::SExpWriter;
+    type StructWriter =
+    <<<StructWriterType as MakeValueWriter>::ValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::StructWriter;
+    type EExpWriter =
+    <<<StructWriterType as MakeValueWriter>::ValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::EExpWriter;
+
+    delegate_value_writer_to!(fallible closure |self_: Self| {
+        self_.struct_writer.encode_field_name(self_.name)?;
+        let value_writer = self_.struct_writer.make_value_writer().with_annotations(self_.annotations)?;
         IonResult::Ok(value_writer)
     });
 }
