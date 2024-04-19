@@ -51,7 +51,7 @@ pub fn serialize(format: Format, elements: &Sequence) -> IonResult<Vec<u8>> {
     match format {
         Format::Text(kind) => {
             let write_config = WriteConfig::<TextEncoding_1_0>::new(kind);
-            let mut writer = ApplicationWriter::build(write_config, buffer)?;
+            let mut writer = ApplicationWriter::with_config(write_config, buffer)?;
             writer.write_elements(elements)?;
             buffer = writer.close()?;
             println!(

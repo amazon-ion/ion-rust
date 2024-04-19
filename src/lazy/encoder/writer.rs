@@ -10,7 +10,6 @@ use crate::lazy::encoder::value_writer::{
     AnnotatableWriter, EExpWriter, SequenceWriter, StructWriter, ValueWriter,
 };
 use crate::lazy::encoder::{LazyEncoder, LazyRawWriter, SymbolCreationPolicy};
-use crate::lazy::encoding::Encoding;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
@@ -41,7 +40,8 @@ impl EncodingContext {
     }
 }
 
-pub struct ApplicationWriter<E: LazyEncoder + Encoding, Output: Write> {
+/// An Ion writer that maintains a symbol table and creates new entries as needed.
+pub struct ApplicationWriter<E: LazyEncoder, Output: Write> {
     encoding_context: EncodingContext,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
@@ -49,11 +49,13 @@ pub struct ApplicationWriter<E: LazyEncoder + Encoding, Output: Write> {
 }
 
 impl<E: LazyEncoder, Output: Write> ApplicationWriter<E, Output> {
+    /// Constructs a writer for the requested encoding using its default configuration.
     pub fn new(output: Output) -> IonResult<Self> {
-        Self::build(E::default_write_config(), output)
+        Self::with_config(E::default_write_config(), output)
     }
 
-    pub fn build(config: WriteConfig<E>, output: Output) -> IonResult<Self> {
+    /// Constructs a writer for the requested encoding using the provided configuration.
+    pub fn with_config(config: WriteConfig<E>, output: Output) -> IonResult<Self> {
         let directive_writer = E::Writer::build(config.clone(), vec![])?;
         let mut data_writer = E::Writer::build(config, vec![])?;
         // Erase the IVM that's created by default
@@ -75,6 +77,7 @@ impl<E: LazyEncoder, Output: Write> ApplicationWriter<E, Output> {
         Ok(writer)
     }
 
+    /// Writes bytes of previously encoded values to the output stream.
     pub fn flush(&mut self) -> IonResult<()> {
         if self.encoding_context.num_pending_symbols > 0 {
             self.write_lst_append()?;
@@ -93,6 +96,7 @@ impl<E: LazyEncoder, Output: Write> ApplicationWriter<E, Output> {
         Ok(())
     }
 
+    /// Helper method to encode an LST append containing pending symbols.
     fn write_lst_append(&mut self) -> IonResult<()> {
         let Self {
             encoding_context,
