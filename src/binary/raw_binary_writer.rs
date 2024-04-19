@@ -13,7 +13,7 @@ use crate::ion_writer::IonWriter;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{IonFailure, IonResult};
 use crate::types::integer::IntData;
-use crate::types::ContainerType;
+use crate::types::ParentType;
 use crate::{Decimal, Int, IonType, SymbolId, Timestamp};
 
 use super::decimal::DecimalBinaryEncoder;
@@ -34,7 +34,7 @@ impl RawBinaryWriterBuilder {
     pub fn build<W: Write>(self, out: W) -> IonResult<RawBinaryWriter<W>> {
         let mut levels = Vec::with_capacity(INITIAL_ENCODING_LEVELS_CAPACITY);
         // Create an EncodingLevel to represent the top level. It has no annotations.
-        levels.push(EncodingLevel::new(ContainerType::TopLevel, None, 0, 0));
+        levels.push(EncodingLevel::new(ParentType::TopLevel, None, 0, 0));
         // Create an empty IoRange for top-level leading scalar values.
         let mut io_ranges = Vec::with_capacity(INITIAL_IO_RANGE_CAPACITY);
         io_ranges.push(0usize..0);
@@ -105,7 +105,7 @@ type IoRange = Range<usize>;
 // annotations, field_id, and container type.
 #[derive(Debug)]
 struct EncodingLevel {
-    container_type: ContainerType,
+    container_type: ParentType,
     field_id: Option<SymbolId>,
     // Annotations are stored in a common Vec on the BinarySystemWriter. Each EncodingLevel tracks
     // how many annotations it had, allowing that Vec to be treated as a stack. Stepping into
@@ -119,7 +119,7 @@ struct EncodingLevel {
 
 impl EncodingLevel {
     fn new(
-        container_type: ContainerType,
+        container_type: ParentType,
         field_id: Option<SymbolId>,
         num_annotations: u8,
         td_io_range_index: usize,
@@ -205,7 +205,7 @@ impl<W: Write> RawBinaryWriter<W> {
     fn is_in_struct(&self) -> bool {
         self.levels
             .last()
-            .map(|level| level.container_type == ContainerType::Struct)
+            .map(|level| level.container_type == ParentType::Struct)
             .unwrap_or(false)
     }
 
@@ -729,9 +729,9 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
     fn step_in(&mut self, ion_type: IonType) -> IonResult<()> {
         use IonType::*;
         let container_type = match ion_type {
-            List => ContainerType::List,
-            SExp => ContainerType::SExpression,
-            Struct => ContainerType::Struct,
+            List => ParentType::List,
+            SExp => ParentType::SExp,
+            Struct => ParentType::Struct,
             _ => return IonResult::illegal_operation("Cannot step into a scalar Ion type."),
         };
 
@@ -785,10 +785,10 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         // `self.levels` always has at least one value: the top level.
         // This means we can `unwrap()` the last value safely.
         match self.levels.last().unwrap().container_type {
-            ContainerType::TopLevel => None,
-            ContainerType::Struct => Some(IonType::Struct),
-            ContainerType::List => Some(IonType::List),
-            ContainerType::SExpression => Some(IonType::SExp),
+            ParentType::TopLevel => None,
+            ParentType::Struct => Some(IonType::Struct),
+            ParentType::List => Some(IonType::List),
+            ParentType::SExp => Some(IonType::SExp),
         }
     }
 
@@ -810,10 +810,10 @@ impl<W: Write> IonWriter for RawBinaryWriter<W> {
         self.field_id = container.field_id;
         let container_size = container.calculate_final_size(&mut self.io_ranges);
 
-        use crate::types::ContainerType::*;
+        use crate::types::ParentType::*;
         let mut type_descriptor: u8 = match container.container_type {
             List => 0xB0,
-            SExpression => 0xC0,
+            SExp => 0xC0,
             Struct => 0xD0,
             _ => return IonResult::illegal_operation("Cannot step into a scalar Ion type."),
         };

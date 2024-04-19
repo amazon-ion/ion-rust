@@ -5,7 +5,10 @@ use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{LazyEncoder, LazyRawWriter, SymbolCreationPolicy};
 use crate::lazy::encoding::{Encoding, TextEncoding_1_0};
-use crate::text::raw_text_writer::{WhitespaceConfig, PRETTY_WHITESPACE_CONFIG};
+use crate::text::raw_text_writer::{
+    WhitespaceConfig, COMPACT_WHITESPACE_CONFIG, LINES_WHITESPACE_CONFIG, PRETTY_WHITESPACE_CONFIG,
+};
+use crate::types::ParentType;
 use crate::{IonResult, TextKind};
 use delegate::delegate;
 use std::io::Write;
@@ -30,11 +33,6 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
     /// Writes the provided data as a top-level value.
     pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         value.write_as_ion(self.value_writer())?;
-        write!(
-            self.output,
-            "{}",
-            self.whitespace_config.space_between_top_level_values
-        )?;
         Ok(self)
     }
 
@@ -50,7 +48,8 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
         TextValueWriter_1_0::new(
             self,
             0,
-            self.whitespace_config.space_between_top_level_values,
+            "", // No delimiter between values at the top level
+            ParentType::TopLevel,
         )
     }
 }
@@ -82,7 +81,17 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
     /// Build text writer based on given writer configuration
     fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self> {
         match &config.kind {
-            WriteConfigKind::Text(_) => Ok(LazyRawTextWriter_1_0::new(output)),
+            WriteConfigKind::Text(text_config) => {
+                let whitespace_config = match text_config.text_kind {
+                    TextKind::Compact => &COMPACT_WHITESPACE_CONFIG,
+                    TextKind::Lines => &LINES_WHITESPACE_CONFIG,
+                    TextKind::Pretty => &PRETTY_WHITESPACE_CONFIG,
+                };
+                Ok(LazyRawTextWriter_1_0 {
+                    output,
+                    whitespace_config,
+                })
+            }
             WriteConfigKind::Binary(_) => {
                 unreachable!("Binary writer can not be created from text encoding")
             }
