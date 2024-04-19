@@ -1,13 +1,20 @@
 use crate::{RawSymbolTokenRef, SymbolId};
 use smallvec::SmallVec;
 
+/// A sequence of annotations.
+///
+/// When the sequence is two or fewer annotations, it will not require a heap allocation.
 pub type AnnotationsVec<'a> = SmallVec<[RawSymbolTokenRef<'a>; 2]>;
 
+/// Types that can be viewed as an annotations sequence.
+///
+/// Examples include `SymbolId`, `&str`, and iterables of those types.
 pub trait AnnotationSeq<'a> {
     fn into_annotations_vec(self) -> AnnotationsVec<'a>;
 }
 
 impl<'a> AnnotationSeq<'a> for &'a str {
+    /// Converts the value into an `AnnotationsVec`.
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut vec = AnnotationsVec::new();
         vec.push(RawSymbolTokenRef::Text(self.into()));
