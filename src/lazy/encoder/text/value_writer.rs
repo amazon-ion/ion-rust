@@ -11,8 +11,8 @@ use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{IonFailure, IonResult};
-use crate::text::raw_text_writer::{RawTextWriter, WhitespaceConfig};
 use crate::text::text_formatter::IonValueFormatter;
+use crate::text::whitespace_config::WhitespaceConfig;
 use crate::types::{ContainerType, IonType, ParentType};
 use crate::{Decimal, Int, Timestamp};
 use delegate::delegate;
@@ -27,6 +27,108 @@ pub struct TextValueWriter_1_0<'value, W: Write + 'value> {
     // (i.e. following an indented field name) which is the only time we don't write
     // indentation before the value.
     parent_type: ParentType,
+}
+
+/// Returns `true` if the provided `token`'s text is an 'identifier'. That is, the text starts
+/// with a `$`, `_` or ASCII letter and is followed by a sequence of `$`, `_`, or ASCII letters
+/// and numbers. Examples:
+/// * `firstName`
+/// * `first_name`
+/// * `name_1`
+/// * `$name`
+/// Unlike other symbols, identifiers don't have to be wrapped in quotes.
+fn token_is_identifier(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    let mut chars = token.chars();
+    let first = chars.next().unwrap();
+    (first == '$' || first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|c| c == '$' || c == '_' || c.is_ascii_alphanumeric())
+}
+
+/// Returns `true` if the provided text is an Ion keyword. Keywords like `true` or `null`
+/// resemble identifiers, but writers must wrap them in quotes when using them as symbol text.
+fn token_is_keyword(token: &str) -> bool {
+    const KEYWORDS: &[&str] = &["true", "false", "nan", "null"];
+    KEYWORDS.contains(&token)
+}
+
+/// Returns `true` if this token's text resembles a symbol ID literal. For example: `'$99'` is a
+/// symbol with the text `$99`. However, `$99` (without quotes) is a symbol ID that maps to
+/// different text.
+fn token_resembles_symbol_id(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    let mut chars = token.chars();
+    let first = chars.next().unwrap();
+    first == '$' && chars.all(|c| c.is_numeric())
+}
+
+pub(crate) fn write_symbol_token<O: Write, A: AsRawSymbolTokenRef>(
+    output: &mut O,
+    token: A,
+) -> IonResult<()> {
+    match token.as_raw_symbol_token_ref() {
+        RawSymbolTokenRef::SymbolId(sid) => write!(output, "${sid}")?,
+        RawSymbolTokenRef::Text(text)
+            if token_is_keyword(text.as_ref()) || token_resembles_symbol_id(text.as_ref()) =>
+        {
+            // Write the symbol text in single quotes
+            write!(output, "'{text}'")?;
+        }
+        RawSymbolTokenRef::Text(text) if token_is_identifier(text.as_ref()) => {
+            // Write the symbol text without quotes
+            write!(output, "{text}")?
+        }
+        RawSymbolTokenRef::Text(text) => {
+            // Write the symbol text using quotes and escaping any characters that require it.
+            write!(output, "\'")?;
+            write_escaped_text_body(output, text)?;
+            write!(output, "\'")?;
+        }
+    };
+    Ok(())
+}
+
+/// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
+/// characters escaped.
+pub(crate) fn write_escaped_text_body<O: Write, S: AsRef<str>>(
+    output: &mut O,
+    value: S,
+) -> IonResult<()> {
+    let mut start = 0usize;
+    let text = value.as_ref();
+    for (byte_index, character) in text.char_indices() {
+        let escaped = match character {
+            '\n' => r"\n",
+            '\r' => r"\r",
+            '\t' => r"\t",
+            '\\' => r"\\",
+            '/' => r"\/",
+            '"' => r#"\""#,
+            '\'' => r"\'",
+            '?' => r"\?",
+            '\x00' => r"\0", // NUL
+            '\x07' => r"\a", // alert BEL
+            '\x08' => r"\b", // backspace
+            '\x0B' => r"\v", // vertical tab
+            '\x0C' => r"\f", // form feed
+            _ => {
+                // Other characters can be left as-is
+                continue;
+            }
+        };
+        // If we reach this point, the current character needed to be escaped.
+        // Write all of the text leading up to this character to output, then the escaped
+        // version of this character.
+        write!(output, "{}{}", &text[start..byte_index], escaped)?;
+        // Update `start` to point to the first byte after the end of this character.
+        start = byte_index + character.len_utf8();
+    }
+    write!(output, "{}", &text[start..])?;
+    Ok(())
 }
 
 impl<'value, W: Write + 'value> TextValueWriter_1_0<'value, W> {
@@ -97,7 +199,7 @@ impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
         for annotation in self.annotations {
             match annotation.as_raw_symbol_token_ref() {
                 RawSymbolTokenRef::Text(token) => {
-                    RawTextWriter::<W>::write_symbol_token(output, token.as_ref())?;
+                    write_symbol_token(output, token.as_ref())?;
                     write!(output, "::")
                 }
                 RawSymbolTokenRef::SymbolId(sid) => write!(output, "${sid}::"),
@@ -367,7 +469,7 @@ impl<'a, W: Write> FieldEncoder for TextStructWriter_1_0<'a, W> {
         self.container_writer
             .write_indentation(self.container_writer.depth + 1)?;
         // Write the field name
-        RawTextWriter::<W>::write_symbol_token(self.container_writer.output(), name)?;
+        write_symbol_token(self.container_writer.output(), name)?;
         let space_after_field_name = self
             .container_writer
             .whitespace_config()
@@ -542,14 +644,14 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     fn write_string(mut self, value: impl AsRef<str>) -> IonResult<()> {
         self.write_indentation()?;
         write!(self.output(), "\"",)?;
-        RawTextWriter::<W>::write_escaped_text_body(self.output(), value)?;
+        write_escaped_text_body(self.output(), value)?;
         write!(self.output(), "\"")?;
         self.write_delimiter_text()
     }
 
     fn write_symbol(mut self, value: impl AsRawSymbolTokenRef) -> IonResult<()> {
         self.write_indentation()?;
-        RawTextWriter::<W>::write_symbol_token(self.output(), value)?;
+        write_symbol_token(self.output(), value)?;
         self.write_delimiter_text()
     }
 
