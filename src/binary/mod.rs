@@ -5,8 +5,6 @@
 
 // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
 pub mod constants;
-
-pub(crate) mod binary_writer;
 pub mod decimal;
 mod header;
 pub mod int;

@@ -212,9 +212,7 @@ pub use {
 // These re-exports are only visible if the "experimental-writer" feature is enabled.
 #[cfg(feature = "experimental-writer")]
 pub use {
-    binary::binary_writer::{BinaryWriter, BinaryWriterBuilder},
-    binary::raw_binary_writer::RawBinaryWriter,
-    ion_writer::IonWriter,
+    binary::raw_binary_writer::RawBinaryWriter, ion_writer::IonWriter,
     lazy::encoder::writer::ApplicationWriter,
 };
 
