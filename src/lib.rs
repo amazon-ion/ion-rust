@@ -215,7 +215,7 @@ pub use {
     binary::binary_writer::{BinaryWriter, BinaryWriterBuilder},
     binary::raw_binary_writer::RawBinaryWriter,
     ion_writer::IonWriter,
-    text::text_writer::{TextWriter, TextWriterBuilder},
+    lazy::encoder::writer::ApplicationWriter,
 };
 
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
