@@ -406,8 +406,6 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
         if self.value.annotations().next() != Some(Ok(name.as_symbol_ref())) {
             return IonResult::decoding_error("expected an instance of enum {name}");
         }
-        // let annotations = self.value.annotations().collect::<IonResult<Vec<_>>>()?;
-        // println!("annotations: {annotations:?}");
         match self.value.ion_type() {
             Symbol => visitor.visit_enum(UnitVariantAccess::new(self)),
             // All the parameterized Rust enums use annotations for representing enum variants
@@ -440,24 +438,6 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
                 visitor.visit_str(variant_id)
             }
         }
-
-        // The enum variant identifier is either the second annotation or, in the case of a unit struct variant,
-        // the symbol value.
-        // let Some(annotation) = self.value.annotations().next().transpose()? else {
-        //     return IonResult::decoding_error(
-        //         "expected a type annotation but found an unannotated value",
-        //     );
-        // };
-        // let Some(text) = annotation.text() else {
-        //     return IonResult::decoding_error("found a type annotation with unknown text");
-        // };
-        // visitor.visit_str(text)
-        // annotations are currently only supported with parameterized Rust enums
-        // if let Some(annotation) = self.value.annotations().next() {
-        //     visitor.visit_str(annotation?.text().unwrap())
-        // } else {
-        //     visitor.visit_str(self.value.read()?.expect_text()?)
-        // }
     }
 
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
