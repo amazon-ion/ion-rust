@@ -113,17 +113,17 @@ having to first drop the writer.
         feature = "experimental-writer",
         doc = r##"
 ```
-use ion_rs::{Element, IonResult, IonWriter, TextWriterBuilder};
+use ion_rs::{Element, IonResult, IonWriter, ApplicationWriter};
+use ion_rs::lazy::encoding::TextEncoding_1_0;
+use ion_rs::lazy::encoder::value_writer::SequenceWriter;
 # fn roundtrip() -> IonResult<()> {
-// Set up our output buffer
-let mut buffer: Vec<u8> = Vec::new();
 // Construct a writer that will serialize values to the buffer
-let mut writer = TextWriterBuilder::default().build(&mut buffer)?;
+let mut writer = ApplicationWriter::<TextEncoding_1_0, _>::new(vec![])?;
 // Serialize some data
-writer.write_string("hello")?;
-writer.flush()?;
+writer.write("hello")?;
+let encoded_bytes = writer.close()?;
 // Read the data back from the output buffer
-let output_element = Element::read_one(writer.output())?;
+let output_element = Element::read_one(encoded_bytes.as_slice())?;
 // Confirm that it matches the input data
 assert_eq!(Element::from("hello"), output_element);
 # Ok(())

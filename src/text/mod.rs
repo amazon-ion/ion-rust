@@ -5,4 +5,3 @@ pub(in crate::text) mod parsers;
 pub(crate) mod raw_text_writer;
 pub(crate) mod text_formatter;
 pub(crate) mod text_value;
-pub(crate) mod text_writer;
