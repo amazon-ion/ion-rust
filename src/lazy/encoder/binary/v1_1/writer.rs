@@ -137,6 +137,14 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_1<W> {
             fn flush(&mut self) -> IonResult<()>;
         }
     }
+
+    fn output(&self) -> &W {
+        &self.output
+    }
+
+    fn output_mut(&mut self) -> &mut W {
+        &mut self.output
+    }
 }
 
 impl<W: Write> MakeValueWriter for LazyRawBinaryWriter_1_1<W> {

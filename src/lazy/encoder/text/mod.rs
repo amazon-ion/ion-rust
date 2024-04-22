@@ -3,10 +3,10 @@ use crate::lazy::encoder::text::value_writer::TextValueWriter_1_0;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::encoder::{LazyEncoder, LazyRawWriter};
+use crate::lazy::encoder::{LazyEncoder, LazyRawWriter, SymbolCreationPolicy};
 use crate::lazy::encoding::{Encoding, TextEncoding_1_0};
 use crate::text::raw_text_writer::{WhitespaceConfig, PRETTY_WHITESPACE_CONFIG};
-use crate::IonResult;
+use crate::{IonResult, TextKind};
 use delegate::delegate;
 use std::io::Write;
 
@@ -96,8 +96,24 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
             fn flush(&mut self) -> IonResult<()>;
         }
     }
+
+    fn output(&self) -> &W {
+        &self.output
+    }
+
+    fn output_mut(&mut self) -> &mut W {
+        &mut self.output
+    }
 }
 
 impl LazyEncoder for TextEncoding_1_0 {
+    const SUPPORTS_TEXT_TOKENS: bool = true;
+    const DEFAULT_SYMBOL_CREATION_POLICY: SymbolCreationPolicy =
+        SymbolCreationPolicy::WriteProvidedToken;
+
     type Writer<W: Write> = LazyRawTextWriter_1_0<W>;
+
+    fn default_write_config() -> WriteConfig<Self> {
+        WriteConfig::<Self>::new(TextKind::Pretty)
+    }
 }

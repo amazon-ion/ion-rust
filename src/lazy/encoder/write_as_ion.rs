@@ -12,14 +12,14 @@
 //!
 //! Types that do not explicitly implement [`WriteAsIon`] will fall back to a blanket implementation
 //! that uses an empty annotations sequence. A custom annotations sequence can be set on a per-value
-//! basis by using the [`annotate`](crate::lazy::encoder::annotate::Annotate::annotated_with) method
-//! provided by the [`Annotate`](crate::lazy::encoder::annotate::Annotate) trait.
+//! basis by using the [`annotate`](crate::lazy::encoder::annotate::Annotatable::annotated_with) method
+//! provided by the [`Annotate`](crate::lazy::encoder::annotate::Annotatable) trait.
 use std::marker::PhantomData;
 
 use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::{
-    Blob, Clob, Decimal, Element, Int, IonResult, Null, RawSymbolToken, RawSymbolTokenRef, Symbol,
-    SymbolRef, Timestamp, Value,
+    Blob, Clob, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolToken, RawSymbolTokenRef,
+    Symbol, SymbolRef, Timestamp, Value,
 };
 
 /// Defines how a Rust type should be serialized as Ion in terms of the methods available
@@ -34,7 +34,7 @@ impl WriteAsIon for &Element {
             self.value().write_as_ion(writer)
         } else {
             self.value()
-                .write_as_ion(writer.with_annotations(self.annotations().as_ref()))
+                .write_as_ion(writer.with_annotations(self.annotations().as_ref())?)
         }
     }
 }
@@ -221,6 +221,16 @@ impl WriteAsIon for Value {
             Value::List(l) => value_writer.write_list(l),
             Value::SExp(s) => value_writer.write_sexp(s),
             Value::Struct(s) => value_writer.write_struct(s.iter()),
+        }
+    }
+}
+
+impl<T: WriteAsIon> WriteAsIon for Option<T> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        if let Some(value) = self {
+            value.write_as_ion(writer)
+        } else {
+            writer.write_null(IonType::Null)
         }
     }
 }

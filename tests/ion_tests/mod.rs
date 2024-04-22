@@ -3,13 +3,16 @@
 #![cfg(feature = "experimental-writer")]
 #![allow(dead_code)]
 
-use ion_rs::{
-    BinaryWriterBuilder, Element, ElementReader, ElementWriter, Format, IonData, IonError,
-    IonResult, IonWriter, SExp, Sequence, Symbol, TextKind, TextWriterBuilder, Value,
-};
-
 use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
+
+use ion_rs::lazy::encoder::value_writer::SequenceWriter;
+use ion_rs::lazy::encoder::writer::ApplicationWriter;
+use ion_rs::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
+use ion_rs::{
+    Element, ElementReader, ElementWriter, Format, IonData, IonError, IonResult, SExp, Sequence,
+    Symbol, Value, WriteConfig,
+};
 
 /// Concatenates two slices of string slices together.
 #[inline]
@@ -47,19 +50,19 @@ pub fn serialize(format: Format, elements: &Sequence) -> IonResult<Vec<u8>> {
     let mut buffer = Vec::with_capacity(2048);
     match format {
         Format::Text(kind) => {
-            let mut writer = match kind {
-                TextKind::Compact => TextWriterBuilder::default().build(&mut buffer),
-                TextKind::Lines => TextWriterBuilder::lines().build(&mut buffer),
-                TextKind::Pretty => TextWriterBuilder::pretty().build(&mut buffer),
-                _ => unimplemented!("No text writer available for requested TextKind {:?}", kind),
-            }?;
+            let write_config = WriteConfig::<TextEncoding_1_0>::new(kind);
+            let mut writer = ApplicationWriter::with_config(write_config, buffer)?;
             writer.write_elements(elements)?;
-            writer.flush()?;
+            buffer = writer.close()?;
+            println!(
+                "Serialized as {kind:?}:\n{}",
+                std::str::from_utf8(buffer.as_slice()).unwrap()
+            );
         }
         Format::Binary => {
-            let mut binary_writer = BinaryWriterBuilder::new().build(&mut buffer)?;
+            let mut binary_writer = ApplicationWriter::<BinaryEncoding_1_0, _>::new(buffer)?;
             binary_writer.write_elements(elements)?;
-            binary_writer.flush()?;
+            buffer = binary_writer.close()?;
         }
         _ => unimplemented!("requested format '{:?}' is not supported", format),
     };
@@ -93,7 +96,11 @@ pub trait ElementApi {
 
     fn not_eq_error_message(e1: &Sequence, e2: &Sequence) -> String {
         if e1.len() != e2.len() {
-            return format!("e1 has {} elements, e2 has {} elements", e1.len(), e2.len());
+            return format!(
+                "e1 has {} elements, e2 has {} elements\n{e1:?} != {e2:?}",
+                e1.len(),
+                e2.len()
+            );
         }
 
         for (index, (element1, element2)) in e1.iter().zip(e2.iter()).enumerate() {

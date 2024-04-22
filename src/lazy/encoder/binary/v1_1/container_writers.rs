@@ -110,8 +110,8 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
     /// Encodes the provided `value` to the [`BinaryContainerWriter_1_1`]'s buffer.
     #[inline]
     pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
-        let annotated_value_writer = self.value_writer();
-        value.write_as_ion(annotated_value_writer)?;
+        let value_writer = self.value_writer();
+        value.write_as_ion(value_writer)?;
         Ok(self)
     }
 
@@ -344,7 +344,7 @@ impl<'value, 'top> MakeValueWriter for BinaryStructWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> StructWriter for BinaryStructWriter_1_1<'value, 'top> {
-    fn end(mut self) -> IonResult<()> {
+    fn close(mut self) -> IonResult<()> {
         if let ContainerEncodingKind::Delimited(_) = &mut self.container_writer.encoder {
             // Write the FlexSym escape (FlexUInt 0). The container writer can emit the closing
             // delimited END opcode.

@@ -1,8 +1,11 @@
 use std::fmt::Debug;
 
 use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
+use crate::lazy::encoder::annotation_seq::AnnotationSeq;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
-use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, ValueWriter};
+use crate::lazy::encoder::value_writer::{
+    delegate_value_writer_to_self, AnnotatableWriter, ValueWriter,
+};
 use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
 use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
@@ -51,7 +54,7 @@ impl FieldEncoder for Never {
 }
 
 impl StructWriter for Never {
-    fn end(self) -> IonResult<()> {
+    fn close(self) -> IonResult<()> {
         unreachable!("StructWriter::end in Never")
     }
 }
@@ -66,22 +69,25 @@ impl MakeValueWriter for Never {
 
 impl EExpWriter for Never {}
 
+impl AnnotatableWriter for Never {
+    type AnnotatedValueWriter<'a> = Never where Self: 'a;
+
+    fn with_annotations<'a>(
+        self,
+        _annotations: impl AnnotationSeq<'a>,
+    ) -> IonResult<Self::AnnotatedValueWriter<'a>>
+    where
+        Self: 'a,
+    {
+        unreachable!("<Never as AnnotatableWriter>::with_annotations");
+    }
+}
+
 impl ValueWriter for Never {
-    type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a> = Never where Self: 'a;
     type ListWriter = Never;
     type SExpWriter = Never;
     type StructWriter = Never;
     type EExpWriter = Never;
 
     delegate_value_writer_to_self!();
-
-    fn with_annotations<'a, SymbolType: 'a + AsRawSymbolTokenRef>(
-        self,
-        _annotations: &'a [SymbolType],
-    ) -> Self::AnnotatedValueWriter<'a, SymbolType>
-    where
-        Self: 'a,
-    {
-        unreachable!("Never as MutRefValueWriter")
-    }
 }

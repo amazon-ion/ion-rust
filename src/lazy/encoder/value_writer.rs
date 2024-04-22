@@ -1,8 +1,9 @@
+use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 
 pub mod internal {
     use crate::lazy::encoder::value_writer::ValueWriter;
@@ -34,10 +35,20 @@ pub trait EExpWriter: SequenceWriter {
     // TODO: methods for writing tagless encodings
 }
 
-pub trait ValueWriter: Sized {
-    type AnnotatedValueWriter<'a, SymbolType: AsRawSymbolTokenRef + 'a>: ValueWriter
+pub trait AnnotatableWriter {
+    type AnnotatedValueWriter<'a>: ValueWriter
     where
         Self: 'a;
+
+    fn with_annotations<'a>(
+        self,
+        annotations: impl AnnotationSeq<'a>,
+    ) -> IonResult<Self::AnnotatedValueWriter<'a>>
+    where
+        Self: 'a;
+}
+
+pub trait ValueWriter: AnnotatableWriter + Sized {
     type ListWriter: SequenceWriter<Resources = ()>;
     type SExpWriter: SequenceWriter<Resources = ()>;
     type StructWriter: StructWriter;
@@ -61,13 +72,6 @@ pub trait ValueWriter: Sized {
     fn struct_writer(self) -> IonResult<Self::StructWriter>;
     fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter>;
 
-    fn with_annotations<'a, SymbolType: 'a + AsRawSymbolTokenRef>(
-        self,
-        annotations: &'a [SymbolType],
-    ) -> Self::AnnotatedValueWriter<'a, SymbolType>
-    where
-        Self: 'a;
-
     fn write(self, value: impl WriteAsIon) -> IonResult<()> {
         value.write_as_ion(self)
     }
@@ -90,7 +94,7 @@ pub trait ValueWriter: Sized {
     ) -> IonResult<()> {
         let mut strukt = self.struct_writer()?;
         strukt.write_all(values)?;
-        strukt.end()
+        strukt.close()
     }
 }
 
@@ -189,39 +193,46 @@ macro_rules! delegate_value_writer_to_self {
 pub(crate) use delegate_value_writer_to;
 pub(crate) use delegate_value_writer_to_self;
 
-pub struct FieldWriter<'annotations, 'field, StructWriterType, FieldNameType, AnnotationsType> {
-    name: FieldNameType,
-    annotations: &'annotations [AnnotationsType],
+pub struct FieldWriter<'field, StructWriterType> {
+    name: RawSymbolTokenRef<'field>,
+    annotations: AnnotationsVec<'field>,
     struct_writer: &'field mut StructWriterType,
 }
 
-impl<'annotations, 'field, StructWriterType: StructWriter>
-    FieldWriter<'annotations, 'field, StructWriterType, RawSymbolTokenRef<'field>, SymbolId>
-{
+impl<'field, StructWriterType: StructWriter> FieldWriter<'field, StructWriterType> {
     pub fn new(
         name: RawSymbolTokenRef<'field>,
         struct_writer: &'field mut StructWriterType,
     ) -> Self {
         Self {
             name,
-            annotations: &[],
+            annotations: AnnotationsVec::new(), // This does not allocate
             struct_writer,
         }
     }
 }
 
-impl<
-        'annotations,
-        'field,
-        StructWriterType: StructWriter,
-        FieldNameType: AsRawSymbolTokenRef,
-        AnnotationsType: AsRawSymbolTokenRef,
-    > ValueWriter
-    for FieldWriter<'annotations, 'field, StructWriterType, FieldNameType, AnnotationsType>
+impl<'field, StructWriterType: StructWriter> AnnotatableWriter
+    for FieldWriter<'field, StructWriterType>
 {
-    type AnnotatedValueWriter<'a, NewAnnotationsType: AsRawSymbolTokenRef + 'a> = FieldWriter<'a, 'field, StructWriterType, FieldNameType, NewAnnotationsType>
-        where
-            Self: 'a;
+    type AnnotatedValueWriter<'a> = FieldWriter<'a, StructWriterType> where Self: 'a;
+
+    fn with_annotations<'a>(
+        self,
+        annotations: impl AnnotationSeq<'a>,
+    ) -> IonResult<Self::AnnotatedValueWriter<'a>>
+    where
+        Self: 'a,
+    {
+        Ok(FieldWriter {
+            name: self.name,
+            annotations: annotations.into_annotations_vec(),
+            struct_writer: self.struct_writer,
+        })
+    }
+}
+
+impl<'field, StructWriterType: StructWriter> ValueWriter for FieldWriter<'field, StructWriterType> {
     type ListWriter =
         <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::ListWriter;
     type SExpWriter =
@@ -236,20 +247,6 @@ impl<
         let value_writer = self_.struct_writer.make_value_writer();
         IonResult::Ok(value_writer)
     });
-
-    fn with_annotations<'a, S: 'a + AsRawSymbolTokenRef>(
-        self,
-        annotations: &'a [S],
-    ) -> Self::AnnotatedValueWriter<'a, S>
-    where
-        Self: 'a,
-    {
-        FieldWriter {
-            name: self.name,
-            annotations,
-            struct_writer: self.struct_writer,
-        }
-    }
 }
 
 pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
@@ -277,11 +274,11 @@ pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
     fn field_writer<'a>(
         &'a mut self,
         name: impl Into<RawSymbolTokenRef<'a>>,
-    ) -> FieldWriter<'_, 'a, Self, RawSymbolTokenRef<'a>, SymbolId> {
+    ) -> FieldWriter<'a, Self> {
         FieldWriter::new(name.into(), self)
     }
 
-    fn end(self) -> IonResult<()>;
+    fn close(self) -> IonResult<()>;
 }
 
 /// Takes a series of `TYPE => METHOD` pairs, generating a function for each that calls the

@@ -41,7 +41,7 @@ fn write_struct_with_string_values(value_writer: impl ValueWriter) -> IonResult<
                 black_box("2022-12-07T20:59:59.744000Z"),
             ],
         )?;
-    struct_.end()
+    struct_.close()
 }
 
 fn write_struct_with_symbol_values(value_writer: impl ValueWriter) -> IonResult<()> {
@@ -75,7 +75,7 @@ fn write_struct_with_symbol_values(value_writer: impl ValueWriter) -> IonResult<
                 symbol_id(black_box(25)),
             ],
         )?;
-    struct_.end()
+    struct_.close()
 }
 
 fn write_eexp_with_symbol_values(value_writer: impl ValueWriter) -> IonResult<()> {
