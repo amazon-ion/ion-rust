@@ -206,7 +206,6 @@ pub use {
     symbol_table::SymbolTable,
     system_reader::{SystemReader, SystemStreamItem},
     text::non_blocking::raw_text_reader::RawTextReader,
-    text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder},
 };
 
 // These re-exports are only visible if the "experimental-writer" feature is enabled.
