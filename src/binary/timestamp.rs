@@ -7,13 +7,13 @@ use arrayvec::ArrayVec;
 use chrono::{Datelike, Timelike};
 
 use crate::binary::decimal::DecimalBinaryEncoder;
-use crate::binary::raw_binary_writer::MAX_INLINE_LENGTH;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::result::IonResult;
 use crate::types::{Mantissa, TimestampPrecision};
 use crate::{Decimal, Timestamp};
 
+const MAX_INLINE_LENGTH: usize = 13;
 const MAX_TIMESTAMP_LENGTH: usize = 32;
 
 /// Provides support to write [`Timestamp`] into [Ion binary].
