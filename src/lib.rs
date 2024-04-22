@@ -211,10 +211,7 @@ pub use {
 
 // These re-exports are only visible if the "experimental-writer" feature is enabled.
 #[cfg(feature = "experimental-writer")]
-pub use {
-    binary::raw_binary_writer::RawBinaryWriter, ion_writer::IonWriter,
-    lazy::encoder::writer::ApplicationWriter,
-};
+pub use {ion_writer::IonWriter, lazy::encoder::writer::ApplicationWriter};
 
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
 #[cfg(feature = "experimental-lazy-reader")]

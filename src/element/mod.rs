@@ -46,8 +46,6 @@ pub mod writer;
 
 #[cfg(feature = "experimental-reader")]
 pub mod element_stream_reader;
-#[cfg(feature = "experimental-writer")]
-pub mod element_stream_writer;
 mod sequence;
 
 impl IonEq for Value {
