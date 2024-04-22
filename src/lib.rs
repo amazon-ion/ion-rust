@@ -146,7 +146,6 @@ mod constants;
 mod data_source;
 mod ion_data;
 mod ion_reader;
-mod ion_writer;
 mod raw_reader;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
@@ -210,7 +209,7 @@ pub use {
 
 // These re-exports are only visible if the "experimental-writer" feature is enabled.
 #[cfg(feature = "experimental-writer")]
-pub use {ion_writer::IonWriter, lazy::encoder::writer::ApplicationWriter};
+pub use lazy::encoder::writer::ApplicationWriter;
 
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
 #[cfg(feature = "experimental-lazy-reader")]
