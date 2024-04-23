@@ -425,4 +425,28 @@ pub trait SequenceWriter: MakeValueWriter {
     ) -> IonResult<<Self::ValueWriter<'a> as ValueWriter>::EExpWriter> {
         self.value_writer().eexp_writer(macro_id)
     }
+
+    fn write_list<V: WriteAsIon, I: IntoIterator<Item = V>>(
+        &mut self,
+        values: I,
+    ) -> IonResult<&mut Self> {
+        self.value_writer().write_list(values)?;
+        Ok(self)
+    }
+
+    fn write_sexp<V: WriteAsIon, I: IntoIterator<Item = V>>(
+        &mut self,
+        values: I,
+    ) -> IonResult<&mut Self> {
+        self.value_writer().write_sexp(values)?;
+        Ok(self)
+    }
+
+    fn write_struct<K: AsRawSymbolTokenRef, V: WriteAsIon, I: IntoIterator<Item = (K, V)>>(
+        &mut self,
+        fields: I,
+    ) -> IonResult<&mut Self> {
+        self.value_writer().write_struct(fields)?;
+        Ok(self)
+    }
 }

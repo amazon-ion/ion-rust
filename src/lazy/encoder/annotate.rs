@@ -22,7 +22,7 @@ pub trait Annotatable {
     /// use ion_rs::lazy::encoder::annotate::Annotatable;
     ///
     /// let mut buffer = vec![];
-    /// let mut writer = LazyRawTextWriter_1_0::new(&mut buffer);
+    /// let mut writer = LazyRawTextWriter_1_0::new(&mut buffer)?;
     ///
     /// writer.write(42_usize.annotated_with(["foo", "bar", "baz"]))?.flush()?;
     ///

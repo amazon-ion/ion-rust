@@ -5,9 +5,9 @@ use std::io::Write;
 
 use value_writer::SequenceWriter;
 
-use crate::IonResult;
 use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
+use crate::IonResult;
 
 pub mod annotate;
 pub mod annotation_seq;
@@ -72,11 +72,11 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter<Resources = W> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Element, IonData, IonResult, Timestamp};
     use crate::lazy::encoder::annotate::Annotatable;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::symbol_ref::AsSymbolRef;
+    use crate::{Element, IonData, IonResult, Timestamp};
 
     fn writer_test(
         expected: &str,
@@ -84,7 +84,7 @@ mod tests {
     ) -> IonResult<()> {
         let expected = Element::read_all(expected)?;
         let mut buffer = Vec::new();
-        let mut writer = LazyRawTextWriter_1_0::new(&mut buffer);
+        let mut writer = LazyRawTextWriter_1_0::new(&mut buffer)?;
         test(&mut writer)?;
         writer.flush()?;
         println!("{}", String::from_utf8_lossy(buffer.as_slice()));

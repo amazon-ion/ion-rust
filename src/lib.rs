@@ -147,14 +147,21 @@ pub use {
     raw_reader::{BufferedRawReader, RawReader, RawStreamItem},
     raw_symbol_token::RawSymbolToken,
     raw_symbol_token_ref::RawSymbolTokenRef,
-    reader::{Reader, ReaderBuilder, StreamItem, UserReader},
     // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
     reader::integration_testing,
+    reader::{Reader, ReaderBuilder, StreamItem, UserReader},
     symbol_table::SymbolTable,
     system_reader::{SystemReader, SystemStreamItem},
     text::non_blocking::raw_text_reader::RawTextReader,
 };
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
+pub use catalog::{Catalog, MapCatalog};
+pub use element::builders::{SequenceBuilder, StructBuilder};
+pub use element::{
+    element_writer::ElementWriter, reader::ElementReader, Annotations, Element,
+    IntoAnnotatedElement, IntoAnnotations, Sequence, Value,
+};
+pub use ion_data::IonData;
 #[cfg(feature = "experimental-lazy-reader")]
 pub use {
     binary::int::DecodedInt, binary::non_blocking::type_descriptor::Header,
@@ -163,13 +170,6 @@ pub use {
     lazy::encoder::binary::v1_1::flex_int::FlexInt,
     lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
 };
-pub use catalog::{Catalog, MapCatalog};
-pub use element::{
-    Annotations, Element, element_writer::ElementWriter, IntoAnnotatedElement,
-    IntoAnnotations, reader::ElementReader, Sequence, Value,
-};
-pub use element::builders::{SequenceBuilder, StructBuilder};
-pub use ion_data::IonData;
 // These re-exports are only visible if the "experimental-writer" feature is enabled.
 #[cfg(feature = "experimental-writer")]
 pub use lazy::encoder::writer::ApplicationWriter;
@@ -179,7 +179,7 @@ pub use shared_symbol_table::SharedSymbolTable;
 pub use symbol_ref::SymbolRef;
 #[doc(inline)]
 pub use types::{
-    Blob, Bytes, Clob, decimal::Decimal, Int, IonType, List, Null, SExp, Str, Struct, Symbol,
+    decimal::Decimal, Blob, Bytes, Clob, Int, IonType, List, Null, SExp, Str, Struct, Symbol,
     SymbolId, Timestamp, TimestampPrecision, UInt,
 };
 // Allow access to less commonly used types like decimal::coefficient::{Coefficient, Sign}
@@ -228,9 +228,9 @@ mod write_config;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 #[non_exhaustive]
 pub enum TextKind {
-    #[default]
     Compact,
     Lines,
+    #[default]
     Pretty,
 }
 

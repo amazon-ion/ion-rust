@@ -1,3 +1,4 @@
+mod value_writer;
 mod writer;
 
 use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
