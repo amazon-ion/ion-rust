@@ -119,8 +119,8 @@ mod tests {
             .write(Timestamp::with_ymd(2024, 4, 23).build()?)?
             .write("foo")?
             .write("foo".as_symbol_ref())?
-            .write(&[0xEAu8, 0x01, 0x01, 0xEE])?
-            .write_clob(&[0xEAu8, 0x01, 0x01, 0xEE])?;
+            .write([0xEAu8, 0x01, 0x01, 0xEE])?
+            .write_clob([0xEAu8, 0x01, 0x01, 0xEE])?;
         let encoded_bytes = writer.close()?;
         let encoded_text = String::from_utf8(encoded_bytes).unwrap();
         println!("{encoded_text}");
