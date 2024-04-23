@@ -138,6 +138,56 @@
 #[allow(clippy::single_component_path_imports)]
 use rstest_reuse;
 
+// These re-exports are only visible if the "experimental-reader" feature is enabled.
+#[cfg(feature = "experimental-reader")]
+pub use {
+    binary::non_blocking::raw_binary_reader::RawBinaryReader,
+    blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader},
+    ion_reader::IonReader,
+    raw_reader::{BufferedRawReader, RawReader, RawStreamItem},
+    raw_symbol_token::RawSymbolToken,
+    raw_symbol_token_ref::RawSymbolTokenRef,
+    reader::{Reader, ReaderBuilder, StreamItem, UserReader},
+    // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
+    reader::integration_testing,
+    symbol_table::SymbolTable,
+    system_reader::{SystemReader, SystemStreamItem},
+    text::non_blocking::raw_text_reader::RawTextReader,
+};
+// Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
+#[cfg(feature = "experimental-lazy-reader")]
+pub use {
+    binary::int::DecodedInt, binary::non_blocking::type_descriptor::Header,
+    binary::uint::DecodedUInt, binary::var_int::VarInt, binary::var_uint::VarUInt,
+    lazy::binary::immutable_buffer::ImmutableBuffer,
+    lazy::encoder::binary::v1_1::flex_int::FlexInt,
+    lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
+};
+pub use catalog::{Catalog, MapCatalog};
+pub use element::{
+    Annotations, Element, element_writer::ElementWriter, IntoAnnotatedElement,
+    IntoAnnotations, reader::ElementReader, Sequence, Value,
+};
+pub use element::builders::{SequenceBuilder, StructBuilder};
+pub use ion_data::IonData;
+// These re-exports are only visible if the "experimental-writer" feature is enabled.
+#[cfg(feature = "experimental-writer")]
+pub use lazy::encoder::writer::ApplicationWriter;
+#[doc(inline)]
+pub use result::{IonError, IonResult};
+pub use shared_symbol_table::SharedSymbolTable;
+pub use symbol_ref::SymbolRef;
+#[doc(inline)]
+pub use types::{
+    Blob, Bytes, Clob, decimal::Decimal, Int, IonType, List, Null, SExp, Str, Struct, Symbol,
+    SymbolId, Timestamp, TimestampPrecision, UInt,
+};
+// Allow access to less commonly used types like decimal::coefficient::{Coefficient, Sign}
+pub use types::decimal;
+// Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
+#[cfg(feature = "experimental-lazy-reader")]
+pub use write_config::WriteConfig;
+
 // Private modules that serve to organize implementation details.
 mod binary;
 mod blocking_reader;
@@ -168,70 +218,17 @@ pub mod ion_hash;
 pub mod lazy;
 // Experimental Streaming APIs
 mod position;
+mod read_config;
 #[cfg(feature = "experimental-serde")]
 pub mod serde;
 pub(crate) mod unsafe_helpers;
 mod write_config;
 
-pub use catalog::{Catalog, MapCatalog};
-pub use element::builders::{SequenceBuilder, StructBuilder};
-pub use element::{
-    element_writer::ElementWriter, reader::ElementReader, Annotations, Element,
-    IntoAnnotatedElement, IntoAnnotations, Sequence, Value,
-};
-pub use ion_data::IonData;
-pub use shared_symbol_table::SharedSymbolTable;
-pub use symbol_ref::SymbolRef;
-#[doc(inline)]
-pub use types::{
-    decimal::Decimal, Blob, Bytes, Clob, Int, IonType, List, Null, SExp, Str, Struct, Symbol,
-    SymbolId, Timestamp, TimestampPrecision, UInt,
-};
-
-// Allow access to less commonly used types like decimal::coefficient::{Coefficient, Sign}
-pub use types::decimal;
-
-// These re-exports are only visible if the "experimental-reader" feature is enabled.
-#[cfg(feature = "experimental-reader")]
-pub use {
-    binary::non_blocking::raw_binary_reader::RawBinaryReader,
-    blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader},
-    ion_reader::IonReader,
-    raw_reader::{BufferedRawReader, RawReader, RawStreamItem},
-    raw_symbol_token::RawSymbolToken,
-    raw_symbol_token_ref::RawSymbolTokenRef,
-    reader::integration_testing,
-    // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
-    reader::{Reader, ReaderBuilder, StreamItem, UserReader},
-    symbol_table::SymbolTable,
-    system_reader::{SystemReader, SystemStreamItem},
-    text::non_blocking::raw_text_reader::RawTextReader,
-};
-
-// These re-exports are only visible if the "experimental-writer" feature is enabled.
-#[cfg(feature = "experimental-writer")]
-pub use lazy::encoder::writer::ApplicationWriter;
-
-// Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
-#[cfg(feature = "experimental-lazy-reader")]
-pub use {
-    binary::int::DecodedInt, binary::non_blocking::type_descriptor::Header,
-    binary::uint::DecodedUInt, binary::var_int::VarInt, binary::var_uint::VarUInt,
-    lazy::binary::immutable_buffer::ImmutableBuffer,
-    lazy::encoder::binary::v1_1::flex_int::FlexInt,
-    lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
-};
-
-#[doc(inline)]
-pub use result::{IonError, IonResult};
-// Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
-#[cfg(feature = "experimental-lazy-reader")]
-pub use write_config::WriteConfig;
-
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 #[non_exhaustive]
 pub enum TextKind {
+    #[default]
     Compact,
     Lines,
     Pretty,

@@ -1,19 +1,23 @@
 #![allow(non_camel_case_types)]
 
+use std::fmt::Debug;
+
+use crate::{TextKind, WriteConfig};
 use crate::lazy::any_encoding::LazyRawAnyValue;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct_1_0;
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
 use crate::lazy::binary::raw::sequence::{LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0};
-use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
 use crate::lazy::binary::raw::v1_1::{
     r#struct::LazyRawBinaryStruct_1_1,
+    RawBinaryAnnotationsIterator_1_1,
     sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1},
     value::LazyRawBinaryValue_1_1,
-    RawBinaryAnnotationsIterator_1_1,
 };
+use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::encoder::LazyEncoder;
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::r#struct::LazyRawTextStruct_1_0;
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
@@ -26,11 +30,11 @@ use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, MatchedRawTextValue,
     RawTextAnnotationsIterator,
 };
-use std::fmt::Debug;
 
 /// Marker trait for types that represent an Ion encoding.
-pub trait Encoding: Debug + Copy {
+pub trait Encoding: LazyEncoder + LazyDecoder {
     fn name() -> &'static str;
+    fn default_write_config() -> WriteConfig<Self>;
 }
 
 // These types derive trait implementations in order to allow types that containing them
@@ -59,20 +63,33 @@ impl Encoding for BinaryEncoding_1_0 {
     fn name() -> &'static str {
         "binary Ion v1.0"
     }
+    fn default_write_config() -> WriteConfig<Self> {
+        WriteConfig::<Self>::new()
+    }
 }
 impl Encoding for BinaryEncoding_1_1 {
     fn name() -> &'static str {
         "binary Ion v1.1"
+    }
+    fn default_write_config() -> WriteConfig<Self> {
+        WriteConfig::<Self>::new()
     }
 }
 impl Encoding for TextEncoding_1_0 {
     fn name() -> &'static str {
         "text Ion v1.0"
     }
+    fn default_write_config() -> WriteConfig<Self> {
+        WriteConfig::<Self>::new(<TextKind as Default>::default())
+    }
 }
+
 impl Encoding for TextEncoding_1_1 {
     fn name() -> &'static str {
         "text Ion v1.1"
+    }
+    fn default_write_config() -> WriteConfig<Self> {
+        WriteConfig::<Self>::new(<TextKind as Default>::default())
     }
 }
 

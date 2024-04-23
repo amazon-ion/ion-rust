@@ -1,20 +1,19 @@
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::private::Sealed;
-use crate::lazy::encoder::text::LazyRawTextWriter_1_0;
+use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
-    delegate_value_writer_to, AnnotatableWriter, ValueWriter,
+    delegate_value_writer_to, AnnotatableWriter, SequenceWriter, StructWriter, ValueWriter,
 };
-use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
-use crate::result::{IonFailure, IonResult};
+use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::result::IonFailure;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::text::whitespace_config::WhitespaceConfig;
-use crate::types::{ContainerType, IonType, ParentType};
-use crate::{Decimal, Int, Timestamp};
+use crate::types::{ContainerType, ParentType};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use delegate::delegate;
 use std::fmt::Formatter;
 use std::io::Write;

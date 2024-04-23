@@ -1,8 +1,9 @@
-use crate::lazy::encoder::{LazyEncoder, LazyRawWriter};
-use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0};
-use crate::{IonResult, TextKind};
 use std::io;
 use std::marker::PhantomData;
+
+use crate::{IonResult, TextKind};
+use crate::lazy::encoder::LazyRawWriter;
+use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1};
 
 /// Writer configuration to provide format and Ion version details to writer through encoding
 /// This will be used to create a writer without specifying which writer methods to use
@@ -14,15 +15,25 @@ pub struct WriteConfig<E: Encoding> {
 }
 
 #[cfg(feature = "experimental-lazy-reader")]
-impl<E: Encoding + LazyEncoder> WriteConfig<E> {
+impl<E: Encoding> WriteConfig<E> {
     /// Builds a writer based on writer configuration
-    pub fn build<W: io::Write>(self, output: W) -> IonResult<<E as LazyEncoder>::Writer<W>> {
+    pub fn build<W: io::Write>(self, output: W) -> IonResult<E::Writer<W>> {
         E::Writer::build(self, output)
     }
 }
 
 #[cfg(feature = "experimental-lazy-reader")]
 impl WriteConfig<TextEncoding_1_0> {
+    pub fn new(text_kind: TextKind) -> Self {
+        Self {
+            kind: WriteConfigKind::Text(TextWriteConfig { text_kind }),
+            phantom_data: Default::default(),
+        }
+    }
+}
+
+#[cfg(feature = "experimental-lazy-reader")]
+impl WriteConfig<TextEncoding_1_1> {
     pub fn new(text_kind: TextKind) -> Self {
         Self {
             kind: WriteConfigKind::Text(TextWriteConfig { text_kind }),

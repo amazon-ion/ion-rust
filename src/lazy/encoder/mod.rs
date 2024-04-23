@@ -3,10 +3,11 @@
 use std::fmt::Debug;
 use std::io::Write;
 
+use value_writer::SequenceWriter;
+
+use crate::IonResult;
 use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
-use crate::IonResult;
-use value_writer::SequenceWriter;
 
 pub mod annotate;
 pub mod annotation_seq;
@@ -23,7 +24,7 @@ pub mod writer;
 // However, many types are generic over some `E: LazyEncoder`, and having this trait
 // extend 'static, Sized, Debug, Clone and Copy means that those types can #[derive(...)]
 // those traits themselves without boilerplate `where` clauses.
-pub trait LazyEncoder: 'static + Encoding + Sized + Debug + Clone + Copy {
+pub trait LazyEncoder: 'static + Sized + Debug + Clone + Copy {
     // XXX: ^-- This is named 'Lazy' for symmetry with the `LazyDecoder`. In reality, there's nothing
     //      lazy about it. We should revisit the Lazy* naming scheme, as eventually it will be the
     //      only implementation of a reader and won't need the word 'Lazy' to distinguish itself.
@@ -33,8 +34,6 @@ pub trait LazyEncoder: 'static + Encoding + Sized + Debug + Clone + Copy {
     /// A writer that serializes Rust values as Ion, emitting the resulting data to an implementation
     /// of [`Write`].
     type Writer<W: Write>: LazyRawWriter<W>;
-
-    fn default_write_config() -> WriteConfig<Self>;
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -73,11 +72,11 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter<Resources = W> {
 
 #[cfg(test)]
 mod tests {
+    use crate::{Element, IonData, IonResult, Timestamp};
     use crate::lazy::encoder::annotate::Annotatable;
-    use crate::lazy::encoder::text::LazyRawTextWriter_1_0;
+    use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::symbol_ref::AsSymbolRef;
-    use crate::{Element, IonData, IonResult, Timestamp};
 
     fn writer_test(
         expected: &str,
