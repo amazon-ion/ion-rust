@@ -1,9 +1,11 @@
 use std::io;
 use std::marker::PhantomData;
 
-use crate::{IonResult, TextKind};
 use crate::lazy::encoder::LazyRawWriter;
-use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::encoding::{
+    BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
+};
+use crate::{IonResult, TextKind};
 
 /// Writer configuration to provide format and Ion version details to writer through encoding
 /// This will be used to create a writer without specifying which writer methods to use

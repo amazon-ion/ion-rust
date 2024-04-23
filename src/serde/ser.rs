@@ -2,20 +2,20 @@ use std::io::Write;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
-use serde::{ser, Serialize};
 use serde::ser::Impossible;
+use serde::{ser, Serialize};
 
-use crate::{Decimal, IonError, IonResult, IonType, TextKind, Timestamp};
-use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
+use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
 use crate::lazy::encoder::writer::ApplicationWriter;
 use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0};
 use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
 use crate::symbol_ref::AsSymbolRef;
-use crate::Value::Null;
 use crate::write_config::WriteConfig;
+use crate::Value::Null;
+use crate::{Decimal, IonError, IonResult, IonType, TextKind, Timestamp};
 
 pub fn write_to<T: Serialize, E: Encoding, O: Write>(
     value: &T,

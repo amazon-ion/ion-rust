@@ -1,9 +1,9 @@
 use crate::element::Element;
-use crate::IonResult;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::writer::ApplicationWriter;
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::write_config::WriteConfig;
+use crate::IonResult;
 
 /// Transcribes text Ion to binary Ion
 pub fn to_binary_ion(text_ion: &str) -> IonResult<Vec<u8>> {
