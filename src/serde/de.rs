@@ -10,6 +10,7 @@ use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
+use crate::symbol_ref::AsSymbolRef;
 use crate::{Decimal, IonError, IonResult, IonType, Timestamp};
 
 /// Generic method that can deserialize an object from any given type
@@ -304,7 +305,10 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
     where
         V: Visitor<'de>,
     {
-        self.deserialize_unit(visitor)
+        // This is NOT the same as `deserialize_unit` above, which expects the unit type `()` and
+        // not some unit struct `Foo`. Calling `visitor.visit_unit()` will invoke
+        // `<Foo as Deserialize>::visit_unit()`, which will construct a new instance of `Foo`.
+        visitor.visit_unit()
     }
 
     fn deserialize_newtype_struct<V>(
@@ -391,7 +395,7 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
 
     fn deserialize_enum<V>(
         self,
-        _name: &'static str,
+        name: &'static str,
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
@@ -399,9 +403,12 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
         V: Visitor<'de>,
     {
         use IonType::*;
+        if self.value.annotations().next() != Some(Ok(name.as_symbol_ref())) {
+            return IonResult::decoding_error("expected an instance of enum {name}");
+        }
         match self.value.ion_type() {
-            String => visitor.visit_enum(UnitVariantAccess::new(self)),
-            // All the parameterized Rust enums uses annotations for representing enum variant
+            Symbol => visitor.visit_enum(UnitVariantAccess::new(self)),
+            // All the parameterized Rust enums use annotations for representing enum variants
             _ => visitor.visit_enum(VariantAccess::new(self)),
         }
     }
@@ -410,11 +417,26 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
     where
         V: Visitor<'de>,
     {
-        // annotations are currently only supported with parameterized Rust enums
-        if let Some(annotation) = self.value.annotations().next() {
-            visitor.visit_str(annotation?.text().unwrap())
-        } else {
-            visitor.visit_str(self.value.read()?.expect_text()?)
+        let mut annotations = self.value.annotations();
+        let first_annotation = annotations.next().transpose()?;
+        let second_annotation = annotations.next().transpose()?;
+        match (first_annotation, second_annotation) {
+            (None, _) => IonResult::decoding_error("expected an enum type identifier annotation"),
+            (Some(_), None) => {
+                let symbol = self.value.read()?.expect_symbol()?;
+                let symbol_text = symbol.text().ok_or_else(|| {
+                    IonError::decoding_error(
+                        "expected a symbol representing an enum's unit struct variant",
+                    )
+                })?;
+                visitor.visit_str(symbol_text)
+            }
+            (Some(_), Some(a2)) => {
+                let variant_id = a2.text().ok_or_else(|| {
+                    IonError::decoding_error("expected an enum variant identifier annotation")
+                })?;
+                visitor.visit_str(variant_id)
+            }
         }
     }
 

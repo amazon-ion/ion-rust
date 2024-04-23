@@ -12,19 +12,30 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
-use crate::binary::binary_writer::BinaryWriterBuilder;
-use crate::element::builders::{SequenceBuilder, StructBuilder};
-use crate::element::reader::ElementReader;
-use crate::ion_data::{IonEq, IonOrd};
-use crate::ion_writer::IonWriter;
-use crate::text::text_formatter::IonValueFormatter;
-use crate::text::text_writer::TextWriterBuilder;
-use crate::{
-    ion_data, Decimal, Format, Int, IonError, IonResult, IonType, Str, Symbol, TextKind, Timestamp,
-};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::io;
+
+pub use annotations::{Annotations, IntoAnnotations};
+pub use sequence::Sequence;
+
+use crate::{
+    ion_data, Decimal, Format, Int, IonError, IonResult, IonType, Str, Symbol, TextKind, Timestamp,
+    WriteConfig,
+};
+use crate::{Blob, Bytes, Clob, List, SExp, Struct};
+// Re-export the Value variant types and traits so they can be accessed directly from this module.
+use crate::data_source::IonDataSource;
+use crate::element::builders::{SequenceBuilder, StructBuilder};
+use crate::element::reader::ElementReader;
+use crate::element::writer::ElementWriter;
+use crate::ion_data::{IonEq, IonOrd};
+use crate::lazy::encoder::writer::ApplicationWriter;
+use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
+use crate::lazy::reader::LazyReader;
+use crate::lazy::streaming_raw_reader::{IonSlice, IonStream};
+use crate::result::IonFailure;
+use crate::text::text_formatter::IonValueFormatter;
 
 mod annotations;
 pub(crate) mod iterators;
@@ -35,20 +46,7 @@ pub mod writer;
 
 #[cfg(feature = "experimental-reader")]
 pub mod element_stream_reader;
-#[cfg(feature = "experimental-writer")]
-pub mod element_stream_writer;
 mod sequence;
-
-// Re-export the Value variant types and traits so they can be accessed directly from this module.
-use crate::data_source::IonDataSource;
-use crate::element::writer::ElementWriter;
-use crate::{Blob, Bytes, Clob, List, SExp, Struct};
-
-use crate::lazy::reader::LazyReader;
-use crate::lazy::streaming_raw_reader::{IonSlice, IonStream};
-use crate::result::IonFailure;
-pub use annotations::{Annotations, IntoAnnotations};
-pub use sequence::Sequence;
 
 impl IonEq for Value {
     fn ion_eq(&self, other: &Self) -> bool {
@@ -700,18 +698,20 @@ impl Element {
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::Element;
-    /// use ion_rs::{ion_list, IonWriter, TextWriterBuilder};
+    /// use ion_rs::{ion_list, ApplicationWriter};
+    /// use ion_rs::lazy::encoder::value_writer::SequenceWriter;
+    /// use ion_rs::lazy::encoding::BinaryEncoding_1_0;
     ///
     /// // Construct an Element
     /// let element_before: Element = ion_list! [1, 2, 3].into();
     ///
     /// // Serialize the Element to a writer
-    /// let mut writer = TextWriterBuilder::default().build(Vec::new())?;
+    /// let mut writer = ApplicationWriter::<BinaryEncoding_1_0, _>::new(vec![])?;
     /// element_before.write_to(&mut writer)?;
-    /// writer.flush()?;
+    /// let encoded_bytes = writer.close()?;
     ///
     /// // Read the Element back from the serialized form
-    /// let element_after = Element::read_one(writer.output())?;
+    /// let element_after = Element::read_one(encoded_bytes.as_slice())?;
     ///
     /// // Confirm that no data was lost
     /// assert_eq!(element_before, element_after);
@@ -773,14 +773,16 @@ assert_eq!(element_before, element_after);
     pub fn write_as<W: io::Write>(&self, format: Format, output: W) -> IonResult<()> {
         match format {
             Format::Text(text_kind) => {
-                let mut text_writer = TextWriterBuilder::new(text_kind).build(output)?;
-                Element::write_element_to(self, &mut text_writer)?;
-                text_writer.flush()
+                let config = WriteConfig::<TextEncoding_1_0>::new(text_kind);
+                let mut writer = ApplicationWriter::with_config(config, output)?;
+                Element::write_element_to(self, &mut writer)?;
+                writer.flush()
             }
             Format::Binary => {
-                let mut binary_writer = BinaryWriterBuilder::default().build(output)?;
-                Element::write_element_to(self, &mut binary_writer)?;
-                binary_writer.flush()
+                let config = WriteConfig::<BinaryEncoding_1_0>::new();
+                let mut writer = ApplicationWriter::with_config(config, output)?;
+                Element::write_element_to(self, &mut writer)?;
+                writer.flush()
             }
         }
     }
@@ -813,14 +815,16 @@ assert_eq!(element_before, element_after);
     ) -> IonResult<()> {
         match format {
             Format::Text(text_kind) => {
-                let mut text_writer = TextWriterBuilder::new(text_kind).build(output)?;
+                let config = WriteConfig::<TextEncoding_1_0>::new(text_kind);
+                let mut text_writer = ApplicationWriter::with_config(config, output)?;
                 for element in elements {
                     Element::write_element_to(element, &mut text_writer)?;
                 }
                 text_writer.flush()
             }
             Format::Binary => {
-                let mut binary_writer = BinaryWriterBuilder::default().build(output)?;
+                let config = WriteConfig::<BinaryEncoding_1_0>::new();
+                let mut binary_writer = ApplicationWriter::with_config(config, output)?;
                 for element in elements {
                     Element::write_element_to(element, &mut binary_writer)?;
                 }
@@ -955,11 +959,19 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+    use std::iter::{once, Once};
+    use std::str::FromStr;
+
+    use chrono::*;
+    use num_bigint::BigInt;
+    use rstest::*;
+
+    use ElemOp::*;
+
     use crate::element::annotations::IntoAnnotations;
     use crate::{ion_list, ion_sexp, ion_struct, Decimal, Int, IonType, Symbol, Timestamp};
-    use chrono::*;
-    use rstest::*;
-    use std::iter::{once, Once};
+    use crate::{Annotations, Element, IntoAnnotatedElement, Struct};
 
     /// Makes a timestamp from an RFC-3339 string and panics if it can't
     fn make_timestamp<T: AsRef<str>>(text: T) -> Timestamp {
@@ -1203,12 +1215,6 @@ mod tests {
             once(self)
         }
     }
-
-    use crate::{Annotations, Element, IntoAnnotatedElement, Struct};
-    use num_bigint::BigInt;
-    use std::collections::HashSet;
-    use std::str::FromStr;
-    use ElemOp::*;
 
     type ElemAssertFn = Box<dyn FnOnce(&Element)>;
 
@@ -1477,11 +1483,12 @@ mod tests {
 
 #[cfg(test)]
 mod value_tests {
+    use rstest::*;
+
     use crate::element::*;
     use crate::ion_data::IonEq;
     use crate::types::UInt;
     use crate::{ion_list, ion_sexp, ion_struct, IonType};
-    use rstest::*;
 
     #[test]
     fn demonstrate_element_implements_send() {

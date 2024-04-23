@@ -146,7 +146,6 @@ mod constants;
 mod data_source;
 mod ion_data;
 mod ion_reader;
-mod ion_writer;
 mod raw_reader;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
@@ -206,17 +205,11 @@ pub use {
     symbol_table::SymbolTable,
     system_reader::{SystemReader, SystemStreamItem},
     text::non_blocking::raw_text_reader::RawTextReader,
-    text::raw_text_writer::{RawTextWriter, RawTextWriterBuilder},
 };
 
 // These re-exports are only visible if the "experimental-writer" feature is enabled.
 #[cfg(feature = "experimental-writer")]
-pub use {
-    binary::binary_writer::{BinaryWriter, BinaryWriterBuilder},
-    binary::raw_binary_writer::RawBinaryWriter,
-    ion_writer::IonWriter,
-    text::text_writer::{TextWriter, TextWriterBuilder},
-};
+pub use lazy::encoder::writer::ApplicationWriter;
 
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
 #[cfg(feature = "experimental-lazy-reader")]

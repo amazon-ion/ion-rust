@@ -11,9 +11,9 @@ use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
 use crate::result::{IonFailure, IonResult};
-use crate::text::raw_text_writer::{RawTextWriter, WhitespaceConfig};
 use crate::text::text_formatter::IonValueFormatter;
-use crate::types::IonType;
+use crate::text::whitespace_config::WhitespaceConfig;
+use crate::types::{ContainerType, IonType, ParentType};
 use crate::{Decimal, Int, Timestamp};
 use delegate::delegate;
 use std::fmt::Formatter;
@@ -23,19 +23,143 @@ pub struct TextValueWriter_1_0<'value, W: Write + 'value> {
     writer: &'value mut LazyRawTextWriter_1_0<W>,
     depth: usize,
     value_delimiter: &'static str,
+    // This allows us to detect cases where a value writer is being used inside a struct
+    // (i.e. following an indented field name) which is the only time we don't write
+    // indentation before the value.
+    parent_type: ParentType,
+}
+
+/// Returns `true` if the provided `token`'s text is an 'identifier'. That is, the text starts
+/// with a `$`, `_` or ASCII letter and is followed by a sequence of `$`, `_`, or ASCII letters
+/// and numbers. Examples:
+/// * `firstName`
+/// * `first_name`
+/// * `name_1`
+/// * `$name`
+/// Unlike other symbols, identifiers don't have to be wrapped in quotes.
+fn token_is_identifier(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    let mut chars = token.chars();
+    let first = chars.next().unwrap();
+    (first == '$' || first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|c| c == '$' || c == '_' || c.is_ascii_alphanumeric())
+}
+
+/// Returns `true` if the provided text is an Ion keyword. Keywords like `true` or `null`
+/// resemble identifiers, but writers must wrap them in quotes when using them as symbol text.
+fn token_is_keyword(token: &str) -> bool {
+    const KEYWORDS: &[&str] = &["true", "false", "nan", "null"];
+    KEYWORDS.contains(&token)
+}
+
+/// Returns `true` if this token's text resembles a symbol ID literal. For example: `'$99'` is a
+/// symbol with the text `$99`. However, `$99` (without quotes) is a symbol ID that maps to
+/// different text.
+fn token_resembles_symbol_id(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    let mut chars = token.chars();
+    let first = chars.next().unwrap();
+    first == '$' && chars.all(|c| c.is_numeric())
+}
+
+pub(crate) fn write_symbol_token<O: Write, A: AsRawSymbolTokenRef>(
+    output: &mut O,
+    token: A,
+) -> IonResult<()> {
+    match token.as_raw_symbol_token_ref() {
+        RawSymbolTokenRef::SymbolId(sid) => write!(output, "${sid}")?,
+        RawSymbolTokenRef::Text(text)
+            if token_is_keyword(text.as_ref()) || token_resembles_symbol_id(text.as_ref()) =>
+        {
+            // Write the symbol text in single quotes
+            write!(output, "'{text}'")?;
+        }
+        RawSymbolTokenRef::Text(text) if token_is_identifier(text.as_ref()) => {
+            // Write the symbol text without quotes
+            write!(output, "{text}")?
+        }
+        RawSymbolTokenRef::Text(text) => {
+            // Write the symbol text using quotes and escaping any characters that require it.
+            write!(output, "\'")?;
+            write_escaped_text_body(output, text)?;
+            write!(output, "\'")?;
+        }
+    };
+    Ok(())
+}
+
+/// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
+/// characters escaped.
+pub(crate) fn write_escaped_text_body<O: Write, S: AsRef<str>>(
+    output: &mut O,
+    value: S,
+) -> IonResult<()> {
+    let mut start = 0usize;
+    let text = value.as_ref();
+    for (byte_index, character) in text.char_indices() {
+        let escaped = match character {
+            '\n' => r"\n",
+            '\r' => r"\r",
+            '\t' => r"\t",
+            '\\' => r"\\",
+            '/' => r"\/",
+            '"' => r#"\""#,
+            '\'' => r"\'",
+            '?' => r"\?",
+            '\x00' => r"\0", // NUL
+            '\x07' => r"\a", // alert BEL
+            '\x08' => r"\b", // backspace
+            '\x0B' => r"\v", // vertical tab
+            '\x0C' => r"\f", // form feed
+            _ => {
+                // Other characters can be left as-is
+                continue;
+            }
+        };
+        // If we reach this point, the current character needed to be escaped.
+        // Write all of the text leading up to this character to output, then the escaped
+        // version of this character.
+        write!(output, "{}{}", &text[start..byte_index], escaped)?;
+        // Update `start` to point to the first byte after the end of this character.
+        start = byte_index + character.len_utf8();
+    }
+    write!(output, "{}", &text[start..])?;
+    Ok(())
 }
 
 impl<'value, W: Write + 'value> TextValueWriter_1_0<'value, W> {
-    pub fn new(
+    pub(crate) fn new(
         writer: &'value mut LazyRawTextWriter_1_0<W>,
         depth: usize,
         delimiter: &'static str,
+        parent_type: ParentType,
     ) -> Self {
         Self {
             writer,
             depth,
             value_delimiter: delimiter,
+            parent_type,
         }
+    }
+
+    /// Writes the `indentation` string set in the whitespace config to output `depth` times.
+    fn write_indentation(&mut self) -> IonResult<()> {
+        let indentation = self.whitespace_config().indentation;
+        if self.parent_type == ParentType::Struct {
+            // If this value is part of a struct field, the indentation was written before the
+            // field name. There's nothing to do here.
+            return Ok(());
+        }
+        if !indentation.is_empty() {
+            for _ in 0..self.depth {
+                write!(self.output(), "{indentation}")?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -54,12 +178,12 @@ impl<'value, W: Write> TextValueWriter_1_0<'value, W> {
 
     #[inline]
     fn write_delimiter_text(&mut self) -> IonResult<()> {
-        let space_between_nested_values = self.whitespace_config().space_between_nested_values;
+        let space_between = match self.depth {
+            0 => self.whitespace_config().space_between_top_level_values,
+            _ => self.whitespace_config().space_between_nested_values,
+        };
         let value_delimiter = self.value_delimiter;
-        write!(
-            self.output(),
-            "{value_delimiter}{space_between_nested_values}"
-        )?;
+        write!(self.output(), "{value_delimiter}{space_between}")?;
         Ok(())
     }
 }
@@ -75,7 +199,7 @@ impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
         for annotation in self.annotations {
             match annotation.as_raw_symbol_token_ref() {
                 RawSymbolTokenRef::Text(token) => {
-                    RawTextWriter::<W>::write_symbol_token(output, token.as_ref())?;
+                    write_symbol_token(output, token.as_ref())?;
                     write!(output, "::")
                 }
                 RawSymbolTokenRef::SymbolId(sid) => write!(output, "${sid}::"),
@@ -103,7 +227,7 @@ struct TextContainerWriter_1_0<'a, W: Write> {
     has_been_closed: bool,
     // The Ion type of the container using this TextContainerWriter_1_0. This value is only
     // used for more informative error messages.
-    ion_type: IonType,
+    container_type: ContainerType,
     value_delimiter: &'static str,
     trailing_delimiter: &'static str,
 }
@@ -114,8 +238,8 @@ impl<'a, W: Write> Drop for TextContainerWriter_1_0<'a, W> {
         // It's too late to call it here because we can't return a `Result`.
         if !self.has_been_closed {
             panic!(
-                "Container writer ({}) was dropped without calling `end()`.",
-                self.ion_type
+                "Container writer ({:?}) was dropped without calling `end()`.",
+                self.container_type
             );
         }
     }
@@ -125,7 +249,7 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
     pub fn new(
         writer: &'a mut LazyRawTextWriter_1_0<W>,
         depth: usize,
-        ion_type: IonType,
+        container_type: ContainerType,
         opening_delimiter: &str,
         value_delimiter: &'static str,
         trailing_delimiter: &'static str,
@@ -138,7 +262,7 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
         Ok(Self {
             writer,
             depth,
-            ion_type,
+            container_type,
             has_been_closed: false,
             value_delimiter,
             trailing_delimiter,
@@ -146,10 +270,10 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
     }
 
     /// Writes the `indentation` string set in the whitespace config to output `depth` times.
-    fn write_indentation(&mut self) -> IonResult<()> {
+    fn write_indentation(&mut self, depth: usize) -> IonResult<()> {
         let indentation = self.whitespace_config().indentation;
         if !indentation.is_empty() {
-            for _ in 0..self.depth {
+            for _ in 0..depth {
                 write!(self.output(), "{indentation}")?;
             }
         }
@@ -159,19 +283,22 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
     /// Writes the provided value to output using its implementation of `WriteAsIon`, then writes
     /// the whitespace config's `space_between_nested_values`.
     fn write_value<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
-        self.write_indentation()?;
+        self.write_indentation(self.depth + 1)?;
         value.write_as_ion(self.value_writer())?;
         Ok(self)
     }
 
     /// Finalizes the container, preventing further values from being written.
     fn close(mut self, closing_delimiter: &str) -> IonResult<()> {
-        let space_between_top_level_values =
-            self.whitespace_config().space_between_top_level_values;
+        let space_between = match self.depth {
+            0 => self.whitespace_config().space_between_top_level_values,
+            _ => self.whitespace_config().space_between_nested_values,
+        };
         let trailing_delimiter = self.trailing_delimiter;
+        self.write_indentation(self.depth)?;
         write!(
             self.output(),
-            "{closing_delimiter}{trailing_delimiter}{space_between_top_level_values}"
+            "{closing_delimiter}{trailing_delimiter}{space_between}"
         )?;
         self.has_been_closed = true;
         Ok(())
@@ -189,8 +316,9 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
     fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W> {
         TextValueWriter_1_0 {
             writer: self.writer,
-            depth: self.depth,
+            depth: self.depth + 1,
             value_delimiter: self.value_delimiter,
+            parent_type: self.container_type.into(),
         }
     }
 }
@@ -209,7 +337,7 @@ impl<'top, W: Write> TextListWriter_1_0<'top, W> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
             depth,
-            IonType::List,
+            ContainerType::List,
             "[",
             ",",
             trailing_delimiter,
@@ -264,7 +392,7 @@ impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
             depth,
-            IonType::SExp,
+            ContainerType::SExp,
             "(",
             " ",
             trailing_delimiter,
@@ -321,7 +449,7 @@ impl<'a, W: Write> TextStructWriter_1_0<'a, W> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
             depth,
-            IonType::Struct,
+            ContainerType::Struct,
             "{",
             ",",
             trailing_delimiter,
@@ -338,9 +466,10 @@ impl<'a, W: Write> TextStructWriter_1_0<'a, W> {
 impl<'a, W: Write> FieldEncoder for TextStructWriter_1_0<'a, W> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolTokenRef) -> IonResult<()> {
         // Leading indentation for the current depth
-        self.container_writer.write_indentation()?;
+        self.container_writer
+            .write_indentation(self.container_writer.depth + 1)?;
         // Write the field name
-        RawTextWriter::<W>::write_symbol_token(self.container_writer.output(), name)?;
+        write_symbol_token(self.container_writer.output(), name)?;
         let space_after_field_name = self
             .container_writer
             .whitespace_config()
@@ -361,6 +490,7 @@ impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_0<'value, W> {
             writer: self.container_writer.writer,
             depth: self.container_writer.depth,
             value_delimiter: ",",
+            parent_type: ParentType::Struct,
         }
     }
 }
@@ -425,6 +555,7 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     type EExpWriter = Never;
     fn write_null(mut self, ion_type: IonType) -> IonResult<()> {
         use crate::IonType::*;
+        self.write_indentation()?;
         let null_text = match ion_type {
             Null => "null",
             Bool => "null.bool",
@@ -445,6 +576,7 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     }
 
     fn write_bool(mut self, value: bool) -> IonResult<()> {
+        self.write_indentation()?;
         let bool_text = match value {
             true => "true",
             false => "false",
@@ -454,11 +586,13 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     }
 
     fn write_i64(mut self, value: i64) -> IonResult<()> {
+        self.write_indentation()?;
         write!(self.output(), "{value}")?;
         self.write_delimiter_text()
     }
 
     fn write_int(mut self, value: &Int) -> IonResult<()> {
+        self.write_indentation()?;
         write!(self.output(), "{value}")?;
         self.write_delimiter_text()
     }
@@ -468,6 +602,7 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     }
 
     fn write_f64(mut self, value: f64) -> IonResult<()> {
+        self.write_indentation()?;
         if value.is_nan() {
             write!(self.output(), "nan")?;
             return self.write_delimiter_text();
@@ -495,24 +630,28 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     }
 
     fn write_decimal(mut self, value: &Decimal) -> IonResult<()> {
+        self.write_indentation()?;
         write!(self.output(), "{value}")?;
         self.write_delimiter_text()
     }
 
     fn write_timestamp(mut self, value: &Timestamp) -> IonResult<()> {
+        self.write_indentation()?;
         write!(self.output(), "{value}")?;
         self.write_delimiter_text()
     }
 
     fn write_string(mut self, value: impl AsRef<str>) -> IonResult<()> {
+        self.write_indentation()?;
         write!(self.output(), "\"",)?;
-        RawTextWriter::<W>::write_escaped_text_body(self.output(), value)?;
+        write_escaped_text_body(self.output(), value)?;
         write!(self.output(), "\"")?;
         self.write_delimiter_text()
     }
 
     fn write_symbol(mut self, value: impl AsRawSymbolTokenRef) -> IonResult<()> {
-        RawTextWriter::<W>::write_symbol_token(self.output(), value)?;
+        self.write_indentation()?;
+        write_symbol_token(self.output(), value)?;
         self.write_delimiter_text()
     }
 
@@ -528,11 +667,13 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
             }
         }
 
+        self.write_indentation()?;
         write!(self.output(), "{}", ClobShim(value.as_ref()))?;
         self.write_delimiter_text()
     }
 
     fn write_blob(mut self, value: impl AsRef<[u8]>) -> IonResult<()> {
+        self.write_indentation()?;
         // Rust format strings escape curly braces by doubling them. The following string is:
         // * The opening {{ from a text Ion blob, with each brace doubled to escape it.
         // * A {} pair used by the format string to indicate where the base64-encoded bytes
