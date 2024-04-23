@@ -14,8 +14,9 @@ use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
 use crate::symbol_ref::AsSymbolRef;
+use crate::write_config::WriteConfig;
 use crate::Value::Null;
-use crate::{Decimal, IonError, IonResult, IonType, TextKind, Timestamp, WriteConfig};
+use crate::{Decimal, IonError, IonResult, IonType, TextKind, Timestamp};
 
 pub fn write_to<T: Serialize, E: LazyEncoder, O: Write>(
     value: &T,

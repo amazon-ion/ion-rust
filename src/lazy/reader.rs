@@ -189,12 +189,13 @@ impl<Encoding: LazyDecoder, Input: IonInput> ElementReader
 
 #[cfg(test)]
 mod tests {
-    use crate::{Int, ion_list, ion_sexp, ion_struct, IonResult, IonType, WriteConfig};
+    use crate::{Int, ion_list, ion_sexp, ion_struct, IonResult, IonType};
     use crate::element::Element;
-    use crate::element::writer::ElementWriter;
+    use crate::element::element_writer::ElementWriter;
     use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::writer::ApplicationWriter;
     use crate::lazy::value_ref::ValueRef;
+    use crate::write_config::WriteConfig;
 
     use super::*;
 

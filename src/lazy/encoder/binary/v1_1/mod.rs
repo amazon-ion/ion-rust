@@ -1,7 +1,7 @@
 use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
 use crate::lazy::encoder::{LazyEncoder, SymbolCreationPolicy};
 use crate::lazy::encoding::BinaryEncoding_1_1;
-use crate::WriteConfig;
+use crate::write_config::WriteConfig;
 use std::io::Write;
 
 pub mod container_writers;

@@ -1,4 +1,3 @@
-use crate::element::writer::{WriteConfig, WriteConfigKind};
 use crate::lazy::encoder::text::value_writer::TextValueWriter_1_0;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
@@ -9,6 +8,7 @@ use crate::text::whitespace_config::{
     WhitespaceConfig, COMPACT_WHITESPACE_CONFIG, LINES_WHITESPACE_CONFIG, PRETTY_WHITESPACE_CONFIG,
 };
 use crate::types::ParentType;
+use crate::write_config::{WriteConfig, WriteConfigKind};
 use crate::{IonResult, TextKind};
 use delegate::delegate;
 use std::io::Write;

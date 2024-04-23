@@ -13,9 +13,10 @@ use crate::lazy::encoder::{LazyEncoder, LazyRawWriter, SymbolCreationPolicy};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
+use crate::write_config::WriteConfig;
 use crate::{
     Decimal, Element, ElementWriter, Int, IonResult, IonType, RawSymbolTokenRef, Symbol, SymbolId,
-    SymbolTable, Timestamp, Value, WriteConfig,
+    SymbolTable, Timestamp, Value,
 };
 
 pub(crate) struct EncodingContext {

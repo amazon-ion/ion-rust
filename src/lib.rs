@@ -171,12 +171,13 @@ mod position;
 #[cfg(feature = "experimental-serde")]
 pub mod serde;
 pub(crate) mod unsafe_helpers;
+mod write_config;
 
 pub use catalog::{Catalog, MapCatalog};
 pub use element::builders::{SequenceBuilder, StructBuilder};
 pub use element::{
-    reader::ElementReader, writer::ElementWriter, Annotations, Element, IntoAnnotatedElement,
-    IntoAnnotations, Sequence, Value,
+    element_writer::ElementWriter, reader::ElementReader, Annotations, Element,
+    IntoAnnotatedElement, IntoAnnotations, Sequence, Value,
 };
 pub use ion_data::IonData;
 pub use shared_symbol_table::SharedSymbolTable;
@@ -199,8 +200,8 @@ pub use {
     raw_reader::{BufferedRawReader, RawReader, RawStreamItem},
     raw_symbol_token::RawSymbolToken,
     raw_symbol_token_ref::RawSymbolTokenRef,
-    // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
     reader::integration_testing,
+    // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
     reader::{Reader, ReaderBuilder, StreamItem, UserReader},
     symbol_table::SymbolTable,
     system_reader::{SystemReader, SystemStreamItem},
@@ -216,13 +217,16 @@ pub use lazy::encoder::writer::ApplicationWriter;
 pub use {
     binary::int::DecodedInt, binary::non_blocking::type_descriptor::Header,
     binary::uint::DecodedUInt, binary::var_int::VarInt, binary::var_uint::VarUInt,
-    element::writer::WriteConfig, lazy::binary::immutable_buffer::ImmutableBuffer,
+    lazy::binary::immutable_buffer::ImmutableBuffer,
     lazy::encoder::binary::v1_1::flex_int::FlexInt,
     lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
 };
 
 #[doc(inline)]
 pub use result::{IonError, IonResult};
+// Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
+#[cfg(feature = "experimental-lazy-reader")]
+pub use write_config::WriteConfig;
 
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

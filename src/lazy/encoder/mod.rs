@@ -3,8 +3,8 @@
 use std::fmt::Debug;
 use std::io::Write;
 
-use crate::element::writer::WriteConfig;
 use crate::lazy::encoding::Encoding;
+use crate::write_config::WriteConfig;
 use crate::IonResult;
 use value_writer::SequenceWriter;
 
