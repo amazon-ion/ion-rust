@@ -10,6 +10,7 @@ use crate::lazy::encoder::value_writer::{
 };
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::result::IonFailure;
 use crate::types::{ContainerType, ParentType};
 use crate::{Decimal, Int, IonResult, IonType, Timestamp};
 use delegate::delegate;
@@ -156,21 +157,8 @@ impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_1<'va
         })
     }
 
-    fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
-        TextEExpWriter_1_1::new(
-            self.value_writer_1_0.value_writer.writer,
-            self.value_writer_1_0.value_writer.depth,
-            self.value_writer_1_0.value_writer.parent_type,
-            // Pretend we're in a sexp for syntax purposes
-            ContainerType::SExp,
-            // TODO: Reusable buffer
-            format!("(:{}", macro_id.into()).as_str(),
-            " ",
-            match self.value_writer_1_0.value_writer.parent_type {
-                ParentType::Struct | ParentType::List => ",",
-                _ => "",
-            },
-        )
+    fn eexp_writer<'a>(self, _macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
+        IonResult::encoding_error("e-expressions cannot have annotations")
     }
 }
 
