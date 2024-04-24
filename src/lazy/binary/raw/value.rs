@@ -9,6 +9,7 @@ use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct_1_0;
 use crate::lazy::binary::raw::sequence::{
     LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0, LazyRawBinarySequence_1_0,
 };
+use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::lazy::decoder::private::LazyRawValuePrivate;
 use crate::lazy::decoder::LazyRawValue;
 use crate::lazy::encoding::BinaryEncoding_1_0;
@@ -21,7 +22,6 @@ use bytes::{BigEndian, ByteOrder};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::{fmt, mem};
-use crate::lazy::binary::raw::type_descriptor::Header;
 
 /// A value that has been identified in the input stream but whose data has not yet been read.
 ///
