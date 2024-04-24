@@ -1,4 +1,4 @@
-use crate::binary::non_blocking::type_descriptor::Header;
+use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::types::SymbolId;
 use crate::IonType;
 use std::ops::Range;
@@ -257,9 +257,9 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
 
 #[cfg(test)]
 mod tests {
-    use crate::binary::non_blocking::type_descriptor::Header;
     use crate::binary::IonTypeCode;
     use crate::lazy::binary::encoded_value::EncodedValue;
+    use crate::lazy::binary::raw::type_descriptor::Header;
     use crate::{IonResult, IonType};
 
     #[test]

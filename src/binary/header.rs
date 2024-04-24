@@ -1,8 +1,8 @@
 use std::convert::TryFrom;
 
 use crate::binary::constants::v1_0::length_codes;
-use crate::binary::nibbles::nibbles_from_byte;
 use crate::binary::IonTypeCode;
+use crate::lazy::binary::raw::nibbles::nibbles_from_byte;
 use crate::result::IonResult;
 use crate::IonType;
 

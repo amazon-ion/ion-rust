@@ -141,18 +141,8 @@ use rstest_reuse;
 // These re-exports are only visible if the "experimental-reader" feature is enabled.
 #[cfg(feature = "experimental-reader")]
 pub use {
-    binary::non_blocking::raw_binary_reader::RawBinaryReader,
-    blocking_reader::{BlockingRawBinaryReader, BlockingRawReader, BlockingRawTextReader},
-    ion_reader::IonReader,
-    raw_reader::{BufferedRawReader, RawReader, RawStreamItem},
-    raw_symbol_token::RawSymbolToken,
-    raw_symbol_token_ref::RawSymbolTokenRef,
-    // Public as a workaround for: https://github.com/amazon-ion/ion-rust/issues/484
-    reader::integration_testing,
-    reader::{Reader, ReaderBuilder, StreamItem, UserReader},
+    raw_symbol_token::RawSymbolToken, raw_symbol_token_ref::RawSymbolTokenRef,
     symbol_table::SymbolTable,
-    system_reader::{SystemReader, SystemStreamItem},
-    text::non_blocking::raw_text_reader::RawTextReader,
 };
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
 pub use catalog::{Catalog, MapCatalog};
@@ -164,7 +154,6 @@ pub use element::{
 pub use ion_data::IonData;
 #[cfg(feature = "experimental-lazy-reader")]
 pub use {
-    binary::int::DecodedInt, binary::non_blocking::type_descriptor::Header,
     binary::uint::DecodedUInt, binary::var_int::VarInt, binary::var_uint::VarUInt,
     lazy::binary::immutable_buffer::ImmutableBuffer,
     lazy::encoder::binary::v1_1::flex_int::FlexInt,
@@ -189,21 +178,15 @@ pub use types::decimal;
 pub use write_config::WriteConfig;
 
 // Private modules that serve to organize implementation details.
-mod binary;
-mod blocking_reader;
+pub(crate) mod binary;
 mod catalog;
 mod constants;
-mod data_source;
 mod ion_data;
-mod ion_reader;
-mod raw_reader;
 mod raw_symbol_token;
 mod raw_symbol_token_ref;
-mod reader;
 mod shared_symbol_table;
 mod symbol_ref;
 mod symbol_table;
-mod system_reader;
 mod text;
 
 // Publicly-visible modules with nested items which users may choose to import

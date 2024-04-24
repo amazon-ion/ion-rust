@@ -24,7 +24,6 @@ use crate::{
 };
 use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
-use crate::data_source::IonDataSource;
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::element_writer::ElementWriter;
 use crate::element::reader::ElementReader;
@@ -32,7 +31,7 @@ use crate::ion_data::{IonEq, IonOrd};
 use crate::lazy::encoder::writer::ApplicationWriter;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
 use crate::lazy::reader::LazyReader;
-use crate::lazy::streaming_raw_reader::{IonSlice, IonStream};
+use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
 use crate::result::IonFailure;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::write_config::WriteConfig;
@@ -43,9 +42,6 @@ pub(crate) mod iterators;
 pub mod builders;
 pub mod element_writer;
 pub mod reader;
-
-#[cfg(feature = "experimental-reader")]
-pub mod element_stream_reader;
 mod sequence;
 
 impl IonEq for Value {
@@ -686,10 +682,10 @@ impl Element {
     /// Returns an iterator over the Elements in the provided Ion data source.
     /// If the data source cannot be read or contains invalid Ion data, this method
     /// will return an `Err`.
-    pub fn iter<'a, I: IonDataSource + 'a>(
+    pub fn iter<'a, I: IonInput + 'a>(
         source: I,
     ) -> IonResult<impl Iterator<Item = IonResult<Element>> + 'a> {
-        Ok(LazyReader::new(IonStream::new(source.to_ion_data_source())).into_elements())
+        Ok(LazyReader::new(source).into_elements())
     }
 
     /// Serializes this element to the provided writer.
