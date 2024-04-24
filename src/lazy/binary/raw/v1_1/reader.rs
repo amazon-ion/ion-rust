@@ -194,9 +194,9 @@ mod tests {
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next()?.expect_ivm()?;
 
-        assert_eq!(reader.next()?.expect_value()?.read()?.expect_bool()?, true,);
+        assert!(reader.next()?.expect_value()?.read()?.expect_bool()?);
 
-        assert_eq!(reader.next()?.expect_value()?.read()?.expect_bool()?, false,);
+        assert!(!(reader.next()?.expect_value()?.read()?.expect_bool()?));
 
         Ok(())
     }
