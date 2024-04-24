@@ -1,12 +1,10 @@
 use crate::binary::constants::v1_0::{length_codes, IVM};
 use crate::binary::int::DecodedInt;
-use crate::binary::non_blocking::type_descriptor::{
-    Header, TypeDescriptor, ION_1_0_TYPE_DESCRIPTORS,
-};
 use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
+use crate::lazy::binary::raw::type_descriptor::{Header, TypeDescriptor, ION_1_0_TYPE_DESCRIPTORS};
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;

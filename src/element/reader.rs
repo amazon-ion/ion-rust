@@ -3,11 +3,8 @@
 //! Provides APIs to read Ion data into [Element] from different sources such
 //! as slices or files.
 
-use crate::ion_reader::IonReader;
-use crate::reader::StreamItem;
 use crate::result::{IonFailure, IonResult};
-use crate::Symbol;
-use crate::{Annotations, Element, Sequence, Struct, Value};
+use crate::{Element, Sequence};
 
 /// Reads Ion data into [`Element`] instances.
 ///
@@ -72,21 +69,6 @@ pub trait ElementReader {
     }
 }
 
-impl<R> ElementReader for R
-where
-    R: IonReader<Item = StreamItem, Symbol = Symbol> + ?Sized,
-{
-    type ElementIterator<'a> = ElementIterator<'a, R> where R: 'a;
-
-    fn read_next_element(&mut self) -> IonResult<Option<Element>> {
-        ElementLoader::for_reader(self).materialize_next()
-    }
-
-    fn elements(&mut self) -> ElementIterator<R> {
-        ElementIterator { reader: self }
-    }
-}
-
 /// Holds a reference to a given [ElementReader] implementation and yields one [Element] at a time
 /// until the stream is exhausted or invalid data is encountered.
 pub struct ElementIterator<'a, R: ElementReader + ?Sized> {
@@ -117,112 +99,18 @@ impl<R: ElementReader> Iterator for OwnedElementIterator<R> {
     }
 }
 
-/// Helper type; wraps an [ElementReader] and recursively materializes the next value in the
-/// reader's input, reporting any errors that might occur along the way.
-struct ElementLoader<'a, R: ?Sized> {
-    reader: &'a mut R,
-}
-
-impl<'a, R: IonReader<Item = StreamItem, Symbol = Symbol> + ?Sized> ElementLoader<'a, R> {
-    pub(crate) fn for_reader(reader: &mut R) -> ElementLoader<R> {
-        ElementLoader { reader }
-    }
-
-    /// Advances the reader to the next value in the stream and uses [Self::materialize_current]
-    /// to materialize it.
-    pub(crate) fn materialize_next(&mut self) -> IonResult<Option<Element>> {
-        // Advance the reader to the next value
-        let _ = self.reader.next()?;
-        self.materialize_current()
-    }
-
-    /// Recursively materialize the reader's current Ion value and returns it as `Ok(Some(value))`.
-    /// If there are no more values at this level, returns `Ok(None)`.
-    /// If an error occurs while materializing the value, returns an `Err`.
-    /// Calling this method advances the reader and consumes the current value.
-    fn materialize_current(&mut self) -> IonResult<Option<Element>> {
-        // Collect this item's annotations into a Vec. We have to do this before materializing the
-        // value itself because materializing a collection requires advancing the reader further.
-        let mut annotations = Vec::new();
-        // Current API limitations require `self.reader.annotations()` to heap allocate its
-        // iterator even if there aren't annotations. `self.reader.has_annotations()` is trivial
-        // and allows us to skip the heap allocation in the common case.
-        if self.reader.has_annotations() {
-            for annotation in self.reader.annotations() {
-                annotations.push(annotation?);
-            }
-        }
-
-        let value = match self.reader.current() {
-            // No more values at this level of the stream
-            StreamItem::Nothing => return Ok(None),
-            // This is a typed null
-            StreamItem::Null(ion_type) => Value::Null(ion_type),
-            // This is a non-null value
-            StreamItem::Value(ion_type) => {
-                use crate::IonType::*;
-                match ion_type {
-                    Null => unreachable!("non-null value had IonType::Null"),
-                    Bool => Value::Bool(self.reader.read_bool()?),
-                    Int => Value::Int(self.reader.read_int()?),
-                    Float => Value::Float(self.reader.read_f64()?),
-                    Decimal => Value::Decimal(self.reader.read_decimal()?),
-                    Timestamp => Value::Timestamp(self.reader.read_timestamp()?),
-                    Symbol => Value::Symbol(self.reader.read_symbol()?),
-                    String => Value::String(self.reader.read_string()?),
-                    Clob => Value::Clob(self.reader.read_clob()?.into()),
-                    Blob => Value::Blob(self.reader.read_blob()?.into()),
-                    // It's a collection; recursively materialize all of this value's children
-                    List => Value::List(self.materialize_sequence()?),
-                    SExp => Value::SExp(self.materialize_sequence()?),
-                    Struct => Value::Struct(self.materialize_struct()?),
-                }
-            }
-        };
-        Ok(Some(Element::new(Annotations::new(annotations), value)))
-    }
-
-    /// Steps into the current sequence and materializes each of its children to construct
-    /// an [`Vec<Element>`]. When all of the the children have been materialized, steps out.
-    /// The reader MUST be positioned over a list or s-expression when this is called.
-    fn materialize_sequence(&mut self) -> IonResult<Sequence> {
-        let mut child_elements = Vec::new();
-        self.reader.step_in()?;
-        while let Some(element) = self.materialize_next()? {
-            child_elements.push(element);
-        }
-        self.reader.step_out()?;
-        Ok(child_elements.into())
-    }
-
-    /// Steps into the current struct and materializes each of its fields to construct
-    /// an [`Struct`]. When all of the the fields have been materialized, steps out.
-    /// The reader MUST be positioned over a struct when this is called.
-    fn materialize_struct(&mut self) -> IonResult<Struct> {
-        let mut child_elements = Vec::new();
-        self.reader.step_in()?;
-        while let StreamItem::Value(_) | StreamItem::Null(_) = self.reader.next()? {
-            let field_name = self.reader.field_name()?;
-            let value = self
-                .materialize_current()?
-                .expect("materialize_current() returned None for user data");
-            child_elements.push((field_name, value));
-        }
-        self.reader.step_out()?;
-        Ok(Struct::from_iter(child_elements))
-    }
-}
-
 #[cfg(test)]
 mod reader_tests {
-    use super::*;
+    use num_bigint::BigInt;
+    use rstest::*;
+
     use crate::ion_data::IonEq;
     use crate::{ion_list, ion_seq, ion_sexp, ion_struct};
     use crate::{Decimal, Timestamp};
     use crate::{Element, IntoAnnotatedElement};
     use crate::{IonType, Symbol};
-    use num_bigint::BigInt;
-    use rstest::*;
+
+    use super::*;
 
     #[rstest]
     #[case::nulls(

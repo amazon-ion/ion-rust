@@ -1,7 +1,6 @@
 #![allow(non_camel_case_types)]
 
 use crate::binary::int::DecodedInt;
-use crate::binary::non_blocking::type_descriptor::Header;
 use crate::binary::uint::DecodedUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
@@ -22,6 +21,7 @@ use bytes::{BigEndian, ByteOrder};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::{fmt, mem};
+use crate::lazy::binary::raw::type_descriptor::Header;
 
 /// A value that has been identified in the input stream but whose data has not yet been read.
 ///

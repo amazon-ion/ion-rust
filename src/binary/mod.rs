@@ -8,8 +8,6 @@ pub mod constants;
 pub mod decimal;
 mod header;
 pub mod int;
-mod nibbles;
-pub(crate) mod non_blocking;
 pub mod timestamp;
 pub(crate) mod type_code;
 pub mod uint;
