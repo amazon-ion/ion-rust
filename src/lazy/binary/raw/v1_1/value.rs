@@ -192,12 +192,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         let value = match (representation, header.length_code) {
             (OpcodeType::Boolean, 0xE) => true,
             (OpcodeType::Boolean, 0xF) => false,
-            invalid => {
-                return IonResult::decoding_error(format!(
-                    "found a boolean value with an illegal type code representation: {:?}",
-                    invalid
-                ))
-            }
+            _ => unreachable!("found a boolean value with an illegal length code."),
         };
         Ok(RawValueRef::Bool(value))
     }
