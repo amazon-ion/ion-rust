@@ -308,7 +308,7 @@ mod tests {
             Struct { a: u32 },
         }
 
-        let i = r#"E::Unit"#;
+        let i = r#"Unit"#;
         let expected = E::Unit;
         assert_eq!(expected, from_ion(i).unwrap());
         assert_eq!(
@@ -316,7 +316,7 @@ mod tests {
             Element::read_first(to_string(&expected).unwrap())
         );
 
-        let i = r#"E::Newtype::1"#;
+        let i = r#"Newtype::1"#;
         let expected = E::Newtype(1);
         assert_eq!(expected, from_ion(i).unwrap());
         assert_eq!(
@@ -324,7 +324,7 @@ mod tests {
             Element::read_first(to_string(&expected).unwrap())
         );
 
-        let i = r#"E::Tuple::[1, 2]"#;
+        let i = r#"Tuple::[1, 2]"#;
         let expected = E::Tuple(1, 2);
         assert_eq!(expected, from_ion(i).unwrap());
         assert_eq!(
@@ -332,7 +332,7 @@ mod tests {
             Element::read_first(to_string(&expected).unwrap())
         );
 
-        let i = r#"E::Struct::{a: 1}"#;
+        let i = r#"Struct::{a: 1}"#;
         let expected = E::Struct { a: 1 };
         assert_eq!(expected, from_ion(i).unwrap());
         assert_eq!(
