@@ -1,4 +1,9 @@
-use crate::element::writer::WriteConfigKind;
+use std::io::Write;
+
+use bumpalo::collections::Vec as BumpVec;
+use bumpalo::Bump as BumpAllocator;
+use delegate::delegate;
+
 use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
@@ -7,11 +12,8 @@ use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::Encoding;
 use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref};
-use crate::{IonResult, WriteConfig};
-use bumpalo::collections::Vec as BumpVec;
-use bumpalo::Bump as BumpAllocator;
-use delegate::delegate;
-use std::io::Write;
+use crate::write_config::{WriteConfig, WriteConfigKind};
+use crate::IonResult;
 
 /// A "raw"-level streaming binary Ion 1.1 writer. This writer does not provide encoding module
 /// management; symbol- and macro- related operations require the caller to perform their own

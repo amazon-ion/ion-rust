@@ -1,8 +1,7 @@
 #![allow(non_camel_case_types)]
 
-use crate::{IonError, IonResult};
-use crate::element::Element;
 use crate::element::reader::ElementReader;
+use crate::element::Element;
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
@@ -13,6 +12,7 @@ use crate::lazy::system_reader::{
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
+use crate::{IonError, IonResult};
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -189,12 +189,13 @@ impl<Encoding: LazyDecoder, Input: IonInput> ElementReader
 
 #[cfg(test)]
 mod tests {
-    use crate::{Int, ion_list, ion_sexp, ion_struct, IonResult, IonType, WriteConfig};
+    use crate::element::element_writer::ElementWriter;
     use crate::element::Element;
-    use crate::element::writer::ElementWriter;
     use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::writer::ApplicationWriter;
     use crate::lazy::value_ref::ValueRef;
+    use crate::write_config::WriteConfig;
+    use crate::{ion_list, ion_sexp, ion_struct, Int, IonResult, IonType};
 
     use super::*;
 

@@ -21,14 +21,13 @@ pub use sequence::Sequence;
 
 use crate::{
     ion_data, Decimal, Format, Int, IonError, IonResult, IonType, Str, Symbol, TextKind, Timestamp,
-    WriteConfig,
 };
 use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::data_source::IonDataSource;
 use crate::element::builders::{SequenceBuilder, StructBuilder};
+use crate::element::element_writer::ElementWriter;
 use crate::element::reader::ElementReader;
-use crate::element::writer::ElementWriter;
 use crate::ion_data::{IonEq, IonOrd};
 use crate::lazy::encoder::writer::ApplicationWriter;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
@@ -36,13 +35,14 @@ use crate::lazy::reader::LazyReader;
 use crate::lazy::streaming_raw_reader::{IonSlice, IonStream};
 use crate::result::IonFailure;
 use crate::text::text_formatter::IonValueFormatter;
+use crate::write_config::WriteConfig;
 
 mod annotations;
 pub(crate) mod iterators;
 
 pub mod builders;
+pub mod element_writer;
 pub mod reader;
-pub mod writer;
 
 #[cfg(feature = "experimental-reader")]
 pub mod element_stream_reader;

@@ -9,9 +9,10 @@ use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 use ion_rs::lazy::encoder::value_writer::SequenceWriter;
 use ion_rs::lazy::encoder::writer::ApplicationWriter;
 use ion_rs::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
+use ion_rs::WriteConfig;
 use ion_rs::{
     Element, ElementReader, ElementWriter, Format, IonData, IonError, IonResult, SExp, Sequence,
-    Symbol, Value, WriteConfig,
+    Symbol, Value,
 };
 
 /// Concatenates two slices of string slices together.

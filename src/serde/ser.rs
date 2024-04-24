@@ -8,16 +8,16 @@ use serde::{ser, Serialize};
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
 use crate::lazy::encoder::writer::ApplicationWriter;
-use crate::lazy::encoder::LazyEncoder;
-use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
+use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0};
 use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
 use crate::symbol_ref::AsSymbolRef;
+use crate::write_config::WriteConfig;
 use crate::Value::Null;
-use crate::{Decimal, IonError, IonResult, IonType, TextKind, Timestamp, WriteConfig};
+use crate::{Decimal, IonError, IonResult, IonType, TextKind, Timestamp};
 
-pub fn write_to<T: Serialize, E: LazyEncoder, O: Write>(
+pub fn write_to<T: Serialize, E: Encoding, O: Write>(
     value: &T,
     writer: &mut ApplicationWriter<E, O>,
 ) -> IonResult<()> {
@@ -25,7 +25,7 @@ pub fn write_to<T: Serialize, E: LazyEncoder, O: Write>(
     value.serialize(serializer)
 }
 
-fn write_with_config<T: Serialize, E: LazyEncoder>(
+fn write_with_config<T: Serialize, E: Encoding>(
     value: &T,
     config: WriteConfig<E>,
 ) -> IonResult<Vec<u8>> {

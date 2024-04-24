@@ -1,8 +1,8 @@
+use std::io::Write;
+
 use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
 use crate::lazy::encoder::{LazyEncoder, SymbolCreationPolicy};
 use crate::lazy::encoding::BinaryEncoding_1_1;
-use crate::WriteConfig;
-use std::io::Write;
 
 pub mod container_writers;
 pub mod fixed_int;
@@ -19,8 +19,4 @@ impl LazyEncoder for BinaryEncoding_1_1 {
         SymbolCreationPolicy::RequireSymbolId;
 
     type Writer<W: Write> = LazyRawBinaryWriter_1_1<W>;
-
-    fn default_write_config() -> WriteConfig<Self> {
-        WriteConfig::<Self>::new()
-    }
 }

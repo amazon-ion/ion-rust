@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use std::fmt;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 
 use nom::character::streaming::satisfy;
@@ -43,6 +43,15 @@ pub enum MacroIdRef<'data> {
     LocalName(&'data str),
     LocalAddress(usize),
     // TODO: Addresses and qualified names
+}
+
+impl<'data> Display for MacroIdRef<'data> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            MacroIdRef::LocalName(name) => write!(f, "{}", name),
+            MacroIdRef::LocalAddress(address) => write!(f, "{}", address),
+        }
+    }
 }
 
 impl<'data> From<usize> for MacroIdRef<'data> {

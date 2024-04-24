@@ -9,13 +9,15 @@ use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter
 use crate::lazy::encoder::value_writer::{
     AnnotatableWriter, EExpWriter, SequenceWriter, StructWriter, ValueWriter,
 };
-use crate::lazy::encoder::{LazyEncoder, LazyRawWriter, SymbolCreationPolicy};
+use crate::lazy::encoder::{LazyRawWriter, SymbolCreationPolicy};
+use crate::lazy::encoding::Encoding;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
+use crate::write_config::WriteConfig;
 use crate::{
     Decimal, Element, ElementWriter, Int, IonResult, IonType, RawSymbolTokenRef, Symbol, SymbolId,
-    SymbolTable, Timestamp, Value, WriteConfig,
+    SymbolTable, Timestamp, Value,
 };
 
 pub(crate) struct EncodingContext {
@@ -41,14 +43,14 @@ impl EncodingContext {
 }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
-pub struct ApplicationWriter<E: LazyEncoder, Output: Write> {
+pub struct ApplicationWriter<E: Encoding, Output: Write> {
     encoding_context: EncodingContext,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
     output: Output,
 }
 
-impl<E: LazyEncoder, Output: Write> ApplicationWriter<E, Output> {
+impl<E: Encoding, Output: Write> ApplicationWriter<E, Output> {
     /// Constructs a writer for the requested encoding using its default configuration.
     pub fn new(output: Output) -> IonResult<Self> {
         Self::with_config(E::default_write_config(), output)
@@ -135,8 +137,8 @@ impl<E: LazyEncoder, Output: Write> ApplicationWriter<E, Output> {
     }
 }
 
-impl<Encoding: LazyEncoder, Output: Write> MakeValueWriter for ApplicationWriter<Encoding, Output> {
-    type ValueWriter<'a> = ApplicationValueWriter<'a, <Encoding::Writer<Vec<u8>> as MakeValueWriter>::ValueWriter<'a>>
+impl<E: Encoding, Output: Write> MakeValueWriter for ApplicationWriter<E, Output> {
+    type ValueWriter<'a> = ApplicationValueWriter<'a, <E::Writer<Vec<u8>> as MakeValueWriter>::ValueWriter<'a>>
     where
         Self: 'a;
 
@@ -150,7 +152,7 @@ impl<Encoding: LazyEncoder, Output: Write> MakeValueWriter for ApplicationWriter
     }
 }
 
-impl<Encoding: LazyEncoder, Output: Write> SequenceWriter for ApplicationWriter<Encoding, Output> {
+impl<E: Encoding, Output: Write> SequenceWriter for ApplicationWriter<E, Output> {
     type Resources = Output;
 
     fn close(mut self) -> IonResult<Self::Resources> {

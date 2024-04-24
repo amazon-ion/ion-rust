@@ -1,32 +1,31 @@
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::private::Sealed;
-use crate::lazy::encoder::text::LazyRawTextWriter_1_0;
+use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
-    delegate_value_writer_to, AnnotatableWriter, ValueWriter,
+    delegate_value_writer_to, AnnotatableWriter, SequenceWriter, StructWriter, ValueWriter,
 };
-use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
-use crate::result::{IonFailure, IonResult};
+use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::result::IonFailure;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::text::whitespace_config::WhitespaceConfig;
-use crate::types::{ContainerType, IonType, ParentType};
-use crate::{Decimal, Int, Timestamp};
+use crate::types::{ContainerType, ParentType};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
 use delegate::delegate;
 use std::fmt::Formatter;
 use std::io::Write;
 
 pub struct TextValueWriter_1_0<'value, W: Write + 'value> {
-    writer: &'value mut LazyRawTextWriter_1_0<W>,
-    depth: usize,
+    pub(crate) writer: &'value mut LazyRawTextWriter_1_0<W>,
+    pub(crate) depth: usize,
     value_delimiter: &'static str,
     // This allows us to detect cases where a value writer is being used inside a struct
     // (i.e. following an indented field name) which is the only time we don't write
     // indentation before the value.
-    parent_type: ParentType,
+    pub(crate) parent_type: ParentType,
 }
 
 /// Returns `true` if the provided `token`'s text is an 'identifier'. That is, the text starts
@@ -189,8 +188,8 @@ impl<'value, W: Write> TextValueWriter_1_0<'value, W> {
 }
 
 pub struct TextAnnotatedValueWriter_1_0<'value, W: Write> {
-    annotations: AnnotationsVec<'value>,
-    value_writer: TextValueWriter_1_0<'value, W>,
+    pub(crate) annotations: AnnotationsVec<'value>,
+    pub(crate) value_writer: TextValueWriter_1_0<'value, W>,
 }
 
 impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
@@ -216,7 +215,7 @@ impl<'value, W: Write> Sealed for TextValueWriter_1_0<'value, W> {}
 
 /// Helper type that is home to information and behavior common to the list writer, s-expression writer,
 /// and struct writer.
-struct TextContainerWriter_1_0<'a, W: Write> {
+pub(crate) struct TextContainerWriter_1_0<'a, W: Write> {
     // Holds a reference to the output stream and a whitespace config
     writer: &'a mut LazyRawTextWriter_1_0<W>,
     // The depth at which this container's child values appear. This value is used for formatting
@@ -225,6 +224,8 @@ struct TextContainerWriter_1_0<'a, W: Write> {
     // Tracks whether the `end()` method was called (thereby emitting a closing delimiter) before
     // this value was dropped. This scenario is a contract violation and results in a panic.
     has_been_closed: bool,
+    // The enclosing context in which this container appears. (top level, list, sexp, struct)
+    parent_type: ParentType,
     // The Ion type of the container using this TextContainerWriter_1_0. This value is only
     // used for more informative error messages.
     container_type: ContainerType,
@@ -249,24 +250,33 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
     pub fn new(
         writer: &'a mut LazyRawTextWriter_1_0<W>,
         depth: usize,
+        parent_type: ParentType,
         container_type: ContainerType,
         opening_delimiter: &str,
         value_delimiter: &'static str,
         trailing_delimiter: &'static str,
     ) -> IonResult<Self> {
-        let space_after_container_start = writer.whitespace_config.space_after_container_start;
-        write!(
-            writer.output,
-            "{opening_delimiter}{space_after_container_start}"
-        )?;
-        Ok(Self {
+        let mut container_writer = Self {
             writer,
             depth,
+            parent_type,
             container_type,
             has_been_closed: false,
             value_delimiter,
             trailing_delimiter,
-        })
+        };
+        if parent_type != ParentType::Struct {
+            container_writer.write_indentation(depth)?;
+        }
+        let space_after_container_start = container_writer
+            .writer
+            .whitespace_config
+            .space_after_container_start;
+        write!(
+            container_writer.writer.output,
+            "{opening_delimiter}{space_after_container_start}"
+        )?;
+        Ok(container_writer)
     }
 
     /// Writes the `indentation` string set in the whitespace config to output `depth` times.
@@ -283,13 +293,13 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
     /// Writes the provided value to output using its implementation of `WriteAsIon`, then writes
     /// the whitespace config's `space_between_nested_values`.
     fn write_value<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
-        self.write_indentation(self.depth + 1)?;
+        self.write_indentation(self.depth)?;
         value.write_as_ion(self.value_writer())?;
         Ok(self)
     }
 
     /// Finalizes the container, preventing further values from being written.
-    fn close(mut self, closing_delimiter: &str) -> IonResult<()> {
+    pub fn close(mut self, closing_delimiter: &str) -> IonResult<()> {
         let space_between = match self.depth {
             0 => self.whitespace_config().space_between_top_level_values,
             _ => self.whitespace_config().space_between_nested_values,
@@ -313,7 +323,7 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
     }
 
     #[inline]
-    fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W> {
+    pub fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W> {
         TextValueWriter_1_0 {
             writer: self.writer,
             depth: self.depth + 1,
@@ -329,14 +339,16 @@ pub struct TextListWriter_1_0<'top, W: Write> {
 }
 
 impl<'top, W: Write> TextListWriter_1_0<'top, W> {
-    pub fn new(
+    pub(crate) fn new(
         writer: &'top mut LazyRawTextWriter_1_0<W>,
         depth: usize,
+        parent_type: ParentType,
         trailing_delimiter: &'static str,
     ) -> IonResult<Self> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
             depth,
+            parent_type,
             ContainerType::List,
             "[",
             ",",
@@ -384,14 +396,16 @@ pub struct TextSExpWriter_1_0<'a, W: Write> {
 }
 
 impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
-    pub fn new(
+    pub(crate) fn new(
         writer: &'a mut LazyRawTextWriter_1_0<W>,
         depth: usize,
+        parent_type: ParentType,
         trailing_delimiter: &'static str,
     ) -> IonResult<Self> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
             depth,
+            parent_type,
             ContainerType::SExp,
             "(",
             " ",
@@ -441,14 +455,16 @@ pub struct TextStructWriter_1_0<'a, W: Write> {
 }
 
 impl<'a, W: Write> TextStructWriter_1_0<'a, W> {
-    pub fn new(
+    pub(crate) fn new(
         writer: &'a mut LazyRawTextWriter_1_0<W>,
         depth: usize,
+        parent_type: ParentType,
         trailing_delimiter: &'static str,
     ) -> IonResult<Self> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
             depth,
+            parent_type,
             ContainerType::Struct,
             "{",
             ",",
@@ -488,7 +504,7 @@ impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_0<'value, W> {
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         TextValueWriter_1_0 {
             writer: self.container_writer.writer,
-            depth: self.container_writer.depth,
+            depth: self.container_writer.depth + 1,
             value_delimiter: ",",
             parent_type: ParentType::Struct,
         }
@@ -684,13 +700,28 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     }
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {
-        TextListWriter_1_0::new(self.writer, self.depth + 1, self.value_delimiter)
+        TextListWriter_1_0::new(
+            self.writer,
+            self.depth,
+            self.parent_type,
+            self.value_delimiter,
+        )
     }
     fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
-        TextSExpWriter_1_0::new(self.writer, self.depth + 1, self.value_delimiter)
+        TextSExpWriter_1_0::new(
+            self.writer,
+            self.depth,
+            self.parent_type,
+            self.value_delimiter,
+        )
     }
     fn struct_writer(self) -> IonResult<Self::StructWriter> {
-        TextStructWriter_1_0::new(self.writer, self.depth + 1, self.value_delimiter)
+        TextStructWriter_1_0::new(
+            self.writer,
+            self.depth,
+            self.parent_type,
+            self.value_delimiter,
+        )
     }
     fn eexp_writer<'a>(self, _macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
         IonResult::encoding_error("macros are not supported in Ion 1.0")
