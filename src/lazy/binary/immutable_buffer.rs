@@ -321,7 +321,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Reads the first `length` bytes from the buffer as a `UInt` encoding primitive. If it is
-    /// successful, returns an `Ok(_)` containing its [DecodedUInt] representation.
+    /// successful, returns an `Ok(_)` containing its `DecodedUInt` representation.
     ///
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields>
     pub fn read_uint(self, length: usize) -> ParseResult<'a, DecodedUInt> {
@@ -380,7 +380,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Reads the first `length` bytes from the buffer as an `Int` encoding primitive. If it is
-    /// successful, returns an `Ok(_)` containing its [DecodedInt] representation and consumes the
+    /// successful, returns an `Ok(_)` containing its `DecodedInt` representation and consumes the
     /// source bytes.
     ///
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields>

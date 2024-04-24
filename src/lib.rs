@@ -178,7 +178,7 @@ pub use types::decimal;
 pub use write_config::WriteConfig;
 
 // Private modules that serve to organize implementation details.
-mod binary;
+pub(crate) mod binary;
 mod catalog;
 mod constants;
 mod ion_data;
