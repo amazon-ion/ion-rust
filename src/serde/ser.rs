@@ -90,7 +90,7 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
 
     type SerializeSeq = SeqWriter<V>;
     type SerializeTuple = SeqWriter<V>;
-    type SerializeTupleStruct = SeqWriter<V::AnnotatedValueWriter<'a>>;
+    type SerializeTupleStruct = SeqWriter<V>;
     type SerializeTupleVariant = SeqWriter<V::AnnotatedValueWriter<'a>>;
     type SerializeMap = MapWriter<V>;
     type SerializeStruct = MapWriter<V>;
@@ -183,13 +183,11 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
 
     fn serialize_unit_variant(
         self,
-        name: &'static str,
+        _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        self.value_writer
-            .with_annotations(name)?
-            .write(variant.as_symbol_ref())
+        self.value_writer.write(variant.as_symbol_ref())
     }
 
     fn serialize_newtype_struct<T: ?Sized>(
@@ -220,14 +218,13 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
             let decimal = unsafe { std::mem::transmute_copy::<&T, &Decimal>(&value) };
             self.value_writer.write_decimal(decimal)
         } else {
-            let serializer = ValueSerializer::new(self.value_writer.with_annotations(name)?);
-            value.serialize(serializer)
+            value.serialize(self)
         }
     }
 
     fn serialize_newtype_variant<T: ?Sized>(
         self,
-        name: &'static str,
+        _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
         value: &T,
@@ -236,7 +233,7 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
         T: Serialize,
     {
         value.serialize(ValueSerializer::new(
-            self.value_writer.with_annotations([name, variant])?,
+            self.value_writer.with_annotations([variant])?,
         ))
     }
 
@@ -254,17 +251,17 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
 
     fn serialize_tuple_struct(
         self,
-        name: &'static str,
+        _name: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
         Ok(SeqWriter {
-            seq_writer: self.value_writer.with_annotations(name)?.list_writer()?,
+            seq_writer: self.value_writer.list_writer()?,
         })
     }
 
     fn serialize_tuple_variant(
         self,
-        name: &'static str,
+        _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
         _len: usize,
@@ -272,7 +269,7 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
         Ok(SeqWriter {
             seq_writer: self
                 .value_writer
-                .with_annotations([name, variant])?
+                .with_annotations([variant])?
                 .list_writer()?,
         })
     }
@@ -295,7 +292,7 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
 
     fn serialize_struct_variant(
         self,
-        name: &'static str,
+        _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
         _len: usize,
@@ -303,7 +300,7 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
         Ok(MapWriter {
             map_writer: self
                 .value_writer
-                .with_annotations([name, variant])?
+                .with_annotations([variant])?
                 .struct_writer()?,
         })
     }
