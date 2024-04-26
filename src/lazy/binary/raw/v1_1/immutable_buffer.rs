@@ -332,14 +332,6 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     pub fn read_fixed_int(self, length: usize) -> ParseResult<'a, FixedInt> {
-        use std::mem;
-        if length > mem::size_of::<u64>() {
-            return IonResult::decoding_error(format!(
-                "Found a {length}-byte FixedInt. Max supported size is {} bytes",
-                mem::size_of::<u64>()
-            ));
-        }
-
         let int_bytes = self
             .peek_n_bytes(length)
             .ok_or_else(|| IonError::incomplete("a FixedInt", self.offset()))?;

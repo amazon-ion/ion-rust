@@ -199,6 +199,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as an int.
     fn read_int(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
+        use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
 
         let header = &self.encoded_value.header();
@@ -212,13 +213,10 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             }
             (OpcodeType::LargeInteger, 0x5) => {
                 // We have a FlexUInt size, then big int.
-                let value_body_length = self.encoded_value.value_length();
-                let value_offset = self.encoded_value.total_length() - value_body_length;
-                let (our_int, _) = self
-                    .input
-                    .consume(value_offset)
-                    .read_fixed_int(value_body_length)?;
-                our_int.value().clone()
+                let value_bytes = self.value_body()?;
+                FixedInt::read(value_bytes, value_bytes.len(), 0)?
+                    .value()
+                    .clone()
             }
             _ => unreachable!("integer encoding with illegal length_code found"),
         };

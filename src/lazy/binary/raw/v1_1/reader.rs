@@ -203,12 +203,27 @@ mod tests {
 
     #[test]
     fn integers() -> IonResult<()> {
+        use num_bigint::BigInt;
+
+        #[rustfmt::skip]
         let data: Vec<u8> = vec![
-            0xE0, 0x01, 0x01, 0xEA, // IVM
-            0x50, // Integer: 0
-            0x51, 0x11, // Integer: 17
-            0x52, 0x50, 0xFC, // Integer: -944
-            0xF5, 0x03, 0x01, // Integer: 1 (not using more than 8 bytes however)
+            // IVM
+            0xE0, 0x01, 0x01, 0xEA,
+
+            // Integer: 0
+            0x50,
+
+            // Integer: 17
+            0x51, 0x11,
+
+            // Integer: -944
+            0x52, 0x50, 0xFC,
+
+            // Integer: 1
+            0xF5, 0x03, 0x01,
+
+            // Integer: 147573952589676412929
+            0xF5, 0x13, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
         ];
 
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
@@ -230,6 +245,13 @@ mod tests {
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_int()?,
             1.into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            BigInt::parse_bytes(b"147573952589676412929", 10)
+                .unwrap()
+                .into()
         );
         Ok(())
     }
