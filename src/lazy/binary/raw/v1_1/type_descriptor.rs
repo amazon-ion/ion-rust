@@ -51,6 +51,8 @@ impl Opcode {
             (0xF, 0x5) => (LargeInteger, low_nibble, Some(IonType::Int)),
             (0xF, 0x8) => (String, 0xFF, Some(IonType::String)), // 0xFF indicates >15 byte string.
             (0xF, 0x9) => (InlineSymbol, 0xFF, Some(IonType::Symbol)),
+            (0xF, 0xE) => (Blob, low_nibble, Some(IonType::Blob)),
+            (0xF, 0xF) => (Clob, low_nibble, Some(IonType::Clob)),
             _ => (Invalid, low_nibble, None),
         };
         Opcode {

@@ -292,12 +292,18 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a blob.
     fn read_blob(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        debug_assert!(self.encoded_value.ion_type() == IonType::Blob);
+
+        let raw_bytes = self.value_body()?;
+        Ok(RawValueRef::Blob(raw_bytes.into()))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a clob.
     fn read_clob(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        debug_assert!(self.encoded_value.ion_type() == IonType::Clob);
+
+        let raw_bytes = self.value_body()?;
+        Ok(RawValueRef::Clob(raw_bytes.into()))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as an S-expression.
