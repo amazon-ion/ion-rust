@@ -93,6 +93,12 @@ impl FixedInt {
     }
 }
 
+impl From<FixedInt> for Int {
+    fn from(other: FixedInt) -> Self {
+        other.value
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use num_bigint::BigInt;
