@@ -39,24 +39,21 @@ impl Opcode {
         let (high_nibble, low_nibble) = (byte >> 4, byte & 0x0F);
         use OpcodeType::*;
 
-        let opcode_type = match (high_nibble, low_nibble) {
-            (0x5, 0xE..=0xF) => Boolean,
-            (0xE, 0x0) => IonVersionMarker,
-            (0xE, 0xA) => NullNull,
-            (0xE, 0xC..=0xD) => Nop,
-            _ => Boolean, // Temporary, until everything is implemented to satisfy the LUT.
-        };
-        let ion_type = match opcode_type {
-            NullNull => Some(IonType::Null),
-            Nop => None,
-            IonVersionMarker => None,
-            Boolean => Some(IonType::Bool),
-            _ => panic!("the provided ion type code is either not implemented, or invalid"),
+        let (opcode_type, length_code, ion_type) = match (high_nibble, low_nibble) {
+            (0x5, 0x0..=0x8) => (Integer, low_nibble, Some(IonType::Int)),
+            (0x5, 0xE..=0xF) => (Boolean, low_nibble, Some(IonType::Bool)),
+            (0x8, _) => (String, low_nibble, Some(IonType::String)),
+            (0xE, 0x0) => (IonVersionMarker, low_nibble, None),
+            (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
+            (0xE, 0xC..=0xD) => (Nop, low_nibble, None),
+            (0xF, 0x5) => (LargeInteger, low_nibble, Some(IonType::Int)),
+            (0xF, 0x8) => (String, 0xFF, Some(IonType::String)), // 0xFF indicates >15 byte string.
+            _ => (Invalid, low_nibble, None),
         };
         Opcode {
             ion_type,
             opcode_type,
-            length_code: low_nibble,
+            length_code,
         }
     }
 
@@ -112,8 +109,10 @@ impl Header {
         use LengthType::*;
         match (self.ion_type_code, self.length_code) {
             (OpcodeType::Boolean, 0xE..=0xF) => InOpcode(0),
+            (OpcodeType::Integer, n) => InOpcode(n),
             (OpcodeType::Nop, 0xC) => InOpcode(0),
             (OpcodeType::NullNull, 0xA) => InOpcode(0),
+            (OpcodeType::String, 0..=15) => InOpcode(self.length_code),
             _ => FlexUIntFollows,
         }
     }

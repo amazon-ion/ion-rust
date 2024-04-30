@@ -20,7 +20,7 @@ use crate::{
     },
     result::IonFailure,
     types::SymbolId,
-    IonResult, IonType, RawSymbolTokenRef,
+    IonError, IonResult, IonType, RawSymbolTokenRef,
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -199,7 +199,25 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as an int.
     fn read_int(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
+        debug_assert!(self.encoded_value.ion_type() == IonType::Int);
+
+        let header = &self.encoded_value.header();
+        let representation = header.type_code();
+        let value = match (representation, header.length_code as usize) {
+            (OpcodeType::Integer, 0x0) => 0.into(),
+            (OpcodeType::Integer, n) => {
+                // We have n bytes following that make up our integer.
+                self.input.consume(1).read_fixed_int(n)?.0.into()
+            }
+            (OpcodeType::LargeInteger, 0x5) => {
+                // We have a FlexUInt size, then big int.
+                let value_bytes = self.value_body()?;
+                FixedInt::read(value_bytes, value_bytes.len(), 0)?.into()
+            }
+            _ => unreachable!("integer encoding with illegal length_code found"),
+        };
+        Ok(RawValueRef::Int(value))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a float.
@@ -229,7 +247,13 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a string.
     fn read_string(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        use crate::lazy::str_ref::StrRef;
+
+        debug_assert!(self.encoded_value.ion_type() == IonType::String);
+        let raw_bytes = self.value_body()?;
+        let text = std::str::from_utf8(raw_bytes)
+            .map_err(|_| IonError::decoding_error("found string with invalid UTF-8 data"))?;
+        Ok(RawValueRef::String(StrRef::from(text)))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a blob.

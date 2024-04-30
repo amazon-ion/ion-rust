@@ -200,4 +200,104 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn integers() -> IonResult<()> {
+        use num_bigint::BigInt;
+
+        #[rustfmt::skip]
+        let data: Vec<u8> = vec![
+            // IVM
+            0xE0, 0x01, 0x01, 0xEA,
+
+            // Integer: 0
+            0x50,
+
+            // Integer: 17
+            0x51, 0x11,
+
+            // Integer: -944
+            0x52, 0x50, 0xFC,
+
+            // Integer: 1
+            0xF5, 0x03, 0x01,
+
+            // Integer: 147573952589676412929
+            0xF5, 0x13, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            0.into()
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            17.into()
+        );
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            (-944).into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            1.into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_int()?,
+            BigInt::parse_bytes(b"147573952589676412929", 10)
+                .unwrap()
+                .into()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn strings() -> IonResult<()> {
+        #[rustfmt::skip]
+        let data: Vec<u8> = vec![
+            // IVM
+            0xe0, 0x01, 0x01, 0xea,
+
+            // String: ""
+            0x80,
+
+            // String: "hello"
+            0x85, 0x68, 0x65, 0x6c, 0x6c, 0x6f,
+
+            // String: "fourteen bytes"
+            0x8E, 0x66, 0x6F, 0x75, 0x72, 0x74, 0x65, 0x65, 0x6E, 0x20, 0x62, 0x79, 0x74, 0x65,
+            0x73,
+
+            // String: "variable length encoding"
+            0xF8, 0x31, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65, 0x20, 0x6C, 0x65,
+            0x6E, 0x67, 0x74, 0x68, 0x20, 0x65, 0x6E, 0x63, 0x6f, 0x64, 0x69, 0x6E, 0x67,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(reader.next()?.expect_value()?.read()?.expect_string()?, "");
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_string()?,
+            "hello"
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_string()?,
+            "fourteen bytes"
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_string()?,
+            "variable length encoding"
+        );
+
+        Ok(())
+    }
 }
