@@ -213,9 +213,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             (OpcodeType::LargeInteger, 0x5) => {
                 // We have a FlexUInt size, then big int.
                 let value_bytes = self.value_body()?;
-                FixedInt::read(value_bytes, value_bytes.len(), 0)?
-                    .value()
-                    .clone()
+                FixedInt::read(value_bytes, value_bytes.len(), 0)?.into()
             }
             _ => unreachable!("integer encoding with illegal length_code found"),
         };
