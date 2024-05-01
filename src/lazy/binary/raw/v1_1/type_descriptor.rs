@@ -41,6 +41,7 @@ impl Opcode {
 
         let (opcode_type, length_code, ion_type) = match (high_nibble, low_nibble) {
             (0x5, 0x0..=0x8) => (Integer, low_nibble, Some(IonType::Int)),
+            (0x5, 0xA..=0xD) => (Float, low_nibble, Some(IonType::Float)),
             (0x5, 0xE..=0xF) => (Boolean, low_nibble, Some(IonType::Bool)),
             (0x8, _) => (String, low_nibble, Some(IonType::String)),
             (0x9, _) => (InlineSymbol, low_nibble, Some(IonType::Symbol)),
@@ -114,6 +115,8 @@ impl Header {
         use LengthType::*;
         match (self.ion_type_code, self.length_code) {
             (OpcodeType::Boolean, 0xE..=0xF) => InOpcode(0),
+            (OpcodeType::Float, 0xA) => InOpcode(0),
+            (OpcodeType::Float, 0xB..=0xD) => InOpcode(1 << (self.length_code - 0xA)),
             (OpcodeType::Integer, n) => InOpcode(n),
             (OpcodeType::Nop, 0xC) => InOpcode(0),
             (OpcodeType::NullNull, 0xA) => InOpcode(0),

@@ -377,6 +377,61 @@ mod tests {
         Ok(())
     }
 
+    macro_rules! assert_closely_eq {
+        ($x:expr, $y:expr, $d:expr) => {
+            let (a, b) = ($x, $y);
+            if ((a - b).abs() >= $d) {
+                panic!(
+                    "float not close enough to expected value: left: {}, right: {}",
+                    a, b
+                );
+            }
+        };
+    }
+
+    #[test]
+    #[allow(clippy::approx_constant)]
+    fn floats() -> IonResult<()> {
+        #[rustfmt::skip]
+        let data: Vec<u8> = vec![
+            // IVM
+            0xe0, 0x01, 0x01, 0xea,
+            // 0e0
+            0x5A,
+
+            // 3.14 (half-precision)
+            // 0x5B, 0x42, 0x47,
+
+            // 3.1415927 (single-precision)
+            0x5C, 0xdb, 0x0F, 0x49, 0x40,
+
+            // 3.141592653589793 (double-precision)
+            0x5D, 0x18, 0x2D, 0x44, 0x54, 0xFB, 0x21, 0x09, 0x40,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(reader.next()?.expect_value()?.read()?.expect_float()?, 0.0);
+
+        // TODO: Implement Half-precision.
+        // assert_eq!(reader.next()?.expect_value()?.read()?.expect_float()?, 3.14);
+
+        assert_closely_eq!(
+            reader.next()?.expect_value()?.read()?.expect_float()? as f32,
+            3.1415927f32,
+            f32::EPSILON
+        );
+
+        assert_closely_eq!(
+            reader.next()?.expect_value()?.read()?.expect_float()?,
+            std::f64::consts::PI,
+            f64::EPSILON
+        );
+
+        Ok(())
+    }
+
     fn blobs() -> IonResult<()> {
         let data: Vec<u8> = vec![
             0xe0, 0x01, 0x01, 0xea, // IVM
