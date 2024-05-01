@@ -6,6 +6,7 @@ use crate::lazy::binary::raw::v1_1::value::{
 };
 use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, ION_1_1_OPCODES};
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
+use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::result::IonFailure;
@@ -342,6 +343,14 @@ impl<'a> ImmutableBuffer<'a> {
             .ok_or_else(|| IonError::incomplete("a FixedInt", self.offset()))?;
         let fixed_int = FixedInt::read(int_bytes, length, 0)?;
         Ok((fixed_int, self.consume(length)))
+    }
+
+    pub fn read_fixed_uint(self, length: usize) -> ParseResult<'a, FixedUInt> {
+        let uint_bytes = self
+            .peek_n_bytes(length)
+            .ok_or_else(|| IonError::incomplete("a FixedUInt", self.offset()))?;
+        let fixed_uint = FixedUInt::read(uint_bytes, length, 0)?;
+        Ok((fixed_uint, self.consume(length)))
     }
 
     /// Reads an annotations wrapper and its associated value from the buffer. The caller must confirm

@@ -43,11 +43,14 @@ impl Opcode {
             (0x5, 0x0..=0x8) => (Integer, low_nibble, Some(IonType::Int)),
             (0x5, 0xE..=0xF) => (Boolean, low_nibble, Some(IonType::Bool)),
             (0x8, _) => (String, low_nibble, Some(IonType::String)),
+            (0x9, _) => (InlineSymbol, low_nibble, Some(IonType::Symbol)),
             (0xE, 0x0) => (IonVersionMarker, low_nibble, None),
+            (0xE, 0x1..=0x3) => (SymbolAddress, low_nibble, Some(IonType::Symbol)),
             (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xC..=0xD) => (Nop, low_nibble, None),
             (0xF, 0x5) => (LargeInteger, low_nibble, Some(IonType::Int)),
             (0xF, 0x8) => (String, 0xFF, Some(IonType::String)), // 0xFF indicates >15 byte string.
+            (0xF, 0x9) => (InlineSymbol, 0xFF, Some(IonType::Symbol)),
             _ => (Invalid, low_nibble, None),
         };
         Opcode {
@@ -113,6 +116,8 @@ impl Header {
             (OpcodeType::Nop, 0xC) => InOpcode(0),
             (OpcodeType::NullNull, 0xA) => InOpcode(0),
             (OpcodeType::String, 0..=15) => InOpcode(self.length_code),
+            (OpcodeType::InlineSymbol, n) if n < 16 => InOpcode(n),
+            (OpcodeType::SymbolAddress, n) if n < 4 => InOpcode(n),
             _ => FlexUIntFollows,
         }
     }
