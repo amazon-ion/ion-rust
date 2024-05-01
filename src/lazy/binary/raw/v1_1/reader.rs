@@ -418,6 +418,61 @@ mod tests {
         Ok(())
     }
 
+    fn decimals() -> IonResult<()> {
+        use crate::types::decimal::Decimal;
+
+        #[rustfmt::skip]
+        let data: Vec<u8> = vec![
+            // IVM
+            0xe0, 0x01, 0x01, 0xea,
+
+            // 0d0
+            0x60,
+
+            // 7d8
+            0x62, 0x01, 0x07,
+
+            // 1.27
+            0xF6, 0x05, 0xFD, 0x7F,
+
+            // 0d3
+            0x61, 0x07,
+
+            // -0
+            0x62, 0x07, 0x00,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_decimal()?,
+            0.into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_decimal()?,
+            7.into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_decimal()?,
+            1.27f64.try_into()?
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_decimal()?,
+            0.0f64.try_into()?
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_decimal()?,
+            Decimal::negative_zero()
+        );
+
+        Ok(())
+    }
+
     fn blobs() -> IonResult<()> {
         let data: Vec<u8> = vec![
             0xe0, 0x01, 0x01, 0xea, // IVM

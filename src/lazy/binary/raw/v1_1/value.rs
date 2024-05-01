@@ -17,6 +17,7 @@ use crate::{
             },
         },
         decoder::{LazyDecoder, LazyRawValue},
+        encoder::binary::v1_1::fixed_int::FixedInt,
         encoding::BinaryEncoding_1_1,
         raw_value_ref::RawValueRef,
     },
@@ -213,7 +214,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as an int.
     fn read_int(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
 
         let header = &self.encoded_value.header();
@@ -262,7 +262,31 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a decimal.
     fn read_decimal(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        use crate::types::decimal::*;
+
+        debug_assert!(self.encoded_value.ion_type() == IonType::Decimal);
+        let length_code = self.encoded_value.header.length_code as usize;
+        let decimal: Decimal = if length_code == 0 {
+            Decimal::new(0, 0)
+        } else {
+            use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
+
+            let value_bytes = self.value_body()?;
+            let exponent = FlexInt::read(value_bytes, 0)?;
+            let coefficient_size = self.encoded_value.value_length() - exponent.size_in_bytes();
+            let coefficient = if coefficient_size > 0 {
+                FixedInt::read(
+                    &value_bytes[exponent.size_in_bytes()..],
+                    coefficient_size,
+                    0,
+                )?
+            } else {
+                0i64.into()
+            };
+            Decimal::new(coefficient, exponent.value())
+        };
+
+        Ok(RawValueRef::Decimal(decimal))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a timestamp.
