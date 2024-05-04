@@ -4,7 +4,9 @@ use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIt
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{LazyRawSequence, LazyRawValueExpr, RawValueExpr};
+use crate::lazy::decoder::{
+    LazyDecoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr, RawValueExpr,
+};
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::{IonResult, IonType};
 use std::fmt::{Debug, Formatter};
@@ -27,6 +29,12 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinaryList_
     }
 }
 
+impl<'top> LazyRawContainer<'top, BinaryEncoding_1_1> for LazyRawBinaryList_1_1<'top> {
+    fn as_value(&self) -> <BinaryEncoding_1_1 as LazyDecoder>::Value<'top> {
+        self.sequence.value
+    }
+}
+
 impl<'top> LazyRawSequence<'top, BinaryEncoding_1_1> for LazyRawBinaryList_1_1<'top> {
     type Iterator = RawBinarySequenceIterator_1_1<'top>;
 
@@ -41,10 +49,6 @@ impl<'top> LazyRawSequence<'top, BinaryEncoding_1_1> for LazyRawBinaryList_1_1<'
     fn iter(&self) -> Self::Iterator {
         self.sequence.iter()
     }
-
-    fn as_value(&self) -> LazyRawBinaryValue_1_1<'top> {
-        self.sequence.value
-    }
 }
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinarySExp_1_1<'top> {
@@ -52,6 +56,12 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinarySExp_
         LazyRawBinarySExp_1_1 {
             sequence: LazyRawBinarySequence_1_1 { value },
         }
+    }
+}
+
+impl<'top> LazyRawContainer<'top, BinaryEncoding_1_1> for LazyRawBinarySExp_1_1<'top> {
+    fn as_value(&self) -> <BinaryEncoding_1_1 as LazyDecoder>::Value<'top> {
+        self.sequence.value
     }
 }
 
@@ -68,10 +78,6 @@ impl<'top> LazyRawSequence<'top, BinaryEncoding_1_1> for LazyRawBinarySExp_1_1<'
 
     fn iter(&self) -> Self::Iterator {
         self.sequence.iter()
-    }
-
-    fn as_value(&self) -> LazyRawBinaryValue_1_1<'top> {
-        self.sequence.value
     }
 }
 

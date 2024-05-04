@@ -140,10 +140,7 @@ use rstest_reuse;
 
 // These re-exports are only visible if the "experimental-reader" feature is enabled.
 #[cfg(feature = "experimental-reader")]
-pub use {
-    raw_symbol_token::RawSymbolToken, raw_symbol_token_ref::RawSymbolTokenRef,
-    symbol_table::SymbolTable,
-};
+pub use {raw_symbol_token_ref::RawSymbolTokenRef, symbol_table::SymbolTable};
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
 pub use catalog::{Catalog, MapCatalog};
 pub use element::builders::{SequenceBuilder, StructBuilder};
@@ -177,12 +174,13 @@ pub use types::decimal;
 #[cfg(feature = "experimental-lazy-reader")]
 pub use write_config::WriteConfig;
 
+pub use crate::text::text_formatter::{IoFmtShim, IonValueFormatter};
+
 // Private modules that serve to organize implementation details.
 pub(crate) mod binary;
 mod catalog;
 mod constants;
 mod ion_data;
-mod raw_symbol_token;
 mod raw_symbol_token_ref;
 mod shared_symbol_table;
 mod symbol_ref;

@@ -1,14 +1,14 @@
 #![allow(non_camel_case_types)]
-use crate::lazy::decoder::{LazyDecoder, LazyRawReader};
+
+use bumpalo::Bump as BumpAllocator;
+
+use crate::lazy::decoder::{LazyDecoder, LazyRawReader, RawVersionMarker};
 use crate::lazy::encoding::TextEncoding_1_0;
-use crate::lazy::never::Never;
-use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
+use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
-use crate::lazy::text::value::LazyRawTextValue_1_0;
 use crate::result::IonFailure;
 use crate::IonResult;
-use bumpalo::Bump as BumpAllocator;
 
 /// A text Ion 1.0 reader that yields [`LazyRawStreamItem`]s representing the top level values found
 /// in the provided input stream.
@@ -44,7 +44,7 @@ impl<'data> LazyRawTextReader_1_0<'data> {
     pub fn next<'top>(
         &'top mut self,
         allocator: &'top BumpAllocator,
-    ) -> IonResult<RawStreamItem<LazyRawTextValue_1_0<'top>, Never>>
+    ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_0>>
     where
         'data: 'top,
     {
@@ -57,7 +57,9 @@ impl<'data> LazyRawTextReader_1_0<'data> {
             .match_optional_comments_and_whitespace()
             .with_context("reading whitespace/comments at the top level", input)?;
         if buffer_after_whitespace.is_empty() {
-            return Ok(RawStreamItem::EndOfStream);
+            return Ok(RawStreamItem::EndOfStream(EndPosition::new(
+                buffer_after_whitespace.offset(),
+            )));
         }
         let buffer_after_whitespace = buffer_after_whitespace.local_lifespan();
 
@@ -65,11 +67,12 @@ impl<'data> LazyRawTextReader_1_0<'data> {
             .match_top_level_item_1_0()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
 
-        if let RawStreamItem::VersionMarker(major, minor) = matched_item {
+        if let RawStreamItem::VersionMarker(version_marker) = matched_item {
             // TODO: It is not the raw reader's responsibility to report this error. It should
             //       surface the IVM to the caller, who can then either create a different reader
             //       for the reported version OR raise an error.
             //       See: https://github.com/amazon-ion/ion-rust/issues/644
+            let (major, minor) = version_marker.version();
             if (major, minor) != (1, 0) {
                 return IonResult::decoding_error(format!(
                     "Ion version {major}.{minor} is not supported"
@@ -109,7 +112,7 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::decoder::{LazyRawStruct, LazyRawValue};
+    use crate::lazy::decoder::{HasRange, HasSpan, LazyRawFieldName, LazyRawStruct, LazyRawValue};
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
     use crate::{Decimal, IonType, RawSymbolTokenRef, Timestamp};
@@ -286,7 +289,7 @@ mod tests {
             allocator: BumpAllocator::new(),
         };
 
-        assert_eq!(reader.next()?.expect_ivm()?, (1, 0));
+        assert_eq!(reader.next()?.expect_ivm()?.version(), (1, 0));
 
         // null
         reader.expect_next(RawValueRef::Null(IonType::Null));
@@ -373,25 +376,19 @@ mod tests {
         // "\"Hello,\\\n world!\" "
         reader.expect_next(RawValueRef::String("Hello, world!".into()));
         // 'foo'
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text("foo".into())));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text("foo")));
         reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
-            "Hello, world!".into(),
+            "Hello, world!",
         )));
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
-            "😎😎😎".into(),
-        )));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text("😎😎😎")));
         // firstName
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
-            "firstName".into(),
-        )));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text("firstName")));
         // date_of_birth
         reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
-            "date_of_birth".into(),
+            "date_of_birth",
         )));
         // $variable
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
-            "$variable".into(),
-        )));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text("$variable")));
         // $0
         reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(0)));
         // $10
@@ -443,17 +440,17 @@ mod tests {
         let mut fields = strukt.iter();
         sum += {
             let (name, value) = fields.next().unwrap()?.expect_name_value()?;
-            assert_eq!(name, "foo".as_raw_symbol_token_ref());
+            assert_eq!(name.read()?, "foo".as_raw_symbol_token_ref());
             value.read()?.expect_i64()?
         };
         sum += {
             let (name, value) = fields.next().unwrap()?.expect_name_value()?;
-            assert_eq!(name, "bar".as_raw_symbol_token_ref());
+            assert_eq!(name.read()?, "bar".as_raw_symbol_token_ref());
             value.read()?.expect_i64()?
         };
         sum += {
             let (name, value) = fields.next().unwrap()?.expect_name_value()?;
-            assert_eq!(name, "baz".as_raw_symbol_token_ref());
+            assert_eq!(name.read()?, "baz".as_raw_symbol_token_ref());
             value.read()?.expect_i64()?
         };
         assert_eq!(sum, 600);
@@ -461,18 +458,9 @@ mod tests {
         let value = reader.next()?.expect_value()?;
         assert_eq!(value.read()?.expect_i64()?, 42);
         let mut annotations = value.annotations();
-        assert_eq!(
-            annotations.next().unwrap()?,
-            RawSymbolTokenRef::Text("foo".into())
-        );
-        assert_eq!(
-            annotations.next().unwrap()?,
-            RawSymbolTokenRef::Text("bar".into())
-        );
-        assert_eq!(
-            annotations.next().unwrap()?,
-            RawSymbolTokenRef::Text("baz".into())
-        );
+        assert_eq!(annotations.next().unwrap()?, RawSymbolTokenRef::Text("foo"));
+        assert_eq!(annotations.next().unwrap()?, RawSymbolTokenRef::Text("bar"));
+        assert_eq!(annotations.next().unwrap()?, RawSymbolTokenRef::Text("baz"));
 
         Ok(())
     }

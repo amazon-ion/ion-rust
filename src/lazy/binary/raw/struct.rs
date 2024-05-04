@@ -2,23 +2,30 @@
 
 use std::fmt;
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
-use crate::lazy::decoder::private::{
-    LazyContainerPrivate, LazyRawFieldPrivate, LazyRawValuePrivate,
-};
+use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    LazyRawField, LazyRawFieldExpr, LazyRawStruct, RawFieldExpr, RawValueExpr,
+    HasRange, HasSpan, LazyDecoder, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
+    LazyRawStruct,
 };
 use crate::lazy::encoding::BinaryEncoding_1_0;
-use crate::{IonResult, RawSymbolTokenRef};
+use crate::lazy::span::Span;
+use crate::{IonResult, RawSymbolTokenRef, SymbolId};
 
 #[derive(Copy, Clone)]
 pub struct LazyRawBinaryStruct_1_0<'top> {
     pub(crate) value: LazyRawBinaryValue_1_0<'top>,
+}
+
+impl<'top> LazyRawBinaryStruct_1_0<'top> {
+    pub fn as_value(&self) -> LazyRawBinaryValue_1_0<'top> {
+        self.value
+    }
 }
 
 impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct_1_0<'top> {
@@ -62,6 +69,12 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryStruc
     }
 }
 
+impl<'top> LazyRawContainer<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct_1_0<'top> {
+    fn as_value(&self) -> <BinaryEncoding_1_0 as LazyDecoder>::Value<'top> {
+        self.value
+    }
+}
+
 impl<'top> LazyRawStruct<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct_1_0<'top> {
     type Iterator = RawBinaryStructIterator_1_0<'top>;
 
@@ -90,65 +103,98 @@ impl<'top> Iterator for RawBinaryStructIterator_1_0<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.source.try_parse_next(ImmutableBuffer::peek_field) {
-            Ok(Some(lazy_raw_value)) => Some(Ok(RawFieldExpr::NameValuePair(
-                lazy_raw_value.field_name().unwrap(),
-                RawValueExpr::ValueLiteral(lazy_raw_value),
-            ))),
+        match self
+            .source
+            .try_parse_next_field(ImmutableBuffer::peek_field)
+        {
+            Ok(Some(field)) => Some(Ok(field)),
             Ok(None) => None,
             Err(e) => Some(Err(e)),
         }
     }
 }
 
-#[derive(Copy, Clone)]
-pub struct LazyRawBinaryField<'top> {
-    pub(crate) value: LazyRawBinaryValue_1_0<'top>,
+#[derive(Debug, Copy, Clone)]
+pub struct LazyRawBinaryFieldName_1_0<'top> {
+    // The field ID has to be read in order to discover its length, so we store it here to avoid
+    // needing to re-read it.
+    field_id: SymbolId,
+    matched: ImmutableBuffer<'top>,
 }
 
-impl<'top> LazyRawBinaryField<'top> {
-    pub(crate) fn new(value: LazyRawBinaryValue_1_0<'top>) -> Self {
-        LazyRawBinaryField { value }
-    }
-
-    pub fn name(&self) -> RawSymbolTokenRef<'top> {
-        // We're in a struct field, the field ID must be populated.
-        let field_id = self.value.encoded_value.field_id.unwrap();
-        RawSymbolTokenRef::SymbolId(field_id)
-    }
-
-    pub fn value(&self) -> LazyRawBinaryValue_1_0<'top> {
-        self.value
-    }
-
-    pub(crate) fn into_value(self) -> LazyRawBinaryValue_1_0<'top> {
-        self.value
+impl<'top> LazyRawBinaryFieldName_1_0<'top> {
+    pub fn new(field_id: SymbolId, matched: ImmutableBuffer<'top>) -> Self {
+        Self { field_id, matched }
     }
 }
 
-impl<'top> LazyRawFieldPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryField<'top> {
-    fn into_value(self) -> LazyRawBinaryValue_1_0<'top> {
-        self.value
+impl<'top> HasSpan<'top> for LazyRawBinaryFieldName_1_0<'top> {
+    fn span(&self) -> Span<'top> {
+        Span::with_range(self.range(), self.matched.bytes())
     }
 }
 
-impl<'top> LazyRawField<'top, BinaryEncoding_1_0> for LazyRawBinaryField<'top> {
-    fn name(&self) -> RawSymbolTokenRef<'top> {
-        LazyRawBinaryField::name(self)
-    }
-
-    fn value(&self) -> LazyRawBinaryValue_1_0<'top> {
-        self.value()
+impl<'top> HasRange for LazyRawBinaryFieldName_1_0<'top> {
+    fn range(&self) -> Range<usize> {
+        self.matched.range()
     }
 }
 
-impl<'top> Debug for LazyRawBinaryField<'top> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "${}: {:?}",
-            self.value.encoded_value.field_id.unwrap(),
-            self.value()
-        )
+impl<'top> LazyRawFieldName<'top> for LazyRawBinaryFieldName_1_0<'top> {
+    fn read(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+        Ok(RawSymbolTokenRef::SymbolId(self.field_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Range;
+
+    use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
+    use crate::IonResult;
+
+    use super::*;
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn field_name_ranges() -> IonResult<()> {
+        // For each pair below, we'll confirm that the top-level struct's field names are found to
+        // occupy the specified input ranges.
+        type FieldNameAndRange<'a> = (RawSymbolTokenRef<'a>, Range<usize>);
+        type FieldTest<'a> = (&'a [u8], &'a [FieldNameAndRange<'a>]);
+        let tests: &[FieldTest] = &[
+            // (Ion input, expected ranges of the struct's field names)
+            (
+                &[0xD2, 0x84, 0x80], // {name: ""}
+                &[(RawSymbolTokenRef::SymbolId(4), 1..2)],
+            ),
+        ];
+        for (input, field_name_ranges) in tests {
+            let mut reader = LazyRawBinaryReader_1_0::new(input);
+            let struct_ = reader.next()?.expect_value()?.read()?.expect_struct()?;
+            for (field_result, (expected_name, range)) in
+                struct_.iter().zip(field_name_ranges.iter())
+            {
+                let name = field_result?.name();
+                assert_eq!(
+                    name.read()?,
+                    *expected_name,
+                    "span failure for input {input:0X?} -> field {name:?}"
+                );
+                assert_eq!(
+                    name.range(),
+                    *range,
+                    "range failure for input {input:0X?} -> field {name:?}"
+                );
+                println!(
+                    "SUCCESS: input {:0X?} -> field {:?} -> {:0X?} ({:?})",
+                    input,
+                    expected_name,
+                    name.span(),
+                    name.range()
+                );
+            }
+        }
+        Ok(())
     }
 }

@@ -2,10 +2,10 @@
 
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
-use crate::lazy::decoder::{LazyDecoder, LazyRawReader};
+use crate::lazy::decoder::{LazyDecoder, LazyRawReader, RawVersionMarker};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;
-use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
+use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::result::IonFailure;
 use crate::IonResult;
 
@@ -36,16 +36,18 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     where
         'data: 'top,
     {
-        let ((major, minor), _buffer_after_ivm) = buffer.read_ivm()?;
+        let (marker, _buffer_after_ivm) = buffer.read_ivm()?;
+        let (major, minor) = marker.version();
         if (major, minor) != (1, 1) {
             return IonResult::decoding_error(format!(
-                "unsupported version of Ion: v{}.{}; only 1.1 is supported by this reader",
-                major, minor,
+                "unsupported version of Ion: v{major}.{minor}; only 1.1 is supported by this reader",
             ));
         }
         self.data = buffer;
         self.bytes_to_skip = 4;
-        Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::VersionMarker(1, 1))
+        Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::VersionMarker(
+            marker,
+        ))
     }
 
     fn read_value<'top>(
@@ -57,7 +59,11 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     {
         let lazy_value = match ImmutableBuffer::peek_sequence_value(buffer)? {
             Some(lazy_value) => lazy_value,
-            None => return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream),
+            None => {
+                return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream(
+                    EndPosition::new(self.position()),
+                ))
+            }
         };
         self.data = buffer;
         self.bytes_to_skip = lazy_value.encoded_value.total_length();
@@ -85,14 +91,18 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     {
         let mut buffer = self.advance_to_next_item()?;
         if buffer.is_empty() {
-            return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream);
+            return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream(
+                EndPosition::new(buffer.offset()),
+            ));
         }
 
         let type_descriptor = buffer.peek_opcode()?;
         if type_descriptor.is_nop() {
             (_, buffer) = buffer.consume_nop_padding(type_descriptor)?;
             if buffer.is_empty() {
-                return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream);
+                return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream(
+                    EndPosition::new(buffer.offset()),
+                ));
             }
         }
         if type_descriptor.is_ivm_start() {

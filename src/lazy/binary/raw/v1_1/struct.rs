@@ -2,19 +2,56 @@
 
 use std::fmt;
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 
 use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::v1_1::{
     immutable_buffer::ImmutableBuffer, value::LazyRawBinaryValue_1_1,
 };
-use crate::lazy::decoder::private::{
-    LazyContainerPrivate, LazyRawFieldPrivate, LazyRawValuePrivate,
-};
+use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    LazyRawField, LazyRawFieldExpr, LazyRawStruct, RawFieldExpr, RawValueExpr,
+    HasRange, HasSpan, LazyDecoder, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
+    LazyRawStruct,
 };
 use crate::lazy::encoding::BinaryEncoding_1_1;
+use crate::lazy::span::Span;
 use crate::{IonResult, RawSymbolTokenRef};
+
+#[derive(Debug, Copy, Clone)]
+pub struct LazyRawBinaryFieldName_1_1<'top> {
+    // The field name has to be read in order to discover its length, so we store it here to avoid
+    // needing to re-read it.
+    field_name: RawSymbolTokenRef<'top>,
+    // For viewing the span/range of the field name
+    matched: ImmutableBuffer<'top>,
+}
+
+impl<'top> LazyRawBinaryFieldName_1_1<'top> {
+    pub fn new(field_name: RawSymbolTokenRef<'top>, matched: ImmutableBuffer<'top>) -> Self {
+        Self {
+            field_name,
+            matched,
+        }
+    }
+}
+
+impl<'top> HasSpan<'top> for LazyRawBinaryFieldName_1_1<'top> {
+    fn span(&self) -> Span<'top> {
+        todo!()
+    }
+}
+
+impl<'top> HasRange for LazyRawBinaryFieldName_1_1<'top> {
+    fn range(&self) -> Range<usize> {
+        todo!()
+    }
+}
+
+impl<'top> LazyRawFieldName<'top> for LazyRawBinaryFieldName_1_1<'top> {
+    fn read(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+        todo!()
+    }
+}
 
 #[derive(Copy, Clone)]
 pub struct LazyRawBinaryStruct_1_1<'top> {
@@ -62,6 +99,12 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinaryStruc
     }
 }
 
+impl<'top> LazyRawContainer<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'top> {
+    fn as_value(&self) -> <BinaryEncoding_1_1 as LazyDecoder>::Value<'top> {
+        self.value
+    }
+}
+
 impl<'top> LazyRawStruct<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'top> {
     type Iterator = RawBinaryStructIterator_1_1<'top>;
 
@@ -88,65 +131,6 @@ impl<'top> Iterator for RawBinaryStructIterator_1_1<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.source.try_parse_next(ImmutableBuffer::peek_field) {
-            Ok(Some(lazy_raw_value)) => Some(Ok(RawFieldExpr::NameValuePair(
-                lazy_raw_value.field_name().unwrap(),
-                RawValueExpr::ValueLiteral(lazy_raw_value),
-            ))),
-            Ok(None) => None,
-            Err(e) => Some(Err(e)),
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct LazyRawBinaryField_1_1<'top> {
-    pub(crate) value: LazyRawBinaryValue_1_1<'top>,
-}
-
-impl<'top> LazyRawBinaryField_1_1<'top> {
-    pub(crate) fn new(value: LazyRawBinaryValue_1_1<'top>) -> Self {
-        LazyRawBinaryField_1_1 { value }
-    }
-
-    pub fn name(&self) -> RawSymbolTokenRef<'top> {
-        // We're in a struct field, the field ID must be populated.
-        let field_id = self.value.encoded_value.field_id.unwrap();
-        RawSymbolTokenRef::SymbolId(field_id)
-    }
-
-    pub fn value(&self) -> LazyRawBinaryValue_1_1<'top> {
-        self.value
-    }
-
-    pub(crate) fn into_value(self) -> LazyRawBinaryValue_1_1<'top> {
-        self.value
-    }
-}
-
-impl<'top> LazyRawFieldPrivate<'top, BinaryEncoding_1_1> for LazyRawBinaryField_1_1<'top> {
-    fn into_value(self) -> LazyRawBinaryValue_1_1<'top> {
-        self.value
-    }
-}
-
-impl<'top> LazyRawField<'top, BinaryEncoding_1_1> for LazyRawBinaryField_1_1<'top> {
-    fn name(&self) -> RawSymbolTokenRef<'top> {
-        LazyRawBinaryField_1_1::name(self)
-    }
-
-    fn value(&self) -> LazyRawBinaryValue_1_1<'top> {
-        self.value()
-    }
-}
-
-impl<'top> Debug for LazyRawBinaryField_1_1<'top> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "${}: {:?}",
-            self.value.encoded_value.field_id.unwrap(),
-            self.value()
-        )
+        todo!()
     }
 }

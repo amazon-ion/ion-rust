@@ -1,7 +1,9 @@
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
+use crate::result::IonFailure;
 use crate::{Annotations, Sequence};
 use crate::{Decimal, Int, Struct, Timestamp};
 use crate::{IonResult, IonType};
+use std::{fmt, io};
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
 
@@ -180,8 +182,60 @@ pub(crate) const fn string_escape_code_init() -> [&'static str; 256] {
 
 /// Provides a text formatter for Ion values
 /// This is used with the Display implementation of `OwnedElement`
-pub struct IonValueFormatter<'a, W: std::fmt::Write> {
+pub struct IonValueFormatter<'a, W: fmt::Write> {
     pub(crate) output: &'a mut W,
+}
+
+impl<'a, W: fmt::Write> IonValueFormatter<'a, W> {
+    pub fn new(output: &'a mut W) -> Self {
+        Self { output }
+    }
+}
+
+/// A shim that allows values to be formatted to implementations of `io::Write` instead of being limited
+/// to implementations of `fmt::Write`.
+pub struct IoFmtShim<W: io::Write> {
+    output: W,
+    // If an I/O error happens while writing the formatted text to output, write!() will return
+    // a `fmt::Error` (which contains no information). This result can then be inspected for the
+    // cause. This approach is similar to the one the Rust std library uses internally. See:
+    // https://github.com/rust-lang/rust/blob/cc4dd6fc9f1a5c798df269933c7e442b79661a86/library/std/src/io/mod.rs#L1665
+    result: IonResult<()>,
+}
+
+impl<W: io::Write> IoFmtShim<W> {
+    pub fn new(output: W) -> Self {
+        Self {
+            output,
+            result: Ok(()),
+        }
+    }
+
+    pub fn into_result(self) -> IonResult<()> {
+        self.result
+    }
+
+    pub fn value_formatter(&mut self) -> IonValueFormatter<'_, Self> {
+        IonValueFormatter::new(self)
+    }
+}
+
+impl<W: io::Write> fmt::Write for IoFmtShim<W> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let io_result = self.output.write_all(s.as_bytes()).into();
+        match io_result {
+            Ok(_) => {
+                self.result = Ok(());
+                Ok(())
+            }
+            Err(e) => {
+                self.result = IonResult::encoding_error(format!(
+                    "I/O failure occurred during formatting: {e:?}",
+                ));
+                Err(fmt::Error)
+            }
+        }
+    }
 }
 
 impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
@@ -229,13 +283,12 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         match token.as_raw_symbol_token_ref() {
             RawSymbolTokenRef::SymbolId(sid) => write!(self.output, "${sid}")?,
             RawSymbolTokenRef::Text(text)
-                if Self::token_is_keyword(text.as_ref())
-                    || Self::token_resembles_symbol_id(text.as_ref()) =>
+                if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) =>
             {
                 // Write the symbol text in single quotes
                 write!(self.output, "'{text}'")?;
             }
-            RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text.as_ref()) => {
+            RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text) => {
                 // Write the symbol text without quotes
                 write!(self.output, "{text}")?
             }
@@ -364,19 +417,19 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         value.format(self.output)
     }
 
-    pub(crate) fn format_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
+    pub fn format_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
         self.format_symbol_token(value)?;
         Ok(())
     }
 
-    pub(crate) fn format_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
+    pub fn format_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
         write!(self.output, "\"")?;
         self.format_escaped_text_body(value)?;
         write!(self.output, "\"")?;
         Ok(())
     }
 
-    pub(crate) fn format_clob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
+    pub fn format_clob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
         // clob_value to be written based on defined STRING_ESCAPE_CODES.
         const NUM_DELIMITER_BYTES: usize = 4; // {{}}
         const NUM_HEX_BYTES_PER_BYTE: usize = 4; // \xHH
@@ -400,7 +453,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         Ok(())
     }
 
-    pub(crate) fn format_blob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
+    pub fn format_blob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
         write!(self.output, "{{{{{}}}}}", base64::encode(value))?;
         Ok(())
     }

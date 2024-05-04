@@ -4,18 +4,17 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 
 use crate::element::builders::StructBuilder;
-use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::{LazyDecoder, LazyRawContainer};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::r#struct::{
-    ExpandedStructIterator, LazyExpandedField, LazyExpandedStruct,
+    ExpandedStructIterator, ExpandedStructSource, LazyExpandedField, LazyExpandedStruct,
 };
+use crate::lazy::expanded::template::TemplateElement;
+use crate::lazy::expanded::LazyExpandedValue;
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
-use crate::{
-    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, RawSymbolTokenRef, Struct,
-    SymbolRef,
-};
+use crate::{Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Struct, SymbolRef};
 
 /// An as-of-yet unread binary Ion struct. `LazyStruct` is immutable; its fields and annotations
 /// can be read any number of times.
@@ -46,7 +45,7 @@ use crate::{
 ///# Ok(())
 ///# }
 /// ```
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct LazyStruct<'top, D: LazyDecoder> {
     pub(crate) expanded_struct: LazyExpandedStruct<'top, D>,
 }
@@ -76,6 +75,28 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
         StructIterator {
             expanded_struct_iter: self.expanded_struct.iter(),
         }
+    }
+
+    //TODO: Feature gate
+    pub fn lower(&self) -> LazyExpandedStruct<'top, D> {
+        self.expanded_struct
+    }
+    pub fn as_value(&self) -> LazyValue<'top, D> {
+        let expanded_value = match self.expanded_struct.source {
+            ExpandedStructSource::ValueLiteral(v) => {
+                LazyExpandedValue::from_literal(self.expanded_struct.context, v.as_value())
+            }
+            ExpandedStructSource::Template(env, template_ref, _, fields_range, _) => {
+                let element = TemplateElement::new(
+                    template_ref,
+                    template_ref.body().expressions()[fields_range.start() - 1]
+                        .expect_element()
+                        .unwrap(),
+                );
+                LazyExpandedValue::from_template(self.expanded_struct.context, env, element)
+            }
+        };
+        LazyValue::new(expanded_value)
     }
 
     /// Returns the value of the first field with the specified name, if any. The returned value is
@@ -249,27 +270,14 @@ impl<'top, D: LazyDecoder> Debug for LazyField<'top, D> {
 impl<'top, D: LazyDecoder> LazyField<'top, D> {
     /// Returns a symbol representing the name of this field.
     pub fn name(&self) -> IonResult<SymbolRef<'top>> {
-        let field_name = self.expanded_field.raw_name();
-        let field_id = match field_name {
-            RawSymbolTokenRef::SymbolId(sid) => sid,
-            RawSymbolTokenRef::Text(text) => return Ok(SymbolRef::with_text(text)),
-        };
-        self.expanded_field
-            .value
-            .context
-            .symbol_table
-            .symbol_for(field_id)
-            .map(|symbol| symbol.into())
-            .ok_or_else(|| {
-                IonError::decoding_error("found a symbol ID that was not in the symbol table")
-            })
+        self.expanded_field.name().read()
     }
 
     /// Returns a lazy value representing the value of this field. To access the value's data,
     /// see [`LazyValue::read`].
     pub fn value(&self) -> LazyValue<'top, D> {
         LazyValue {
-            expanded_value: *self.expanded_field.value(),
+            expanded_value: self.expanded_field.value(),
         }
     }
 }

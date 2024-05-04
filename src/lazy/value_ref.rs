@@ -45,6 +45,8 @@ impl<'top, D: LazyDecoder> PartialEq for ValueRef<'top, D> {
             (Symbol(s1), Symbol(s2)) => s1 == s2,
             (Blob(b1), Blob(b2)) => b1 == b2,
             (Clob(c1), Clob(c2)) => c1 == c2,
+            // TODO: The following is no longer true; should we finish implementing PartialEq for
+            //       container types?
             // We cannot compare lazy containers as we cannot guarantee that their complete contents
             // are available in the buffer. Is `{foo: bar}` equal to `{foo: b`?
             _ => false,

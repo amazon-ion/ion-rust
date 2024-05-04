@@ -62,6 +62,11 @@ impl<'top, D: LazyDecoder> LazyList<'top, D> {
         }
     }
 
+    // TODO: Feature gate
+    pub fn lower(&self) -> LazyExpandedList<'top, D> {
+        self.expanded_list
+    }
+
     /// Returns an iterator over the annotations on this value. If this value has no annotations,
     /// the resulting iterator will be empty.
     ///
@@ -181,6 +186,10 @@ impl<'top, D: LazyDecoder> Debug for LazySExp<'top, D> {
 }
 
 impl<'top, D: LazyDecoder> LazySExp<'top, D> {
+    pub fn lower(&self) -> LazyExpandedSExp<'top, D> {
+        self.expanded_sexp
+    }
+
     /// Returns an iterator over the values in this sequence. See: [`LazyValue`].
     pub fn iter(&self) -> SExpIterator<'top, D> {
         SExpIterator {

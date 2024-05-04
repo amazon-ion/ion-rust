@@ -16,7 +16,7 @@ use std::fmt::{Debug, Formatter};
 
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
-use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
+use crate::lazy::decoder::{HasSpan, LazyDecoder, LazyRawValueExpr};
 use crate::lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator};
 use crate::lazy::expanded::macro_table::{MacroKind, MacroRef};
 use crate::lazy::expanded::sequence::Environment;
@@ -33,8 +33,8 @@ use crate::{IonError, IonResult, RawSymbolTokenRef};
 
 /// The syntactic entity in format `D` that represents an e-expression. This expression has not
 /// yet been resolved in the current encoding context.
-pub trait RawEExpression<'top, D: LazyDecoder<EExpression<'top> = Self>>:
-    Debug + Copy + Clone
+pub trait RawEExpression<'top, D: LazyDecoder<EExp<'top> = Self>>:
+    HasSpan<'top> + Debug + Copy + Clone
 {
     /// An iterator that yields the macro invocation's arguments in order.
     type RawArgumentsIterator<'a>: Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
@@ -144,9 +144,7 @@ impl<'top, D: LazyDecoder> ArgExpr<'top, D> {
     ) -> IonResult<ValueExpr<'top, D>> {
         match self {
             ArgExpr::ValueLiteral(value) => Ok(ValueExpr::ValueLiteral(*value)),
-            ArgExpr::Variable(variable) => environment
-                .get_expected(variable.signature_index())
-                .copied(),
+            ArgExpr::Variable(variable) => environment.get_expected(variable.signature_index()),
             ArgExpr::MacroInvocation(invocation) => Ok(ValueExpr::MacroInvocation(*invocation)),
         }
     }
@@ -597,6 +595,7 @@ impl<'top, D: LazyDecoder> MakeStringExpansion<'top, D> {
         Ok(Some(ValueExpr::ValueLiteral(LazyExpandedValue {
             context,
             source: ExpandedValueSource::Constructed(EMPTY_ANNOTATIONS, expanded_value_ref),
+            variable: None,
         })))
     }
 
@@ -681,7 +680,7 @@ impl<'top> TemplateExpansion<'top> {
                 ))
             }
             TemplateBodyValueExpr::Variable(variable) => {
-                *environment.get_expected(variable.signature_index())?
+                environment.get_expected(variable.signature_index())?
             }
             TemplateBodyValueExpr::MacroInvocation(raw_invocation) => {
                 let invocation = raw_invocation.resolve(self.template, context);
@@ -1115,9 +1114,9 @@ mod tests {
                 e: (:make_string foo bar baz),
                 
                 f: 5,
-                
+
                 // If a macro appears in field name position, it MUST produce a single struct (which
-                // may be empty). That struct's fields will be merged into the host struct.  
+                // may be empty). That struct's fields will be merged into the host struct.
                 (:values {g: 6, h: 7}),
                 
                 g: 8

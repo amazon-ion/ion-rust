@@ -10,8 +10,7 @@ use crate::lazy::binary::raw::sequence::{
     LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0, LazyRawBinarySequence_1_0,
 };
 use crate::lazy::binary::raw::type_descriptor::Header;
-use crate::lazy::decoder::private::LazyRawValuePrivate;
-use crate::lazy::decoder::LazyRawValue;
+use crate::lazy::decoder::{HasRange, HasSpan, LazyRawValue, RawVersionMarker};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::str_ref::StrRef;
@@ -22,6 +21,38 @@ use bytes::{BigEndian, ByteOrder};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::{fmt, mem};
+use crate::lazy::span::{Span, ToRelativeRange};
+
+#[derive(Debug, Copy, Clone)]
+pub struct LazyRawBinaryVersionMarker_1_0<'top> {
+    major: u8,
+    minor: u8,
+    input: ImmutableBuffer<'top>,
+}
+
+impl<'top> LazyRawBinaryVersionMarker_1_0<'top> {
+    pub fn new(input: ImmutableBuffer<'top>, major: u8, minor: u8) -> Self {
+        Self { major, minor, input }
+    }
+}
+
+impl<'top> HasSpan<'top> for LazyRawBinaryVersionMarker_1_0<'top> {
+    fn span(&self) -> Span<'top> {
+        Span::with_range(self.range(), self.input.bytes())
+    }
+}
+
+impl<'top> HasRange for LazyRawBinaryVersionMarker_1_0<'top> {
+    fn range(&self) -> Range<usize> {
+        self.input.range()
+    }
+}
+
+impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_0<'top> {
+    fn version(&self) -> (u8, u8) {
+        (self.major, self.minor)
+    }
+}
 
 /// A value that has been identified in the input stream but whose data has not yet been read.
 ///
@@ -50,15 +81,18 @@ impl<'top> Debug for LazyRawBinaryValue_1_0<'top> {
 
 pub type ValueParseResult<'top, F> = IonResult<RawValueRef<'top, F>>;
 
-impl<'top> LazyRawValuePrivate<'top> for LazyRawBinaryValue_1_0<'top> {
-    fn field_name(&self) -> IonResult<RawSymbolTokenRef<'top>> {
-        if let Some(field_id) = self.encoded_value.field_id {
-            Ok(RawSymbolTokenRef::SymbolId(field_id))
-        } else {
-            IonResult::illegal_operation(
-                "requested field name, but value was not in a struct field",
-            )
-        }
+impl<'top> HasSpan<'top> for LazyRawBinaryValue_1_0<'top> {
+    fn span(&self) -> Span<'top> {
+        let range = self.range();
+        // Subtract the `offset()` of the ImmutableBuffer to get the local indexes for start/end
+        let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
+        Span::with_range(range, &self.input.bytes()[local_range])
+    }
+}
+
+impl<'top> HasRange for LazyRawBinaryValue_1_0<'top> {
+    fn range(&self) -> Range<usize> {
+        self.encoded_value.annotated_value_range()
     }
 }
 
@@ -78,20 +112,164 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
     fn read(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_0>> {
         self.read()
     }
+}
 
-    fn range(&self) -> Range<usize> {
-        self.encoded_value.annotated_value_range()
+#[derive(Copy, Clone)]
+pub struct EncodedBinaryAnnotations_1_0<'a, 'top> {
+    value: &'a LazyRawBinaryValue_1_0<'top>
+}
+
+impl<'a, 'top> EncodedBinaryAnnotations_1_0<'a, 'top> {
+    /// Returns the input stream index range that contains the bytes representing the complete
+    /// annotations wrapper, including its opcode, wrapper length, annotations sequence length,
+    /// and the sequence itself.
+    pub fn range(&self) -> Range<usize> {
+        self.value.encoded_value.annotations_range().unwrap()
     }
 
-    fn span(&self) -> &[u8] {
+    /// Returns the encoded bytes representing the complete annotations wrapper, including its
+    /// opcode, wrapper length, annotations sequence length, and the sequence itself.
+    pub fn span(&self) -> Span<'top> {
         let range = self.range();
-        // Subtract the `offset()` of the ImmutableBuffer to get the local indexes for start/end
-        let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
-        &self.input.bytes()[local_range]
+        let start = range.start - self.value.input.offset();
+        let end = start + range.len();
+        let bytes = &self.value.input.bytes()[start .. end];
+        Span::with_range(range, bytes)
+    }
+
+    /// Returns the input stream index range that contains the bytes representing the annotations
+    /// wrapper's opcode.
+    pub fn opcode_range(&self) -> Range<usize> {
+        let stream_start = self.range().start;
+        stream_start..stream_start + 1
+    }
+
+    /// Returns the encoded bytes representing the annotations wrapper's opcode.
+    pub fn opcode_span(&self) -> Span<'top> {
+        let stream_range = self.opcode_range();
+        let local_range = 0..1;
+        let bytes = &self.span().bytes()[local_range];
+        Span::with_range(stream_range, bytes)
+    }
+
+    /// Returns the encoded bytes representing the annotations wrapper's header (that is: the opcode,
+    /// wrapper length, and sequence length, but not the annotations sequence).
+    pub fn header_span(&self) -> Span<'top> {
+        let range = self.range();
+        let sequence_length = self.value.encoded_value.annotations_sequence_length as usize;
+        let local_end = range.len() - sequence_length;
+        let bytes = &self.span().bytes()[ ..local_end];
+        Span::with_range(range.start .. range.start + local_end, bytes)
+    }
+
+    // TODO: separate span accessors for the wrapper length and sequence length?
+
+    /// Returns the encoded bytes representing the annotations wrapper's annotations sequence.
+    pub fn sequence_span(&self) -> Span<'top> {
+        let range = self.range();
+        let sequence_length = self.value.encoded_value.annotations_sequence_length as usize;
+        let local_start = range.len() - sequence_length;
+        let bytes = &self.span().bytes()[local_start .. ];
+        let stream_start = range.start + local_start;
+        Span::with_range(stream_start .. stream_start + sequence_length, bytes)
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct EncodedBinaryValueData_1_0<'a, 'top> {
+    value: &'a LazyRawBinaryValue_1_0<'top>
+}
+
+impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
+    /// Returns the input stream index range that contains the bytes representing the complete value,
+    /// including its opcode, length, and body.
+    pub fn range(&self) -> Range<usize> {
+        let encoded = &self.value.encoded_value;
+        encoded.unannotated_value_range()
+    }
+
+    /// Returns the encoded bytes that represent the complete value, including its opcode, length,
+    /// and body.
+    pub fn span(&self) -> Span<'top> {
+        let stream_range = self.range();
+        let offset = self.value.input.offset();
+        let local_range = stream_range.start - offset .. stream_range.end - offset;
+        let bytes = &self.value.input.bytes()[local_range];
+        Span::with_range(stream_range, bytes)
+    }
+
+    /// Returns the input stream index range that contains the bytes representing the
+    /// value's opcode. In Ion 1.0, this is always a range of a single byte.
+    fn opcode_range(&self) -> Range<usize> {
+        let offset = self.range().start;
+        offset .. offset + 1
+    }
+
+    /// Returns the encoded bytes representing the value's opcode. In Ion 1.0, this is always a
+    /// slice of a single byte.
+    pub fn opcode_span(&self) -> Span<'top> {
+        let stream_range = self.opcode_range();
+        let bytes = &self.span().bytes()[0..1];
+        Span::with_range(stream_range, bytes)
+    }
+
+    /// Returns the input stream index range that contains the bytes representing the
+    /// value's length as a `VarUInt`. If the value's length was able to be encoded directly in
+    /// the type descriptor byte, the range returned will be empty.
+    pub fn trailing_length_range(&self) -> Range<usize> {
+        let range = self.range();
+        range.start + 1 .. range.start + 1 + self.value.encoded_value.length_length as usize
+    }
+
+    /// Returns the encoded bytes representing the value's length as a `VarUInt`.
+    /// If the value's length was able to be encoded directly in the type descriptor byte,
+    /// the slice returned will be empty.
+    pub fn trailing_length_span(&self) -> Span<'top> {
+        let stream_range = self.trailing_length_range();
+        let local_range = stream_range.to_relative_range( self.value.input.offset());
+        let bytes = &self.value.input.bytes()[local_range];
+        Span::with_range(stream_range, bytes)
+    }
+
+    /// Returns the input stream index range that contains the bytes representing the
+    /// value's body (that is: the content of the value that follows its opcode and length).
+    pub fn body_range(&self) -> Range<usize> {
+        let encoded = &self.value.encoded_value;
+        let body_offset = encoded.header_length();
+        let body_length = encoded.value_body_length();
+        let start = self.range().start + body_offset;
+        let end = start + body_length;
+        start .. end
+    }
+
+    /// Returns the encoded bytes representing the value's body (that is: the content of the value
+    /// that follows its opcode and length).
+    pub fn body_span(&self) -> Span<'top> {
+        let stream_range = self.body_range();
+        let offset = self.value.input.offset();
+        let local_range = stream_range.to_relative_range(offset);
+        let bytes = &self.span().bytes()[local_range];
+        Span::with_range(stream_range, bytes)
     }
 }
 
 impl<'top> LazyRawBinaryValue_1_0<'top> {
+    pub fn encoded_annotations(&self) -> Option<EncodedBinaryAnnotations_1_0<'_, 'top>> {
+        if self.has_annotations() {
+            Some(EncodedBinaryAnnotations_1_0 {
+                value: self
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn encoded_data(&self) -> EncodedBinaryValueData_1_0<'_, 'top> {
+        EncodedBinaryValueData_1_0 {
+            value: self
+        }
+    }
+
     /// Indicates the Ion data type of this value. Calling this method does not require additional
     /// parsing of the input stream.
     pub fn ion_type(&self) -> IonType {
@@ -121,17 +299,9 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
             });
         let (sequence_offset, sequence_length) = match offset_and_length {
             None => {
-                return self
-                    .input
-                    // A value's binary layout is:
-                    //
-                    //     field_id? | annotation_sequence? | type_descriptor | length? | body
-                    //
-                    // If this value has no annotation sequence, then the first byte after the
-                    // field ID is the type descriptor.
-                    //
-                    // If there is no field ID, field_id_length will be zero.
-                    .slice(self.encoded_value.field_id_length as usize, 0);
+                // If there are no annotations, return an empty slice positioned on the type
+                // descriptor.
+                return self.input.slice(0, 0);
             }
             Some(offset_and_length) => offset_and_length,
         };
@@ -173,18 +343,12 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     }
 
     /// Returns the encoded byte slice representing this value's data.
-    fn value_body(&self) -> IonResult<&'top [u8]> {
+    pub fn value_body(&self) -> &'top [u8] {
         let value_total_length = self.encoded_value.total_length();
-        if self.input.len() < value_total_length {
-            eprintln!("[value_body] Incomplete {:?}", self);
-            return IonResult::incomplete(
-                "only part of the requested value is available in the buffer",
-                self.input.offset(),
-            );
-        }
-        let value_body_length = self.encoded_value.value_length();
+        debug_assert!(self.input.len() >= value_total_length);
+        let value_body_length = self.encoded_value.value_body_length();
         let value_offset = value_total_length - value_body_length;
-        Ok(self.input.bytes_range(value_offset, value_body_length))
+        self.input.bytes_range(value_offset, value_body_length)
     }
 
     /// Returns an [`ImmutableBuffer`] containing whatever bytes of this value's body are currently
@@ -192,18 +356,12 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     /// fully buffered before reading begins.
     pub(crate) fn available_body(&self) -> ImmutableBuffer<'top> {
         let value_total_length = self.encoded_value.total_length();
-        let value_body_length = self.encoded_value.value_length();
+        let value_body_length = self.encoded_value.value_body_length();
         let value_offset = value_total_length - value_body_length;
 
         let bytes_needed = std::cmp::min(self.input.len() - value_offset, value_body_length);
         let buffer_slice = self.input.slice(value_offset, bytes_needed);
         buffer_slice
-    }
-
-    /// If this value is within a struct, returns its associated field name as a `Some(SymbolID)`.
-    /// Otherwise, returns `None`.
-    pub(crate) fn field_id(&self) -> Option<SymbolId> {
-        self.encoded_value.field_id
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a bool.
@@ -227,8 +385,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     fn read_int(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
         // `value_body()` returns a buffer starting at the body of the value.
-        // It also confirms that the entire value is in the buffer.
-        let uint_bytes = self.value_body()?;
+        let uint_bytes = self.value_body();
         let magnitude: Int = if uint_bytes.len() <= mem::size_of::<u64>() {
             DecodedUInt::small_uint_from_slice(uint_bytes).into()
         } else {
@@ -253,8 +410,8 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     /// Helper method called by [`Self::read`]. Reads the current value as a float.
     fn read_float(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Float);
-        let ieee_bytes = self.value_body()?;
-        let number_of_bytes = self.encoded_value.value_length();
+        let ieee_bytes = self.value_body();
+        let number_of_bytes = self.encoded_value.value_body_length();
         let value = match number_of_bytes {
             0 => 0f64,
             4 => f64::from(BigEndian::read_f32(ieee_bytes)),
@@ -268,16 +425,16 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     fn read_decimal(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Decimal);
 
-        if self.encoded_value.value_length() == 0 {
+        if self.encoded_value.value_body_length() == 0 {
             return Ok(RawValueRef::Decimal(Decimal::new(0i32, 0i64)));
         }
 
         // Skip the type descriptor and length bytes
-        let input = ImmutableBuffer::new(self.value_body()?);
+        let input = ImmutableBuffer::new(self.value_body());
 
         let (exponent_var_int, remaining) = input.read_var_int()?;
         let coefficient_size_in_bytes =
-            self.encoded_value.value_length() - exponent_var_int.size_in_bytes();
+            self.encoded_value.value_body_length() - exponent_var_int.size_in_bytes();
 
         let exponent = exponent_var_int.value();
         let (coefficient, _remaining) = remaining.read_int(coefficient_size_in_bytes)?;
@@ -295,7 +452,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     fn read_timestamp(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Timestamp);
 
-        let input = ImmutableBuffer::new(self.value_body()?);
+        let input = ImmutableBuffer::new(self.value_body());
 
         let (offset, input) = input.read_var_int()?;
         let is_known_offset = !offset.is_negative_zero();
@@ -369,7 +526,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         let (subsecond_exponent_var_uint, input) = input.read_var_int()?;
         let subsecond_exponent = subsecond_exponent_var_uint.value();
         // The remaining bytes represent the coefficient.
-        let coefficient_size_in_bytes = self.encoded_value.value_length() - input.offset();
+        let coefficient_size_in_bytes = self.encoded_value.value_body_length() - input.offset();
         let (subsecond_coefficient, _input) = if coefficient_size_in_bytes == 0 {
             (DecodedInt::zero(), input)
         } else {
@@ -390,7 +547,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.
     fn read_symbol_id(&self) -> IonResult<SymbolId> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
-        let uint_bytes = self.value_body()?;
+        let uint_bytes = self.value_body();
         if uint_bytes.len() > mem::size_of::<usize>() {
             return IonResult::decoding_error(
                 "found a symbol ID that was too large to fit in a usize",
@@ -411,7 +568,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     /// Helper method called by [`Self::read`]. Reads the current value as a string.
     fn read_string(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::String);
-        let raw_bytes = self.value_body()?;
+        let raw_bytes = self.value_body();
         let text = std::str::from_utf8(raw_bytes)
             .map_err(|_| IonError::decoding_error("found a string with invalid utf-8 data"))?;
         Ok(RawValueRef::String(StrRef::from(text)))
@@ -420,14 +577,14 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     /// Helper method called by [`Self::read`]. Reads the current value as a blob.
     fn read_blob(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Blob);
-        let bytes = self.value_body()?;
+        let bytes = self.value_body();
         Ok(RawValueRef::Blob(bytes.into()))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a clob.
     fn read_clob(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Clob);
-        let bytes = self.value_body()?;
+        let bytes = self.value_body();
         Ok(RawValueRef::Clob(bytes.into()))
     }
 

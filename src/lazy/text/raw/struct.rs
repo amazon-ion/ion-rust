@@ -4,12 +4,15 @@ use std::ops::Range;
 
 use nom::character::streaming::satisfy;
 
-use crate::lazy::decoder::private::{LazyContainerPrivate, LazyRawFieldPrivate};
+use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    LazyRawField, LazyRawFieldExpr, LazyRawStruct, LazyRawValue, RawFieldExpr, RawValueExpr,
+    HasRange, HasSpan, LazyDecoder, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
+    LazyRawStruct, LazyRawValue,
 };
 use crate::lazy::encoding::TextEncoding_1_0;
+use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::matched::MatchedFieldName;
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
 use crate::{IonResult, RawSymbolTokenRef};
@@ -33,13 +36,7 @@ impl<'top> RawTextStructIterator_1_0<'top> {
         let start = self.input.offset() - 1;
         // We need to find the input slice containing the closing delimiter. It's either...
         let input_after_last = if let Some(field_result) = self.last() {
-            let value = match field_result? {
-                LazyRawFieldExpr::<TextEncoding_1_0>::NameValuePair(
-                    _name,
-                    RawValueExpr::ValueLiteral(value),
-                ) => value,
-                _ => unreachable!("struct field with macro invocation in Ion 1.0"),
-            };
+            let (_name, value) = field_result?.expect_name_value()?;
             // ...the input slice that follows the last field...
             value
                 .matched
@@ -77,10 +74,7 @@ impl<'top> Iterator for RawTextStructIterator_1_0<'top> {
         match self.input.match_struct_field() {
             Ok((remaining_input, Some(field))) => {
                 self.input = remaining_input;
-                Some(Ok(RawFieldExpr::NameValuePair(
-                    field.name(),
-                    RawValueExpr::ValueLiteral(field.value),
-                )))
+                Some(Ok(field))
             }
             Ok((_, None)) => None,
             Err(e) => {
@@ -92,60 +86,32 @@ impl<'top> Iterator for RawTextStructIterator_1_0<'top> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct LazyRawTextField_1_0<'top> {
-    pub(crate) value: LazyRawTextValue_1_0<'top>,
+#[derive(Debug, Copy, Clone)]
+pub struct LazyRawTextFieldName_1_0<'top> {
+    matched: MatchedFieldName<'top>,
 }
 
-impl<'top> LazyRawTextField_1_0<'top> {
-    pub(crate) fn new(value: LazyRawTextValue_1_0<'top>) -> Self {
-        LazyRawTextField_1_0 { value }
-    }
-
-    pub fn name(&self) -> RawSymbolTokenRef<'top> {
-        // We're in a struct field, the field name _must_ be populated.
-        // If it's not (or the field name is not a valid SID or UTF-8 string despite matching),
-        // that's a bug. We can safely unwrap/expect here.
-        let matched_symbol = self
-            .value
-            .matched
-            .encoded_value
-            .field_name_syntax()
-            .expect("field name syntax not available");
-        let name_length = self
-            .value
-            .matched
-            .encoded_value
-            .field_name_range()
-            .expect("field name length not available")
-            .len();
-        matched_symbol
-            .read(self.value.matched.input.slice(0, name_length))
-            .expect("invalid struct field name")
-    }
-
-    pub fn value(&self) -> LazyRawTextValue_1_0<'top> {
-        self.value
-    }
-
-    pub(crate) fn into_value(self) -> LazyRawTextValue_1_0<'top> {
-        self.value
+impl<'top> LazyRawTextFieldName_1_0<'top> {
+    pub(crate) fn new(matched: MatchedFieldName<'top>) -> Self {
+        Self { matched }
     }
 }
 
-impl<'top> LazyRawFieldPrivate<'top, TextEncoding_1_0> for LazyRawTextField_1_0<'top> {
-    fn into_value(self) -> LazyRawTextValue_1_0<'top> {
-        self.value
+impl<'top> HasSpan<'top> for LazyRawTextFieldName_1_0<'top> {
+    fn span(&self) -> Span<'top> {
+        self.matched.span()
     }
 }
 
-impl<'top> LazyRawField<'top, TextEncoding_1_0> for LazyRawTextField_1_0<'top> {
-    fn name(&self) -> RawSymbolTokenRef<'top> {
-        LazyRawTextField_1_0::name(self)
+impl<'top> HasRange for LazyRawTextFieldName_1_0<'top> {
+    fn range(&self) -> Range<usize> {
+        self.matched.range()
     }
+}
 
-    fn value(&self) -> LazyRawTextValue_1_0<'top> {
-        self.value()
+impl<'top> LazyRawFieldName<'top> for LazyRawTextFieldName_1_0<'top> {
+    fn read(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+        self.matched.read()
     }
 }
 
@@ -157,6 +123,12 @@ pub struct LazyRawTextStruct_1_0<'top> {
 impl<'top> LazyContainerPrivate<'top, TextEncoding_1_0> for LazyRawTextStruct_1_0<'top> {
     fn from_value(value: LazyRawTextValue_1_0<'top>) -> Self {
         LazyRawTextStruct_1_0 { value }
+    }
+}
+
+impl<'top> LazyRawContainer<'top, TextEncoding_1_0> for LazyRawTextStruct_1_0<'top> {
+    fn as_value(&self) -> <TextEncoding_1_0 as LazyDecoder>::Value<'top> {
+        self.value
     }
 }
 
@@ -188,9 +160,11 @@ impl<'top> IntoIterator for LazyRawTextStruct_1_0<'top> {
 mod tests {
     use std::ops::Range;
 
+    use bumpalo::Bump as BumpAllocator;
+
+    use crate::lazy::decoder::{HasRange, HasSpan, LazyRawStruct, LazyRawValue};
     use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
     use crate::IonResult;
-    use bumpalo::Bump as BumpAllocator;
 
     fn expect_struct_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
         let allocator = BumpAllocator::new();
@@ -208,8 +182,8 @@ mod tests {
 
     #[test]
     fn struct_range() -> IonResult<()> {
-        // For each pair below, we'll confirm that the top-level list is found to
-        // occupy the specified input span.
+        // For each pair below, we'll confirm that the top-level struct is found to
+        // occupy the specified input range.
         let tests = &[
             // (Ion input, expected range of the struct)
             ("{}", 0..2),
@@ -225,6 +199,70 @@ mod tests {
         ];
         for test in tests {
             expect_struct_range(test.0, test.1.clone())?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    // Clippy thinks a slice with a single range inside is likely to be a mistake, but in this
+    // test it's intentional.
+    #[allow(clippy::single_range_in_vec_init)]
+    fn field_name_ranges() -> IonResult<()> {
+        // For each pair below, we'll confirm that the top-level struct's field names are found to
+        // occupy the specified input ranges.
+        type FieldNameAndRange<'a> = (&'a str, Range<usize>);
+        type FieldTest<'a> = (&'a str, &'a [FieldNameAndRange<'a>]);
+        let tests: &[FieldTest] = &[
+            // (Ion input, expected ranges of the struct's field names)
+            ("{a:1}", &[("a", 1..2)]),
+            ("{a: 1}", &[("a", 1..2)]),
+            ("{a: 1, b: 2}", &[("a", 1..2), ("b", 7..8)]),
+            (
+                "{a: 1, /* comment }}} */ b: 2}",
+                &[("a", 1..2), ("b", 25..26)],
+            ),
+            ("{ a: /* comment */ 1, b: 2}", &[("a", 2..3), ("b", 22..23)]),
+            (
+                "{a: 1, b: 2, c: {d: 3, e: 4, f: 5}, g: 6}",
+                &[
+                    ("a", 1..2),
+                    ("b", 7..8),
+                    ("c", 13..14),
+                    //...nested fields...
+                    ("g", 36..37),
+                ],
+            ),
+        ];
+        for (input, field_name_ranges) in tests {
+            let bump = bumpalo::Bump::new();
+            let mut reader = LazyRawTextReader_1_0::new(input.as_bytes());
+            let struct_ = reader
+                .next(&bump)?
+                .expect_value()?
+                .read()?
+                .expect_struct()?;
+            for (field_result, (expected_name, expected_range)) in
+                struct_.iter().zip(field_name_ranges.iter())
+            {
+                let field_name = field_result?.name();
+                assert_eq!(
+                    field_name.span(),
+                    expected_name.as_bytes(),
+                    "span failure for input {input} -> field {expected_name}"
+                );
+                assert_eq!(
+                    field_name.range(),
+                    *expected_range,
+                    "range failure for input {input} -> field {expected_name}"
+                );
+                println!(
+                    "SUCCESS: input {} -> field {} -> {} ({:?})",
+                    input,
+                    expected_name,
+                    field_name.span().expect_text()?,
+                    field_name.range()
+                );
+            }
         }
         Ok(())
     }

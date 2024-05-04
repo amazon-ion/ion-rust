@@ -1,20 +1,19 @@
 use crate::lazy::bytes_ref::BytesRef;
 use crate::text::text_formatter::IonValueFormatter;
 use crate::{RawSymbolTokenRef, Str};
-use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 
 /// A reference to an immutable in-memory representation of an Ion string. To get an owned [`Str`]
 /// instead, see [`StrRef::to_owned`].
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct StrRef<'data> {
-    text: Cow<'data, str>,
+    text: &'data str,
 }
 
 impl<'data> StrRef<'data> {
     pub fn to_owned(&self) -> Str {
-        Str::from(self.text.as_ref())
+        Str::from(self.text)
     }
 
     pub fn into_owned(self) -> Str {
@@ -22,7 +21,7 @@ impl<'data> StrRef<'data> {
     }
 
     pub fn text(&self) -> &str {
-        self.text.as_ref()
+        self.text
     }
 }
 
@@ -30,7 +29,7 @@ impl<'data> Deref for StrRef<'data> {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        self.text.as_ref()
+        self.text
     }
 }
 
@@ -63,33 +62,20 @@ impl<'data> Display for StrRef<'data> {
 
 impl<'a> From<&'a str> for StrRef<'a> {
     fn from(value: &'a str) -> Self {
-        StrRef {
-            text: Cow::from(value),
-        }
-    }
-}
-
-impl<'a> From<String> for StrRef<'a> {
-    fn from(value: String) -> Self {
-        StrRef {
-            text: Cow::from(value),
-        }
+        StrRef { text: value }
     }
 }
 
 impl<'data> From<StrRef<'data>> for Str {
     fn from(str_ref: StrRef<'data>) -> Self {
-        let text: String = str_ref.text.into_owned();
+        let text: String = str_ref.text.to_owned();
         Str::from(text)
     }
 }
 
 impl<'data> From<StrRef<'data>> for BytesRef<'data> {
     fn from(value: StrRef<'data>) -> Self {
-        match value.text {
-            Cow::Borrowed(text) => text.as_bytes().into(),
-            Cow::Owned(text) => Vec::from(text).into(),
-        }
+        value.text.into()
     }
 }
 

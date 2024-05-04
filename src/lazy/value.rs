@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::{ExpandedAnnotationsIterator, ExpandedValueRef, LazyExpandedValue};
@@ -53,7 +51,7 @@ use crate::{
 ///# Ok(())
 ///# }
 /// ```
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct LazyValue<'top, D: LazyDecoder> {
     pub(crate) expanded_value: LazyExpandedValue<'top, D>,
 }
@@ -93,6 +91,22 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     /// ```
     pub fn ion_type(&self) -> IonType {
         self.expanded_value.ion_type()
+    }
+
+    pub fn is_container(&self) -> bool {
+        matches!(
+            self.expanded_value.ion_type(),
+            IonType::List | IonType::SExp | IonType::Struct
+        )
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        !self.is_container()
+    }
+
+    // TODO: Feature gate
+    pub fn lower(&self) -> LazyExpandedValue<'top, D> {
+        self.expanded_value
     }
 
     /// Returns `true` if this value is any form of `null`, including
@@ -160,6 +174,10 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
         }
     }
 
+    pub fn has_annotations(&self) -> bool {
+        self.expanded_value.annotations().next().is_some()
+    }
+
     /// Reads the body of this value (that is: its data) and returns it as a [`ValueRef`].
     /// ```
     ///# use ion_rs::IonResult;
@@ -212,8 +230,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
                             ))
                         })?
                         .into(),
-                    RawSymbolTokenRef::Text(Cow::Borrowed(text)) => text.into(),
-                    RawSymbolTokenRef::Text(Cow::Owned(text)) => text.into(),
+                    RawSymbolTokenRef::Text(text) => text.into(),
                 };
                 ValueRef::Symbol(symbol)
             }

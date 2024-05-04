@@ -5,7 +5,9 @@ use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{LazyRawSequence, LazyRawValueExpr, RawValueExpr};
+use crate::lazy::decoder::{
+    LazyDecoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr, RawValueExpr,
+};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::{IonResult, IonType};
 use std::fmt::{Debug, Formatter};
@@ -13,6 +15,12 @@ use std::fmt::{Debug, Formatter};
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryList_1_0<'top> {
     pub(crate) sequence: LazyRawBinarySequence_1_0<'top>,
+}
+
+impl<'top> LazyRawBinaryList_1_0<'top> {
+    pub fn as_value(&self) -> LazyRawBinaryValue_1_0<'top> {
+        self.sequence.value
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -25,6 +33,12 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryList_
         LazyRawBinaryList_1_0 {
             sequence: LazyRawBinarySequence_1_0 { value },
         }
+    }
+}
+
+impl<'top> LazyRawContainer<'top, BinaryEncoding_1_0> for LazyRawBinaryList_1_0<'top> {
+    fn as_value(&self) -> <BinaryEncoding_1_0 as LazyDecoder>::Value<'top> {
+        self.sequence.value
     }
 }
 
@@ -42,10 +56,6 @@ impl<'top> LazyRawSequence<'top, BinaryEncoding_1_0> for LazyRawBinaryList_1_0<'
     fn iter(&self) -> Self::Iterator {
         self.sequence.iter()
     }
-
-    fn as_value(&self) -> LazyRawBinaryValue_1_0<'top> {
-        self.sequence.value
-    }
 }
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinarySExp_1_0<'top> {
@@ -53,6 +63,12 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinarySExp_
         LazyRawBinarySExp_1_0 {
             sequence: LazyRawBinarySequence_1_0 { value },
         }
+    }
+}
+
+impl<'top> LazyRawContainer<'top, BinaryEncoding_1_0> for LazyRawBinarySExp_1_0<'top> {
+    fn as_value(&self) -> <BinaryEncoding_1_0 as LazyDecoder>::Value<'top> {
+        self.sequence.value
     }
 }
 
@@ -69,10 +85,6 @@ impl<'top> LazyRawSequence<'top, BinaryEncoding_1_0> for LazyRawBinarySExp_1_0<'
 
     fn iter(&self) -> Self::Iterator {
         self.sequence.iter()
-    }
-
-    fn as_value(&self) -> LazyRawBinaryValue_1_0<'top> {
-        self.sequence.value
     }
 }
 
@@ -145,7 +157,7 @@ impl<'top> Iterator for RawBinarySequenceIterator_1_0<'top> {
     fn next(&mut self) -> Option<Self::Item> {
         match self
             .source
-            .try_parse_next(ImmutableBuffer::peek_sequence_value)
+            .try_parse_next_value(ImmutableBuffer::peek_sequence_value)
         {
             Ok(Some(value)) => Some(Ok(RawValueExpr::ValueLiteral(value))),
             Ok(None) => None,
