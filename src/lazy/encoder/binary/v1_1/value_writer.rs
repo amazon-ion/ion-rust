@@ -2709,7 +2709,7 @@ mod tests {
         case(
             0.annotated_with([
                 RawSymbolTokenRef::SymbolId(4),
-                RawSymbolTokenRef::Text("foo".into()),
+                RawSymbolTokenRef::Text("foo"),
             ]),
             &[
                 0xE8, // Two FlexSym annotations follow
@@ -2721,7 +2721,7 @@ mod tests {
         )?;
         case(
             0.annotated_with([
-                RawSymbolTokenRef::Text("foo".into()),
+                RawSymbolTokenRef::Text("foo"),
                 RawSymbolTokenRef::SymbolId(4),
             ]),
             &[
@@ -2734,9 +2734,9 @@ mod tests {
         )?;
         case(
             0.annotated_with([
-                RawSymbolTokenRef::Text("foo".into()),
+                RawSymbolTokenRef::Text("foo"),
                 RawSymbolTokenRef::SymbolId(4),
-                RawSymbolTokenRef::Text("baz".into()),
+                RawSymbolTokenRef::Text("baz"),
             ]),
             &[
                 0xE9, // A FlexUInt follows that indicates the byte length of the FlexSym annotations sequence
@@ -2752,7 +2752,7 @@ mod tests {
         case(
             0.annotated_with([
                 RawSymbolTokenRef::SymbolId(4),
-                RawSymbolTokenRef::Text("foo".into()),
+                RawSymbolTokenRef::Text("foo"),
                 RawSymbolTokenRef::SymbolId(5),
             ]),
             &[
@@ -2768,10 +2768,7 @@ mod tests {
 
         // === Special cases: "" and $0 ===
         case(
-            0.annotated_with([
-                RawSymbolTokenRef::Text("".into()),
-                RawSymbolTokenRef::SymbolId(0),
-            ]),
+            0.annotated_with([RawSymbolTokenRef::Text(""), RawSymbolTokenRef::SymbolId(0)]),
             &[
                 0xE8, // Two FlexSym annotations follow
                 0x01, // Opcode follows

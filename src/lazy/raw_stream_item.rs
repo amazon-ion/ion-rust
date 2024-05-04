@@ -123,7 +123,7 @@ impl EndPosition {
 // The `HasRange` and `HasSpan` traits aren't especially useful for the `EndPosition` type itself,
 // but it allows the `RawStreamItem` type (which contains an `EndOfStream` variant) to implement them.
 
-impl<'top> HasRange for EndPosition {
+impl HasRange for EndPosition {
     fn range(&self) -> Range<usize> {
         self.position..self.position
     }

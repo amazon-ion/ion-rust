@@ -579,7 +579,7 @@ impl<'top> TextBufferView<'top> {
         // Otherwise, the next item must be an IVM or a value.
         // We check for IVMs first because the rules for a symbol identifier will match them.
         alt((
-            Self::match_ivm::<TextEncoding_1_0>.map(|marker| RawStreamItem::VersionMarker(marker)),
+            Self::match_ivm::<TextEncoding_1_0>.map(RawStreamItem::VersionMarker),
             Self::match_annotated_value
                 .map(LazyRawTextValue_1_0::from)
                 .map(RawStreamItem::Value),
@@ -602,7 +602,7 @@ impl<'top> TextBufferView<'top> {
         // Otherwise, the next item must be an IVM or a value.
         // We check for IVMs first because the rules for a symbol identifier will match them.
         alt((
-            Self::match_ivm::<TextEncoding_1_1>.map(|marker| RawStreamItem::VersionMarker(marker)),
+            Self::match_ivm::<TextEncoding_1_1>.map(RawStreamItem::VersionMarker),
             Self::match_e_expression.map(RawStreamItem::EExpression),
             Self::match_annotated_value_1_1
                 .map(LazyRawTextValue_1_1::from)

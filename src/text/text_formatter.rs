@@ -222,7 +222,7 @@ impl<W: io::Write> IoFmtShim<W> {
 
 impl<W: io::Write> fmt::Write for IoFmtShim<W> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        let io_result = self.output.write_all(s.as_bytes()).into();
+        let io_result = self.output.write_all(s.as_bytes());
         match io_result {
             Ok(_) => {
                 self.result = Ok(());
