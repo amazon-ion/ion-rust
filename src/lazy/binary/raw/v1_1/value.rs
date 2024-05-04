@@ -3,6 +3,7 @@
 use std::ops::Range;
 
 use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
+use crate::lazy::span::Span;
 use crate::{
     lazy::{
         binary::{
@@ -23,7 +24,6 @@ use crate::{
     types::SymbolId,
     IonError, IonResult, IonType,
 };
-use crate::lazy::span::Span;
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryVersionMarker_1_1<'top> {
@@ -34,7 +34,11 @@ pub struct LazyRawBinaryVersionMarker_1_1<'top> {
 
 impl<'top> LazyRawBinaryVersionMarker_1_1<'top> {
     pub fn new(input: ImmutableBuffer<'top>, major: u8, minor: u8) -> Self {
-        Self { major, minor, input }
+        Self {
+            major,
+            minor,
+            input,
+        }
     }
 }
 

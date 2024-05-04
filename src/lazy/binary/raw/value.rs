@@ -13,6 +13,7 @@ use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::lazy::decoder::{HasRange, HasSpan, LazyRawValue, RawVersionMarker};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::raw_value_ref::RawValueRef;
+use crate::lazy::span::{Span, ToRelativeRange};
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
@@ -21,7 +22,6 @@ use bytes::{BigEndian, ByteOrder};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::{fmt, mem};
-use crate::lazy::span::{Span, ToRelativeRange};
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryVersionMarker_1_0<'top> {
@@ -32,7 +32,11 @@ pub struct LazyRawBinaryVersionMarker_1_0<'top> {
 
 impl<'top> LazyRawBinaryVersionMarker_1_0<'top> {
     pub fn new(input: ImmutableBuffer<'top>, major: u8, minor: u8) -> Self {
-        Self { major, minor, input }
+        Self {
+            major,
+            minor,
+            input,
+        }
     }
 }
 
@@ -116,7 +120,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
 
 #[derive(Copy, Clone)]
 pub struct EncodedBinaryAnnotations_1_0<'a, 'top> {
-    value: &'a LazyRawBinaryValue_1_0<'top>
+    value: &'a LazyRawBinaryValue_1_0<'top>,
 }
 
 impl<'a, 'top> EncodedBinaryAnnotations_1_0<'a, 'top> {
@@ -133,7 +137,7 @@ impl<'a, 'top> EncodedBinaryAnnotations_1_0<'a, 'top> {
         let range = self.range();
         let start = range.start - self.value.input.offset();
         let end = start + range.len();
-        let bytes = &self.value.input.bytes()[start .. end];
+        let bytes = &self.value.input.bytes()[start..end];
         Span::with_range(range, bytes)
     }
 
@@ -158,8 +162,8 @@ impl<'a, 'top> EncodedBinaryAnnotations_1_0<'a, 'top> {
         let range = self.range();
         let sequence_length = self.value.encoded_value.annotations_sequence_length as usize;
         let local_end = range.len() - sequence_length;
-        let bytes = &self.span().bytes()[ ..local_end];
-        Span::with_range(range.start .. range.start + local_end, bytes)
+        let bytes = &self.span().bytes()[..local_end];
+        Span::with_range(range.start..range.start + local_end, bytes)
     }
 
     // TODO: separate span accessors for the wrapper length and sequence length?
@@ -169,15 +173,15 @@ impl<'a, 'top> EncodedBinaryAnnotations_1_0<'a, 'top> {
         let range = self.range();
         let sequence_length = self.value.encoded_value.annotations_sequence_length as usize;
         let local_start = range.len() - sequence_length;
-        let bytes = &self.span().bytes()[local_start .. ];
+        let bytes = &self.span().bytes()[local_start..];
         let stream_start = range.start + local_start;
-        Span::with_range(stream_start .. stream_start + sequence_length, bytes)
+        Span::with_range(stream_start..stream_start + sequence_length, bytes)
     }
 }
 
 #[derive(Copy, Clone)]
 pub struct EncodedBinaryValueData_1_0<'a, 'top> {
-    value: &'a LazyRawBinaryValue_1_0<'top>
+    value: &'a LazyRawBinaryValue_1_0<'top>,
 }
 
 impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
@@ -193,7 +197,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     pub fn span(&self) -> Span<'top> {
         let stream_range = self.range();
         let offset = self.value.input.offset();
-        let local_range = stream_range.start - offset .. stream_range.end - offset;
+        let local_range = stream_range.start - offset..stream_range.end - offset;
         let bytes = &self.value.input.bytes()[local_range];
         Span::with_range(stream_range, bytes)
     }
@@ -202,7 +206,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     /// value's opcode. In Ion 1.0, this is always a range of a single byte.
     fn opcode_range(&self) -> Range<usize> {
         let offset = self.range().start;
-        offset .. offset + 1
+        offset..offset + 1
     }
 
     /// Returns the encoded bytes representing the value's opcode. In Ion 1.0, this is always a
@@ -218,7 +222,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     /// the type descriptor byte, the range returned will be empty.
     pub fn trailing_length_range(&self) -> Range<usize> {
         let range = self.range();
-        range.start + 1 .. range.start + 1 + self.value.encoded_value.length_length as usize
+        range.start + 1..range.start + 1 + self.value.encoded_value.length_length as usize
     }
 
     /// Returns the encoded bytes representing the value's length as a `VarUInt`.
@@ -226,7 +230,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     /// the slice returned will be empty.
     pub fn trailing_length_span(&self) -> Span<'top> {
         let stream_range = self.trailing_length_range();
-        let local_range = stream_range.to_relative_range( self.value.input.offset());
+        let local_range = stream_range.to_relative_range(self.value.input.offset());
         let bytes = &self.value.input.bytes()[local_range];
         Span::with_range(stream_range, bytes)
     }
@@ -239,7 +243,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
         let body_length = encoded.value_body_length();
         let start = self.range().start + body_offset;
         let end = start + body_length;
-        start .. end
+        start..end
     }
 
     /// Returns the encoded bytes representing the value's body (that is: the content of the value
@@ -256,18 +260,14 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
 impl<'top> LazyRawBinaryValue_1_0<'top> {
     pub fn encoded_annotations(&self) -> Option<EncodedBinaryAnnotations_1_0<'_, 'top>> {
         if self.has_annotations() {
-            Some(EncodedBinaryAnnotations_1_0 {
-                value: self
-            })
+            Some(EncodedBinaryAnnotations_1_0 { value: self })
         } else {
             None
         }
     }
 
     pub fn encoded_data(&self) -> EncodedBinaryValueData_1_0<'_, 'top> {
-        EncodedBinaryValueData_1_0 {
-            value: self
-        }
+        EncodedBinaryValueData_1_0 { value: self }
     }
 
     /// Indicates the Ion data type of this value. Calling this method does not require additional

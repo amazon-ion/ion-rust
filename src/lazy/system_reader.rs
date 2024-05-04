@@ -253,9 +253,9 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazySystemReader<Encoding, Input> {
 #[cfg(test)]
 mod tests {
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::decoder::RawVersionMarker;
     use crate::lazy::system_stream_item::SystemStreamItem;
     use crate::IonResult;
-    use crate::lazy::decoder::RawVersionMarker;
 
     use super::*;
 
