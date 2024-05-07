@@ -139,8 +139,8 @@ impl<'top> LazyRawStruct<'top, TextEncoding_1_0> for LazyRawTextStruct_1_0<'top>
     fn iter(&self) -> Self::Iterator {
         // Make an iterator over the input bytes that follow the initial `{`; account for
         // a leading annotations sequence.
-        let struct_contents_start = self.value.matched.encoded_value.data_offset() + 1;
-        RawTextStructIterator_1_0::new(self.value.matched.input.slice_to_end(struct_contents_start))
+        let struct_contents_start = self.value.encoded_value.data_offset() + 1;
+        RawTextStructIterator_1_0::new(self.value.input.slice_to_end(struct_contents_start))
     }
 }
 

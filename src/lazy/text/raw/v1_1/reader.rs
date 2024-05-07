@@ -415,7 +415,7 @@ impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<
 
 impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
     fn as_value(&self) -> <TextEncoding_1_1 as LazyDecoder>::Value<'top> {
-        self.value.matched.into()
+        self.value.into()
     }
 }
 
@@ -431,7 +431,7 @@ impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top>
     }
 
     fn iter(&self) -> Self::Iterator {
-        let MatchedValue::SExp(child_exprs) = self.value.matched.encoded_value.matched() else {
+        let MatchedValue::SExp(child_exprs) = self.value.encoded_value.matched() else {
             unreachable!("s-expression contained a matched value of the wrong type")
         };
         RawTextSequenceCacheIterator_1_1::new(child_exprs)
@@ -569,7 +569,7 @@ impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextList_1_1<
 
 impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
     fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
-        self.value.matched.into()
+        self.value.into()
     }
 }
 
@@ -585,7 +585,7 @@ impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top>
     }
 
     fn iter(&self) -> Self::Iterator {
-        let MatchedValue::List(child_exprs) = self.value.matched.encoded_value.matched() else {
+        let MatchedValue::List(child_exprs) = self.value.encoded_value.matched() else {
             unreachable!("list contained a matched value of the wrong type")
         };
         RawTextSequenceCacheIterator_1_1::new(child_exprs)
@@ -637,7 +637,7 @@ impl<'top> LazyRawStruct<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top>
     }
 
     fn iter(&self) -> Self::Iterator {
-        let MatchedValue::Struct(field_exprs) = self.value.matched.encoded_value.matched() else {
+        let MatchedValue::Struct(field_exprs) = self.value.encoded_value.matched() else {
             unreachable!("struct contained a matched value of the wrong type")
         };
         RawTextStructCacheIterator_1_1::new(field_exprs)

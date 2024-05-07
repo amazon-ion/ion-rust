@@ -30,9 +30,9 @@ impl<'data> LazyRawTextList_1_0<'data> {
 
     pub fn iter(&self) -> RawTextListIterator_1_0<'data> {
         // Skip past any annotations and the opening '['
-        let list_contents_start = self.value.matched.encoded_value.data_offset() + 1;
+        let list_contents_start = self.value.encoded_value.data_offset() + 1;
         // Make an iterator over the input bytes that follow the initial `[`
-        RawTextListIterator_1_0::new(self.value.matched.input.slice_to_end(list_contents_start))
+        RawTextListIterator_1_0::new(self.value.input.slice_to_end(list_contents_start))
     }
 }
 
@@ -109,9 +109,8 @@ impl<'data> RawTextListIterator_1_0<'data> {
         let input_after_last = if let Some(value_result) = self.last() {
             let value = value_result?.expect_value()?;
             // ...the input slice that follows the last sequence value...
-            self.input.slice_to_end(
-                value.matched.input.offset() + value.total_length() - self.input.offset(),
-            )
+            self.input
+                .slice_to_end(value.input.offset() + value.total_length() - self.input.offset())
         } else {
             // ...or there aren't values, so it's just the input after the opening delimiter.
             self.input
@@ -175,8 +174,8 @@ impl<'data> LazyRawTextSExp_1_0<'data> {
     pub fn iter(&self) -> RawTextSExpIterator_1_0<'data> {
         // Make an iterator over the input bytes that follow the initial `(`; account for
         // a leading annotations sequence.
-        let sexp_contents_start = self.value.matched.encoded_value.data_offset() + 1;
-        RawTextSExpIterator_1_0::new(self.value.matched.input.slice_to_end(sexp_contents_start))
+        let sexp_contents_start = self.value.encoded_value.data_offset() + 1;
+        RawTextSExpIterator_1_0::new(self.value.input.slice_to_end(sexp_contents_start))
     }
 }
 
@@ -209,9 +208,8 @@ impl<'top> RawTextSExpIterator_1_0<'top> {
         let input_after_last = if let Some(value_result) = self.last() {
             let value = value_result?.expect_value()?;
             // ...the input slice that follows the last sequence value...
-            self.input.slice_to_end(
-                value.matched.input.offset() + value.total_length() - self.input.offset(),
-            )
+            self.input
+                .slice_to_end(value.input.offset() + value.total_length() - self.input.offset())
         } else {
             // ...or there aren't values, so it's just the input after the opening delimiter.
             self.input

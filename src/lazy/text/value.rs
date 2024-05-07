@@ -21,72 +21,60 @@ use crate::{IonResult, IonType, RawSymbolTokenRef};
 /// format than in its binary format, but is still possible.) For a resolved lazy value that
 /// includes a text definition for these items whenever one exists, see
 /// [`crate::lazy::value::LazyValue`].
-// This type is version agnostic, and is wrapped by the LazyRawValue implementations for all
-// existing encodings.
 #[derive(Copy, Clone)]
-pub struct MatchedRawTextValue<'top, E: TextEncoding<'top>> {
+pub struct LazyRawTextValue<'top, E: TextEncoding<'top>> {
     pub(crate) encoded_value: EncodedTextValue<'top, E>,
     pub(crate) input: TextBufferView<'top>,
 }
 
-impl<'top, E: TextEncoding<'top>> Debug for MatchedRawTextValue<'top, E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "MatchedRawTextValue {{\n  val={:?},\n  buf={:?}\n}}\n",
-            self.encoded_value, self.input
-        )
+impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
+    pub(crate) fn new(
+        input: TextBufferView<'top>,
+        encoded_value: EncodedTextValue<'top, E>,
+    ) -> Self {
+        Self {
+            encoded_value,
+            input,
+        }
     }
-}
-
-// ===== Version-specific wrappers =====
-//
-// These types provide Ion-version-specific impls of the LazyRawValue trait
-#[derive(Copy, Clone)]
-pub struct LazyRawTextValue<'top, E: TextEncoding<'top>> {
-    pub(crate) matched: MatchedRawTextValue<'top, E>,
 }
 
 impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
-    pub fn new(matched: MatchedRawTextValue<'top, E>) -> Self {
-        Self { matched }
-    }
-
     pub fn data_range(&self) -> Range<usize> {
         // If the matched value has annotations, the `data_offset` will be the offset beyond
         // the annotations at which the value's data begins.
-        let data_offset = self.matched.encoded_value.data_offset();
-        let data_length = self.matched.input.len() - data_offset;
+        let data_offset = self.encoded_value.data_offset();
+        let data_length = self.input.len() - data_offset;
         // Add the input buffer's offset to the data offset to get the absolute offset.
-        let start = self.matched.input.offset() + data_offset;
+        let start = self.input.offset() + data_offset;
         let end = start + data_length;
         start..end
     }
 
     pub fn has_annotations(&self) -> bool {
-        self.matched.encoded_value.data_offset() > 0
+        self.encoded_value.data_offset() > 0
     }
 
     pub fn annotations_range(&self) -> Option<Range<usize>> {
         if !self.has_annotations() {
             return None;
         }
-        let annotations_length = self.matched.encoded_value.data_offset();
-        let start = self.matched.input.offset();
+        let annotations_length = self.encoded_value.data_offset();
+        let start = self.input.offset();
         let end = start + annotations_length;
         Some(start..end)
     }
 
     pub fn annotations_span(&self) -> Option<Span<'top>> {
         let range = self.annotations_range()?;
-        let bytes = &self.matched.input.bytes()[..range.len()];
+        let bytes = &self.input.bytes()[..range.len()];
         Some(Span::with_offset(range.start, bytes))
     }
 
     /// Returns the total number of bytes used to represent the current value, including its
     /// annotations (if any) and its value.
     pub fn total_length(&self) -> usize {
-        self.matched.input.len()
+        self.input.len()
     }
 }
 
@@ -149,20 +137,12 @@ impl<'top, E: TextEncoding<'top>> Debug for LazyRawTextValue<'top, E> {
             // If we can read the value, show it
             Ok(value) => write!(f, " {{{value:?}}}"),
             // Otherwise, write out diagnostic information
-            Err(e) => write!(f, " {{\n  matched={:?}\n  err={:?}\n}}\n", self.matched, e),
+            Err(e) => write!(
+                f,
+                " {{\n  encoded_value={:?}\n  {:?}\n  err={:?}\n}}\n",
+                self.encoded_value, self.input, e
+            ),
         }
-    }
-}
-
-impl<'top> From<MatchedRawTextValue<'top, TextEncoding_1_0>> for LazyRawTextValue_1_0<'top> {
-    fn from(matched: MatchedRawTextValue<'top, TextEncoding_1_0>) -> Self {
-        LazyRawTextValue::new(matched)
-    }
-}
-
-impl<'top> From<MatchedRawTextValue<'top, TextEncoding_1_1>> for LazyRawTextValue_1_1<'top> {
-    fn from(matched: MatchedRawTextValue<'top, TextEncoding_1_1>) -> Self {
-        LazyRawTextValue::new(matched)
     }
 }
 
@@ -171,22 +151,25 @@ impl<'top> From<MatchedRawTextValue<'top, TextEncoding_1_1>> for LazyRawTextValu
 // These trait impls are common to all Ion versions, but require the caller to specify a type
 // parameter.
 
-impl<'top, E: TextEncoding<'top>> HasRange for MatchedRawTextValue<'top, E> {
+impl<'top, E: TextEncoding<'top>> HasRange for LazyRawTextValue<'top, E> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
 }
 
-impl<'top, E: TextEncoding<'top>> HasSpan<'top> for MatchedRawTextValue<'top, E> {
+impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextValue<'top, E> {
     fn span(&self) -> Span<'top> {
+        Span::with_offset(self.input.offset(), self.input.bytes())
+        /*
         let range = self.range();
         let input_offset = self.input.offset();
         let local_range = (range.start - input_offset)..(range.end - input_offset);
         Span::with_offset(range.start, &self.input.bytes()[local_range])
+        */
     }
 }
 
-impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for MatchedRawTextValue<'top, E> {
+impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }
@@ -221,41 +204,11 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for MatchedRawTextValue<
             Symbol(s) => RawValueRef::Symbol(s.read(allocator, matched_input)?),
             Blob(b) => RawValueRef::Blob(b.read(allocator, matched_input)?),
             Clob(c) => RawValueRef::Clob(c.read(allocator, matched_input)?),
-            List(_) => RawValueRef::List(E::List::<'top>::from_value(E::value_from_matched(*self))),
-            SExp(_) => RawValueRef::SExp(E::SExp::<'top>::from_value(E::value_from_matched(*self))),
-            Struct(_) => RawValueRef::Struct(E::Struct::from_value(E::value_from_matched(*self))),
+            List(_) => RawValueRef::List(E::List::<'top>::from_value(*self)),
+            SExp(_) => RawValueRef::SExp(E::SExp::<'top>::from_value(*self)),
+            Struct(_) => RawValueRef::Struct(E::Struct::from_value(*self)),
         };
         Ok(value_ref)
-    }
-}
-
-impl<'top, E: TextEncoding<'top>> HasRange for LazyRawTextValue<'top, E> {
-    fn range(&self) -> Range<usize> {
-        self.matched.range()
-    }
-}
-
-impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextValue<'top, E> {
-    fn span(&self) -> Span<'top> {
-        self.matched.span()
-    }
-}
-
-impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
-    fn ion_type(&self) -> IonType {
-        self.matched.ion_type()
-    }
-
-    fn is_null(&self) -> bool {
-        self.matched.is_null()
-    }
-
-    fn annotations(&self) -> <E as LazyDecoder>::AnnotationsIterator<'top> {
-        self.matched.annotations()
-    }
-
-    fn read(&self) -> IonResult<RawValueRef<'top, E>> {
-        self.matched.read()
     }
 }
 

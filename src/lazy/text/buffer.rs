@@ -40,7 +40,7 @@ use crate::lazy::text::raw::v1_1::reader::{
     TextListSpanFinder_1_1, TextSExpSpanFinder_1_1, TextStructSpanFinder_1_1,
 };
 use crate::lazy::text::value::{
-    LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker, MatchedRawTextValue,
+    LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
 };
 use crate::result::DecodingError;
 use crate::{IonError, IonResult, IonType, TimestampPrecision};
@@ -334,9 +334,7 @@ impl<'top> TextBufferView<'top> {
     }
 
     /// Matches an optional annotations sequence and a value, including operators.
-    pub fn match_sexp_value(
-        self,
-    ) -> IonParseResult<'top, Option<MatchedRawTextValue<'top, TextEncoding_1_0>>> {
+    pub fn match_sexp_value(self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
         whitespace_and_then(alt((
             value(None, tag(")")),
             pair(
@@ -380,8 +378,8 @@ impl<'top> TextBufferView<'top> {
     fn apply_annotations<E: TextEncoding<'top>>(
         self,
         maybe_annotations: Option<TextBufferView<'top>>,
-        mut value: MatchedRawTextValue<'top, E>,
-    ) -> MatchedRawTextValue<'top, E> {
+        mut value: LazyRawTextValue<'top, E>,
+    ) -> LazyRawTextValue<'top, E> {
         if let Some(annotations) = maybe_annotations {
             let annotations_length =
                 u16::try_from(annotations.len()).expect("already length checked");
@@ -416,10 +414,8 @@ impl<'top> TextBufferView<'top> {
             // Otherwise, match a name/value pair and turn it into a `LazyRawTextField`.
             Self::match_struct_field_name_and_value.map(move |(matched_field_name, value)| {
                 let field_name = LazyRawTextFieldName_1_0::new(matched_field_name);
-                let field_value = LazyRawTextValue_1_0::new(value);
                 Some(LazyRawFieldExpr::<'top, TextEncoding_1_0>::NameValue(
-                    field_name,
-                    field_value,
+                    field_name, value,
                 ))
             }),
         ))(input_including_field_name)
@@ -434,13 +430,7 @@ impl<'top> TextBufferView<'top> {
     /// input bytes where the field name is found, and the value.
     pub fn match_struct_field_name_and_value(
         self,
-    ) -> IonParseResult<
-        'top,
-        (
-            MatchedFieldName<'top>,
-            MatchedRawTextValue<'top, TextEncoding_1_0>,
-        ),
-    > {
+    ) -> IonParseResult<'top, (MatchedFieldName<'top>, LazyRawTextValue_1_0<'top>)> {
         terminated(
             separated_pair(
                 whitespace_and_then(Self::match_struct_field_name),
@@ -478,8 +468,7 @@ impl<'top> TextBufferView<'top> {
             // Otherwise, match a name/value pair and turn it into a `LazyRawTextField`.
             Self::match_struct_field_name_and_value_1_1.map(move |(field_name, value)| {
                 let field_name = LazyRawTextFieldName_1_1::new(field_name);
-                let field_value = LazyRawTextValue_1_1::new(value);
-                Ok(Some(LazyRawFieldExpr::NameValue(field_name, field_value)))
+                Ok(Some(LazyRawFieldExpr::NameValue(field_name, value)))
             }),
         ))(input_including_field_name)?;
         Ok((input_after_field, field_expr_result?))
@@ -506,13 +495,7 @@ impl<'top> TextBufferView<'top> {
     /// range of input bytes where the field name is found, and the value.
     pub fn match_struct_field_name_and_value_1_1(
         self,
-    ) -> IonParseResult<
-        'top,
-        (
-            MatchedFieldName<'top>,
-            MatchedRawTextValue<'top, TextEncoding_1_1>,
-        ),
-    > {
+    ) -> IonParseResult<'top, (MatchedFieldName<'top>, LazyRawTextValue_1_1<'top>)> {
         terminated(
             separated_pair(
                 whitespace_and_then(Self::match_struct_field_name),
@@ -524,9 +507,7 @@ impl<'top> TextBufferView<'top> {
     }
 
     /// Matches an optional annotation sequence and a trailing value.
-    pub fn match_annotated_value(
-        self,
-    ) -> IonParseResult<'top, MatchedRawTextValue<'top, TextEncoding_1_0>> {
+    pub fn match_annotated_value(self) -> IonParseResult<'top, LazyRawTextValue_1_0<'top>> {
         pair(
             opt(Self::match_annotations),
             whitespace_and_then(Self::match_value),
@@ -536,9 +517,7 @@ impl<'top> TextBufferView<'top> {
     }
 
     /// Matches an optional annotation sequence and a trailing v1.1 value.
-    pub fn match_annotated_value_1_1(
-        self,
-    ) -> IonParseResult<'top, MatchedRawTextValue<'top, TextEncoding_1_1>> {
+    pub fn match_annotated_value_1_1(self) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
         pair(
             opt(Self::match_annotations),
             whitespace_and_then(Self::match_value_1_1),
@@ -608,7 +587,7 @@ impl<'top> TextBufferView<'top> {
     }
 
     /// Matches a single scalar value or the beginning of a container.
-    pub fn match_value(self) -> IonParseResult<'top, MatchedRawTextValue<'top, TextEncoding_1_0>> {
+    pub fn match_value(self) -> IonParseResult<'top, LazyRawTextValue_1_0<'top>> {
         consumed(alt((
             // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
             // parsing to be done.
@@ -663,16 +642,14 @@ impl<'top> TextBufferView<'top> {
                 EncodedTextValue::new(MatchedValue::Struct(not_yet_used_in_1_0))
             }),
         )))
-        .map(|(input, encoded_value)| MatchedRawTextValue {
+        .map(|(input, encoded_value)| LazyRawTextValue_1_0 {
             encoded_value,
             input,
         })
         .parse(self)
     }
 
-    pub fn match_value_1_1(
-        self,
-    ) -> IonParseResult<'top, MatchedRawTextValue<'top, TextEncoding_1_1>> {
+    pub fn match_value_1_1(self) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
         consumed(alt((
             // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
             // parsing to be done.
@@ -721,7 +698,7 @@ impl<'top> TextBufferView<'top> {
                 },
             ),
         )))
-        .map(|(input, encoded_value)| MatchedRawTextValue {
+        .map(|(input, encoded_value)| LazyRawTextValue_1_1 {
             encoded_value,
             input,
         })
@@ -851,9 +828,7 @@ impl<'top> TextBufferView<'top> {
     ///
     /// If a value is found, returns `Ok(Some(value))`. If the end of the list is found, returns
     /// `Ok(None)`.
-    pub fn match_list_value(
-        self,
-    ) -> IonParseResult<'top, Option<MatchedRawTextValue<'top, TextEncoding_1_0>>> {
+    pub fn match_list_value(self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
         preceded(
             // Some amount of whitespace/comments...
             Self::match_optional_comments_and_whitespace,
@@ -1497,9 +1472,9 @@ impl<'top> TextBufferView<'top> {
     /// Matches an operator symbol, which can only legally appear within an s-expression
     fn match_operator<E: TextEncoding<'top>>(
         self,
-    ) -> IonParseResult<'top, MatchedRawTextValue<'top, E>> {
+    ) -> IonParseResult<'top, LazyRawTextValue<'top, E>> {
         is_a("!#%&*+-./;<=>?@^`|~")
-            .map(|text: TextBufferView| MatchedRawTextValue {
+            .map(|text: TextBufferView| LazyRawTextValue {
                 input: text,
                 encoded_value: EncodedTextValue::new(MatchedValue::Symbol(MatchedSymbol::Operator)),
             })
