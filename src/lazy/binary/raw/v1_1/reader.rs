@@ -528,6 +528,299 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn timestamps_short() -> IonResult<()> {
+        use crate::types::Timestamp;
+
+        #[rustfmt::skip]
+        let data: Vec<u8> = vec![
+            // IVM
+            0xE0, 0x01, 0x01, 0xEA,
+            // Timestamp: 2024T
+            0x70, 0x36,
+
+            // Timestamp: 2023-10T
+            0x71, 0x35, 0x05,
+
+            // Timestamp: 2023-10-15T
+            0x72, 0x35, 0x7D,
+
+            // Timestamp: 2023-10-15T05:04Z
+            0x73, 0x35, 0x7D, 0x85, 0x08,
+
+            // Timestamp: 2023-10-15T05:04:03Z
+            0x74, 0x35, 0x7D, 0x85, 0x38, 0x00,
+
+            // Timestamp: 2023-10-15T05:04:03.123
+            0x75, 0x35, 0x7D, 0x85, 0x30, 0xEC, 0x01,
+
+            // Timestamp: 2023-10-15T05:04:03.000123
+            0x76, 0x35, 0x7D, 0x85, 0x30, 0xEC, 0x01, 0x00,
+
+            // Timestamp: 2023-10-15T05:04:03.000000123
+            0x77, 0x35, 0x7D, 0x85, 0x30, 0xEC, 0x01, 0x00, 0x00,
+
+            // Timestamp: 2023-10-15T05:04+60
+            0x78, 0x35, 0x7D, 0x84, 0x20, 0x00,
+
+            // Timestamp: 2023-10-15T05:04:03+01:00
+            0x79, 0x35, 0x7D, 0x85, 0x20, 0x0C,
+
+            // Timestamp: 2023-10-15T05:04:03.000123+01:00
+            0x7A, 0x35, 0x7D, 0x85, 0x20, 0x0C, 0x7B, 0x00,
+
+            // Timestamp: 2023-10-15T05:04:03.000000123+01:00
+            0x7B, 0x35, 0x7D, 0x85, 0x20, 0x0C, 0x7B, 0x00, 0x00,
+
+            // Timestamp: 2023-10-15T05:04:03.000000000123+01:00
+            0x7C, 0x35, 0x7D, 0x85, 0x20, 0x0C, 0x7B, 0x00, 0x00,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2024).build()?
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023).with_month(10).build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .with_hour(5)
+                .with_minute(4)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .with_hour(5)
+                .with_minute(4)
+                .with_second(3)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .with_hour(5)
+                .with_minute(4)
+                .with_second(3)
+                .with_milliseconds(123)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .with_hour(5)
+                .with_minute(4)
+                .with_second(3)
+                .with_microseconds(123)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .with_hour(5)
+                .with_minute(4)
+                .with_second(3)
+                .with_nanoseconds(123)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .with_hour(5)
+                .with_minute(4)
+                .with_offset(60)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .with_hour(5)
+                .with_minute(4)
+                .with_second(3)
+                .with_offset(60)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .with_hour(5)
+                .with_minute(4)
+                .with_second(3)
+                .with_milliseconds(123)
+                .with_offset(60)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .with_hour(5)
+                .with_minute(4)
+                .with_second(3)
+                .with_microseconds(123)
+                .with_offset(60)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(2023)
+                .with_month(10)
+                .with_day(15)
+                .with_hour(5)
+                .with_minute(4)
+                .with_second(3)
+                .with_nanoseconds(123)
+                .with_offset(60)
+                .build()?,
+        );
+
+        Ok(())
+    }
+
+    fn timestamps_long() -> IonResult<()> {
+        use crate::types::Decimal;
+        use crate::types::Timestamp;
+
+        #[rustfmt::skip]
+        let data: Vec<u8> = vec![
+            // IVM
+            0xE0, 0x01, 0x01, 0xEA,
+
+            // Timestamp: 1947T
+            0xF7, 0x05, 0x9B, 0x07,
+
+            // Timestamp: 1947-12T
+            0xF7, 0x07, 0x9B, 0x07, 0x03,
+
+            // Timestamp: 1947-12-23T
+            0xF7, 0x07, 0x9B, 0x07, 0x5F,
+
+            // Timestamp: 1947-12-23T11:22 (unknown offset)
+            0xF7, 0x0D, 0x9B, 0x07, 0xDF, 0x65, 0xFD, 0x3F,
+
+            // Timestamp: 1947-12-23T11:22:33+01:00
+            0xF7, 0x0F, 0x9B, 0x07, 0xDF, 0x65, 0xF1, 0x40, 0x08,
+
+            // Timestamp: 1947-12-23T11:22:33.127+01:15
+            0xF7, 0x13, 0x9B, 0x07, 0xDF, 0x65, 0x2D, 0x41, 0x08, 0x07, 0x7F,
+
+            // Timestamp: 1947-12-23T11:22:33-01:00
+            0xF7, 0x0F, 0x9B, 0x07, 0xDF, 0x65, 0x11, 0x7F, 0x08,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(1947).build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(1947).with_month(12).build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(1947)
+                .with_month(12)
+                .with_day(23)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(1947)
+                .with_month(12)
+                .with_day(23)
+                .with_hour(11)
+                .with_minute(22)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(1947)
+                .with_month(12)
+                .with_day(23)
+                .with_hour(11)
+                .with_minute(22)
+                .with_second(33)
+                .with_offset(60)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(1947)
+                .with_month(12)
+                .with_day(23)
+                .with_hour(11)
+                .with_minute(22)
+                .with_second(33)
+                .with_fractional_seconds(Decimal::new(127, -3))
+                .with_offset(75)
+                .build()?,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_timestamp()?,
+            Timestamp::with_year(1947)
+                .with_month(12)
+                .with_day(23)
+                .with_hour(11)
+                .with_minute(22)
+                .with_second(33)
+                .with_offset(-60)
+                .build()?,
+        );
+
+        Ok(())
+    }
+
     fn blobs() -> IonResult<()> {
         let data: Vec<u8> = vec![
             0xe0, 0x01, 0x01, 0xea, // IVM

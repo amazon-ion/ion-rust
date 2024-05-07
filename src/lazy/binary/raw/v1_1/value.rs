@@ -22,7 +22,10 @@ use crate::{
         raw_value_ref::RawValueRef,
     },
     result::IonFailure,
-    types::SymbolId,
+    types::{
+        timestamp::{HasMinute, TimestampBuilder},
+        SymbolId, Timestamp,
+    },
     IonError, IonResult, IonType, RawSymbolRef,
 };
 
@@ -290,9 +293,272 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         Ok(RawValueRef::Decimal(decimal))
     }
 
+    // Helper method callsed by [`Self::read_timestamp_short`]. Reads the time information from a
+    // timestamp with Unknown or UTC offset.
+    fn read_timestamp_short_no_offset(
+        &self,
+        value_bytes: &[u8],
+        ts_builder: TimestampBuilder<HasMinute>,
+    ) -> ValueParseResult<'top, BinaryEncoding_1_1> {
+        let length_code = self.encoded_value.header.length_code();
+        let is_utc = (value_bytes[3] & 0x08) == 0x08;
+
+        if length_code == 3 {
+            let timestamp = if is_utc {
+                ts_builder.build_utc_fields_at_offset(0)?
+            } else {
+                ts_builder.build()?
+            };
+
+            return Ok(RawValueRef::Timestamp(timestamp));
+        }
+
+        // Second
+        let second = ((value_bytes[3] & 0xF0) >> 4) | ((value_bytes[4] & 0x03) << 4);
+        let ts_builder = ts_builder.with_second(second as u32);
+
+        if length_code == 4 {
+            let timestamp = if is_utc {
+                ts_builder.build_utc_fields_at_offset(0)?
+            } else {
+                ts_builder.build()?
+            };
+
+            return Ok(RawValueRef::Timestamp(timestamp));
+        }
+
+        if length_code == 5 {
+            let millisecond = ((value_bytes[4] >> 2) as u32) | (value_bytes[5] as u32) << 6;
+            let ts_builder = ts_builder.with_milliseconds(millisecond);
+            let timestamp = if is_utc {
+                ts_builder.build_utc_fields_at_offset(0)?
+            } else {
+                ts_builder.build()?
+            };
+
+            return Ok(RawValueRef::Timestamp(timestamp));
+        }
+
+        if length_code == 6 {
+            let microsecond = ((value_bytes[4] >> 2) as u32)
+                | (value_bytes[5] as u32) << 6
+                | (value_bytes[6] as u32) << 14;
+            let ts_builder = ts_builder.with_microseconds(microsecond);
+            let timestamp = if is_utc {
+                ts_builder.build_utc_fields_at_offset(0)?
+            } else {
+                ts_builder.build()?
+            };
+
+            return Ok(RawValueRef::Timestamp(timestamp));
+        }
+
+        if length_code == 7 {
+            let nanoseconds = ((value_bytes[4] >> 2) as u32)
+                | (value_bytes[5] as u32) << 6
+                | (value_bytes[6] as u32) << 14
+                | (value_bytes[7] as u32) << 22;
+            let ts_builder = ts_builder.with_nanoseconds(nanoseconds);
+            let timestamp = if is_utc {
+                ts_builder.build_utc_fields_at_offset(0)?
+            } else {
+                ts_builder.build()?
+            };
+
+            return Ok(RawValueRef::Timestamp(timestamp));
+        }
+
+        unreachable!("invalid length code for short-form timestamp");
+    }
+
+    fn read_timestamp_short_offset(
+        &self,
+        value_bytes: &[u8],
+        ts_builder: TimestampBuilder<HasMinute>,
+    ) -> ValueParseResult<'top, BinaryEncoding_1_1> {
+        let length_code = self.encoded_value.header.length_code();
+
+        // Read offset.
+        let offset = ((((value_bytes[3] & 0xF8) as u32) >> 3 | ((value_bytes[4] & 0x3) as u32) << 5)
+            as i32)
+            * 15;
+
+        if length_code == 8 {
+            return Ok(RawValueRef::Timestamp(
+                ts_builder.build_utc_fields_at_offset(offset)?,
+            ));
+        }
+
+        let second = (value_bytes[4] & 0xFC) as u32 >> 2;
+        let ts_builder = ts_builder.with_second(second);
+
+        if length_code == 9 {
+            let ts_builder = ts_builder.with_offset(offset);
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        }
+
+        if length_code == 0xA {
+            let millisecond = (value_bytes[5] as u32) | ((value_bytes[6] & 0x03) as u32) << 8;
+            let ts_builder = ts_builder
+                .with_milliseconds(millisecond)
+                .with_offset(offset);
+
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        } else if length_code == 0xB {
+            let microsecond = (value_bytes[5] as u32)
+                | ((value_bytes[6] as u32) << 8)
+                | ((value_bytes[7] & 0x0F) as u32) << 16;
+            let ts_builder = ts_builder
+                .with_microseconds(microsecond)
+                .with_offset(offset);
+
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        } else if length_code == 0xC {
+            let nanoseconds = (value_bytes[5] as u32)
+                | ((value_bytes[6] as u32) << 8)
+                | (value_bytes[7] as u32) << 16;
+            let ts_builder = ts_builder.with_nanoseconds(nanoseconds).with_offset(offset);
+
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        }
+
+        unreachable!();
+    }
+
+    fn read_timestamp_short(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
+        let length_code = self.encoded_value.header.length_code();
+        let value_bytes = self.value_body()?;
+
+        // Year is held in the low 7 bits, of the first byte.
+        let ts_builder = Timestamp::with_year((value_bytes[0] & 0x7F) as u32 + 1970);
+        if length_code == 0 {
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        }
+
+        // Month.
+        let month = ((value_bytes[0] & 0x80) >> 7) | ((value_bytes[1] & 0x07) << 1);
+        let ts_builder = ts_builder.with_month(month as u32);
+        if length_code == 1 {
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        }
+
+        // Day.
+        let day = (value_bytes[1] & 0xF8) >> 3;
+        let ts_builder = ts_builder.with_day(day as u32);
+        if length_code == 2 {
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        }
+
+        let hour = value_bytes[2] & 0x1F;
+        let min = ((value_bytes[2] & 0xE0) >> 5) | ((value_bytes[3] & 0x07) << 3);
+        let ts_builder = ts_builder.with_hour_and_minute(hour as u32, min as u32);
+
+        // UTC / Unkonwn Offset
+        if length_code < 8 {
+            self.read_timestamp_short_no_offset(value_bytes, ts_builder)
+        } else {
+            // Known Offset
+            self.read_timestamp_short_offset(value_bytes, ts_builder)
+        }
+    }
+
+    fn read_timestamp_long(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
+        use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
+        use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
+        use crate::types::decimal::{*, coefficient::Coefficient};
+
+        let value_bytes = self.value_body()?;
+        let value_length = self.encoded_value.value_length();
+
+        if value_length < 2 || value_length == 4 || value_length == 5 {
+            return Err(IonError::decoding_error("invalid timestamp length"));
+        }
+
+        let year = (value_bytes[0] as u32) | ((value_bytes[1] & 0x3F) as u32) << 8;
+        let ts_builder = Timestamp::with_year(year);
+        if value_length == 2 {
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        }
+
+        let month = ((value_bytes[1] & 0xC0) as u32) >> 6 | ((value_bytes[2] & 0x03) as u32) << 2;
+        let day = ((value_bytes[2] & 0x7C) as u32) >> 2;
+        let ts_builder = ts_builder.with_month(month);
+        if value_length == 3 && day == 0 {
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        }
+
+        let ts_builder = ts_builder.with_day(day);
+        if value_length == 3 {
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        }
+
+        let hour = ((value_bytes[2] & 0x80) as u32) >> 7 | ((value_bytes[3] & 0x0F) as u32) << 1;
+        let minute = ((value_bytes[3] & 0xF0) as u32) >> 4 | ((value_bytes[4] & 0x03) as u32) << 4;
+        let offset = ((value_bytes[4] & 0xFC) as u32) >> 2 | ((value_bytes[5] & 0x3F) as u32) << 6;
+        let offset = if (offset & 0x800) == 0x800 && offset != 0xFFF {
+            (offset | !0xFFFu32) as i32 // Extend sign for negative 12-bit offsets.
+        } else {
+            offset as i32
+        };
+        let ts_builder = ts_builder.with_hour_and_minute(hour, minute);
+
+        if value_length == 6 {
+            if offset != 0x0FFF {
+                let ts_builder = ts_builder.with_offset(offset);
+                return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+            }
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        }
+
+        let second = ((value_bytes[5] & 0xC0) as u32) >> 6 | ((value_bytes[6] & 0x0F) as u32) << 2;
+        let ts_builder = ts_builder.with_second(second);
+
+        if value_length == 7 {
+            if offset != 0x0FFF {
+                let ts_builder = ts_builder.with_offset(offset);
+                return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+            }
+            return Ok(RawValueRef::Timestamp(ts_builder.build()?));
+        }
+
+        let scale = FlexUInt::read(&value_bytes[7..], 0)?;
+        let coefficient_start = 7 + scale.size_in_bytes();
+        let coefficient_len = value_length - coefficient_start;
+        let coefficient = FixedUInt::read(&value_bytes[coefficient_start..], coefficient_len, 0)?;
+
+        if scale.value() == 0 {
+            return Err(IonError::decoding_error(
+                "invalid scale for timestamp fractional second",
+            ));
+        }
+
+        let decimal_coefficient: Coefficient = coefficient.try_into()
+            .map_err(|e| e.into())?;
+        let frac_sec = Decimal::new(decimal_coefficient, -(scale.value() as i64));
+        if frac_sec.is_greater_than_or_equal_to_one() {
+            return Err(IonError::decoding_error(
+                "invalid fractional second for timestamp",
+            ));
+        }
+
+        let ts_builder = ts_builder.with_fractional_seconds(frac_sec);
+        if offset != 0x0FFF {
+            let ts_builder = ts_builder.with_offset(offset);
+            Ok(RawValueRef::Timestamp(ts_builder.build()?))
+        } else {
+            Ok(RawValueRef::Timestamp(ts_builder.build()?))
+        }
+    }
+
     /// Helper method called by [`Self::read`]. Reads the current value as a timestamp.
     fn read_timestamp(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        debug_assert!(self.encoded_value.ion_type() == IonType::Timestamp);
+
+        match self.encoded_value.header.type_code() {
+            OpcodeType::TimestampShort => self.read_timestamp_short(),
+            OpcodeType::TimestampLong => self.read_timestamp_long(),
+            _ => unreachable!("invalid timestamp type_code"),
+        }
     }
 
     /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.

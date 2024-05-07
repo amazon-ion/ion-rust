@@ -19,7 +19,7 @@ pub enum OpcodeType {
     Float,                     // 0x5A-0x5D -
     Boolean,                   // 0x5E-0x5F -
     Decimal,                   // 0x60-0x6F -
-    Timestamp,                 // 0x70-0x7F -
+    TimestampShort,            // 0x70-0x7F -
     String,                    // 0x80-0x80 -
     InlineSymbol,              // 0x90-0x9F -
     List,                      // 0xA0-0xAF -
@@ -42,10 +42,11 @@ pub enum OpcodeType {
     // delimited container end
     // delimited list start
     // delimited s-expression start
-    LargeInteger, // 0xF5 - Integer preceeded by FlexUInt length
-    Blob,         // 0xFE -
-    Clob,         // 0xFF -
-    Invalid,      // Represents an encoded value that does not match a defined opcode.
+    LargeInteger,  // 0xF5 - Integer preceeded by FlexUInt length
+    Blob,          // 0xFE -
+    Clob,          // 0xFF -
+    TimestampLong, // 0xF7 - Long-form Timestamp
+    Invalid,       // Represents an encoded value that does not match a defined opcode.
 }
 
 impl TryFrom<OpcodeType> for IonType {

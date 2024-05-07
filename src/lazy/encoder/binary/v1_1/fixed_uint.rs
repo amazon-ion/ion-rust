@@ -5,6 +5,7 @@ use ice_code::ice as cold_path;
 use crate::lazy::encoder::binary::v1_1::fixed_int::{
     MAX_INT_SIZE_IN_BYTES, MAX_UINT_SIZE_IN_BYTES,
 };
+use crate::decimal::coefficient::Coefficient;
 use crate::result::IonFailure;
 use crate::{IonResult, UInt};
 
