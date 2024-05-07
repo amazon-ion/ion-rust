@@ -124,6 +124,13 @@ impl<'top, D: LazyDecoder> Iterator for MacroExprArgsIterator<'top, D> {
             MacroExprArgsKind::EExp(e) => e.next(),
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match &self.source {
+            MacroExprArgsKind::Macro(m) => m.size_hint(),
+            MacroExprArgsKind::EExp(e) => e.size_hint(),
+        }
+    }
 }
 
 /// A single expression appearing in argument position within a macro invocation.
@@ -293,7 +300,14 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
         &mut self,
         invocation: MacroExpr<'top, D>,
     ) -> IonResult<Environment<'top, D>> {
-        let mut args = BumpVec::new_in(self.env_stack.bump());
+        // Get an allocator reference from the `env_stack` BumpVec.
+        let allocator = self.env_stack.bump();
+        let args_iter = invocation.arguments(self.environment());
+        // Use the iterator's size hint to determine an initial capacity to aim for.
+        let num_args_hint = args_iter.size_hint();
+        let capacity_hint = num_args_hint.1.unwrap_or(num_args_hint.0);
+        let mut args = BumpVec::with_capacity_in(capacity_hint, allocator);
+
         for arg in invocation.arguments(self.environment()) {
             args.push(arg?);
         }
