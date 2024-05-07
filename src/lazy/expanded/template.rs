@@ -3,16 +3,17 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
 
-use crate::lazy::decoder::{LazyDecoder, RawFieldExpr, RawValueExpr};
+use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, ValueExpr};
 use crate::lazy::expanded::macro_table::MacroRef;
+use crate::lazy::expanded::r#struct::UnexpandedField;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{
-    EncodingContext, ExpandedValueRef, ExpandedValueSource, LazyExpandedValue,
+    EncodingContext, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
 };
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
-use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, Timestamp, Value};
+use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolRef, Timestamp, Value};
 
 /// A parameter in a user-defined macro's signature.
 #[derive(Debug, Clone)]
@@ -193,6 +194,7 @@ impl<'top, D: LazyDecoder> Iterator for TemplateSequenceIterator<'top, D> {
                             self.evaluator.environment(),
                             TemplateElement::new(self.template, element),
                         ),
+                        variable: None,
                     };
                     Some(Ok(value))
                 }
@@ -242,10 +244,10 @@ impl<'top, D: LazyDecoder> Iterator for TemplateSequenceIterator<'top, D> {
     }
 }
 
-/// An iterator that pulls expressions from a template body and wraps them in a [`RawFieldExpr`] to
+/// An iterator that pulls expressions from a template body and wraps them in a [`UnexpandedField`] to
 /// mimic reading them from input. The [`LazyExpandedStruct`](crate::lazy::expanded::struct) handles
 /// evaluating any macro invocations that this yields.
-pub struct TemplateStructRawFieldsIterator<'top, D: LazyDecoder> {
+pub struct TemplateStructUnexpandedFieldsIterator<'top, D: LazyDecoder> {
     context: EncodingContext<'top>,
     environment: Environment<'top, D>,
     template: TemplateMacroRef<'top>,
@@ -253,7 +255,7 @@ pub struct TemplateStructRawFieldsIterator<'top, D: LazyDecoder> {
     index: usize,
 }
 
-impl<'top, D: LazyDecoder> TemplateStructRawFieldsIterator<'top, D> {
+impl<'top, D: LazyDecoder> TemplateStructUnexpandedFieldsIterator<'top, D> {
     pub fn new(
         context: EncodingContext<'top>,
         environment: Environment<'top, D>,
@@ -270,8 +272,8 @@ impl<'top, D: LazyDecoder> TemplateStructRawFieldsIterator<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> Iterator for TemplateStructRawFieldsIterator<'top, D> {
-    type Item = IonResult<RawFieldExpr<'top, ExpandedValueSource<'top, D>, MacroExpr<'top, D>>>;
+impl<'top, D: LazyDecoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top, D> {
+    type Item = IonResult<UnexpandedField<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let name_expr_address = self.index;
@@ -280,30 +282,18 @@ impl<'top, D: LazyDecoder> Iterator for TemplateStructRawFieldsIterator<'top, D>
             .get(name_expr_address)?
             .expect_element()
             .expect("field name must be a literal");
-        let name_value = LazyExpandedValue::<D>::from_template(
-            self.context,
-            // because the name token must be a literal, the env is irrelevant
-            Environment::empty(),
-            TemplateElement::new(self.template, name_element),
-        );
-        let name_token = match name_value.read() {
-            Ok(ExpandedValueRef::Symbol(token)) => token,
-            Ok(ExpandedValueRef::String(str_ref)) => str_ref.into(),
-            Ok(_) => {
-                return Some(IonResult::decoding_error(
-                    "template struct had a non-text field name",
-                ))
-            }
-            Err(e) => return Some(Err(e)),
+        let name: SymbolRef = match &name_element.value {
+            TemplateValue::Symbol(s) => s.into(),
+            TemplateValue::String(s) => s.text().into(),
+            _ => unreachable!("template struct field had a non-text field name"),
         };
         let value_expr_address = name_expr_address + 1;
-        let value_source = match self.expressions.get(value_expr_address) {
-            None => {
-                return Some(IonResult::decoding_error(
-                    "template struct had field name with no value",
-                ))
-            }
-            Some(TemplateBodyValueExpr::Element(element)) => {
+        let value_expr = self
+            .expressions
+            .get(value_expr_address)
+            .expect("template struct had field name with no value");
+        let unexpanded_field = match value_expr {
+            TemplateBodyValueExpr::Element(element) => {
                 match element.value() {
                     TemplateValue::List(range)
                     | TemplateValue::SExp(range)
@@ -313,12 +303,12 @@ impl<'top, D: LazyDecoder> Iterator for TemplateStructRawFieldsIterator<'top, D>
                         // accounted for the first expression, so there's nothing else to do here.
                     }
                 };
-                RawValueExpr::ValueLiteral(ExpandedValueSource::Template(
-                    self.environment,
+                UnexpandedField::TemplateNameValue(
+                    name,
                     TemplateElement::new(self.template, element),
-                ))
+                )
             }
-            Some(TemplateBodyValueExpr::MacroInvocation(body_invocation)) => {
+            TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
                 let invoked_macro = self
                     .context
                     .macro_table
@@ -335,25 +325,19 @@ impl<'top, D: LazyDecoder> Iterator for TemplateStructRawFieldsIterator<'top, D>
                         .unwrap(),
                 );
                 self.index += invocation.arg_expressions.len();
-                RawValueExpr::MacroInvocation(MacroExpr::TemplateMacro(invocation))
+                UnexpandedField::TemplateNameMacro(name, invocation)
             }
-            Some(TemplateBodyValueExpr::Variable(variable)) => {
-                let arg_expr = match self.environment.get_expected(variable.signature_index()) {
-                    Ok(expr) => expr,
-                    Err(e) => return Some(Err(e)),
-                };
-                match arg_expr {
-                    ValueExpr::ValueLiteral(expansion) => {
-                        RawValueExpr::ValueLiteral(expansion.source)
-                    }
-                    ValueExpr::MacroInvocation(invocation) => {
-                        RawValueExpr::MacroInvocation(*invocation)
-                    }
-                }
+            TemplateBodyValueExpr::Variable(variable) => {
+                let arg_expr = self
+                    .environment
+                    .get_expected(variable.signature_index())
+                    .expect("reference to non-existent parameter");
+                let variable_ref = variable.resolve(self.template);
+                UnexpandedField::TemplateNameVariable(name, (variable_ref, arg_expr))
             }
         };
         self.index += 2;
-        Some(Ok(RawFieldExpr::NameValuePair(name_token, value_source)))
+        Some(Ok(unexpanded_field))
     }
 }
 
@@ -780,7 +764,7 @@ impl<'top, D: LazyDecoder> Iterator for TemplateMacroInvocationArgsIterator<'top
                 .environment
                 .get_expected(variable_ref.signature_index())
             {
-                Ok(expr) => *expr,
+                Ok(expr) => expr,
                 Err(e) => return Some(Err(e)),
             },
             TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
@@ -808,6 +792,24 @@ impl TemplateBodyVariableReference {
     }
     pub fn signature_index(&self) -> usize {
         self.signature_index
+    }
+    pub fn name<'a>(&self, signature: &'a MacroSignature) -> &'a str {
+        signature
+            .parameters()
+            .get(self.signature_index)
+            .unwrap()
+            .name()
+    }
+    /// Pairs this variable reference with the given template macro reference, allowing information
+    /// about the template definition to be retrieved later.
+    pub(crate) fn resolve<'top>(
+        &self,
+        template: TemplateMacroRef<'top>,
+    ) -> TemplateVariableReference<'top> {
+        TemplateVariableReference {
+            template,
+            signature_index: self.signature_index,
+        }
     }
 }
 
@@ -972,6 +974,14 @@ impl SmallRange {
             start: range.start as u32,
             end: range.end as u32,
         }
+    }
+
+    pub fn start(&self) -> usize {
+        self.start as usize
+    }
+
+    pub fn end(&self) -> usize {
+        self.end as usize
     }
 
     /// Produces an equivalent [`std::ops::Range`].

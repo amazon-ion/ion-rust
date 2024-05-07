@@ -8,19 +8,21 @@ use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    LazyDecoder, LazyRawFieldExpr, LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue,
-    LazyRawValueExpr, RawFieldExpr, RawValueExpr,
+    HasRange, HasSpan, LazyDecoder, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
+    LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr, RawValueExpr,
+    RawVersionMarker,
 };
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::raw_stream_item::{LazyRawStreamItem, RawStreamItem};
+use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
 use crate::result::IonFailure;
-use crate::{IonResult, IonType};
+use crate::{IonResult, IonType, RawSymbolTokenRef};
 
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
-use crate::lazy::text::matched::MatchedValue;
+use crate::lazy::span::Span;
+use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 
@@ -72,6 +74,18 @@ pub struct RawTextEExpression_1_1<'top> {
     pub(crate) input: TextBufferView<'top>,
     pub(crate) id: MacroIdRef<'top>,
     pub(crate) arg_expr_cache: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
+}
+
+impl<'top> HasSpan<'top> for RawTextEExpression_1_1<'top> {
+    fn span(&self) -> Span<'top> {
+        Span::with_offset(self.input.offset(), self.input.bytes())
+    }
+}
+
+impl<'top> HasRange for RawTextEExpression_1_1<'top> {
+    fn range(&self) -> Range<usize> {
+        self.input.range()
+    }
 }
 
 impl<'top> RawEExpression<'top, TextEncoding_1_1> for RawTextEExpression_1_1<'top> {
@@ -153,18 +167,21 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
             .match_optional_comments_and_whitespace()
             .with_context("reading v1.1 whitespace/comments at the top level", input)?;
         if buffer_after_whitespace.is_empty() {
-            return Ok(RawStreamItem::EndOfStream);
+            return Ok(RawStreamItem::EndOfStream(EndPosition::new(
+                buffer_after_whitespace.offset(),
+            )));
         }
 
         let (remaining, matched_item) = buffer_after_whitespace
             .match_top_level_item_1_1()
             .with_context("reading a v1.1 top-level value", buffer_after_whitespace)?;
 
-        if let RawStreamItem::VersionMarker(major, minor) = matched_item {
+        if let RawStreamItem::VersionMarker(marker) = matched_item {
             // TODO: It is not the raw reader's responsibility to report this error. It should
             //       surface the IVM to the caller, who can then either create a different reader
             //       for the reported version OR raise an error.
             //       See: https://github.com/amazon-ion/ion-rust/issues/644
+            let (major, minor) = marker.version();
             if (major, minor) != (1, 1) {
                 return IonResult::decoding_error(format!(
                     "Ion version {major}.{minor} is not supported"
@@ -420,6 +437,12 @@ impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<
     }
 }
 
+impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
+    fn as_value(&self) -> <TextEncoding_1_1 as LazyDecoder>::Value<'top> {
+        self.value.matched.into()
+    }
+}
+
 impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
     type Iterator = RawTextSequenceCacheIterator_1_1<'top>;
 
@@ -436,10 +459,6 @@ impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top>
             unreachable!("s-expression contained a matched value of the wrong type")
         };
         RawTextSequenceCacheIterator_1_1::new(child_exprs)
-    }
-
-    fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
-        self.value.matched.into()
     }
 }
 
@@ -465,6 +484,35 @@ impl<'top> Iterator for RawTextSExpIterator_1_1<'top> {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct LazyRawTextFieldName_1_1<'top> {
+    matched: MatchedFieldName<'top>,
+}
+
+impl<'top> LazyRawTextFieldName_1_1<'top> {
+    pub(crate) fn new(matched: MatchedFieldName<'top>) -> Self {
+        Self { matched }
+    }
+}
+
+impl<'top> HasSpan<'top> for LazyRawTextFieldName_1_1<'top> {
+    fn span(&self) -> Span<'top> {
+        self.matched.span()
+    }
+}
+
+impl<'top> HasRange for LazyRawTextFieldName_1_1<'top> {
+    fn range(&self) -> Range<usize> {
+        self.matched.range()
+    }
+}
+
+impl<'top> LazyRawFieldName<'top> for LazyRawTextFieldName_1_1<'top> {
+    fn read(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+        self.matched.read()
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct LazyRawTextStruct_1_1<'top> {
     pub(crate) value: LazyRawTextValue_1_1<'top>,
@@ -473,18 +521,18 @@ pub struct LazyRawTextStruct_1_1<'top> {
 impl<'a> Debug for LazyRawTextStruct_1_1<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
-        for field in self.iter() {
-            match field? {
-                LazyRawFieldExpr::<TextEncoding_1_1>::NameValuePair(
-                    name,
-                    RawValueExpr::ValueLiteral(value),
-                ) => write!(f, "{name:?}: {value:?}, "),
-                LazyRawFieldExpr::<TextEncoding_1_1>::NameValuePair(
-                    name,
-                    RawValueExpr::MacroInvocation(invocation),
-                ) => write!(f, "{name:?}: {invocation:?}, "),
-                LazyRawFieldExpr::<TextEncoding_1_1>::MacroInvocation(invocation) => {
-                    write!(f, "{invocation:?}, ")
+        for field_result in self.iter() {
+            let field = field_result?;
+            use LazyRawFieldExpr::*;
+            match field {
+                NameValue(name, value) => {
+                    write!(f, "{name:?}: {value:?}")
+                }
+                NameEExp(name, eexp) => {
+                    write!(f, "{name:?}: {eexp:?}")
+                }
+                EExp(eexp) => {
+                    write!(f, "{eexp:?}")
                 }
             }?;
         }
@@ -530,8 +578,8 @@ impl<'top> Iterator for RawTextStructCacheIterator_1_1<'top> {
     fn next(&mut self) -> Option<Self::Item> {
         let next_expr = self.field_exprs.get(self.index)?;
         self.index += 1;
-        // TODO: Remove the result wrapper
-        Some(Ok(next_expr.clone()))
+        // TODO: Remove the result wrapper because these values are already in the cache
+        Some(Ok(*next_expr))
     }
 }
 
@@ -540,6 +588,12 @@ impl<'top> Iterator for RawTextStructCacheIterator_1_1<'top> {
 impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
     fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
         LazyRawTextList_1_1 { value }
+    }
+}
+
+impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
+    fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
+        self.value.matched.into()
     }
 }
 
@@ -559,10 +613,6 @@ impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top>
             unreachable!("list contained a matched value of the wrong type")
         };
         RawTextSequenceCacheIterator_1_1::new(child_exprs)
-    }
-
-    fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
-        self.value.matched.into()
     }
 }
 
@@ -594,6 +644,12 @@ impl<'top> Iterator for RawTextListIterator_1_1<'top> {
 impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top> {
     fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
         LazyRawTextStruct_1_1 { value }
+    }
+}
+
+impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top> {
+    fn as_value(&self) -> <TextEncoding_1_1 as LazyDecoder>::Value<'top> {
+        self.value
     }
 }
 
@@ -634,50 +690,6 @@ impl<'top> Iterator for RawTextStructIterator_1_1<'top> {
     }
 }
 
-impl<'top> RawTextStructIterator_1_1<'top> {
-    // TODO: DRY with RawTextStructIterator_1_0
-    pub(crate) fn find_span(&self) -> IonResult<Range<usize>> {
-        // The input has already skipped past the opening delimiter.
-        let start = self.input.offset() - 1;
-        // We need to find the input slice containing the closing delimiter.
-        let input_after_last = if let Some(field_result) = self.last() {
-            // If there are any field expressions, we need to isolate the input slice that follows
-            // the last one.
-            use RawFieldExpr::*;
-            match field_result? {
-                // foo: bar
-                NameValuePair(_name, RawValueExpr::ValueLiteral(value)) => {
-                    value.matched.input.slice_to_end(value.matched.encoded_value.total_length())
-                },
-                // foo: (:bar ...)
-                NameValuePair(_, RawValueExpr::MacroInvocation(invocation))
-                // (:foo)
-                | MacroInvocation(invocation) => {
-                    self.input.slice_to_end(invocation.input.len())
-                }
-            }
-        } else {
-            // ...or there aren't fields, so it's just the input after the opening delimiter.
-            self.input
-        };
-        let (mut input_after_ws, _ws) =
-            input_after_last
-                .match_optional_comments_and_whitespace()
-                .with_context("seeking the end of a struct", input_after_last)?;
-        // Skip an optional comma and more whitespace
-        if input_after_ws.bytes().first() == Some(&b',') {
-            (input_after_ws, _) = input_after_ws
-                .slice_to_end(1)
-                .match_optional_comments_and_whitespace()
-                .with_context("skipping a list's trailing comma", input_after_ws)?;
-        }
-        let (input_after_end, _end_delimiter) = satisfy(|c| c == b'}' as char)(input_after_ws)
-            .with_context("seeking the closing delimiter of a struct", input_after_ws)?;
-        let end = input_after_end.offset();
-        Ok(start..end)
-    }
-}
-
 /// Wraps a [`RawTextStructIterator_1_1`] (which parses the body of a struct) and caches the field
 /// expressions the iterator yields along the way. Finally, returns a `Range<usize>` representing
 /// the span of input bytes that the struct occupies.
@@ -711,20 +723,17 @@ impl<'top> TextStructSpanFinder_1_1<'top> {
         }
 
         // We need to find the input slice containing the closing delimiter.
-        let input_after_last = if let Some(field_result) = child_expr_cache.last() {
+        let input_after_last = if let Some(field) = child_expr_cache.last() {
             // If there are any field expressions, we need to isolate the input slice that follows
             // the last one.
-            use RawFieldExpr::*;
-            match field_result {
-                // foo: bar
-                NameValuePair(_name, RawValueExpr::ValueLiteral(value)) => {
-                    value.matched.input.slice_to_end(value.matched.encoded_value.total_length())
-                },
-                // foo: (:bar ...)
-                NameValuePair(_, RawValueExpr::MacroInvocation(invocation))
-                // (:foo)
-                | MacroInvocation(invocation) => {
-                    self.iterator.input.slice_to_end(invocation.input.len())
+            use LazyRawFieldExpr::*;
+            match field {
+                NameValue(_, value) => value
+                    .matched
+                    .input
+                    .slice_to_end(value.matched.encoded_value.total_length()),
+                NameEExp(_, eexp) | EExp(eexp) => {
+                    self.iterator.input.slice_to_end(eexp.input.len())
                 }
             }
         } else {
@@ -788,7 +797,7 @@ mod tests {
         let reader = &mut LazyRawTextReader_1_1::new(data.as_bytes());
 
         // $ion_1_1
-        assert_eq!(reader.next(&allocator)?.expect_ivm()?, (1, 1));
+        assert_eq!(reader.next(&allocator)?.expect_ivm()?.version(), (1, 1));
         // "foo"
         expect_next(&allocator, reader, RawValueRef::String("foo".into()));
         // bar

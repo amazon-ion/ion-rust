@@ -704,7 +704,7 @@ mod decimal_tests {
             309,
             "f64::MAX should have 309 decimal digits"
         );
-        assert_eq!(diff_fract, 0.into());
+        assert_eq!(diff_fract, 0f64);
 
         // MIN f64 - e.g., -1.7976931348623157e+308_f64
         let actual: Decimal = f64::MIN.try_into().unwrap();
@@ -716,7 +716,7 @@ mod decimal_tests {
             309,
             "f64::MIN should have 309 decimal digits"
         );
-        assert_eq!(diff_fract, 0.into());
+        assert_eq!(diff_fract, 0f64);
     }
 
     #[test]
@@ -729,7 +729,7 @@ mod decimal_tests {
             UInt::from(diff_int.magnitude().clone()).number_of_decimal_digits(),
             1
         );
-        assert_eq!(diff_fract, 0.into());
+        assert_eq!(diff_fract, 0f64);
 
         // MIN_POSITIVE f64 - e.g., 2.2250738585072014e-308_f64
         let actual: Decimal = f64::MIN_POSITIVE.try_into().unwrap();
@@ -740,7 +740,7 @@ mod decimal_tests {
             UInt::from(diff_int.magnitude().clone()).number_of_decimal_digits(),
             1
         );
-        assert_eq!(diff_fract, 0.into());
+        assert_eq!(diff_fract, 0f64);
     }
 
     #[rstest]

@@ -14,12 +14,12 @@ use std::fmt::{Debug, Formatter};
 #[derive(Copy, Clone)]
 pub struct EExpression<'top, D: LazyDecoder> {
     pub(crate) context: EncodingContext<'top>,
-    pub(crate) raw_invocation: D::EExpression<'top>,
+    pub(crate) raw_invocation: D::EExp<'top>,
     pub(crate) invoked_macro: MacroRef<'top>,
 }
 
 impl<'top, D: LazyDecoder> EExpression<'top, D> {
-    pub fn raw_invocation(&self) -> D::EExpression<'top> {
+    pub fn raw_invocation(&self) -> D::EExp<'top> {
         self.raw_invocation
     }
     pub fn invoked_macro(&self) -> MacroRef<'top> {
@@ -36,7 +36,7 @@ impl<'top, D: LazyDecoder> Debug for EExpression<'top, D> {
 impl<'top, D: LazyDecoder> EExpression<'top, D> {
     pub fn new(
         context: EncodingContext<'top>,
-        raw_invocation: D::EExpression<'top>,
+        raw_invocation: D::EExp<'top>,
         invoked_macro: MacroRef<'top>,
     ) -> Self {
         Self {
@@ -68,7 +68,7 @@ impl<'top, D: LazyDecoder> From<EExpression<'top, D>> for MacroExpr<'top, D> {
 
 pub struct EExpressionArgsIterator<'top, D: LazyDecoder> {
     context: EncodingContext<'top>,
-    raw_args: <D::EExpression<'top> as RawEExpression<'top, D>>::RawArgumentsIterator<'top>,
+    raw_args: <D::EExp<'top> as RawEExpression<'top, D>>::RawArgumentsIterator<'top>,
 }
 
 impl<'top, D: LazyDecoder> Iterator for EExpressionArgsIterator<'top, D> {
@@ -82,7 +82,7 @@ impl<'top, D: LazyDecoder> Iterator for EExpressionArgsIterator<'top, D> {
 
         let expr = match raw_arg {
             LazyRawValueExpr::<D>::ValueLiteral(value) => {
-                ValueExpr::ValueLiteral(LazyExpandedValue::from_value(self.context, value))
+                ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(self.context, value))
             }
             LazyRawValueExpr::<D>::MacroInvocation(raw_invocation) => {
                 let invocation = match raw_invocation.resolve(self.context) {

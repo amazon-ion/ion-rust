@@ -1,5 +1,4 @@
 use crate::lazy::binary::raw::type_descriptor::Header;
-use crate::types::SymbolId;
 use crate::IonType;
 use std::ops::Range;
 
@@ -53,33 +52,29 @@ pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
     // and IonType.
     pub(crate) header: HeaderType,
 
-    // Each encoded value has up to five components, appearing in the following order:
+    // Each encoded value has up to four components, appearing in the following order:
     //
-    // [ field_id? | annotations? | header (type descriptor) | header_length? | value ]
+    // [ annotations? | header (type descriptor) | header_length? | value_body ]
     //
     // Components shown with a `?` are optional.
     //
     // EncodedValue stores the offset of the type descriptor byte from the beginning of the
     // data source (`header_offset`). The lengths of the other fields can be used to calculate
     // their positions relative to the type descriptor byte. For example, to find the offset of the
-    // field ID (if present), we can do:
-    //     header_offset - annotations_header_length - field_id_length
+    // annotations header (if present), we can do:
+    //     header_offset - annotations_header_length
     //
     // This allows us to store a single `usize` for the header offset, while other lengths can be
-    // packed into a `u8`. Values are not permitted to have a field ID or annotations that take
-    // more than 255 bytes to represent.
+    // packed into a `u8`. In this implementation, values are not permitted to have annotations that
+    // take more than 255 bytes to represent.
     //
     // We store the offset for the header byte because it is guaranteed to be present for all values.
-    // Field IDs and annotations appear earlier in the stream but are optional.
+    // Annotations appear earlier in the stream but are optional.
 
-    // The number of bytes used to encode the field ID (if present) preceding the Ion value. If
-    // `field_id` is undefined, `field_id_length` will be zero.
-    pub field_id_length: u8,
-    // If this value is inside a struct, `field_id` will contain the SymbolId that represents
-    // its field name.
-    pub field_id: Option<SymbolId>,
     // The number of bytes used to encode the annotations wrapper (if present) preceding the Ion
-    // value. If `annotations` is empty, `annotations_header_length` will be zero.
+    // value. If `annotations` is empty, `annotations_header_length` will be zero. The annotations
+    // wrapper contains several fields: an opcode, a wrapper length, a sequence length, and the
+    // sequence itself.
     pub annotations_header_length: u8,
     // The number of bytes used to encode the series of symbol IDs inside the annotations wrapper.
     pub annotations_sequence_length: u8,
@@ -89,9 +84,9 @@ pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
     pub length_length: u8,
     // The number of bytes used to encode the value itself, not including the header byte
     // or length fields.
-    pub value_length: usize,
+    pub value_body_length: usize,
     // The sum total of:
-    //     field_id_length + annotations_header_length + header_length + value_length
+    //     annotations_header_length + header_length + value_length
     // While this can be derived from the above fields, storing it for reuse offers a modest
     // optimization. `total_length` is needed when stepping into a value, skipping a value,
     // and reading a value's data.
@@ -127,53 +122,27 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
     /// If the value can fit in the type descriptor byte (e.g. `true`, `false`, `null`, `0`),
     /// this function will return 0.
     #[inline(always)]
-    pub fn value_length(&self) -> usize {
-        self.value_length
+    pub fn value_body_length(&self) -> usize {
+        self.value_body_length
     }
 
     /// The offset of the first byte following the header (including length bytes, if present).
     /// If `value_length()` returns zero, this offset is actually the first byte of
     /// the next encoded value and should not be read.
-    pub fn value_offset(&self) -> usize {
+    pub fn value_body_offset(&self) -> usize {
         self.header_offset + self.header_length()
     }
 
     /// Returns an offset Range containing any bytes following the header.
-    pub fn value_range(&self) -> Range<usize> {
-        let start = self.value_offset();
-        let end = start + self.value_length;
+    pub fn value_body_range(&self) -> Range<usize> {
+        let start = self.value_body_offset();
+        let end = start + self.value_body_length;
         start..end
     }
 
     /// Returns the index of the first byte that is beyond the end of the current value's encoding.
     pub fn value_end_exclusive(&self) -> usize {
-        self.value_offset() + self.value_length
-    }
-
-    /// Returns the number of bytes used to encode this value's field ID, if present.
-    pub fn field_id_length(&self) -> Option<usize> {
-        self.field_id.as_ref()?;
-        Some(self.field_id_length as usize)
-    }
-
-    /// Returns the offset of the first byte used to encode this value's field ID, if present.
-    pub fn field_id_offset(&self) -> Option<usize> {
-        self.field_id.as_ref()?;
-        Some(
-            self.header_offset
-                - self.annotations_header_length as usize
-                - self.field_id_length as usize,
-        )
-    }
-
-    /// Returns an offset Range that contains the bytes used to encode this value's field ID,
-    /// if present.
-    pub fn field_id_range(&self) -> Option<Range<usize>> {
-        if let Some(start) = self.field_id_offset() {
-            let end = start + self.field_id_length as usize;
-            return Some(start..end);
-        }
-        None
+        self.value_body_offset() + self.value_body_length
     }
 
     /// Returns true if this encoded value has an annotations wrapper.
@@ -233,20 +202,28 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
         None
     }
 
-    /// Returns the total number of bytes used to represent the current value, including the
-    /// field ID (if any), its annotations (if any), its header (type descriptor + length bytes),
-    /// and its value.
+    /// Returns the total number of bytes used to represent the current value, including
+    /// its annotations (if any), its header (type descriptor + length bytes), and the body of
+    /// the value.
     pub fn total_length(&self) -> usize {
         self.total_length
     }
 
     /// The offset Range (starting from the beginning of the stream) that contains this value's
-    /// complete encoding, including annotations. (It does not include the leading field ID, if
-    /// any.)
+    /// complete encoding, including annotations.
     pub fn annotated_value_range(&self) -> Range<usize> {
-        // [ field_id? | annotations? | header (type descriptor) | header_length? | value ]
+        // [ annotations? | header (type descriptor) | header_length? | value ]
         let start = self.header_offset - self.annotations_header_length as usize;
-        let end = start - self.field_id_length as usize + self.total_length;
+        let end = start + self.total_length;
+        start..end
+    }
+
+    /// The offset Range (starting from the beginning of the stream) that contains this value's
+    /// complete encoding, not including any annotations.
+    pub fn unannotated_value_range(&self) -> Range<usize> {
+        // [ annotations? | header (type descriptor) | header_length? | value ]
+        let start = self.header_offset - self.annotations_header_length as usize;
+        let end = start + self.total_length;
         start..end
     }
 
@@ -264,20 +241,18 @@ mod tests {
 
     #[test]
     fn accessors() -> IonResult<()> {
-        // 3-byte String with 1-byte annotation and field ID $10
+        // 3-byte String with 1-byte annotation
         let value = EncodedValue {
             header: Header {
                 ion_type: IonType::String,
                 ion_type_code: IonTypeCode::String,
                 length_code: 3,
             },
-            field_id_length: 1,
-            field_id: Some(10),
             annotations_header_length: 3,
             annotations_sequence_length: 1,
             header_offset: 200,
             length_length: 0,
-            value_length: 3,
+            value_body_length: 3,
             total_length: 7,
         };
         assert_eq!(value.ion_type(), IonType::String);
@@ -292,18 +267,15 @@ mod tests {
         assert_eq!(value.header_offset(), 200);
         assert_eq!(value.header_length(), 1);
         assert_eq!(value.header_range(), 200..201);
-        assert_eq!(value.field_id_length(), Some(1));
-        assert_eq!(value.field_id_offset(), Some(196));
-        assert_eq!(value.field_id_range(), Some(196..197));
         assert!(value.has_annotations());
         assert_eq!(value.annotations_range(), Some(197..200));
         assert_eq!(value.annotations_header_length(), Some(3));
         assert_eq!(value.annotations_sequence_offset(), Some(199));
         assert_eq!(value.annotations_sequence_length(), Some(1));
         assert_eq!(value.annotations_sequence_range(), Some(199..200));
-        assert_eq!(value.value_length(), 3);
-        assert_eq!(value.value_offset(), 201);
-        assert_eq!(value.value_range(), 201..204);
+        assert_eq!(value.value_body_length(), 3);
+        assert_eq!(value.value_body_offset(), 201);
+        assert_eq!(value.value_body_range(), 201..204);
         assert_eq!(value.value_end_exclusive(), 204);
         assert_eq!(value.total_length(), 7);
         Ok(())

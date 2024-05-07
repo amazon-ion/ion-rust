@@ -6,7 +6,9 @@ use std::ops::Range;
 use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{LazyRawSequence, LazyRawValue, LazyRawValueExpr, RawValueExpr};
+use crate::lazy::decoder::{
+    LazyDecoder, LazyRawContainer, LazyRawSequence, LazyRawValue, LazyRawValueExpr, RawValueExpr,
+};
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
@@ -45,6 +47,12 @@ impl<'data> LazyContainerPrivate<'data, TextEncoding_1_0> for LazyRawTextList_1_
     }
 }
 
+impl<'data> LazyRawContainer<'data, TextEncoding_1_0> for LazyRawTextList_1_0<'data> {
+    fn as_value(&self) -> <TextEncoding_1_0 as LazyDecoder>::Value<'data> {
+        self.value
+    }
+}
+
 impl<'data> LazyRawSequence<'data, TextEncoding_1_0> for LazyRawTextList_1_0<'data> {
     type Iterator = RawTextListIterator_1_0<'data>;
 
@@ -58,10 +66,6 @@ impl<'data> LazyRawSequence<'data, TextEncoding_1_0> for LazyRawTextList_1_0<'da
 
     fn iter(&self) -> Self::Iterator {
         LazyRawTextList_1_0::iter(self)
-    }
-
-    fn as_value(&self) -> LazyRawTextValue_1_0<'data> {
-        self.value
     }
 }
 
@@ -261,6 +265,12 @@ impl<'data> LazyContainerPrivate<'data, TextEncoding_1_0> for LazyRawTextSExp_1_
     }
 }
 
+impl<'data> LazyRawContainer<'data, TextEncoding_1_0> for LazyRawTextSExp_1_0<'data> {
+    fn as_value(&self) -> <TextEncoding_1_0 as LazyDecoder>::Value<'data> {
+        self.value
+    }
+}
+
 impl<'data> LazyRawSequence<'data, TextEncoding_1_0> for LazyRawTextSExp_1_0<'data> {
     type Iterator = RawTextSExpIterator_1_0<'data>;
 
@@ -274,10 +284,6 @@ impl<'data> LazyRawSequence<'data, TextEncoding_1_0> for LazyRawTextSExp_1_0<'da
 
     fn iter(&self) -> Self::Iterator {
         LazyRawTextSExp_1_0::iter(self)
-    }
-
-    fn as_value(&self) -> LazyRawTextValue_1_0<'data> {
-        self.value
     }
 }
 

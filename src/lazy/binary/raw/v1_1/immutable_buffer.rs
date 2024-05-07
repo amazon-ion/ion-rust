@@ -1,7 +1,9 @@
 use crate::binary::constants::v1_1::IVM;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
+use crate::lazy::binary::raw::v1_1::value::{
+    LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
+};
 use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, ION_1_1_OPCODES};
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
@@ -9,6 +11,7 @@ use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 
 // This limit is used for stack-allocating buffer space to encode/decode UInts.
 const UINT_STACK_BUFFER_SIZE: usize = 16;
@@ -64,7 +67,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Returns a slice containing all of the buffer's bytes.
-    pub fn bytes(&self) -> &[u8] {
+    pub fn bytes(&self) -> &'a [u8] {
         self.data
     }
 
@@ -93,6 +96,10 @@ impl<'a> ImmutableBuffer<'a> {
     /// Returns the number of bytes in the buffer.
     pub fn len(&self) -> usize {
         self.data.len()
+    }
+
+    pub fn range(&self) -> Range<usize> {
+        self.offset..self.offset + self.len()
     }
 
     /// Returns `true` if there are no bytes in the buffer. Otherwise, returns `false`.
@@ -138,15 +145,16 @@ impl<'a> ImmutableBuffer<'a> {
     /// returns an `Ok(_)` containing a `(major, minor)` version tuple.
     ///
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#value-streams>
-    pub fn read_ivm(self) -> ParseResult<'a, (u8, u8)> {
+    pub fn read_ivm(self) -> ParseResult<'a, LazyRawBinaryVersionMarker_1_1<'a>> {
         let bytes = self
             .peek_n_bytes(IVM.len())
             .ok_or_else(|| IonError::incomplete("an IVM", self.offset()))?;
 
         match bytes {
             [0xE0, major, minor, 0xEA] => {
-                let version = (*major, *minor);
-                Ok((version, self.consume(IVM.len())))
+                let matched = ImmutableBuffer::new_with_offset(bytes, self.offset);
+                let marker = LazyRawBinaryVersionMarker_1_1::new(matched, *major, *minor);
+                Ok((marker, self.consume(IVM.len())))
             }
             invalid_ivm => IonResult::decoding_error(format!("invalid IVM: {invalid_ivm:?}")),
         }
@@ -312,15 +320,12 @@ impl<'a> ImmutableBuffer<'a> {
 
         let encoded_value = EncodedValue {
             header,
-            // If applicable, these are populated by the caller: `peek_field()`
-            field_id_length: 0,
-            field_id: None,
             // If applicable, these are populated by the caller: `read_annotated_value()`
             annotations_header_length: 0,
             annotations_sequence_length: 0,
             header_offset,
             length_length,
-            value_length,
+            value_body_length: value_length,
             total_length,
         };
         let lazy_value = LazyRawBinaryValue_1_1 {

@@ -97,7 +97,7 @@ impl PendingLst {
 }
 
 impl<Input: IonInput> LazySystemAnyReader<Input> {
-    pub(crate) fn new(ion_data: Input) -> LazySystemAnyReader<Input> {
+    pub fn new(ion_data: Input) -> LazySystemAnyReader<Input> {
         let raw_reader = StreamingRawReader::new(AnyEncoding, ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader { expanding_reader }
@@ -105,7 +105,7 @@ impl<Input: IonInput> LazySystemAnyReader<Input> {
 }
 
 impl<Input: IonInput> LazySystemBinaryReader<Input> {
-    pub(crate) fn new(ion_data: Input) -> LazySystemBinaryReader<Input> {
+    pub fn new(ion_data: Input) -> LazySystemBinaryReader<Input> {
         let raw_reader = StreamingRawReader::new(BinaryEncoding_1_0, ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader { expanding_reader }
@@ -113,7 +113,7 @@ impl<Input: IonInput> LazySystemBinaryReader<Input> {
 }
 
 impl<Input: IonInput> LazySystemTextReader_1_1<Input> {
-    pub(crate) fn new(ion_data: Input) -> LazySystemTextReader_1_1<Input> {
+    pub fn new(ion_data: Input) -> LazySystemTextReader_1_1<Input> {
         let raw_reader = StreamingRawReader::new(TextEncoding_1_1, ion_data);
         let expanding_reader = LazyExpandingReader::new(raw_reader);
         LazySystemReader { expanding_reader }
@@ -182,7 +182,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazySystemReader<Encoding, Input> {
 
         for field_result in symbol_table.iter() {
             let field = field_result?;
-            if field.raw_name().matches_sid_or_text(7, "symbols") {
+            if field.name().read_raw()?.matches_sid_or_text(7, "symbols") {
                 if found_symbols_field {
                     return IonResult::decoding_error(
                         "found symbol table with multiple 'symbols' fields",
@@ -191,7 +191,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazySystemReader<Encoding, Input> {
                 found_symbols_field = true;
                 Self::process_symbols(pending_lst, field.value())?;
             }
-            if field.raw_name().matches_sid_or_text(6, "imports") {
+            if field.name().read_raw()?.matches_sid_or_text(6, "imports") {
                 if found_imports_field {
                     return IonResult::decoding_error(
                         "found symbol table with multiple 'imports' fields",
@@ -208,7 +208,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazySystemReader<Encoding, Input> {
     // Store any strings defined in the `symbols` field in the `PendingLst` for future application.
     fn process_symbols(
         pending_lst: &mut PendingLst,
-        symbols: &LazyExpandedValue<'_, Encoding>,
+        symbols: LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
         if let ExpandedValueRef::List(list) = symbols.read()? {
             for symbol_text_result in list.iter() {
@@ -226,7 +226,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazySystemReader<Encoding, Input> {
     // Check for `imports: $ion_symbol_table`.
     fn process_imports(
         pending_lst: &mut PendingLst,
-        imports: &LazyExpandedValue<'_, Encoding>,
+        imports: LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
         match imports.read()? {
             ExpandedValueRef::Symbol(symbol_ref) => {
@@ -253,6 +253,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazySystemReader<Encoding, Input> {
 #[cfg(test)]
 mod tests {
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::decoder::RawVersionMarker;
     use crate::lazy::system_stream_item::SystemStreamItem;
     use crate::IonResult;
 
@@ -275,12 +276,12 @@ mod tests {
         let mut system_reader = LazySystemBinaryReader::new(ion_data);
         loop {
             match system_reader.next_item()? {
-                SystemStreamItem::VersionMarker(major, minor) => {
-                    println!("ivm => v{}.{}", major, minor)
+                SystemStreamItem::VersionMarker(marker) => {
+                    println!("ivm => v{}.{}", marker.major(), marker.minor())
                 }
                 SystemStreamItem::SymbolTable(ref s) => println!("symtab => {:?}", s),
                 SystemStreamItem::Value(ref v) => println!("value => {:?}", v.read()?),
-                SystemStreamItem::EndOfStream => break,
+                SystemStreamItem::EndOfStream(_) => break,
             }
         }
         Ok(())
@@ -305,7 +306,7 @@ mod tests {
                         println!("{:?}", value?.read()?);
                     }
                 }
-                SystemStreamItem::EndOfStream => break,
+                SystemStreamItem::EndOfStream(_) => break,
                 _ => {}
             }
         }
@@ -333,7 +334,7 @@ mod tests {
                         println!("{:?}: {:?},", field.name()?, field.value().read()?);
                     }
                 }
-                SystemStreamItem::EndOfStream => break,
+                SystemStreamItem::EndOfStream(_) => break,
                 _ => {}
             }
         }

@@ -1,14 +1,14 @@
 use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
-use crate::Symbol;
-use std::borrow::{Borrow, Cow};
+use crate::{Str, Symbol};
+use std::borrow::Borrow;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 
 /// A reference to a fully resolved symbol. Like `Symbol` (a fully resolved symbol with a
 /// static lifetime), a `SymbolRef` may have known or undefined text (i.e. `$0`).
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct SymbolRef<'a> {
-    text: Option<Cow<'a, str>>,
+    text: Option<&'a str>,
 }
 
 impl<'a> Debug for SymbolRef<'a> {
@@ -19,8 +19,8 @@ impl<'a> Debug for SymbolRef<'a> {
 
 impl<'a> SymbolRef<'a> {
     /// If this symbol has known text, returns `Some(&str)`. Otherwise, returns `None`.
-    pub fn text(&self) -> Option<&str> {
-        self.text.as_ref().map(|t| t.as_ref())
+    pub fn text(&self) -> Option<&'a str> {
+        self.text
     }
 
     /// Constructs a `SymbolRef` with unknown text.
@@ -29,17 +29,14 @@ impl<'a> SymbolRef<'a> {
     }
 
     /// Constructs a `SymbolRef` with the specified text.
-    pub fn with_text(text: impl Into<Cow<'a, str>>) -> SymbolRef<'a> {
-        SymbolRef {
-            text: Some(text.into()),
-        }
+    pub fn with_text(text: &'a str) -> SymbolRef<'a> {
+        SymbolRef { text: Some(text) }
     }
 
     pub fn to_owned(self) -> Symbol {
         match self.text {
             None => Symbol::unknown_text(),
-            Some(Cow::Borrowed(text)) => Symbol::owned(text),
-            Some(Cow::Owned(text)) => Symbol::owned(text),
+            Some(text) => Symbol::owned(Str::from(text)),
         }
     }
 }
@@ -64,7 +61,7 @@ pub trait AsSymbolRef {
 impl<'a, A: AsRef<str> + 'a> AsSymbolRef for A {
     fn as_symbol_ref(&self) -> SymbolRef {
         SymbolRef {
-            text: Some(Cow::Borrowed(self.as_ref())),
+            text: Some(self.as_ref()),
         }
     }
 }
@@ -80,30 +77,15 @@ impl<'a> Hash for SymbolRef<'a> {
 
 impl<'a> From<&'a str> for SymbolRef<'a> {
     fn from(text: &'a str) -> Self {
-        Self {
-            text: Some(Cow::Borrowed(text)),
-        }
-    }
-}
-
-impl<'a> From<String> for SymbolRef<'a> {
-    fn from(text: String) -> Self {
-        Self {
-            text: Some(Cow::Owned(text)),
-        }
-    }
-}
-
-impl<'a> From<Cow<'a, str>> for SymbolRef<'a> {
-    fn from(value: Cow<'a, str>) -> Self {
-        Self { text: Some(value) }
+        Self { text: Some(text) }
     }
 }
 
 impl<'a> From<&'a Symbol> for SymbolRef<'a> {
     fn from(symbol: &'a Symbol) -> Self {
-        let text = symbol.text().map(Cow::Borrowed);
-        Self { text }
+        Self {
+            text: symbol.text(),
+        }
     }
 }
 
@@ -134,18 +116,11 @@ impl AsSymbolRef for &Symbol {
     }
 }
 
-impl<'borrow, 'data> AsSymbolRef for &'borrow SymbolRef<'data> {
-    fn as_symbol_ref(&self) -> SymbolRef<'data> {
-        // This is essentially free; the only data inside is an Option<&str>
-        (*self).clone()
-    }
-}
-
 impl<'a> AsRawSymbolTokenRef for SymbolRef<'a> {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
         match &self.text {
             None => RawSymbolTokenRef::SymbolId(0),
-            Some(text) => RawSymbolTokenRef::Text(text.as_ref().into()),
+            Some(text) => RawSymbolTokenRef::Text(text),
         }
     }
 }

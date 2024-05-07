@@ -16,10 +16,14 @@
 //! provided by the [`Annotate`](crate::lazy::encoder::annotate::Annotatable) trait.
 use std::marker::PhantomData;
 
-use crate::lazy::encoder::value_writer::ValueWriter;
+use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::encoder::annotation_seq::AnnotationsVec;
+use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
+use crate::lazy::value::LazyValue;
+use crate::lazy::value_ref::ValueRef;
 use crate::{
-    Blob, Clob, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolToken, RawSymbolTokenRef,
-    Symbol, SymbolRef, Timestamp, Value,
+    Blob, Clob, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolTokenRef, Symbol,
+    SymbolRef, Timestamp, Value,
 };
 
 /// Defines how a Rust type should be serialized as Ion in terms of the methods available
@@ -84,10 +88,10 @@ impl_write_as_ion_value!(
     usize => write_int with self as &Int::from(*self),
     f32 => write_f32 with self as *self,
     f64 => write_f64 with self as *self,
+    Int => write_int,
     Decimal => write_decimal,
     Timestamp => write_timestamp,
     Symbol => write_symbol,
-    RawSymbolToken => write_symbol,
     &str => write_string,
     String => write_string,
     &[u8] => write_blob,
@@ -207,20 +211,72 @@ impl_write_as_ion_value_for_sexp_type_hint!([T; N], T, const N: usize);
 
 impl WriteAsIon for Value {
     fn write_as_ion<V: ValueWriter>(&self, value_writer: V) -> IonResult<()> {
+        use Value::*;
         match self {
-            Value::Null(i) => value_writer.write_null(*i),
-            Value::Bool(b) => value_writer.write_bool(*b),
-            Value::Int(i) => value_writer.write_int(i),
-            Value::Float(f) => value_writer.write_f64(*f),
-            Value::Decimal(d) => value_writer.write_decimal(d),
-            Value::Timestamp(t) => value_writer.write_timestamp(t),
-            Value::Symbol(s) => value_writer.write_symbol(s),
-            Value::String(s) => value_writer.write_string(s),
-            Value::Clob(c) => value_writer.write_clob(c),
-            Value::Blob(b) => value_writer.write_blob(b),
-            Value::List(l) => value_writer.write_list(l),
-            Value::SExp(s) => value_writer.write_sexp(s),
-            Value::Struct(s) => value_writer.write_struct(s.iter()),
+            Null(i) => value_writer.write_null(*i),
+            Bool(b) => value_writer.write_bool(*b),
+            Int(i) => value_writer.write_int(i),
+            Float(f) => value_writer.write_f64(*f),
+            Decimal(d) => value_writer.write_decimal(d),
+            Timestamp(t) => value_writer.write_timestamp(t),
+            Symbol(s) => value_writer.write_symbol(s),
+            String(s) => value_writer.write_string(s),
+            Clob(c) => value_writer.write_clob(c),
+            Blob(b) => value_writer.write_blob(b),
+            List(l) => value_writer.write_list(l),
+            SExp(s) => value_writer.write_sexp(s),
+            Struct(s) => value_writer.write_struct(s.iter()),
+        }
+    }
+}
+
+impl<'a, D: LazyDecoder> WriteAsIon for LazyValue<'a, D> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        let mut annotations = AnnotationsVec::new();
+        for annotation in self.annotations() {
+            annotations.push(annotation?.into());
+        }
+        self.read()?
+            .write_as_ion(writer.with_annotations(annotations)?)
+    }
+}
+
+impl<'a, D: LazyDecoder> WriteAsIon for ValueRef<'a, D> {
+    fn write_as_ion<V: ValueWriter>(&self, value_writer: V) -> IonResult<()> {
+        use ValueRef::*;
+        match self {
+            Null(i) => value_writer.write_null(*i),
+            Bool(b) => value_writer.write_bool(*b),
+            Int(i) => value_writer.write_int(i),
+            Float(f) => value_writer.write_f64(*f),
+            Decimal(d) => value_writer.write_decimal(d),
+            Timestamp(t) => value_writer.write_timestamp(t),
+            Symbol(s) => value_writer.write_symbol(s),
+            String(s) => value_writer.write_string(s.text()),
+            Clob(c) => value_writer.write_clob(c.as_ref()),
+            Blob(b) => value_writer.write_blob(b.as_ref()),
+            List(l) => {
+                let mut list = value_writer.list_writer()?;
+                for value in l {
+                    list.write(value?.read()?)?;
+                }
+                list.close()
+            }
+            SExp(s) => {
+                let mut sexp = value_writer.list_writer()?;
+                for value in s {
+                    sexp.write(value?.read()?)?;
+                }
+                sexp.close()
+            }
+            Struct(s) => {
+                let mut struct_ = value_writer.struct_writer()?;
+                for field_result in s {
+                    let field = field_result?;
+                    struct_.write(field.name()?, field.value().read()?)?;
+                }
+                struct_.close()
+            }
         }
     }
 }
