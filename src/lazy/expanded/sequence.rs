@@ -7,8 +7,7 @@ use crate::lazy::expanded::template::{
     AnnotationsRange, ExprRange, TemplateMacroRef, TemplateSequenceIterator,
 };
 use crate::lazy::expanded::{
-    EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource,
-    ExpandedValueSource, LazyExpandedValue,
+    EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, LazyExpandedValue,
 };
 use crate::result::IonFailure;
 use crate::{IonError, IonResult, IonType};
@@ -335,11 +334,7 @@ fn expand_next_sequence_value<'top, D: LazyDecoder>(
         match iter.next() {
             None => return None,
             Some(Ok(RawValueExpr::ValueLiteral(value))) => {
-                return Some(Ok(LazyExpandedValue {
-                    source: ExpandedValueSource::ValueLiteral(value),
-                    context,
-                    variable: None,
-                }))
+                return Some(Ok(LazyExpandedValue::from_literal(context, value)))
             }
             Some(Ok(RawValueExpr::MacroInvocation(invocation))) => {
                 let resolved_invocation = match invocation.resolve(context) {

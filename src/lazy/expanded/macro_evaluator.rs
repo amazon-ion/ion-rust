@@ -25,7 +25,7 @@ use crate::lazy::expanded::template::{
     TemplateMacroInvocationArgsIterator, TemplateMacroRef, TemplateValue,
 };
 use crate::lazy::expanded::EncodingContextRef;
-use crate::lazy::expanded::{ExpandedValueRef, ExpandedValueSource, LazyExpandedValue};
+use crate::lazy::expanded::{ExpandedValueRef, LazyExpandedValue};
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
@@ -607,11 +607,9 @@ impl<'top, D: LazyDecoder> MakeStringExpansion<'top, D> {
         static EMPTY_ANNOTATIONS: &[&str] = &[];
 
         self.is_complete = true;
-        Ok(Some(ValueExpr::ValueLiteral(LazyExpandedValue {
-            context,
-            source: ExpandedValueSource::Constructed(EMPTY_ANNOTATIONS, expanded_value_ref),
-            variable: None,
-        })))
+        Ok(Some(ValueExpr::ValueLiteral(
+            LazyExpandedValue::from_constructed(context, EMPTY_ANNOTATIONS, expanded_value_ref),
+        )))
     }
 
     /// Appends a string fragment to the `BumpString` being constructed.

@@ -13,7 +13,7 @@ use crate::lazy::expanded::template::{
 };
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
-    ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
+    LazyExpandedValue, TemplateVariableReference,
 };
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
@@ -272,14 +272,11 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
                 match first_result_expr {
                     // If the expression is a value literal, wrap it in a LazyExpandedValue and return it.
                     TemplateBodyValueExpr::Element(element) => {
-                        let value = LazyExpandedValue {
-                            context: self.context,
-                            source: ExpandedValueSource::Template(
-                                *environment,
-                                TemplateElement::new(*template, element),
-                            ),
-                            variable: None,
-                        };
+                        let value = LazyExpandedValue::from_template(
+                            self.context,
+                            *environment,
+                            TemplateElement::new(*template, element),
+                        );
                         Ok(Some(value))
                     }
                     // If the expression is a variable, resolve it in the current environment.

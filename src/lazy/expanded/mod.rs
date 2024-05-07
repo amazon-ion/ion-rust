@@ -395,11 +395,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazyExpandingReader<Encoding, Input
                 VersionMarker(marker) => return Ok(SystemStreamItem::VersionMarker(marker)),
                 // We got our value; return it.
                 Value(raw_value) => {
-                    let value = LazyExpandedValue {
-                        source: ExpandedValueSource::ValueLiteral(raw_value),
-                        context: context_ref,
-                        variable: None,
-                    };
+                    let value = LazyExpandedValue::from_literal(context_ref, raw_value);
                     return self.interpret_value(value);
                 }
                 // It's another macro invocation, we'll start evaluating it.
@@ -512,16 +508,27 @@ impl<'top, V: RawValueLiteral, Encoding: LazyDecoder<Value<'top> = V>> From<V>
 #[derive(Debug, Copy, Clone)]
 pub struct TemplateVariableReference<'top> {
     template: TemplateMacroRef<'top>,
-    signature_index: usize,
+    signature_index: u16,
 }
 
 impl<'top> TemplateVariableReference<'top> {
+    pub fn new(template: TemplateMacroRef<'top>, signature_index: u16) -> Self {
+        Self {
+            template,
+            signature_index,
+        }
+    }
+
     fn name(&self) -> &'top str {
-        self.template.signature.parameters()[self.signature_index].name()
+        self.template.signature.parameters()[self.signature_index()].name()
     }
 
     fn host_template(&self) -> TemplateMacroRef<'top> {
         self.template
+    }
+
+    fn signature_index(&self) -> usize {
+        self.signature_index as usize
     }
 }
 
@@ -561,6 +568,18 @@ impl<'top, Encoding: LazyDecoder> LazyExpandedValue<'top, Encoding> {
         Self {
             context,
             source: ExpandedValueSource::Template(environment, element),
+            variable: None,
+        }
+    }
+
+    pub(crate) fn from_constructed(
+        context: EncodingContextRef<'top>,
+        annotations: &'top [&'top str],
+        value: &'top ExpandedValueRef<'top, Encoding>,
+    ) -> Self {
+        Self {
+            context,
+            source: ExpandedValueSource::Constructed(annotations, value),
             variable: None,
         }
     }

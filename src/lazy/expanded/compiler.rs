@@ -497,7 +497,10 @@ impl TemplateCompiler {
             .ok_or_else(|| {
                 IonError::decoding_error(format!("variable '{name}' is not recognized"))
             })?;
-        definition.push_variable(signature_index);
+        if signature_index > u16::MAX as usize {
+            return IonResult::decoding_error("this implementation supports up to 65K parameters");
+        }
+        definition.push_variable(signature_index as u16);
         Ok(())
     }
 }
@@ -558,7 +561,7 @@ mod tests {
             definition,
             index,
             TemplateBodyValueExpr::Variable(TemplateBodyVariableReference::new(
-                expected_signature_index,
+                expected_signature_index as u16,
             )),
         )
     }

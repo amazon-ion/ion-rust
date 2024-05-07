@@ -373,7 +373,7 @@ impl TemplateBody {
             .push(TemplateBodyValueExpr::Element(element))
     }
 
-    pub fn push_variable(&mut self, signature_index: usize) {
+    pub fn push_variable(&mut self, signature_index: u16) {
         self.expressions.push(TemplateBodyValueExpr::Variable(
             TemplateBodyVariableReference::new(signature_index),
         ))
@@ -792,20 +792,20 @@ impl<'top, D: LazyDecoder> Iterator for TemplateMacroInvocationArgsIterator<'top
 /// A reference to a variable in a template body.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct TemplateBodyVariableReference {
-    signature_index: usize,
+    signature_index: u16,
 }
 
 impl TemplateBodyVariableReference {
-    pub fn new(signature_index: usize) -> Self {
+    pub fn new(signature_index: u16) -> Self {
         Self { signature_index }
     }
     pub fn signature_index(&self) -> usize {
-        self.signature_index
+        self.signature_index as usize
     }
     pub fn name<'a>(&self, signature: &'a MacroSignature) -> &'a str {
         signature
             .parameters()
-            .get(self.signature_index)
+            .get(self.signature_index())
             .unwrap()
             .name()
     }
