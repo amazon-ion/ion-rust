@@ -109,7 +109,7 @@ impl<M: Copy + Debug, V: Copy + Debug, E: Copy + Debug> RawStreamItem<M, V, E> {
     }
 }
 
-/// Represents the end of a [`RawInputStream`].
+/// Represents the end of a raw input stream.
 ///
 /// This type implements [`HasRange`] and [`HasSpan`]. These traits aren't especially useful for the
 /// `EndPosition` type itself, but implementing them allows the `RawStreamItem` type (which contains
