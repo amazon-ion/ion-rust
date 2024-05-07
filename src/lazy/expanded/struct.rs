@@ -12,7 +12,7 @@ use crate::lazy::expanded::template::{
     TemplateMacroRef, TemplateStructIndex, TemplateStructUnexpandedFieldsIterator,
 };
 use crate::lazy::expanded::{
-    EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
+    EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
     ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
 };
 use crate::result::IonFailure;
@@ -27,9 +27,9 @@ use crate::{IonError, IonResult, RawSymbolTokenRef, SymbolRef};
 // and expands the field as part of its iteration process.
 #[derive(Debug, Clone, Copy)]
 pub enum UnexpandedField<'top, D: LazyDecoder> {
-    RawNameValue(EncodingContext<'top>, D::FieldName<'top>, D::Value<'top>),
-    RawNameEExp(EncodingContext<'top>, D::FieldName<'top>, D::EExp<'top>),
-    RawEExp(EncodingContext<'top>, D::EExp<'top>),
+    RawNameValue(EncodingContextRef<'top>, D::FieldName<'top>, D::Value<'top>),
+    RawNameEExp(EncodingContextRef<'top>, D::FieldName<'top>, D::EExp<'top>),
+    RawEExp(EncodingContextRef<'top>, D::EExp<'top>),
     TemplateNameValue(SymbolRef<'top>, TemplateElement<'top>),
     TemplateNameMacro(SymbolRef<'top>, TemplateMacroInvocation<'top>),
     TemplateNameVariable(
@@ -65,7 +65,7 @@ impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
 
 impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
     fn from_raw_field(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         name: D::FieldName<'top>,
         value: impl Into<LazyExpandedValue<'top, D>>,
     ) -> Self {
@@ -89,7 +89,7 @@ impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum LazyExpandedFieldName<'top, D: LazyDecoder> {
-    RawName(EncodingContext<'top>, D::FieldName<'top>),
+    RawName(EncodingContextRef<'top>, D::FieldName<'top>),
     TemplateName(TemplateMacroRef<'top>, SymbolRef<'top>),
     // TODO: `Constructed` needed for names in `(make_struct ...)`
 }
@@ -136,13 +136,13 @@ pub enum ExpandedStructSource<'top, D: LazyDecoder> {
 
 #[derive(Copy, Clone)]
 pub struct LazyExpandedStruct<'top, D: LazyDecoder> {
-    pub(crate) context: EncodingContext<'top>,
+    pub(crate) context: EncodingContextRef<'top>,
     pub(crate) source: ExpandedStructSource<'top, D>,
 }
 
 //TODO: Feature gate
 impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
-    pub fn context(&self) -> EncodingContext<'top> {
+    pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
     pub fn source(&self) -> ExpandedStructSource<'top, D> {
@@ -152,7 +152,7 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
 
 impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
     pub fn from_literal(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         sexp: D::Struct<'top>,
     ) -> LazyExpandedStruct<'top, D> {
         let source = ExpandedStructSource::ValueLiteral(sexp);
@@ -160,7 +160,7 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
     }
 
     pub fn from_template(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
         template: TemplateMacroRef<'top>,
         annotations: AnnotationsRange,
@@ -424,7 +424,7 @@ impl<'top, D: LazyDecoder> ExpandedStructIterator<'top, D> {
         // LazyRawStruct, or it could be a `TemplateStructRawFieldsIterator`.
         I: Iterator<Item = IonResult<UnexpandedField<'top, D>>>,
     >(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         state: &'a mut ExpandedStructIteratorState<'top, D>,
         evaluator: &'a mut MacroEvaluator<'top, D>,
         iter: &'a mut I,
@@ -488,7 +488,7 @@ impl<'top, D: LazyDecoder> ExpandedStructIterator<'top, D> {
     /// Pulls a single unexpanded field expression from the source iterator and sets `state` according to
     /// the expression's kind.
     fn next_from_iterator<I: Iterator<Item = IonResult<UnexpandedField<'top, D>>>>(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         state: &mut ExpandedStructIteratorState<'top, D>,
         evaluator: &mut MacroEvaluator<'top, D>,
         iter: &mut I,

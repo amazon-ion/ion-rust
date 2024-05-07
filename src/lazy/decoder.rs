@@ -269,7 +269,7 @@ impl<'top, D: LazyDecoder> HasRange for LazyRawFieldExpr<'top, D> {
 // function while also preventing users from seeing or depending on it.
 pub(crate) mod private {
     use crate::lazy::expanded::r#struct::UnexpandedField;
-    use crate::lazy::expanded::EncodingContext;
+    use crate::lazy::expanded::EncodingContextRef;
     use crate::IonResult;
 
     use super::{LazyDecoder, LazyRawFieldExpr, LazyRawStruct};
@@ -286,17 +286,17 @@ pub(crate) mod private {
         /// expansion process.
         fn unexpanded_fields(
             &self,
-            context: EncodingContext<'top>,
+            context: EncodingContextRef<'top>,
         ) -> RawStructUnexpandedFieldsIterator<'top, D>;
     }
 
     pub struct RawStructUnexpandedFieldsIterator<'top, D: LazyDecoder> {
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         raw_fields: <D::Struct<'top> as LazyRawStruct<'top, D>>::Iterator,
     }
 
     impl<'top, D: LazyDecoder> RawStructUnexpandedFieldsIterator<'top, D> {
-        pub fn context(&self) -> EncodingContext<'top> {
+        pub fn context(&self) -> EncodingContextRef<'top> {
             self.context
         }
     }
@@ -326,7 +326,7 @@ pub(crate) mod private {
     {
         fn unexpanded_fields(
             &self,
-            context: EncodingContext<'top>,
+            context: EncodingContextRef<'top>,
         ) -> RawStructUnexpandedFieldsIterator<'top, D> {
             let raw_fields = <Self as LazyRawStruct<'top, D>>::iter(self);
             RawStructUnexpandedFieldsIterator {

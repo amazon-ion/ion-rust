@@ -5,7 +5,7 @@ use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression, ValueExpr};
 use crate::lazy::expanded::macro_table::MacroRef;
-use crate::lazy::expanded::{EncodingContext, LazyExpandedValue};
+use crate::lazy::expanded::{EncodingContextRef, LazyExpandedValue};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::IonResult;
 use std::fmt::{Debug, Formatter};
@@ -13,13 +13,13 @@ use std::fmt::{Debug, Formatter};
 /// An e-expression (in Ion format `D`) that has been resolved in the current encoding context.
 #[derive(Copy, Clone)]
 pub struct EExpression<'top, D: LazyDecoder> {
-    pub(crate) context: EncodingContext<'top>,
+    pub(crate) context: EncodingContextRef<'top>,
     pub(crate) raw_invocation: D::EExp<'top>,
     pub(crate) invoked_macro: MacroRef<'top>,
 }
 
 impl<'top, D: LazyDecoder> EExpression<'top, D> {
-    pub fn context(&self) -> EncodingContext<'top> {
+    pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
     pub fn raw_invocation(&self) -> D::EExp<'top> {
@@ -38,7 +38,7 @@ impl<'top, D: LazyDecoder> Debug for EExpression<'top, D> {
 
 impl<'top, D: LazyDecoder> EExpression<'top, D> {
     pub fn new(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         raw_invocation: D::EExp<'top>,
         invoked_macro: MacroRef<'top>,
     ) -> Self {
@@ -70,7 +70,7 @@ impl<'top, D: LazyDecoder> From<EExpression<'top, D>> for MacroExpr<'top, D> {
 }
 
 pub struct EExpressionArgsIterator<'top, D: LazyDecoder> {
-    context: EncodingContext<'top>,
+    context: EncodingContextRef<'top>,
     raw_args: <D::EExp<'top> as RawEExpression<'top, D>>::RawArgumentsIterator<'top>,
 }
 

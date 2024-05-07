@@ -24,7 +24,7 @@ use crate::lazy::expanded::template::{
     TemplateBodyValueExpr, TemplateBodyVariableReference, TemplateElement, TemplateMacroInvocation,
     TemplateMacroInvocationArgsIterator, TemplateMacroRef, TemplateValue,
 };
-use crate::lazy::expanded::EncodingContext;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::expanded::{ExpandedValueRef, ExpandedValueSource, LazyExpandedValue};
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
@@ -51,7 +51,7 @@ pub trait RawEExpression<'top, D: LazyDecoder<EExp<'top> = Self>>:
     /// If the lookup is successful, returns an `Ok` containing a resolved `EExpression` that holds
     /// a reference to the macro being invoked.
     /// If the ID cannot be found in the `EncodingContext`, returns `Err`.
-    fn resolve(self, context: EncodingContext<'top>) -> IonResult<EExpression<'top, D>> {
+    fn resolve(self, context: EncodingContextRef<'top>) -> IonResult<EExpression<'top, D>> {
         let invoked_macro = context
             .macro_table
             .macro_with_id(self.id())
@@ -98,7 +98,7 @@ impl<'top, D: LazyDecoder> MacroExpr<'top, D> {
         }
     }
 
-    fn context(&self) -> EncodingContext<'top> {
+    fn context(&self) -> EncodingContextRef<'top> {
         match self {
             MacroExpr::TemplateMacro(t) => t.context(),
             MacroExpr::EExp(e) => e.context(),
@@ -268,7 +268,7 @@ pub struct MacroEvaluator<'top, D: LazyDecoder> {
 }
 
 impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
-    pub fn new(context: EncodingContext<'top>, environment: Environment<'top, D>) -> Self {
+    pub fn new(context: EncodingContextRef<'top>, environment: Environment<'top, D>) -> Self {
         let macro_stack = BumpVec::new_in(context.allocator);
         let mut env_stack = BumpVec::new_in(context.allocator);
         env_stack.push(environment);
@@ -520,7 +520,7 @@ impl<'top, D: LazyDecoder> ValuesExpansion<'top, D> {
     /// Yields the next [`ValueExpr`] in this macro's evaluation.
     pub fn next(
         &mut self,
-        _context: EncodingContext<'top>,
+        _context: EncodingContextRef<'top>,
         _environment: Environment<'top, D>,
     ) -> IonResult<Option<ValueExpr<'top, D>>> {
         // We visit the argument expressions in the invocation in order from left to right.
@@ -564,7 +564,7 @@ impl<'top, D: LazyDecoder> MakeStringExpansion<'top, D> {
     /// Yields the next [`ValueExpr`] in this `make_string` macro's evaluation.
     pub fn next(
         &mut self,
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
     ) -> IonResult<Option<ValueExpr<'top, D>>> {
         // `make_string` always produces a single value. Once that value has been returned, it needs
@@ -616,7 +616,7 @@ impl<'top, D: LazyDecoder> MakeStringExpansion<'top, D> {
 
     /// Appends a string fragment to the `BumpString` being constructed.
     fn append_expanded_raw_text_value(
-        context: EncodingContext<'_>,
+        context: EncodingContextRef<'_>,
         buffer: &mut BumpString,
         value: ExpandedValueRef<'_, D>,
     ) -> IonResult<()> {
@@ -671,7 +671,7 @@ impl<'top> TemplateExpansion<'top> {
 
     fn next<'data: 'top, D: LazyDecoder>(
         &mut self,
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
     ) -> IonResult<Option<ValueExpr<'top, D>>> {
         let value_expr = match self.template.body().expressions().get(self.step_index) {

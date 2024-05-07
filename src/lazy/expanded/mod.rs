@@ -4,7 +4,7 @@
 //! data, replacing the word `Raw` with the word `Expanded` in the type name.
 //!
 //! The expanded types expose largely the same API, with some key differences:
-//!   1. Most method invocations require an [`EncodingContext`] to be specified, giving the
+//!   1. Most method invocations require an [`EncodingContextRef`] to be specified, giving the
 //!      evaluator access to the necessary macro definitions and the symbol table.
 //!   2. All macro invocations encountered in the raw layer are fully expanded, meaning that
 //!      values surfaced by calls to `next()` on readers/iterators may be the result of macro
@@ -35,6 +35,7 @@
 use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Formatter};
 use std::iter::empty;
+use std::ops::Deref;
 
 use bumpalo::Bump as BumpAllocator;
 
@@ -77,7 +78,7 @@ pub mod r#struct;
 pub mod template;
 
 /// A collection of resources that can be used to encode or decode Ion values.
-/// The `'top` lifetime associated with the [`EncodingContext`] reflects the fact that it can only
+/// The `'top` lifetime associated with the [`EncodingContextRef`] reflects the fact that it can only
 /// be used as long as the reader is positioned on the same top level expression (i.e. the symbol and
 /// macro tables are guaranteed not to change).
 //  It should be possible to loosen this definition of `'top` to include several top level values
@@ -104,6 +105,29 @@ impl<'top> EncodingContext<'top> {
             symbol_table,
             allocator,
         }
+    }
+
+    pub fn get_ref(&'top self) -> EncodingContextRef<'top> {
+        EncodingContextRef { context: self }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct EncodingContextRef<'top> {
+    context: &'top EncodingContext<'top>,
+}
+
+impl<'top> EncodingContextRef<'top> {
+    pub fn new(context: &'top EncodingContext<'top>) -> Self {
+        Self { context }
+    }
+}
+
+impl<'top> Deref for EncodingContextRef<'top> {
+    type Target = EncodingContext<'top>;
+
+    fn deref(&self) -> &Self::Target {
+        self.context
     }
 }
 
@@ -211,8 +235,9 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazyExpandingReader<Encoding, Input
     // TODO: This method is temporary. It will be removed when the ability to read 1.1 encoding
     //       directives from the input stream is available. Until then, template creation is manual.
     pub fn register_template(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
+        let context = self.context();
         let template_macro: TemplateMacro =
-            { TemplateCompiler::compile_from_text(self.context(), template_definition)? };
+            { TemplateCompiler::compile_from_text(context.get_ref(), template_definition)? };
 
         let macro_table = self.macro_table.get_mut();
         macro_table.add_macro(template_macro)
@@ -361,6 +386,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazyExpandingReader<Encoding, Input
         // step in a loop until we get a value or end-of-stream.
 
         let allocator: &BumpAllocator = unsafe { &*self.allocator.get() };
+        let context_ref = EncodingContextRef::new(allocator.alloc_with(|| self.context()));
         loop {
             // Pull another top-level expression from the input stream if one is available.
             use crate::lazy::raw_stream_item::RawStreamItem::*;
@@ -371,7 +397,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazyExpandingReader<Encoding, Input
                 Value(raw_value) => {
                     let value = LazyExpandedValue {
                         source: ExpandedValueSource::ValueLiteral(raw_value),
-                        context: self.context(),
+                        context: context_ref,
                         variable: None,
                     };
                     return self.interpret_value(value);
@@ -379,7 +405,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazyExpandingReader<Encoding, Input
                 // It's another macro invocation, we'll start evaluating it.
                 EExpression(e_exp) => {
                     let context = self.context();
-                    let resolved_e_exp = e_exp.resolve(context)?;
+                    let resolved_e_exp = e_exp.resolve(context_ref)?;
                     // Get the current evaluator or make a new one
                     let evaluator = match self.evaluator_ptr.get() {
                         // If there's already an evaluator, dereference the pointer.
@@ -388,7 +414,9 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazyExpandingReader<Encoding, Input
                         None => context
                             .allocator
                             // E-expressions always have an empty environment
-                            .alloc_with(move || MacroEvaluator::new(context, Environment::empty())),
+                            .alloc_with(move || {
+                                MacroEvaluator::new(context_ref, Environment::empty())
+                            }),
                     };
                     // Push the invocation onto the evaluation stack.
                     evaluator.push(resolved_e_exp)?;
@@ -500,7 +528,7 @@ impl<'top> TemplateVariableReference<'top> {
 /// A value produced by expanding the 'raw' view of the input data.
 #[derive(Copy, Clone)]
 pub struct LazyExpandedValue<'top, Encoding: LazyDecoder> {
-    pub(crate) context: EncodingContext<'top>,
+    pub(crate) context: EncodingContextRef<'top>,
     pub(crate) source: ExpandedValueSource<'top, Encoding>,
     // If this value came from a variable reference in a template macro expansion, the
     // template and the name of the variable can be found here.
@@ -515,7 +543,7 @@ impl<'top, Encoding: LazyDecoder> Debug for LazyExpandedValue<'top, Encoding> {
 
 impl<'top, Encoding: LazyDecoder> LazyExpandedValue<'top, Encoding> {
     pub(crate) fn from_literal(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         value: Encoding::Value<'top>,
     ) -> Self {
         Self {
@@ -526,7 +554,7 @@ impl<'top, Encoding: LazyDecoder> LazyExpandedValue<'top, Encoding> {
     }
 
     pub(crate) fn from_template(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         environment: Environment<'top, Encoding>,
         element: TemplateElement<'top>,
     ) -> Self {
@@ -594,7 +622,7 @@ impl<'top, Encoding: LazyDecoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
-    pub fn context(&self) -> EncodingContext<'top> {
+    pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
 
@@ -834,7 +862,7 @@ impl<'top, Encoding: LazyDecoder> ExpandedValueRef<'top, Encoding> {
         }
     }
 
-    fn from_raw(context: EncodingContext<'top>, value: RawValueRef<'top, Encoding>) -> Self {
+    fn from_raw(context: EncodingContextRef<'top>, value: RawValueRef<'top, Encoding>) -> Self {
         use RawValueRef::*;
         match value {
             Null(ion_type) => ExpandedValueRef::Null(ion_type),
@@ -878,7 +906,7 @@ impl<'top, D: LazyDecoder> Debug for ExpandedValueRef<'top, D> {
 
 impl<'top, Encoding: LazyDecoder> ExpandedValueRef<'top, Encoding> {
     fn from_template(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         environment: Environment<'top, Encoding>,
         element: &TemplateElement<'top>,
     ) -> Self {
