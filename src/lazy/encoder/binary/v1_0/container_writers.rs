@@ -57,7 +57,7 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
                 RawSymbolTokenRef::Text(text) => {
                     return cold_path! {
                         IonResult::encoding_error(
-                            format!("binary Ion 1.0 does not support text annotation literals (received '{}')", text.as_ref())
+                            format!("binary Ion 1.0 does not support text annotation literals (received '{}')", text)
                         )
                     };
                 }

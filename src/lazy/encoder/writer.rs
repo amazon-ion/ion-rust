@@ -79,6 +79,14 @@ impl<E: Encoding, Output: Write> ApplicationWriter<E, Output> {
         Ok(writer)
     }
 
+    pub fn output(&self) -> &Output {
+        &self.output
+    }
+
+    pub fn output_mut(&mut self) -> &mut Output {
+        &mut self.output
+    }
+
     /// Writes bytes of previously encoded values to the output stream.
     pub fn flush(&mut self) -> IonResult<()> {
         if self.encoding_context.num_pending_symbols > 0 {
@@ -207,13 +215,13 @@ impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value
                 RawSymbolTokenRef::SymbolId(sid) => sid,
                 // The token is text...
                 RawSymbolTokenRef::Text(text) => {
-                    if let Some(sid) = self.symbol_table().sid_for(&text.as_ref()) {
+                    if let Some(sid) = self.symbol_table().sid_for(&text) {
                         //...that was already in the symbol table.
                         sid
                     } else {
                         // ...that we need to add to the symbol table.
                         self.encoding.num_pending_symbols += 1;
-                        self.symbol_table().add_symbol(text.as_ref())
+                        self.symbol_table().add_symbol(text)
                     }
                 }
             };
@@ -268,11 +276,11 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         if self.encoding.supports_text_tokens
             && self.encoding.symbol_creation_policy == SymbolCreationPolicy::WriteProvidedToken
         {
-            return self.raw_value_writer.write_symbol(text.as_ref());
+            return self.raw_value_writer.write_symbol(text);
         }
 
         // Otherwise, see if the symbol is already in the symbol table.
-        let symbol_id = match self.symbol_table().sid_for(&text.as_ref()) {
+        let symbol_id = match self.symbol_table().sid_for(&text) {
             // If so, use the existing ID.
             Some(sid) => sid,
             // If not, add it to the symbol table and make a note to add it to the LST on the next
@@ -363,11 +371,11 @@ impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V>
         if self.encoding.supports_text_tokens
             && self.encoding.symbol_creation_policy == SymbolCreationPolicy::WriteProvidedToken
         {
-            return self.raw_struct_writer.encode_field_name(text.as_ref());
+            return self.raw_struct_writer.encode_field_name(text);
         }
 
         // Otherwise, see if the symbol is already in the symbol table.
-        let symbol_id = match self.encoding.symbol_table.sid_for(&text.as_ref()) {
+        let symbol_id = match self.encoding.symbol_table.sid_for(&text) {
             // If so, use the existing ID.
             Some(sid) => sid,
             // If not, add it to the symbol table and make a note to add it to the LST on the next

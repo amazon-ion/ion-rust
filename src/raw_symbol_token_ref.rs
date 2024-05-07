@@ -1,13 +1,10 @@
-use crate::raw_symbol_token::RawSymbolToken;
-use crate::types::symbol::SymbolText;
-use crate::{Symbol, SymbolId};
-use std::borrow::Cow;
+use crate::{Symbol, SymbolId, SymbolRef};
 
 /// Like RawSymbolToken, but the Text variant holds a borrowed reference instead of a String.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RawSymbolTokenRef<'a> {
     SymbolId(SymbolId),
-    Text(Cow<'a, str>),
+    Text(&'a str),
 }
 
 impl<'a> RawSymbolTokenRef<'a> {
@@ -17,7 +14,7 @@ impl<'a> RawSymbolTokenRef<'a> {
     pub fn matches_sid_or_text(&self, symbol_id: SymbolId, symbol_text: &str) -> bool {
         match self {
             RawSymbolTokenRef::SymbolId(sid) => symbol_id == *sid,
-            RawSymbolTokenRef::Text(text) => symbol_text == text,
+            RawSymbolTokenRef::Text(text) => symbol_text == *text,
         }
     }
 }
@@ -29,7 +26,7 @@ pub trait AsRawSymbolTokenRef {
 
 impl<'a> AsRawSymbolTokenRef for RawSymbolTokenRef<'a> {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
-        self.clone()
+        *self
     }
 }
 
@@ -39,22 +36,16 @@ impl AsRawSymbolTokenRef for SymbolId {
     }
 }
 
-impl AsRawSymbolTokenRef for String {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
-        RawSymbolTokenRef::Text(Cow::from(self.as_str()))
-    }
-}
-
 impl AsRawSymbolTokenRef for &str {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
-        RawSymbolTokenRef::Text(Cow::from(*self))
+        RawSymbolTokenRef::Text(self)
     }
 }
 
 impl AsRawSymbolTokenRef for Symbol {
     fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
         match self.text() {
-            Some(text) => RawSymbolTokenRef::Text(Cow::from(text)),
+            Some(text) => RawSymbolTokenRef::Text(text),
             None => RawSymbolTokenRef::SymbolId(0),
         }
     }
@@ -69,45 +60,21 @@ where
     }
 }
 
-impl AsRawSymbolTokenRef for RawSymbolToken {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
-        match self {
-            RawSymbolToken::SymbolId(sid) => RawSymbolTokenRef::SymbolId(*sid),
-            RawSymbolToken::Text(text) => RawSymbolTokenRef::Text(Cow::from(text.as_str())),
-        }
-    }
-}
-
-impl<'a> From<RawSymbolToken> for RawSymbolTokenRef<'a> {
-    fn from(value: RawSymbolToken) -> Self {
-        match value {
-            RawSymbolToken::SymbolId(sid) => RawSymbolTokenRef::SymbolId(sid),
-            RawSymbolToken::Text(text) => RawSymbolTokenRef::Text(text.into()),
-        }
-    }
-}
-
-impl<'a> From<&'a RawSymbolToken> for RawSymbolTokenRef<'a> {
-    fn from(value: &'a RawSymbolToken) -> Self {
-        value.as_raw_symbol_token_ref()
-    }
-}
-
-impl<'a, 'b> From<&'a RawSymbolTokenRef<'b>> for RawSymbolTokenRef<'b> {
+impl<'a, 'b> From<&'a RawSymbolTokenRef<'b>> for RawSymbolTokenRef<'a> {
     fn from(value: &'a RawSymbolTokenRef<'b>) -> Self {
-        value.clone()
+        *value
     }
 }
 
 impl<'a> From<&'a str> for RawSymbolTokenRef<'a> {
     fn from(value: &'a str) -> Self {
-        RawSymbolTokenRef::Text(Cow::Borrowed(value))
+        RawSymbolTokenRef::Text(value)
     }
 }
 
 impl<'a> From<&'a &str> for RawSymbolTokenRef<'a> {
     fn from(value: &'a &str) -> Self {
-        RawSymbolTokenRef::Text(Cow::Borrowed(value))
+        RawSymbolTokenRef::Text(value)
     }
 }
 
@@ -123,15 +90,11 @@ impl<'a> From<&'a SymbolId> for RawSymbolTokenRef<'a> {
     }
 }
 
-impl<'a> From<Symbol> for RawSymbolTokenRef<'a> {
-    fn from(value: Symbol) -> Self {
-        let Symbol { text } = value;
-        match text {
-            SymbolText::Shared(shared) => {
-                RawSymbolTokenRef::Text(String::from(shared.as_ref()).into())
-            }
-            SymbolText::Owned(owned) => RawSymbolTokenRef::Text(owned.into()),
-            SymbolText::Unknown => RawSymbolTokenRef::SymbolId(0),
+impl<'a> From<SymbolRef<'a>> for RawSymbolTokenRef<'a> {
+    fn from(value: SymbolRef<'a>) -> Self {
+        match value.text() {
+            None => RawSymbolTokenRef::SymbolId(0),
+            Some(text) => RawSymbolTokenRef::Text(text),
         }
     }
 }

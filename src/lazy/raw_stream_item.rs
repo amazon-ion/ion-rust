@@ -1,14 +1,16 @@
-use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::{HasRange, HasSpan, LazyDecoder};
+use crate::lazy::span::Span;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
 use std::fmt::Debug;
+use std::ops::Range;
 
 #[derive(Debug)]
 /// Raw stream components that a RawReader may encounter.
-pub enum RawStreamItem<V: Debug, E: Debug> {
+pub enum RawStreamItem<M: Debug, V: Debug, E: Debug> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
-    VersionMarker(u8, u8),
+    VersionMarker(M),
     /// An Ion value whose data has not yet been read. For more information about how to read its
     /// data and (in the case of containers) access any nested values, see the documentation
     /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0).
@@ -16,18 +18,49 @@ pub enum RawStreamItem<V: Debug, E: Debug> {
     /// An Ion 1.1+ macro invocation. Ion 1.0 readers will never return a macro invocation.
     EExpression(E),
     /// The end of the stream
-    EndOfStream,
+    EndOfStream(EndPosition),
 }
 
-pub type LazyRawStreamItem<'top, D> =
-    RawStreamItem<<D as LazyDecoder>::Value<'top>, <D as LazyDecoder>::EExpression<'top>>;
+pub type LazyRawStreamItem<'top, D> = RawStreamItem<
+    <D as LazyDecoder>::VersionMarker<'top>,
+    <D as LazyDecoder>::Value<'top>,
+    <D as LazyDecoder>::EExp<'top>,
+>;
 
-impl<V: Debug, E: Debug> RawStreamItem<V, E> {
+impl<M: Debug + HasRange, V: Debug + HasRange, E: Debug + HasRange> HasRange
+    for RawStreamItem<M, V, E>
+{
+    fn range(&self) -> Range<usize> {
+        use RawStreamItem::*;
+        match self {
+            VersionMarker(marker) => marker.range(),
+            Value(value) => value.range(),
+            EExpression(eexp) => eexp.range(),
+            EndOfStream(eos) => eos.range(),
+        }
+    }
+}
+
+impl<'top, M: Debug + HasSpan<'top>, V: Debug + HasSpan<'top>, E: Debug + HasSpan<'top>>
+    HasSpan<'top> for RawStreamItem<M, V, E>
+{
+    fn span(&self) -> Span<'top> {
+        use RawStreamItem::*;
+        match self {
+            VersionMarker(marker) => marker.span(),
+            Value(value) => value.span(),
+            EExpression(eexp) => eexp.span(),
+            EndOfStream(eos) => eos.span(),
+        }
+    }
+}
+
+impl<M: Copy + Debug, V: Copy + Debug, E: Copy + Debug> RawStreamItem<M, V, E> {
     /// If this item is an Ion version marker (IVM), returns `Some((major, minor))` indicating the
     /// version. Otherwise, returns `None`.
-    pub fn version_marker(&self) -> Option<(u8, u8)> {
-        if let Self::VersionMarker(major, minor) = self {
-            Some((*major, *minor))
+    pub fn version_marker(&self) -> Option<M> {
+        if let Self::VersionMarker(marker) = self {
+            Some(*marker)
         } else {
             None
         }
@@ -35,7 +68,7 @@ impl<V: Debug, E: Debug> RawStreamItem<V, E> {
 
     /// Like [`Self::version_marker`], but returns a [`IonError::Decoding`] if this item
     /// is not an IVM.
-    pub fn expect_ivm(self) -> IonResult<(u8, u8)> {
+    pub fn expect_ivm(self) -> IonResult<M> {
         self.version_marker()
             .ok_or_else(|| IonError::decoding_error(format!("expected IVM, found {:?}", self)))
     }
@@ -73,5 +106,38 @@ impl<V: Debug, E: Debug> RawStreamItem<V, E> {
         } else {
             IonResult::decoding_error(format!("expected a macro invocation, found {:?}", self))
         }
+    }
+}
+
+/// Represents the end of a raw input stream.
+///
+/// This type implements [`HasRange`] and [`HasSpan`]. These traits aren't especially useful for the
+/// `EndPosition` type itself, but implementing them allows the `RawStreamItem` type (which contains
+/// an `EndOfStream(EndPosition)` variant) to also implement them.
+#[derive(Debug, Copy, Clone)]
+pub struct EndPosition {
+    position: usize,
+}
+
+impl EndPosition {
+    pub(crate) fn new(position: usize) -> Self {
+        Self { position }
+    }
+}
+
+impl HasRange for EndPosition {
+    /// Returns an empty range whose matching `start` and `end` represent the first byte index at
+    /// the end of the stream which contains no data. For example, in the stream `1 2 3`,
+    /// `EndPosition::range(...)` would return the range `5..5`.
+    fn range(&self) -> Range<usize> {
+        self.position..self.position
+    }
+}
+
+impl<'top> HasSpan<'top> for EndPosition {
+    /// Returns an empty [`Span`]. The range of the span will match that produced by
+    /// [`range`](Self::range).
+    fn span(&self) -> Span<'top> {
+        Span::with_offset(self.position, &[])
     }
 }

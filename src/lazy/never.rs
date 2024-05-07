@@ -1,6 +1,7 @@
 use std::fmt::Debug;
+use std::ops::Range;
 
-use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
+use crate::lazy::decoder::{HasRange, HasSpan, LazyDecoder, LazyRawValueExpr};
 use crate::lazy::encoder::annotation_seq::AnnotationSeq;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
@@ -8,6 +9,7 @@ use crate::lazy::encoder::value_writer::{
 };
 use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
 use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
+use crate::lazy::span::Span;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::{Decimal, Int, IonResult, IonType, Timestamp};
@@ -18,9 +20,21 @@ pub enum Never {
     // Has no variants, cannot be instantiated.
 }
 
+impl<'top> HasSpan<'top> for Never {
+    fn span(&self) -> Span<'top> {
+        unreachable!("<Never as HasSpan>::span")
+    }
+}
+
+impl HasRange for Never {
+    fn range(&self) -> Range<usize> {
+        unreachable!("<Never as HasSpan>::range")
+    }
+}
+
 // Ion 1.0 uses `Never` as a placeholder type for MacroInvocation.
 // The compiler should optimize these methods away.
-impl<'top, D: LazyDecoder<EExpression<'top> = Self>> RawEExpression<'top, D> for Never {
+impl<'top, D: LazyDecoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
     // These use Box<dyn> to avoid defining yet another placeholder type.
     type RawArgumentsIterator<'a> = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>>;
 

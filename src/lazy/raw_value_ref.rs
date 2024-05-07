@@ -135,7 +135,7 @@ impl<'top, D: LazyDecoder> RawValueRef<'top, D> {
 
     pub fn expect_symbol(self) -> IonResult<RawSymbolTokenRef<'top>> {
         if let RawValueRef::Symbol(s) = self {
-            Ok(s.clone())
+            Ok(s)
         } else {
             IonResult::decoding_error("expected a symbol")
         }

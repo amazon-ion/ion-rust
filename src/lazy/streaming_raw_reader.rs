@@ -349,7 +349,7 @@ mod tests {
     fn expect_end_of_stream(actual: LazyRawStreamItem<AnyEncoding>) -> IonResult<()> {
         assert!(matches!(
             actual,
-            LazyRawStreamItem::<AnyEncoding>::EndOfStream
+            LazyRawStreamItem::<AnyEncoding>::EndOfStream(_)
         ));
         Ok(())
     }

@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn write_struct() -> IonResult<()> {
         let mut writer = LazyRawTextWriter_1_1::new(vec![])?;
-        let empty_field_list: [(String, i64); 0] = [];
+        let empty_field_list: [(&str, i64); 0] = [];
         writer
             .write_struct(empty_field_list)?
             .write_struct([("foo", 1)])?
@@ -261,7 +261,7 @@ mod tests {
 
         let mut reader = LazyRawTextReader_1_1::new(encoded_text.as_bytes());
         let bump = bumpalo::Bump::new();
-        let (_major, _minor) = reader.next(&bump)?.expect_ivm()?;
+        let _marker = reader.next(&bump)?.expect_ivm()?;
         let eexp = reader.next(&bump)?.expect_macro_invocation()?;
         assert_eq!(MacroIdRef::LocalName("foo"), eexp.id());
         let mut args = eexp.raw_arguments();
@@ -308,7 +308,7 @@ mod tests {
             .expect_value()?
             .read()?
             .expect_symbol()?;
-        assert_eq!(symbol_arg, RawSymbolTokenRef::Text("+++".into()));
+        assert_eq!(symbol_arg, RawSymbolTokenRef::Text("+++"));
 
         Ok(())
     }

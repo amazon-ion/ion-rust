@@ -42,9 +42,10 @@ impl<'top, D: LazyDecoder> Environment<'top, D> {
 
     /// Returns the expression for the corresponding signature index -- the variable's offset within
     /// the template's signature. If the requested index is out of bounds, returns `Err`.
-    pub fn get_expected(&self, signature_index: usize) -> IonResult<&'top ValueExpr<'top, D>> {
+    pub fn get_expected(&self, signature_index: usize) -> IonResult<ValueExpr<'top, D>> {
         self.expressions()
             .get(signature_index)
+            .copied()
             // The TemplateCompiler should detect any invalid variable references prior to evaluation
             .ok_or_else(|| {
                 IonError::decoding_error(format!(
@@ -106,6 +107,10 @@ impl<'top, D: LazyDecoder> LazyExpandedList<'top, D> {
         let source =
             ExpandedListSource::Template(environment, template, annotations_range, step_range);
         Self { source, context }
+    }
+
+    pub fn source(&self) -> ExpandedListSource<'top, D> {
+        self.source
     }
 
     pub fn ion_type(&self) -> IonType {
@@ -208,6 +213,10 @@ pub struct LazyExpandedSExp<'top, D: LazyDecoder> {
 }
 
 impl<'top, D: LazyDecoder> LazyExpandedSExp<'top, D> {
+    pub fn source(&self) -> ExpandedSExpSource<'top, D> {
+        self.source
+    }
+
     pub fn ion_type(&self) -> IonType {
         IonType::SExp
     }
@@ -329,6 +338,7 @@ fn expand_next_sequence_value<'top, D: LazyDecoder>(
                 return Some(Ok(LazyExpandedValue {
                     source: ExpandedValueSource::ValueLiteral(value),
                     context,
+                    variable: None,
                 }))
             }
             Some(Ok(RawValueExpr::MacroInvocation(invocation))) => {

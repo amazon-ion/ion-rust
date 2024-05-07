@@ -14,6 +14,7 @@ pub mod raw_stream_item;
 pub mod raw_value_ref;
 pub mod reader;
 pub mod sequence;
+pub mod span;
 pub mod str_ref;
 pub mod streaming_raw_reader;
 pub mod r#struct;
