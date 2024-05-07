@@ -44,7 +44,7 @@ impl<'top> LazyRawBinaryVersionMarker_1_1<'top> {
 
 impl<'top> HasSpan<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
     fn span(&self) -> Span<'top> {
-        Span::with_range(self.range(), self.input.bytes())
+        Span::with_offset(self.input.offset(), self.input.bytes())
     }
 }
 
@@ -71,7 +71,7 @@ impl<'top> HasSpan<'top> for LazyRawBinaryValue_1_1<'top> {
         let range = self.range();
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         let bytes = &self.input.bytes()[local_range];
-        Span::with_range(range, bytes)
+        Span::with_offset(range.start, bytes)
     }
 }
 

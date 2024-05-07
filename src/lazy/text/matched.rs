@@ -140,7 +140,7 @@ impl<'top> MatchedFieldName<'top> {
     }
 
     pub fn span(&self) -> Span<'top> {
-        Span::with_range(self.range(), self.input.bytes())
+        Span::with_offset(self.input.offset(), self.input.bytes())
     }
 }
 

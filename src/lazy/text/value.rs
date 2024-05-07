@@ -84,7 +84,7 @@ pub type LazyRawTextVersionMarker_1_1<'top> = LazyRawTextVersionMarker<'top, Tex
 
 impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextVersionMarker<'top, E> {
     fn span(&self) -> Span<'top> {
-        Span::with_range(self.range(), self.input.bytes())
+        Span::with_offset(self.input.offset(), self.input.bytes())
     }
 }
 
@@ -145,7 +145,7 @@ impl<'top, E: TextEncoding<'top>> HasSpan<'top> for MatchedRawTextValue<'top, E>
         let range = self.range();
         let input_offset = self.input.offset();
         let local_range = (range.start - input_offset)..(range.end - input_offset);
-        Span::with_range(range, &self.input.bytes()[local_range])
+        Span::with_offset(range.start, &self.input.bytes()[local_range])
     }
 }
 

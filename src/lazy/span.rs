@@ -8,9 +8,10 @@ use std::ops::Range;
 /// allowing the byte slice that represented that item in the input by calling `span()`.
 #[derive(Debug, Copy, Clone)]
 pub struct Span<'a> {
+    // The input bytes that represented the item implementing `HasSpan`.
     bytes: &'a [u8],
-    start: usize,
-    end: usize,
+    // The offset in the overall stream at which the contents of `bytes` were found.
+    offset: usize,
 }
 
 impl<'a, A: AsRef<[u8]>> PartialEq<A> for Span<'a> {
@@ -20,16 +21,12 @@ impl<'a, A: AsRef<[u8]>> PartialEq<A> for Span<'a> {
 }
 
 impl<'a> Span<'a> {
-    pub fn with_range(range: Range<usize>, bytes: &'a [u8]) -> Self {
-        Self {
-            bytes,
-            start: range.start,
-            end: range.end,
-        }
+    pub fn with_offset(offset: usize, bytes: &'a [u8]) -> Self {
+        Self { bytes, offset }
     }
 
     pub fn range(&self) -> Range<usize> {
-        self.start..self.end
+        self.offset..self.offset + self.bytes.len()
     }
 
     pub fn bytes(&self) -> &'a [u8] {
@@ -43,15 +40,5 @@ impl<'a> Span<'a> {
     pub fn expect_text(&self) -> IonResult<&'a str> {
         std::str::from_utf8(self.bytes)
             .map_err(|_| IonError::decoding_error("span text was not valid UTF-8"))
-    }
-}
-
-pub trait ToRelativeRange {
-    fn to_relative_range(&self, absolute_offset: usize) -> Range<usize>;
-}
-
-impl ToRelativeRange for Range<usize> {
-    fn to_relative_range(&self, absolute_offset: usize) -> Range<usize> {
-        self.start - absolute_offset..self.end - absolute_offset
     }
 }

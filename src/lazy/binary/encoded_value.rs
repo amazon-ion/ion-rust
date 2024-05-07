@@ -60,7 +60,7 @@ pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
     //
     // EncodedValue stores the offset of the type descriptor byte from the beginning of the
     // data source (`header_offset`). The lengths of the other fields can be used to calculate
-    // their positions relative to thej  type descriptor byte. For example, to find the offset of the
+    // their positions relative to the type descriptor byte. For example, to find the offset of the
     // annotations header (if present), we can do:
     //     header_offset - annotations_header_length
     //

@@ -13,7 +13,7 @@ use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::lazy::decoder::{HasRange, HasSpan, LazyRawValue, RawVersionMarker};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::raw_value_ref::RawValueRef;
-use crate::lazy::span::{Span, ToRelativeRange};
+use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
@@ -42,7 +42,7 @@ impl<'top> LazyRawBinaryVersionMarker_1_0<'top> {
 
 impl<'top> HasSpan<'top> for LazyRawBinaryVersionMarker_1_0<'top> {
     fn span(&self) -> Span<'top> {
-        Span::with_range(self.range(), self.input.bytes())
+        Span::with_offset(self.input.offset(), self.input.bytes())
     }
 }
 
@@ -90,7 +90,7 @@ impl<'top> HasSpan<'top> for LazyRawBinaryValue_1_0<'top> {
         let range = self.range();
         // Subtract the `offset()` of the ImmutableBuffer to get the local indexes for start/end
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
-        Span::with_range(range, &self.input.bytes()[local_range])
+        Span::with_offset(range.start, &self.input.bytes()[local_range])
     }
 }
 
@@ -138,7 +138,7 @@ impl<'a, 'top> EncodedBinaryAnnotations_1_0<'a, 'top> {
         let start = range.start - self.value.input.offset();
         let end = start + range.len();
         let bytes = &self.value.input.bytes()[start..end];
-        Span::with_range(range, bytes)
+        Span::with_offset(range.start, bytes)
     }
 
     /// Returns the input stream index range that contains the bytes representing the annotations
@@ -153,7 +153,7 @@ impl<'a, 'top> EncodedBinaryAnnotations_1_0<'a, 'top> {
         let stream_range = self.opcode_range();
         let local_range = 0..1;
         let bytes = &self.span().bytes()[local_range];
-        Span::with_range(stream_range, bytes)
+        Span::with_offset(stream_range.start, bytes)
     }
 
     /// Returns the encoded bytes representing the annotations wrapper's header (that is: the opcode,
@@ -163,7 +163,7 @@ impl<'a, 'top> EncodedBinaryAnnotations_1_0<'a, 'top> {
         let sequence_length = self.value.encoded_value.annotations_sequence_length as usize;
         let local_end = range.len() - sequence_length;
         let bytes = &self.span().bytes()[..local_end];
-        Span::with_range(range.start..range.start + local_end, bytes)
+        Span::with_offset(range.start, bytes)
     }
 
     // TODO: separate span accessors for the wrapper length and sequence length?
@@ -175,7 +175,7 @@ impl<'a, 'top> EncodedBinaryAnnotations_1_0<'a, 'top> {
         let local_start = range.len() - sequence_length;
         let bytes = &self.span().bytes()[local_start..];
         let stream_start = range.start + local_start;
-        Span::with_range(stream_start..stream_start + sequence_length, bytes)
+        Span::with_offset(stream_start, bytes)
     }
 }
 
@@ -199,7 +199,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
         let offset = self.value.input.offset();
         let local_range = stream_range.start - offset..stream_range.end - offset;
         let bytes = &self.value.input.bytes()[local_range];
-        Span::with_range(stream_range, bytes)
+        Span::with_offset(stream_range.start, bytes)
     }
 
     /// Returns the input stream index range that contains the bytes representing the
@@ -214,7 +214,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     pub fn opcode_span(&self) -> Span<'top> {
         let stream_range = self.opcode_range();
         let bytes = &self.span().bytes()[0..1];
-        Span::with_range(stream_range, bytes)
+        Span::with_offset(stream_range.start, bytes)
     }
 
     /// Returns the input stream index range that contains the bytes representing the
@@ -230,9 +230,10 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     /// the slice returned will be empty.
     pub fn trailing_length_span(&self) -> Span<'top> {
         let stream_range = self.trailing_length_range();
-        let local_range = stream_range.to_relative_range(self.value.input.offset());
+        let offset = self.value.input.offset();
+        let local_range = stream_range.start - offset .. stream_range.end - offset;
         let bytes = &self.value.input.bytes()[local_range];
-        Span::with_range(stream_range, bytes)
+        Span::with_offset(stream_range.start, bytes)
     }
 
     /// Returns the input stream index range that contains the bytes representing the
@@ -251,9 +252,9 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     pub fn body_span(&self) -> Span<'top> {
         let stream_range = self.body_range();
         let offset = self.value.input.offset();
-        let local_range = stream_range.to_relative_range(offset);
+        let local_range = stream_range.start - offset .. stream_range.end - offset;
         let bytes = &self.span().bytes()[local_range];
-        Span::with_range(stream_range, bytes)
+        Span::with_offset(stream_range.start, bytes)
     }
 }
 

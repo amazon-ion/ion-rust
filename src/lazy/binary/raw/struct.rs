@@ -103,14 +103,9 @@ impl<'top> Iterator for RawBinaryStructIterator_1_0<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self
-            .source
+        self.source
             .try_parse_next_field(ImmutableBuffer::peek_field)
-        {
-            Ok(Some(field)) => Some(Ok(field)),
-            Ok(None) => None,
-            Err(e) => Some(Err(e)),
-        }
+            .transpose()
     }
 }
 
@@ -130,7 +125,7 @@ impl<'top> LazyRawBinaryFieldName_1_0<'top> {
 
 impl<'top> HasSpan<'top> for LazyRawBinaryFieldName_1_0<'top> {
     fn span(&self) -> Span<'top> {
-        Span::with_range(self.range(), self.matched.bytes())
+        Span::with_offset(self.matched.offset(), self.matched.bytes())
     }
 }
 

@@ -78,7 +78,7 @@ pub struct RawTextEExpression_1_1<'top> {
 
 impl<'top> HasSpan<'top> for RawTextEExpression_1_1<'top> {
     fn span(&self) -> Span<'top> {
-        Span::with_range(self.range(), self.input.bytes())
+        Span::with_offset(self.input.offset(), self.input.bytes())
     }
 }
 

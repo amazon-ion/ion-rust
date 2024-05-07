@@ -109,28 +109,35 @@ impl<M: Copy + Debug, V: Copy + Debug, E: Copy + Debug> RawStreamItem<M, V, E> {
     }
 }
 
+/// Represents the end of a [`RawInputStream`].
+///
+/// This type implements [`HasRange`] and [`HasSpan`]. These traits aren't especially useful for the
+/// `EndPosition` type itself, but implementing them allows the `RawStreamItem` type (which contains
+/// an `EndOfStream(EndPosition)` variant) to also implement them.
 #[derive(Debug, Copy, Clone)]
 pub struct EndPosition {
     position: usize,
 }
 
 impl EndPosition {
-    pub fn new(position: usize) -> Self {
+    pub(crate) fn new(position: usize) -> Self {
         Self { position }
     }
 }
 
-// The `HasRange` and `HasSpan` traits aren't especially useful for the `EndPosition` type itself,
-// but it allows the `RawStreamItem` type (which contains an `EndOfStream` variant) to implement them.
-
 impl HasRange for EndPosition {
+    /// Returns an empty range whose matching `start` and `end` represent the first byte index at
+    /// the end of the stream which contains no data. For example, in the stream `1 2 3`,
+    /// `EndPosition::range(...)` would return the range `5..5`.
     fn range(&self) -> Range<usize> {
         self.position..self.position
     }
 }
 
 impl<'top> HasSpan<'top> for EndPosition {
+    /// Returns an empty [`Span`]. The range of the span will match that produced by
+    /// [`range`](Self::range).
     fn span(&self) -> Span<'top> {
-        Span::with_range(self.range(), &[])
+        Span::with_offset(self.position, &[])
     }
 }

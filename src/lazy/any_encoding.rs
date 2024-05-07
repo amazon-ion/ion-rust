@@ -385,7 +385,7 @@ pub struct LazyRawAnyValue<'top> {
 }
 
 impl<'top> LazyRawAnyValue<'top> {
-    // TODO: feature gate
+    // TODO: feature gate, doc comments
     pub fn kind(&self) -> LazyRawValueKind<'top> {
         self.encoding
     }
@@ -446,7 +446,7 @@ impl<'top> From<LazyRawValueExpr<'top, BinaryEncoding_1_0>>
     fn from(value: LazyRawValueExpr<'top, BinaryEncoding_1_0>) -> Self {
         match value {
             RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
-            RawValueExpr::MacroInvocation(_) => unreachable!("macro invocation in text Ion 1.0"),
+            RawValueExpr::MacroInvocation(_) => unreachable!("macro invocation in binary Ion 1.0"),
         }
     }
 }
