@@ -377,18 +377,6 @@ mod tests {
         Ok(())
     }
 
-    macro_rules! assert_closely_eq {
-        ($x:expr, $y:expr, $d:expr) => {
-            let (a, b) = ($x, $y);
-            if ((a - b).abs() >= $d) {
-                panic!(
-                    "float not close enough to expected value: left: {}, right: {}",
-                    a, b
-                );
-            }
-        };
-    }
-
     #[test]
     #[allow(clippy::approx_constant)]
     fn floats() -> IonResult<()> {
@@ -417,16 +405,14 @@ mod tests {
         // TODO: Implement Half-precision.
         // assert_eq!(reader.next()?.expect_value()?.read()?.expect_float()?, 3.14);
 
-        assert_closely_eq!(
+        assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_float()? as f32,
             3.1415927f32,
-            f32::EPSILON
         );
 
-        assert_closely_eq!(
+        assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_float()?,
             std::f64::consts::PI,
-            f64::EPSILON
         );
 
         Ok(())

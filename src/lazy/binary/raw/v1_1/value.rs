@@ -255,12 +255,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             }
             2 => todo!("implement half-precision floats"),
             0 => 0.0f64,
-            n => {
-                return IonResult::decoding_error(format!(
-                    "found a float value with an illegal bytes size: {:?}",
-                    n
-                ));
-            }
+            _ => unreachable!("found a float value with illegal byte size"),
         };
         Ok(RawValueRef::Float(value))
     }
