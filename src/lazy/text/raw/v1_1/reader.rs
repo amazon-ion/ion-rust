@@ -415,7 +415,7 @@ impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<
 
 impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
     fn as_value(&self) -> <TextEncoding_1_1 as LazyDecoder>::Value<'top> {
-        self.value.into()
+        self.value
     }
 }
 
@@ -569,7 +569,7 @@ impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextList_1_1<
 
 impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
     fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
-        self.value.into()
+        self.value
     }
 }
 

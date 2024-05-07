@@ -7,7 +7,7 @@ use crate::IonType;
 /// Represents the type, offset, and length metadata of the various components of an encoded value
 /// in a text input stream.
 ///
-/// Each [`LazyRawTextValue`](crate::lazy::text::value::MatchedRawTextValue) contains an `EncodedTextValue`,
+/// Each [`LazyRawTextValue`](crate::lazy::text::value::LazyRawTextValue) contains an `EncodedTextValue`,
 /// allowing a user to re-read (that is: parse) the body of the value as many times as necessary
 /// without re-parsing its header information each time.
 #[derive(Copy, Clone, Debug, PartialEq)]

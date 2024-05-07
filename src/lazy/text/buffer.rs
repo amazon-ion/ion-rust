@@ -369,7 +369,7 @@ impl<'top> TextBufferView<'top> {
                 whitespace_and_then(alt((Self::match_value_1_1, Self::match_operator))),
             )
             .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
-            .map(|matched| RawValueExpr::ValueLiteral(matched.into()))
+            .map(RawValueExpr::ValueLiteral)
             .map(Some),
         )))
         .parse(self)
@@ -863,9 +863,7 @@ impl<'top> TextBufferView<'top> {
                 // ...followed by a comma or end-of-list
                 Self::match_delimiter_after_list_value,
             )
-            .map(|maybe_matched| {
-                maybe_matched.map(|matched| RawValueExpr::ValueLiteral(matched.into()))
-            }),
+            .map(|maybe_matched| maybe_matched.map(RawValueExpr::ValueLiteral)),
         )))
         .parse(self)
     }
