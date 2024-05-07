@@ -173,6 +173,18 @@ mod tests {
     }
 
     #[test]
+    fn decode_zero_length_fixed_uint() -> IonResult<()> {
+        let encoding = &[];
+        let fixed_uint = FixedUInt::read(encoding, encoding.len(), 0)?;
+        let actual_value = fixed_uint.value().expect_u64()?;
+        assert_eq!(
+            actual_value, 0,
+            "actual value {actual_value} was != expected value 0 for encoding {encoding:x?}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn encode_fixed_uint() -> IonResult<()> {
         // Make two copies of each of our tests. In the first, each u64 is turned into a UInt.
         let mut test_cases: Vec<_> = FIXED_UINT_TEST_CASES
