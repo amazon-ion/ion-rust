@@ -34,14 +34,14 @@ impl FixedInt {
         }
 
         let value: Int = if input.len() <= 8 {
-            // Look at the last byte in the input that is part of the FixedInt; this is the most significant byte.
-            let most_significant_byte = input[size_in_bytes - 1];
-            let sign_bit = most_significant_byte & 0b1000_0000;
-            // Create a buffer that is filled with the sign bit that we can write into.
-            // Any bytes not overwritten will be an extension of the sign bit.
-            let mut buffer = if sign_bit == 0 { [0x0; 8] } else { [0xFF; 8] };
-            buffer[..size_in_bytes].copy_from_slice(input);
-            i64::from_le_bytes(buffer).into()
+            let mut buffer = [0x0; 8];
+            // Copy the input into the buffer as the _most_ significant bits, read as i64, and then
+            // shift right to the correct position, extending the sign.
+            buffer[(8 - size_in_bytes)..8].copy_from_slice(input);
+            i64::from_le_bytes(buffer)
+                .checked_shr(64 - (size_in_bytes as u32 * 8))
+                .unwrap_or(0)
+                .into()
         } else {
             BigInt::from_signed_bytes_le(&input[..size_in_bytes]).into()
         };
@@ -252,6 +252,18 @@ mod tests {
             let expected_value = &Int::from(*expected_value);
             assert_eq!(actual_value, expected_value, "actual value {actual_value} was != expected value {expected_value} for encoding {encoding:x?}")
         }
+        Ok(())
+    }
+
+    #[test]
+    fn decode_zero_length_fixed_int() -> IonResult<()> {
+        let encoding = &[];
+        let fixed_int = FixedInt::read(encoding, encoding.len(), 0)?;
+        let actual_value = fixed_int.value().expect_i64()?;
+        assert_eq!(
+            actual_value, 0,
+            "actual value {actual_value} was != expected value 0 for encoding {encoding:x?}"
+        );
         Ok(())
     }
 
