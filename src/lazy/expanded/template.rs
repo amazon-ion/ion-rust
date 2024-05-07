@@ -256,6 +256,12 @@ pub struct TemplateStructUnexpandedFieldsIterator<'top, D: LazyDecoder> {
 }
 
 impl<'top, D: LazyDecoder> TemplateStructUnexpandedFieldsIterator<'top, D> {
+    pub fn context(&self) -> EncodingContext<'top> {
+        self.context
+    }
+}
+
+impl<'top, D: LazyDecoder> TemplateStructUnexpandedFieldsIterator<'top, D> {
     pub fn new(
         context: EncodingContext<'top>,
         environment: Environment<'top, D>,
@@ -706,6 +712,9 @@ impl<'top> TemplateMacroInvocation<'top> {
     }
     pub fn invoked_macro(&self) -> MacroRef<'top> {
         self.invoked_macro
+    }
+    pub fn context(&self) -> EncodingContext<'top> {
+        self.context
     }
 }
 

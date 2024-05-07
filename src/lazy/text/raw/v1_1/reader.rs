@@ -4,27 +4,26 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 
+use bumpalo::collections::Vec as BumpVec;
+use bumpalo::Bump as BumpAllocator;
 use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
     HasRange, HasSpan, LazyDecoder, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
-    LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr, RawValueExpr,
+    LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
     RawVersionMarker,
 };
 use crate::lazy::encoding::TextEncoding_1_1;
+use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
+use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolTokenRef};
-
-use crate::lazy::expanded::macro_evaluator::RawEExpression;
-use crate::lazy::span::Span;
-use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
-use bumpalo::collections::Vec as BumpVec;
-use bumpalo::Bump as BumpAllocator;
 
 pub struct LazyRawTextReader_1_1<'data> {
     input: &'data [u8],
@@ -255,26 +254,14 @@ impl<'top> TextListSpanFinder_1_1<'top> {
             child_expr_cache.push(expr);
         }
 
-        let input_after_last_expr = if let Some(value_expr) = child_expr_cache.last() {
-            // ...the input slice that follows the last sequence value...
-            match value_expr {
-                RawValueExpr::ValueLiteral(value) => value
-                    .matched
-                    .input
-                    .slice_to_end(value.matched.encoded_value.total_length()),
-                RawValueExpr::MacroInvocation(invocation) => {
-                    let end_of_expr = invocation.input.offset() + invocation.input.len();
-                    let remaining = self
-                        .iterator
-                        .input
-                        .slice_to_end(end_of_expr - self.iterator.input.offset());
-                    remaining
-                }
-            }
-        } else {
-            // ...or there weren't any child values, so it's just the input after the opening delimiter.
-            self.iterator.input
-        };
+        let end = child_expr_cache
+            .last()
+            .map(|e| e.range().end)
+            .unwrap_or(self.iterator.input.offset());
+        let input_after_last_expr = self
+            .iterator
+            .input
+            .slice_to_end(end - self.iterator.input.offset());
 
         let (mut input_after_ws, _ws) = input_after_last_expr
             .match_optional_comments_and_whitespace()
@@ -393,31 +380,20 @@ impl<'top> TextSExpSpanFinder_1_1<'top> {
         // The input has already skipped past the opening delimiter.
         let start = self.iterator.input.offset() - initial_bytes_skipped;
         let mut child_expr_cache = BumpVec::new_in(self.allocator);
+
         for expr_result in self.iterator {
             let expr = expr_result?;
             child_expr_cache.push(expr);
         }
 
-        let input_after_last_expr = if let Some(value_expr) = child_expr_cache.last() {
-            // ...the input slice that follows the last sequence value...
-            match value_expr {
-                RawValueExpr::ValueLiteral(value) => value
-                    .matched
-                    .input
-                    .slice_to_end(value.matched.encoded_value.total_length()),
-                RawValueExpr::MacroInvocation(invocation) => {
-                    let end_of_expr = invocation.input.offset() + invocation.input.len();
-                    let remaining = self
-                        .iterator
-                        .input
-                        .slice_to_end(end_of_expr - self.iterator.input.offset());
-                    remaining
-                }
-            }
-        } else {
-            // ...or there weren't any child values, so it's just the input after the opening delimiter.
-            self.iterator.input
-        };
+        let end = child_expr_cache
+            .last()
+            .map(|e| e.range().end)
+            .unwrap_or(self.iterator.input.offset());
+        let input_after_last_expr = self
+            .iterator
+            .input
+            .slice_to_end(end - self.iterator.input.offset());
 
         let (input_after_ws, _ws) = input_after_last_expr
             .match_optional_comments_and_whitespace()
@@ -426,8 +402,8 @@ impl<'top> TextSExpSpanFinder_1_1<'top> {
             .with_context("seeking the closing delimiter of a sexp", input_after_ws)?;
         let end = input_after_end.offset();
 
-        let span = start..end;
-        Ok((span, child_expr_cache.into_bump_slice()))
+        let range = start..end;
+        Ok((range, child_expr_cache.into_bump_slice()))
     }
 }
 
@@ -722,28 +698,18 @@ impl<'top> TextStructSpanFinder_1_1<'top> {
             child_expr_cache.push(expr);
         }
 
-        // We need to find the input slice containing the closing delimiter.
-        let input_after_last = if let Some(field) = child_expr_cache.last() {
-            // If there are any field expressions, we need to isolate the input slice that follows
-            // the last one.
-            use LazyRawFieldExpr::*;
-            match field {
-                NameValue(_, value) => value
-                    .matched
-                    .input
-                    .slice_to_end(value.matched.encoded_value.total_length()),
-                NameEExp(_, eexp) | EExp(eexp) => {
-                    self.iterator.input.slice_to_end(eexp.input.len())
-                }
-            }
-        } else {
-            // ...or there aren't fields, so it's just the input after the opening delimiter.
-            self.iterator.input
-        };
-        let (mut input_after_ws, _ws) =
-            input_after_last
-                .match_optional_comments_and_whitespace()
-                .with_context("seeking the end of a struct", input_after_last)?;
+        let end = child_expr_cache
+            .last()
+            .map(|e| e.range().end)
+            .unwrap_or(start + 1);
+        let input_after_last_field_expr = self
+            .iterator
+            .input
+            .slice_to_end(end - self.iterator.input.offset());
+
+        let (mut input_after_ws, _ws) = input_after_last_field_expr
+            .match_optional_comments_and_whitespace()
+            .with_context("seeking the end of a struct", input_after_last_field_expr)?;
         // Skip an optional comma and more whitespace
         if input_after_ws.bytes().first() == Some(&b',') {
             (input_after_ws, _) = input_after_ws
@@ -760,8 +726,9 @@ impl<'top> TextStructSpanFinder_1_1<'top> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::lazy::raw_value_ref::RawValueRef;
+
+    use super::*;
 
     fn expect_next<'top, 'data: 'top>(
         allocator: &'top BumpAllocator,

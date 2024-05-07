@@ -19,6 +19,9 @@ pub struct EExpression<'top, D: LazyDecoder> {
 }
 
 impl<'top, D: LazyDecoder> EExpression<'top, D> {
+    pub fn context(&self) -> EncodingContext<'top> {
+        self.context
+    }
     pub fn raw_invocation(&self) -> D::EExp<'top> {
         self.raw_invocation
     }

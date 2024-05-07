@@ -295,6 +295,12 @@ pub(crate) mod private {
         raw_fields: <D::Struct<'top> as LazyRawStruct<'top, D>>::Iterator,
     }
 
+    impl<'top, D: LazyDecoder> RawStructUnexpandedFieldsIterator<'top, D> {
+        pub fn context(&self) -> EncodingContext<'top> {
+            self.context
+        }
+    }
+
     impl<'top, D: LazyDecoder> Iterator for RawStructUnexpandedFieldsIterator<'top, D> {
         type Item = IonResult<UnexpandedField<'top, D>>;
 

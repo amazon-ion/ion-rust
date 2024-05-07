@@ -36,12 +36,9 @@ impl<'top> RawTextStructIterator_1_0<'top> {
         let start = self.input.offset() - 1;
         // We need to find the input slice containing the closing delimiter. It's either...
         let input_after_last = if let Some(field_result) = self.last() {
-            let (_name, value) = field_result?.expect_name_value()?;
-            // ...the input slice that follows the last field...
-            value
-                .matched
-                .input
-                .slice_to_end(value.matched.encoded_value.total_length())
+            let field = field_result?;
+            self.input
+                .slice_to_end(field.range().end - self.input.offset())
         } else {
             // ...or there aren't fields, so it's just the input after the opening delimiter.
             self.input
@@ -57,7 +54,7 @@ impl<'top> RawTextStructIterator_1_0<'top> {
                 .match_optional_comments_and_whitespace()
                 .with_context("skipping a list's trailing comma", input_after_ws)?;
         }
-        let (input_after_end, _end_delimiter) = satisfy(|c| c == b'}' as char)(input_after_ws)
+        let (input_after_end, _end_delimiter) = satisfy(|c| c == '}')(input_after_ws)
             .with_context("seeking the closing delimiter of a struct", input_after_ws)?;
         let end = input_after_end.offset();
         Ok(start..end)
@@ -140,10 +137,10 @@ impl<'top> LazyRawStruct<'top, TextEncoding_1_0> for LazyRawTextStruct_1_0<'top>
     }
 
     fn iter(&self) -> Self::Iterator {
-        let open_brace_index =
-            self.value.matched.encoded_value.data_offset() - self.value.matched.input.offset();
-        // Slice the input to skip the opening `{`
-        RawTextStructIterator_1_0::new(self.value.matched.input.slice_to_end(open_brace_index + 1))
+        // Make an iterator over the input bytes that follow the initial `{`; account for
+        // a leading annotations sequence.
+        let struct_contents_start = self.value.matched.encoded_value.data_offset() + 1;
+        RawTextStructIterator_1_0::new(self.value.matched.input.slice_to_end(struct_contents_start))
     }
 }
 
@@ -170,7 +167,7 @@ mod tests {
         let allocator = BumpAllocator::new();
         let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
         let value = reader.next(&allocator)?.expect_value()?;
-        let actual_range = value.matched.encoded_value.data_range();
+        let actual_range = value.data_range();
         assert_eq!(
             actual_range, expected,
             "Struct range ({:?}) did not match expected range ({:?})",

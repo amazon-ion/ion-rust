@@ -147,9 +147,9 @@ impl<'top> MatchedFieldName<'top> {
 /// A partially parsed Ion int.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct MatchedInt {
-    radix: u32,
+    radix: u8, // Can only be 2, 10, or 16
     // Offset of the digits from the beginning of the value
-    digits_offset: usize,
+    digits_offset: u8,
     is_negative: bool,
 }
 
@@ -158,10 +158,14 @@ impl MatchedInt {
     const STACK_ALLOC_BUFFER_CAPACITY: usize = 32;
 
     /// Constructs a new `MatchedInt`.
-    pub fn new(radix: u32, is_negative: bool, digits_offset: usize) -> Self {
+    pub fn new(radix: u8, is_negative: bool, digits_offset: usize) -> Self {
+        debug_assert!(
+            digits_offset < u8::MAX as usize,
+            "digits offset can only be 0-3 to accommodate a sign and/or leading radix like `0x`"
+        );
         Self {
             radix,
-            digits_offset,
+            digits_offset: digits_offset as u8,
             is_negative,
         }
     }
@@ -174,12 +178,12 @@ impl MatchedInt {
     /// One of: `2`, `10`, or `16`, as determined by whether the partially parsed integer began
     /// with a `0b`/`0B`, `0x`/`0X`, or no prefix.
     pub fn radix(&self) -> u32 {
-        self.radix
+        self.radix as u32
     }
 
     /// Attempts to finish reading the partially parsed integer.
     pub fn read(&self, matched_input: TextBufferView) -> IonResult<Int> {
-        let digits = matched_input.slice_to_end(self.digits_offset);
+        let digits = matched_input.slice_to_end(self.digits_offset as usize);
         let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
             SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
         // Copy the input text over to the sanitization buffer, discarding any underscores. These
@@ -964,15 +968,22 @@ impl MatchedTimestamp {
             // This is the only field that doesn't have a fixed location; it's always at the end
             // of the timestamp, and the timestamp's length varies by its precision.
             // The `MatchedHoursAndMinutes` stores the offset at which `hours` begins.
-            MatchedTimestampOffset::HoursAndMinutes(matched_offset) => {
-                let hours_start = matched_offset.hours_offset() - matched_input.offset();
+            MatchedTimestampOffset::PositiveHoursAndMinutes
+            | MatchedTimestampOffset::NegativeHoursAndMinutes => {
+                // There has to be a day for there to also be an offset. The last day index is 9.
+                // Starting at index 10, look for the next '-' or '+'.
+                let hours_start = &matched_input.bytes()[10..]
+                    .iter()
+                    .position(|b| *b == b'-' || *b == b'+')
+                    .expect("the parser reported that this timestamp had an HH:MM component")
+                    + 11; // The position reported is relative to the offset where the search began
                 let hours_text = matched_input.slice(hours_start, 2).as_text().unwrap();
                 let hours = i32::from_str(hours_text).unwrap();
                 let minutes_start = hours_start + 3;
                 let minutes_text = matched_input.slice(minutes_start, 2).as_text().unwrap();
                 let minutes = i32::from_str(minutes_text).unwrap();
                 let offset_magnitude_minutes = (hours * 60) + minutes;
-                if matched_offset.is_negative {
+                if self.offset == MatchedTimestampOffset::NegativeHoursAndMinutes {
                     Some(-offset_magnitude_minutes)
                 } else {
                     Some(offset_magnitude_minutes)
@@ -1050,30 +1061,9 @@ impl MatchedTimestamp {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MatchedTimestampOffset {
     Zulu,
-    HoursAndMinutes(MatchedHoursAndMinutes),
+    PositiveHoursAndMinutes,
+    NegativeHoursAndMinutes,
     Unknown,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct MatchedHoursAndMinutes {
-    is_negative: bool,
-    /// This is the offset of the first `H` in the offset string `HH:MM`.
-    hours_offset: usize,
-}
-
-impl MatchedHoursAndMinutes {
-    pub fn new(is_negative: bool, hours_offset: usize) -> Self {
-        Self {
-            is_negative,
-            hours_offset,
-        }
-    }
-    pub fn is_negative(&self) -> bool {
-        self.is_negative
-    }
-    pub fn hours_offset(&self) -> usize {
-        self.hours_offset
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

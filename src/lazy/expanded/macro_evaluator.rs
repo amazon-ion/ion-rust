@@ -97,6 +97,13 @@ impl<'top, D: LazyDecoder> MacroExpr<'top, D> {
             MacroExpr::EExp(e) => e.invoked_macro(),
         }
     }
+
+    fn context(&self) -> EncodingContext<'top> {
+        match self {
+            MacroExpr::TemplateMacro(t) => t.context(),
+            MacroExpr::EExp(e) => e.context(),
+        }
+    }
 }
 
 pub enum MacroExprArgsKind<'top, D: LazyDecoder> {
@@ -205,12 +212,9 @@ impl<'top, D: LazyDecoder> MacroExpansion<'top, D> {
     ///   * produces another value.
     ///   * encounters another macro or variable that needs to be expanded.
     ///   * is completed.
-    fn next(
-        &mut self,
-        context: EncodingContext<'top>,
-        environment: Environment<'top, D>,
-    ) -> IonResult<Option<ValueExpr<'top, D>>> {
+    fn next(&mut self, environment: Environment<'top, D>) -> IonResult<Option<ValueExpr<'top, D>>> {
         use MacroExpansionKind::*;
+        let context = self.invocation.context();
         // Delegate the call to `next()` based on the macro kind.
         match &mut self.kind {
             MakeString(make_string_expansion) => make_string_expansion.next(context, environment),
@@ -239,8 +243,6 @@ pub type EnvironmentStack<'top, D> = BumpVec<'top, Environment<'top, D>>;
 /// For eager evaluation, use [`MacroEvaluator::evaluate`], which returns an iterator that will
 /// yield the expanded values.
 pub struct MacroEvaluator<'top, D: LazyDecoder> {
-    // Holds references to the macro table, symbol table, and bump allocator.
-    context: EncodingContext<'top>,
     // A stack with the most recent macro invocations at the top. This stack grows each time a macro
     // of any kind begins evaluation.
     macro_stack: MacroStack<'top, D>,
@@ -266,7 +268,6 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
         Self {
             macro_stack,
             env_stack,
-            context,
         }
     }
 
@@ -292,7 +293,7 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
         &mut self,
         invocation: MacroExpr<'top, D>,
     ) -> IonResult<Environment<'top, D>> {
-        let mut args = BumpVec::new_in(self.context.allocator);
+        let mut args = BumpVec::new_in(self.env_stack.bump());
         for arg in invocation.arguments(self.environment()) {
             args.push(arg?);
         }
@@ -394,7 +395,7 @@ impl<'top, D: LazyDecoder> MacroEvaluator<'top, D> {
 
             // Ask that expansion to continue its evaluation by one step.
             use ValueExpr::*;
-            match current_expansion.next(self.context, environment)? {
+            match current_expansion.next(environment)? {
                 // If we get a value, return it to the caller.
                 Some(ValueLiteral(value)) => {
                     return Ok(Some(value));

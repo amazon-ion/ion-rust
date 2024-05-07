@@ -51,6 +51,43 @@ impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
     pub fn new(matched: MatchedRawTextValue<'top, E>) -> Self {
         Self { matched }
     }
+
+    pub fn data_range(&self) -> Range<usize> {
+        // If the matched value has annotations, the `data_offset` will be the offset beyond
+        // the annotations at which the value's data begins.
+        let data_offset = self.matched.encoded_value.data_offset();
+        let data_length = self.matched.input.len() - data_offset;
+        // Add the input buffer's offset to the data offset to get the absolute offset.
+        let start = self.matched.input.offset() + data_offset;
+        let end = start + data_length;
+        start..end
+    }
+
+    pub fn has_annotations(&self) -> bool {
+        self.matched.encoded_value.data_offset() > 0
+    }
+
+    pub fn annotations_range(&self) -> Option<Range<usize>> {
+        if !self.has_annotations() {
+            return None;
+        }
+        let annotations_length = self.matched.encoded_value.data_offset();
+        let start = self.matched.input.offset();
+        let end = start + annotations_length;
+        Some(start..end)
+    }
+
+    pub fn annotations_span(&self) -> Option<Span<'top>> {
+        let range = self.annotations_range()?;
+        let bytes = &self.matched.input.bytes()[..range.len()];
+        Some(Span::with_offset(range.start, bytes))
+    }
+
+    /// Returns the total number of bytes used to represent the current value, including its
+    /// annotations (if any) and its value.
+    pub fn total_length(&self) -> usize {
+        self.matched.input.len()
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -136,7 +173,7 @@ impl<'top> From<MatchedRawTextValue<'top, TextEncoding_1_1>> for LazyRawTextValu
 
 impl<'top, E: TextEncoding<'top>> HasRange for MatchedRawTextValue<'top, E> {
     fn range(&self) -> Range<usize> {
-        self.encoded_value.annotated_value_range()
+        self.input.range()
     }
 }
 
@@ -159,22 +196,17 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for MatchedRawTextValue<
     }
 
     fn annotations(&self) -> <E as LazyDecoder>::AnnotationsIterator<'top> {
-        let span = self
+        let range = self
             .encoded_value
             .annotations_range()
             .unwrap_or(self.input.offset()..self.input.offset());
-        let annotations_bytes = self
-            .input
-            .slice(span.start - self.input.offset(), span.len());
+        let annotations_bytes = self.input.slice(0, range.len());
         RawTextAnnotationsIterator::new(annotations_bytes)
     }
 
     fn read(&self) -> IonResult<RawValueRef<'top, E>> {
-        let matched_input = self.input.slice(
-            self.encoded_value.data_offset() - self.input.offset(),
-            self.encoded_value.data_length(),
-        );
-
+        // Get the value's matched input, skipping over any annotations
+        let matched_input = self.input.slice_to_end(self.encoded_value.data_offset());
         let allocator = self.input.allocator;
 
         use crate::lazy::text::matched::MatchedValue::*;

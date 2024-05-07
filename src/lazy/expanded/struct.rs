@@ -224,7 +224,6 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
             }
         };
         ExpandedStructIterator {
-            context: self.context,
             source,
             state: ExpandedStructIteratorState::ReadingFieldFromSource,
         }
@@ -344,7 +343,7 @@ pub enum ExpandedStructIteratorSource<'top, D: LazyDecoder> {
 }
 
 pub struct ExpandedStructIterator<'top, D: LazyDecoder> {
-    context: EncodingContext<'top>,
+    // Each variant of 'source' below holds its own encoding context reference
     source: ExpandedStructIteratorSource<'top, D>,
     // Stores information about any operations that are still in progress.
     state: ExpandedStructIteratorState<'top, D>,
@@ -384,16 +383,25 @@ impl<'top, D: LazyDecoder> Iterator for ExpandedStructIterator<'top, D> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let Self {
-            context,
             ref mut source,
             ref mut state,
         } = *self;
         match source {
             ExpandedStructIteratorSource::Template(tdl_macro_evaluator, template_iterator) => {
-                Self::next_field_from(context, state, tdl_macro_evaluator, template_iterator)
+                Self::next_field_from(
+                    template_iterator.context(),
+                    state,
+                    tdl_macro_evaluator,
+                    template_iterator,
+                )
             }
             ExpandedStructIteratorSource::ValueLiteral(e_exp_evaluator, raw_struct_iter) => {
-                Self::next_field_from(context, state, e_exp_evaluator, raw_struct_iter)
+                Self::next_field_from(
+                    raw_struct_iter.context(),
+                    state,
+                    e_exp_evaluator,
+                    raw_struct_iter,
+                )
             }
         }
     }
