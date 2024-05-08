@@ -238,7 +238,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     fn read_float(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Float);
 
-        let value = match self.encoded_value.value_length {
+        let value = match self.encoded_value.value_body_length {
             8 => {
                 let mut buffer = [0; 8];
                 let val_bytes = self.input.slice(1, 8);
