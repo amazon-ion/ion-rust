@@ -12,7 +12,7 @@ pub struct StrRef<'data> {
 }
 
 impl<'data> StrRef<'data> {
-    pub fn to_owned(&self) -> Str {
+    pub fn to_owned(self) -> Str {
         Str::from(self.text)
     }
 

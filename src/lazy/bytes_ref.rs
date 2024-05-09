@@ -17,7 +17,7 @@ impl<'data> Deref for BytesRef<'data> {
 }
 
 impl<'data> BytesRef<'data> {
-    pub fn to_owned(&self) -> Bytes {
+    pub fn to_owned(self) -> Bytes {
         Bytes::from(self.data)
     }
 

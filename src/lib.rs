@@ -191,8 +191,9 @@ mod write_config;
 
 #[cfg(feature = "experimental-reader-writer")]
 pub use crate::{
-    lazy::encoder::annotate::Annotatable, lazy::encoder::writer::Writer, lazy::reader::Reader,
-    raw_symbol_token_ref::RawSymbolRef, symbol_table::SymbolTable, write_config::WriteConfig,
+    lazy::encoder::annotate::Annotatable, lazy::encoder::write_as_ion::WriteAsIon,
+    lazy::encoder::writer::Writer, lazy::reader::Reader, raw_symbol_token_ref::RawSymbolRef,
+    symbol_table::SymbolTable, write_config::WriteConfig,
 };
 
 pub mod v1_0 {

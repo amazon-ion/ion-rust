@@ -33,10 +33,10 @@ use crate::{IonError, IonResult};
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::v1_0::BinaryReader;
+/// use ion_rs::v1_0::{Binary, BinaryReader};
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
-/// let binary_ion = element.to_binary()?;
+/// let binary_ion = element.encode_as(Binary)?;
 ///
 /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
 ///
@@ -192,7 +192,6 @@ impl<Encoding: LazyDecoder, Input: IonInput> ElementReader
 mod tests {
     use crate::element::element_writer::ElementWriter;
     use crate::element::Element;
-    use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::writer::IonWriter;
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;

@@ -23,10 +23,10 @@ use crate::{
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::v1_0::BinaryReader;
+/// use ion_rs::v1_0::{Binary, BinaryReader};
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
-/// let binary_ion = element.to_binary()?;
+/// let binary_ion = element.encode_as(Binary)?;
 ///
 /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
 ///
@@ -73,10 +73,10 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IonType};
-    /// use ion_rs::v1_0::BinaryReader;
+    /// use ion_rs::v1_0::{Binary, BinaryReader};
     ///
     /// let element: Element = "hello".into();
-    /// let binary_ion = element.to_binary()?;
+    /// let binary_ion = element.encode_as(Binary)?;
     ///
     /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
@@ -118,16 +118,16 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IonType};
-    /// use ion_rs::v1_0::BinaryReader;
+    /// use ion_rs::v1_0::{Binary, BinaryReader};
     ///
     /// let element = Element::string("hello");
-    /// let binary_ion = element.to_binary()?;
+    /// let binary_ion = element.encode_as(Binary)?;
     /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     /// let lazy_value = lazy_reader.expect_next()?;
     /// assert!(!lazy_value.is_null());
     ///
     /// let element: Element = Element::null(IonType::String);
-    /// let binary_ion = element.to_binary()?;
+    /// let binary_ion = element.encode_as(Binary)?;
     /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     /// let lazy_value = lazy_reader.expect_next()?;
     /// assert!(lazy_value.is_null());
@@ -148,10 +148,10 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IntoAnnotatedElement};
-    /// use ion_rs::v1_0::BinaryReader;
+    /// use ion_rs::v1_0::{Binary, BinaryReader};
     ///
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
-    /// let binary_ion = element.to_binary()?;
+    /// let binary_ion = element.encode_as(Binary)?;
     ///
     /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
@@ -185,11 +185,11 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IntoAnnotatedElement};
-    /// use ion_rs::v1_0::BinaryReader;
+    /// use ion_rs::v1_0::{Binary, BinaryReader};
     /// use ion_rs::ValueRef;
     ///
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
-    /// let binary_ion = element.to_binary()?;
+    /// let binary_ion = element.encode_as(Binary)?;
     ///
     /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
@@ -280,10 +280,10 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::Element;
-    /// use ion_rs::v1_0::BinaryReader;
+    /// use ion_rs::v1_0::{Binary, BinaryReader};
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
-    /// let binary_ion = element.to_binary()?;
+    /// let binary_ion = element.encode_as(Binary)?;
     /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
     /// // Get the first value from the stream
@@ -322,10 +322,10 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::Element;
-    /// use ion_rs::v1_0::BinaryReader;
+    /// use ion_rs::v1_0::{Binary, BinaryReader};
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
-    /// let binary_ion = element.to_binary()?;
+    /// let binary_ion = element.encode_as(Binary)?;
     /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
     /// // Get the first value from the stream

@@ -107,7 +107,6 @@ where
 
 #[cfg(test)]
 mod binary_decimal_tests {
-    use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::writer::IonWriter;
     use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding};
     use crate::lazy::reader::Reader;

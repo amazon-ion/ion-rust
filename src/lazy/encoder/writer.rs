@@ -123,7 +123,7 @@ impl<E: Encoding, Output: Write> IonWriter<E, Output> {
         Ok(())
     }
 
-    fn close(mut self) -> IonResult<Output> {
+    pub fn close(mut self) -> IonResult<Output> {
         self.flush()?;
         Ok(self.output)
     }

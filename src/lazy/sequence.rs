@@ -20,10 +20,10 @@ use crate::{IonError, IonResult};
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::v1_0::BinaryReader;
+/// use ion_rs::v1_0::{Binary, BinaryReader};
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
-/// let binary_ion = element.to_binary()?;
+/// let binary_ion = element.encode_as(Binary)?;
 ///
 /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
 ///
@@ -77,10 +77,10 @@ impl<'top, D: LazyDecoder> LazyList<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{ion_sexp, Element, IntoAnnotatedElement};
-    /// use ion_rs::v1_0::BinaryReader;
+    /// use ion_rs::v1_0::{Binary, BinaryReader};
     ///
     /// let element: Element = ion_sexp!(true false).with_annotations(["foo", "bar", "baz"]);
-    /// let binary_ion = element.to_binary()?;
+    /// let binary_ion = element.encode_as(Binary)?;
     ///
     /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
@@ -208,10 +208,10 @@ impl<'top, D: LazyDecoder> LazySExp<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{ion_sexp, Element, IntoAnnotatedElement};
-    /// use ion_rs::v1_0::BinaryReader;
+    /// use ion_rs::v1_0::{Binary, BinaryReader};
     ///
     /// let element: Element = ion_sexp!(true false).with_annotations(["foo", "bar", "baz"]);
-    /// let binary_ion = element.to_binary()?;
+    /// let binary_ion = element.encode_as(Binary)?;
     ///
     /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
