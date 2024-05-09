@@ -231,7 +231,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     pub fn trailing_length_span(&self) -> Span<'top> {
         let stream_range = self.trailing_length_range();
         let offset = self.value.input.offset();
-        let local_range = stream_range.start - offset .. stream_range.end - offset;
+        let local_range = stream_range.start - offset..stream_range.end - offset;
         let bytes = &self.value.input.bytes()[local_range];
         Span::with_offset(stream_range.start, bytes)
     }
@@ -252,7 +252,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     pub fn body_span(&self) -> Span<'top> {
         let stream_range = self.body_range();
         let offset = self.value.input.offset();
-        let local_range = stream_range.start - offset .. stream_range.end - offset;
+        let local_range = stream_range.start - offset..stream_range.end - offset;
         let bytes = &self.span().bytes()[local_range];
         Span::with_offset(stream_range.start, bytes)
     }

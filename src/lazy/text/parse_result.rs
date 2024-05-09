@@ -251,7 +251,14 @@ impl<'data, T> AddContext<'data, T> for IonParseError<'data> {
         'data: 'a,
     {
         match self {
-            IonParseError::Incomplete => IonResult::incomplete(label, input.offset()),
+            IonParseError::Incomplete => IonResult::incomplete(
+                format!(
+                    "{}; buffer utf-8: {}",
+                    label.into(),
+                    input.as_text().unwrap_or("<invalid utf-8>")
+                ),
+                input.offset(),
+            ),
             IonParseError::Invalid(invalid_input_error) => Err(IonError::from(invalid_input_error)),
         }
     }

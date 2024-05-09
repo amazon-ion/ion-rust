@@ -9,7 +9,7 @@ use crate::lazy::expanded::template::{
     TemplateBodyMacroInvocation, TemplateBodyValueExpr, TemplateMacro, TemplateStructIndex,
     TemplateValue,
 };
-use crate::lazy::expanded::EncodingContext;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::reader::LazyTextReader_1_1;
 use crate::lazy::sequence::{LazyList, LazySExp};
@@ -61,7 +61,7 @@ impl TemplateCompiler {
     /// to the template without interpretation. `(quote ...)` does not appear in the compiled
     /// template as there is nothing more for it to do at expansion time.
     pub fn compile_from_text(
-        context: EncodingContext,
+        context: EncodingContextRef,
         expression: &str,
     ) -> IonResult<TemplateMacro> {
         // TODO: This is a rudimentary implementation that panics instead of performing thorough
@@ -137,7 +137,7 @@ impl TemplateCompiler {
     ///
     /// If `is_quoted` is true, nested symbols and s-expressions will not be interpreted.
     fn compile_value<'top, D: LazyDecoder>(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_quoted: bool,
@@ -210,7 +210,7 @@ impl TemplateCompiler {
 
     /// Helper method for visiting all of the child expressions in a list.
     fn compile_list<'top, D: LazyDecoder>(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_quoted: bool,
@@ -238,7 +238,7 @@ impl TemplateCompiler {
 
     /// Helper method for visiting all of the child expressions in a sexp.
     fn compile_sexp<'top, D: LazyDecoder>(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_quoted: bool,
@@ -272,7 +272,7 @@ impl TemplateCompiler {
     /// Adds a `lazy_sexp` that has been determined to represent a macro invocation to the
     /// TemplateBody.
     fn compile_macro<'top, D: LazyDecoder>(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         lazy_sexp: LazySExp<'top, D>,
@@ -311,7 +311,7 @@ impl TemplateCompiler {
     /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
     /// ID to a macro address.
     fn name_and_address_from_id_expr<'top, D: LazyDecoder>(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         id_expr: Option<IonResult<LazyValue<'top, D>>>,
     ) -> IonResult<(Option<String>, usize)> {
         match id_expr {
@@ -352,7 +352,7 @@ impl TemplateCompiler {
     /// without interpretation. `lazy_sexp` itself is the `quote` macro, and does not get added
     /// to the template body as there is nothing more for it to do at evaluation time.
     fn compile_quoted_elements<'top, D: LazyDecoder>(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         lazy_sexp: LazySExp<'top, D>,
@@ -375,7 +375,7 @@ impl TemplateCompiler {
 
     /// Adds `lazy_sexp` to the template body without interpretation.
     fn compile_quoted_sexp<'top, D: LazyDecoder>(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         annotations_range: Range<usize>,
@@ -419,7 +419,7 @@ impl TemplateCompiler {
 
     /// Recursively adds all of the expressions in `lazy_struct` to the `TemplateBody`.
     fn compile_struct<'top, D: LazyDecoder>(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_quoted: bool,
@@ -476,7 +476,7 @@ impl TemplateCompiler {
     /// Resolves `variable` to a parameter in the macro signature and adds a corresponding
     /// `TemplateExpansionStep` to the `TemplateBody`.
     fn compile_variable_reference(
-        _context: EncodingContext,
+        _context: EncodingContextRef,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         annotations_range: Range<usize>,
@@ -497,7 +497,10 @@ impl TemplateCompiler {
             .ok_or_else(|| {
                 IonError::decoding_error(format!("variable '{name}' is not recognized"))
             })?;
-        definition.push_variable(signature_index);
+        if signature_index > u16::MAX as usize {
+            return IonResult::decoding_error("this implementation supports up to 65K parameters");
+        }
+        definition.push_variable(signature_index as u16);
         Ok(())
     }
 }
@@ -558,7 +561,7 @@ mod tests {
             definition,
             index,
             TemplateBodyValueExpr::Variable(TemplateBodyVariableReference::new(
-                expected_signature_index,
+                expected_signature_index as u16,
             )),
         )
     }
@@ -630,7 +633,7 @@ mod tests {
 
         let expression = "(macro foo () 42)";
 
-        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().parameters().len(), 0);
         expect_value(&template, 0, TemplateValue::Int(42.into()))?;
@@ -644,7 +647,7 @@ mod tests {
 
         let expression = "(macro foo () [1, 2, 3])";
 
-        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().parameters().len(), 0);
         expect_value(&template, 0, TemplateValue::List(ExprRange::new(1..4)))?;
@@ -661,7 +664,7 @@ mod tests {
 
         let expression = r#"(macro foo () (values 42 "hello" false))"#;
 
-        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().parameters().len(), 0);
         expect_macro(
@@ -683,7 +686,7 @@ mod tests {
 
         let expression = "(macro foo (x y z) [100, [200, a::b::300], x, {y: [true, false, z]}])";
 
-        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         expect_value(&template, 0, TemplateValue::List(ExprRange::new(1..12)))?;
         expect_value(&template, 1, TemplateValue::Int(Int::from(100)))?;
         expect_value(&template, 2, TemplateValue::List(ExprRange::new(3..5)))?;
@@ -713,7 +716,7 @@ mod tests {
 
         let expression = "(macro identity (x) x)";
 
-        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "identity");
         assert_eq!(template.signature().parameters().len(), 1);
         expect_variable(&template, 0, 0)?;
@@ -736,7 +739,7 @@ mod tests {
                         (values x))))
         "#;
 
-        let template = TemplateCompiler::compile_from_text(context, expression)?;
+        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().parameters().len(), 1);
         // Outer `values`

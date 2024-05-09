@@ -175,7 +175,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     fn value_body(&self) -> IonResult<&'top [u8]> {
         let value_total_length = self.encoded_value.total_length();
         if self.input.len() < value_total_length {
-            eprintln!("[value_body] Incomplete {:?}", self);
             return IonResult::incomplete(
                 "only part of the requested value is available in the buffer",
                 self.input.offset(),

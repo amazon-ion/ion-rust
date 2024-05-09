@@ -27,8 +27,8 @@ use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
     MatchedBlob, MatchedClob, MatchedDecimal, MatchedFieldName, MatchedFieldNameSyntax,
-    MatchedFloat, MatchedHoursAndMinutes, MatchedInt, MatchedString, MatchedSymbol,
-    MatchedTimestamp, MatchedTimestampOffset, MatchedValue,
+    MatchedFloat, MatchedInt, MatchedString, MatchedSymbol, MatchedTimestamp,
+    MatchedTimestampOffset, MatchedValue,
 };
 use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
@@ -40,7 +40,7 @@ use crate::lazy::text::raw::v1_1::reader::{
     TextListSpanFinder_1_1, TextSExpSpanFinder_1_1, TextStructSpanFinder_1_1,
 };
 use crate::lazy::text::value::{
-    LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker, MatchedRawTextValue,
+    LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
 };
 use crate::result::DecodingError;
 use crate::{IonError, IonResult, IonType, TimestampPrecision};
@@ -311,21 +311,30 @@ impl<'top> TextBufferView<'top> {
 
     /// Matches one or more annotations.
     pub fn match_annotations(self) -> IonMatchResult<'top> {
-        recognize(many1_count(Self::match_annotation))(self)
+        let (remaining, matched) = recognize(many1_count(Self::match_annotation))(self)?;
+        if matched.len() > u16::MAX as usize {
+            let error = InvalidInputError::new(matched)
+                .with_description("the maximum supported annotations sequence length is 65KB")
+                .with_label("parsing annotations");
+            Err(nom::Err::Error(IonParseError::Invalid(error)))
+        } else {
+            Ok((remaining, matched))
+        }
     }
 
     /// Matches an annotation (symbol token) and a terminating '::'.
     pub fn match_annotation(self) -> IonParseResult<'top, (MatchedSymbol, Range<usize>)> {
         terminated(
             whitespace_and_then(match_and_span(Self::match_symbol)),
-            whitespace_and_then(complete_tag("::")),
+            whitespace_and_then(terminated(
+                complete_tag("::"),
+                Self::match_optional_comments_and_whitespace,
+            )),
         )(self)
     }
 
     /// Matches an optional annotations sequence and a value, including operators.
-    pub fn match_sexp_value(
-        self,
-    ) -> IonParseResult<'top, Option<MatchedRawTextValue<'top, TextEncoding_1_0>>> {
+    pub fn match_sexp_value(self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
         whitespace_and_then(alt((
             value(None, tag(")")),
             pair(
@@ -336,16 +345,8 @@ impl<'top> TextBufferView<'top> {
                 // `-3` as an operator (`-`) and an int (`3`). Thus, we run `match_value` first.
                 whitespace_and_then(alt((Self::match_value, Self::match_operator))),
             )
-            .map(|(maybe_annotations, mut value)| {
-                if let Some(annotations) = maybe_annotations {
-                    value.encoded_value = value
-                        .encoded_value
-                        .with_annotations_sequence(annotations.offset(), annotations.len());
-                    // Rewind the value's input to include the annotations sequence.
-                    value.input = self.slice_to_end(annotations.offset() - self.offset());
-                }
-                Some(value)
-            }),
+            .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
+            .map(Some),
         )))
         .parse(self)
     }
@@ -367,21 +368,33 @@ impl<'top> TextBufferView<'top> {
                 // `-3` as an operator (`-`) and an int (`3`). Thus, we run `match_value` first.
                 whitespace_and_then(alt((Self::match_value_1_1, Self::match_operator))),
             )
-            .map(|(maybe_annotations, mut value)| {
-                if let Some(annotations) = maybe_annotations {
-                    value.encoded_value = value
-                        .encoded_value
-                        .with_annotations_sequence(annotations.offset(), annotations.len());
-                    // Rewind the value's input to include the annotations sequence.
-                    value.input = self.slice_to_end(annotations.offset() - self.offset());
-                }
-                Some(value)
-            })
-            .map(|maybe_matched| {
-                maybe_matched.map(|matched| RawValueExpr::ValueLiteral(matched.into()))
-            }),
+            .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
+            .map(RawValueExpr::ValueLiteral)
+            .map(Some),
         )))
         .parse(self)
+    }
+
+    fn apply_annotations<E: TextEncoding<'top>>(
+        self,
+        maybe_annotations: Option<TextBufferView<'top>>,
+        mut value: LazyRawTextValue<'top, E>,
+    ) -> LazyRawTextValue<'top, E> {
+        if let Some(annotations) = maybe_annotations {
+            let annotations_length =
+                u16::try_from(annotations.len()).expect("already length checked");
+            // Update the encoded value's record of how many bytes of annotations precede the data.
+            value.encoded_value = value
+                .encoded_value
+                .with_annotations_sequence(annotations_length);
+            let unannotated_value_length = value.input.len();
+            // Rewind the value's input to include the annotations sequence.
+            value.input = self.slice(
+                annotations.offset() - self.offset(),
+                annotations_length as usize + unannotated_value_length,
+            );
+        }
+        value
     }
 
     /// Matches a struct field name/value pair.
@@ -401,10 +414,8 @@ impl<'top> TextBufferView<'top> {
             // Otherwise, match a name/value pair and turn it into a `LazyRawTextField`.
             Self::match_struct_field_name_and_value.map(move |(matched_field_name, value)| {
                 let field_name = LazyRawTextFieldName_1_0::new(matched_field_name);
-                let field_value = LazyRawTextValue_1_0::new(value);
                 Some(LazyRawFieldExpr::<'top, TextEncoding_1_0>::NameValue(
-                    field_name,
-                    field_value,
+                    field_name, value,
                 ))
             }),
         ))(input_including_field_name)
@@ -419,13 +430,7 @@ impl<'top> TextBufferView<'top> {
     /// input bytes where the field name is found, and the value.
     pub fn match_struct_field_name_and_value(
         self,
-    ) -> IonParseResult<
-        'top,
-        (
-            MatchedFieldName<'top>,
-            MatchedRawTextValue<'top, TextEncoding_1_0>,
-        ),
-    > {
+    ) -> IonParseResult<'top, (MatchedFieldName<'top>, LazyRawTextValue_1_0<'top>)> {
         terminated(
             separated_pair(
                 whitespace_and_then(Self::match_struct_field_name),
@@ -463,8 +468,7 @@ impl<'top> TextBufferView<'top> {
             // Otherwise, match a name/value pair and turn it into a `LazyRawTextField`.
             Self::match_struct_field_name_and_value_1_1.map(move |(field_name, value)| {
                 let field_name = LazyRawTextFieldName_1_1::new(field_name);
-                let field_value = LazyRawTextValue_1_1::new(value);
-                Ok(Some(LazyRawFieldExpr::NameValue(field_name, field_value)))
+                Ok(Some(LazyRawFieldExpr::NameValue(field_name, value)))
             }),
         ))(input_including_field_name)?;
         Ok((input_after_field, field_expr_result?))
@@ -491,13 +495,7 @@ impl<'top> TextBufferView<'top> {
     /// range of input bytes where the field name is found, and the value.
     pub fn match_struct_field_name_and_value_1_1(
         self,
-    ) -> IonParseResult<
-        'top,
-        (
-            MatchedFieldName<'top>,
-            MatchedRawTextValue<'top, TextEncoding_1_1>,
-        ),
-    > {
+    ) -> IonParseResult<'top, (MatchedFieldName<'top>, LazyRawTextValue_1_1<'top>)> {
         terminated(
             separated_pair(
                 whitespace_and_then(Self::match_struct_field_name),
@@ -509,44 +507,22 @@ impl<'top> TextBufferView<'top> {
     }
 
     /// Matches an optional annotation sequence and a trailing value.
-    pub fn match_annotated_value(
-        self,
-    ) -> IonParseResult<'top, MatchedRawTextValue<'top, TextEncoding_1_0>> {
+    pub fn match_annotated_value(self) -> IonParseResult<'top, LazyRawTextValue_1_0<'top>> {
         pair(
             opt(Self::match_annotations),
             whitespace_and_then(Self::match_value),
         )
-        .map(|(maybe_annotations, mut value)| {
-            if let Some(annotations) = maybe_annotations {
-                value.encoded_value = value
-                    .encoded_value
-                    .with_annotations_sequence(annotations.offset(), annotations.len());
-                // Rewind the value's input to include the annotations sequence.
-                value.input = self.slice_to_end(annotations.offset() - self.offset());
-            }
-            value
-        })
+        .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
         .parse(self)
     }
 
     /// Matches an optional annotation sequence and a trailing v1.1 value.
-    pub fn match_annotated_value_1_1(
-        self,
-    ) -> IonParseResult<'top, MatchedRawTextValue<'top, TextEncoding_1_1>> {
+    pub fn match_annotated_value_1_1(self) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
         pair(
             opt(Self::match_annotations),
             whitespace_and_then(Self::match_value_1_1),
         )
-        .map(|(maybe_annotations, mut value)| {
-            if let Some(annotations) = maybe_annotations {
-                value.encoded_value = value
-                    .encoded_value
-                    .with_annotations_sequence(annotations.offset(), annotations.len());
-                // Rewind the value's input to include the annotations sequence.
-                value.input = self.slice_to_end(annotations.offset() - self.offset());
-            }
-            value
-        })
+        .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
         .parse(self)
     }
 
@@ -611,241 +587,120 @@ impl<'top> TextBufferView<'top> {
     }
 
     /// Matches a single scalar value or the beginning of a container.
-    pub fn match_value(self) -> IonParseResult<'top, MatchedRawTextValue<'top, TextEncoding_1_0>> {
-        alt((
+    pub fn match_value(self) -> IonParseResult<'top, LazyRawTextValue_1_0<'top>> {
+        consumed(alt((
             // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
             // parsing to be done.
-            map(match_and_length(Self::match_null), |(ion_type, length)| {
-                EncodedTextValue::new(MatchedValue::Null(ion_type), self.offset(), length)
+            map(Self::match_null, |ion_type| {
+                EncodedTextValue::new(MatchedValue::Null(ion_type))
             }),
-            map(match_and_length(Self::match_bool), |(value, length)| {
-                EncodedTextValue::new(MatchedValue::Bool(value), self.offset(), length)
+            map(Self::match_bool, |value| {
+                EncodedTextValue::new(MatchedValue::Bool(value))
             }),
             // For `int` and the other types, we use `match` and store the partially-processed input in the
             // `matched_value` field of the `EncodedTextValue` we return.
-            map(
-                match_and_length(Self::match_int),
-                |(matched_int, length)| {
-                    EncodedTextValue::new(MatchedValue::Int(matched_int), self.offset(), length)
-                },
-            ),
-            map(
-                match_and_length(Self::match_float),
-                |(matched_float, length)| {
-                    EncodedTextValue::new(MatchedValue::Float(matched_float), self.offset(), length)
-                },
-            ),
-            map(
-                match_and_length(Self::match_decimal),
-                |(matched_decimal, length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::Decimal(matched_decimal),
-                        self.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_timestamp),
-                |(matched_timestamp, length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::Timestamp(matched_timestamp),
-                        self.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_string),
-                |(matched_string, length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::String(matched_string),
-                        self.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_symbol),
-                |(matched_symbol, length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::Symbol(matched_symbol),
-                        self.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_blob),
-                |(matched_blob, length)| {
-                    EncodedTextValue::new(MatchedValue::Blob(matched_blob), self.offset(), length)
-                },
-            ),
-            map(
-                match_and_length(Self::match_clob),
-                |(matched_clob, length)| {
-                    EncodedTextValue::new(MatchedValue::Clob(matched_clob), self.offset(), length)
-                },
-            ),
-            map(
-                match_and_length(Self::match_list),
-                |(matched_list, length)| {
-                    // TODO: Cache child expressions found in 1.0 list
-                    let not_yet_used_in_1_0 =
-                        bumpalo::collections::Vec::new_in(self.allocator).into_bump_slice();
-                    EncodedTextValue::new(
-                        MatchedValue::List(not_yet_used_in_1_0),
-                        matched_list.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_sexp),
-                |(matched_list, length)| {
-                    // TODO: Cache child expressions found in 1.0 sexp
-                    let not_yet_used_in_1_0 =
-                        bumpalo::collections::Vec::new_in(self.allocator).into_bump_slice();
-                    EncodedTextValue::new(
-                        MatchedValue::SExp(not_yet_used_in_1_0),
-                        matched_list.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_struct),
-                |(matched_struct, length)| {
-                    // TODO: Cache child expressions found in 1.0 struct
-                    let not_yet_used_in_1_0 =
-                        bumpalo::collections::Vec::new_in(self.allocator).into_bump_slice();
-                    EncodedTextValue::new(
-                        MatchedValue::Struct(not_yet_used_in_1_0),
-                        matched_struct.offset(),
-                        length,
-                    )
-                },
-            ),
-        ))
-        .map(|encoded_value| MatchedRawTextValue {
+            map(Self::match_int, |matched_int| {
+                EncodedTextValue::new(MatchedValue::Int(matched_int))
+            }),
+            map(Self::match_float, |matched_float| {
+                EncodedTextValue::new(MatchedValue::Float(matched_float))
+            }),
+            map(Self::match_decimal, |matched_decimal| {
+                EncodedTextValue::new(MatchedValue::Decimal(matched_decimal))
+            }),
+            map(Self::match_timestamp, |matched_timestamp| {
+                EncodedTextValue::new(MatchedValue::Timestamp(matched_timestamp))
+            }),
+            map(Self::match_string, |matched_string| {
+                EncodedTextValue::new(MatchedValue::String(matched_string))
+            }),
+            map(Self::match_symbol, |matched_symbol| {
+                EncodedTextValue::new(MatchedValue::Symbol(matched_symbol))
+            }),
+            map(Self::match_blob, |matched_blob| {
+                EncodedTextValue::new(MatchedValue::Blob(matched_blob))
+            }),
+            map(Self::match_clob, |matched_clob| {
+                EncodedTextValue::new(MatchedValue::Clob(matched_clob))
+            }),
+            map(Self::match_list, |_matched_list| {
+                // TODO: Cache child expressions found in 1.0 list
+                let not_yet_used_in_1_0 =
+                    bumpalo::collections::Vec::new_in(self.allocator).into_bump_slice();
+                EncodedTextValue::new(MatchedValue::List(not_yet_used_in_1_0))
+            }),
+            map(Self::match_sexp, |_matched_sexp| {
+                // TODO: Cache child expressions found in 1.0 sexp
+                let not_yet_used_in_1_0 =
+                    bumpalo::collections::Vec::new_in(self.allocator).into_bump_slice();
+                EncodedTextValue::new(MatchedValue::SExp(not_yet_used_in_1_0))
+            }),
+            map(Self::match_struct, |_matched_struct| {
+                // TODO: Cache child expressions found in 1.0 struct
+                let not_yet_used_in_1_0 =
+                    bumpalo::collections::Vec::new_in(self.allocator).into_bump_slice();
+                EncodedTextValue::new(MatchedValue::Struct(not_yet_used_in_1_0))
+            }),
+        )))
+        .map(|(input, encoded_value)| LazyRawTextValue_1_0 {
             encoded_value,
-            input: self,
+            input,
         })
         .parse(self)
     }
 
-    pub fn match_value_1_1(
-        self,
-    ) -> IonParseResult<'top, MatchedRawTextValue<'top, TextEncoding_1_1>> {
-        alt((
+    pub fn match_value_1_1(self) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
+        consumed(alt((
             // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
             // parsing to be done.
-            map(match_and_length(Self::match_null), |(ion_type, length)| {
-                EncodedTextValue::new(MatchedValue::Null(ion_type), self.offset(), length)
+            map(Self::match_null, |ion_type| {
+                EncodedTextValue::new(MatchedValue::Null(ion_type))
             }),
-            map(match_and_length(Self::match_bool), |(value, length)| {
-                EncodedTextValue::new(MatchedValue::Bool(value), self.offset(), length)
+            map(Self::match_bool, |value| {
+                EncodedTextValue::new(MatchedValue::Bool(value))
             }),
             // For `int` and the other types, we use `match` and store the partially-processed input in the
             // `matched_value` field of the `EncodedTextValue` we return.
+            map(Self::match_int, |matched_int| {
+                EncodedTextValue::new(MatchedValue::Int(matched_int))
+            }),
+            map(Self::match_float, |matched_float| {
+                EncodedTextValue::new(MatchedValue::Float(matched_float))
+            }),
+            map(Self::match_decimal, |matched_decimal| {
+                EncodedTextValue::new(MatchedValue::Decimal(matched_decimal))
+            }),
+            map(Self::match_timestamp, |matched_timestamp| {
+                EncodedTextValue::new(MatchedValue::Timestamp(matched_timestamp))
+            }),
+            map(Self::match_string, |matched_string| {
+                EncodedTextValue::new(MatchedValue::String(matched_string))
+            }),
+            map(Self::match_symbol, |matched_symbol| {
+                EncodedTextValue::new(MatchedValue::Symbol(matched_symbol))
+            }),
+            map(Self::match_blob, |matched_blob| {
+                EncodedTextValue::new(MatchedValue::Blob(matched_blob))
+            }),
+            map(Self::match_clob, |matched_clob| {
+                EncodedTextValue::new(MatchedValue::Clob(matched_clob))
+            }),
+            map(Self::match_list_1_1, |(_matched_list, child_expr_cache)| {
+                EncodedTextValue::new(MatchedValue::List(child_expr_cache))
+            }),
+            map(Self::match_sexp_1_1, |(_matched_sexp, child_expr_cache)| {
+                EncodedTextValue::new(MatchedValue::SExp(child_expr_cache))
+            }),
             map(
-                match_and_length(Self::match_int),
-                |(matched_int, length)| {
-                    EncodedTextValue::new(MatchedValue::Int(matched_int), self.offset(), length)
+                Self::match_struct_1_1,
+                |(_matched_struct, field_expr_cache)| {
+                    EncodedTextValue::new(MatchedValue::Struct(field_expr_cache))
                 },
             ),
-            map(
-                match_and_length(Self::match_float),
-                |(matched_float, length)| {
-                    EncodedTextValue::new(MatchedValue::Float(matched_float), self.offset(), length)
-                },
-            ),
-            map(
-                match_and_length(Self::match_decimal),
-                |(matched_decimal, length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::Decimal(matched_decimal),
-                        self.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_timestamp),
-                |(matched_timestamp, length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::Timestamp(matched_timestamp),
-                        self.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_string),
-                |(matched_string, length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::String(matched_string),
-                        self.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_symbol),
-                |(matched_symbol, length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::Symbol(matched_symbol),
-                        self.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_blob),
-                |(matched_blob, length)| {
-                    EncodedTextValue::new(MatchedValue::Blob(matched_blob), self.offset(), length)
-                },
-            ),
-            map(
-                match_and_length(Self::match_clob),
-                |(matched_clob, length)| {
-                    EncodedTextValue::new(MatchedValue::Clob(matched_clob), self.offset(), length)
-                },
-            ),
-            map(
-                match_and_length(Self::match_list_1_1),
-                |((matched_list, child_expr_cache), length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::List(child_expr_cache),
-                        matched_list.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_sexp_1_1),
-                |((matched_sexp, child_expr_cache), length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::SExp(child_expr_cache),
-                        matched_sexp.offset(),
-                        length,
-                    )
-                },
-            ),
-            map(
-                match_and_length(Self::match_struct_1_1),
-                |((matched_struct, field_expr_cache), length)| {
-                    EncodedTextValue::new(
-                        MatchedValue::Struct(field_expr_cache),
-                        matched_struct.offset(),
-                        length,
-                    )
-                },
-            ),
-        ))
-        .map(|encoded_value| MatchedRawTextValue {
+        )))
+        .map(|(input, encoded_value)| LazyRawTextValue_1_1 {
             encoded_value,
-            input: self,
+            input,
         })
         .parse(self)
     }
@@ -956,7 +811,7 @@ impl<'top> TextBufferView<'top> {
                 Err(e) => {
                     return {
                         let error = InvalidInputError::new(self)
-                            .with_label("matching a sexp")
+                            .with_label("matching a 1.1 sexp")
                             .with_description(format!("{}", e));
                         Err(nom::Err::Failure(IonParseError::Invalid(error)))
                     }
@@ -973,9 +828,7 @@ impl<'top> TextBufferView<'top> {
     ///
     /// If a value is found, returns `Ok(Some(value))`. If the end of the list is found, returns
     /// `Ok(None)`.
-    pub fn match_list_value(
-        self,
-    ) -> IonParseResult<'top, Option<MatchedRawTextValue<'top, TextEncoding_1_0>>> {
+    pub fn match_list_value(self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
         preceded(
             // Some amount of whitespace/comments...
             Self::match_optional_comments_and_whitespace,
@@ -1010,9 +863,7 @@ impl<'top> TextBufferView<'top> {
                 // ...followed by a comma or end-of-list
                 Self::match_delimiter_after_list_value,
             )
-            .map(|maybe_matched| {
-                maybe_matched.map(|matched| RawValueExpr::ValueLiteral(matched.into()))
-            }),
+            .map(|maybe_matched| maybe_matched.map(RawValueExpr::ValueLiteral)),
         )))
         .parse(self)
     }
@@ -1619,18 +1470,12 @@ impl<'top> TextBufferView<'top> {
     /// Matches an operator symbol, which can only legally appear within an s-expression
     fn match_operator<E: TextEncoding<'top>>(
         self,
-    ) -> IonParseResult<'top, MatchedRawTextValue<'top, E>> {
-        match_and_length(is_a("!#%&*+-./;<=>?@^`|~"))
-            .map(
-                |(text, length): (TextBufferView, usize)| MatchedRawTextValue {
-                    input: self,
-                    encoded_value: EncodedTextValue::new(
-                        MatchedValue::Symbol(MatchedSymbol::Operator),
-                        text.offset(),
-                        length,
-                    ),
-                },
-            )
+    ) -> IonParseResult<'top, LazyRawTextValue<'top, E>> {
+        is_a("!#%&*+-./;<=>?@^`|~")
+            .map(|text: TextBufferView| LazyRawTextValue {
+                input: text,
+                encoded_value: EncodedTextValue::new(MatchedValue::Symbol(MatchedSymbol::Operator)),
+            })
             .parse(self)
     }
 
@@ -2019,13 +1864,12 @@ impl<'top> TextBufferView<'top> {
                     complete_one_of("-+"),
                     Self::match_timestamp_offset_hours_and_minutes,
                 ),
-                |(sign, (hours, _minutes))| {
-                    let is_negative = sign == '-';
-                    let hours_offset = hours.offset();
-                    MatchedTimestampOffset::HoursAndMinutes(MatchedHoursAndMinutes::new(
-                        is_negative,
-                        hours_offset,
-                    ))
+                |(sign, (_hours, _minutes))| {
+                    if sign == '-' {
+                        MatchedTimestampOffset::NegativeHoursAndMinutes
+                    } else {
+                        MatchedTimestampOffset::PositiveHoursAndMinutes
+                    }
                 },
             ),
         ))(self)
@@ -2898,6 +2742,7 @@ mod tests {
             "(:foo foo)",
         ];
         for input in good_inputs {
+            println!("test: {input}");
             match_macro_invocation(input);
         }
 

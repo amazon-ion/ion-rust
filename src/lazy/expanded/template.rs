@@ -9,7 +9,7 @@ use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::r#struct::UnexpandedField;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{
-    EncodingContext, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
+    EncodingContextRef, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
 };
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
@@ -144,7 +144,7 @@ impl<'top> Deref for TemplateMacroRef<'top> {
 
 /// Steps over the child expressions of a list or s-expression found in the body of a template.
 pub struct TemplateSequenceIterator<'top, D: LazyDecoder> {
-    context: EncodingContext<'top>,
+    context: EncodingContextRef<'top>,
     template: TemplateMacroRef<'top>,
     evaluator: MacroEvaluator<'top, D>,
     value_expressions: &'top [TemplateBodyValueExpr],
@@ -153,7 +153,7 @@ pub struct TemplateSequenceIterator<'top, D: LazyDecoder> {
 
 impl<'top, D: LazyDecoder> TemplateSequenceIterator<'top, D> {
     pub fn new(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         evaluator: MacroEvaluator<'top, D>,
         template: TemplateMacroRef<'top>,
         value_expressions: &'top [TemplateBodyValueExpr],
@@ -248,7 +248,7 @@ impl<'top, D: LazyDecoder> Iterator for TemplateSequenceIterator<'top, D> {
 /// mimic reading them from input. The [`LazyExpandedStruct`](crate::lazy::expanded::struct) handles
 /// evaluating any macro invocations that this yields.
 pub struct TemplateStructUnexpandedFieldsIterator<'top, D: LazyDecoder> {
-    context: EncodingContext<'top>,
+    context: EncodingContextRef<'top>,
     environment: Environment<'top, D>,
     template: TemplateMacroRef<'top>,
     expressions: &'top [TemplateBodyValueExpr],
@@ -256,8 +256,14 @@ pub struct TemplateStructUnexpandedFieldsIterator<'top, D: LazyDecoder> {
 }
 
 impl<'top, D: LazyDecoder> TemplateStructUnexpandedFieldsIterator<'top, D> {
+    pub fn context(&self) -> EncodingContextRef<'top> {
+        self.context
+    }
+}
+
+impl<'top, D: LazyDecoder> TemplateStructUnexpandedFieldsIterator<'top, D> {
     pub fn new(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
         template: TemplateMacroRef<'top>,
         expressions: &'top [TemplateBodyValueExpr],
@@ -367,7 +373,7 @@ impl TemplateBody {
             .push(TemplateBodyValueExpr::Element(element))
     }
 
-    pub fn push_variable(&mut self, signature_index: usize) {
+    pub fn push_variable(&mut self, signature_index: u16) {
         self.expressions.push(TemplateBodyValueExpr::Variable(
             TemplateBodyVariableReference::new(signature_index),
         ))
@@ -622,12 +628,12 @@ impl TemplateBodyMacroInvocation {
 
     /// Finds the definition of the macro being invoked in the provided `context`'s macro table.
     ///
-    /// It is a logic error for this method to be called with an [`EncodingContext`] that does not
+    /// It is a logic error for this method to be called with an [`EncodingContextRef`] that does not
     /// contain the necessary information; doing so will cause this method to panic.
     pub(crate) fn resolve<'top>(
         self,
         host_template: TemplateMacroRef<'top>,
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
     ) -> TemplateMacroInvocation<'top> {
         let invoked_macro = context
             .macro_table
@@ -653,7 +659,7 @@ impl TemplateBodyMacroInvocation {
 /// holds references to the invoked macro and its argument expressions.
 #[derive(Copy, Clone)]
 pub struct TemplateMacroInvocation<'top> {
-    context: EncodingContext<'top>,
+    context: EncodingContextRef<'top>,
     // The definition of the template in which this macro invocation appears. This is useful as
     // debugging information / viewing in stack traces.
     host_template: TemplateMacroRef<'top>,
@@ -676,7 +682,7 @@ impl<'top> Debug for TemplateMacroInvocation<'top> {
 
 impl<'top> TemplateMacroInvocation<'top> {
     pub fn new(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         host_template: TemplateMacroRef<'top>,
         invoked_macro: MacroRef<'top>,
         arg_expressions: &'top [TemplateBodyValueExpr],
@@ -706,6 +712,9 @@ impl<'top> TemplateMacroInvocation<'top> {
     }
     pub fn invoked_macro(&self) -> MacroRef<'top> {
         self.invoked_macro
+    }
+    pub fn context(&self) -> EncodingContextRef<'top> {
+        self.context
     }
 }
 
@@ -783,20 +792,20 @@ impl<'top, D: LazyDecoder> Iterator for TemplateMacroInvocationArgsIterator<'top
 /// A reference to a variable in a template body.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct TemplateBodyVariableReference {
-    signature_index: usize,
+    signature_index: u16,
 }
 
 impl TemplateBodyVariableReference {
-    pub fn new(signature_index: usize) -> Self {
+    pub fn new(signature_index: u16) -> Self {
         Self { signature_index }
     }
     pub fn signature_index(&self) -> usize {
-        self.signature_index
+        self.signature_index as usize
     }
     pub fn name<'a>(&self, signature: &'a MacroSignature) -> &'a str {
         signature
             .parameters()
-            .get(self.signature_index)
+            .get(self.signature_index())
             .unwrap()
             .name()
     }

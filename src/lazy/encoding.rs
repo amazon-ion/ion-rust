@@ -29,7 +29,7 @@ use crate::lazy::text::raw::v1_1::reader::{
 };
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
-    LazyRawTextVersionMarker_1_1, MatchedRawTextValue, RawTextAnnotationsIterator,
+    LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
 use crate::{TextKind, WriteConfig};
 
@@ -100,26 +100,16 @@ pub trait BinaryEncoding<'top>: Encoding + LazyDecoder {}
 
 /// Marker trait for text encodings.
 pub trait TextEncoding<'top>:
-    Encoding + LazyDecoder<AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>>
+    Encoding
+    + LazyDecoder<
+        AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>,
+        Value<'top> = LazyRawTextValue<'top, Self>,
+    >
 {
-    fn value_from_matched(
-        matched: MatchedRawTextValue<'top, Self>,
-    ) -> <Self as LazyDecoder>::Value<'top>;
+    // No methods, just a marker
 }
-impl<'top> TextEncoding<'top> for TextEncoding_1_0 {
-    fn value_from_matched(
-        matched: MatchedRawTextValue<'_, Self>,
-    ) -> <Self as LazyDecoder>::Value<'_> {
-        LazyRawTextValue_1_0::from(matched)
-    }
-}
-impl<'top> TextEncoding<'top> for TextEncoding_1_1 {
-    fn value_from_matched(
-        matched: MatchedRawTextValue<'_, Self>,
-    ) -> <Self as LazyDecoder>::Value<'_> {
-        LazyRawTextValue_1_1::from(matched)
-    }
-}
+impl<'top> TextEncoding<'top> for TextEncoding_1_0 {}
+impl<'top> TextEncoding<'top> for TextEncoding_1_1 {}
 
 /// Marker trait for encodings that support macros.
 pub trait EncodingWithMacroSupport {}
@@ -192,7 +182,6 @@ impl LazyDecoder for BinaryEncoding_1_1 {
 // the implementation will conflict with the core `impl<T> From<T> for T` implementation.
 pub trait RawValueLiteral {}
 
-impl<'top, E: TextEncoding<'top>> RawValueLiteral for MatchedRawTextValue<'top, E> {}
 impl<'top, E: TextEncoding<'top>> RawValueLiteral for LazyRawTextValue<'top, E> {}
 impl<'top> RawValueLiteral for LazyRawBinaryValue_1_0<'top> {}
 impl<'top> RawValueLiteral for LazyRawBinaryValue_1_1<'top> {}

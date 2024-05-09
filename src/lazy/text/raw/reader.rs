@@ -62,7 +62,6 @@ impl<'data> LazyRawTextReader_1_0<'data> {
             )));
         }
         let buffer_after_whitespace = buffer_after_whitespace.local_lifespan();
-
         let (remaining, matched_item) = buffer_after_whitespace
             .match_top_level_item_1_0()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
@@ -297,7 +296,6 @@ mod tests {
         reader.expect_next(RawValueRef::Null(IonType::Bool));
         // null.int
         reader.expect_next(RawValueRef::Null(IonType::Int));
-
         // false
         reader.expect_next(RawValueRef::Bool(false));
         // true
@@ -336,7 +334,6 @@ mod tests {
         reader.expect_next(RawValueRef::Decimal(Decimal::new(-6, 5)));
         //         6d-5
         reader.expect_next(RawValueRef::Decimal(Decimal::new(6, -5)));
-
         // 2023T
         reader.expect_next(RawValueRef::Timestamp(Timestamp::with_year(2023).build()?));
         // 2023-08-13T
@@ -411,7 +408,6 @@ mod tests {
             sum += value?.expect_value()?.read()?.expect_i64()?;
         }
         assert_eq!(sum, 6);
-
         // (foo++ 1 2)
         let sexp = reader.next()?.expect_value()?.read()?.expect_sexp()?;
         let mut sexp_elements = sexp.iter();

@@ -12,8 +12,8 @@ use crate::lazy::expanded::template::{
     TemplateMacroRef, TemplateStructIndex, TemplateStructUnexpandedFieldsIterator,
 };
 use crate::lazy::expanded::{
-    EncodingContext, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
-    ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
+    EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
+    LazyExpandedValue, TemplateVariableReference,
 };
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
@@ -27,9 +27,9 @@ use crate::{IonError, IonResult, RawSymbolTokenRef, SymbolRef};
 // and expands the field as part of its iteration process.
 #[derive(Debug, Clone, Copy)]
 pub enum UnexpandedField<'top, D: LazyDecoder> {
-    RawNameValue(EncodingContext<'top>, D::FieldName<'top>, D::Value<'top>),
-    RawNameEExp(EncodingContext<'top>, D::FieldName<'top>, D::EExp<'top>),
-    RawEExp(EncodingContext<'top>, D::EExp<'top>),
+    RawNameValue(EncodingContextRef<'top>, D::FieldName<'top>, D::Value<'top>),
+    RawNameEExp(EncodingContextRef<'top>, D::FieldName<'top>, D::EExp<'top>),
+    RawEExp(EncodingContextRef<'top>, D::EExp<'top>),
     TemplateNameValue(SymbolRef<'top>, TemplateElement<'top>),
     TemplateNameMacro(SymbolRef<'top>, TemplateMacroInvocation<'top>),
     TemplateNameVariable(
@@ -65,7 +65,7 @@ impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
 
 impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
     fn from_raw_field(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         name: D::FieldName<'top>,
         value: impl Into<LazyExpandedValue<'top, D>>,
     ) -> Self {
@@ -89,7 +89,7 @@ impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum LazyExpandedFieldName<'top, D: LazyDecoder> {
-    RawName(EncodingContext<'top>, D::FieldName<'top>),
+    RawName(EncodingContextRef<'top>, D::FieldName<'top>),
     TemplateName(TemplateMacroRef<'top>, SymbolRef<'top>),
     // TODO: `Constructed` needed for names in `(make_struct ...)`
 }
@@ -136,13 +136,13 @@ pub enum ExpandedStructSource<'top, D: LazyDecoder> {
 
 #[derive(Copy, Clone)]
 pub struct LazyExpandedStruct<'top, D: LazyDecoder> {
-    pub(crate) context: EncodingContext<'top>,
+    pub(crate) context: EncodingContextRef<'top>,
     pub(crate) source: ExpandedStructSource<'top, D>,
 }
 
 //TODO: Feature gate
 impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
-    pub fn context(&self) -> EncodingContext<'top> {
+    pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
     pub fn source(&self) -> ExpandedStructSource<'top, D> {
@@ -152,7 +152,7 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
 
 impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
     pub fn from_literal(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         sexp: D::Struct<'top>,
     ) -> LazyExpandedStruct<'top, D> {
         let source = ExpandedStructSource::ValueLiteral(sexp);
@@ -160,7 +160,7 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
     }
 
     pub fn from_template(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
         template: TemplateMacroRef<'top>,
         annotations: AnnotationsRange,
@@ -224,7 +224,6 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
             }
         };
         ExpandedStructIterator {
-            context: self.context,
             source,
             state: ExpandedStructIteratorState::ReadingFieldFromSource,
         }
@@ -273,14 +272,11 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
                 match first_result_expr {
                     // If the expression is a value literal, wrap it in a LazyExpandedValue and return it.
                     TemplateBodyValueExpr::Element(element) => {
-                        let value = LazyExpandedValue {
-                            context: self.context,
-                            source: ExpandedValueSource::Template(
-                                *environment,
-                                TemplateElement::new(*template, element),
-                            ),
-                            variable: None,
-                        };
+                        let value = LazyExpandedValue::from_template(
+                            self.context,
+                            *environment,
+                            TemplateElement::new(*template, element),
+                        );
                         Ok(Some(value))
                     }
                     // If the expression is a variable, resolve it in the current environment.
@@ -344,7 +340,7 @@ pub enum ExpandedStructIteratorSource<'top, D: LazyDecoder> {
 }
 
 pub struct ExpandedStructIterator<'top, D: LazyDecoder> {
-    context: EncodingContext<'top>,
+    // Each variant of 'source' below holds its own encoding context reference
     source: ExpandedStructIteratorSource<'top, D>,
     // Stores information about any operations that are still in progress.
     state: ExpandedStructIteratorState<'top, D>,
@@ -384,16 +380,25 @@ impl<'top, D: LazyDecoder> Iterator for ExpandedStructIterator<'top, D> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let Self {
-            context,
             ref mut source,
             ref mut state,
         } = *self;
         match source {
             ExpandedStructIteratorSource::Template(tdl_macro_evaluator, template_iterator) => {
-                Self::next_field_from(context, state, tdl_macro_evaluator, template_iterator)
+                Self::next_field_from(
+                    template_iterator.context(),
+                    state,
+                    tdl_macro_evaluator,
+                    template_iterator,
+                )
             }
             ExpandedStructIteratorSource::ValueLiteral(e_exp_evaluator, raw_struct_iter) => {
-                Self::next_field_from(context, state, e_exp_evaluator, raw_struct_iter)
+                Self::next_field_from(
+                    raw_struct_iter.context(),
+                    state,
+                    e_exp_evaluator,
+                    raw_struct_iter,
+                )
             }
         }
     }
@@ -416,7 +421,7 @@ impl<'top, D: LazyDecoder> ExpandedStructIterator<'top, D> {
         // LazyRawStruct, or it could be a `TemplateStructRawFieldsIterator`.
         I: Iterator<Item = IonResult<UnexpandedField<'top, D>>>,
     >(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         state: &'a mut ExpandedStructIteratorState<'top, D>,
         evaluator: &'a mut MacroEvaluator<'top, D>,
         iter: &'a mut I,
@@ -480,7 +485,7 @@ impl<'top, D: LazyDecoder> ExpandedStructIterator<'top, D> {
     /// Pulls a single unexpanded field expression from the source iterator and sets `state` according to
     /// the expression's kind.
     fn next_from_iterator<I: Iterator<Item = IonResult<UnexpandedField<'top, D>>>>(
-        context: EncodingContext<'top>,
+        context: EncodingContextRef<'top>,
         state: &mut ExpandedStructIteratorState<'top, D>,
         evaluator: &mut MacroEvaluator<'top, D>,
         iter: &mut I,
