@@ -273,16 +273,12 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
             let value_bytes = self.value_body()?;
             let exponent = FlexInt::read(value_bytes, 0)?;
-            let coefficient_size = self.encoded_value.value_length() - exponent.size_in_bytes();
-            let coefficient = if coefficient_size > 0 {
-                FixedInt::read(
-                    &value_bytes[exponent.size_in_bytes()..],
-                    coefficient_size,
-                    0,
-                )?
-            } else {
-                0i64.into()
-            };
+            let coefficient_size = self.encoded_value.value_body_length - exponent.size_in_bytes();
+            let coefficient = FixedInt::read(
+                &value_bytes[exponent.size_in_bytes()..],
+                coefficient_size,
+                0,
+            )?;
             Decimal::new(coefficient, exponent.value())
         };
 
