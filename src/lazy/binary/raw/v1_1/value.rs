@@ -22,7 +22,7 @@ use crate::{
     },
     result::IonFailure,
     types::SymbolId,
-    IonError, IonResult, IonType,
+    IonError, IonResult, IonType, RawSymbolTokenRef,
 };
 
 #[derive(Debug, Copy, Clone)]
