@@ -265,8 +265,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         use crate::types::decimal::*;
 
         debug_assert!(self.encoded_value.ion_type() == IonType::Decimal);
-        let length_code = self.encoded_value.header.length_code as usize;
-        let decimal: Decimal = if length_code == 0 {
+        let decimal: Decimal = if self.encoded_value.value_body_length == 0 {
             Decimal::new(0, 0)
         } else {
             use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
@@ -279,7 +278,13 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
                 coefficient_size,
                 0,
             )?;
-            Decimal::new(coefficient, exponent.value())
+
+            // Handle special -0 encoding.
+            if coefficient_size > 0 && coefficient.value().as_i64().is_some_and(|c| c == 0) {
+                Decimal::negative_zero_with_exponent(exponent.value())
+            } else {
+                Decimal::new(coefficient, exponent.value())
+            }
         };
 
         Ok(RawValueRef::Decimal(decimal))
