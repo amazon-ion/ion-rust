@@ -310,4 +310,70 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn symbols() -> IonResult<()> {
+        use crate::RawSymbolTokenRef;
+
+        #[rustfmt::skip]
+        let data: Vec<u8> = vec![
+            // IVM
+            0xE0, 0x01, 0x01, 0xEA,
+
+            // Symbol: ''
+            0x90,
+
+            // Symbol: 'fourteen bytes'
+            0x9E, 0x66, 0x6F, 0x75, 0x72, 0x74, 0x65, 0x65, 0x6E, 0x20, 0x62, 0x79, 0x74, 0x65,
+            0x73,
+
+            // Symbol: 'variable length encoding'
+            0xF9, 0x31, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65, 0x20, 0x6C, 0x65, 0x6E,
+            0x67, 0x74, 0x68, 0x20, 0x65, 0x6E, 0x63, 0x6f, 0x64, 0x69, 0x6E, 0x67,
+
+            // Symbol ID: 1
+            0xE1, 0x01,
+
+            // Symbol ID: 257
+            0xE2, 0x01, 0x00,
+
+            // Symbol ID: 65,793
+            0xE3, 0x01, 0x00, 0x00,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            "".into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            "fourteen bytes".into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            "variable length encoding".into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            RawSymbolTokenRef::SymbolId(1)
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            RawSymbolTokenRef::SymbolId(257)
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            RawSymbolTokenRef::SymbolId(65793)
+        );
+
+        Ok(())
+    }
 }
