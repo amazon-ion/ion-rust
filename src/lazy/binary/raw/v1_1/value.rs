@@ -236,7 +236,28 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a float.
     fn read_float(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        debug_assert!(self.encoded_value.ion_type() == IonType::Float);
+
+        let value = match self.encoded_value.value_body_length {
+            8 => {
+                let mut buffer = [0; 8];
+                let val_bytes = self.input.bytes_range(1, 8);
+                buffer[..8].copy_from_slice(val_bytes);
+
+                f64::from_le_bytes(buffer)
+            }
+            4 => {
+                let mut buffer = [0; 4];
+                let val_bytes = self.input.bytes_range(1, 4);
+                buffer[..4].copy_from_slice(val_bytes);
+
+                f32::from_le_bytes(buffer).into()
+            }
+            2 => todo!("implement half-precision floats"),
+            0 => 0.0f64,
+            _ => unreachable!("found a float value with illegal byte size"),
+        };
+        Ok(RawValueRef::Float(value))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a decimal.
