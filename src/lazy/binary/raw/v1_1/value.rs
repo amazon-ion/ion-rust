@@ -280,7 +280,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             )?;
 
             // Handle special -0 encoding.
-            if coefficient_size > 0 && coefficient.value().as_i64().is_some_and(|c| c == 0) {
+            if coefficient_size > 0 && coefficient.value().as_i64() == Some(0) {
                 Decimal::negative_zero_with_exponent(exponent.value())
             } else {
                 Decimal::new(coefficient, exponent.value())
