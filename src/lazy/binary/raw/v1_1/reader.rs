@@ -548,7 +548,7 @@ mod tests {
 
         let bump = bumpalo::Bump::new();
         let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
-        let mut reader_bin = LazyRawBinaryReader_1_1::new(&ion_data);
+        let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
 
         assert_eq!(
             reader_bin
@@ -580,7 +580,7 @@ mod tests {
 
         let bump = bumpalo::Bump::new();
         let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
-        let mut reader_bin = LazyRawBinaryReader_1_1::new(&ion_data);
+        let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
 
         assert_eq!(
             reader_bin
