@@ -14,6 +14,20 @@ pub struct Opcode {
 /// A statically defined array of TypeDescriptor that allows a binary reader to map a given
 /// byte (`u8`) to a `TypeDescriptor` without having to perform any masking or bitshift operations.
 pub(crate) static ION_1_1_OPCODES: &[Opcode; 256] = &init_opcode_cache();
+pub(crate) static ION_1_1_TYPED_NULL_TYPES: &[IonType; 12] = &[
+    IonType::Bool,
+    IonType::Int,
+    IonType::Float,
+    IonType::Decimal,
+    IonType::Timestamp,
+    IonType::String,
+    IonType::Symbol,
+    IonType::Blob,
+    IonType::Clob,
+    IonType::List,
+    IonType::SExp,
+    IonType::Struct,
+];
 
 static ION_1_1_TIMESTAMP_SHORT_SIZE: [u8; 13] = [1, 2, 2, 4, 5, 6, 7, 8, 5, 5, 7, 8, 9];
 
@@ -54,6 +68,7 @@ impl Opcode {
             (0xE, 0x0) => (IonVersionMarker, low_nibble, None),
             (0xE, 0x1..=0x3) => (SymbolAddress, low_nibble, Some(IonType::Symbol)),
             (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
+            (0xE, 0xB) => (TypedNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xC..=0xD) => (Nop, low_nibble, None),
             (0xF, 0x5) => (LargeInteger, low_nibble, Some(IonType::Int)),
             (0xF, 0x6) => (Decimal, 0xFF, Some(IonType::Decimal)),
@@ -139,6 +154,7 @@ impl Header {
             (OpcodeType::TimestampShort, 0..=12) => {
                 InOpcode(ION_1_1_TIMESTAMP_SHORT_SIZE[self.length_code as usize])
             }
+            (OpcodeType::TypedNull, _) => InOpcode(1),
             _ => FlexUIntFollows,
         }
     }

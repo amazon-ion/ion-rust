@@ -12,7 +12,8 @@ use crate::{
             raw::{
                 v1_1::{
                     annotations_iterator::RawBinaryAnnotationsIterator_1_1,
-                    immutable_buffer::ImmutableBuffer, Header, OpcodeType,
+                    immutable_buffer::ImmutableBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES,
+                    Header, OpcodeType,
                 },
                 value::ValueParseResult,
             },
@@ -169,8 +170,13 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// or [`LazyStruct`](crate::lazy::struct::LazyStruct) that can be traversed to access the container's contents.
     pub fn read(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
         if self.is_null() {
-            let raw_value_ref = RawValueRef::Null(self.ion_type());
-            return Ok(raw_value_ref);
+            let ion_type = if self.encoded_value.header.ion_type_code == OpcodeType::TypedNull {
+                let body = self.value_body()?;
+                ION_1_1_TYPED_NULL_TYPES[body[0] as usize]
+            } else {
+                self.ion_type()
+            };
+            return Ok(RawValueRef::Null(ion_type));
         }
 
         match self.ion_type() {
