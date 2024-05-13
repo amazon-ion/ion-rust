@@ -18,9 +18,10 @@ exclude = [
 ]
 version = "1.0.0-rc.3"
 edition = "2021"
-# We need at least 1.65 for GATs
-# https://blog.rust-lang.org/2022/11/03/Rust-1.65.0.html
-rust-version = "1.65"
+# We need at least 1.65 for GATs[1] and 1.67 for `ilog`[2]
+# [1] https://blog.rust-lang.org/2022/11/03/Rust-1.65.0.html
+# [2] https://blog.rust-lang.org/2023/01/26/Rust-1.67.0.html#stabilized-apis
+rust-version = "1.67"
 
 [features]
 default = ["experimental"]
@@ -62,7 +63,6 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 delegate = "0.12.0"
 thiserror = "1.0"
 nom = "7.1.1"
-num-bigint = "0.4.3"
 num-integer = "0.1.44"
 num-traits = "0.2"
 arrayvec = "0.7"

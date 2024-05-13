@@ -99,7 +99,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut encoded_length: usize = 0;
             for value in &unsigned_values {
-                encoded_length += black_box(FlexUInt::write_u64(&mut output, *value).unwrap());
+                encoded_length += black_box(FlexUInt::write(&mut output, *value).unwrap());
             }
             assert_eq!(encoded_length, encoded_flex_uints.len());
         })
@@ -176,7 +176,7 @@ fn roundtrip_var_int_test(signed_values: &[i64]) -> IonResult<Vec<u8>> {
 fn roundtrip_flex_uint_test(unsigned_values: &[u64]) -> IonResult<Vec<u8>> {
     let mut encoded_values_buffer = Vec::new();
     for value in unsigned_values {
-        FlexUInt::write_u64(&mut encoded_values_buffer, *value)?;
+        FlexUInt::write(&mut encoded_values_buffer, *value)?;
     }
     let mut decoded_values = Vec::new();
     let mut input = ImmutableBuffer::new(encoded_values_buffer.as_slice());

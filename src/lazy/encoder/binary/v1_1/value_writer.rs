@@ -2,8 +2,6 @@ use arrayvec::ArrayVec;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use ice_code::ice as cold_path;
-use num_bigint::BigInt;
-use num_traits::ToPrimitive;
 
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::binary::v1_1::container_writers::{
@@ -18,7 +16,6 @@ use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, Annotata
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::IonFailure;
-use crate::types::integer::IntData;
 use crate::{
     Decimal, FlexInt, FlexUInt, Int, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp,
 };
@@ -129,33 +126,31 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         Ok(())
     }
 
-    // Helper method for `write_int`.
-    fn write_big_int(mut self, value: &BigInt) -> IonResult<()> {
-        // Try downgrading the value to an i64 if it's small enough. This avoids a Vec allocation and handles the
-        // zero case.
-        if let Some(small_value) = value.to_i64() {
+    #[inline]
+    pub fn write_int(mut self, value: &Int) -> IonResult<()> {
+        if let Some(small_value) = value.as_i64() {
             return self.write_i64(small_value);
         }
-        // If it's truly a big int, allocate a Vec of its little-endian bytes.
-        let le_bytes = value.to_signed_bytes_le();
-        let num_encoded_bytes = le_bytes.len();
-
-        // Because we've ruled out numbers small enough to fit in an i64, its encoded length must be greater than 8.
-        // Write the opcode for an integer with a FlexUInt length.
-        self.push_byte(0xF5);
-        // Write the length as a FlexUInt.
-        FlexUInt::write_u64(self.encoding_buffer, num_encoded_bytes as u64)?;
-        // Write the little endian bytes of the integer.
-        self.push_bytes(le_bytes.as_slice());
-        Ok(())
-    }
-
-    #[inline]
-    pub fn write_int(self, value: &Int) -> IonResult<()> {
-        match &value.data {
-            IntData::I64(int) => self.write_i64(*int),
-            IntData::BigInt(int) => self.write_big_int(int),
-        }
+        cold_path! {{
+            let value: i128 = value.data;
+            // Because we've ruled out numbers small enough to fit in an i64, its encoded length
+            // must be greater than 8. Write the opcode for an integer with a FlexUInt length.
+            self.push_byte(0xF5);
+            let num_sign_bits = if value < 0 {
+                value.leading_ones()
+            } else {
+                value.leading_zeros()
+            };
+            let num_magnitude_bits = 128 - num_sign_bits;
+            let num_encoded_bytes = (num_magnitude_bits as usize / 8) + 1;
+            let le_bytes = value.to_le_bytes();
+            let encoded_bytes = &le_bytes[..num_encoded_bytes];
+            // Write the length as a FlexUInt.
+            FlexUInt::write(self.encoding_buffer, num_encoded_bytes as u64)?;
+            // Write the little endian bytes of the integer.
+            self.push_bytes(encoded_bytes);
+            Ok(())
+        }}
     }
 
     // TODO: write_f16(...)
@@ -237,7 +232,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
                 // It has a capacity of 16 bytes because it's the smallest power of two that is still large enough to
                 // hold a FlexUInt encoding of usize::MAX on a 64-bit platform.
                 let mut buffer: ArrayVec<u8, 16> = ArrayVec::new();
-                FlexUInt::write_u64(&mut buffer, encoded_body_size as u64)?;
+                FlexUInt::write(&mut buffer, encoded_body_size)?;
                 let encoded_length_start = opcode_index + 1;
                 // `splice` allows you to overwrite Vec elements as well as insert them.
                 // This is an empty range at the desired location, indicating that we're only inserting.
@@ -476,7 +471,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
                 let encoded_coefficient_size =
                     FlexUInt::write(self.encoding_buffer, subseconds.coefficient().magnitude())?;
                 let encoded_scale_size =
-                    FixedUInt::write_u64(self.encoding_buffer, u64::try_from(scale).unwrap())?;
+                    FixedUInt::write(self.encoding_buffer, u64::try_from(scale).unwrap())?;
                 encoded_coefficient_size + encoded_scale_size
             }
         };
@@ -537,10 +532,10 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             // 65,792 and higher
             _ => {
                 cold_path! {
-                    xl_symbol_id_value => {
+                    xl_symbol_id_value => {{
                         self.push_byte(0xE3); // Biased FlexUInt follows
-                        FlexUInt::encode_u64(self.encoding_buffer, symbol_id as u64 - 65_792)
-                    }
+                        let _ = FlexUInt::write(self.encoding_buffer, symbol_id - 65_792).unwrap();
+                    }}
                 };
                 return Ok(());
             }
@@ -576,7 +571,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     fn write_lob<A: AsRef<[u8]>>(mut self, opcode: u8, value: A) -> IonResult<()> {
         let bytes = value.as_ref();
         self.push_byte(opcode);
-        FlexUInt::write_u64(self.encoding_buffer, bytes.len() as u64)?;
+        FlexUInt::write(self.encoding_buffer, bytes.len())?;
         self.push_bytes(bytes);
         Ok(())
     }
@@ -729,7 +724,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
         }
         // A FlexUInt follows that represents the length of a sequence of FlexSym-encoded annotations
         self.buffer.push(0xE9);
-        FlexUInt::encode_u64(self.buffer, annotations_buffer.len() as u64);
+        FlexUInt::write(self.buffer, annotations_buffer.len()).unwrap();
         self.buffer
             .extend_from_slice_copy(annotations_buffer.as_slice());
     }
@@ -832,9 +827,6 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use num_bigint::BigInt;
 
     use crate::lazy::encoder::annotate::{Annotatable, Annotated};
     use crate::lazy::encoder::annotation_seq::AnnotationSeq;
@@ -1097,15 +1089,10 @@ mod tests {
             ),
             (
                 // ~e
-                Decimal::new(
-                    Int::from(
-                        BigInt::from_str("27182818284590452353602874713526624977572").unwrap(),
-                    ),
-                    -40,
-                ),
+                Decimal::new(Int::from(27182818284590452353602874713526624i128), -40),
                 &[
-                    0xF6, 0x25, 0xB1, 0xA4, 0x2, 0x7E, 0xFA, 0x42, 0x46, 0x53, 0x50, 0xEF, 0x56,
-                    0x73, 0xB, 0xE7, 0x5E, 0x14, 0xE2, 0x4F,
+                    0xF6, 0x21, 0xB1, 0x60, 0x51, 0x2B, 0xF8, 0xFE, 0x2B, 0xA4, 0x11, 0xAF, 0x90,
+                    0xF7, 0x66, 0x37, 0x3C, 0x05,
                 ],
             ),
         ];
@@ -1993,11 +1980,7 @@ mod tests {
             .iter()
             .map(|(text, expected_encoding)| {
                 (
-                    Element::read_one(text)
-                        .unwrap()
-                        .expect_timestamp()
-                        .unwrap()
-                        .clone(),
+                    Element::read_one(text).unwrap().expect_timestamp().unwrap(),
                     *expected_encoding,
                 )
             })
@@ -2006,7 +1989,7 @@ mod tests {
         for (value, expected_encoding) in test_cases {
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
-                    writer.write(&value)?;
+                    writer.write(value)?;
                     Ok(())
                 },
                 expected_encoding,

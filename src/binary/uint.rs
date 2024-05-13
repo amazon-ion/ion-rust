@@ -1,10 +1,8 @@
-use num_bigint::BigUint;
 use std::io::Write;
 use std::mem;
 
 use crate::result::IonResult;
-use crate::types::integer::UIntData;
-use crate::{Int, UInt};
+use crate::{Int, IonError, UInt};
 
 // This limit is used for stack-allocating buffer space to encode/decode UInts.
 const UINT_STACK_BUFFER_SIZE: usize = 16;
@@ -32,6 +30,7 @@ impl DecodedUInt {
     /// The caller must confirm that `uint_bytes` is no longer than 8 bytes long; otherwise,
     /// overflow may quietly occur.
     pub(crate) fn small_uint_from_slice(uint_bytes: &[u8]) -> u64 {
+        // TODO: copy from the slice and use from_be_bytes
         let mut magnitude: u64 = 0;
         for &byte in uint_bytes {
             let byte = u64::from(byte);
@@ -42,13 +41,20 @@ impl DecodedUInt {
     }
 
     /// Interprets all of the bytes in the provided slice as big-endian unsigned integer bytes.
-    pub(crate) fn big_uint_from_slice(uint_bytes: &[u8]) -> BigUint {
-        BigUint::from_bytes_be(uint_bytes)
+    pub(crate) fn big_uint_from_slice(uint_bytes: &[u8]) -> u128 {
+        // TODO: copy from the slice and use from_be_bytes
+        let mut magnitude: u128 = 0;
+        for &byte in uint_bytes {
+            let byte = u128::from(byte);
+            magnitude <<= 8;
+            magnitude |= byte;
+        }
+        magnitude
     }
 
     /// Encodes the provided `magnitude` as a UInt and writes it to the provided `sink`.
     pub fn write_u64<W: Write>(sink: &mut W, magnitude: u64) -> IonResult<usize> {
-        let encoded = encode_u64(magnitude);
+        let encoded = encode(magnitude);
         let bytes_to_write = encoded.as_ref();
 
         sink.write_all(bytes_to_write)?;
@@ -69,22 +75,28 @@ impl DecodedUInt {
     }
 }
 
-impl From<DecodedUInt> for Int {
-    fn from(uint: DecodedUInt) -> Self {
+impl TryFrom<DecodedUInt> for Int {
+    type Error = IonError;
+
+    fn try_from(uint: DecodedUInt) -> Result<Self, Self::Error> {
         let DecodedUInt {
             value,
             .. // Ignore 'size_in_bytes'
         } = uint;
-        value.into()
+        value.try_into()
     }
 }
 
-/// A buffer for storing a UInt's Big Endian bytes. UInts that can fit in a `u64` will use the
-/// `Stack` storage variant, meaning that no heap allocations are required in the common case.
+/// A buffer for storing a UInt's Big Endian bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum UIntBeBytes {
-    Stack([u8; mem::size_of::<u64>()]),
-    Heap(Vec<u8>),
+pub struct UIntBeBytes {
+    bytes: [u8; mem::size_of::<u128>()],
+}
+
+impl UIntBeBytes {
+    pub fn new(bytes: [u8; mem::size_of::<u128>()]) -> Self {
+        Self { bytes }
+    }
 }
 
 /// The big-endian, compact slice of bytes for a UInt (`u64`). Leading zero
@@ -101,10 +113,7 @@ pub struct EncodedUInt {
 impl EncodedUInt {
     /// Returns the slice view of the encoded UInt.
     pub fn as_bytes(&self) -> &[u8] {
-        match self.be_bytes {
-            UIntBeBytes::Stack(ref byte_array) => &byte_array[self.first_occupied_byte..],
-            UIntBeBytes::Heap(ref byte_vec) => &byte_vec[self.first_occupied_byte..],
-        }
+        &self.be_bytes.bytes[self.first_occupied_byte..]
     }
 }
 
@@ -116,32 +125,15 @@ impl AsRef<[u8]> for EncodedUInt {
 }
 
 /// Returns the magnitude as big-endian bytes.
-pub fn encode_u64(magnitude: u64) -> EncodedUInt {
+pub fn encode(magnitude: impl Into<u128>) -> EncodedUInt {
+    let magnitude: u128 = magnitude.into();
     // We can divide the number of leading zero bits by 8
-    // to to get the number of leading zero bytes.
+    // to get the number of leading zero bytes.
     let empty_leading_bytes: u32 = magnitude.leading_zeros() / 8;
     let first_occupied_byte = empty_leading_bytes as usize;
 
-    let magnitude_bytes: [u8; mem::size_of::<u64>()] = magnitude.to_be_bytes();
-
     EncodedUInt {
-        be_bytes: UIntBeBytes::Stack(magnitude_bytes),
-        first_occupied_byte,
-    }
-}
-
-/// Returns the magnitude as big-endian bytes.
-pub fn encode_uint(magnitude: &UInt) -> EncodedUInt {
-    let magnitude: &BigUint = match &magnitude.data {
-        UIntData::U64(m) => return encode_u64(*m),
-        UIntData::BigUInt(m) => m,
-    };
-
-    let be_bytes = UIntBeBytes::Heap(magnitude.to_bytes_be());
-    let first_occupied_byte = 0;
-
-    EncodedUInt {
-        be_bytes,
+        be_bytes: UIntBeBytes::new(magnitude.to_be_bytes()),
         first_occupied_byte,
     }
 }
@@ -149,16 +141,15 @@ pub fn encode_uint(magnitude: &UInt) -> EncodedUInt {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_traits::Num;
 
     const READ_ERROR_MESSAGE: &str = "Failed to read a UInt from the provided cursor.";
     const WRITE_ERROR_MESSAGE: &str = "Writing a UInt to the provided sink failed.";
 
     #[test]
     fn test_write_ten_byte_uint() {
-        let value = UInt::from(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap());
+        let value = u128::from_str_radix("ffffffffffffffffffff", 16).unwrap();
         let mut buffer: Vec<u8> = vec![];
-        let encoded = super::encode_uint(&value);
+        let encoded = super::encode(value);
         buffer.write_all(encoded.as_bytes()).unwrap();
         let expected_bytes = vec![0xFFu8; 10];
         assert_eq!(expected_bytes.as_slice(), buffer.as_slice());

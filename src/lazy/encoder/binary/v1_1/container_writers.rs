@@ -130,7 +130,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
                     _ => {
                         let opcode = encoder.flex_len_type_code;
                         encoder.parent_buffer.push(opcode);
-                        FlexUInt::write_u64(encoder.parent_buffer, encoded_length as u64)?;
+                        FlexUInt::write(encoder.parent_buffer, encoded_length)?;
                     }
                 }
                 encoder
@@ -312,6 +312,7 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_1<'value, 'top> {
+    #[inline]
     fn encode_field_name(&mut self, name: impl AsRawSymbolTokenRef) -> IonResult<()> {
         use crate::RawSymbolTokenRef::*;
 
@@ -326,7 +327,7 @@ impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_1<'value, 'top> {
             }
             // We're in FlexUInt encoding mode and can write this field without switching modes
             (_, SymbolId(sid)) => {
-                FlexUInt::encode_u64(self.fields_buffer(), sid as u64);
+                FlexUInt::write(self.fields_buffer(), sid)?;
             }
         };
         Ok(())

@@ -101,7 +101,6 @@ impl<R: ElementReader> Iterator for OwnedElementIterator<R> {
 
 #[cfg(test)]
 mod reader_tests {
-    use num_bigint::BigInt;
     use rstest::*;
 
     use crate::ion_data::IonEq;
@@ -168,7 +167,7 @@ mod reader_tests {
                 "-18446744073709551616", "18446744073709551615",
                 "-79228162514264337593543950336", "79228162514264337593543950335",
             ].into_iter()
-            .map(|v| BigInt::parse_bytes(v.as_bytes(), 10).unwrap())
+            .map(|v| v.parse::<i128>().unwrap())
             .map(Element::from)
         )
         .collect(),
@@ -178,7 +177,7 @@ mod reader_tests {
         vec![
             "18446744073709551615",
         ].into_iter()
-        .map(|v| BigInt::parse_bytes(v.as_bytes(), 10).unwrap())
+        .map(|v| v.parse::<i128>().unwrap())
         .map(Element::from)
         .collect(),
     )]
@@ -187,7 +186,7 @@ mod reader_tests {
         vec![
             "-9223372036854775808",
         ].into_iter()
-        .map(|v| BigInt::parse_bytes(v.as_bytes(), 10).unwrap())
+        .map(|v| v.parse::<i128>().unwrap())
         .map(Element::from)
         .collect(),
     )]

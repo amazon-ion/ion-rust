@@ -171,22 +171,32 @@ impl From<ScalarType> for IonType {
     }
 }
 
-/// Returns the number of base-10 digits needed to represent `value`.
-fn num_decimal_digits_in_u64(value: u64) -> u64 {
-    if value == 0 {
-        return 1;
-    }
-    let log_base_ten = (value as f64).log10();
-    let count = log_base_ten.ceil();
-    if log_base_ten == count {
-        // If ceil() didn't change the count, then `value` is an exact power of ten.
-        // We need to add one to get the correct count.
-        // Examples:
-        //    (1).log10() ==   (1).log10().ceil() == 0
-        //   (10).log10() ==  (10).log10().ceil() == 1
-        //  (100).log10() == (100).log10().ceil() == 2
-        count as u64 + 1
-    } else {
-        count as u64
-    }
+pub(crate) trait CountDecimalDigits {
+    fn count_decimal_digits(self) -> u32;
 }
+
+macro_rules! impl_count_decimal_digits_unsigned {
+    ($($unsigned_int_type:ty),* $(,)?) => {$(
+        impl CountDecimalDigits for $unsigned_int_type {
+            fn count_decimal_digits(self) -> u32 {
+                if self == 0 {
+                    return 1;
+                }
+                self.ilog10() + 1
+            }
+        }
+    )*};
+}
+
+macro_rules! impl_count_decimal_digits_signed {
+    ($($signed_int_type:ty),* $(,)?) => {$(
+        impl CountDecimalDigits for $signed_int_type {
+            fn count_decimal_digits(self) -> u32 {
+                self.unsigned_abs().count_decimal_digits()
+            }
+        }
+    )*};
+}
+
+impl_count_decimal_digits_unsigned!(u8, u16, u32, u64, u128, usize);
+impl_count_decimal_digits_signed!(i8, i16, i32, i64, i128, isize);

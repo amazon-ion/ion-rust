@@ -390,7 +390,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         let magnitude: Int = if uint_bytes.len() <= mem::size_of::<u64>() {
             DecodedUInt::small_uint_from_slice(uint_bytes).into()
         } else {
-            DecodedUInt::big_uint_from_slice(uint_bytes).into()
+            DecodedUInt::big_uint_from_slice(uint_bytes).try_into()?
         };
 
         use crate::binary::type_code::IonTypeCode::*;

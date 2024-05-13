@@ -1,5 +1,4 @@
 use crate::types::UInt;
-use num_bigint::{BigInt, BigUint};
 
 /// A simple wrapper type around a [`UInt`]. Users are not expected to construct
 /// instances of `Magnitude` directly; it is provided for conversion ergonomics.
@@ -26,20 +25,6 @@ impl From<UInt> for Magnitude {
 impl From<Magnitude> for UInt {
     fn from(value: Magnitude) -> Self {
         value.0
-    }
-}
-
-impl From<BigUint> for Magnitude {
-    fn from(value: BigUint) -> Self {
-        let uint: UInt = value.into();
-        Magnitude(uint)
-    }
-}
-
-impl From<BigInt> for Magnitude {
-    fn from(value: BigInt) -> Self {
-        let uint: UInt = value.into_parts().1.into();
-        Magnitude(uint)
     }
 }
 

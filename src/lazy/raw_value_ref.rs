@@ -10,6 +10,7 @@ use std::fmt::{Debug, Formatter};
 /// or text literal). If it is a symbol ID, a symbol table will be needed to find its associated text.
 ///
 /// For a resolved version of this type, see [crate::lazy::value_ref::ValueRef].
+#[derive(Copy, Clone)]
 pub enum RawValueRef<'top, D: LazyDecoder> {
     Null(IonType),
     Bool(bool),

@@ -1,8 +1,7 @@
+use ice_code::ice as cold_path;
 use std::fmt::{Debug, Formatter};
 use std::mem;
-use std::ops::Range;
-
-use num_bigint::{BigInt, BigUint, Sign};
+use std::ops::{Neg, Range};
 
 use crate::binary::constants::v1_0::{length_codes, IVM};
 use crate::binary::int::DecodedInt;
@@ -19,17 +18,13 @@ use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::result::IonFailure;
 use crate::types::UInt;
-use crate::{Int, IonError, IonResult, IonType};
+use crate::{IonError, IonResult, IonType};
 
-// This limit is used for stack-allocating buffer space to encode/decode UInts.
-const UINT_STACK_BUFFER_SIZE: usize = 16;
-// This number was chosen somewhat arbitrarily and could be lifted if a use case demands it.
-const MAX_UINT_SIZE_IN_BYTES: usize = 2048;
+// The size of a u128
+const MAX_UINT_SIZE_IN_BYTES: usize = 16;
 
-// This limit is used for stack-allocating buffer space to encode/decode Ints.
-const INT_STACK_BUFFER_SIZE: usize = 16;
-// This number was chosen somewhat arbitrarily and could be lifted if a use case demands it.
-const MAX_INT_SIZE_IN_BYTES: usize = 2048;
+// The size of an i128
+const MAX_INT_SIZE_IN_BYTES: usize = 16;
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
@@ -374,7 +369,7 @@ impl<'a> ImmutableBuffer<'a> {
             .peek_n_bytes(length)
             .ok_or_else(|| IonError::incomplete("a UInt", self.offset()))?;
 
-        let magnitude = BigUint::from_bytes_be(uint_bytes);
+        let magnitude = DecodedUInt::big_uint_from_slice(uint_bytes);
         Ok((
             DecodedUInt::new(UInt::from(magnitude), length),
             self.consume(length),
@@ -396,54 +391,39 @@ impl<'a> ImmutableBuffer<'a> {
     ///
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields>
     pub fn read_int(self, length: usize) -> ParseResult<'a, DecodedInt> {
+        const BUFFER_SIZE: usize = MAX_INT_SIZE_IN_BYTES; // 16
         if length == 0 {
             return Ok((DecodedInt::new(0, false, 0), self.consume(0)));
         } else if length > MAX_INT_SIZE_IN_BYTES {
-            return IonResult::decoding_error(format!(
+            return cold_path! {
+            IonResult::decoding_error(format!(
                 "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
-            ));
+            ))};
         }
 
         let int_bytes = self
             .peek_n_bytes(length)
             .ok_or_else(|| IonError::incomplete("an Int encoding primitive", self.offset()))?;
 
-        let mut is_negative: bool = false;
+        // Copy the 'n' bytes into a buffer known to be the exact size of a u128
+        let mut buffer = [0u8; mem::size_of::<u128>()];
+        let first_occupied_byte_index = buffer.len() - int_bytes.len();
+        buffer[first_occupied_byte_index..].copy_from_slice(int_bytes);
 
-        let value: Int = if length <= mem::size_of::<i64>() {
-            // This Int will fit in an i64.
-            let first_byte: i64 = i64::from(int_bytes[0]);
-            let sign: i64 = if first_byte & 0b1000_0000 == 0 {
-                1
-            } else {
-                is_negative = true;
-                -1
-            };
-            let mut magnitude: i64 = first_byte & 0b0111_1111;
-            for &byte in &int_bytes[1..] {
-                let byte = i64::from(byte);
-                magnitude <<= 8;
-                magnitude |= byte;
-            }
-            (sign * magnitude).into()
+        // Remember whether the sign bit was set.
+        let is_positive: bool = int_bytes[0] & 0b1000_0000 == 0;
+        // Unset the sign bit in the buffer
+        buffer[first_occupied_byte_index] &= 0b0111_1111;
+
+        let magnitude = u128::from_be_bytes(buffer);
+        let value = if is_positive {
+            magnitude as i128
         } else {
-            // This Int is too big for an i64, we'll need to use a BigInt
-            let value = if int_bytes[0] & 0b1000_0000 == 0 {
-                BigInt::from_bytes_be(Sign::Plus, int_bytes)
-            } else {
-                is_negative = true;
-                // The leading sign bit is the only part of the input that can't be considered
-                // unsigned, big-endian integer bytes. We need to make our own copy of the input
-                // so we can flip that bit back to a zero before calling `from_bytes_be`.
-                let mut owned_int_bytes = Vec::from(int_bytes);
-                owned_int_bytes[0] &= 0b0111_1111;
-                BigInt::from_bytes_be(Sign::Minus, owned_int_bytes.as_slice())
-            };
-
-            value.into()
+            (magnitude as i128).neg()
         };
+
         Ok((
-            DecodedInt::new(value, is_negative, length),
+            DecodedInt::new(value, !is_positive, length),
             self.consume(length),
         ))
     }
@@ -815,9 +795,7 @@ pub struct AnnotationsWrapper {
 
 #[cfg(test)]
 mod tests {
-    use num_traits::Num;
-
-    use crate::IonError;
+    use crate::{Int, IonError};
 
     use super::*;
 
@@ -1008,7 +986,7 @@ mod tests {
         assert_eq!(uint.size_in_bytes(), 10);
         assert_eq!(
             uint.value(),
-            &UInt::from(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap())
+            &UInt::from(u128::from_str_radix("ffffffffffffffffffff", 16).unwrap())
         );
         Ok(())
     }
@@ -1035,7 +1013,7 @@ mod tests {
 
     #[test]
     fn read_int_positive_zero() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0000_0000]); // Negative zero
+        let buffer = ImmutableBuffer::new(&[0b0000_0000]); // Positive zero
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 1);
         assert_eq!(int.value(), &Int::from(0));

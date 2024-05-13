@@ -487,26 +487,26 @@ impl Element {
         self.as_float().ok_or_else(|| self.expected(IonType::Float))
     }
 
-    pub fn as_decimal(&self) -> Option<&Decimal> {
+    pub fn as_decimal(&self) -> Option<Decimal> {
         match &self.value {
-            Value::Decimal(d) => Some(d),
+            Value::Decimal(d) => Some(*d),
             _ => None,
         }
     }
 
-    pub fn expect_decimal(&self) -> IonResult<&Decimal> {
+    pub fn expect_decimal(&self) -> IonResult<Decimal> {
         self.as_decimal()
             .ok_or_else(|| self.expected(IonType::Decimal))
     }
 
-    pub fn as_timestamp(&self) -> Option<&Timestamp> {
+    pub fn as_timestamp(&self) -> Option<Timestamp> {
         match &self.value {
-            Value::Timestamp(t) => Some(t),
+            Value::Timestamp(t) => Some(*t),
             _ => None,
         }
     }
 
-    pub fn expect_timestamp(&self) -> IonResult<&Timestamp> {
+    pub fn expect_timestamp(&self) -> IonResult<Timestamp> {
         self.as_timestamp()
             .ok_or_else(|| self.expected(IonType::Timestamp))
     }
@@ -957,10 +957,8 @@ where
 mod tests {
     use std::collections::HashSet;
     use std::iter::{once, Once};
-    use std::str::FromStr;
 
     use chrono::*;
-    use num_bigint::BigInt;
     use rstest::*;
 
     use ElemOp::*;
@@ -1252,7 +1250,6 @@ mod tests {
                 let expected: Element = 100i64.into();
                 assert_eq!(Some(&Int::from(100i64)), e.as_int());
                 assert_eq!(Some(100), e.as_i64());
-                assert_eq!(BigInt::from(100), BigInt::from(e.as_int().unwrap()));
                 assert_eq!(&expected, e);
             }),
         }
@@ -1260,16 +1257,12 @@ mod tests {
 
     fn big_int_case() -> Case {
         Case {
-            elem: BigInt::from(100).into(),
+            elem: 100i128.into(),
             ion_type: IonType::Int,
             ops: vec![AsAnyInt],
             op_assert: Box::new(|e: &Element| {
-                let expected: Element = BigInt::from(100).into();
-                assert_eq!(Some(&Int::from(BigInt::from(100))), e.as_int());
-                assert_eq!(
-                    BigInt::from_str("100").unwrap(),
-                    BigInt::from(e.as_int().unwrap())
-                );
+                let expected: Element = 100i128.into();
+                assert_eq!(Some(&Int::from(100i128)), e.as_int());
                 assert_eq!(&expected, e);
             }),
         }
@@ -1296,7 +1289,7 @@ mod tests {
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = make_timestamp("2014-10-16T12:01:00+00:00").into();
                 assert_eq!(
-                    Some(&make_timestamp("2014-10-16T12:01:00+00:00")),
+                    Some(make_timestamp("2014-10-16T12:01:00+00:00")),
                     e.as_timestamp()
                 );
                 assert_eq!(&expected, e);
@@ -1311,7 +1304,7 @@ mod tests {
             ops: vec![AsDecimal],
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = Decimal::new(8, 3).into();
-                assert_eq!(Some(&Decimal::new(80, 2)), e.as_decimal());
+                assert_eq!(Some(Decimal::new(80, 2)), e.as_decimal());
                 assert_eq!(&expected, e);
             }),
         }
@@ -1480,6 +1473,7 @@ mod tests {
 #[cfg(test)]
 mod value_tests {
     use rstest::*;
+    use std::fmt::Debug;
 
     use crate::element::*;
     use crate::ion_data::IonEq;
@@ -1642,9 +1636,13 @@ mod value_tests {
     #[case::u128(42u128)]
     #[case::usize(42usize)]
     #[case::uint(UInt::from(42u64))]
-    fn element_from_int(#[case] source_int: impl Into<Int>) {
-        let int: Int = source_int.into();
-        let element: Element = int.clone().into();
+    fn element_from_int<I, E>(#[case] source_int: I)
+    where
+        E: Debug,
+        I: TryInto<Int, Error = E>,
+    {
+        let int: Int = source_int.try_into().unwrap();
+        let element: Element = int.into();
         assert_eq!(element.expect_i64(), int.expect_i64())
     }
 }

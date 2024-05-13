@@ -507,7 +507,6 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
 mod formatter_test {
     use crate::text::text_formatter::IonValueFormatter;
     use crate::{ion_list, ion_sexp, ion_struct, IonResult, IonType, Timestamp};
-    use num_bigint::BigInt;
 
     fn formatter<F>(mut f: F, expected: &str)
     where
@@ -544,9 +543,9 @@ mod formatter_test {
     }
 
     #[test]
-    fn test_format_big_int() -> IonResult<()> {
-        formatter(|ivf| ivf.format_integer(&BigInt::from(4).into()), "4");
-        formatter(|ivf| ivf.format_integer(&BigInt::from(-4).into()), "-4");
+    fn test_format_i128() -> IonResult<()> {
+        formatter(|ivf| ivf.format_integer(&4i128.into()), "4");
+        formatter(|ivf| ivf.format_integer(&(-4i128).into()), "-4");
         Ok(())
     }
 

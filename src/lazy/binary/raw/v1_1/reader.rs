@@ -213,8 +213,6 @@ mod tests {
 
     #[test]
     fn integers() -> IonResult<()> {
-        use num_bigint::BigInt;
-
         #[rustfmt::skip]
         let data: Vec<u8> = vec![
             // IVM
@@ -259,9 +257,7 @@ mod tests {
 
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_int()?,
-            BigInt::parse_bytes(b"147573952589676412929", 10)
-                .unwrap()
-                .into()
+            147573952589676412929i128.into()
         );
         Ok(())
     }

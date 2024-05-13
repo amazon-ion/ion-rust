@@ -3,8 +3,6 @@ use std::mem;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use bytes::BufMut;
-use num_bigint::Sign;
-use num_traits::Zero;
 
 use crate::binary::decimal::DecimalBinaryEncoder;
 use crate::binary::timestamp::TimestampBinaryEncoder;
@@ -22,7 +20,6 @@ use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
 use crate::result::{EncodingError, IonFailure};
-use crate::types::integer::IntData;
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp};
 
 /// The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
@@ -129,7 +126,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
     pub fn write_i64(mut self, value: i64) -> IonResult<()> {
         // Get the absolute value of the i64 and store it in a u64.
         let magnitude: u64 = value.unsigned_abs();
-        let encoded = uint::encode_u64(magnitude);
+        let encoded = uint::encode(magnitude);
         let bytes_to_write = encoded.as_bytes();
 
         // The encoded length will never be larger than 8 bytes, so it will
@@ -147,26 +144,13 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
     }
 
     pub fn write_int(mut self, value: &Int) -> IonResult<()> {
-        // If the `value` is an `i64`, use `write_i64` and return.
-        let value = match &value.data {
-            IntData::I64(i) => return self.write_i64(*i),
-            IntData::BigInt(i) => i,
-        };
+        let magnitude: u128 = value.unsigned_abs().data;
+        let encoded = uint::encode(magnitude);
+        let bytes_to_write = encoded.as_bytes();
 
-        // From here on, `value` is a `BigInt`.
-        if value.is_zero() {
-            self.push_byte(0x20);
-            return Ok(());
-        }
+        let encoded_length = bytes_to_write.len();
+        let mut type_descriptor: u8 = if value.is_negative() { 0x30 } else { 0x20 };
 
-        let (sign, magnitude_be_bytes) = value.to_bytes_be();
-
-        let mut type_descriptor: u8 = match sign {
-            Sign::Plus | Sign::NoSign => 0x20,
-            Sign::Minus => 0x30,
-        };
-
-        let encoded_length = magnitude_be_bytes.len();
         if encoded_length <= 13 {
             type_descriptor |= encoded_length as u8;
             self.push_byte(type_descriptor);
@@ -175,8 +159,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
             self.push_byte(type_descriptor);
             VarUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
         }
-
-        self.push_bytes(magnitude_be_bytes.as_slice());
+        self.push_bytes(bytes_to_write);
 
         Ok(())
     }

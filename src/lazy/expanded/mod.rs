@@ -933,10 +933,10 @@ impl<'top, Encoding: LazyDecoder> ExpandedValueRef<'top, Encoding> {
         match element.value() {
             Null(ion_type) => ExpandedValueRef::Null(*ion_type),
             Bool(b) => ExpandedValueRef::Bool(*b),
-            Int(i) => ExpandedValueRef::Int(i.clone()),
+            Int(i) => ExpandedValueRef::Int(*i),
             Float(f) => ExpandedValueRef::Float(*f),
-            Decimal(d) => ExpandedValueRef::Decimal(d.clone()),
-            Timestamp(t) => ExpandedValueRef::Timestamp(t.clone()),
+            Decimal(d) => ExpandedValueRef::Decimal(*d),
+            Timestamp(t) => ExpandedValueRef::Timestamp(*t),
             String(s) => ExpandedValueRef::String(StrRef::from(s.text())),
             Symbol(s) => ExpandedValueRef::Symbol(s.as_raw_symbol_token_ref()),
             Blob(b) => ExpandedValueRef::Blob(BytesRef::from(b.as_ref())),
