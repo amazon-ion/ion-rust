@@ -34,6 +34,12 @@ impl UInt {
         u64::try_from(self).ok()
     }
 
+    /// Attempts to convert this `UInt` to a `u128`. If the value is too large to fit,
+    /// returns `None`.
+    pub fn as_u128(&self) -> Option<u128> {
+        Some(self.data)
+    }
+
     /// Attempts to convert this `UInt` to a `usize`. If the value is too large to fit,
     /// returns an [`IonError`].
     pub fn expect_usize(&self) -> IonResult<usize> {
@@ -46,6 +52,13 @@ impl UInt {
     pub fn expect_u64(&self) -> IonResult<u64> {
         u64::try_from(self)
             .map_err(|_| IonError::decoding_error("UInt was too large to convert to a u64"))
+    }
+
+    /// Attempts to convert this `UInt` to a `u128`. If the value is too large to fit,
+    /// returns an [`IonError`].
+    pub fn expect_u128(&self) -> IonResult<u128> {
+        u128::try_from(self)
+            .map_err(|_| IonError::decoding_error("UInt was too large to convert to a u128"))
     }
 
     /// Returns the number of digits in the base-10 representation of the UInteger.
@@ -251,10 +264,24 @@ impl Int {
         })
     }
 
+    /// If this value is small enough to fit in an `i128`, returns `Ok(i128)`. Otherwise,
+    /// returns a [`DecodingError`](IonError::Decoding).
+    pub fn expect_i128(&self) -> IonResult<i128> {
+        self.as_i128().ok_or_else(|| {
+            IonError::decoding_error(format!("Int {self} is too large to fit in an i128."))
+        })
+    }
+
     /// If this value is small enough to fit in an `i64`, returns `Some(i64)`. Otherwise, returns
     /// `None`.
     pub fn as_i64(&self) -> Option<i64> {
         i64::try_from(self.data).ok()
+    }
+
+    /// If this value is small enough to fit in an `i128`, returns `Some(i128)`. Otherwise, returns
+    /// `None`.
+    pub fn as_i128(&self) -> Option<i128> {
+        Some(self.data)
     }
 }
 
