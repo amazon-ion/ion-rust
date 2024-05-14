@@ -15,7 +15,6 @@ use crate::result::IonResult;
 use crate::{Decimal, Int, IonType, Struct, Symbol, Timestamp};
 use crate::{Element, Sequence};
 use digest::{FixedOutput, Output, Reset, Update};
-use num_bigint::BigInt;
 
 pub(crate) trait RepresentationEncoder {
     fn update_with_representation(&mut self, elem: &Element) -> IonResult<()> {
@@ -38,8 +37,8 @@ pub(crate) trait RepresentationEncoder {
 
     fn write_repr_integer(&mut self, value: Option<&Int>) -> IonResult<()>;
     fn write_repr_float(&mut self, value: Option<f64>) -> IonResult<()>;
-    fn write_repr_decimal(&mut self, value: Option<&Decimal>) -> IonResult<()>;
-    fn write_repr_timestamp(&mut self, value: Option<&Timestamp>) -> IonResult<()>;
+    fn write_repr_decimal(&mut self, value: Option<Decimal>) -> IonResult<()>;
+    fn write_repr_timestamp(&mut self, value: Option<Timestamp>) -> IonResult<()>;
     fn write_repr_symbol(&mut self, value: Option<&Symbol>) -> IonResult<()>;
     fn write_repr_string(&mut self, value: Option<&str>) -> IonResult<()>;
     fn write_repr_blob(&mut self, value: Option<&[u8]>) -> IonResult<()>;
@@ -54,18 +53,13 @@ where
 {
     fn write_repr_integer(&mut self, value: Option<&Int>) -> IonResult<()> {
         if let Some(int) = value {
-            if let Some(i) = int.as_i64() {
-                match i {
-                    0 => {}
-                    _ => {
-                        let magnitude = i.unsigned_abs();
-                        let encoded = binary::uint::encode_u64(magnitude);
-                        self.update_escaping(encoded.as_bytes());
-                    }
+            match int.expect_i128()? {
+                0 => {}
+                i => {
+                    let magnitude = i.unsigned_abs();
+                    let encoded = binary::uint::encode(magnitude);
+                    self.update_escaping(encoded.as_bytes());
                 }
-            } else {
-                let i: BigInt = int.clone().into();
-                self.update_escaping(&i.magnitude().to_bytes_be()[..]);
             }
         }
 
@@ -109,22 +103,22 @@ where
         Ok(())
     }
 
-    fn write_repr_decimal(&mut self, value: Option<&Decimal>) -> IonResult<()> {
+    fn write_repr_decimal(&mut self, value: Option<Decimal>) -> IonResult<()> {
         match value {
             None => {}
             Some(decimal) => {
-                let _ = self.encode_decimal(decimal)?;
+                let _ = self.encode_decimal(&decimal)?;
             }
         };
 
         Ok(())
     }
 
-    fn write_repr_timestamp(&mut self, value: Option<&Timestamp>) -> IonResult<()> {
+    fn write_repr_timestamp(&mut self, value: Option<Timestamp>) -> IonResult<()> {
         match value {
             None => {}
             Some(timestamp) => {
-                let _ = self.encode_timestamp(timestamp)?;
+                let _ = self.encode_timestamp(&timestamp)?;
             }
         };
 
