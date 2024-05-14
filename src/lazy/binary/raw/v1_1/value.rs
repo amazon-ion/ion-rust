@@ -354,12 +354,18 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as an S-expression.
     fn read_sexp(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        use crate::lazy::binary::raw::v1_1::sequence::LazyRawBinarySExp_1_1;
+        use crate::lazy::decoder::private::LazyContainerPrivate;
+        debug_assert!(self.encoded_value.ion_type() == IonType::SExp);
+        Ok(RawValueRef::SExp(LazyRawBinarySExp_1_1::from_value(*self)))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a list.
     fn read_list(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        use crate::lazy::binary::raw::v1_1::sequence::LazyRawBinaryList_1_1;
+        use crate::lazy::decoder::private::LazyContainerPrivate;
+        debug_assert!(self.encoded_value.ion_type() == IonType::List);
+        Ok(RawValueRef::List(LazyRawBinaryList_1_1::from_value(*self)))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a struct.

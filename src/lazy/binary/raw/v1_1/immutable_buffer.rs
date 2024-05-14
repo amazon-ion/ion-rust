@@ -362,27 +362,6 @@ impl<'a> ImmutableBuffer<'a> {
         todo!();
     }
 
-    /// Runs the provided parsing function on this DataSource's buffer.
-    /// If it succeeds, marks the `DataSource` as ready to advance by the 'n' bytes
-    /// that were consumed.
-    /// If it does not succeed, the `DataSource` remains unchanged.
-    pub(crate) fn try_parse_next<F: Fn(Self) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>>>(
-        &mut self,
-        parser: F,
-    ) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
-        let buffer = *self;
-
-        let lazy_value = match parser(buffer) {
-            Ok(Some(output)) => output,
-            Ok(None) => return Ok(None),
-            Err(e) => return Err(e),
-        };
-
-        // If the value we read doesn't start where we began reading, there was a NOP.
-        let num_nop_bytes = lazy_value.input.offset() - buffer.offset();
-        self.consume(num_nop_bytes);
-        Ok(Some(lazy_value))
-    }
 }
 
 /// Represents the data found in an Ion 1.0 annotations wrapper.
