@@ -43,6 +43,8 @@ pub enum OpcodeType {
     // delimited list start
     // delimited s-expression start
     LargeInteger, // 0xF5 - Integer preceeded by FlexUInt length
+    Blob,         // 0xFE -
+    Clob,         // 0xFF -
     Invalid,      // Represents an encoded value that does not match a defined opcode.
 }
 

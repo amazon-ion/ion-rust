@@ -22,7 +22,7 @@ use crate::{
     },
     result::IonFailure,
     types::SymbolId,
-    IonError, IonResult, IonType,
+    IonError, IonResult, IonType, RawSymbolTokenRef,
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -236,7 +236,28 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a float.
     fn read_float(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        debug_assert!(self.encoded_value.ion_type() == IonType::Float);
+
+        let value = match self.encoded_value.value_body_length {
+            8 => {
+                let mut buffer = [0; 8];
+                let val_bytes = self.input.bytes_range(1, 8);
+                buffer[..8].copy_from_slice(val_bytes);
+
+                f64::from_le_bytes(buffer)
+            }
+            4 => {
+                let mut buffer = [0; 4];
+                let val_bytes = self.input.bytes_range(1, 4);
+                buffer[..4].copy_from_slice(val_bytes);
+
+                f32::from_le_bytes(buffer).into()
+            }
+            2 => todo!("implement half-precision floats"),
+            0 => 0.0f64,
+            _ => unreachable!("found a float value with illegal byte size"),
+        };
+        Ok(RawValueRef::Float(value))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a decimal.
@@ -251,12 +272,32 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.
     fn read_symbol_id(&self) -> IonResult<SymbolId> {
-        todo!();
+        let biases: [usize; 3] = [0, 256, 65792];
+        let length_code = self.encoded_value.header.length_code;
+        if (1..=3).contains(&length_code) {
+            let (id, _) = self.input.consume(1).read_fixed_uint(length_code.into())?;
+            let id = usize::try_from(id.value())?;
+            Ok(id + biases[(length_code - 1) as usize])
+        } else {
+            unreachable!("invalid length code for symbol ID");
+        }
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a symbol.
     fn read_symbol(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
+        let type_code = self.encoded_value.header.ion_type_code;
+        if type_code == OpcodeType::InlineSymbol {
+            let raw_bytes = self.value_body()?;
+            let text = std::str::from_utf8(raw_bytes)
+                .map_err(|_| IonError::decoding_error("found symbol with invalid UTF-8 data"))?;
+            Ok(RawValueRef::Symbol(RawSymbolTokenRef::from(text)))
+        } else if type_code == OpcodeType::SymbolAddress {
+            let symbol_id = self.read_symbol_id()?;
+            Ok(RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(symbol_id)))
+        } else {
+            unreachable!("invalid Opcode type found for symbol");
+        }
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a string.
@@ -272,12 +313,18 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a blob.
     fn read_blob(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        debug_assert!(self.encoded_value.ion_type() == IonType::Blob);
+
+        let raw_bytes = self.value_body()?;
+        Ok(RawValueRef::Blob(raw_bytes.into()))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a clob.
     fn read_clob(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        debug_assert!(self.encoded_value.ion_type() == IonType::Clob);
+
+        let raw_bytes = self.value_body()?;
+        Ok(RawValueRef::Clob(raw_bytes.into()))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as an S-expression.

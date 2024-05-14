@@ -306,4 +306,151 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn symbols() -> IonResult<()> {
+        use crate::RawSymbolTokenRef;
+
+        #[rustfmt::skip]
+        let data: Vec<u8> = vec![
+            // IVM
+            0xE0, 0x01, 0x01, 0xEA,
+
+            // Symbol: ''
+            0x90,
+
+            // Symbol: 'fourteen bytes'
+            0x9E, 0x66, 0x6F, 0x75, 0x72, 0x74, 0x65, 0x65, 0x6E, 0x20, 0x62, 0x79, 0x74, 0x65,
+            0x73,
+
+            // Symbol: 'variable length encoding'
+            0xF9, 0x31, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65, 0x20, 0x6C, 0x65, 0x6E,
+            0x67, 0x74, 0x68, 0x20, 0x65, 0x6E, 0x63, 0x6f, 0x64, 0x69, 0x6E, 0x67,
+
+            // Symbol ID: 1
+            0xE1, 0x01,
+
+            // Symbol ID: 257
+            0xE2, 0x01, 0x00,
+
+            // Symbol ID: 65,793
+            0xE3, 0x01, 0x00, 0x00,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            "".into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            "fourteen bytes".into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            "variable length encoding".into()
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            RawSymbolTokenRef::SymbolId(1)
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            RawSymbolTokenRef::SymbolId(257)
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_symbol()?,
+            RawSymbolTokenRef::SymbolId(65793)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::approx_constant)]
+    fn floats() -> IonResult<()> {
+        #[rustfmt::skip]
+        let data: Vec<u8> = vec![
+            // IVM
+            0xe0, 0x01, 0x01, 0xea,
+            // 0e0
+            0x5A,
+
+            // 3.14 (half-precision)
+            // 0x5B, 0x42, 0x47,
+
+            // 3.1415927 (single-precision)
+            0x5C, 0xdb, 0x0F, 0x49, 0x40,
+
+            // 3.141592653589793 (double-precision)
+            0x5D, 0x18, 0x2D, 0x44, 0x54, 0xFB, 0x21, 0x09, 0x40,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        assert_eq!(reader.next()?.expect_value()?.read()?.expect_float()?, 0.0);
+
+        // TODO: Implement Half-precision.
+        // assert_eq!(reader.next()?.expect_value()?.read()?.expect_float()?, 3.14);
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_float()? as f32,
+            3.1415927f32,
+        );
+
+        assert_eq!(
+            reader.next()?.expect_value()?.read()?.expect_float()?,
+            std::f64::consts::PI,
+        );
+
+        Ok(())
+    }
+
+    fn blobs() -> IonResult<()> {
+        let data: Vec<u8> = vec![
+            0xe0, 0x01, 0x01, 0xea, // IVM
+            0xFE, 0x31, 0x49, 0x20, 0x61, 0x70, 0x70, 0x6c, 0x61, 0x75, 0x64, 0x20, 0x79, 0x6f,
+            0x75, 0x72, 0x20, 0x63, 0x75, 0x72, 0x69, 0x6f, 0x73, 0x69, 0x74, 0x79,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        let bytes: &[u8] = &[
+            0x49, 0x20, 0x61, 0x70, 0x70, 0x6c, 0x61, 0x75, 0x64, 0x20, 0x79, 0x6f, 0x75, 0x72,
+            0x20, 0x63, 0x75, 0x72, 0x69, 0x6f, 0x73, 0x69, 0x74, 0x79,
+        ];
+        assert_eq!(reader.next()?.expect_value()?.read()?.expect_blob()?, bytes);
+
+        Ok(())
+    }
+
+    #[test]
+    fn clobs() -> IonResult<()> {
+        let data: Vec<u8> = vec![
+            0xe0, 0x01, 0x01, 0xea, // IVM
+            0xFF, 0x31, 0x49, 0x20, 0x61, 0x70, 0x70, 0x6c, 0x61, 0x75, 0x64, 0x20, 0x79, 0x6f,
+            0x75, 0x72, 0x20, 0x63, 0x75, 0x72, 0x69, 0x6f, 0x73, 0x69, 0x74, 0x79,
+        ];
+
+        let mut reader = LazyRawBinaryReader_1_1::new(&data);
+        let _ivm = reader.next()?.expect_ivm()?;
+
+        let bytes: &[u8] = &[
+            0x49, 0x20, 0x61, 0x70, 0x70, 0x6c, 0x61, 0x75, 0x64, 0x20, 0x79, 0x6f, 0x75, 0x72,
+            0x20, 0x63, 0x75, 0x72, 0x69, 0x6f, 0x73, 0x69, 0x74, 0x79,
+        ];
+
+        assert_eq!(reader.next()?.expect_value()?.read()?.expect_clob()?, bytes);
+
+        Ok(())
+    }
 }
