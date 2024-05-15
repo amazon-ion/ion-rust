@@ -583,7 +583,7 @@ mod decimal_tests {
     #[case(-10.0, Decimal::from(-10))]
     #[case(i32::MAX as f64, Decimal::from(i32::MAX))]
     // The largest negative integer an f64 can precisely represent
-    #[case((-2i64.pow(53) + 1) as f64, Decimal::new(-2i64.pow(53) + 1, 0))]
+    #[case((-(2i64.pow(53)) + 1) as f64, Decimal::new(-(2i64.pow(53)) + 1, 0))]
     // Positive floats
     #[case(8.67, Decimal::new(867, -2))]
     #[case(8.6753, Decimal::new(86753, -4))]

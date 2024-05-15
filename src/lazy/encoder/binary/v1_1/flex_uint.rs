@@ -17,6 +17,7 @@ const fn init_bytes_needed_cache() -> [u8; 129] {
             ((magnitude_bits_needed + BITS_PER_ENCODED_BYTE - 1) / BITS_PER_ENCODED_BYTE) as u8;
         leading_zeros += 1;
     }
+    // Special case: 128 leading zeros means it's `0i128`, which requires one byte.
     cache[128] = 1;
     cache
 }
