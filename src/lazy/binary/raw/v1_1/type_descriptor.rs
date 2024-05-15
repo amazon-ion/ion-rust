@@ -65,6 +65,8 @@ impl Opcode {
             (0x9, _) => (InlineSymbol, low_nibble, Some(IonType::Symbol)),
             (0xA, _) => (List, low_nibble, Some(IonType::List)),
             (0xB, _) => (SExpression, low_nibble, Some(IonType::SExp)),
+            (0xC, _) => (StructSymAddress, low_nibble, Some(IonType::Struct)),
+            (0xD, _) => (StructFlexSym, low_nibble, Some(IonType::Struct)),
             (0xE, 0x0) => (IonVersionMarker, low_nibble, None),
             (0xE, 0x1..=0x3) => (SymbolAddress, low_nibble, Some(IonType::Symbol)),
             (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
@@ -76,6 +78,8 @@ impl Opcode {
             (0xF, 0x9) => (InlineSymbol, 0xFF, Some(IonType::Symbol)),
             (0xF, 0xA) => (List, 0xFF, Some(IonType::List)),
             (0xF, 0xB) => (SExpression, 0xFF, Some(IonType::SExp)),
+            (0xF, 0xC) => (StructSymAddress, 0xFF, Some(IonType::Struct)),
+            (0xF, 0xD) => (StructFlexSym, 0xFF, Some(IonType::Struct)),
             (0xF, 0xE) => (Blob, low_nibble, Some(IonType::Blob)),
             (0xF, 0xF) => (Clob, low_nibble, Some(IonType::Clob)),
             (0xF, 0x7) => (TimestampLong, low_nibble, Some(IonType::Timestamp)),
@@ -155,6 +159,8 @@ impl Header {
                 InOpcode(ION_1_1_TIMESTAMP_SHORT_SIZE[self.length_code as usize])
             }
             (OpcodeType::TypedNull, _) => InOpcode(1),
+            (OpcodeType::StructSymAddress, n) if n < 16 => InOpcode(n),
+            (OpcodeType::StructFlexSym, n) if n < 16 => InOpcode(n),
             _ => FlexUIntFollows,
         }
     }

@@ -700,6 +700,10 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a struct.
     fn read_struct(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
+        use crate::lazy::decoder::private::LazyContainerPrivate;
+        Ok(RawValueRef::Struct(LazyRawBinaryStruct_1_1::from_value(
+            *self,
+        )))
     }
 }
