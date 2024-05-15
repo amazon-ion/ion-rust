@@ -576,6 +576,7 @@ mod tests {
     fn lists() -> IonResult<()> {
         use crate::lazy::decoder::LazyRawSequence;
 
+        #[rustfmt::skip]
         let tests: &[(&[u8], &[IonType])] = &[
             // []
             (&[0xA0], &[]),
@@ -599,38 +600,21 @@ mod tests {
             ),
 
             // [3.1415927e0 3.1415927e0]
-            (&[0xAA, 0x5C, 0xDB, 0x0F, 0x49, 0x40, 0x5C, 0xDB, 0x0F, 0x49, 0x40], &[IonType::Float, IonType::Float]),
-        ];
+            (
+                &[0xAA, 0x5C, 0xDB, 0x0F, 0x49, 0x40, 0x5C, 0xDB, 0x0F, 0x49, 0x40],
+                &[IonType::Float, IonType::Float]
+            ),
 
-        for (data, expected_types) in tests {
-            let mut reader = LazyRawBinaryReader_1_1::new(data);
-            let container = reader.next()?.expect_value()?.read()?.expect_list()?;
-            let mut count = 0;
-            for (actual_lazy_value, expected_type) in container.iter().zip(expected_types.iter()) {
-                let value = actual_lazy_value?.expect_value()?;
-                assert_eq!(value.ion_type(), *expected_type);
-                count += 1;
-            }
-            assert_eq!(count, expected_types.len());
-        }
+            // Long List Encoding
 
-        Ok(())
-    }
-
-    #[test]
-    fn lists_long() -> IonResult<()> {
-        use crate::lazy::decoder::LazyRawSequence;
-
-        #[rustfmt::skip]
-        let tests: &[(&[u8], &[IonType])] = &[
             // []
             (&[0xFA, 0x01], &[]),
 
             // ["variable length list"]
             (
                 &[
-                    0xFA, 0x2D, 0xF8, 0x29, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65, 0x20,
-                    0x6C, 0x65, 0x6E, 0x67, 0x74, 0x68, 0x20, 0x6C, 0x69, 0x73, 0x74,
+                    0xFA, 0x2D, 0xF8, 0x29, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65,
+                    0x20, 0x6C, 0x65, 0x6E, 0x67, 0x74, 0x68, 0x20, 0x6C, 0x69, 0x73, 0x74,
                 ],
                 &[IonType::String]
             ),
@@ -639,8 +623,8 @@ mod tests {
             (&[0xFA, 0x03, 0xEC], &[]),
         ];
 
-        for (data, expected_types) in tests {
-            let mut reader = LazyRawBinaryReader_1_1::new(data);
+        for (ion_data, expected_types) in tests {
+            let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
             let container = reader.next()?.expect_value()?.read()?.expect_list()?;
             let mut count = 0;
             for (actual_lazy_value, expected_type) in container.iter().zip(expected_types.iter()) {
@@ -668,27 +652,9 @@ mod tests {
                 &[0xB6, 0x51, 0x01, 0x51, 0x02, 0x51, 0x03],
                 &[IonType::Int, IonType::Int, IonType::Int],
             ),
-        ];
 
-        for (data, expected_types) in tests {
-            let mut reader = LazyRawBinaryReader_1_1::new(data);
-            let container = reader.next()?.expect_value()?.read()?.expect_sexp()?;
-            let mut count = 0;
-            for (actual_lazy_value, expected_type) in container.iter().zip(expected_types.iter()) {
-                let value = actual_lazy_value?.expect_value()?;
-                assert_eq!(value.ion_type(), *expected_type);
-                count += 1;
-            }
-            assert_eq!(count, expected_types.len());
-        }
+            // Long S-Expression Encoding
 
-        Ok(())
-    }
-
-    #[test]
-    fn sexp_long() -> IonResult<()> {
-        #[rustfmt::skip]
-        let tests: &[(&[u8], &[IonType])] = &[
             // ()
             (&[0xFB, 0x01], &[]),
 
@@ -708,12 +674,11 @@ mod tests {
             (&[0xFB, 0x07, 0xE2, 0x01, 0x00], &[IonType::Symbol]),
         ];
 
-        for (data, expected_types) in tests {
-            let mut reader = LazyRawBinaryReader_1_1::new(data);
+        for (ion_data, expected_types) in tests {
+            let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
             let container = reader.next()?.expect_value()?.read()?.expect_sexp()?;
-            let iter = container.sequence.iter();
             let mut count = 0;
-            for (actual_lazy_value, expected_type) in iter.zip(expected_types.iter()) {
+            for (actual_lazy_value, expected_type) in container.iter().zip(expected_types.iter()) {
                 let value = actual_lazy_value?.expect_value()?;
                 assert_eq!(value.ion_type(), *expected_type);
                 count += 1;

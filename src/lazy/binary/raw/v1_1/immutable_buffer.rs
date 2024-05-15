@@ -361,7 +361,6 @@ impl<'a> ImmutableBuffer<'a> {
     ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
         todo!();
     }
-
 }
 
 /// Represents the data found in an Ion 1.0 annotations wrapper.
