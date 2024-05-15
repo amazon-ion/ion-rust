@@ -46,7 +46,7 @@ pub enum Mantissa {
     Digits(u32),
     /// Specifies the fractional seconds precisely as a `Decimal` in the range `>= 0` and `< 1`.
     /// The Decimal will have the correct precision; the complete value can and should be used.
-    /// This representation should only be used for precisions greater than nanoseconds as can
+    /// This representation should only be used for precisions greater than nanoseconds as it can
     /// require allocations.
     Arbitrary(Decimal),
 }

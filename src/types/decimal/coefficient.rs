@@ -28,6 +28,16 @@ pub struct Coefficient {
 }
 
 impl Coefficient {
+    pub const ZERO: Coefficient = Coefficient {
+        sign: Sign::Positive,
+        magnitude: UInt::ZERO,
+    };
+
+    pub const NEGATIVE_ZERO: Coefficient = Coefficient {
+        sign: Sign::Negative,
+        magnitude: UInt::ZERO,
+    };
+
     pub(crate) fn new<I: Into<Magnitude>>(sign: Sign, magnitude: I) -> Self {
         let magnitude: Magnitude = magnitude.into();
         let magnitude: UInt = magnitude.into();
