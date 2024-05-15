@@ -36,13 +36,13 @@ impl<'top> LazyRawBinaryFieldName_1_1<'top> {
 
 impl<'top> HasSpan<'top> for LazyRawBinaryFieldName_1_1<'top> {
     fn span(&self) -> Span<'top> {
-        todo!()
+        Span::with_offset(self.matched.offset(), self.matched.bytes())
     }
 }
 
 impl<'top> HasRange for LazyRawBinaryFieldName_1_1<'top> {
     fn range(&self) -> Range<usize> {
-        todo!()
+        self.matched.range()
     }
 }
 
