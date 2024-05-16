@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::mem;
 
-use crate::result::IonResult;
+use crate::result::{IonFailure, IonResult};
 use crate::{Int, IonError, UInt};
 
 // This limit is used for stack-allocating buffer space to encode/decode UInts.
@@ -27,29 +27,27 @@ impl DecodedUInt {
     }
 
     /// Interprets all of the bytes in the provided slice as big-endian unsigned integer bytes.
-    /// The caller must confirm that `uint_bytes` is no longer than 8 bytes long; otherwise,
-    /// overflow may quietly occur.
-    pub(crate) fn small_uint_from_slice(uint_bytes: &[u8]) -> u64 {
-        // TODO: copy from the slice and use from_be_bytes
-        let mut magnitude: u64 = 0;
-        for &byte in uint_bytes {
-            let byte = u64::from(byte);
-            magnitude <<= 8;
-            magnitude |= byte;
+    /// If the length of `uint_bytes` is greater than the size of a `u128`, returns `Err`.
+    #[inline]
+    pub(crate) fn uint_from_slice(uint_bytes: &[u8]) -> IonResult<u128> {
+        if uint_bytes.len() > mem::size_of::<u128>() {
+            return IonResult::decoding_error(
+                "integer size is currently limited to the range of an i128",
+            );
         }
-        magnitude
+
+        Ok(Self::uint_from_slice_unchecked(uint_bytes))
     }
 
     /// Interprets all of the bytes in the provided slice as big-endian unsigned integer bytes.
-    pub(crate) fn big_uint_from_slice(uint_bytes: &[u8]) -> u128 {
-        // TODO: copy from the slice and use from_be_bytes
-        let mut magnitude: u128 = 0;
-        for &byte in uint_bytes {
-            let byte = u128::from(byte);
-            magnitude <<= 8;
-            magnitude |= byte;
-        }
-        magnitude
+    /// Panics if the length of `uint_bytes` is greater than the size of a `u128`.
+    #[inline]
+    pub(crate) fn uint_from_slice_unchecked(uint_bytes: &[u8]) -> u128 {
+        const BUFFER_SIZE: usize = mem::size_of::<u128>();
+        let mut buffer = [0u8; BUFFER_SIZE];
+        // Copy the big-endian bytes into the end of the buffer
+        buffer[BUFFER_SIZE - uint_bytes.len()..].copy_from_slice(uint_bytes);
+        u128::from_be_bytes(buffer)
     }
 
     /// Encodes the provided `magnitude` as a UInt and writes it to the provided `sink`.

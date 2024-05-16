@@ -5,7 +5,6 @@ use std::ops::{Neg, Range};
 
 use crate::binary::constants::v1_0::{length_codes, IVM};
 use crate::binary::int::DecodedInt;
-use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
@@ -17,7 +16,6 @@ use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::result::IonFailure;
-use crate::types::UInt;
 use crate::{IonError, IonResult, IonType};
 
 // The size of a u128
@@ -326,56 +324,6 @@ impl<'a> ImmutableBuffer<'a> {
         ))
     }
 
-    /// Reads the first `length` bytes from the buffer as a `UInt` encoding primitive. If it is
-    /// successful, returns an `Ok(_)` containing its `DecodedUInt` representation.
-    ///
-    /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields>
-    pub fn read_uint(self, length: usize) -> ParseResult<'a, DecodedUInt> {
-        if length <= mem::size_of::<u64>() {
-            return self.read_small_uint(length);
-        }
-
-        // The UInt is too large to fit in a u64; read it as a BigUInt instead.
-        self.read_big_uint(length)
-    }
-
-    /// Reads the first `length` bytes from the buffer as a `UInt`. The caller must confirm that
-    /// `length` is small enough to fit in a `u64`.
-    #[inline]
-    fn read_small_uint(self, length: usize) -> ParseResult<'a, DecodedUInt> {
-        let uint_bytes = self
-            .peek_n_bytes(length)
-            .ok_or_else(|| IonError::incomplete("a UInt", self.offset()))?;
-        let magnitude = DecodedUInt::small_uint_from_slice(uint_bytes);
-        Ok((
-            DecodedUInt::new(UInt::from(magnitude), length),
-            self.consume(length),
-        ))
-    }
-
-    /// Reads the first `length` bytes from the buffer as a `UInt`. If `length` is small enough
-    /// that the value can fit in a `usize`, it is strongly recommended that you use
-    /// `read_small_uint` instead as it will be much faster.
-    #[inline(never)]
-    // This method performs allocations and its generated assembly is rather large. Isolating its
-    // logic in a separate method that is never inlined keeps `read_uint` (its caller) small enough
-    // to inline. This is important as `read_uint` is on the hot path for most Ion streams.
-    fn read_big_uint(self, length: usize) -> ParseResult<'a, DecodedUInt> {
-        if length > MAX_UINT_SIZE_IN_BYTES {
-            return Self::value_too_large("a Uint", length, MAX_UINT_SIZE_IN_BYTES);
-        }
-
-        let uint_bytes = self
-            .peek_n_bytes(length)
-            .ok_or_else(|| IonError::incomplete("a UInt", self.offset()))?;
-
-        let magnitude = DecodedUInt::big_uint_from_slice(uint_bytes);
-        Ok((
-            DecodedUInt::new(UInt::from(magnitude), length),
-            self.consume(length),
-        ))
-    }
-
     #[inline(never)]
     // This method is inline(never) because it is rarely invoked and its allocations/formatting
     // compile to a non-trivial number of instructions.
@@ -539,6 +487,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// from the buffer to interpret as the value's length. If it is successful, returns an `Ok(_)`
     /// containing a [VarUInt] representation of the value's length. If no additional bytes were
     /// read, the returned `VarUInt`'s `size_in_bytes()` method will return `0`.
+    #[inline]
     pub fn read_value_length(self, header: Header) -> ParseResult<'a, VarUInt> {
         use IonType::*;
         // Some type-specific `length` field overrides
@@ -949,56 +898,6 @@ mod tests {
             .read_var_int()
             .expect_err("This should have failed due to overflow.");
         Ok(())
-    }
-
-    #[test]
-    fn read_one_byte_uint() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b1000_0000]);
-        let var_int = buffer.read_uint(buffer.len())?.0;
-        assert_eq!(var_int.size_in_bytes(), 1);
-        assert_eq!(var_int.value(), &UInt::from(128u64));
-        Ok(())
-    }
-
-    #[test]
-    fn read_two_byte_uint() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0111_1111, 0b1111_1111]);
-        let var_int = buffer.read_uint(buffer.len())?.0;
-        assert_eq!(var_int.size_in_bytes(), 2);
-        assert_eq!(var_int.value(), &UInt::from(32_767u64));
-        Ok(())
-    }
-
-    #[test]
-    fn read_three_byte_uint() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0011_1100, 0b1000_0111, 0b1000_0001]);
-        let var_int = buffer.read_uint(buffer.len())?.0;
-        assert_eq!(var_int.size_in_bytes(), 3);
-        assert_eq!(var_int.value(), &UInt::from(3_966_849u64));
-        Ok(())
-    }
-
-    #[test]
-    fn test_read_ten_byte_uint() -> IonResult<()> {
-        let data = vec![0xFFu8; 10];
-        let buffer = ImmutableBuffer::new(&data);
-        let uint = buffer.read_uint(buffer.len())?.0;
-        assert_eq!(uint.size_in_bytes(), 10);
-        assert_eq!(
-            uint.value(),
-            &UInt::from(u128::from_str_radix("ffffffffffffffffffff", 16).unwrap())
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_read_uint_too_large() {
-        let mut buffer = Vec::with_capacity(MAX_UINT_SIZE_IN_BYTES + 1);
-        buffer.resize(MAX_UINT_SIZE_IN_BYTES + 1, 1);
-        let buffer = ImmutableBuffer::new(&buffer);
-        let _uint = buffer
-            .read_uint(buffer.len())
-            .expect_err("This exceeded the configured max UInt size.");
     }
 
     #[test]

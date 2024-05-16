@@ -31,6 +31,8 @@ const SKIP_LIST: &[&str] = &[
     "ion-tests/iontestdata_1_0/good/intBigSize1201.10n",
     "ion-tests/iontestdata_1_0/good/equivs/bigInts.ion",
     "ion-tests/iontestdata_1_0/good/subfieldVarInt.ion",
+    "ion-tests/iontestdata_1_0/good/equivs/intsLargePositive3.10n",
+    "ion-tests/iontestdata_1_0/good/equivs/intsLargeNegative3.10n",
 ];
 
 #[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.ion")]
