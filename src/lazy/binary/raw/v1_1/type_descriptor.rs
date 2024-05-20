@@ -15,7 +15,7 @@ pub struct Opcode {
 /// byte (`u8`) to a `TypeDescriptor` without having to perform any masking or bitshift operations.
 pub(crate) static ION_1_1_OPCODES: &[Opcode; 256] = &init_opcode_cache();
 
-static ION_1_1_TIMESTAMP_SHORT_SIZE: [u8; 13] = [1, 2, 2, 4, 5, 6, 7, 8, 5, 5, 7, 8, 8];
+static ION_1_1_TIMESTAMP_SHORT_SIZE: [u8; 13] = [1, 2, 2, 4, 5, 6, 7, 8, 5, 5, 7, 8, 9];
 
 const DEFAULT_HEADER: Opcode = Opcode {
     opcode_type: OpcodeType::Nop,

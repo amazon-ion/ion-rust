@@ -26,7 +26,7 @@ pub use r#struct::Struct;
 pub use sexp::SExp;
 pub use string::Str;
 pub use symbol::Symbol;
-pub use timestamp::{Mantissa, Timestamp, TimestampPrecision};
+pub use timestamp::{HasMinute, Mantissa, Timestamp, TimestampBuilder, TimestampPrecision};
 
 use crate::ion_data::IonOrd;
 use std::cmp::Ordering;

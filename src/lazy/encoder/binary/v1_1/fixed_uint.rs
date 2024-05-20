@@ -7,7 +7,7 @@ use crate::lazy::encoder::binary::v1_1::fixed_int::{
 };
 use crate::decimal::coefficient::Coefficient;
 use crate::result::IonFailure;
-use crate::{IonResult, UInt};
+use crate::{IonResult, UInt, IonError};
 
 /// An Ion 1.1 encoding primitive that represents a fixed-length unsigned integer.
 #[derive(Debug)]
@@ -64,6 +64,16 @@ impl FixedUInt {
 
     pub fn size_in_bytes(&self) -> usize {
         self.size_in_bytes
+    }
+}
+
+impl TryFrom<FixedUInt> for Coefficient {
+    type Error = IonError;
+
+    fn try_from(other: FixedUInt) -> Result<Self, Self::Error> {
+        use crate::types::integer::Int;
+        let as_int: Int = other.value.try_into()?;
+        Ok(as_int.into())
     }
 }
 

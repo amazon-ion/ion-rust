@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use std::fmt::Debug;
 use std::ops::Range;
 
 use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
@@ -22,12 +23,26 @@ use crate::{
         raw_value_ref::RawValueRef,
     },
     result::IonFailure,
-    types::{
-        timestamp::{HasMinute, TimestampBuilder},
-        SymbolId, Timestamp,
-    },
+    types::{HasMinute, SymbolId, Timestamp, TimestampBuilder},
     IonError, IonResult, IonType, RawSymbolRef,
 };
+use num_traits::PrimInt;
+
+const LONG_TIMESTAMP_OFFSET_BIAS: i32 = -60 * 24;
+
+trait ExtractBitmask: PrimInt {
+    /// Given a bitmask, and a value, extract_bitmask extracts the desired bits from value and shifts
+    /// to align the extracted bits to the least significant bit in the returned value.
+    #[inline(always)]
+    fn extract_bitmask(self, mask: Self) -> Self {
+        (self & mask) >> (mask.trailing_zeros() as usize)
+    }
+}
+
+impl ExtractBitmask for u8 {}
+impl ExtractBitmask for u16 {}
+impl ExtractBitmask for u32 {}
+impl ExtractBitmask for u64 {}
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryVersionMarker_1_1<'top> {
@@ -295,11 +310,15 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     // Helper method callsed by [`Self::read_timestamp_short`]. Reads the time information from a
     // timestamp with Unknown or UTC offset.
-    fn read_timestamp_short_no_offset(
+    fn read_timestamp_short_no_offset_after_minute(
         &self,
         value_bytes: &[u8],
         ts_builder: TimestampBuilder<HasMinute>,
     ) -> ValueParseResult<'top, BinaryEncoding_1_1> {
+        const SECONDS_MASK_16BIT: u16 = 0x03_F0;
+        const MILLISECONDS_MASK_16BIT: u16 = 0x0F_FC;
+        const MICROSECONDS_MASK_32BIT: u32 = 0x3F_FF_FC_00;
+
         let length_code = self.encoded_value.header.length_code();
         let is_utc = (value_bytes[3] & 0x08) == 0x08;
 
@@ -314,10 +333,12 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             return Ok(RawValueRef::Timestamp(timestamp));
         }
 
-        // Second
-        let second = ((value_bytes[3] & 0xF0) >> 4) | ((value_bytes[4] & 0x03) << 4);
+        // Read Second
+        let second = u16::from_le_bytes(value_bytes[3..=4].try_into().unwrap())
+            .extract_bitmask(SECONDS_MASK_16BIT);
         let ts_builder = ts_builder.with_second(second as u32);
 
+        // Second Precision
         if length_code == 4 {
             let timestamp = if is_utc {
                 ts_builder.build_utc_fields_at_offset(0)?
@@ -328,9 +349,11 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             return Ok(RawValueRef::Timestamp(timestamp));
         }
 
+        // Millisecond Precision
         if length_code == 5 {
-            let millisecond = ((value_bytes[4] >> 2) as u32) | (value_bytes[5] as u32) << 6;
-            let ts_builder = ts_builder.with_milliseconds(millisecond);
+            let millisecond = u16::from_le_bytes(value_bytes[4..=5].try_into().unwrap())
+                .extract_bitmask(MILLISECONDS_MASK_16BIT);
+            let ts_builder = ts_builder.with_milliseconds(millisecond.into());
             let timestamp = if is_utc {
                 ts_builder.build_utc_fields_at_offset(0)?
             } else {
@@ -340,10 +363,10 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             return Ok(RawValueRef::Timestamp(timestamp));
         }
 
+        // Microsecond Precision
         if length_code == 6 {
-            let microsecond = ((value_bytes[4] >> 2) as u32)
-                | (value_bytes[5] as u32) << 6
-                | (value_bytes[6] as u32) << 14;
+            let microsecond = u32::from_le_bytes(value_bytes[3..=6].try_into().unwrap())
+                .extract_bitmask(MICROSECONDS_MASK_32BIT);
             let ts_builder = ts_builder.with_microseconds(microsecond);
             let timestamp = if is_utc {
                 ts_builder.build_utc_fields_at_offset(0)?
@@ -354,11 +377,9 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             return Ok(RawValueRef::Timestamp(timestamp));
         }
 
+        // Nanosecond Precision
         if length_code == 7 {
-            let nanoseconds = ((value_bytes[4] >> 2) as u32)
-                | (value_bytes[5] as u32) << 6
-                | (value_bytes[6] as u32) << 14
-                | (value_bytes[7] as u32) << 22;
+            let nanoseconds = u32::from_le_bytes(value_bytes[4..=7].try_into().unwrap()) >> 2;
             let ts_builder = ts_builder.with_nanoseconds(nanoseconds);
             let timestamp = if is_utc {
                 ts_builder.build_utc_fields_at_offset(0)?
@@ -374,17 +395,25 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     // Helper method callsed by [`Self::read_timestamp_short`]. Reads the time information from a
     // timestamp with a provided offset.
-    fn read_timestamp_short_offset(
+    fn read_timestamp_short_offset_after_minute(
         &self,
         value_bytes: &[u8],
         ts_builder: TimestampBuilder<HasMinute>,
     ) -> ValueParseResult<'top, BinaryEncoding_1_1> {
+        const OFFSET_MASK_16BIT: u16 = 0x03_F8;
+        const MILLISECOND_MASK_16BIT: u16 = 0x03_FF;
+        const MICROSECOND_MASK_32BIT: u32 = 0x0F_FF_00;
+        const NANOSECOND_MASK_32BIT: u32 = 0x3F_FF_FF_FF;
+
         let length_code = self.encoded_value.header.length_code();
 
         // Read offset as 15min multiple
-        let offset: i32 = (((value_bytes[3] & 0xF8) as u32) >> 3) as i32; // Read 5 LSbits
-        let offset = offset | (((value_bytes[4] & 0x3) as u32) << 5) as i32; // Read 2 MSbits
-        let offset = offset * 15;
+        let offset: u16 = u16::from_le_bytes(value_bytes[3..=4].try_into().unwrap())
+            .extract_bitmask(OFFSET_MASK_16BIT);
+        // The 7th bit is our sign bit, below we extend it through the rest of the i32, and
+        // multiply by 15 to get the number of minutes.
+        //    https://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
+        let offset: i32 = 15 * (offset as i32 ^ 0x040).wrapping_sub(0x040);
 
         // Hour and Minutes at known offset
         if length_code == 8 {
@@ -393,7 +422,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         }
 
         // Read seconds
-        let second = (value_bytes[4] & 0xFC) as u32 >> 2; // Read all 6 bits
+        let second = value_bytes[4] as u32 >> 2; // Read all 6 bits
         let ts_builder = ts_builder.with_second(second);
 
         // Seconds precision at known offset.
@@ -405,18 +434,17 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         // Opcodes 7A, 7B, and 7C, differ in subsecond precision.
         if length_code == 0xA {
             // Read milliseconds
-            let millisecond: u32 = value_bytes[5] as u32; // Read 8 LSbits
-            let millisecond = millisecond | ((value_bytes[6] & 0x03) as u32) << 8; // Read 2 MSbits
+            let millisecond = u16::from_le_bytes(value_bytes[5..=6].try_into().unwrap())
+                .extract_bitmask(MILLISECOND_MASK_16BIT);
             let ts_builder = ts_builder
-                .with_milliseconds(millisecond)
+                .with_milliseconds(millisecond.into())
                 .with_offset(offset);
 
             return Ok(RawValueRef::Timestamp(ts_builder.build()?));
         } else if length_code == 0xB {
             // Read microseconds
-            let microsecond = value_bytes[5] as u32; // 8 LSbits
-            let microsecond = microsecond | ((value_bytes[6] as u32) << 8); // 8 Middle-bits
-            let microsecond = microsecond | ((value_bytes[7] & 0x0F) as u32) << 16; // 4 MSbits
+            let microsecond = u32::from_le_bytes(value_bytes[4..=7].try_into().unwrap())
+                .extract_bitmask(MICROSECOND_MASK_32BIT);
             let ts_builder = ts_builder
                 .with_microseconds(microsecond)
                 .with_offset(offset);
@@ -424,12 +452,9 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             return Ok(RawValueRef::Timestamp(ts_builder.build()?));
         } else if length_code == 0xC {
             // Read nanoseconds
-            let nanoseconds = value_bytes[5] as u32; // Read 8 LSbits
-            let nanoseconds = nanoseconds | ((value_bytes[6] as u32) << 8); // 8 Middle-bits.
-            let nanoseconds = nanoseconds | ((value_bytes[7] as u32) << 16); // 8 MSbits.
-            let ts_builder = ts_builder
-                .with_nanoseconds(nanoseconds)
-                .with_offset(offset);
+            let nanoseconds =
+                u32::from_le_bytes(value_bytes[5..=8].try_into().unwrap()) & NANOSECOND_MASK_32BIT;
+            let ts_builder = ts_builder.with_nanoseconds(nanoseconds).with_offset(offset);
 
             return Ok(RawValueRef::Timestamp(ts_builder.build()?));
         }
@@ -437,9 +462,11 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         unreachable!();
     }
 
-    // Helper method callsed by [`Self::read_timestamp_short`]. Reads the time information from a
+    // Helper method called by [`Self::read_timestamp`]. Reads the time information from a
     // timestamp encoded in short form.
     fn read_timestamp_short(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
+        const MONTH_MASK_16BIT: u16 = 0x07_80;
+
         let length_code = self.encoded_value.header.length_code();
         let value_bytes = self.value_body()?;
 
@@ -452,8 +479,9 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         }
 
         // Read month..
-        let month = (value_bytes[0] & 0x80) >> 7; // 1 LSbit
-        let month = month | ((value_bytes[1] & 0x07) << 1); // 3 MSbits
+        // let month = (u16::from_le_bytes(value_bytes[0..=1].try_into().unwrap()) >> 7) & 0x0F;
+        let month = u16::from_le_bytes(value_bytes[0..=1].try_into().unwrap())
+            .extract_bitmask(MONTH_MASK_16BIT);
         let ts_builder = ts_builder.with_month(month as u32);
 
         // Month Precision
@@ -472,28 +500,35 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
         // Hour and Minute
         let hour = value_bytes[2] & 0x1F; // All 5 bits of the hour.
-        let min = (value_bytes[2] & 0xE0) >> 5; // 3 LSbits
-        let min = min | ((value_bytes[3] & 0x07) << 3); // 3 MSbits
+        let min = (u16::from_le_bytes(value_bytes[2..=3].try_into().unwrap()) >> 5) & 0x3F;
         let ts_builder = ts_builder.with_hour_and_minute(hour as u32, min as u32);
 
         // We're at least Hour&Minute so we need either an offset, or indicator that the timestamp
         // is UTC or Unknown.
 
-        // UTC / Unkonwn Offset
+        // UTC / Unknown Offset
         if length_code < 8 {
-            self.read_timestamp_short_no_offset(value_bytes, ts_builder)
+            self.read_timestamp_short_no_offset_after_minute(value_bytes, ts_builder)
         } else {
             // Known Offset
-            self.read_timestamp_short_offset(value_bytes, ts_builder)
+            self.read_timestamp_short_offset_after_minute(value_bytes, ts_builder)
         }
     }
 
-    // Helper method callsed by [`Self::read_timestamp_short`]. Reads the time information from a
+    // Helper method called by [`Self::read_timestamp`]. Reads the time information from a
     // timestamp encoded in long form.
     fn read_timestamp_long(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
         use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
         use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
         use crate::types::decimal::{*, coefficient::Coefficient};
+
+        const YEAR_MASK_16BIT: u16 = 0x3FFF;
+        const MONTH_MASK_16BIT: u16 = 0x03_C0;
+        const DAY_MASK_8BIT: u8 = 0x7C;
+        const HOUR_MASK_16BIT: u16 = 0x0F_80;
+        const MINUTE_MASK_16BIT: u16 = 0x03_F0;
+        const SECOND_MASK_16BIT: u16 = 0x0F_C0;
+        const OFFSET_MASK_16BIT: u16 = 0x3F_FC;
 
         let value_bytes = self.value_body()?;
         let value_length = self.encoded_value.value_body_length;
@@ -502,47 +537,53 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             return Err(IonError::decoding_error("invalid timestamp length"));
         }
 
-        let year = (value_bytes[0] as u32) | ((value_bytes[1] & 0x3F) as u32) << 8;
-        let ts_builder = Timestamp::with_year(year);
+        let year = u16::from_le_bytes(value_bytes[0..=1].try_into().unwrap()) & YEAR_MASK_16BIT;
+        let ts_builder = Timestamp::with_year(year.into());
         if value_length == 2 {
             return Ok(RawValueRef::Timestamp(ts_builder.build()?));
         }
 
-        let month = ((value_bytes[1] & 0xC0) as u32) >> 6 | ((value_bytes[2] & 0x03) as u32) << 2;
-        let day = ((value_bytes[2] & 0x7C) as u32) >> 2;
-        let ts_builder = ts_builder.with_month(month);
+        let month = u16::from_le_bytes(value_bytes[1..=2].try_into().unwrap())
+            .extract_bitmask(MONTH_MASK_16BIT);
+        let day = value_bytes[2].extract_bitmask(DAY_MASK_8BIT);
+        let ts_builder = ts_builder.with_month(month.into());
         if value_length == 3 && day == 0 {
             return Ok(RawValueRef::Timestamp(ts_builder.build()?));
         }
 
-        let ts_builder = ts_builder.with_day(day);
+        let ts_builder = ts_builder.with_day(day as u32);
         if value_length == 3 {
             return Ok(RawValueRef::Timestamp(ts_builder.build()?));
         }
 
-        let hour = ((value_bytes[2] & 0x80) as u32) >> 7 | ((value_bytes[3] & 0x0F) as u32) << 1;
-        let minute = ((value_bytes[3] & 0xF0) as u32) >> 4 | ((value_bytes[4] & 0x03) as u32) << 4;
-        let offset = ((value_bytes[4] & 0xFC) as u32) >> 2 | ((value_bytes[5] & 0x3F) as u32) << 6;
-        let offset = if (offset & 0x800) == 0x800 && offset != 0xFFF {
-            (offset | !0xFFFu32) as i32 // Extend sign for negative 12-bit offsets.
+        let hour = u16::from_le_bytes(value_bytes[2..=3].try_into().unwrap())
+            .extract_bitmask(HOUR_MASK_16BIT);
+        let minute = u16::from_le_bytes(value_bytes[3..=4].try_into().unwrap())
+            .extract_bitmask(MINUTE_MASK_16BIT);
+        let offset = u16::from_le_bytes(value_bytes[4..=5].try_into().unwrap())
+            .extract_bitmask(OFFSET_MASK_16BIT);
+        let offset: Option<i32> = if offset == 0xFFF {
+            None
         } else {
-            offset as i32
+            Some((offset as i32) + LONG_TIMESTAMP_OFFSET_BIAS)
         };
-        let ts_builder = ts_builder.with_hour_and_minute(hour, minute);
+
+        let ts_builder = ts_builder.with_hour_and_minute(hour.into(), minute.into());
 
         if value_length == 6 {
-            if offset != 0x0FFF {
+            if let Some(offset) = offset {
                 let ts_builder = ts_builder.with_offset(offset);
                 return Ok(RawValueRef::Timestamp(ts_builder.build()?));
             }
             return Ok(RawValueRef::Timestamp(ts_builder.build()?));
         }
 
-        let second = ((value_bytes[5] & 0xC0) as u32) >> 6 | ((value_bytes[6] & 0x0F) as u32) << 2;
-        let ts_builder = ts_builder.with_second(second);
+        let second = u16::from_le_bytes(value_bytes[5..=6].try_into().unwrap())
+            .extract_bitmask(SECOND_MASK_16BIT);
+        let ts_builder = ts_builder.with_second(second.into());
 
         if value_length == 7 {
-            if offset != 0x0FFF {
+            if let Some(offset) = offset {
                 let ts_builder = ts_builder.with_offset(offset);
                 return Ok(RawValueRef::Timestamp(ts_builder.build()?));
             }
@@ -554,23 +595,12 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         let coefficient_len = value_length - coefficient_start;
         let coefficient = FixedUInt::read(&value_bytes[coefficient_start..], coefficient_len, 0)?;
 
-        if scale.value() == 0 {
-            return Err(IonError::decoding_error(
-                "invalid scale for timestamp fractional second",
-            ));
-        }
+        let decimal_coefficient: Coefficient = coefficient.try_into()?;
 
-        let decimal_coefficient: Coefficient = coefficient.try_into()
-            .map_err(|e| e.into())?;
         let frac_sec = Decimal::new(decimal_coefficient, -(scale.value() as i64));
-        if frac_sec.is_greater_than_or_equal_to_one() {
-            return Err(IonError::decoding_error(
-                "invalid fractional second for timestamp",
-            ));
-        }
 
         let ts_builder = ts_builder.with_fractional_seconds(frac_sec);
-        if offset != 0x0FFF {
+        if let Some(offset) = offset {
             let ts_builder = ts_builder.with_offset(offset);
             Ok(RawValueRef::Timestamp(ts_builder.build()?))
         } else {
