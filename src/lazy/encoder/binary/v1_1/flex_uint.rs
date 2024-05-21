@@ -3,6 +3,7 @@ use crate::{IonResult, UInt};
 use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;
 use std::io::Write;
+use std::mem;
 
 const BITS_PER_U128: usize = 128;
 const BITS_PER_ENCODED_BYTE: usize = 7;
@@ -275,14 +276,18 @@ impl FlexUInt {
         }}
     }
 
-    const MAX_FLEX_UINT_SIZE_IN_BYTES: usize = 16;
+    // This is capped at 14 bytes to simplify encoding. FlexUInt values up to 14 bytes (2^112 - 1)
+    // can be encoded entirely within a u128, which offers native shifting and masking operations.
+    // FlexUInts are used to represent symbol/macro table addresses and byte lengths, so 112 bits of
+    // magnitude should be sufficient for all but the most extreme use cases.
+    const MAX_FLEX_UINT_ENCODED_SIZE_IN_BYTES: usize = mem::size_of::<u128>();
 
     #[inline]
     pub fn write<W: Write>(output: &mut W, value: impl Into<UInt>) -> IonResult<usize> {
         let value = value.into().data;
         let leading_zeros = value.leading_zeros();
         let num_encoded_bytes = BYTES_NEEDED_CACHE[leading_zeros as usize] as usize;
-        if num_encoded_bytes <= Self::MAX_FLEX_UINT_SIZE_IN_BYTES {
+        if num_encoded_bytes <= Self::MAX_FLEX_UINT_ENCODED_SIZE_IN_BYTES {
             let flag_bits = 1u128 << (num_encoded_bytes - 1);
             // Left shift the value to accommodate the trailing flag bits and then OR them together
             let encoded_value = (value << num_encoded_bytes) | flag_bits;

@@ -18,11 +18,7 @@ use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::result::IonFailure;
 use crate::{Int, IonError, IonResult, IonType};
 
-// The size of a u128
-const MAX_UINT_SIZE_IN_BYTES: usize = 16;
-
-// The size of an i128
-const MAX_INT_SIZE_IN_BYTES: usize = 16;
+const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<i128>();
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.

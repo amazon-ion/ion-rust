@@ -14,16 +14,6 @@ use crate::{IonError, IonResult};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
-// This limit is used for stack-allocating buffer space to encode/decode UInts.
-const UINT_STACK_BUFFER_SIZE: usize = 16;
-// This number was chosen somewhat arbitrarily and could be lifted if a use case demands it.
-const MAX_UINT_SIZE_IN_BYTES: usize = 2048;
-
-// This limit is used for stack-allocating buffer space to encode/decode Ints.
-const INT_STACK_BUFFER_SIZE: usize = 16;
-// This number was chosen somewhat arbitrarily and could be lifted if a use case demands it.
-const MAX_INT_SIZE_IN_BYTES: usize = 2048;
-
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
 ///

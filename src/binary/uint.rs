@@ -4,11 +4,6 @@ use std::mem;
 use crate::result::{IonFailure, IonResult};
 use crate::{Int, IonError, UInt};
 
-// This limit is used for stack-allocating buffer space to encode/decode UInts.
-const UINT_STACK_BUFFER_SIZE: usize = 16;
-// This number was chosen somewhat arbitrarily and could be lifted if a use case demands it.
-const MAX_UINT_SIZE_IN_BYTES: usize = 2048;
-
 /// Represents a fixed-length unsigned integer. See the
 /// [UInt and Int Fields](https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields)
 /// section of the binary Ion spec for more details.
