@@ -2,6 +2,7 @@ use std::io::Write;
 
 use num_bigint::BigInt;
 
+use crate::decimal::coefficient::Coefficient;
 use crate::result::IonFailure;
 use crate::types::integer::IntData;
 use crate::{Int, IonResult};
@@ -96,6 +97,19 @@ impl FixedInt {
 impl From<FixedInt> for Int {
     fn from(other: FixedInt) -> Self {
         other.value
+    }
+}
+
+impl From<FixedInt> for Coefficient {
+    fn from(other: FixedInt) -> Self {
+        other.value.into()
+    }
+}
+
+impl From<i64> for FixedInt {
+    fn from(other: i64) -> Self {
+        let encoded_size = FixedInt::encoded_size_i64(other);
+        FixedInt::new(encoded_size, other)
     }
 }
 
