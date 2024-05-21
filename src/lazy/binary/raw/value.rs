@@ -18,7 +18,6 @@ use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp};
-use bytes::{BigEndian, ByteOrder};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::{fmt, mem};
@@ -411,8 +410,8 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         let number_of_bytes = self.encoded_value.value_body_length();
         let value = match number_of_bytes {
             0 => 0f64,
-            4 => f64::from(BigEndian::read_f32(ieee_bytes)),
-            8 => BigEndian::read_f64(ieee_bytes),
+            4 => f64::from(f32::from_be_bytes(ieee_bytes.try_into().expect("already confirmed length"))),
+            8 => f64::from_be_bytes(ieee_bytes.try_into().expect("already confirmed length")),
             _ => return IonResult::decoding_error("encountered a float with an illegal length"),
         };
         Ok(RawValueRef::Float(value))

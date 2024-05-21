@@ -2,7 +2,6 @@ use std::mem;
 
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
-use bytes::BufMut;
 
 use crate::binary::decimal::DecimalBinaryEncoder;
 use crate::binary::timestamp::TimestampBinaryEncoder;
@@ -64,9 +63,10 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
 
     pub fn write_symbol_id(mut self, symbol_id: SymbolId) -> IonResult<()> {
         const SYMBOL_BUFFER_SIZE: usize = mem::size_of::<u64>();
-        let mut buffer = [0u8; SYMBOL_BUFFER_SIZE];
-        let mut writer = std::io::Cursor::new(&mut buffer).writer();
+        let mut writer = std::io::Cursor::new([0u8; SYMBOL_BUFFER_SIZE]);
         let encoded_length = DecodedUInt::write_u64(&mut writer, symbol_id as u64)?;
+        let buffer: [u8; SYMBOL_BUFFER_SIZE] = writer.into_inner();
+        let encoded_id: &[u8] = &buffer[..encoded_length];
 
         let type_descriptor: u8;
         if encoded_length <= MAX_INLINE_LENGTH {
@@ -77,8 +77,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
             self.push_byte(type_descriptor);
             VarUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
         }
-        let raw_buffer = writer.into_inner().into_inner();
-        self.push_bytes(&raw_buffer[..encoded_length]);
+        self.push_bytes(encoded_id);
         Ok(())
     }
 

@@ -55,7 +55,7 @@ experimental-serde = ["dep:serde_with", "dep:serde"]
 
 [dependencies]
 base64 = "0.12"
-bytes = "0.4"
+
 # chrono < 0.5 brings in a deprecated version of the `time` crate via `oldtime` feature by default
 # this makes it explicitly not do this as there is an advisory warning against this:
 # See: https://github.com/chronotope/chrono/issues/602
@@ -75,7 +75,7 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 serde_with = { version = "3.7.0", optional = true }
 
 [dev-dependencies]
-rstest = "0.18.2"
+rstest = "0.19.0"
 rstest_reuse = "0.6.0"
 # Used by ion-tests integration
 walkdir = "2.5.0"
