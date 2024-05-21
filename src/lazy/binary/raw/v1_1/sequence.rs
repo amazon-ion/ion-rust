@@ -134,11 +134,15 @@ impl<'a> Debug for LazyRawBinarySequence_1_1<'a> {
 
 pub struct RawBinarySequenceIterator_1_1<'top> {
     source: ImmutableBuffer<'top>,
+    bytes_to_skip: usize,
 }
 
 impl<'top> RawBinarySequenceIterator_1_1<'top> {
     pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinarySequenceIterator_1_1<'top> {
-        RawBinarySequenceIterator_1_1 { source: input }
+        RawBinarySequenceIterator_1_1 {
+            source: input,
+            bytes_to_skip: 0,
+        }
     }
 }
 
@@ -146,11 +150,12 @@ impl<'top> Iterator for RawBinarySequenceIterator_1_1<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self
-            .source
-            .try_parse_next(ImmutableBuffer::peek_sequence_value)
-        {
-            Ok(Some(value)) => Some(Ok(RawValueExpr::ValueLiteral(value))),
+        self.source = self.source.consume(self.bytes_to_skip);
+        match self.source.peek_sequence_value() {
+            Ok(Some(output)) => {
+                self.bytes_to_skip = output.encoded_value.total_length;
+                Some(Ok(RawValueExpr::ValueLiteral(output)))
+            }
             Ok(None) => None,
             Err(e) => Some(Err(e)),
         }

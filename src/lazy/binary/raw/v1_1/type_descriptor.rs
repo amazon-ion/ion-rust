@@ -46,6 +46,8 @@ impl Opcode {
             (0x6, _) => (Decimal, low_nibble, Some(IonType::Decimal)),
             (0x8, _) => (String, low_nibble, Some(IonType::String)),
             (0x9, _) => (InlineSymbol, low_nibble, Some(IonType::Symbol)),
+            (0xA, _) => (List, low_nibble, Some(IonType::List)),
+            (0xB, _) => (SExpression, low_nibble, Some(IonType::SExp)),
             (0xE, 0x0) => (IonVersionMarker, low_nibble, None),
             (0xE, 0x1..=0x3) => (SymbolAddress, low_nibble, Some(IonType::Symbol)),
             (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
@@ -54,6 +56,8 @@ impl Opcode {
             (0xF, 0x6) => (Decimal, 0xFF, Some(IonType::Decimal)),
             (0xF, 0x8) => (String, 0xFF, Some(IonType::String)), // 0xFF indicates >15 byte string.
             (0xF, 0x9) => (InlineSymbol, 0xFF, Some(IonType::Symbol)),
+            (0xF, 0xA) => (List, 0xFF, Some(IonType::List)),
+            (0xF, 0xB) => (SExpression, 0xFF, Some(IonType::SExp)),
             (0xF, 0xE) => (Blob, low_nibble, Some(IonType::Blob)),
             (0xF, 0xF) => (Clob, low_nibble, Some(IonType::Clob)),
             _ => (Invalid, low_nibble, None),
@@ -126,6 +130,8 @@ impl Header {
             (OpcodeType::InlineSymbol, n) if n < 16 => InOpcode(n),
             (OpcodeType::SymbolAddress, n) if n < 4 => InOpcode(n),
             (OpcodeType::Decimal, 0..=15) => InOpcode(self.length_code),
+            (OpcodeType::List, n) if n < 16 => InOpcode(n),
+            (OpcodeType::SExpression, n) if n < 16 => InOpcode(n),
             _ => FlexUIntFollows,
         }
     }

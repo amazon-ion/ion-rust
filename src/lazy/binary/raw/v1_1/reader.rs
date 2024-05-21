@@ -571,4 +571,121 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn lists() -> IonResult<()> {
+        use crate::lazy::decoder::LazyRawSequence;
+
+        #[rustfmt::skip]
+        let tests: &[(&[u8], &[IonType])] = &[
+            // []
+            (&[0xA0], &[]),
+
+            // [null.null]
+            (&[0xA1, 0xEA], &[IonType::Null]),
+
+            // ['']
+            (&[0xA1, 0x90], &[IonType::Symbol]),
+
+            // ["hello"]
+            (
+                &[0xA6, 0x85, 0x68, 0x65, 0x6C, 0x6C, 0x6F],
+                &[IonType::String],
+            ),
+
+            // [null.null, '', "hello"]
+            (
+                &[0xA8, 0xEA, 0x90, 0x85, 0x68, 0x65, 0x6C, 0x6c, 0x6F],
+                &[IonType::Null, IonType::Symbol, IonType::String],
+            ),
+
+            // [3.1415927e0 3.1415927e0]
+            (
+                &[0xAA, 0x5C, 0xDB, 0x0F, 0x49, 0x40, 0x5C, 0xDB, 0x0F, 0x49, 0x40],
+                &[IonType::Float, IonType::Float]
+            ),
+
+            // Long List Encoding
+
+            // []
+            (&[0xFA, 0x01], &[]),
+
+            // ["variable length list"]
+            (
+                &[
+                    0xFA, 0x2D, 0xF8, 0x29, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65,
+                    0x20, 0x6C, 0x65, 0x6E, 0x67, 0x74, 0x68, 0x20, 0x6C, 0x69, 0x73, 0x74,
+                ],
+                &[IonType::String]
+            ),
+
+            // [<nop>]
+            (&[0xFA, 0x03, 0xEC], &[]),
+        ];
+
+        for (ion_data, expected_types) in tests {
+            let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
+            let container = reader.next()?.expect_value()?.read()?.expect_list()?;
+            let mut count = 0;
+            for (actual_lazy_value, expected_type) in container.iter().zip(expected_types.iter()) {
+                let value = actual_lazy_value?.expect_value()?;
+                assert_eq!(value.ion_type(), *expected_type);
+                count += 1;
+            }
+            assert_eq!(count, expected_types.len());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn sexp() -> IonResult<()> {
+        use crate::lazy::decoder::LazyRawSequence;
+
+        #[rustfmt::skip]
+        let tests: &[(&[u8], &[IonType])] = &[
+            // ()
+            (&[0xB0], &[]),
+
+            // (1 2 3)
+            (
+                &[0xB6, 0x51, 0x01, 0x51, 0x02, 0x51, 0x03],
+                &[IonType::Int, IonType::Int, IonType::Int],
+            ),
+
+            // Long S-Expression Encoding
+
+            // ()
+            (&[0xFB, 0x01], &[]),
+
+            // ("variable length sexp")
+            (
+                &[
+                    0xFB, 0x2D, 0xF8, 0x29, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65, 0x20,
+                    0x6C, 0x65, 0x6E, 0x67, 0x74, 0x68, 0x20, 0x73, 0x65, 0x78, 0x70
+                ],
+                &[IonType::String]
+            ),
+
+            // ( () () [] )
+            (&[0xFB, 0x09, 0xFB, 0x01, 0xB0, 0xA0], &[IonType::SExp, IonType::SExp, IonType::List]),
+
+            // ( $257 )
+            (&[0xFB, 0x07, 0xE2, 0x01, 0x00], &[IonType::Symbol]),
+        ];
+
+        for (ion_data, expected_types) in tests {
+            let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
+            let container = reader.next()?.expect_value()?.read()?.expect_sexp()?;
+            let mut count = 0;
+            for (actual_lazy_value, expected_type) in container.iter().zip(expected_types.iter()) {
+                let value = actual_lazy_value?.expect_value()?;
+                assert_eq!(value.ion_type(), *expected_type);
+                count += 1;
+            }
+            assert_eq!(count, expected_types.len());
+        }
+
+        Ok(())
+    }
 }
