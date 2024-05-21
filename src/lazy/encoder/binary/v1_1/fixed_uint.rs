@@ -1,9 +1,11 @@
 use std::io::Write;
 
-use num_bigint::BigUint;
+use ice_code::ice as cold_path;
 
+use crate::lazy::encoder::binary::v1_1::fixed_int::{
+    MAX_INT_SIZE_IN_BYTES, MAX_UINT_SIZE_IN_BYTES,
+};
 use crate::result::IonFailure;
-use crate::types::integer::UIntData;
 use crate::{IonResult, UInt};
 
 /// An Ion 1.1 encoding primitive that represents a fixed-length unsigned integer.
@@ -33,38 +35,26 @@ impl FixedUInt {
             return IonResult::incomplete("reading a FixedUInt", offset);
         }
 
-        let value: UInt = if input.len() <= 8 {
-            let mut buffer = [0; 8];
-            buffer[..size_in_bytes].copy_from_slice(input);
-            u64::from_le_bytes(buffer).into()
-        } else {
-            BigUint::from_bytes_le(&input[..size_in_bytes]).into()
-        };
+        if size_in_bytes > MAX_INT_SIZE_IN_BYTES {
+            return cold_path! {{IonResult::decoding_error("found a FixedUInt that was larger than the supported maximum")}};
+        }
 
+        const BUFFER_SIZE: usize = MAX_UINT_SIZE_IN_BYTES;
+        let mut buffer = [0u8; BUFFER_SIZE];
+        buffer[..size_in_bytes].copy_from_slice(input);
+        let value: UInt = u128::from_le_bytes(buffer).into();
         Ok(FixedUInt::new(size_in_bytes, value))
     }
 
     #[inline]
-    pub(crate) fn write_u64<W: Write>(output: &mut W, value: u64) -> IonResult<usize> {
+    pub(crate) fn write<W: Write>(output: &mut W, value: impl Into<UInt>) -> IonResult<usize> {
+        let value = value.into().data;
         let encoded_bytes = value.to_le_bytes();
         let leading_zeros = value.leading_zeros();
-        let num_encoded_bytes = (8 - (leading_zeros as usize / 8)).max(1);
+        let num_encoded_bytes = (16 - (leading_zeros as usize / 8)).max(1);
 
         output.write_all(&encoded_bytes[..num_encoded_bytes])?;
         Ok(num_encoded_bytes)
-    }
-
-    fn write_big_uint<W: Write>(output: &mut W, value: &BigUint) -> IonResult<usize> {
-        let encoded_bytes = value.to_bytes_le();
-        output.write_all(encoded_bytes.as_slice())?;
-        Ok(encoded_bytes.len())
-    }
-
-    pub fn write(output: &mut impl Write, value: &UInt) -> IonResult<usize> {
-        match &value.data {
-            UIntData::U64(uint) => Self::write_u64(output, *uint),
-            UIntData::BigUInt(uint) => Self::write_big_uint(output, uint),
-        }
     }
 
     pub fn value(&self) -> &UInt {
@@ -80,7 +70,6 @@ impl FixedUInt {
 mod tests {
     use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
     use crate::{IonResult, UInt};
-    use num_bigint::BigUint;
 
     const FIXED_UINT_TEST_CASES: &[(u64, &[u8])] = &[
         (0, &[0b00000000]),
@@ -197,12 +186,12 @@ mod tests {
         let big_uint_test_cases = FIXED_UINT_TEST_CASES
             .iter()
             .cloned()
-            .map(|(value, encoding)| (UInt::from(BigUint::from(value)), encoding));
+            .map(|(value, encoding)| (UInt::from(u128::from(value)), encoding));
         test_cases.extend(big_uint_test_cases);
 
         for (value, expected_encoding) in test_cases {
             let mut buffer = Vec::new();
-            FixedUInt::write(&mut buffer, &value)?;
+            FixedUInt::write(&mut buffer, value)?;
             let encoding = buffer.as_slice();
             assert_eq!(encoding, expected_encoding, "actual encoding {encoding:x?} was != expected encoding {expected_encoding:x?} for value {value}");
         }

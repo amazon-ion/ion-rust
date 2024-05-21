@@ -1,6 +1,6 @@
 use std::mem;
 
-use crate::decimal::coefficient::{Coefficient, Sign};
+use crate::decimal::coefficient::Coefficient;
 use crate::result::IonResult;
 use crate::Int;
 use num_traits::Zero;
@@ -9,10 +9,7 @@ use std::io::Write;
 type IntStorage = i64;
 const INT_NEGATIVE_ZERO: u8 = 0x80;
 
-// This limit is used for stack-allocating buffer space to encode/decode Ints.
-const INT_STACK_BUFFER_SIZE: usize = 16;
-// This number was chosen somewhat arbitrarily and could be lifted if a use case demands it.
-const MAX_INT_SIZE_IN_BYTES: usize = 2048;
+const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<i128>();
 
 /// Represents a fixed-length signed integer. See the
 /// [UInt and Int Fields](https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields)
@@ -40,29 +37,44 @@ impl DecodedInt {
 
     /// Encodes the provided `value` as an Int and writes it to the provided `sink`.
     /// Returns the number of bytes written.
-    pub fn write_i64<W: Write>(sink: &mut W, value: i64) -> IonResult<usize> {
+    pub fn write<W: Write>(sink: &mut W, value: impl Into<Int>) -> IonResult<usize> {
+        let value = value.into().data;
         let magnitude = value.unsigned_abs();
         // Using leading_zeros() to determine how many empty bytes we can ignore.
         // We subtract one from the number of leading bits to leave space for a sign bit
         // and divide by 8 to get the number of bytes.
-        let empty_leading_bytes: u32 = (magnitude.leading_zeros() - 1) >> 3;
+        let empty_leading_bytes: u32 = match magnitude.leading_zeros() {
+            0 => 0,
+            num_zeros => (num_zeros - 1) >> 3,
+        };
         let first_occupied_byte = empty_leading_bytes as usize;
 
-        let mut magnitude_bytes: [u8; mem::size_of::<u64>()] = magnitude.to_be_bytes();
+        let mut magnitude_bytes: [u8; mem::size_of::<u128>()] = magnitude.to_be_bytes();
         let bytes_to_write: &mut [u8] = &mut magnitude_bytes[first_occupied_byte..];
+        let mut bytes_written = bytes_to_write.len();
         if value < 0 {
-            bytes_to_write[0] |= 0b1000_0000;
+            // i128::MIN is the lowest int encoding primitive we support. It's also the only
+            // value in the i128 range that needs the highest bit to represent its magnitude.
+            if value == i128::MIN {
+                // If we're writing i128::MIN, we need to write out an additional prefix byte
+                // that has its sign bit set but no magnitude bits set.
+                sink.write_all(&[0b1000_0000])?;
+                bytes_written += 1;
+            } else {
+                // Otherwise, just set the highest bit to a one, indicating the value is negative.
+                bytes_to_write[0] |= 0b1000_0000;
+            }
         }
 
         sink.write_all(bytes_to_write)?;
-        Ok(bytes_to_write.len())
+        Ok(bytes_written)
     }
 
     /// Encodes a negative zero as an `Int` and writes it to the provided `sink`.
     /// Returns the number of bytes written.
     ///
-    /// This method is similar to [Self::write_i64]. However, because an i64 cannot represent a negative
-    /// zero, a separate method is required.
+    /// This method is similar to [Self::write]. However, because Rust's native integer types cannot
+    /// represent a negative zero, a separate method is required.
     pub fn write_negative_zero<W: Write>(sink: &mut W) -> IonResult<usize> {
         sink.write_all(&[INT_NEGATIVE_ZERO])?;
         Ok(1)
@@ -114,18 +126,11 @@ impl From<DecodedInt> for Int {
 }
 
 impl From<DecodedInt> for Coefficient {
-    fn from(int: DecodedInt) -> Self {
-        let DecodedInt {
-            value,
-            is_negative,
-            .. // ignore `size_in_bytes`
-        } = int;
-        let sign = if is_negative {
-            Sign::Negative
-        } else {
-            Sign::Positive
-        };
-        Coefficient::new(sign, value.unsigned_abs())
+    fn from(decoded_int: DecodedInt) -> Self {
+        if decoded_int.is_negative_zero() {
+            return Coefficient::negative_zero();
+        }
+        Coefficient::new(decoded_int)
     }
 }
 
@@ -138,7 +143,7 @@ mod tests {
 
     fn write_int_test(value: i64, expected_bytes: &[u8]) -> IonResult<()> {
         let mut buffer: Vec<u8> = vec![];
-        DecodedInt::write_i64(&mut buffer, value)?;
+        DecodedInt::write(&mut buffer, value)?;
         assert_eq!(buffer.as_slice(), expected_bytes);
         Ok(())
     }
@@ -185,7 +190,7 @@ mod tests {
     #[test]
     fn test_write_int_max_i64() -> IonResult<()> {
         let mut buffer: Vec<u8> = vec![];
-        let length = DecodedInt::write_i64(&mut buffer, i64::MAX)?;
+        let length = DecodedInt::write(&mut buffer, i64::MAX)?;
         assert_eq!(length, 8);
         assert_eq!(
             buffer.as_slice(),

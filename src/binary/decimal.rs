@@ -3,27 +3,20 @@
 use std::io::Write;
 
 use arrayvec::ArrayVec;
-use num_traits::Zero;
 
 use crate::binary::int::DecodedInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::decimal::coefficient::{Coefficient, Sign};
+use crate::decimal::coefficient::Coefficient;
 use crate::ion_data::IonEq;
 use crate::result::{IonFailure, IonResult};
-use crate::types::integer::UIntData;
-use crate::{Decimal, IonError, UInt};
+use crate::{Decimal, Int, IonError};
 
 const MAX_INLINE_LENGTH: usize = 13;
 
 const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
-    coefficient: Coefficient {
-        sign: Sign::Positive,
-        magnitude: UInt {
-            data: UIntData::U64(0),
-        },
-    },
+    coefficient: Coefficient::ZERO,
     exponent: 0,
 };
 
@@ -57,50 +50,18 @@ where
 
         bytes_written += VarInt::write_i64(self, decimal.exponent)?;
 
-        if decimal.coefficient.is_negative_zero() {
-            bytes_written += DecodedInt::write_negative_zero(self)?;
-            return Ok(bytes_written);
-        }
-
-        // If the coefficient is small enough to safely fit in an i64, use that to avoid
-        // allocating.
-        if let Some(small_coefficient) = decimal.coefficient.as_i64() {
-            // From the spec: "The subfield should not be present (that is, it
-            // has zero length) when the coefficient’s value is (positive)
-            // zero."
-            if !small_coefficient.is_zero() {
-                bytes_written += DecodedInt::write_i64(self, small_coefficient)?;
+        match decimal.coefficient.as_int() {
+            Some(int) if int == Int::ZERO => {
+                // From the spec: "The subfield should not be present (that is, it
+                // has zero length) when the coefficient’s value is (positive)
+                // zero."
             }
-        } else {
-            // Otherwise, allocate a Vec<u8> with the necessary representation.
-            let mut coefficient_bytes = match &decimal.coefficient.magnitude().data {
-                UIntData::U64(unsigned) => unsigned.to_be_bytes().into(),
-                UIntData::BigUInt(big) => big.to_bytes_be(),
-            };
-
-            let first_byte: &mut u8 = &mut coefficient_bytes[0];
-            let first_bit_is_zero: bool = *first_byte & 0b1000_0000 == 0;
-            if let Sign::Negative = decimal.coefficient.sign() {
-                // If the first bit is unset, it's now the sign bit. Set it to 1.
-                if first_bit_is_zero {
-                    *first_byte |= 0b1000_0000;
-                } else {
-                    // Otherwise, we need to write out an extra leading byte with a sign bit set
-                    self.write_all(&[0b1000_0000])?;
-                    bytes_written += 1;
-                }
-            } else {
-                // If the first bit is unset, it's now the sign bit.
-                if first_bit_is_zero {
-                    // Do nothing; zero is the correct sign bit for a non-negative coefficient.
-                } else {
-                    // Otherwise, we need to write out an extra leading byte with an unset sign bit
-                    self.write_all(&[0b0000_0000])?;
-                    bytes_written += 1;
-                }
+            Some(int) => {
+                bytes_written += DecodedInt::write(self, int)?;
             }
-            self.write_all(coefficient_bytes.as_slice())?;
-            bytes_written += coefficient_bytes.len();
+            None => {
+                bytes_written += DecodedInt::write_negative_zero(self)?;
+            }
         }
 
         Ok(bytes_written)
@@ -146,9 +107,11 @@ where
 
 #[cfg(test)]
 mod binary_decimal_tests {
-    use num_bigint::BigUint;
+    use crate::lazy::encoder::value_writer::SequenceWriter;
+    use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding};
+    use crate::lazy::reader::LazyReader;
+    use crate::ApplicationWriter;
     use rstest::*;
-    use std::str::FromStr;
 
     use super::*;
 
@@ -178,18 +141,24 @@ mod binary_decimal_tests {
         Ok(())
     }
 
-    #[test]
-    fn oversized_decimal() {
-        let mut buf = vec![];
-        // Even though our output stream is a growable Vec, the encoder uses a
-        // fixed-size, stack-allocated buffer to encode the body of the decimal.
-        // If it's asked to encode a decimal that won't fit (>32 bytes), it should
-        // return an error.
-        let precise_pi = Decimal::new(
-            BigUint::from_str("31415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679").unwrap(),
-            -99
-        );
-        let result = buf.encode_decimal_value(&precise_pi);
-        assert!(result.is_err());
+    #[rstest]
+    #[case::foo(Decimal::new(i128::MAX, 0))]
+    #[case::foo(Decimal::new(i128::MAX - 1, 0))]
+    #[case::foo(Decimal::new(i128::MIN, 0))]
+    #[case::foo(Decimal::new(i128::MIN + 1, 0))]
+    #[case::foo(Decimal::new(i128::MAX, i32::MAX))]
+    #[case::foo(Decimal::new(i128::MAX - 1, i32::MAX))]
+    #[case::foo(Decimal::new(i128::MIN, i32::MIN))]
+    #[case::foo(Decimal::new(i128::MIN, i32::MIN))]
+    #[case::foo(Decimal::new(i128::MIN + 1, i32::MIN))]
+    fn roundtrip_decimals_with_extreme_values(#[case] value: Decimal) -> IonResult<()> {
+        let mut writer =
+            ApplicationWriter::with_config(BinaryEncoding_1_0::default_write_config(), Vec::new())?;
+        writer.write(value)?;
+        let output = writer.close()?;
+        let mut reader = LazyReader::new(output);
+        let after_round_trip = reader.expect_next()?.read()?.expect_decimal()?;
+        assert_eq!(value, after_round_trip);
+        Ok(())
     }
 }

@@ -15,6 +15,7 @@ use std::fmt::{Debug, Formatter};
 /// Unlike a [Value], a `ValueRef` avoids heap allocation whenever possible, choosing to point instead
 /// to existing resources. Numeric values and timestamps are stored within the `ValueRef` itself.
 /// Text values and lobs hold references to either a slice of input data or text in the symbol table.
+#[derive(Copy, Clone)]
 pub enum ValueRef<'top, D: LazyDecoder> {
     Null(IonType),
     Bool(bool),

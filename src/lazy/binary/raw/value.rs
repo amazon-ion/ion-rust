@@ -387,11 +387,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
         // `value_body()` returns a buffer starting at the body of the value.
         let uint_bytes = self.value_body();
-        let magnitude: Int = if uint_bytes.len() <= mem::size_of::<u64>() {
-            DecodedUInt::small_uint_from_slice(uint_bytes).into()
-        } else {
-            DecodedUInt::big_uint_from_slice(uint_bytes).into()
-        };
+        let magnitude: Int = DecodedUInt::uint_from_slice(uint_bytes)?.try_into()?;
 
         use crate::binary::type_code::IonTypeCode::*;
         use num_traits::Zero;
@@ -554,8 +550,9 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
                 "found a symbol ID that was too large to fit in a usize",
             );
         }
-        let magnitude = DecodedUInt::small_uint_from_slice(uint_bytes);
-        // This cast is safe because we've confirmed the value was small enough to fit in a usize.
+        // We've already confirmed that the uint fits in a `usize`, so we can `unwrap()` the result
+        // of this method and then cast its output to a `usize`.
+        let magnitude = DecodedUInt::uint_from_slice_unchecked(uint_bytes);
         Ok(magnitude as usize)
     }
 

@@ -1,12 +1,10 @@
+use ice_code::ice as cold_path;
 use std::fmt::{Debug, Formatter};
 use std::mem;
-use std::ops::Range;
-
-use num_bigint::{BigInt, BigUint, Sign};
+use std::ops::{Neg, Range};
 
 use crate::binary::constants::v1_0::{length_codes, IVM};
 use crate::binary::int::DecodedInt;
-use crate::binary::uint::DecodedUInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
@@ -18,18 +16,9 @@ use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::result::IonFailure;
-use crate::types::UInt;
 use crate::{Int, IonError, IonResult, IonType};
 
-// This limit is used for stack-allocating buffer space to encode/decode UInts.
-const UINT_STACK_BUFFER_SIZE: usize = 16;
-// This number was chosen somewhat arbitrarily and could be lifted if a use case demands it.
-const MAX_UINT_SIZE_IN_BYTES: usize = 2048;
-
-// This limit is used for stack-allocating buffer space to encode/decode Ints.
-const INT_STACK_BUFFER_SIZE: usize = 16;
-// This number was chosen somewhat arbitrarily and could be lifted if a use case demands it.
-const MAX_INT_SIZE_IN_BYTES: usize = 2048;
+const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<i128>();
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
@@ -331,56 +320,6 @@ impl<'a> ImmutableBuffer<'a> {
         ))
     }
 
-    /// Reads the first `length` bytes from the buffer as a `UInt` encoding primitive. If it is
-    /// successful, returns an `Ok(_)` containing its `DecodedUInt` representation.
-    ///
-    /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields>
-    pub fn read_uint(self, length: usize) -> ParseResult<'a, DecodedUInt> {
-        if length <= mem::size_of::<u64>() {
-            return self.read_small_uint(length);
-        }
-
-        // The UInt is too large to fit in a u64; read it as a BigUInt instead.
-        self.read_big_uint(length)
-    }
-
-    /// Reads the first `length` bytes from the buffer as a `UInt`. The caller must confirm that
-    /// `length` is small enough to fit in a `u64`.
-    #[inline]
-    fn read_small_uint(self, length: usize) -> ParseResult<'a, DecodedUInt> {
-        let uint_bytes = self
-            .peek_n_bytes(length)
-            .ok_or_else(|| IonError::incomplete("a UInt", self.offset()))?;
-        let magnitude = DecodedUInt::small_uint_from_slice(uint_bytes);
-        Ok((
-            DecodedUInt::new(UInt::from(magnitude), length),
-            self.consume(length),
-        ))
-    }
-
-    /// Reads the first `length` bytes from the buffer as a `UInt`. If `length` is small enough
-    /// that the value can fit in a `usize`, it is strongly recommended that you use
-    /// `read_small_uint` instead as it will be much faster.
-    #[inline(never)]
-    // This method performs allocations and its generated assembly is rather large. Isolating its
-    // logic in a separate method that is never inlined keeps `read_uint` (its caller) small enough
-    // to inline. This is important as `read_uint` is on the hot path for most Ion streams.
-    fn read_big_uint(self, length: usize) -> ParseResult<'a, DecodedUInt> {
-        if length > MAX_UINT_SIZE_IN_BYTES {
-            return Self::value_too_large("a Uint", length, MAX_UINT_SIZE_IN_BYTES);
-        }
-
-        let uint_bytes = self
-            .peek_n_bytes(length)
-            .ok_or_else(|| IonError::incomplete("a UInt", self.offset()))?;
-
-        let magnitude = BigUint::from_bytes_be(uint_bytes);
-        Ok((
-            DecodedUInt::new(UInt::from(magnitude), length),
-            self.consume(length),
-        ))
-    }
-
     #[inline(never)]
     // This method is inline(never) because it is rarely invoked and its allocations/formatting
     // compile to a non-trivial number of instructions.
@@ -396,52 +335,54 @@ impl<'a> ImmutableBuffer<'a> {
     ///
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields>
     pub fn read_int(self, length: usize) -> ParseResult<'a, DecodedInt> {
+        const BUFFER_SIZE: usize = MAX_INT_SIZE_IN_BYTES;
         if length == 0 {
             return Ok((DecodedInt::new(0, false, 0), self.consume(0)));
-        } else if length > MAX_INT_SIZE_IN_BYTES {
-            return IonResult::decoding_error(format!(
+        } else if length > BUFFER_SIZE + 1 {
+            //                         ^^^
+            // We support reading i128::MIN, which requires 17 bytes to encode. We reject anything
+            // 18 bytes or larger here; later on, we reject 17-byte encodings of values other than
+            // i128::MIN.
+            return cold_path! {
+            IonResult::decoding_error(format!(
                 "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
-            ));
+            ))};
         }
 
         let int_bytes = self
             .peek_n_bytes(length)
             .ok_or_else(|| IonError::incomplete("an Int encoding primitive", self.offset()))?;
 
-        let mut is_negative: bool = false;
+        // i128::MIN is a special case; it's the only 17-byte encoding we accept.
+        const INT_MIN_ENCODING: &[u8] = &[0x80, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        if length == INT_MIN_ENCODING.len() {
+            return cold_path! {{
+                if int_bytes != INT_MIN_ENCODING {
+                    IonResult::decoding_error("Found an int encoding primitive outside the supported range")
+                } else {
+                    Ok((
+                        DecodedInt::new(Int::from(i128::MIN), true, length),
+                        self.consume(length),
+                    ))
+                }
+            }};
+        }
 
-        let value: Int = if length <= mem::size_of::<i64>() {
-            // This Int will fit in an i64.
-            let first_byte: i64 = i64::from(int_bytes[0]);
-            let sign: i64 = if first_byte & 0b1000_0000 == 0 {
-                1
-            } else {
-                is_negative = true;
-                -1
-            };
-            let mut magnitude: i64 = first_byte & 0b0111_1111;
-            for &byte in &int_bytes[1..] {
-                let byte = i64::from(byte);
-                magnitude <<= 8;
-                magnitude |= byte;
-            }
-            (sign * magnitude).into()
-        } else {
-            // This Int is too big for an i64, we'll need to use a BigInt
-            let value = if int_bytes[0] & 0b1000_0000 == 0 {
-                BigInt::from_bytes_be(Sign::Plus, int_bytes)
-            } else {
-                is_negative = true;
-                // The leading sign bit is the only part of the input that can't be considered
-                // unsigned, big-endian integer bytes. We need to make our own copy of the input
-                // so we can flip that bit back to a zero before calling `from_bytes_be`.
-                let mut owned_int_bytes = Vec::from(int_bytes);
-                owned_int_bytes[0] &= 0b0111_1111;
-                BigInt::from_bytes_be(Sign::Minus, owned_int_bytes.as_slice())
-            };
+        // Copy the 'n' bytes into a buffer known to be the exact size of a u128
+        let mut buffer = [0u8; mem::size_of::<u128>()];
+        let first_occupied_byte_index = buffer.len() - int_bytes.len();
+        buffer[first_occupied_byte_index..].copy_from_slice(int_bytes);
 
-            value.into()
-        };
+        let is_negative: bool = int_bytes[0] & 0b1000_0000 != 0;
+        // Unset the sign bit in the buffer
+        buffer[first_occupied_byte_index] &= 0b0111_1111;
+
+        // Now our sign-and-magnitude encoding is just a magnitude.
+        let magnitude = u128::from_be_bytes(buffer);
+        let mut value = i128::try_from(magnitude).unwrap();
+        if is_negative {
+            value = value.neg();
+        }
         Ok((
             DecodedInt::new(value, is_negative, length),
             self.consume(length),
@@ -559,6 +500,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// from the buffer to interpret as the value's length. If it is successful, returns an `Ok(_)`
     /// containing a [VarUInt] representation of the value's length. If no additional bytes were
     /// read, the returned `VarUInt`'s `size_in_bytes()` method will return `0`.
+    #[inline]
     pub fn read_value_length(self, header: Header) -> ParseResult<'a, VarUInt> {
         use IonType::*;
         // Some type-specific `length` field overrides
@@ -815,9 +757,7 @@ pub struct AnnotationsWrapper {
 
 #[cfg(test)]
 mod tests {
-    use num_traits::Num;
-
-    use crate::IonError;
+    use crate::{Int, IonError};
 
     use super::*;
 
@@ -974,56 +914,6 @@ mod tests {
     }
 
     #[test]
-    fn read_one_byte_uint() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b1000_0000]);
-        let var_int = buffer.read_uint(buffer.len())?.0;
-        assert_eq!(var_int.size_in_bytes(), 1);
-        assert_eq!(var_int.value(), &UInt::from(128u64));
-        Ok(())
-    }
-
-    #[test]
-    fn read_two_byte_uint() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0111_1111, 0b1111_1111]);
-        let var_int = buffer.read_uint(buffer.len())?.0;
-        assert_eq!(var_int.size_in_bytes(), 2);
-        assert_eq!(var_int.value(), &UInt::from(32_767u64));
-        Ok(())
-    }
-
-    #[test]
-    fn read_three_byte_uint() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0011_1100, 0b1000_0111, 0b1000_0001]);
-        let var_int = buffer.read_uint(buffer.len())?.0;
-        assert_eq!(var_int.size_in_bytes(), 3);
-        assert_eq!(var_int.value(), &UInt::from(3_966_849u64));
-        Ok(())
-    }
-
-    #[test]
-    fn test_read_ten_byte_uint() -> IonResult<()> {
-        let data = vec![0xFFu8; 10];
-        let buffer = ImmutableBuffer::new(&data);
-        let uint = buffer.read_uint(buffer.len())?.0;
-        assert_eq!(uint.size_in_bytes(), 10);
-        assert_eq!(
-            uint.value(),
-            &UInt::from(BigUint::from_str_radix("ffffffffffffffffffff", 16).unwrap())
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_read_uint_too_large() {
-        let mut buffer = Vec::with_capacity(MAX_UINT_SIZE_IN_BYTES + 1);
-        buffer.resize(MAX_UINT_SIZE_IN_BYTES + 1, 1);
-        let buffer = ImmutableBuffer::new(&buffer);
-        let _uint = buffer
-            .read_uint(buffer.len())
-            .expect_err("This exceeded the configured max UInt size.");
-    }
-
-    #[test]
     fn read_int_negative_zero() -> IonResult<()> {
         let buffer = ImmutableBuffer::new(&[0b1000_0000]); // Negative zero
         let int = buffer.read_int(buffer.len())?.0;
@@ -1035,7 +925,7 @@ mod tests {
 
     #[test]
     fn read_int_positive_zero() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0000_0000]); // Negative zero
+        let buffer = ImmutableBuffer::new(&[0b0000_0000]); // Positive zero
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 1);
         assert_eq!(int.value(), &Int::from(0));

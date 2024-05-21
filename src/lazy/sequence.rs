@@ -48,6 +48,7 @@ use crate::{IonError, IonResult};
 ///# Ok(())
 ///# }
 /// ```
+#[derive(Copy, Clone)]
 pub struct LazyList<'top, D: LazyDecoder> {
     pub(crate) expanded_list: LazyExpandedList<'top, D>,
 }
@@ -169,6 +170,7 @@ impl<'top, D: LazyDecoder> Debug for LazyList<'top, D> {
 
 // ===== SExps =====
 
+#[derive(Copy, Clone)]
 pub struct LazySExp<'top, D: LazyDecoder> {
     pub(crate) expanded_sexp: LazyExpandedSExp<'top, D>,
 }

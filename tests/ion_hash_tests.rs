@@ -7,6 +7,7 @@ use ion_rs::ion_hash::IonHasher;
 use ion_rs::result::IonResult;
 use ion_rs::{Element, Sequence, Struct};
 
+use ion_rs::lazy::reader::LazyReader;
 use ion_rs::IonError;
 use std::convert::From;
 use std::fmt::Debug;
@@ -93,6 +94,8 @@ const IGNORE_LIST: &[&str] = &[
     "'$0'",
     "{'$0':1}",
     "'$0'::{}",
+    // ion-rust reads ints up to 128 bits
+    "intLength512",
 ];
 
 fn should_ignore(test_name: &str) -> bool {
@@ -120,8 +123,26 @@ fn ion_hash_tests() -> IonHashTestResult<()> {
 
 fn test_file(file_name: &str) -> IonHashTestResult<()> {
     let data = read(file_name).map_err(IonError::from)?;
-    let elems = Element::read_all(data)?;
-    test_all(elems)
+    let mut reader = LazyReader::new(data);
+    let mut elems = Vec::new();
+    while let Some(value) = reader.next()? {
+        // Similar logic to skip test cases with a name on the skip list also appears in the
+        // `test_case` method, but at that point in the execution it's too late to skip files that
+        // cannot be parsed. The logic in `test_case` also handles unnamed test cases.
+        if let Some(annotation) = value.annotations().next() {
+            let test_case_name = annotation
+                .expect("failed reading annotation")
+                .text()
+                .expect("test name without text");
+            if should_ignore(test_case_name) {
+                println!("skipping: {}", test_case_name);
+                continue;
+            }
+        }
+        let element = Element::try_from(value)?;
+        elems.push(element);
+    }
+    test_all(Sequence::from(elems))
 }
 
 fn test_all(elems: Sequence) -> IonHashTestResult<()> {

@@ -20,21 +20,21 @@
 //! re-discovered.
 
 use std::num::IntErrorKind;
-use std::ops::Range;
+use std::ops::{Neg, Range};
 use std::str::FromStr;
 
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
+use ice_code::ice as cold_path;
 use nom::branch::alt;
 use nom::bytes::streaming::tag;
 use nom::character::is_hex_digit;
 use nom::sequence::preceded;
 use nom::{AsBytes, AsChar, Parser};
-use num_bigint::{BigInt, BigUint};
-use num_traits::Num;
+use num_traits::Zero;
 use smallvec::SmallVec;
 
-use crate::decimal::coefficient::{Coefficient, Sign};
+use crate::decimal::coefficient::Coefficient;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{LazyDecoder, LazyRawFieldExpr, LazyRawValueExpr};
 use crate::lazy::span::Span;
@@ -45,7 +45,6 @@ use crate::lazy::text::parse_result::InvalidInputError;
 use crate::result::{DecodingError, IonFailure};
 use crate::{
     Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp, TimestampPrecision,
-    UInt,
 };
 
 /// A partially parsed Ion value.
@@ -192,7 +191,7 @@ impl MatchedInt {
         // Note: This UTF-8 validation step should be unnecessary as the parser only recognizes
         //       ASCII integer characters. If this shows up in profiling, we could consider skipping it.
         let text = sanitized.as_utf8(matched_input.offset())?;
-        let int: Int = match i64::from_str_radix(text, self.radix()) {
+        let int: Int = match i128::from_str_radix(text, self.radix()) {
             Ok(i) => i.into(),
             Err(parse_int_error) => {
                 debug_assert!(
@@ -202,16 +201,10 @@ impl MatchedInt {
                     parse_int_error.kind() == &IntErrorKind::NegOverflow
                         || parse_int_error.kind() == &IntErrorKind::PosOverflow
                 );
-
-                match BigInt::from_str_radix(text, self.radix()) {
-                    Ok(big_int) => big_int.into(),
-                    Err(_big_parse_int_error) => {
-                        return IonResult::decoding_error(format!(
-                            "unexpected error while parsing int: '{}'",
-                            std::str::from_utf8(matched_input.bytes()).unwrap_or("invalid UTF-8")
-                        ))
-                    }
-                }
+                return cold_path!(IonResult::decoding_error(format!(
+                    "encountered an int whose value was exceeded the supported range: '{}'",
+                    std::str::from_utf8(matched_input.bytes()).unwrap_or("invalid UTF-8")
+                )));
             }
         };
 
@@ -300,11 +293,6 @@ impl MatchedDecimal {
     }
 
     pub fn read(&self, matched_input: TextBufferView) -> IonResult<Decimal> {
-        // The longest number that can fit into a u64 without finer-grained bounds checks.
-        const MAX_U64_DIGITS: usize = 19;
-        // u64::MAX is a 20-digit number starting with `1`. For simplicity, we'll turn any number
-        // with 19 or fewer digits into a u64 and anything else into a BigUint.
-
         let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
             SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
 
@@ -320,18 +308,21 @@ impl MatchedDecimal {
         );
 
         let digits_text = sanitized.as_utf8(digits.offset())?;
-        let magnitude: UInt = if sanitized.len() <= MAX_U64_DIGITS {
-            u64::from_str(digits_text).unwrap().into()
-        } else {
-            BigUint::from_str(digits_text).unwrap().into()
-        };
+        let magnitude: Int = i128::from_str(digits_text)
+            .map_err(|_| {
+                IonError::decoding_error("decimal magnitude was larger than supported size")
+            })?
+            .into();
 
-        let sign = if self.is_negative {
-            Sign::Negative
+        let coefficient = if self.is_negative {
+            if magnitude.is_zero() {
+                Coefficient::negative_zero()
+            } else {
+                Coefficient::new(magnitude.neg())
+            }
         } else {
-            Sign::Positive
+            Coefficient::new(magnitude)
         };
-        let coefficient = Coefficient::new(sign, magnitude);
 
         let mut exponent: i64 = match self.exponent_digits_length {
             0 => 0,
@@ -1044,7 +1035,7 @@ impl MatchedTimestamp {
             }
             _ => {
                 // For less common precisions, store a Decimal
-                let coefficient = BigUint::from_str(fractional_text).unwrap();
+                let coefficient = i128::from_str(fractional_text).unwrap();
                 let decimal = Decimal::new(coefficient, -(fractional_text.len() as i64));
                 timestamp.with_fractional_seconds(decimal)
             }
@@ -1230,10 +1221,7 @@ impl MatchedClob {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use bumpalo::Bump as BumpAllocator;
-    use num_bigint::BigInt;
 
     use crate::lazy::bytes_ref::BytesRef;
     use crate::lazy::text::buffer::TextBufferView;
@@ -1258,14 +1246,12 @@ mod tests {
             ("-5", Int::from(-5)),
             ("0", Int::from(0)),
             (
-                "1234567890_1234567890_1234567890_1234567890",
-                Int::from(BigInt::from_str("1234567890_1234567890_1234567890_1234567890").unwrap()),
+                "1234567890_1234567890_1234567890",
+                Int::from(1234567890_1234567890_1234567890i128),
             ),
             (
-                "-1234567890_1234567890_1234567890_1234567890",
-                Int::from(
-                    BigInt::from_str("-1234567890_1234567890_1234567890_1234567890").unwrap(),
-                ),
+                "-1234567890_1234567890_1234567890",
+                Int::from(-1234567890_1234567890_1234567890i128),
             ),
         ];
 

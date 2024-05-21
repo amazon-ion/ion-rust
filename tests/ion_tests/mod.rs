@@ -385,6 +385,7 @@ pub const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
     // ROUND TRIP
     // These tests have shared symbol table imports in them, which the Reader does not
     // yet support.
+    "ion-tests/iontestdata_1_0/good/subfieldVarInt.ion",
     "ion-tests/iontestdata_1_0/good/subfieldVarUInt.ion",
     "ion-tests/iontestdata_1_0/good/subfieldVarUInt15bit.ion",
     "ion-tests/iontestdata_1_0/good/subfieldVarUInt16bit.ion",
@@ -405,6 +406,15 @@ pub const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
     // NON-EQUIVS
     "ion-tests/iontestdata_1_0/good/non-equivs/localSymbolTableWithAnnotations.ion",
     "ion-tests/iontestdata_1_0/good/non-equivs/symbolTablesUnknownText.ion",
+    // Integers outside the i128 range
+    "ion-tests/iontestdata_1_0/good/intBigSize16.10n",
+    "ion-tests/iontestdata_1_0/good/intBigSize256.ion",
+    "ion-tests/iontestdata_1_0/good/intBigSize256.10n",
+    "ion-tests/iontestdata_1_0/good/intBigSize512.ion",
+    "ion-tests/iontestdata_1_0/good/intBigSize1201.10n",
+    "ion-tests/iontestdata_1_0/good/equivs/bigInts.ion",
+    "ion-tests/iontestdata_1_0/good/equivs/intsLargePositive3.10n",
+    "ion-tests/iontestdata_1_0/good/equivs/intsLargeNegative3.10n",
 ];
 
 pub const ELEMENT_ROUND_TRIP_SKIP_LIST: SkipList = &[

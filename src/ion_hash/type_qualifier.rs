@@ -97,11 +97,11 @@ pub(crate) fn type_qualifier_float(value: Option<f64>) -> TypeQualifier {
     combine(IonTypeCode::Float, qualify_nullness(value))
 }
 
-pub(crate) fn type_qualifier_decimal(value: Option<&Decimal>) -> TypeQualifier {
+pub(crate) fn type_qualifier_decimal(value: Option<Decimal>) -> TypeQualifier {
     combine(IonTypeCode::Decimal, qualify_nullness(value))
 }
 
-pub(crate) fn type_qualifier_timestamp(value: Option<&Timestamp>) -> TypeQualifier {
+pub(crate) fn type_qualifier_timestamp(value: Option<Timestamp>) -> TypeQualifier {
     combine(IonTypeCode::Timestamp, qualify_nullness(value))
 }
 

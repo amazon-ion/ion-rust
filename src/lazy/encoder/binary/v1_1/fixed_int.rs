@@ -1,10 +1,9 @@
 use std::io::Write;
 
-use num_bigint::BigInt;
+use ice_code::ice as cold_path;
 
 use crate::decimal::coefficient::Coefficient;
 use crate::result::IonFailure;
-use crate::types::integer::IntData;
 use crate::{Int, IonResult};
 
 /// An Ion 1.1 encoding primitive that represents a fixed-length signed integer.
@@ -13,6 +12,9 @@ pub struct FixedInt {
     value: Int,
     size_in_bytes: usize,
 }
+
+pub(crate) const MAX_INT_SIZE_IN_BYTES: usize = std::mem::size_of::<i128>();
+pub(crate) const MAX_UINT_SIZE_IN_BYTES: usize = std::mem::size_of::<u128>();
 
 impl FixedInt {
     fn new(size_in_bytes: usize, value: impl Into<Int>) -> Self {
@@ -34,25 +36,28 @@ impl FixedInt {
             return IonResult::incomplete("reading a FixedInt", offset);
         }
 
-        let value: Int = if input.len() <= 8 {
-            let mut buffer = [0x0; 8];
-            // Copy the input into the buffer as the _most_ significant bits, read as i64, and then
-            // shift right to the correct position, extending the sign.
-            buffer[(8 - size_in_bytes)..8].copy_from_slice(input);
-            i64::from_le_bytes(buffer)
-                .checked_shr(64 - (size_in_bytes as u32 * 8))
-                .unwrap_or(0)
-                .into()
-        } else {
-            BigInt::from_signed_bytes_le(&input[..size_in_bytes]).into()
-        };
+        if size_in_bytes > MAX_INT_SIZE_IN_BYTES {
+            return cold_path! {{
+                IonResult::decoding_error("found a FixedInt that was larger than the supported maximum")
+            }};
+        }
 
+        const BUFFER_SIZE: usize = MAX_INT_SIZE_IN_BYTES;
+        let mut buffer = [0u8; BUFFER_SIZE];
+        // Copy the input into the buffer as the _most_ significant bits, read as i128, and then
+        // shift right to the correct position, extending the sign.
+        let first_occupied_byte_index = BUFFER_SIZE - size_in_bytes;
+        buffer[first_occupied_byte_index..].copy_from_slice(input);
+        let value: Int = i128::from_le_bytes(buffer)
+            .checked_shr(128 - (size_in_bytes as u32 * 8))
+            .unwrap_or(0)
+            .into();
         Ok(FixedInt::new(size_in_bytes, value))
     }
 
     #[inline]
-    fn write_i64<W: Write>(output: &mut W, value: i64) -> IonResult<usize> {
-        let num_encoded_bytes = Self::encoded_size_i64(value);
+    fn write_i128<W: Write>(output: &mut W, value: i128) -> IonResult<usize> {
+        let num_encoded_bytes = Self::encoded_size(value);
 
         let le_bytes = value.to_le_bytes();
         let encoded_bytes = &le_bytes[..num_encoded_bytes];
@@ -61,27 +66,19 @@ impl FixedInt {
         Ok(num_encoded_bytes)
     }
 
-    fn write_big_int<W: Write>(output: &mut W, value: &BigInt) -> IonResult<usize> {
-        let encoded_bytes = value.to_signed_bytes_le();
-        output.write_all(encoded_bytes.as_slice())?;
-        Ok(encoded_bytes.len())
-    }
-
     pub fn write(output: &mut impl Write, value: &Int) -> IonResult<usize> {
-        match &value.data {
-            IntData::I64(int) => Self::write_i64(output, *int),
-            IntData::BigInt(int) => Self::write_big_int(output, int),
-        }
+        Self::write_i128(output, value.data)
     }
 
     #[inline]
-    pub fn encoded_size_i64(value: i64) -> usize {
-        let num_sign_bits = if value < 0 {
-            value.leading_ones()
+    pub fn encoded_size(value: impl Into<Int>) -> usize {
+        let value = value.into();
+        let num_sign_bits = if value.is_negative() {
+            value.data.leading_ones()
         } else {
-            value.leading_zeros()
+            value.data.leading_zeros()
         };
-        let num_magnitude_bits = 64 - num_sign_bits;
+        let num_magnitude_bits = 128 - num_sign_bits;
         (num_magnitude_bits as usize / 8) + 1
     }
 
@@ -108,15 +105,13 @@ impl From<FixedInt> for Coefficient {
 
 impl From<i64> for FixedInt {
     fn from(other: i64) -> Self {
-        let encoded_size = FixedInt::encoded_size_i64(other);
+        let encoded_size = FixedInt::encoded_size(other);
         FixedInt::new(encoded_size, other)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use num_bigint::BigInt;
-
     use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
     use crate::{Int, IonResult};
 
@@ -294,7 +289,7 @@ mod tests {
         let big_uint_test_cases = FIXED_INT_TEST_CASES
             .iter()
             .cloned()
-            .map(|(value, encoding)| (Int::from(BigInt::from(value)), encoding));
+            .map(|(value, encoding)| (Int::from(i128::from(value)), encoding));
         test_cases.extend(big_uint_test_cases);
 
         for (value, expected_encoding) in test_cases {

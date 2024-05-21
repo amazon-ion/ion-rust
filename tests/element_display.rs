@@ -11,6 +11,7 @@ mod ion_tests;
 const TO_STRING_SKIP_LIST: &[&str] = &[
     // These tests have shared symbol table imports in them, which the Reader does not
     // yet support.
+    "ion-tests/iontestdata_1_0/good/subfieldVarInt.ion",
     "ion-tests/iontestdata_1_0/good/subfieldVarUInt.ion",
     "ion-tests/iontestdata_1_0/good/subfieldVarUInt15bit.ion",
     "ion-tests/iontestdata_1_0/good/subfieldVarUInt16bit.ion",
@@ -25,6 +26,15 @@ const TO_STRING_SKIP_LIST: &[&str] = &[
     // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
     "ion-tests/iontestdata_1_0/good/utf16.ion",
     "ion-tests/iontestdata_1_0/good/utf32.ion",
+    // Test files that include Int values outside the range supported by i128
+    "ion-tests/iontestdata_1_0/good/intBigSize16.10n",
+    "ion-tests/iontestdata_1_0/good/intBigSize256.ion",
+    "ion-tests/iontestdata_1_0/good/intBigSize256.10n",
+    "ion-tests/iontestdata_1_0/good/intBigSize512.ion",
+    "ion-tests/iontestdata_1_0/good/intBigSize1201.10n",
+    "ion-tests/iontestdata_1_0/good/equivs/bigInts.ion",
+    "ion-tests/iontestdata_1_0/good/equivs/intsLargePositive3.10n",
+    "ion-tests/iontestdata_1_0/good/equivs/intsLargeNegative3.10n",
 ];
 
 #[test_resources("ion-tests/iontestdata_1_0/good/**/*.ion")]

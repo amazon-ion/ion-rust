@@ -1,16 +1,15 @@
 //! A representation of a decimal value's coefficient.
 
-use num_bigint::{BigInt, BigUint};
+use std::convert::TryFrom;
+use std::fmt::{Display, Formatter};
+use std::ops::Neg;
+
 use num_traits::Zero;
 
 use crate::result::{IonError, IonFailure};
-use crate::types::decimal::magnitude::Magnitude;
-use crate::types::integer::UIntData;
+use crate::types::CountDecimalDigits;
 use crate::IonResult;
 use crate::{Int, UInt};
-use std::convert::TryFrom;
-use std::fmt::{Display, Formatter};
-use std::ops::{MulAssign, Neg};
 
 /// Indicates whether the `Coefficient`'s magnitude is less than 0 (negative) or not (positive).
 /// When the magnitude is zero, the `Sign` can be used to distinguish between -0 and 0.
@@ -21,26 +20,53 @@ pub enum Sign {
 }
 
 /// A signed integer that can be used as the coefficient of a [`Decimal`](crate::Decimal) value.
-/// This type does not consider `0` and `-0` to be equal and supports magnitudes of arbitrary size.
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
+///
+/// Unlike `Int`, this type preserves the distinction between `0` and `-0`. When tested for mathematical
+/// equality using [`PartialEq::eq`], [`Coefficient::ZERO`] and [`Coefficient::NEGATIVE_ZERO`] will be
+/// considered equal. When tested for Ion data equality using [`IonData::eq`](crate::IonData::eq),
+/// they will be considered unequal.
+///
+/// While the Ion specification allows this type to be of arbitrary size, this implementation currently
+/// supports coefficients in the integer range supported by `i128`.
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Coefficient {
-    pub(crate) sign: Sign,
-    pub(crate) magnitude: UInt,
+    /// This field exists solely to preserve the distinction between `0` and `-0`.
+    /// It will agree with the sign information in the `magnitude` field in all cases *except*
+    /// when the coefficient is `-0`.
+    sign: Sign,
+    magnitude: Int,
 }
 
 impl Coefficient {
-    pub(crate) fn new<I: Into<Magnitude>>(sign: Sign, magnitude: I) -> Self {
-        let magnitude: Magnitude = magnitude.into();
-        let magnitude: UInt = magnitude.into();
-        Coefficient { sign, magnitude }
+    pub const ZERO: Coefficient = Coefficient {
+        sign: Sign::Positive,
+        magnitude: Int::ZERO,
+    };
+
+    pub const NEGATIVE_ZERO: Coefficient = Coefficient {
+        sign: Sign::Negative,
+        magnitude: Int::ZERO,
+    };
+
+    pub(crate) fn new<I: Into<Int>>(value: I) -> Self {
+        let value: Int = value.into();
+        let sign = if value.is_negative() {
+            Sign::Negative
+        } else {
+            Sign::Positive
+        };
+        Coefficient {
+            sign,
+            magnitude: value,
+        }
     }
 
     pub fn sign(&self) -> Sign {
         self.sign
     }
 
-    pub fn magnitude(&self) -> &UInt {
-        &self.magnitude
+    pub fn magnitude(&self) -> UInt {
+        self.magnitude.unsigned_abs()
     }
 
     pub fn is_negative(&self) -> bool {
@@ -48,8 +74,8 @@ impl Coefficient {
     }
 
     /// Returns the number of digits in the base-10 representation of the coefficient
-    pub(crate) fn number_of_decimal_digits(&self) -> u64 {
-        self.magnitude.number_of_decimal_digits()
+    pub(crate) fn number_of_decimal_digits(&self) -> u32 {
+        self.magnitude.count_decimal_digits()
     }
 
     /// Constructs a new Coefficient that represents negative zero.
@@ -71,35 +97,38 @@ impl Coefficient {
     }
 
     pub(crate) fn is_zero_with_sign(&self, test_sign: Sign) -> bool {
-        match (self.sign, &self.magnitude.data) {
-            (sign, UIntData::U64(0)) if sign == test_sign => true,
-            (sign, UIntData::BigUInt(b)) if sign == test_sign && b.is_zero() => true,
-            _ => false,
-        }
+        self.sign == test_sign && self.magnitude.is_zero()
     }
 
     /// Returns true if the Coefficient represents a zero of any sign.
     pub fn is_zero(&self) -> bool {
-        match (self.sign, &self.magnitude.data) {
-            (_, UIntData::U64(0)) => true,
-            (_, UIntData::BigUInt(b)) if b.is_zero() => true,
-            _ => false,
-        }
+        self.magnitude().is_zero()
     }
 
     /// If the value can fit in an i64, return it as such. This is useful for
     /// inline representations.
     pub(crate) fn as_i64(&self) -> Option<i64> {
-        match &self.magnitude.data {
-            UIntData::U64(unsigned) => match i64::try_from(*unsigned) {
-                Ok(signed) => match self.sign {
-                    Sign::Negative => Some(signed.neg()), // cannot overflow (never `MIN`)
-                    Sign::Positive => Some(signed),
-                },
-                Err(_) => None,
-            },
-            UIntData::BigUInt(_) => None,
+        if self.is_negative_zero() {
+            // Returning an unsigned zero would be lossy.
+            return None;
         }
+        match i64::try_from(self.magnitude.data) {
+            Ok(signed) => match self.sign {
+                Sign::Negative => Some(signed.neg()),
+                Sign::Positive => Some(signed),
+            },
+            Err(_) => None,
+        }
+    }
+
+    /// If the value can be represented as an `i128`, return it as such.
+    /// If the coefficient is negative zero or outside the range of an `i128`, returns `None`.
+    pub(crate) fn as_int(&self) -> Option<Int> {
+        if self.is_negative_zero() {
+            // Returning an unsigned zero would be lossy.
+            return None;
+        }
+        Some(self.magnitude)
     }
 }
 
@@ -108,46 +137,24 @@ macro_rules! impl_coefficient_from_unsigned_int_types {
     ($($t:ty),*) => ($(
         impl From<$t> for Coefficient {
             fn from(value: $t) -> Coefficient {
-                Coefficient::new(Sign::Positive, value)
+                Coefficient::new(value)
             }
         }
     )*)
 }
-impl_coefficient_from_unsigned_int_types!(u8, u16, u32, u64, u128, usize, UInt, BigUint);
+impl_coefficient_from_unsigned_int_types!(u8, u16, u32, u64, usize);
 
 // This macro makes it possible to turn signed integers into a Coefficient using `.into()`.
 macro_rules! impl_coefficient_from_signed_int_types {
     ($($t:ty),*) => ($(
         impl From<$t> for Coefficient {
             fn from(value: $t) -> Coefficient {
-                let sign = if value < <$t>::zero() { Sign::Negative } else { Sign::Positive };
-                Coefficient::new(sign, value.unsigned_abs())
+                Coefficient::new(value)
             }
         }
     )*)
 }
 impl_coefficient_from_signed_int_types!(i8, i16, i32, i64, i128, isize, Int);
-
-// `BigInt` can't represent -0, so this is technically a lossy operation.
-impl TryFrom<Coefficient> for BigInt {
-    type Error = IonError;
-
-    /// Attempts to create a BigInt from a Coefficient. Returns an Error if the Coefficient being
-    /// converted is a negative zero, which BigInt cannot represent. Returns Ok otherwise.
-    fn try_from(value: Coefficient) -> Result<Self, Self::Error> {
-        if value.is_negative_zero() {
-            IonResult::illegal_operation("cannot convert negative zero Coefficient to BigInt")?;
-        }
-        let mut big_int: BigInt = match value.magnitude.data {
-            UIntData::U64(m) => m.into(),
-            UIntData::BigUInt(m) => m.into(),
-        };
-        if value.sign == Sign::Negative {
-            big_int.mul_assign(-1);
-        }
-        Ok(big_int)
-    }
-}
 
 impl TryFrom<Coefficient> for Int {
     type Error = IonError;
@@ -156,10 +163,7 @@ impl TryFrom<Coefficient> for Int {
         if value.is_negative_zero() {
             return IonResult::illegal_operation("cannot convert negative zero Coefficient to Int");
         }
-        if value.is_negative() {
-            return Ok(Int::from(value.magnitude).neg());
-        }
-        Ok(Int::from(value.magnitude))
+        Ok(value.magnitude)
     }
 }
 
@@ -167,7 +171,7 @@ impl TryFrom<&Coefficient> for Int {
     type Error = IonError;
 
     fn try_from(value: &Coefficient) -> Result<Self, Self::Error> {
-        value.clone().try_into()
+        (*value).try_into()
     }
 }
 
@@ -178,7 +182,7 @@ impl TryFrom<Coefficient> for UInt {
         if value.is_negative() {
             return IonResult::illegal_operation("cannot convert a negative Coefficient to a UInt");
         }
-        Ok(value.magnitude)
+        Ok(value.magnitude.unsigned_abs())
     }
 }
 
@@ -186,29 +190,7 @@ impl TryFrom<&Coefficient> for UInt {
     type Error = IonError;
 
     fn try_from(value: &Coefficient) -> Result<Self, Self::Error> {
-        value.clone().try_into()
-    }
-}
-
-impl TryFrom<BigInt> for Coefficient {
-    type Error = IonError;
-
-    fn try_from(value: BigInt) -> Result<Self, Self::Error> {
-        let (sign, magnitude) = value.into_parts();
-        let sign = match sign {
-            num_bigint::Sign::Minus => Sign::Negative,
-            num_bigint::Sign::Plus => Sign::Positive,
-            num_bigint::Sign::NoSign => {
-                if magnitude.is_zero() {
-                    Sign::Positive
-                } else {
-                    return IonResult::illegal_operation(
-                        "cannot convert sign-less non-zero BigInt to Decimal",
-                    );
-                }
-            }
-        };
-        Ok(Coefficient::new(sign, magnitude))
+        (*value).try_into()
     }
 }
 
@@ -218,23 +200,19 @@ impl Display for Coefficient {
             Sign::Positive => {}
             Sign::Negative => write!(f, "-")?,
         };
-        match &self.magnitude.data {
-            UIntData::U64(m) => write!(f, "{}", *m),
-            UIntData::BigUInt(m) => write!(f, "{m}"),
-        }
+        write!(f, "{}", self.magnitude)
     }
 }
 
 #[cfg(test)]
 mod coefficient_tests {
+    use std::ops::Neg;
+
     use crate::ion_data::IonEq;
     use crate::Int;
-    use num_bigint::{BigInt, BigUint};
-    use std::ops::Neg;
-    use std::str::FromStr;
+    use crate::{Decimal, UInt};
 
     use super::*;
-    use crate::{Decimal, UInt};
 
     fn eq_test<I1, I2>(c1: I1, c2: I2)
     where
@@ -249,16 +227,16 @@ mod coefficient_tests {
     #[test]
     fn test_coefficient_eq() {
         eq_test(0u64, 0u64);
-        eq_test(0u64, BigUint::from(0u64));
-        eq_test(BigUint::from(0u64), 0u64);
-        eq_test(BigUint::from(0u64), BigUint::from(0u64));
+        eq_test(0u64, 0i64);
+        eq_test(0i128, 0u64);
+        eq_test(0i128, 0i64);
 
         eq_test(u64::MAX, u64::MAX);
-        eq_test(u64::MAX, BigUint::from(u64::MAX));
-        eq_test(BigUint::from(u64::MAX), u64::MAX);
-        eq_test(BigUint::from(u64::MAX), BigUint::from(u64::MAX));
+        eq_test(u64::MAX, i128::from(u64::MAX));
+        eq_test(i128::from(u64::MAX), u64::MAX);
+        eq_test(i128::from(u64::MAX), i128::from(u64::MAX));
 
-        eq_test(BigUint::from(u128::MAX), BigUint::from(u128::MAX));
+        eq_test(i128::MAX, i128::MAX);
     }
 
     #[test]
@@ -278,77 +256,58 @@ mod coefficient_tests {
     #[test]
     fn is_negative_zero() {
         assert!(Coefficient::negative_zero().is_negative_zero());
-        assert!(!Coefficient::new(Sign::Positive, 0).is_negative_zero());
-        assert!(!Coefficient::new(Sign::Positive, 5).is_negative_zero());
+        assert!(!Coefficient::new(0).is_negative_zero());
+        assert!(!Coefficient::new(5).is_negative_zero());
     }
 
     #[test]
     fn is_positive_zero() {
-        assert!(Coefficient::new(Sign::Positive, 0).is_positive_zero());
-        assert!(!Coefficient::new(Sign::Positive, 5).is_positive_zero());
+        assert!(Coefficient::new(0).is_positive_zero());
+        assert!(!Coefficient::new(5).is_positive_zero());
         assert!(!Coefficient::negative_zero().is_positive_zero());
     }
 
     #[test]
     fn is_negative() {
         assert!(Coefficient::negative_zero().is_negative());
-        assert!(Coefficient::new(Sign::Negative, 5).is_negative());
-        assert!(!Coefficient::new(Sign::Positive, 5).is_negative());
+        assert!(Coefficient::new(-5).is_negative());
+        assert!(!Coefficient::new(5).is_negative());
     }
 
     #[test]
     fn sign() {
         assert_eq!(Coefficient::negative_zero().sign(), Sign::Negative);
-        assert_eq!(Coefficient::new(Sign::Positive, 0).sign(), Sign::Positive);
-        assert_eq!(Coefficient::new(Sign::Negative, 5).sign(), Sign::Negative);
-        assert_eq!(Coefficient::new(Sign::Positive, 5).sign(), Sign::Positive);
+        assert_eq!(Coefficient::new(0).sign(), Sign::Positive);
+        assert_eq!(Coefficient::new(-5).sign(), Sign::Negative);
+        assert_eq!(Coefficient::new(5).sign(), Sign::Positive);
     }
 
     #[test]
     fn magnitude() {
-        assert_eq!(Coefficient::negative_zero().magnitude(), &UInt::from(0u32));
-        assert_eq!(
-            Coefficient::new(Sign::Positive, 0).magnitude(),
-            &UInt::from(0u32)
-        );
-        assert_eq!(
-            Coefficient::new(Sign::Negative, 5).magnitude(),
-            &UInt::from(5u32)
-        );
-        assert_eq!(
-            Coefficient::new(Sign::Positive, 5).magnitude(),
-            &UInt::from(5u32)
-        );
+        assert_eq!(Coefficient::negative_zero().magnitude(), UInt::from(0u32));
+        assert_eq!(Coefficient::new(0).magnitude(), UInt::from(0u32));
+        assert_eq!(Coefficient::new(-5).magnitude(), UInt::from(5u32));
+        assert_eq!(Coefficient::new(5).magnitude(), UInt::from(5u32));
     }
 
     #[test]
     fn convert_to_int() {
         // i64
-        assert_eq!(
-            Int::try_from(Coefficient::new(Sign::Positive, 5)),
-            Ok(Int::from(5))
-        );
-        assert_eq!(
-            Int::try_from(Coefficient::new(Sign::Negative, 5)),
-            Ok(Int::from(-5))
-        );
+        assert_eq!(Int::try_from(Coefficient::new(5)), Ok(Int::from(5)));
+        assert_eq!(Int::try_from(Coefficient::new(-5)), Ok(Int::from(-5)));
 
-        // BigInt
-        let enormous_int = BigInt::from_str("1234567890123456789012345678901234567890").unwrap();
+        let enormous_int = Int::try_from(12345678901234567890123456789u128).unwrap();
         assert_eq!(
-            Int::try_from(Coefficient::new(Sign::Positive, enormous_int.clone())),
-            Ok(Int::from(enormous_int.clone()))
+            Int::try_from(Coefficient::new(enormous_int)),
+            Ok(enormous_int)
         );
         assert_eq!(
-            Int::try_from(Coefficient::new(Sign::Negative, enormous_int.clone())),
-            Ok(Int::from(enormous_int.neg()))
+            Int::try_from(Coefficient::new(enormous_int.neg())),
+            Ok(enormous_int.neg())
         );
 
         // Zeros
-        assert_eq!(
-            Int::try_from(Coefficient::new(Sign::Positive, 0)),
-            Ok(Int::from(0))
-        );
+        assert_eq!(Int::try_from(Coefficient::new(0)), Ok(Int::from(0)));
         assert!(Int::try_from(Coefficient::negative_zero()).is_err());
     }
 }

@@ -260,8 +260,8 @@ mod tests {
             float: 3.46,
             binary: b"EDO".to_vec(),
             seq: vec!["a".to_string(), "b".to_string()],
-            decimal: my_decimal.clone(),
-            date: my_date.clone(),
+            decimal: my_decimal,
+            date: my_date,
             date0: my_date0,
             date1: datetime,
             nested_struct: NestedTest {
