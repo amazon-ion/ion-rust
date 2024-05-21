@@ -9,7 +9,6 @@ use std::io::Write;
 type IntStorage = i64;
 const INT_NEGATIVE_ZERO: u8 = 0x80;
 
-// The size of an i128
 const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<i128>();
 
 /// Represents a fixed-length signed integer. See the
