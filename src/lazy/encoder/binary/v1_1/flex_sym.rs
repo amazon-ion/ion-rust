@@ -1,17 +1,28 @@
+use core::cmp::Ordering;
+
 use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;
 
+use crate::lazy::binary::raw::v1_1::type_descriptor::Opcode;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::raw_symbol_ref::AsRawSymbolRef;
+use crate::IonResult;
 use crate::RawSymbolRef::{self, SymbolId, Text};
+
+#[derive(Debug, Clone, Copy)]
+pub enum FlexSymValue<'top> {
+    SymbolRef(RawSymbolRef<'top>),
+    Opcode(Opcode),
+}
 
 /// An Ion 1.1 encoding primitive that can compactly represent a symbol ID or inline text.
 #[derive(Debug)]
-pub struct FlexSym {
-    // No fields yet; these may be added when we get to read support.
+pub struct FlexSym<'top> {
+    value: FlexSymValue<'top>,
+    size_in_bytes: usize,
 }
 
-impl FlexSym {
+impl<'top> FlexSym<'top> {
     /// A FlexSym-encoded logical zero: the byte `0x01u8`
     pub const ZERO: u8 = 0x01;
 
@@ -42,5 +53,49 @@ impl FlexSym {
             Text(_) => &[FlexSym::ZERO, 0x80],
         };
         output.extend_from_slice_copy(encoding);
+    }
+
+    /// Reads a [`FlexSym`] from the beginning of `input`.
+    ///
+    /// `input` is the byte slice from which to read a [`FlexSym`].
+    /// `offset` is the position of the slice in some larger input stream. It is only used to
+    ///          populate an appropriate error message if reading fails.
+    pub fn read(input: &'top [u8], offset: usize) -> IonResult<FlexSym<'top>> {
+        use crate::{result::IonFailure, IonError};
+
+        let value = FlexInt::read(input, offset)?;
+        let sym_value = value.value();
+        let (flex_sym_value, size_in_bytes) = match sym_value.cmp(&0) {
+            Ordering::Greater => (
+                FlexSymValue::SymbolRef(RawSymbolRef::SymbolId(sym_value as usize)),
+                value.size_in_bytes(),
+            ),
+            Ordering::Less => {
+                let flex_int_len = value.size_in_bytes();
+                let len = sym_value.unsigned_abs() as usize;
+                let text = std::str::from_utf8(&input[flex_int_len..flex_int_len + len]).map_err(
+                    |_| IonError::decoding_error("found FlexSym with invalid UTF-8 data"),
+                )?;
+                let symbol_ref = RawSymbolRef::Text(text);
+                (FlexSymValue::SymbolRef(symbol_ref), flex_int_len + len)
+            }
+            Ordering::Equal => (
+                FlexSymValue::Opcode(Opcode::from_byte(input[value.size_in_bytes()])),
+                value.size_in_bytes() + 1,
+            ),
+        };
+
+        Ok(Self {
+            value: flex_sym_value,
+            size_in_bytes,
+        })
+    }
+
+    pub fn value(&self) -> FlexSymValue<'top> {
+        self.value
+    }
+
+    pub fn size_in_bytes(&self) -> usize {
+        self.size_in_bytes
     }
 }

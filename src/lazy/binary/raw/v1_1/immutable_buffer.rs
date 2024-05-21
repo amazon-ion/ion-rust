@@ -7,6 +7,7 @@ use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, ION_1_1_OPCODES
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
+use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
@@ -163,6 +164,13 @@ impl<'a> ImmutableBuffer<'a> {
         let flex_uint = FlexUInt::read(self.bytes(), self.offset())?;
         let remaining = self.consume(flex_uint.size_in_bytes());
         Ok((flex_uint, remaining))
+    }
+
+    #[inline]
+    pub fn read_flex_sym(self) -> ParseResult<'a, FlexSym<'a>> {
+        let flex_sym = FlexSym::read(self.bytes(), self.offset())?;
+        let remaining = self.consume(flex_sym.size_in_bytes());
+        Ok((flex_sym, remaining))
     }
 
     /// Attempts to decode an annotations wrapper at the beginning of the buffer and returning

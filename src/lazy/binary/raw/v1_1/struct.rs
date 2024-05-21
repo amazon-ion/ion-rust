@@ -120,7 +120,6 @@ impl<'top> LazyRawStruct<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'
 }
 
 enum StructType {
-    Invalid,
     FlexSym,
     SymbolAddress,
 }
@@ -142,7 +141,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
             struct_type: match opcode_type {
                 OpcodeType::StructSymAddress => StructType::SymbolAddress,
                 OpcodeType::StructFlexSym => StructType::FlexSym,
-                _ => StructType::Invalid,
+                _ => unreachable!("Unexpected opcode for structure"),
             },
         }
     }
@@ -155,26 +154,16 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     fn peek_field_flexsym(
         buffer: ImmutableBuffer<'top>,
     ) -> IonResult<Option<(LazyRawBinaryFieldName_1_1<'top>, ImmutableBuffer<'top>)>> {
-        use crate::IonError;
-        use std::cmp::Ordering;
+        use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSymValue;
 
         if buffer.is_empty() {
             return Ok(None);
         }
 
-        let (flex_sym, after) = buffer.read_flex_int()?;
-        let sym_value = flex_sym.value();
-        let (sym, after) = match sym_value.cmp(&0) {
-            Ordering::Greater => (RawSymbolRef::SymbolId(sym_value as usize), after),
-            Ordering::Less => {
-                let len = sym_value.unsigned_abs() as usize;
-                let text = after.bytes_range(0, len);
-                let text = std::str::from_utf8(text).map_err(|_| {
-                    IonError::decoding_error("found FlexSym with invalid UTF-8 data")
-                })?;
-                (RawSymbolRef::Text(text), after.consume(len))
-            }
-            Ordering::Equal => todo!(),
+        let (flex_sym, after) = buffer.read_flex_sym()?;
+        let (sym, after) = match flex_sym.value() {
+            FlexSymValue::SymbolRef(sym_ref) => (sym_ref, after),
+            FlexSymValue::Opcode(_opcode) => todo!(),
         };
 
         let matched_field_id = buffer.slice(0, flex_sym.size_in_bytes());
@@ -196,10 +185,8 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
 
         let field_id = symbol_address.value() as usize;
         let matched_field_id = buffer.slice(0, symbol_address.size_in_bytes());
-        let field_name = LazyRawBinaryFieldName_1_1::new(
-            RawSymbolRef::SymbolId(field_id),
-            matched_field_id,
-        );
+        let field_name =
+            LazyRawBinaryFieldName_1_1::new(RawSymbolRef::SymbolId(field_id), matched_field_id);
         Ok(Some((field_name, after)))
     }
 
@@ -226,7 +213,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     }
 
     /// Helper function called from [`Self::next`] to parse the current field and value from the
-    /// struct. On success, returns an both the field pair via [`LazyRawFieldExpr`] as well as the
+    /// struct. On success, returns both the field pair via [`LazyRawFieldExpr`] as well as the
     /// total bytes needed to skip the field.
     fn peek_field(&self) -> IonResult<Option<(LazyRawFieldExpr<'top, BinaryEncoding_1_1>, usize)>> {
         let mut buffer = self.source;
@@ -235,7 +222,6 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
             let peek_result = match self.struct_type {
                 StructType::SymbolAddress => Self::peek_field_symbol_addr(buffer)?,
                 StructType::FlexSym => Self::peek_field_flexsym(buffer)?,
-                _ => todo!(),
             };
 
             let Some((field_name, after_name)) = peek_result else {

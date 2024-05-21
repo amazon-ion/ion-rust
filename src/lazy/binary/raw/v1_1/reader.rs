@@ -169,6 +169,7 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
 #[cfg(test)]
 mod tests {
     use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
+    use crate::raw_symbol_ref::RawSymbolRef;
     use crate::{IonResult, IonType};
     use rstest::*;
 
@@ -310,8 +311,6 @@ mod tests {
 
     #[test]
     fn symbols() -> IonResult<()> {
-        use crate::RawSymbolRef;
-
         #[rustfmt::skip]
         let data: Vec<u8> = vec![
             // IVM
@@ -756,7 +755,6 @@ mod tests {
         Ok(())
     }
 
-
     #[test]
     fn nulls() -> IonResult<()> {
         #[rustfmt::skip]
@@ -785,12 +783,16 @@ mod tests {
 
     fn structs() -> IonResult<()> {
         use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawFieldName};
-        use crate::raw_symbol_ref::RawSymbolRef;
 
         #[rustfmt::skip]
         #[allow(clippy::type_complexity)]
         let tests: &[(&[u8], &[(RawSymbolRef, IonType)])] = &[
             // Symbol Address
+            (
+                // {}
+                &[0xC0],
+                &[],
+            ),
             (
                 // { $10: 1, $11: 2 }
                 &[0xC6, 0x15, 0x51, 0x01, 0x17, 0x51, 0x02],
@@ -813,6 +815,26 @@ mod tests {
                 &[
                     (11usize.into(), IonType::Float),
                 ],
+            ),
+            (
+                // { $10: 1, $11: <NOP> } - with nops at end of struct.
+                &[ 0xC5, 0x15, 0x51, 0x01, 0x17, 0xEC ],
+                &[
+                    (10usize.into(), IonType::Int),
+                ],
+            ),
+            (
+                // { $10: { $11: "foo" }, $11: 2 }
+                &[ 0xC6, 0x15, 0xC4, 0x83, 0x66, 0x6F, 0x6F, 0x17, 0x51, 0x02 ],
+                &[
+                    (10usize.into(), IonType::Struct),
+                    (11usize.into(), IonType::Int),
+                ],
+            ),
+            (
+                // {}
+                &[ 0xFC, 0x01 ],
+                &[],
             ),
             (
                 // { $10: "variable length struct" }
@@ -839,6 +861,27 @@ mod tests {
                 &[ 0xFD, 0x11, 0xFB, 0x66, 0x6F, 0x6F, 0xEC, 0x17, 0x91, 0x02],
                 &[ (11usize.into(), IonType::Symbol) ],
             ),
+            (
+                // { "foo": 2, $11: <NOP> }
+                &[ 0xFD, 0x11, 0xFB, 0x66, 0x6F, 0x6F, 0x51, 0x02, 0x17, 0xEC],
+                &[ ("foo".into(), IonType::Int) ],
+            ),
+            (
+                // { "foo": { $10: 2 }, "bar": 2 }
+                &[
+                    0xFD, 0x1D, 0xFB, 0x66, 0x6F, 0x6F, 0xC3, 0x15, 0x51, 0x02,
+                    0xFB, 0x62, 0x61, 0x72, 0x51, 0x02,
+                ],
+                &[
+                    ("foo".into(), IonType::Struct),
+                    ("bar".into(), IonType::Int),
+                ],
+            ),
+            (
+                // {}
+                &[0xFD, 0x01],
+                &[],
+            )
         ];
 
         for (ion_data, field_pairs) in tests {
