@@ -14,7 +14,7 @@ mod sexp;
 mod string;
 mod r#struct;
 pub(crate) mod symbol;
-pub(crate) mod timestamp;
+mod timestamp;
 
 pub use crate::types::bytes::Bytes;
 pub use decimal::Decimal;
