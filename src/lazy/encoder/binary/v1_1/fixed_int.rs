@@ -105,7 +105,7 @@ impl From<FixedInt> for Coefficient {
 
 impl From<i64> for FixedInt {
     fn from(other: i64) -> Self {
-        let encoded_size = FixedInt::encoded_size_i64(other);
+        let encoded_size = FixedInt::encoded_size(other);
         FixedInt::new(encoded_size, other)
     }
 }
