@@ -143,23 +143,15 @@ mod binary_decimal_tests {
 
     #[rstest]
     #[case::foo(Decimal::new(i128::MAX, 0))]
+    #[case::foo(Decimal::new(i128::MAX - 1, 0))]
     #[case::foo(Decimal::new(i128::MIN, 0))]
+    #[case::foo(Decimal::new(i128::MIN + 1, 0))]
     #[case::foo(Decimal::new(i128::MAX, i32::MAX))]
+    #[case::foo(Decimal::new(i128::MAX - 1, i32::MAX))]
     #[case::foo(Decimal::new(i128::MIN, i32::MIN))]
+    #[case::foo(Decimal::new(i128::MIN, i32::MIN))]
+    #[case::foo(Decimal::new(i128::MIN + 1, i32::MIN))]
     fn roundtrip_decimals_with_extreme_values(#[case] value: Decimal) -> IonResult<()> {
-        let mut writer =
-            ApplicationWriter::with_config(BinaryEncoding_1_0::default_write_config(), Vec::new())?;
-        writer.write(value)?;
-        let output = writer.close()?;
-        let mut reader = LazyReader::new(output);
-        let after_round_trip = reader.expect_next()?.read()?.expect_decimal()?;
-        assert_eq!(value, after_round_trip);
-        Ok(())
-    }
-
-    #[test]
-    fn roundtrip_decimals_with_extreme_values_foo() -> IonResult<()> {
-        let value = Decimal::new(i128::MIN, 0);
         let mut writer =
             ApplicationWriter::with_config(BinaryEncoding_1_0::default_write_config(), Vec::new())?;
         writer.write(value)?;
