@@ -16,7 +16,7 @@ use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult, IonType};
+use crate::{Int, IonError, IonResult, IonType};
 
 // The size of a u128
 const MAX_UINT_SIZE_IN_BYTES: usize = 16;
@@ -339,10 +339,14 @@ impl<'a> ImmutableBuffer<'a> {
     ///
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields>
     pub fn read_int(self, length: usize) -> ParseResult<'a, DecodedInt> {
-        const BUFFER_SIZE: usize = MAX_INT_SIZE_IN_BYTES; // 16
+        const BUFFER_SIZE: usize = MAX_INT_SIZE_IN_BYTES;
         if length == 0 {
             return Ok((DecodedInt::new(0, false, 0), self.consume(0)));
-        } else if length > MAX_INT_SIZE_IN_BYTES {
+        } else if length > BUFFER_SIZE + 1 {
+            //                         ^^^
+            // We support reading i128::MIN, which requires 17 bytes to encode. We reject anything
+            // 18 bytes or larger here; later on, we reject 17-byte encodings of values other than
+            // i128::MIN.
             return cold_path! {
             IonResult::decoding_error(format!(
                 "Found a {length}-byte Int. Max supported size is {MAX_INT_SIZE_IN_BYTES} bytes."
@@ -353,25 +357,38 @@ impl<'a> ImmutableBuffer<'a> {
             .peek_n_bytes(length)
             .ok_or_else(|| IonError::incomplete("an Int encoding primitive", self.offset()))?;
 
+        // i128::MIN is a special case; it's the only 17-byte encoding we accept.
+        const INT_MIN_ENCODING: &[u8] = &[0x80, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        if length == INT_MIN_ENCODING.len() {
+            return cold_path! {{
+                if int_bytes != INT_MIN_ENCODING {
+                    IonResult::decoding_error("Found an int encoding primitive outside the supported range")
+                } else {
+                    Ok((
+                        DecodedInt::new(Int::from(i128::MIN), true, length),
+                        self.consume(length),
+                    ))
+                }
+            }};
+        }
+
         // Copy the 'n' bytes into a buffer known to be the exact size of a u128
         let mut buffer = [0u8; mem::size_of::<u128>()];
         let first_occupied_byte_index = buffer.len() - int_bytes.len();
         buffer[first_occupied_byte_index..].copy_from_slice(int_bytes);
 
-        // Remember whether the sign bit was set.
-        let is_positive: bool = int_bytes[0] & 0b1000_0000 == 0;
+        let is_negative: bool = int_bytes[0] & 0b1000_0000 != 0;
         // Unset the sign bit in the buffer
         buffer[first_occupied_byte_index] &= 0b0111_1111;
 
+        // Now our sign-and-magnitude encoding is just a magnitude.
         let magnitude = u128::from_be_bytes(buffer);
-        let value = if is_positive {
-            magnitude as i128
-        } else {
-            (magnitude as i128).neg()
-        };
-
+        let mut value = i128::try_from(magnitude).unwrap();
+        if is_negative {
+            value = value.neg();
+        }
         Ok((
-            DecodedInt::new(value, !is_positive, length),
+            DecodedInt::new(value, is_negative, length),
             self.consume(length),
         ))
     }

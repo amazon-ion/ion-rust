@@ -361,6 +361,18 @@ impl Zero for UInt {
     }
 }
 
+impl CountDecimalDigits for Int {
+    fn count_decimal_digits(self) -> u32 {
+        self.data.count_decimal_digits()
+    }
+}
+
+impl CountDecimalDigits for UInt {
+    fn count_decimal_digits(self) -> u32 {
+        self.data.count_decimal_digits()
+    }
+}
+
 impl Display for UInt {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", self.data)

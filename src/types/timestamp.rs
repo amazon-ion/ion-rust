@@ -397,7 +397,7 @@ impl Timestamp {
                 }
                 if coefficient.is_negative_zero() {
                     write!(output, "0")?;
-                } else if coefficient.sign == Sign::Negative {
+                } else if coefficient.sign() == Sign::Negative {
                     return IonResult::encoding_error(
                         "fractional seconds cannot have a negative coefficient (other than -0)",
                     );
@@ -1985,7 +1985,7 @@ mod timestamp_tests {
     #[case::timestamp_with_unknown_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_offset(-5 * 60).build().unwrap(), Ordering::Less)]
     #[case::timestamp_with_unknown_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_nanoseconds(0).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).build().unwrap(), Ordering::Equal)]
     #[case::timestamp_with_unknown_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_nanoseconds(449000005).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).build().unwrap(), Ordering::Greater)]
-    #[case::timestamp_with_second_precison_and_year_precision(TimestampBuilder::with_ymd(2001, 1, 1).build().unwrap(), TimestampBuilder::with_ymd(2001, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000u128, -20)).build().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_second_precison_and_year_precision(TimestampBuilder::with_ymd(2001, 1, 1).build().unwrap(), TimestampBuilder::with_ymd(2001, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000i128, -20)).build().unwrap(), Ordering::Equal)]
     fn timestamp_ordering_tests(
         #[case] this: Timestamp,
         #[case] other: Timestamp,

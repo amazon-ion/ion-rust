@@ -12,7 +12,6 @@ use std::fmt::{Display, Formatter};
 use std::ops::Neg;
 
 pub mod coefficient;
-mod magnitude;
 
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
 ///
@@ -57,8 +56,9 @@ impl Decimal {
 
     /// Constructs a new Decimal with the provided components. The value of the decimal is:
     ///    `coefficient * 10^exponent`
-    pub fn new<I: Into<Coefficient>>(coefficient: I, exponent: i64) -> Decimal {
+    pub fn new<C: Into<Coefficient>, E: Into<i64>>(coefficient: C, exponent: E) -> Decimal {
         let coefficient = coefficient.into();
+        let exponent = exponent.into();
         Decimal {
             coefficient,
             exponent,
@@ -124,7 +124,7 @@ impl Decimal {
     pub(crate) fn is_greater_than_or_equal_to_one(&self) -> bool {
         // If the coefficient has a magnitude of zero, the Decimal is a zero of some precision
         // and so is not >= 1.
-        if self.coefficient.magnitude.is_zero() {
+        if self.coefficient.is_zero() {
             return false;
         }
 
@@ -229,7 +229,7 @@ impl IonOrd for Decimal {
         // If the signs are the same, compare their magnitudes.
         let ordering = Decimal::compare_magnitudes(self, other);
         if ordering != Ordering::Equal {
-            return match self.coefficient.sign {
+            return match self.coefficient.sign() {
                 Sign::Negative => ordering.reverse(),
                 Sign::Positive => ordering,
             };
@@ -267,11 +267,7 @@ macro_rules! impl_decimal_from_signed_primitive_integer {
     ($($t:ty),*) => ($(
         impl From<$t> for Decimal {
             fn from(value: $t) -> Self {
-                let sign = if value < 0 {Sign::Negative} else {Sign::Positive};
-                // Discard the sign and convert the value to a u64.
-                let magnitude: u64 = value.unsigned_abs() as u64;
-                let coefficient = Coefficient::new(sign, magnitude);
-                Decimal::new(coefficient, 0)
+                Decimal::new(Coefficient::new(value), 0)
             }
         }
     )*)
@@ -280,12 +276,6 @@ impl_decimal_from_signed_primitive_integer!(i8, i16, i32, i64, isize);
 
 impl From<Int> for Decimal {
     fn from(value: Int) -> Self {
-        Decimal::new(value, 0)
-    }
-}
-
-impl From<UInt> for Decimal {
-    fn from(value: UInt) -> Self {
         Decimal::new(value, 0)
     }
 }
@@ -421,14 +411,14 @@ impl Display for Decimal {
         // Inspired by the formatting conventions of Java's BigDecimal.toString()
         const WIDE_NUMBER: usize = 6; // if you think about it, six is a lot 🙃
 
-        let digits = &*self.coefficient.magnitude.to_string();
+        let digits = &*self.coefficient.magnitude().to_string();
         let len = digits.len();
         // The index of the decimal point, relative to the magnitude representation
         //       0123                                                       01234
         // Given ABCDd-2, the decimal gets inserted at position 2, yielding AB.CD
         let dot_index = len as i64 + self.exponent;
 
-        if self.coefficient.sign == Sign::Negative {
+        if self.coefficient.sign() == Sign::Negative {
             write!(f, "-").unwrap();
         };
 
@@ -454,9 +444,9 @@ impl Display for Decimal {
 
 #[cfg(test)]
 mod decimal_tests {
-    use crate::decimal::coefficient::{Coefficient, Sign};
+    use crate::decimal::coefficient::Coefficient;
     use crate::result::IonResult;
-    use crate::{Decimal, Int, UInt};
+    use crate::{Decimal, Int};
 
     use num_traits::Float;
     use std::cmp::Ordering;
@@ -493,7 +483,7 @@ mod decimal_tests {
         );
         assert_eq!(
             Decimal::new(0, 0),
-            Decimal::new(Coefficient::new(Sign::Negative, 0), 0)
+            Decimal::new(Coefficient::negative_zero(), 0)
         );
     }
 
@@ -503,7 +493,7 @@ mod decimal_tests {
         assert!(Decimal::negative_zero().ion_eq(&Decimal::negative_zero()));
         assert!(!Decimal::negative_zero_with_exponent(2)
             .ion_eq(&Decimal::negative_zero_with_exponent(7)));
-        assert!(!Decimal::new(0, 0).ion_eq(&Decimal::new(Coefficient::new(Sign::Negative, 0), 0)));
+        assert!(!Decimal::new(0, 0).ion_eq(&Decimal::new(Coefficient::negative_zero(), 0)));
     }
 
     #[rstest]
@@ -639,7 +629,7 @@ mod decimal_tests {
     #[case(Decimal::new(234, 0), 3)]
     #[case(Decimal::new(-234, 2), 5)]
     #[case(Decimal::new(u64::MAX, 3), 23)]
-    #[case(Decimal::new(u128::MAX, -2), 39)]
+    #[case(Decimal::new(i128::MAX, -2), 39)]
     fn test_precision(#[case] value: Decimal, #[case] expected: u64) {
         assert_eq!(value.precision(), expected);
     }
@@ -654,8 +644,6 @@ mod decimal_tests {
     #[case(8675309i64, Decimal::new(8675309u32, 0))]
     #[case(Int::from(-8675309i64), Decimal::new(-8675309i64, 0))]
     #[case(Int::from(-8675309i128), Decimal::new(-8675309i64, 0))]
-    #[case(UInt::from(8675309u64), Decimal::new(8675309u64, 0))]
-    #[case(UInt::from(8675309u128), Decimal::new(8675309u64, 0))]
     fn decimal_from_integers(
         #[case] coefficient: impl Into<Coefficient>,
         #[case] expected: Decimal,

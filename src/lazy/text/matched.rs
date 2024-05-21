@@ -20,7 +20,7 @@
 //! re-discovered.
 
 use std::num::IntErrorKind;
-use std::ops::Range;
+use std::ops::{Neg, Range};
 use std::str::FromStr;
 
 use bumpalo::collections::Vec as BumpVec;
@@ -31,9 +31,10 @@ use nom::bytes::streaming::tag;
 use nom::character::is_hex_digit;
 use nom::sequence::preceded;
 use nom::{AsBytes, AsChar, Parser};
+use num_traits::Zero;
 use smallvec::SmallVec;
 
-use crate::decimal::coefficient::{Coefficient, Sign};
+use crate::decimal::coefficient::Coefficient;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{LazyDecoder, LazyRawFieldExpr, LazyRawValueExpr};
 use crate::lazy::span::Span;
@@ -44,7 +45,6 @@ use crate::lazy::text::parse_result::InvalidInputError;
 use crate::result::{DecodingError, IonFailure};
 use crate::{
     Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp, TimestampPrecision,
-    UInt,
 };
 
 /// A partially parsed Ion value.
@@ -293,11 +293,6 @@ impl MatchedDecimal {
     }
 
     pub fn read(&self, matched_input: TextBufferView) -> IonResult<Decimal> {
-        // The longest number that can fit into a u64 without finer-grained bounds checks.
-        const MAX_U64_DIGITS: usize = 19;
-        // u64::MAX is a 20-digit number starting with `1`. For simplicity, we'll turn any number
-        // with 19 or fewer digits into a u64 and anything else into a BigUint.
-
         let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
             SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
 
@@ -313,18 +308,21 @@ impl MatchedDecimal {
         );
 
         let digits_text = sanitized.as_utf8(digits.offset())?;
-        let magnitude: UInt = u128::from_str(digits_text)
+        let magnitude: Int = i128::from_str(digits_text)
             .map_err(|_| {
                 IonError::decoding_error("decimal magnitude was larger than supported size")
             })?
             .into();
 
-        let sign = if self.is_negative {
-            Sign::Negative
+        let coefficient = if self.is_negative {
+            if magnitude.is_zero() {
+                Coefficient::negative_zero()
+            } else {
+                Coefficient::new(magnitude.neg())
+            }
         } else {
-            Sign::Positive
+            Coefficient::new(magnitude)
         };
-        let coefficient = Coefficient::new(sign, magnitude);
 
         let mut exponent: i64 = match self.exponent_digits_length {
             0 => 0,
@@ -1037,7 +1035,7 @@ impl MatchedTimestamp {
             }
             _ => {
                 // For less common precisions, store a Decimal
-                let coefficient = u128::from_str(fractional_text).unwrap();
+                let coefficient = i128::from_str(fractional_text).unwrap();
                 let decimal = Decimal::new(coefficient, -(fractional_text.len() as i64));
                 timestamp.with_fractional_seconds(decimal)
             }

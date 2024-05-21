@@ -7,19 +7,16 @@ use arrayvec::ArrayVec;
 use crate::binary::int::DecodedInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::decimal::coefficient::{Coefficient, Sign};
+use crate::decimal::coefficient::Coefficient;
 use crate::ion_data::IonEq;
 use crate::result::{IonFailure, IonResult};
-use crate::{Decimal, IonError, UInt};
+use crate::{Decimal, Int, IonError};
 
 const MAX_INLINE_LENGTH: usize = 13;
 
 const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
-    coefficient: Coefficient {
-        sign: Sign::Positive,
-        magnitude: UInt::ZERO,
-    },
+    coefficient: Coefficient::ZERO,
     exponent: 0,
 };
 
@@ -53,19 +50,18 @@ where
 
         bytes_written += VarInt::write_i64(self, decimal.exponent)?;
 
-        if decimal.coefficient.is_negative_zero() {
-            bytes_written += DecodedInt::write_negative_zero(self)?;
-            return Ok(bytes_written);
-        }
-
-        if decimal.coefficient.is_zero() {
-            // From the spec: "The subfield should not be present (that is, it
-            // has zero length) when the coefficient’s value is (positive)
-            // zero."
-        } else if let Some(coefficient) = decimal.coefficient.as_i128() {
-            bytes_written += DecodedInt::write(self, coefficient)?;
-        } else {
-            return IonResult::encoding_error("decimal coefficients are currently limited to the range of values that can fit in an i128");
+        match decimal.coefficient.as_int() {
+            Some(int) if int == Int::ZERO => {
+                // From the spec: "The subfield should not be present (that is, it
+                // has zero length) when the coefficient’s value is (positive)
+                // zero."
+            }
+            Some(int) => {
+                bytes_written += DecodedInt::write(self, int)?;
+            }
+            None => {
+                bytes_written += DecodedInt::write_negative_zero(self)?;
+            }
         }
 
         Ok(bytes_written)
@@ -111,6 +107,10 @@ where
 
 #[cfg(test)]
 mod binary_decimal_tests {
+    use crate::lazy::encoder::value_writer::SequenceWriter;
+    use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding};
+    use crate::lazy::reader::LazyReader;
+    use crate::ApplicationWriter;
     use rstest::*;
 
     use super::*;
@@ -138,6 +138,35 @@ mod binary_decimal_tests {
         let written = buf.encode_decimal_value(&input)?;
         assert_eq!(buf.len(), expected);
         assert_eq!(written, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::foo(Decimal::new(i128::MAX, 0))]
+    #[case::foo(Decimal::new(i128::MIN, 0))]
+    #[case::foo(Decimal::new(i128::MAX, i32::MAX))]
+    #[case::foo(Decimal::new(i128::MIN, i32::MIN))]
+    fn roundtrip_decimals_with_extreme_values(#[case] value: Decimal) -> IonResult<()> {
+        let mut writer =
+            ApplicationWriter::with_config(BinaryEncoding_1_0::default_write_config(), Vec::new())?;
+        writer.write(value)?;
+        let output = writer.close()?;
+        let mut reader = LazyReader::new(output);
+        let after_round_trip = reader.expect_next()?.read()?.expect_decimal()?;
+        assert_eq!(value, after_round_trip);
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_decimals_with_extreme_values_foo() -> IonResult<()> {
+        let value = Decimal::new(i128::MIN, 0);
+        let mut writer =
+            ApplicationWriter::with_config(BinaryEncoding_1_0::default_write_config(), Vec::new())?;
+        writer.write(value)?;
+        let output = writer.close()?;
+        let mut reader = LazyReader::new(output);
+        let after_round_trip = reader.expect_next()?.read()?.expect_decimal()?;
+        assert_eq!(value, after_round_trip);
         Ok(())
     }
 }

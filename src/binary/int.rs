@@ -1,6 +1,6 @@
 use std::mem;
 
-use crate::decimal::coefficient::{Coefficient, Sign};
+use crate::decimal::coefficient::Coefficient;
 use crate::result::IonResult;
 use crate::Int;
 use num_traits::Zero;
@@ -44,18 +44,31 @@ impl DecodedInt {
         // Using leading_zeros() to determine how many empty bytes we can ignore.
         // We subtract one from the number of leading bits to leave space for a sign bit
         // and divide by 8 to get the number of bytes.
-        let empty_leading_bytes: u32 = (magnitude.leading_zeros() - 1) >> 3;
+        let empty_leading_bytes: u32 = match magnitude.leading_zeros() {
+            0 => 0,
+            num_zeros => (num_zeros - 1) >> 3,
+        };
         let first_occupied_byte = empty_leading_bytes as usize;
 
-        let mut magnitude_bytes: [u8; mem::size_of::<i128>()] = magnitude.to_be_bytes();
+        let mut magnitude_bytes: [u8; mem::size_of::<u128>()] = magnitude.to_be_bytes();
         let bytes_to_write: &mut [u8] = &mut magnitude_bytes[first_occupied_byte..];
+        let mut bytes_written = bytes_to_write.len();
         if value < 0 {
-            // Set the leading sign bit
-            bytes_to_write[0] |= 0b1000_0000;
+            // i128::MIN is the lowest int encoding primitive we support. It's also the only
+            // value in the i128 range that needs the highest bit to represent its magnitude.
+            if value == i128::MIN {
+                // If we're writing i128::MIN, we need to write out an additional prefix byte
+                // that has its sign bit set but no magnitude bits set.
+                sink.write_all(&[0b1000_0000])?;
+                bytes_written += 1;
+            } else {
+                // Otherwise, just set the highest bit to a one, indicating the value is negative.
+                bytes_to_write[0] |= 0b1000_0000;
+            }
         }
 
         sink.write_all(bytes_to_write)?;
-        Ok(bytes_to_write.len())
+        Ok(bytes_written)
     }
 
     /// Encodes a negative zero as an `Int` and writes it to the provided `sink`.
@@ -114,18 +127,11 @@ impl From<DecodedInt> for Int {
 }
 
 impl From<DecodedInt> for Coefficient {
-    fn from(int: DecodedInt) -> Self {
-        let DecodedInt {
-            value,
-            is_negative,
-            .. // ignore `size_in_bytes`
-        } = int;
-        let sign = if is_negative {
-            Sign::Negative
-        } else {
-            Sign::Positive
-        };
-        Coefficient::new(sign, value.unsigned_abs())
+    fn from(decoded_int: DecodedInt) -> Self {
+        if decoded_int.is_negative_zero() {
+            return Coefficient::negative_zero();
+        }
+        Coefficient::new(decoded_int)
     }
 }
 
