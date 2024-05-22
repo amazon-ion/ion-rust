@@ -21,6 +21,7 @@ use crate::{Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Str
 ///
 /// ```
 ///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
 ///# fn main() -> IonResult<()> {
 /// use ion_rs::Element;
 /// use ion_rs::v1_0::{Binary, BinaryReader};
@@ -44,6 +45,8 @@ use crate::{Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Str
 /// assert_eq!(foo_sum, 4);
 ///# Ok(())
 ///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 #[derive(Copy, Clone)]
 pub struct LazyStruct<'top, D: LazyDecoder> {
@@ -77,10 +80,16 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
         }
     }
 
-    //TODO: Feature gate
+    #[cfg(feature = "experimental-tooling-apis")]
     pub fn lower(&self) -> LazyExpandedStruct<'top, D> {
         self.expanded_struct
     }
+
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    pub(crate) fn lower(&self) -> LazyExpandedStruct<'top, D> {
+        self.expanded_struct
+    }
+
     pub fn as_value(&self) -> LazyValue<'top, D> {
         let expanded_value = match self.expanded_struct.source {
             ExpandedStructSource::ValueLiteral(v) => {
@@ -107,6 +116,7 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     /// complexity.
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::{Element, ValueRef};
     /// use ion_rs::v1_0::{Binary, BinaryReader};
@@ -128,6 +138,8 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn find(&self, name: &str) -> IonResult<Option<LazyValue<'top, D>>> {
         let Some(expanded_value) = self.expanded_struct.find(name)? else {
@@ -141,6 +153,7 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     /// specified name is found.
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::Element;
     /// use ion_rs::v1_0::{Binary, BinaryReader};
@@ -156,6 +169,8 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn find_expected(&self, name: &str) -> IonResult<LazyValue<'top, D>> {
         self.find(name)?
@@ -166,6 +181,7 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     /// matching name.
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::{Element, IonType, ValueRef};
     /// use ion_rs::v1_0::{Binary, BinaryReader};
@@ -181,6 +197,8 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     /// assert_eq!(lazy_struct.get("bar")?, Some(ValueRef::Null(IonType::List)));
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn get(&self, name: &str) -> IonResult<Option<ValueRef<'top, D>>> {
         self.find(name)?.map(|f| f.read()).transpose()
@@ -190,6 +208,7 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     /// specified name is found.
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::{Element, ValueRef};
     /// use ion_rs::v1_0::{Binary, BinaryReader};
@@ -204,6 +223,8 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     /// assert!(lazy_struct.get_expected("Ontario").is_err());
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn get_expected(&self, name: &str) -> IonResult<ValueRef<'top, D>> {
         self.get(name)?.ok_or_else(move || {
@@ -216,6 +237,7 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     ///
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -239,6 +261,8 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {

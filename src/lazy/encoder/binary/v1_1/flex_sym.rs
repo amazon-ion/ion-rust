@@ -1,8 +1,8 @@
 use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;
 
+use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::raw_symbol_token_ref::AsRawSymbolRef;
-use crate::v1_1::FlexInt;
 use crate::RawSymbolRef::{self, SymbolId, Text};
 
 /// An Ion 1.1 encoding primitive that can compactly represent a symbol ID or inline text.

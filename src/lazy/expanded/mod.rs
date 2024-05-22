@@ -641,11 +641,12 @@ impl<'top, Encoding: LazyDecoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
+    #[cfg(feature = "experimental-tooling-apis")]
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
 
-    // TODO: Feature gate
+    #[cfg(feature = "experimental-tooling-apis")]
     pub fn source(&self) -> ExpandedValueSource<'top, Encoding> {
         self.source
     }

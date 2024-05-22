@@ -146,7 +146,6 @@ pub use element::{
     IntoAnnotatedElement, IntoAnnotations, Sequence, Value,
 };
 pub use ion_data::IonData;
-pub use lazy::value_ref::ValueRef;
 
 #[doc(inline)]
 pub use result::{IonError, IonResult};
@@ -189,41 +188,100 @@ pub mod ion_hash;
 mod lazy;
 mod write_config;
 
+pub use crate::write_config::WriteConfig;
+
+macro_rules! v1_x_reader_writer {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            lazy::encoder::annotate::Annotatable,
+            lazy::encoder::write_as_ion::WriteAsIon,
+            lazy::encoder::writer::Writer,
+            lazy::reader::Reader,
+            raw_symbol_token_ref::RawSymbolRef,
+            symbol_table::SymbolTable,
+            lazy::value_ref::ValueRef,
+        };
+    };
+}
+
+macro_rules! v1_0_reader_writer {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            lazy::encoder::writer::{BinaryWriter_1_0 as BinaryWriter, TextWriter_1_0 as TextWriter},
+            lazy::reader::{BinaryReader_1_0 as BinaryReader, TextReader_1_0 as TextReader},
+        };
+    };
+}
+
+macro_rules! v1_1_reader_writer {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            lazy::encoder::writer::{BinaryWriter_1_1 as BinaryWriter, TextWriter_1_1 as TextWriter},
+            lazy::encoding::{BinaryEncoding_1_1 as Binary, TextEncoding_1_1 as Text},
+            lazy::reader::{BinaryReader_1_1 as BinaryReader, TextReader_1_1 as TextReader},
+        };
+    };
+}
+
+macro_rules! v1_0_tooling_apis {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            binary::uint::DecodedUInt,
+            binary::var_int::VarInt,
+            binary::var_uint::VarUInt,
+            lazy::binary::immutable_buffer::ImmutableBuffer,
+        };
+    };
+}
+
+macro_rules! v1_1_tooling_apis {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            lazy::encoder::binary::v1_1::flex_int::FlexInt,
+            lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
+        };
+    };
+}
+
 #[cfg(feature = "experimental-reader-writer")]
-pub use crate::{
-    lazy::encoder::annotate::Annotatable, lazy::encoder::write_as_ion::WriteAsIon,
-    lazy::encoder::writer::Writer, lazy::reader::Reader, raw_symbol_token_ref::RawSymbolRef,
-    symbol_table::SymbolTable, write_config::WriteConfig,
-};
+v1_x_reader_writer!(pub);
+
+#[cfg(not(feature = "experimental-reader-writer"))]
+v1_x_reader_writer!(pub(crate));
 
 pub mod v1_0 {
     #[cfg(feature = "experimental-tooling-apis")]
-    pub use crate::{
-        binary::uint::DecodedUInt, binary::var_int::VarInt, binary::var_uint::VarUInt,
-        lazy::binary::immutable_buffer::ImmutableBuffer,
-    };
+    v1_0_tooling_apis!(pub);
+
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    v1_0_tooling_apis!(pub(crate));
 
     #[cfg(feature = "experimental-reader-writer")]
-    pub use crate::{
-        lazy::encoder::writer::{BinaryWriter_1_0 as BinaryWriter, TextWriter_1_0 as TextWriter},
-        lazy::encoding::{BinaryEncoding_1_0 as Binary, TextEncoding_1_0 as Text},
-        lazy::reader::{BinaryReader_1_0 as BinaryReader, TextReader_1_0 as TextReader},
-    };
+    v1_0_reader_writer!(pub);
+
+    #[cfg(not(feature = "experimental-reader-writer"))]
+    v1_0_reader_writer!(pub(crate));
+
+    pub use crate::lazy::encoding::{BinaryEncoding_1_0 as Binary, TextEncoding_1_0 as Text};
 }
 
 pub mod v1_1 {
     #[cfg(feature = "experimental-tooling-apis")]
-    pub use crate::{
-        lazy::encoder::binary::v1_1::flex_int::FlexInt,
-        lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
-    };
+    v1_1_tooling_apis!(pub);
+
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    v1_1_tooling_apis!(pub(crate));
 
     #[cfg(feature = "experimental-reader-writer")]
-    pub use crate::{
-        lazy::encoder::writer::{BinaryWriter_1_1 as BinaryWriter, TextWriter_1_1 as TextWriter},
-        lazy::encoding::{BinaryEncoding_1_1 as Binary, TextEncoding_1_1 as Text},
-        lazy::reader::{BinaryReader_1_1 as BinaryReader, TextReader_1_1 as TextReader},
-    };
+    v1_1_reader_writer!(pub);
+
+    #[cfg(not(feature = "experimental-reader-writer"))]
+    v1_1_reader_writer!(pub(crate));
 }
 
 /// Whether or not the text spacing is generous/human-friendly or something more compact.

@@ -35,6 +35,7 @@ const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
 /// long as the reader remains on the same top-level value.
 /// ```
 ///# use ion_rs::IonResult;
+///# #[cfg(feature="experimental-reader-writer")]
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
@@ -66,6 +67,8 @@ const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
 ///
 ///# Ok(())
 ///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 pub struct LazySystemReader<Encoding: LazyDecoder, Input: IonInput> {
     pub(crate) expanding_reader: LazyExpandingReader<Encoding, Input>,

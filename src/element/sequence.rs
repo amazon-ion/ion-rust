@@ -3,7 +3,8 @@ use crate::element::iterators::SequenceIterator;
 use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
 use crate::lazy::encoding::Encoding;
-use crate::{IonResult, WriteConfig};
+use crate::write_config::WriteConfig;
+use crate::IonResult;
 use std::cmp::Ordering;
 use std::io;
 

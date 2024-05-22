@@ -258,6 +258,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
 }
 
 impl<'top> LazyRawBinaryValue_1_0<'top> {
+    #[cfg(feature = "experimental-tooling-apis")]
     pub fn encoded_annotations(&self) -> Option<EncodedBinaryAnnotations_1_0<'_, 'top>> {
         if self.has_annotations() {
             Some(EncodedBinaryAnnotations_1_0 { value: self })
@@ -266,6 +267,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         }
     }
 
+    #[cfg(feature = "experimental-tooling-apis")]
     pub fn encoded_data(&self) -> EncodedBinaryValueData_1_0<'_, 'top> {
         EncodedBinaryValueData_1_0 { value: self }
     }

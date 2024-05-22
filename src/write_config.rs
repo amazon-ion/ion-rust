@@ -20,12 +20,12 @@ pub struct WriteConfig<E: Encoding> {
 }
 
 impl<E: Encoding> WriteConfig<E> {
-    pub fn encode<V: WriteAsIon>(&self, value: V) -> IonResult<E::Output> {
+    pub(crate) fn encode<V: WriteAsIon>(&self, value: V) -> IonResult<E::Output> {
         let bytes = self.encode_to(value, Vec::new())?;
         Ok(E::Output::from_bytes(bytes))
     }
 
-    pub fn encode_all<V: WriteAsIon, I: IntoIterator<Item = V>>(
+    pub(crate) fn encode_all<V: WriteAsIon, I: IntoIterator<Item = V>>(
         &self,
         values: I,
     ) -> IonResult<E::Output> {
@@ -33,13 +33,17 @@ impl<E: Encoding> WriteConfig<E> {
         Ok(E::Output::from_bytes(bytes))
     }
 
-    pub fn encode_to<V: WriteAsIon, W: io::Write>(&self, value: V, output: W) -> IonResult<W> {
+    pub(crate) fn encode_to<V: WriteAsIon, W: io::Write>(
+        &self,
+        value: V,
+        output: W,
+    ) -> IonResult<W> {
         let mut writer = IonWriter::with_config(self.clone(), output)?;
         writer.write(value)?;
         writer.close()
     }
 
-    pub fn encode_all_to<V: WriteAsIon, I: IntoIterator<Item = V>, W: io::Write>(
+    pub(crate) fn encode_all_to<V: WriteAsIon, I: IntoIterator<Item = V>, W: io::Write>(
         &self,
         output: W,
         values: I,
@@ -49,14 +53,28 @@ impl<E: Encoding> WriteConfig<E> {
         writer.close()
     }
 
-    // TODO: Feature gate
+    #[cfg(feature = "experimental-reader-writer")]
     pub fn build_writer<W: io::Write>(self, output: W) -> IonResult<IonWriter<E, W>> {
         IonWriter::with_config(self, output)
     }
 
-    // TODO: Feature gate
+    // When the experimental-reader-writer feature is disabled, this method is `pub(crate)` instead
+    // of `pub`
+    #[cfg(not(feature = "experimental-reader-writer"))]
+    pub(crate) fn build_writer<W: io::Write>(self, output: W) -> IonResult<IonWriter<E, W>> {
+        IonWriter::with_config(self, output)
+    }
+
+    #[cfg(feature = "experimental-tooling-apis")]
     /// Builds a writer based on writer configuration
     pub fn build_raw_writer<W: io::Write>(self, output: W) -> IonResult<E::Writer<W>> {
+        E::Writer::build(self, output)
+    }
+
+    // When the experimental-tooling-apis feature is disabled, this method is `pub(crate)` instead
+    // of `pub`
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    pub(crate) fn build_raw_writer<W: io::Write>(self, output: W) -> IonResult<E::Writer<W>> {
         E::Writer::build(self, output)
     }
 }

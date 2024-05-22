@@ -16,6 +16,7 @@ use crate::{IonError, IonResult};
 ///
 /// ```
 ///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
@@ -47,6 +48,8 @@ use crate::{IonError, IonResult};
 ///
 ///# Ok(())
 ///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 #[derive(Copy, Clone)]
 pub struct LazyList<'top, D: LazyDecoder> {
@@ -63,8 +66,13 @@ impl<'top, D: LazyDecoder> LazyList<'top, D> {
         }
     }
 
-    // TODO: Feature gate
+    #[cfg(feature = "experimental-tooling-apis")]
     pub fn lower(&self) -> LazyExpandedList<'top, D> {
+        self.expanded_list
+    }
+
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    pub(crate) fn lower(&self) -> LazyExpandedList<'top, D> {
         self.expanded_list
     }
 
@@ -73,6 +81,7 @@ impl<'top, D: LazyDecoder> LazyList<'top, D> {
     ///
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -95,6 +104,8 @@ impl<'top, D: LazyDecoder> LazyList<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {
@@ -204,6 +215,7 @@ impl<'top, D: LazyDecoder> LazySExp<'top, D> {
     ///
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -226,6 +238,8 @@ impl<'top, D: LazyDecoder> LazySExp<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {

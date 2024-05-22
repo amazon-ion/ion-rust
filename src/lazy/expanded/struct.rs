@@ -140,7 +140,7 @@ pub struct LazyExpandedStruct<'top, D: LazyDecoder> {
     pub(crate) source: ExpandedStructSource<'top, D>,
 }
 
-//TODO: Feature gate
+#[cfg(feature = "experimental-tooling-apis")]
 impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context

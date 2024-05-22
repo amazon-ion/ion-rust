@@ -29,6 +29,7 @@ use crate::{IonError, IonResult};
 /// re-read as long as the reader remains on the same top-level value.
 /// ```
 ///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
@@ -60,6 +61,8 @@ use crate::{IonError, IonResult};
 ///
 ///# Ok(())
 ///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 pub struct IonReader<Encoding: LazyDecoder, Input: IonInput> {
     system_reader: LazySystemReader<Encoding, Input>,

@@ -1,4 +1,4 @@
-use crate::v1_1::FlexUInt;
+use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::IonResult;
 use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;

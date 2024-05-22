@@ -19,6 +19,7 @@ use crate::{
 ///
 /// ```
 ///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
@@ -50,6 +51,8 @@ use crate::{
 ///
 ///# Ok(())
 ///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 #[derive(Copy, Clone)]
 pub struct LazyValue<'top, D: LazyDecoder> {
@@ -69,6 +72,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     /// Returns the [`IonType`] of this value.
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -88,6 +92,8 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn ion_type(&self) -> IonType {
         self.expanded_value.ion_type()
@@ -104,8 +110,13 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
         !self.is_container()
     }
 
-    // TODO: Feature gate
+    #[cfg(feature = "experimental-tooling-apis")]
     pub fn lower(&self) -> LazyExpandedValue<'top, D> {
+        self.expanded_value
+    }
+
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    pub(crate) fn lower(&self) -> LazyExpandedValue<'top, D> {
         self.expanded_value
     }
 
@@ -114,6 +125,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -134,6 +146,8 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn is_null(&self) -> bool {
         self.expanded_value.is_null()
@@ -144,6 +158,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -166,6 +181,8 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {
@@ -181,6 +198,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     /// Reads the body of this value (that is: its data) and returns it as a [`ValueRef`].
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -204,6 +222,8 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn read(&self) -> IonResult<ValueRef<'top, D>> {
         use ExpandedValueRef::*;
@@ -276,6 +296,7 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     /// returns an `Err(IonError)`.
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -298,6 +319,8 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn are<A: AsSymbolRef, I: IntoIterator<Item = A>>(
         mut self,
@@ -318,6 +341,7 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     /// don't match the provided sequence exactly.
     /// ```
     ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -340,6 +364,8 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     ///
     ///# Ok(())
     ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn expect<A: AsSymbolRef, I: IntoIterator<Item = A>>(
         self,
