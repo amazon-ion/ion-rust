@@ -39,7 +39,8 @@
 //!| char, string, unit_variant                                   | string                                      |
 //!| byte-array                                                   | blob                                        |
 //!| option                                                       | None - null, Some - based on other mappings |
-//!| unit, unit_struct                                            | null                                        |
+//!| unit                                                         | null                                        |
+//!| unit_struct                                                  | symbol                                      |
 //!| seq, tuple, tuple_struct                                     | list                                        |
 //!| newtype_struct, map, struct                                  | struct                                      |
 //!| newtype_variant                                              | variant value with annotation               |
@@ -339,5 +340,20 @@ mod tests {
             Element::read_first(i),
             Element::read_first(to_string(&expected).unwrap())
         );
+    }
+
+    #[test]
+    fn test_symbol() {
+        let i = r#"inches"#;
+        let expected = String::from("inches");
+        assert_eq!(expected, from_ion::<String, _>(i).unwrap());
+
+        let i = r#"'with space'"#;
+        let expected = String::from("with space");
+        assert_eq!(expected, from_ion::<String, _>(i).unwrap());
+
+        let i = r#"'\'embedded quotes\''"#;
+        let expected = String::from("'embedded quotes'");
+        assert_eq!(expected, from_ion::<String, _>(i).unwrap());
     }
 }
