@@ -198,7 +198,7 @@ macro_rules! v1_x_reader_writer {
     ($visibility:vis) => {
         #[allow(unused_imports)]
         $visibility use crate::{
-            lazy::streaming_raw_reader::IonInput,
+            lazy::streaming_raw_reader::{IonInput, IonSlice, IonStream},
             lazy::decoder::LazyDecoder,
             lazy::encoder::LazyEncoder,
             lazy::encoding::Encoding,
@@ -211,7 +211,7 @@ macro_rules! v1_x_reader_writer {
             symbol_table::SymbolTable,
             lazy::value::LazyValue,
             lazy::value_ref::ValueRef,
-            lazy::r#struct::LazyStruct,
+            lazy::r#struct::{LazyStruct, LazyField},
             lazy::sequence::{LazyList, LazySExp},
             lazy::encoder::value_writer::{ValueWriter, StructWriter, SequenceWriter, EExpWriter},
         };
@@ -286,7 +286,9 @@ macro_rules! v1_0_tooling_apis {
             binary::uint::DecodedUInt,
             binary::var_int::VarInt,
             binary::var_uint::VarUInt,
-            lazy::binary::immutable_buffer::ImmutableBuffer,
+            lazy::binary::immutable_buffer::{ImmutableBuffer, AnnotationsWrapper},
+            lazy::binary::raw::type_descriptor::Header,
+            lazy::raw_value_ref::RawValueRef,
             lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0 as RawBinaryWriter,
             lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0 as RawTextWriter,
             lazy::binary::raw::sequence::{

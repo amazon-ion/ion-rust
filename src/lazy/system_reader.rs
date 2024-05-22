@@ -3,7 +3,7 @@
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
-use crate::lazy::expanded::{ExpandedValueRef, LazyExpandedValue, ExpandingReader};
+use crate::lazy::expanded::{ExpandedValueRef, ExpandingReader, LazyExpandedValue};
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::value::LazyValue;
@@ -28,8 +28,7 @@ const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
 /// which may contain either a scalar value or a lazy container that may itself be traversed.
 ///
 /// The values that the reader yields ([`LazyValue`],
-/// [`LazyBinarySequence`](crate::lazy::sequence::LazyBinarySequence) and
-/// [`LazyStruct`](crate::lazy::struct::LazyStruct)), are immutable references to the data stream,
+/// [`LazyList`](crate::LazyList), [`LazySExp`](crate::LazySExp) and [`LazyStruct`](crate::LazyStruct)), are immutable references to the data stream,
 /// and remain valid until [`SystemReader::next_item`] is called again to advance the reader to
 /// the next top level value. This means that these references can be stored, read, and re-read as
 /// long as the reader remains on the same top-level value.

@@ -319,7 +319,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
 
     /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,
     /// calling this method will not read additional data; the `RawValueRef` will provide a
-    /// [`LazyRawBinarySequence_1_0`] or [`LazyStruct`](crate::lazy::struct::LazyStruct)
+    /// [`LazyRawBinaryList_1_0`], [`LazyRawBinarySExp_1_0`], or [`LazyRawBinaryStruct_1_0`]
     /// that can be traversed to access the container's contents.
     pub fn read(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         if self.is_null() {
@@ -412,7 +412,9 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         let number_of_bytes = self.encoded_value.value_body_length();
         let value = match number_of_bytes {
             0 => 0f64,
-            4 => f64::from(f32::from_be_bytes(ieee_bytes.try_into().expect("already confirmed length"))),
+            4 => f64::from(f32::from_be_bytes(
+                ieee_bytes.try_into().expect("already confirmed length"),
+            )),
             8 => f64::from_be_bytes(ieee_bytes.try_into().expect("already confirmed length")),
             _ => return IonResult::decoding_error("encountered a float with an illegal length"),
         };
