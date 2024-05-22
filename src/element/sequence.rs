@@ -2,7 +2,10 @@ use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::SequenceIterator;
 use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
+use crate::lazy::encoding::Encoding;
+use crate::{IonResult, WriteConfig};
 use std::cmp::Ordering;
+use std::io;
 
 /// An iterable, addressable series of Ion [`Element`]s.
 ///
@@ -45,6 +48,62 @@ impl Sequence {
 
     pub fn iter(&self) -> SequenceIterator<'_> {
         self.elements()
+    }
+
+    /// ```
+    ///# use ion_rs::IonResult;
+    ///# fn main() -> IonResult<()> {
+    /// use ion_rs::{Element, Sequence};
+    /// use ion_rs::v1_0::Binary;
+    ///
+    /// let ion_data = r#"1 2 3 foo bar baz"#;
+    /// let sequence_before: Sequence = Element::read_all(ion_data)?;
+    ///
+    /// // Encode the elements in this sequence as a binary Ion stream.
+    /// let ion_bytes: Vec<u8> = sequence_before.encode_as(Binary)?;
+    /// // Read the sequence back from the binary stream
+    /// let sequence_after = Element::read_all(ion_bytes)?;
+    ///
+    /// // Confirm that the value we read back is identical to the one we serialized
+    /// assert_eq!(sequence_before, sequence_after);
+    ///
+    ///# Ok(())
+    ///# }
+    /// ```
+    pub fn encode_as<E: Encoding, C: Into<WriteConfig<E>>>(
+        &self,
+        config: C,
+    ) -> IonResult<E::Output> {
+        config.into().encode_all(self.elements())
+    }
+
+    /// ```
+    ///# use ion_rs::IonResult;
+    ///# fn main() -> IonResult<()> {
+    /// use ion_rs::{Element, Sequence};
+    /// use ion_rs::v1_0::Binary;
+    ///
+    /// let ion_data = r#"1 2 3 foo bar baz"#;
+    /// let sequence_before: Sequence = Element::read_all(ion_data)?;
+    ///
+    /// // Encode the elements in this sequence to our buffer as a binary Ion stream. The bytes will
+    /// // be written to the provided Vec<u8>, and the Vec<u8> will be returned when encoding is complete.
+    /// let ion_bytes: Vec<u8> = sequence_before.encode_to(Vec::new(), Binary)?;
+    /// // Read the sequence back from the binary stream
+    /// let sequence_after = Element::read_all(ion_bytes)?;
+    ///
+    /// // Confirm that the value we read back is identical to the one we serialized
+    /// assert_eq!(sequence_before, sequence_after);
+    ///
+    ///# Ok(())
+    ///# }
+    /// ```
+    pub fn encode_to<E: Encoding, C: Into<WriteConfig<E>>, W: io::Write>(
+        &self,
+        output: W,
+        config: C,
+    ) -> IonResult<W> {
+        config.into().encode_all_to(output, self.elements())
     }
 }
 

@@ -684,6 +684,30 @@ impl Element {
         Ok(Reader::new(source).into_elements())
     }
 
+    /// Encodes this element as an Ion stream with itself as the only top-level value.
+    /// If the stream's encoding is binary Ion, returns a `Vec<u8>` containing the encoded bytes.
+    /// If the stream's encoding is text Ion, returns a `String` containing the UTF-8 encoded text.
+    ///
+    /// ```
+    ///# use ion_rs::IonResult;
+    ///# fn main() -> IonResult<()> {
+    /// use ion_rs::Element;
+    /// use ion_rs::v1_0::Binary;
+    ///
+    /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
+    /// let element_before = Element::read_one(ion_data)?;
+    ///
+    /// // Encode the element as a binary Ion stream
+    /// let ion_bytes: Vec<u8> = element_before.encode_as(Binary)?;
+    /// // Read the element back from the binary stream
+    /// let element_after = Element::read_one(ion_bytes)?;
+    ///
+    /// // Confirm that the value we read back is identical to the one we serialized
+    /// assert_eq!(element_before, element_after);
+    ///
+    ///# Ok(())
+    ///# }
+    /// ```
     pub fn encode_as<E: Encoding, C: Into<WriteConfig<E>>>(
         &self,
         config: C,
@@ -691,135 +715,37 @@ impl Element {
         config.into().encode(self)
     }
 
+    /// Encodes this element as an Ion stream with itself as the only top-level value.
+    /// The encoded bytes are written to the provided [`io::Write`] implementation.
+    ///
+    /// ```
+    ///# use ion_rs::IonResult;
+    ///# fn main() -> IonResult<()> {
+    /// use ion_rs::Element;
+    /// use ion_rs::v1_0::Binary;
+    ///
+    /// let ion_data = r#"{foo: "hello", bar: quux::5, baz: null, bar: false}"#;
+    /// let element_before = Element::read_one(ion_data)?;
+    ///
+    /// // Encode the element as a binary Ion stream. The bytes will be written to the provided
+    /// //  Vec<u8>, and the Vec<u8> will be returned when encoding is complete.
+    /// let ion_bytes: Vec<u8> = element_before.encode_to(Vec::new(), Binary)?;
+    /// // Read the element back from the binary stream
+    /// let element_after = Element::read_one(ion_bytes)?;
+    ///
+    /// // Confirm that the value we read back is identical to the one we serialized
+    /// assert_eq!(element_before, element_after);
+    ///
+    ///# Ok(())
+    ///# }
+    /// ```
     pub fn encode_to<E: Encoding, C: Into<WriteConfig<E>>, W: io::Write>(
         &self,
-        config: C,
         output: W,
+        config: C,
     ) -> IonResult<W> {
         config.into().encode_to(self, output)
     }
-
-    // /// Serializes each of the provided [`Element`]s as Ion, writing the resulting bytes to the
-    // /// provided [`io::Write`]. The caller must verify that `output` is either empty or only
-    // /// contains Ion of the same format (text or binary) before writing begins.
-    // ///
-    // /// This method is preferable to [`write_as`](Self::write_as) when writing streams consisting
-    // /// of more than one top-level value; the writer can re-use the same symbol table definition
-    // /// to encode each value, resulting in a more compact representation.
-    // ///
-    // /// ```
-    // ///# use ion_rs::IonResult;
-    // ///# fn main() -> IonResult<()> {
-    // /// use ion_rs::{Element, Format, ion_seq};
-    // ///
-    // /// let elements = ion_seq!("foo", "bar", "baz");
-    // /// let mut buffer: Vec<u8> = Vec::new();
-    // /// Element::write_all_as(&elements, Format::Binary, &mut buffer)?;
-    // /// let roundtrip_elements = Element::read_all(buffer)?;
-    // /// assert_eq!(elements, roundtrip_elements);
-    // ///# Ok(())
-    // ///# }
-    // /// ```
-    // pub fn write_all_as<
-    //     'a,
-    //     E: Encoding,
-    //     C: Into<WriteConfig<E>>,
-    //     W: io::Write,
-    //     I: IntoIterator<Item = &'a Element>,
-    // >(
-    //     elements: I,
-    //     config: C,
-    //     output: W,
-    // ) -> IonResult<W> {
-    //     let mut writer = ApplicationWriter::with_config(config.into(), output)?;
-    //     for element in elements {
-    //         Element::write_element_to(element, &mut writer)?;
-    //     }
-    //     writer.close()
-    // }
-
-    //     #[doc = r##"
-    // Serializes this [`Element`] as binary Ion, returning the output as a `Vec<u8>`.
-    // "##]
-    //     #[cfg_attr(
-    //         feature = "experimental-writer",
-    //         doc = r##"
-    // This is a convenience method; it is less efficient than [`Element::write_to`] because:
-    // 1. It must allocate a new `Vec<u8>` to fill and return.
-    // 2. It encodes this [`Element`] as its own binary Ion stream, limiting the benefit of the
-    //    symbol table.
-    // "##
-    //     )]
-    //     #[doc = r##"
-    // ```
-    // # use ion_rs::IonResult;
-    // # fn main() -> IonResult<()> {
-    // use ion_rs::{Element, ion_list, v1_0};
-    //
-    // // Construct an Element
-    // let element_before: Element = ion_list! [1, 2, 3].into();
-    //
-    // // Write the Element to a buffer as binary Ion
-    // let binary_ion: Vec<u8> = element_before.to_binary(v1_0::Binary)?;
-    //
-    // // Read the Element back from the serialized form
-    // let element_after = Element::read_one(&binary_ion)?;
-    //
-    // // Confirm that no data was lost
-    // assert_eq!(element_before, element_after);
-    // # Ok(())
-    // # }
-    // ```
-    // "##]
-    //     pub fn to_binary<'a, E: BinaryEncoding<'a>, C: Into<WriteConfig<E>>>(
-    //         &self,
-    //         config: C,
-    //     ) -> IonResult<Vec<u8>> {
-    //         self.write_as(config, Vec::new())
-    //     }
-    //
-    //     #[doc = r##"
-    // Serializes this [`Element`] as text Ion using the requested [`TextKind`] and returning the
-    // output as a `String`.
-    // "##]
-    //     #[cfg_attr(
-    //         feature = "experimental-writer",
-    //         doc = r##"
-    // This is a convenience method; to provide your own buffer instead of allocating a `String`
-    // on each call, see [`Element::write_as`]. To provide your own writer instead of constructing
-    // a new `String` and writer on each call, see [`Element::write_to`].
-    //     "##
-    //     )]
-    //     ///
-    //
-    //     #[doc = r##"
-    // ```
-    // # use ion_rs::IonResult;
-    // # fn main() -> IonResult<()> {
-    // use ion_rs::ion_list;
-    // use ion_rs::Element;
-    // use ion_rs::TextKind;
-    //
-    // // Construct an Element
-    // let element_before: Element = ion_list! [1, 2, 3].into();
-    //
-    // let text_ion: String = element_before.to_text(TextKind::Pretty)?;
-    //
-    // // Read the Element back from the serialized form
-    // let element_after = Element::read_one(&text_ion)?;
-    //
-    // // Confirm that no data was lost
-    // assert_eq!(element_before, element_after);
-    // # Ok(())
-    // # }
-    // ```
-    //     "##]
-    //     pub fn to_text<'a, E: TextEncoding<'a>, C: Into<WriteConfig<E>>>(
-    //         &self,
-    //         config: C,
-    //     ) -> IonResult<String> {
-    //         config.into().encode()
-    //     }
 }
 
 impl Display for Element {

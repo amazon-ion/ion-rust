@@ -3,13 +3,13 @@ use std::marker::PhantomData;
 
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::encoder::writer::IonWriter;
 use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, OutputFromBytes, TextEncoding_1_0,
     TextEncoding_1_1,
 };
 use crate::{IonResult, TextKind};
-use crate::lazy::encoder::writer::IonWriter;
 
 /// Writer configuration to provide format and Ion version details to writer through encoding
 /// This will be used to create a writer without specifying which writer methods to use
@@ -29,7 +29,7 @@ impl<E: Encoding> WriteConfig<E> {
         &self,
         values: I,
     ) -> IonResult<E::Output> {
-        let bytes = self.encode_all_to(values, Vec::new())?;
+        let bytes = self.encode_all_to(Vec::new(), values)?;
         Ok(E::Output::from_bytes(bytes))
     }
 
@@ -41,8 +41,8 @@ impl<E: Encoding> WriteConfig<E> {
 
     pub fn encode_all_to<V: WriteAsIon, I: IntoIterator<Item = V>, W: io::Write>(
         &self,
-        values: I,
         output: W,
+        values: I,
     ) -> IonResult<W> {
         let mut writer = IonWriter::with_config(self.clone(), output)?;
         writer.write_all(values)?;

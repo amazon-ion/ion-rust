@@ -57,7 +57,7 @@ pub trait Encoding: LazyEncoder + LazyDecoder {
         values: I,
         output: W,
     ) -> IonResult<W> {
-        Self::default_write_config().encode_all_to(values, output)
+        Self::default_write_config().encode_all_to(output, values)
     }
     fn name() -> &'static str;
     fn default_write_config() -> WriteConfig<Self>;
