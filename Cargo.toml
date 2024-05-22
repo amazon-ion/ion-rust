@@ -25,7 +25,7 @@ rust-version = "1.67"
 
 [features]
 default = []
-experimental-ion-hash = ["digest"]
+experimental-ion-hash = ["digest", "experimental-reader-writer"]
 
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
 # These are not guaranteed any sort of API stability and may also have non-standard
