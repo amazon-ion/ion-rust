@@ -3,7 +3,7 @@
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
-use crate::lazy::expanded::{ExpandedValueRef, LazyExpandedValue, LazyExpandingReader};
+use crate::lazy::expanded::{ExpandedValueRef, LazyExpandedValue, ExpandingReader};
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::value::LazyValue;
@@ -18,11 +18,11 @@ const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
 /// Unlike [`crate::lazy::reader::IonReader`], which only exposes values that are part
-/// of the application data model, [`LazySystemReader`] also yields Ion version markers
+/// of the application data model, [`SystemReader`] also yields Ion version markers
 /// (as [`SystemStreamItem::VersionMarker`]) and structs representing a symbol table (as
 /// [`SystemStreamItem::SymbolTable`]).
 ///
-/// Each time [`LazySystemReader::next_item`] is called, the reader will advance to the next top-level
+/// Each time [`SystemReader::next_item`] is called, the reader will advance to the next top-level
 /// value in the input stream. Once positioned on a top-level value, users may visit nested values by
 /// calling [`LazyValue::read`] and working with the resulting [`crate::lazy::value_ref::ValueRef`],
 /// which may contain either a scalar value or a lazy container that may itself be traversed.
@@ -30,7 +30,7 @@ const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
 /// The values that the reader yields ([`LazyValue`],
 /// [`LazyBinarySequence`](crate::lazy::sequence::LazyBinarySequence) and
 /// [`LazyStruct`](crate::lazy::struct::LazyStruct)), are immutable references to the data stream,
-/// and remain valid until [`LazySystemReader::next_item`] is called again to advance the reader to
+/// and remain valid until [`SystemReader::next_item`] is called again to advance the reader to
 /// the next top level value. This means that these references can be stored, read, and re-read as
 /// long as the reader remains on the same top-level value.
 /// ```
@@ -70,15 +70,15 @@ const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
 ///# #[cfg(not(feature = "experimental-reader-writer"))]
 ///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
-pub struct LazySystemReader<Encoding: LazyDecoder, Input: IonInput> {
-    pub(crate) expanding_reader: LazyExpandingReader<Encoding, Input>,
+pub struct SystemReader<Encoding: LazyDecoder, Input: IonInput> {
+    pub(crate) expanding_reader: ExpandingReader<Encoding, Input>,
 }
 
-pub type LazySystemBinaryReader<Input> = LazySystemReader<BinaryEncoding_1_0, Input>;
-pub type LazySystemTextReader_1_0<Input> = LazySystemReader<TextEncoding_1_0, Input>;
-pub type LazySystemTextReader_1_1<Input> = LazySystemReader<TextEncoding_1_1, Input>;
+pub type SystemBinaryReader_1_0<Input> = SystemReader<BinaryEncoding_1_0, Input>;
+pub type SystemTextReader_1_0<Input> = SystemReader<TextEncoding_1_0, Input>;
+pub type SystemTextReader_1_1<Input> = SystemReader<TextEncoding_1_1, Input>;
 
-pub type LazySystemAnyReader<Input> = LazySystemReader<AnyEncoding, Input>;
+pub type SystemAnyReader<Input> = SystemReader<AnyEncoding, Input>;
 
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
 // the table defines in this structure so that they may be applied when the reader next advances.
@@ -99,31 +99,31 @@ impl PendingLst {
     }
 }
 
-impl<Input: IonInput> LazySystemAnyReader<Input> {
-    pub fn new(ion_data: Input) -> LazySystemAnyReader<Input> {
+impl<Input: IonInput> SystemAnyReader<Input> {
+    pub fn new(ion_data: Input) -> SystemAnyReader<Input> {
         let raw_reader = StreamingRawReader::new(AnyEncoding, ion_data);
-        let expanding_reader = LazyExpandingReader::new(raw_reader);
-        LazySystemReader { expanding_reader }
+        let expanding_reader = ExpandingReader::new(raw_reader);
+        SystemReader { expanding_reader }
     }
 }
 
-impl<Input: IonInput> LazySystemBinaryReader<Input> {
-    pub fn new(ion_data: Input) -> LazySystemBinaryReader<Input> {
+impl<Input: IonInput> SystemBinaryReader_1_0<Input> {
+    pub fn new(ion_data: Input) -> SystemBinaryReader_1_0<Input> {
         let raw_reader = StreamingRawReader::new(BinaryEncoding_1_0, ion_data);
-        let expanding_reader = LazyExpandingReader::new(raw_reader);
-        LazySystemReader { expanding_reader }
+        let expanding_reader = ExpandingReader::new(raw_reader);
+        SystemReader { expanding_reader }
     }
 }
 
-impl<Input: IonInput> LazySystemTextReader_1_1<Input> {
-    pub fn new(ion_data: Input) -> LazySystemTextReader_1_1<Input> {
+impl<Input: IonInput> SystemTextReader_1_1<Input> {
+    pub fn new(ion_data: Input) -> SystemTextReader_1_1<Input> {
         let raw_reader = StreamingRawReader::new(TextEncoding_1_1, ion_data);
-        let expanding_reader = LazyExpandingReader::new(raw_reader);
-        LazySystemReader { expanding_reader }
+        let expanding_reader = ExpandingReader::new(raw_reader);
+        SystemReader { expanding_reader }
     }
 }
 
-impl<Encoding: LazyDecoder, Input: IonInput> LazySystemReader<Encoding, Input> {
+impl<Encoding: LazyDecoder, Input: IonInput> SystemReader<Encoding, Input> {
     // Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
     // `$ion_symbol_table`.
     pub fn is_symbol_table_struct(
@@ -276,7 +276,7 @@ mod tests {
         hello
         "#,
         )?;
-        let mut system_reader = LazySystemBinaryReader::new(ion_data);
+        let mut system_reader = SystemBinaryReader_1_0::new(ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::VersionMarker(marker) => {
@@ -301,7 +301,7 @@ mod tests {
         )
         "#,
         )?;
-        let mut system_reader = LazySystemBinaryReader::new(ion_data);
+        let mut system_reader = SystemBinaryReader_1_0::new(ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {
@@ -328,7 +328,7 @@ mod tests {
         }
         "#,
         )?;
-        let mut system_reader = LazySystemBinaryReader::new(ion_data);
+        let mut system_reader = SystemBinaryReader_1_0::new(ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {

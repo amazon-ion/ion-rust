@@ -162,7 +162,7 @@ pub struct LazyRawAnyEExpression<'top> {
 }
 
 #[derive(Debug, Copy, Clone)]
-enum LazyRawAnyEExpressionKind<'top> {
+pub enum LazyRawAnyEExpressionKind<'top> {
     Text_1_1(RawTextEExpression_1_1<'top>),
     Binary_1_1(Never), // TODO: RawBinaryEExpression_1_1
 }

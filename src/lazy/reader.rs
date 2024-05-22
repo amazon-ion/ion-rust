@@ -7,7 +7,7 @@ use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::streaming_raw_reader::IonInput;
 use crate::lazy::system_reader::{
-    LazySystemAnyReader, LazySystemBinaryReader, LazySystemReader, LazySystemTextReader_1_1,
+    SystemAnyReader, SystemBinaryReader_1_0, SystemReader, SystemTextReader_1_1,
 };
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
@@ -65,7 +65,7 @@ use crate::{IonError, IonResult};
 ///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 pub struct IonReader<Encoding: LazyDecoder, Input: IonInput> {
-    system_reader: LazySystemReader<Encoding, Input>,
+    system_reader: SystemReader<Encoding, Input>,
 }
 
 pub(crate) enum NextApplicationValue<'top, D: LazyDecoder> {
@@ -127,21 +127,21 @@ pub type Reader<Input> = IonReader<AnyEncoding, Input>;
 
 impl<Input: IonInput> Reader<Input> {
     pub fn new(ion_data: Input) -> Reader<Input> {
-        let system_reader = LazySystemAnyReader::new(ion_data);
+        let system_reader = SystemAnyReader::new(ion_data);
         IonReader { system_reader }
     }
 }
 
 impl<Input: IonInput> BinaryReader_1_0<Input> {
     pub fn new(ion_data: Input) -> IonResult<BinaryReader_1_0<Input>> {
-        let system_reader = LazySystemBinaryReader::new(ion_data);
+        let system_reader = SystemBinaryReader_1_0::new(ion_data);
         Ok(IonReader { system_reader })
     }
 }
 
 impl<Input: IonInput> TextReader_1_1<Input> {
     pub fn new(ion_data: Input) -> IonResult<TextReader_1_1<Input>> {
-        let system_reader = LazySystemTextReader_1_1::new(ion_data);
+        let system_reader = SystemTextReader_1_1::new(ion_data);
         Ok(IonReader { system_reader })
     }
 

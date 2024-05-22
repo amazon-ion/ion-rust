@@ -189,12 +189,16 @@ pub mod ion_hash;
 mod lazy;
 mod write_config;
 
+pub use crate::lazy::any_encoding::AnyEncoding as Any;
+pub use crate::lazy::decoder::{HasRange, HasSpan};
+pub use crate::lazy::span::Span;
 pub use crate::write_config::WriteConfig;
 
 macro_rules! v1_x_reader_writer {
     ($visibility:vis) => {
         #[allow(unused_imports)]
         $visibility use crate::{
+            lazy::streaming_raw_reader::IonInput,
             lazy::decoder::LazyDecoder,
             lazy::encoder::LazyEncoder,
             lazy::encoding::Encoding,
@@ -206,7 +210,6 @@ macro_rules! v1_x_reader_writer {
             raw_symbol_ref::RawSymbolRef,
             symbol_table::SymbolTable,
             lazy::value::LazyValue,
-
             lazy::value_ref::ValueRef,
             lazy::r#struct::LazyStruct,
             lazy::sequence::{LazyList, LazySExp},
@@ -236,6 +239,46 @@ macro_rules! v1_1_reader_writer {
     };
 }
 
+macro_rules! v1_x_tooling_apis {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            lazy::raw_stream_item::RawStreamItem,
+            lazy::any_encoding::{
+                LazyRawAnyVersionMarker, LazyRawAnyVersionMarkerKind,
+                LazyRawAnyValue, LazyRawValueKind,
+                LazyRawAnyList, LazyRawListKind,
+                LazyRawAnySExp, LazyRawSExpKind,
+                LazyRawAnyStruct, LazyRawStructKind,
+                LazyRawAnyFieldName, LazyRawFieldNameKind,
+                LazyRawAnyEExpression, LazyRawAnyEExpressionKind,
+            },
+            lazy::decoder::{
+                LazyRawSequence,
+                LazyRawStruct,
+                LazyRawFieldExpr,
+                LazyRawFieldName,
+                LazyRawValue,
+                LazyRawReader,
+                RawVersionMarker,
+                LazyRawContainer,
+            },
+            lazy::encoder::{
+                LazyRawWriter
+            },
+            lazy::expanded::r#struct::{
+                LazyExpandedStruct, ExpandedStructSource,
+                LazyExpandedField,
+                LazyExpandedFieldName
+            },
+            lazy::expanded::sequence::{Environment, ExpandedListSource, ExpandedSExpSource, LazyExpandedList, LazyExpandedSExp},
+            lazy::expanded::{LazyExpandedValue, ExpandingReader, ExpandedValueSource, ExpandedAnnotationsSource, ExpandedValueRef},
+            lazy::system_stream_item::SystemStreamItem,
+            lazy::system_reader::{SystemReader},
+        };
+    };
+}
+
 macro_rules! v1_0_tooling_apis {
     ($visibility:vis) => {
         #[allow(unused_imports)]
@@ -244,8 +287,19 @@ macro_rules! v1_0_tooling_apis {
             binary::var_int::VarInt,
             binary::var_uint::VarUInt,
             lazy::binary::immutable_buffer::ImmutableBuffer,
-            lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0,
-            lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0,
+            lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0 as RawBinaryWriter,
+            lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0 as RawTextWriter,
+            lazy::binary::raw::sequence::{
+                LazyRawBinaryList_1_0 as LazyRawBinaryList,
+                LazyRawBinarySExp_1_0 as LazyRawBinarySExp
+            },
+            lazy::binary::raw::r#struct::{LazyRawBinaryStruct_1_0 as LazyRawBinaryStruct, LazyRawBinaryFieldName_1_0 as LazyRawBinaryFieldName},
+            lazy::binary::raw::value::{
+                LazyRawBinaryValue_1_0 as LazyRawBinaryValue,
+                LazyRawBinaryVersionMarker_1_0 as LazyRawBinaryVersionMarker,
+                EncodedBinaryValueData_1_0 as EncodedBinaryValueData,
+                EncodedBinaryAnnotations_1_0 as EncodedBinaryAnnotations
+            },
         };
     };
 }
@@ -256,8 +310,8 @@ macro_rules! v1_1_tooling_apis {
         $visibility use crate::{
             lazy::encoder::binary::v1_1::flex_int::FlexInt,
             lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
-            lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1,
-            lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1,
+            lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1 as RawBinaryWriter,
+            lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1 as RawTextWriter,
         };
     };
 }
@@ -267,6 +321,12 @@ v1_x_reader_writer!(pub);
 
 #[cfg(not(feature = "experimental-reader-writer"))]
 v1_x_reader_writer!(pub(crate));
+
+#[cfg(feature = "experimental-tooling-apis")]
+v1_x_tooling_apis!(pub);
+
+#[cfg(not(feature = "experimental-tooling-apis"))]
+v1_x_tooling_apis!(pub(crate));
 
 pub mod v1_0 {
     #[cfg(feature = "experimental-tooling-apis")]

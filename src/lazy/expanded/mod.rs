@@ -58,7 +58,7 @@ use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
-use crate::lazy::system_reader::{LazySystemReader, PendingLst};
+use crate::lazy::system_reader::{PendingLst, SystemReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
@@ -159,7 +159,7 @@ impl<'top, D: LazyDecoder> ExpandedStreamItem<'top, D> {
 
 /// A reader that evaluates macro invocations in the data stream and surfaces the resulting
 /// raw values to the caller.
-pub struct LazyExpandingReader<Encoding: LazyDecoder, Input: IonInput> {
+pub struct ExpandingReader<Encoding: LazyDecoder, Input: IonInput> {
     raw_reader: UnsafeCell<StreamingRawReader<Encoding, Input>>,
     // The expanding raw reader needs to be able to return multiple values from a single expression.
     // For example, if the raw reader encounters this e-expression:
@@ -220,7 +220,7 @@ pub struct LazyExpandingReader<Encoding: LazyDecoder, Input: IonInput> {
     macro_table: UnsafeCell<MacroTable>,
 }
 
-impl<Encoding: LazyDecoder, Input: IonInput> LazyExpandingReader<Encoding, Input> {
+impl<Encoding: LazyDecoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     pub(crate) fn new(raw_reader: StreamingRawReader<Encoding, Input>) -> Self {
         Self {
             raw_reader: raw_reader.into(),
@@ -303,10 +303,10 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazyExpandingReader<Encoding, Input
         value: LazyExpandedValue<'top, Encoding>,
     ) -> IonResult<SystemStreamItem<'top, Encoding>> {
         // If this value is a symbol table...
-        if LazySystemReader::<_, Input>::is_symbol_table_struct(&value)? {
+        if SystemReader::<_, Input>::is_symbol_table_struct(&value)? {
             // ...traverse it and record any new symbols in our `pending_lst`.
             let pending_lst = unsafe { &mut *self.pending_lst.get() };
-            LazySystemReader::<_, Input>::process_symbol_table(pending_lst, &value)?;
+            SystemReader::<_, Input>::process_symbol_table(pending_lst, &value)?;
             pending_lst.has_changes = true;
             let lazy_struct = LazyStruct {
                 expanded_struct: value.read()?.expect_struct().unwrap(),
