@@ -6,23 +6,21 @@
 use ion_rs::*;
 
 fn main() -> IonResult<()> {
-    #[cfg(not(feature = "experimental-lazy-reader"))]
-    panic!("This example requires the 'experimental-lazy-reader' feature to work.");
+    #[cfg(not(feature = "experimental"))]
+    panic!("This example requires the 'experimental' feature to work.");
 
-    #[cfg(feature = "experimental-lazy-reader")]
+    #[cfg(feature = "experimental")]
     example::write_log_events()
 }
 
-#[cfg(feature = "experimental-lazy-reader")]
+#[cfg(feature = "experimental")]
 mod example {
     use chrono::{DateTime, FixedOffset};
-    use ion_rs::lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0;
-    use ion_rs::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
-    use ion_rs::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
-    use ion_rs::lazy::encoder::write_as_ion::WriteAsIon;
     use ion_rs::*;
     use std::env::args;
 
+    use ion_rs::v1_0::LazyRawBinaryWriter_1_0;
+    use ion_rs::v1_1::LazyRawBinaryWriter_1_1;
     use rand::rngs::StdRng;
     use rand::seq::SliceRandom;
     use rand::{Rng, SeedableRng};

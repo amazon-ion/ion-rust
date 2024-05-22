@@ -1,5 +1,5 @@
-mod value_writer;
-mod writer;
+pub(crate) mod value_writer;
+pub(crate) mod writer;
 
 use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
 use crate::lazy::encoder::{LazyEncoder, SymbolCreationPolicy};

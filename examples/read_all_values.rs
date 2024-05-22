@@ -1,28 +1,24 @@
-#[cfg(feature = "experimental-lazy-reader")]
+#[cfg(feature = "experimental")]
 use ion_rs::IonResult;
 
-#[cfg(not(feature = "experimental-lazy-reader"))]
+#[cfg(not(feature = "experimental"))]
 fn main() {
-    println!("This example requires the 'experimental-lazy-reader' feature to work.");
+    println!("This example requires the 'experimental' feature to work; try again with `--features experimental`");
 }
 
-#[cfg(feature = "experimental-lazy-reader")]
+#[cfg(feature = "experimental")]
 fn main() -> IonResult<()> {
     lazy_reader_example::read_all_values()
 }
 
-#[cfg(feature = "experimental-lazy-reader")]
+#[cfg(feature = "experimental")]
 mod lazy_reader_example {
     use std::fs::File;
     use std::process::exit;
 
     use memmap::MmapOptions;
 
-    use ion_rs::lazy::r#struct::LazyBinaryStruct_1_0 as LazyBinaryStruct;
-    use ion_rs::lazy::reader::BinaryReader_1_0;
-    use ion_rs::lazy::value::LazyBinaryValue;
-    use ion_rs::lazy::value_ref::ValueRef;
-    use ion_rs::IonResult;
+    use ion_rs::{v1_0, Encoding, IonResult, LazyStruct, LazyValue, ValueRef};
 
     pub fn read_all_values() -> IonResult<()> {
         let args: Vec<String> = std::env::args().collect();
@@ -41,7 +37,7 @@ mod lazy_reader_example {
         // We're going to recursively visit and read every value in the input stream, counting
         // them as we go.
         let mut count = 0;
-        let mut reader = BinaryReader_1_0::new(ion_data)?;
+        let mut reader = v1_0::BinaryReader::new(ion_data)?;
         while let Some(lazy_value) = reader.next()? {
             count += count_value_and_children(&lazy_value)?;
         }
@@ -50,7 +46,7 @@ mod lazy_reader_example {
     }
 
     // Counts scalar values as 1 and container values as (the number of children) + 1.
-    fn count_value_and_children(lazy_value: &LazyBinaryValue) -> IonResult<usize> {
+    fn count_value_and_children<E: Encoding>(lazy_value: &LazyValue<E>) -> IonResult<usize> {
         use ValueRef::*;
         let child_count = match lazy_value.read()? {
             List(s) => count_sequence_children(s.iter())?,
@@ -61,8 +57,8 @@ mod lazy_reader_example {
         Ok(1 + child_count)
     }
 
-    fn count_sequence_children<'a>(
-        lazy_sequence: impl Iterator<Item = IonResult<LazyBinaryValue<'a>>>,
+    fn count_sequence_children<'a, E: Encoding>(
+        lazy_sequence: impl Iterator<Item = IonResult<LazyValue<'a, E>>>,
     ) -> IonResult<usize> {
         let mut count = 0;
         for value in lazy_sequence {
@@ -71,7 +67,7 @@ mod lazy_reader_example {
         Ok(count)
     }
 
-    fn count_struct_children(lazy_struct: &LazyBinaryStruct) -> IonResult<usize> {
+    fn count_struct_children<E: Encoding>(lazy_struct: &LazyStruct<E>) -> IonResult<usize> {
         let mut count = 0;
         for field in lazy_struct {
             count += count_value_and_children(&field?.value())?;

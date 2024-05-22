@@ -195,13 +195,22 @@ macro_rules! v1_x_reader_writer {
     ($visibility:vis) => {
         #[allow(unused_imports)]
         $visibility use crate::{
+            lazy::decoder::LazyDecoder,
+            lazy::encoder::LazyEncoder,
+            lazy::encoding::Encoding,
             lazy::encoder::annotate::Annotatable,
             lazy::encoder::write_as_ion::WriteAsIon,
             lazy::encoder::writer::Writer,
             lazy::reader::Reader,
+            lazy::reader::IonReader,
             raw_symbol_ref::RawSymbolRef,
             symbol_table::SymbolTable,
+            lazy::value::LazyValue,
+
             lazy::value_ref::ValueRef,
+            lazy::r#struct::LazyStruct,
+            lazy::sequence::{LazyList, LazySExp},
+            lazy::encoder::value_writer::{ValueWriter, StructWriter, SequenceWriter, EExpWriter},
         };
     };
 }
@@ -235,6 +244,8 @@ macro_rules! v1_0_tooling_apis {
             binary::var_int::VarInt,
             binary::var_uint::VarUInt,
             lazy::binary::immutable_buffer::ImmutableBuffer,
+            lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0,
+            lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0,
         };
     };
 }
@@ -245,6 +256,8 @@ macro_rules! v1_1_tooling_apis {
         $visibility use crate::{
             lazy::encoder::binary::v1_1::flex_int::FlexInt,
             lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
+            lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1,
+            lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1,
         };
     };
 }
