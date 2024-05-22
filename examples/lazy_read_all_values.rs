@@ -19,7 +19,7 @@ mod lazy_reader_example {
     use memmap::MmapOptions;
 
     use ion_rs::lazy::r#struct::LazyBinaryStruct_1_0 as LazyBinaryStruct;
-    use ion_rs::lazy::reader::LazyBinaryReader;
+    use ion_rs::lazy::reader::BinaryReader_1_0;
     use ion_rs::lazy::value::LazyBinaryValue;
     use ion_rs::lazy::value_ref::ValueRef;
     use ion_rs::IonResult;
@@ -41,7 +41,7 @@ mod lazy_reader_example {
         // We're going to recursively visit and read every value in the input stream, counting
         // them as we go.
         let mut count = 0;
-        let mut reader = LazyBinaryReader::new(ion_data)?;
+        let mut reader = BinaryReader_1_0::new(ion_data)?;
         while let Some(lazy_value) = reader.next()? {
             count += count_value_and_children(&lazy_value)?;
         }

@@ -138,9 +138,6 @@
 #[allow(clippy::single_component_path_imports)]
 use rstest_reuse;
 
-// These re-exports are only visible if the "experimental-reader" feature is enabled.
-#[cfg(feature = "experimental-reader")]
-pub use {raw_symbol_token_ref::RawSymbolTokenRef, symbol_table::SymbolTable};
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
 pub use catalog::{Catalog, MapCatalog};
 pub use element::builders::{SequenceBuilder, StructBuilder};
@@ -149,16 +146,8 @@ pub use element::{
     IntoAnnotatedElement, IntoAnnotations, Sequence, Value,
 };
 pub use ion_data::IonData;
-#[cfg(feature = "experimental-lazy-reader")]
-pub use {
-    binary::uint::DecodedUInt, binary::var_int::VarInt, binary::var_uint::VarUInt,
-    lazy::binary::immutable_buffer::ImmutableBuffer,
-    lazy::encoder::binary::v1_1::flex_int::FlexInt,
-    lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
-};
-// These re-exports are only visible if the "experimental-writer" feature is enabled.
-#[cfg(feature = "experimental-writer")]
-pub use lazy::encoder::writer::ApplicationWriter;
+pub use lazy::value_ref::ValueRef;
+
 #[doc(inline)]
 pub use result::{IonError, IonResult};
 pub use shared_symbol_table::SharedSymbolTable;
@@ -170,9 +159,6 @@ pub use types::{
 };
 // Allow access to less commonly used types like decimal::coefficient::{Coefficient, Sign}
 pub use types::decimal;
-// Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
-#[cfg(feature = "experimental-lazy-reader")]
-pub use write_config::WriteConfig;
 
 pub use crate::text::text_formatter::{IoFmtShim, IonValueFormatter};
 
@@ -189,21 +175,55 @@ mod text;
 
 // Publicly-visible modules with nested items which users may choose to import
 mod element;
-pub mod result;
+pub(crate) mod result;
 mod types;
 
-#[cfg(feature = "experimental-ion-hash")]
-pub mod ion_hash;
-
-#[cfg(feature = "experimental-lazy-reader")]
-pub mod lazy;
-// Experimental Streaming APIs
 mod position;
 mod read_config;
 #[cfg(feature = "experimental-serde")]
 pub mod serde;
 pub(crate) mod unsafe_helpers;
+
+#[cfg(feature = "experimental-ion-hash")]
+pub mod ion_hash;
+mod lazy;
 mod write_config;
+
+#[cfg(feature = "experimental-reader-writer")]
+pub use crate::{
+    lazy::encoder::annotate::Annotatable, lazy::encoder::writer::Writer, lazy::reader::Reader,
+    raw_symbol_token_ref::RawSymbolRef, symbol_table::SymbolTable, write_config::WriteConfig,
+};
+
+pub mod v1_0 {
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub use crate::{
+        binary::uint::DecodedUInt, binary::var_int::VarInt, binary::var_uint::VarUInt,
+        lazy::binary::immutable_buffer::ImmutableBuffer,
+    };
+
+    #[cfg(feature = "experimental-reader-writer")]
+    pub use crate::{
+        lazy::encoder::writer::{BinaryWriter_1_0 as BinaryWriter, TextWriter_1_0 as TextWriter},
+        lazy::encoding::{BinaryEncoding_1_0 as Binary, TextEncoding_1_0 as Text},
+        lazy::reader::{BinaryReader_1_0 as BinaryReader, TextReader_1_0 as TextReader},
+    };
+}
+
+pub mod v1_1 {
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub use crate::{
+        lazy::encoder::binary::v1_1::flex_int::FlexInt,
+        lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
+    };
+
+    #[cfg(feature = "experimental-reader-writer")]
+    pub use crate::{
+        lazy::encoder::writer::{BinaryWriter_1_1 as BinaryWriter, TextWriter_1_1 as TextWriter},
+        lazy::encoding::{BinaryEncoding_1_1 as Binary, TextEncoding_1_1 as Text},
+        lazy::reader::{BinaryReader_1_1 as BinaryReader, TextReader_1_1 as TextReader},
+    };
+}
 
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]

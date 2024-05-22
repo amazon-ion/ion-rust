@@ -5,7 +5,7 @@ use nom::AsBytes;
 use ion_rs::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
 use ion_rs::lazy::encoder::value_writer::StructWriter;
 use ion_rs::lazy::encoder::value_writer::{SequenceWriter, ValueWriter};
-use ion_rs::{IonResult, RawSymbolTokenRef};
+use ion_rs::{IonResult, RawSymbolRef};
 
 fn write_struct_with_string_values(value_writer: impl ValueWriter) -> IonResult<()> {
     let mut struct_ = value_writer.struct_writer()?;
@@ -112,8 +112,8 @@ fn write_eexp_with_string_values(value_writer: impl ValueWriter) -> IonResult<()
     eexp.close()
 }
 
-fn symbol_id(sid: usize) -> RawSymbolTokenRef<'static> {
-    RawSymbolTokenRef::SymbolId(sid)
+fn symbol_id(sid: usize) -> RawSymbolRef<'static> {
+    RawSymbolRef::SymbolId(sid)
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {

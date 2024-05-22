@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ion_rs::lazy::decoder::LazyDecoder;
 use ion_rs::lazy::encoding::TextEncoding_1_1;
 use ion_rs::lazy::r#struct::LazyStruct;
-use ion_rs::lazy::reader::{LazyApplicationReader, LazyBinaryReader, LazyTextReader_1_1};
+use ion_rs::lazy::reader::{BinaryReader_1_0, IonReader, TextReader_1_1};
 use ion_rs::lazy::value::LazyValue;
 use ion_rs::lazy::value_ref::ValueRef;
 use ion_rs::{Element, Format, IonResult, TextKind};
@@ -87,11 +87,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     // As a sanity check, materialize the data from both the Ion 1.0 and 1.1 streams and make sure
     // that they are equivalent before we start measuring the time needed to read them.
-    let seq_1_0 = LazyTextReader_1_1::new(text_1_0_data.as_slice())
+    let seq_1_0 = TextReader_1_1::new(text_1_0_data.as_slice())
         .unwrap()
         .read_all_elements()
         .unwrap();
-    let mut reader_1_1 = LazyTextReader_1_1::new(text_1_1_data.as_bytes()).unwrap();
+    let mut reader_1_1 = TextReader_1_1::new(text_1_1_data.as_bytes()).unwrap();
     reader_1_1.register_template(template_text).unwrap();
     let seq_1_1 = reader_1_1.read_all_elements().unwrap();
     assert!(
@@ -102,7 +102,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut binary_1_0_group = c.benchmark_group("binary 1.0");
     binary_1_0_group.bench_function("scan all", |b| {
         b.iter(|| {
-            let mut reader = LazyBinaryReader::new(binary_1_0_data.as_slice()).unwrap();
+            let mut reader = BinaryReader_1_0::new(binary_1_0_data.as_slice()).unwrap();
             while let Some(item) = reader.next().unwrap() {
                 black_box(item);
             }
@@ -110,7 +110,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
     binary_1_0_group.bench_function("read all", |b| {
         b.iter(|| {
-            let mut reader = LazyBinaryReader::new(binary_1_0_data.as_slice()).unwrap();
+            let mut reader = BinaryReader_1_0::new(binary_1_0_data.as_slice()).unwrap();
             let mut num_values = 0usize;
             while let Some(item) = reader.next().unwrap() {
                 num_values += count_value_and_children(&item).unwrap();
@@ -124,8 +124,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     text_1_0_group.bench_function("scan all", |b| {
         b.iter(|| {
             let mut reader =
-                LazyApplicationReader::<TextEncoding_1_1, _>::new(text_1_0_data.as_slice())
-                    .unwrap();
+                IonReader::<TextEncoding_1_1, _>::new(text_1_0_data.as_slice()).unwrap();
             while let Some(item) = reader.next().unwrap() {
                 black_box(item);
             }
@@ -134,8 +133,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     text_1_0_group.bench_function("read all", |b| {
         b.iter(|| {
             let mut reader =
-                LazyApplicationReader::<TextEncoding_1_1, _>::new(text_1_0_data.as_slice())
-                    .unwrap();
+                IonReader::<TextEncoding_1_1, _>::new(text_1_0_data.as_slice()).unwrap();
             let mut num_values = 0usize;
             while let Some(item) = reader.next().unwrap() {
                 num_values += count_value_and_children(&item).unwrap();
@@ -146,8 +144,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     text_1_0_group.bench_function("read 'format' field", |b| {
         b.iter(|| {
             let mut reader =
-                LazyApplicationReader::<TextEncoding_1_1, _>::new(text_1_0_data.as_slice())
-                    .unwrap();
+                IonReader::<TextEncoding_1_1, _>::new(text_1_0_data.as_slice()).unwrap();
             let mut num_values = 0usize;
             while let Some(value) = reader.next().unwrap() {
                 let s = value.read().unwrap().expect_struct().unwrap();
@@ -162,7 +159,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut text_1_1_group = c.benchmark_group("text 1.1");
     text_1_1_group.bench_function("scan all", |b| {
         b.iter(|| {
-            let mut reader = LazyTextReader_1_1::new(text_1_1_data.as_bytes()).unwrap();
+            let mut reader = TextReader_1_1::new(text_1_1_data.as_bytes()).unwrap();
             reader.register_template(template_text).unwrap();
             while let Some(item) = reader.next().unwrap() {
                 black_box(item);
@@ -171,7 +168,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
     text_1_1_group.bench_function("read all", |b| {
         b.iter(|| {
-            let mut reader = LazyTextReader_1_1::new(text_1_1_data.as_bytes()).unwrap();
+            let mut reader = TextReader_1_1::new(text_1_1_data.as_bytes()).unwrap();
             reader.register_template(template_text).unwrap();
             let mut num_values = 0usize;
             while let Some(item) = reader.next().unwrap() {
@@ -183,8 +180,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     text_1_1_group.bench_function("read 'format' field", |b| {
         b.iter(|| {
             let mut reader =
-                LazyApplicationReader::<TextEncoding_1_1, _>::new(text_1_1_data.as_bytes())
-                    .unwrap();
+                IonReader::<TextEncoding_1_1, _>::new(text_1_1_data.as_bytes()).unwrap();
             reader.register_template(template_text).unwrap();
             let mut num_values = 0usize;
             while let Some(value) = reader.next().unwrap() {

@@ -17,7 +17,7 @@ use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
-use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp};
+use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::{fmt, mem};
@@ -559,7 +559,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     fn read_symbol(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         self.read_symbol_id()
-            .map(|sid| RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(sid)))
+            .map(|sid| RawValueRef::Symbol(RawSymbolRef::SymbolId(sid)))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a string.

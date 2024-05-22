@@ -4,17 +4,17 @@
 mod ion_tests;
 
 use crate::ion_tests::{bad, equivs, non_equivs, ElementApi, SkipList};
-use ion_rs::lazy::reader::LazyTextReader_1_1;
+use ion_rs::lazy::reader::TextReader_1_1;
 use ion_rs::IonResult;
 use test_generator::test_resources;
 
 struct LazyReaderElementApi;
 
 impl ElementApi for LazyReaderElementApi {
-    type ElementReader<'a> = LazyTextReader_1_1<&'a [u8]>;
+    type ElementReader<'a> = TextReader_1_1<&'a [u8]>;
 
     fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
-        Ok(LazyTextReader_1_1::new(data).unwrap())
+        Ok(TextReader_1_1::new(data).unwrap())
     }
 
     fn global_skip_list() -> SkipList {

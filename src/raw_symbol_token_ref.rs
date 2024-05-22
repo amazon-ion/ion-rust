@@ -2,104 +2,104 @@ use crate::{Symbol, SymbolId, SymbolRef};
 
 /// Like RawSymbolToken, but the Text variant holds a borrowed reference instead of a String.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum RawSymbolTokenRef<'a> {
+pub enum RawSymbolRef<'a> {
     SymbolId(SymbolId),
     Text(&'a str),
 }
 
-impl<'a> RawSymbolTokenRef<'a> {
+impl<'a> RawSymbolRef<'a> {
     /// Returns `true` if this token matches either the specified symbol ID or text value.
     /// This is useful for comparing tokens that represent system symbol values of an unknown
     /// encoding.
     pub fn matches_sid_or_text(&self, symbol_id: SymbolId, symbol_text: &str) -> bool {
         match self {
-            RawSymbolTokenRef::SymbolId(sid) => symbol_id == *sid,
-            RawSymbolTokenRef::Text(text) => symbol_text == *text,
+            RawSymbolRef::SymbolId(sid) => symbol_id == *sid,
+            RawSymbolRef::Text(text) => symbol_text == *text,
         }
     }
 }
 
-/// Implemented by types that can be viewed as a [RawSymbolTokenRef] without allocations.
-pub trait AsRawSymbolTokenRef {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef;
+/// Implemented by types that can be viewed as a [RawSymbolRef] without allocations.
+pub trait AsRawSymbolRef {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef;
 }
 
-impl<'a> AsRawSymbolTokenRef for RawSymbolTokenRef<'a> {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
+impl<'a> AsRawSymbolRef for RawSymbolRef<'a> {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
         *self
     }
 }
 
-impl AsRawSymbolTokenRef for SymbolId {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
-        RawSymbolTokenRef::SymbolId(*self)
+impl AsRawSymbolRef for SymbolId {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+        RawSymbolRef::SymbolId(*self)
     }
 }
 
-impl AsRawSymbolTokenRef for &str {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
-        RawSymbolTokenRef::Text(self)
+impl AsRawSymbolRef for &str {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+        RawSymbolRef::Text(self)
     }
 }
 
-impl AsRawSymbolTokenRef for Symbol {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
+impl AsRawSymbolRef for Symbol {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
         match self.text() {
-            Some(text) => RawSymbolTokenRef::Text(text),
-            None => RawSymbolTokenRef::SymbolId(0),
+            Some(text) => RawSymbolRef::Text(text),
+            None => RawSymbolRef::SymbolId(0),
         }
     }
 }
 
-impl<T> AsRawSymbolTokenRef for &T
+impl<T> AsRawSymbolRef for &T
 where
-    T: AsRawSymbolTokenRef,
+    T: AsRawSymbolRef,
 {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
         (*self).as_raw_symbol_token_ref()
     }
 }
 
-impl<'a, 'b> From<&'a RawSymbolTokenRef<'b>> for RawSymbolTokenRef<'a> {
-    fn from(value: &'a RawSymbolTokenRef<'b>) -> Self {
+impl<'a, 'b> From<&'a RawSymbolRef<'b>> for RawSymbolRef<'a> {
+    fn from(value: &'a RawSymbolRef<'b>) -> Self {
         *value
     }
 }
 
-impl<'a> From<&'a str> for RawSymbolTokenRef<'a> {
+impl<'a> From<&'a str> for RawSymbolRef<'a> {
     fn from(value: &'a str) -> Self {
-        RawSymbolTokenRef::Text(value)
+        RawSymbolRef::Text(value)
     }
 }
 
-impl<'a> From<&'a &str> for RawSymbolTokenRef<'a> {
+impl<'a> From<&'a &str> for RawSymbolRef<'a> {
     fn from(value: &'a &str) -> Self {
-        RawSymbolTokenRef::Text(value)
+        RawSymbolRef::Text(value)
     }
 }
 
-impl<'a> From<SymbolId> for RawSymbolTokenRef<'a> {
+impl<'a> From<SymbolId> for RawSymbolRef<'a> {
     fn from(value: SymbolId) -> Self {
-        RawSymbolTokenRef::SymbolId(value)
+        RawSymbolRef::SymbolId(value)
     }
 }
 
-impl<'a> From<&'a SymbolId> for RawSymbolTokenRef<'a> {
+impl<'a> From<&'a SymbolId> for RawSymbolRef<'a> {
     fn from(value: &'a SymbolId) -> Self {
-        RawSymbolTokenRef::SymbolId(*value)
+        RawSymbolRef::SymbolId(*value)
     }
 }
 
-impl<'a> From<SymbolRef<'a>> for RawSymbolTokenRef<'a> {
+impl<'a> From<SymbolRef<'a>> for RawSymbolRef<'a> {
     fn from(value: SymbolRef<'a>) -> Self {
         match value.text() {
-            None => RawSymbolTokenRef::SymbolId(0),
-            Some(text) => RawSymbolTokenRef::Text(text),
+            None => RawSymbolRef::SymbolId(0),
+            Some(text) => RawSymbolRef::Text(text),
         }
     }
 }
 
-impl<'a> From<&'a Symbol> for RawSymbolTokenRef<'a> {
+impl<'a> From<&'a Symbol> for RawSymbolRef<'a> {
     fn from(value: &'a Symbol) -> Self {
         value.as_raw_symbol_token_ref()
     }

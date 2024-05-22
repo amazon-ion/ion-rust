@@ -9,14 +9,12 @@ use crate::{IonResult, TextKind};
 
 /// Writer configuration to provide format and Ion version details to writer through encoding
 /// This will be used to create a writer without specifying which writer methods to use
-#[cfg(feature = "experimental-lazy-reader")]
 #[derive(Clone, Debug)]
 pub struct WriteConfig<E: Encoding> {
     pub(crate) kind: WriteConfigKind,
     phantom_data: PhantomData<E>,
 }
 
-#[cfg(feature = "experimental-lazy-reader")]
 impl<E: Encoding> WriteConfig<E> {
     /// Builds a writer based on writer configuration
     pub fn build<W: io::Write>(self, output: W) -> IonResult<E::Writer<W>> {
@@ -24,7 +22,6 @@ impl<E: Encoding> WriteConfig<E> {
     }
 }
 
-#[cfg(feature = "experimental-lazy-reader")]
 impl WriteConfig<TextEncoding_1_0> {
     pub fn new(text_kind: TextKind) -> Self {
         Self {
@@ -34,7 +31,6 @@ impl WriteConfig<TextEncoding_1_0> {
     }
 }
 
-#[cfg(feature = "experimental-lazy-reader")]
 impl WriteConfig<TextEncoding_1_1> {
     pub fn new(text_kind: TextKind) -> Self {
         Self {
@@ -44,7 +40,6 @@ impl WriteConfig<TextEncoding_1_1> {
     }
 }
 
-#[cfg(feature = "experimental-lazy-reader")]
 impl WriteConfig<BinaryEncoding_1_0> {
     pub fn new() -> Self {
         Self {
@@ -54,7 +49,6 @@ impl WriteConfig<BinaryEncoding_1_0> {
     }
 }
 
-#[cfg(feature = "experimental-lazy-reader")]
 impl WriteConfig<BinaryEncoding_1_1> {
     pub fn new() -> Self {
         Self {
@@ -64,7 +58,6 @@ impl WriteConfig<BinaryEncoding_1_1> {
     }
 }
 
-#[cfg(feature = "experimental-lazy-reader")]
 impl Default for WriteConfig<BinaryEncoding_1_0> {
     fn default() -> Self {
         Self::new()

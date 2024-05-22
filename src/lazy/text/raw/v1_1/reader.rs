@@ -23,7 +23,7 @@ use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
 use crate::result::IonFailure;
-use crate::{IonResult, IonType, RawSymbolTokenRef};
+use crate::{IonResult, IonType, RawSymbolRef};
 
 pub struct LazyRawTextReader_1_1<'data> {
     input: &'data [u8],
@@ -484,7 +484,7 @@ impl<'top> HasRange for LazyRawTextFieldName_1_1<'top> {
 }
 
 impl<'top> LazyRawFieldName<'top> for LazyRawTextFieldName_1_1<'top> {
-    fn read(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+    fn read(&self) -> IonResult<RawSymbolRef<'top>> {
         self.matched.read()
     }
 }

@@ -4,8 +4,7 @@
 //!
 //! ## Examples
 //! ```rust
-//! use ion_rs::Element;
-//! use ion_rs::result::IonResult;
+//! use ion_rs::{Element, IonResult};
 //! use ion_rs::ion_hash;
 //!
 //! # // XXX this doc test requires an optional feature--so this makes sure we can still run tests

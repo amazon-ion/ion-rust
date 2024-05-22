@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn symbols() -> IonResult<()> {
-        use crate::RawSymbolTokenRef;
+        use crate::RawSymbolRef;
 
         #[rustfmt::skip]
         let data: Vec<u8> = vec![
@@ -358,17 +358,17 @@ mod tests {
 
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_symbol()?,
-            RawSymbolTokenRef::SymbolId(1)
+            RawSymbolRef::SymbolId(1)
         );
 
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_symbol()?,
-            RawSymbolTokenRef::SymbolId(257)
+            RawSymbolRef::SymbolId(257)
         );
 
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_symbol()?,
-            RawSymbolTokenRef::SymbolId(65793)
+            RawSymbolRef::SymbolId(65793)
         );
 
         Ok(())

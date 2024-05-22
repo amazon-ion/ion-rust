@@ -108,9 +108,9 @@ where
 #[cfg(test)]
 mod binary_decimal_tests {
     use crate::lazy::encoder::value_writer::SequenceWriter;
+    use crate::lazy::encoder::writer::IonWriter;
     use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding};
-    use crate::lazy::reader::LazyReader;
-    use crate::ApplicationWriter;
+    use crate::lazy::reader::Reader;
     use rstest::*;
 
     use super::*;
@@ -153,10 +153,10 @@ mod binary_decimal_tests {
     #[case::foo(Decimal::new(i128::MIN + 1, i32::MIN))]
     fn roundtrip_decimals_with_extreme_values(#[case] value: Decimal) -> IonResult<()> {
         let mut writer =
-            ApplicationWriter::with_config(BinaryEncoding_1_0::default_write_config(), Vec::new())?;
+            IonWriter::with_config(BinaryEncoding_1_0::default_write_config(), Vec::new())?;
         writer.write(value)?;
         let output = writer.close()?;
-        let mut reader = LazyReader::new(output);
+        let mut reader = Reader::new(output);
         let after_round_trip = reader.expect_next()?.read()?.expect_decimal()?;
         assert_eq!(value, after_round_trip);
         Ok(())

@@ -44,7 +44,7 @@ use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::InvalidInputError;
 use crate::result::{DecodingError, IonFailure};
 use crate::{
-    Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp, TimestampPrecision,
+    Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, Timestamp, TimestampPrecision,
 };
 
 /// A partially parsed Ion value.
@@ -102,7 +102,7 @@ impl MatchedFieldNameSyntax {
         // TODO: Remove allocator, use the one in TBV
         allocator: &'data BumpAllocator,
         matched_input: TextBufferView<'data>,
-    ) -> IonResult<RawSymbolTokenRef<'data>> {
+    ) -> IonResult<RawSymbolRef<'data>> {
         match self {
             MatchedFieldNameSyntax::Symbol(matched_symbol) => {
                 matched_symbol.read(allocator, matched_input)
@@ -130,7 +130,7 @@ impl<'top> MatchedFieldName<'top> {
         self.syntax
     }
 
-    pub fn read(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+    pub fn read(&self) -> IonResult<RawSymbolRef<'top>> {
         self.syntax.read(self.input.allocator, self.input)
     }
 
@@ -835,7 +835,7 @@ impl MatchedSymbol {
         &self,
         allocator: &'data BumpAllocator,
         matched_input: TextBufferView<'data>,
-    ) -> IonResult<RawSymbolTokenRef<'data>> {
+    ) -> IonResult<RawSymbolRef<'data>> {
         use MatchedSymbol::*;
         match self {
             SymbolId => self.read_symbol_id(matched_input),
@@ -848,14 +848,14 @@ impl MatchedSymbol {
     pub(crate) fn read_quoted_without_escapes<'data>(
         &self,
         matched_input: TextBufferView<'data>,
-    ) -> IonResult<RawSymbolTokenRef<'data>> {
+    ) -> IonResult<RawSymbolRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
         let body = matched_input.slice(1, matched_input.len() - 2);
         // There are no escaped characters, so we can just validate the string in-place.
         let text = body
             .as_text()
             .expect("successfully lexed symbol later found to be invalid UTF-8");
-        let str_ref = RawSymbolTokenRef::Text(text);
+        let str_ref = RawSymbolRef::Text(text);
         Ok(str_ref)
     }
 
@@ -863,7 +863,7 @@ impl MatchedSymbol {
         &self,
         allocator: &'data BumpAllocator,
         matched_input: TextBufferView<'data>,
-    ) -> IonResult<RawSymbolTokenRef<'data>> {
+    ) -> IonResult<RawSymbolRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
         let body = matched_input.slice(1, matched_input.len() - 2);
 
@@ -872,7 +872,7 @@ impl MatchedSymbol {
         let mut sanitized = BumpVec::with_capacity_in(matched_input.len(), allocator);
         replace_escapes_with_byte_values(body, &mut sanitized, false, true)?;
         let text = std::str::from_utf8(sanitized.into_bump_slice()).unwrap();
-        Ok(RawSymbolTokenRef::Text(text))
+        Ok(RawSymbolRef::Text(text))
     }
 
     /// Reads a symbol with no surrounding quotes (and therefore no escapes).
@@ -880,20 +880,20 @@ impl MatchedSymbol {
     pub(crate) fn read_unquoted<'data>(
         &self,
         matched_input: TextBufferView<'data>,
-    ) -> IonResult<RawSymbolTokenRef<'data>> {
-        matched_input.as_text().map(RawSymbolTokenRef::Text)
+    ) -> IonResult<RawSymbolRef<'data>> {
+        matched_input.as_text().map(RawSymbolRef::Text)
     }
 
     fn read_symbol_id<'data>(
         &self,
         matched_input: TextBufferView<'data>,
-    ) -> IonResult<RawSymbolTokenRef<'data>> {
+    ) -> IonResult<RawSymbolRef<'data>> {
         // Skip past the first byte, which has to be a `$`.
         let text = matched_input.slice_to_end(1).as_text()?;
         // It's not possible for the number parsing to fail because the matcher's rules
         // guarantee that this string contains only decimal digits.
         let sid = usize::from_str(text).expect("loading symbol ID as usize");
-        Ok(RawSymbolTokenRef::SymbolId(sid))
+        Ok(RawSymbolRef::SymbolId(sid))
     }
 }
 

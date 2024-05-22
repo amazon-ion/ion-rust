@@ -236,8 +236,8 @@ mod tests {
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::decoder::{LazyRawFieldName, RawVersionMarker};
     use crate::lazy::raw_stream_item::RawStreamItem;
-    use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-    use crate::{IonResult, IonType, RawSymbolTokenRef};
+    use crate::raw_symbol_token_ref::AsRawSymbolRef;
+    use crate::{IonResult, IonType, RawSymbolRef};
 
     #[test]
     fn test_struct() -> IonResult<()> {
@@ -340,7 +340,7 @@ mod tests {
         assert_eq!(symbol_table.ion_type(), IonType::Struct);
         let annotations = symbol_table
             .annotations()
-            .collect::<IonResult<Vec<RawSymbolTokenRef<'_>>>>()?;
+            .collect::<IonResult<Vec<RawSymbolRef<'_>>>>()?;
         assert_eq!(annotations.len(), 1);
         assert_eq!(annotations[0], 3.as_raw_symbol_token_ref());
 
@@ -349,7 +349,7 @@ mod tests {
         assert_eq!(int.ion_type(), IonType::Int);
         let annotations = int
             .annotations()
-            .collect::<IonResult<Vec<RawSymbolTokenRef<'_>>>>()?;
+            .collect::<IonResult<Vec<RawSymbolRef<'_>>>>()?;
         assert_eq!(annotations.len(), 3);
         assert_eq!(annotations[0], 10.as_raw_symbol_token_ref());
         assert_eq!(annotations[1], 11.as_raw_symbol_token_ref());

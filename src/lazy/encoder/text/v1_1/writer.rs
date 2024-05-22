@@ -100,11 +100,11 @@ mod tests {
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
     use crate::lazy::encoder::LazyRawWriter;
     use crate::lazy::expanded::macro_evaluator::RawEExpression;
-    use crate::lazy::reader::LazyTextReader_1_1;
+    use crate::lazy::reader::TextReader_1_1;
     use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, MacroIdRef};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{
-        Decimal, ElementReader, IonData, IonResult, IonType, Null, RawSymbolTokenRef, Timestamp,
+        Decimal, ElementReader, IonData, IonResult, IonType, Null, RawSymbolRef, Timestamp,
     };
 
     #[test]
@@ -139,10 +139,10 @@ mod tests {
             {{"\xea\x01\x01\xee"}}
         "#;
 
-        let mut reader = LazyTextReader_1_1::new(encoded_text)?;
+        let mut reader = TextReader_1_1::new(encoded_text)?;
         let actual = reader.read_all_elements()?;
 
-        let mut reader = LazyTextReader_1_1::new(expected_ion)?;
+        let mut reader = TextReader_1_1::new(expected_ion)?;
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));
@@ -168,10 +168,10 @@ mod tests {
             [[1, 2], [3, 4], [5, 6]]
         "#;
 
-        let mut reader = LazyTextReader_1_1::new(encoded_text)?;
+        let mut reader = TextReader_1_1::new(encoded_text)?;
         let actual = reader.read_all_elements()?;
 
-        let mut reader = LazyTextReader_1_1::new(expected_ion)?;
+        let mut reader = TextReader_1_1::new(expected_ion)?;
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));
@@ -197,10 +197,10 @@ mod tests {
             ((1 2) (3 4) (5 6))
         "#;
 
-        let mut reader = LazyTextReader_1_1::new(encoded_text)?;
+        let mut reader = TextReader_1_1::new(encoded_text)?;
         let actual = reader.read_all_elements()?;
 
-        let mut reader = LazyTextReader_1_1::new(expected_ion)?;
+        let mut reader = TextReader_1_1::new(expected_ion)?;
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));
@@ -234,10 +234,10 @@ mod tests {
             {quux: {quuz: 4}}
         "#;
 
-        let mut reader = LazyTextReader_1_1::new(encoded_text)?;
+        let mut reader = TextReader_1_1::new(encoded_text)?;
         let actual = reader.read_all_elements()?;
 
-        let mut reader = LazyTextReader_1_1::new(expected_ion)?;
+        let mut reader = TextReader_1_1::new(expected_ion)?;
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));
@@ -308,7 +308,7 @@ mod tests {
             .expect_value()?
             .read()?
             .expect_symbol()?;
-        assert_eq!(symbol_arg, RawSymbolTokenRef::Text("+++"));
+        assert_eq!(symbol_arg, RawSymbolRef::Text("+++"));
 
         Ok(())
     }

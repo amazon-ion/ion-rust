@@ -9,7 +9,7 @@ use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::result::IonFailure;
-use crate::{IonResult, IonType, RawSymbolTokenRef};
+use crate::{IonResult, IonType, RawSymbolRef};
 
 pub trait HasSpan<'top>: HasRange {
     fn span(&self) -> Span<'top>;
@@ -47,7 +47,7 @@ pub trait LazyDecoder: 'static + Sized + Debug + Clone + Copy {
     /// A symbol token representing the name of a field within a struct.
     type FieldName<'top>: LazyRawFieldName<'top>;
     /// An iterator over the annotations on the input stream's values.
-    type AnnotationsIterator<'top>: Iterator<Item = IonResult<RawSymbolTokenRef<'top>>>;
+    type AnnotationsIterator<'top>: Iterator<Item = IonResult<RawSymbolRef<'top>>>;
     /// An e-expression invoking a macro. (Ion 1.1+)
     type EExp<'top>: RawEExpression<'top, Self>;
 
@@ -399,5 +399,5 @@ pub trait LazyRawStruct<'top, D: LazyDecoder>:
 }
 
 pub trait LazyRawFieldName<'top>: HasSpan<'top> + Copy + Debug + Clone {
-    fn read(&self) -> IonResult<RawSymbolTokenRef<'top>>;
+    fn read(&self) -> IonResult<RawSymbolRef<'top>>;
 }

@@ -62,9 +62,9 @@ use crate::lazy::system_reader::{LazySystemReader, PendingLst};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::raw_symbol_token_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, SymbolTable, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolTable, Timestamp};
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
 // behind an experimental feature flag. We may constrain access to them in the future as the code
@@ -687,7 +687,7 @@ pub enum ExpandedAnnotationsSource<'top, Encoding: LazyDecoder> {
     ValueLiteral(Encoding::AnnotationsIterator<'top>),
     Template(SymbolsIterator<'top>),
     // TODO: This is a placeholder impl and always returns an empty iterator
-    Constructed(Box<dyn Iterator<Item = IonResult<RawSymbolTokenRef<'top>>> + 'top>),
+    Constructed(Box<dyn Iterator<Item = IonResult<RawSymbolRef<'top>>> + 'top>),
 }
 
 pub struct ExpandedAnnotationsIterator<'top, Encoding: LazyDecoder> {
@@ -701,7 +701,7 @@ impl<'top, Encoding: LazyDecoder> ExpandedAnnotationsIterator<'top, Encoding> {
 }
 
 impl<'top, Encoding: LazyDecoder> Iterator for ExpandedAnnotationsIterator<'top, Encoding> {
-    type Item = IonResult<RawSymbolTokenRef<'top>>;
+    type Item = IonResult<RawSymbolRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         use ExpandedAnnotationsSource::*;
@@ -729,7 +729,7 @@ pub enum ExpandedValueRef<'top, Encoding: LazyDecoder> {
     Decimal(Decimal),
     Timestamp(Timestamp),
     String(StrRef<'top>),
-    Symbol(RawSymbolTokenRef<'top>),
+    Symbol(RawSymbolRef<'top>),
     Blob(BytesRef<'top>),
     Clob(BytesRef<'top>),
     SExp(LazyExpandedSExp<'top, Encoding>),
@@ -833,7 +833,7 @@ impl<'top, Encoding: LazyDecoder> ExpandedValueRef<'top, Encoding> {
         }
     }
 
-    pub fn expect_symbol(self) -> IonResult<RawSymbolTokenRef<'top>> {
+    pub fn expect_symbol(self) -> IonResult<RawSymbolRef<'top>> {
         if let ExpandedValueRef::Symbol(s) = self {
             Ok(s)
         } else {

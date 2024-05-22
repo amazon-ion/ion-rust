@@ -7,7 +7,7 @@ use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{
-    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, IonType, RawSymbolTokenRef,
+    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, IonType, RawSymbolRef,
     SymbolRef, SymbolTable, Value,
 };
 
@@ -23,12 +23,12 @@ use crate::{
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::lazy::reader::LazyBinaryReader;;
+/// use ion_rs::v1_0::BinaryReader;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;
 ///
-/// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+/// let mut lazy_reader = BinaryReader::new(binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
@@ -73,12 +73,12 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IonType};
-    /// use ion_rs::lazy::reader::LazyBinaryReader;;
+    /// use ion_rs::v1_0::BinaryReader;
     ///
     /// let element: Element = "hello".into();
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+    /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -118,17 +118,17 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IonType};
-    /// use ion_rs::lazy::reader::LazyBinaryReader;;
+    /// use ion_rs::v1_0::BinaryReader;
     ///
     /// let element = Element::string("hello");
     /// let binary_ion = element.to_binary()?;
-    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+    /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     /// let lazy_value = lazy_reader.expect_next()?;
     /// assert!(!lazy_value.is_null());
     ///
     /// let element: Element = Element::null(IonType::String);
     /// let binary_ion = element.to_binary()?;
-    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+    /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     /// let lazy_value = lazy_reader.expect_next()?;
     /// assert!(lazy_value.is_null());
     ///
@@ -148,12 +148,12 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IntoAnnotatedElement};
-    /// use ion_rs::lazy::reader::LazyBinaryReader;;
+    /// use ion_rs::v1_0::BinaryReader;
     ///
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+    /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -185,13 +185,13 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::{Element, IntoAnnotatedElement};
-    /// use ion_rs::lazy::reader::LazyBinaryReader;;
-    /// use ion_rs::lazy::value_ref::ValueRef;
+    /// use ion_rs::v1_0::BinaryReader;
+    /// use ion_rs::ValueRef;
     ///
     /// let element: Element = "hello".with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.to_binary()?;
     ///
-    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+    /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -218,7 +218,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
             String(s) => ValueRef::String(s),
             Symbol(s) => {
                 let symbol = match s {
-                    RawSymbolTokenRef::SymbolId(sid) => self
+                    RawSymbolRef::SymbolId(sid) => self
                         .expanded_value
                         .context
                         .symbol_table
@@ -230,7 +230,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
                             ))
                         })?
                         .into(),
-                    RawSymbolTokenRef::Text(text) => text.into(),
+                    RawSymbolRef::Text(text) => text.into(),
                 };
                 ValueRef::Symbol(symbol)
             }
@@ -280,11 +280,11 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::Element;
-    /// use ion_rs::lazy::reader::LazyBinaryReader;
+    /// use ion_rs::v1_0::BinaryReader;
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
     /// let binary_ion = element.to_binary()?;
-    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+    /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
     /// // Get the first value from the stream
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -322,11 +322,11 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
     /// use ion_rs::Element;
-    /// use ion_rs::lazy::reader::LazyBinaryReader;
+    /// use ion_rs::v1_0::BinaryReader;
     ///
     /// let element = Element::read_one("foo::bar::baz::99")?;
     /// let binary_ion = element.to_binary()?;
-    /// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+    /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
     ///
     /// // Get the first value from the stream
     /// let lazy_value = lazy_reader.expect_next()?;
@@ -359,13 +359,13 @@ impl<'top, D: LazyDecoder> Iterator for AnnotationsIterator<'top, D> {
     fn next(&mut self) -> Option<Self::Item> {
         let raw_annotation = self.expanded_annotations.next()?;
         match raw_annotation {
-            Ok(RawSymbolTokenRef::SymbolId(sid)) => match self.symbol_table.symbol_for(sid) {
+            Ok(RawSymbolRef::SymbolId(sid)) => match self.symbol_table.symbol_for(sid) {
                 None => Some(IonResult::decoding_error(
                     "found a symbol ID that was not in the symbol table",
                 )),
                 Some(symbol) => Some(Ok(symbol.into())),
             },
-            Ok(RawSymbolTokenRef::Text(text)) => Some(Ok(text.into())),
+            Ok(RawSymbolRef::Text(text)) => Some(Ok(text.into())),
             Err(e) => Some(Err(e)),
         }
     }
@@ -391,14 +391,14 @@ mod tests {
     use rstest::*;
 
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::lazy::reader::LazyBinaryReader;
+    use crate::lazy::reader::BinaryReader_1_0;
     use crate::{ion_list, ion_sexp, ion_struct, Decimal, IonResult, IonType, Symbol, Timestamp};
     use crate::{Element, IntoAnnotatedElement};
 
     #[test]
     fn annotations_are() -> IonResult<()> {
         let ion_data = to_binary_ion("foo::bar::baz::5")?;
-        let mut reader = LazyBinaryReader::new(ion_data)?;
+        let mut reader = BinaryReader_1_0::new(ion_data)?;
         let first = reader.expect_next()?;
         assert!(first.annotations().are(["foo", "bar", "baz"])?);
 
@@ -417,7 +417,7 @@ mod tests {
 
     fn lazy_value_equals(ion_text: &str, expected: impl Into<Element>) -> IonResult<()> {
         let binary_ion = to_binary_ion(ion_text)?;
-        let mut reader = LazyBinaryReader::new(binary_ion)?;
+        let mut reader = BinaryReader_1_0::new(binary_ion)?;
         let value = reader.expect_next()?;
         let actual: Element = value.try_into()?;
         let expected = expected.into();
@@ -467,7 +467,7 @@ mod tests {
             // an error.
             0xE0, 0x01, 0x00, 0xEA,
         ];
-        let mut reader = LazyBinaryReader::new(binary_ion)?;
+        let mut reader = BinaryReader_1_0::new(binary_ion)?;
         let list = reader.expect_next()?.read()?.expect_list()?;
         let result: IonResult<Element> = list.try_into();
         assert!(result.is_err());
@@ -491,7 +491,7 @@ mod tests {
     fn try_into_element_incomplete(#[case] ion_text: &str) -> IonResult<()> {
         let mut binary_ion = to_binary_ion(ion_text)?;
         let _oops_i_lost_a_byte = binary_ion.pop().unwrap();
-        let mut reader = LazyBinaryReader::new(binary_ion)?;
+        let mut reader = BinaryReader_1_0::new(binary_ion)?;
         let result = reader.expect_next();
         assert!(matches!(result, Err(crate::IonError::Incomplete(_))));
         Ok(())

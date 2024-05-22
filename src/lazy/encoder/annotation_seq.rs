@@ -1,11 +1,11 @@
 use smallvec::SmallVec;
 
-use crate::{RawSymbolTokenRef, SymbolId};
+use crate::{RawSymbolRef, SymbolId};
 
 /// A sequence of annotations.
 ///
 /// When the sequence is two or fewer annotations, it will not require a heap allocation.
-pub type AnnotationsVec<'a> = SmallVec<[RawSymbolTokenRef<'a>; 2]>;
+pub type AnnotationsVec<'a> = SmallVec<[RawSymbolRef<'a>; 2]>;
 
 /// Types that can be viewed as an annotations sequence.
 ///
@@ -18,7 +18,7 @@ impl<'a> AnnotationSeq<'a> for &'a str {
     /// Converts the value into an `AnnotationsVec`.
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut vec = AnnotationsVec::new();
-        vec.push(RawSymbolTokenRef::Text(self));
+        vec.push(RawSymbolRef::Text(self));
         vec
     }
 }
@@ -26,7 +26,7 @@ impl<'a> AnnotationSeq<'a> for &'a str {
 impl<'a> AnnotationSeq<'a> for &'a &str {
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut vec = AnnotationsVec::new();
-        vec.push(RawSymbolTokenRef::Text(self));
+        vec.push(RawSymbolRef::Text(self));
         vec
     }
 }
@@ -34,7 +34,7 @@ impl<'a> AnnotationSeq<'a> for &'a &str {
 impl<'a> AnnotationSeq<'a> for SymbolId {
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut vec = AnnotationsVec::new();
-        vec.push(RawSymbolTokenRef::SymbolId(self));
+        vec.push(RawSymbolRef::SymbolId(self));
         vec
     }
 }
@@ -42,12 +42,12 @@ impl<'a> AnnotationSeq<'a> for SymbolId {
 impl<'a> AnnotationSeq<'a> for &'a SymbolId {
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut vec = AnnotationsVec::new();
-        vec.push(RawSymbolTokenRef::SymbolId(*self));
+        vec.push(RawSymbolRef::SymbolId(*self));
         vec
     }
 }
 
-impl<'a> AnnotationSeq<'a> for RawSymbolTokenRef<'a> {
+impl<'a> AnnotationSeq<'a> for RawSymbolRef<'a> {
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut vec = AnnotationsVec::new();
         vec.push(self);
@@ -63,7 +63,7 @@ impl<'a> AnnotationSeq<'a> for AnnotationsVec<'a> {
 
 impl<'a, T> AnnotationSeq<'a> for Vec<T>
 where
-    T: Into<RawSymbolTokenRef<'a>>,
+    T: Into<RawSymbolRef<'a>>,
 {
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut annotations = AnnotationsVec::new();
@@ -76,7 +76,7 @@ where
 
 impl<'a, T> AnnotationSeq<'a> for &'a [T]
 where
-    for<'b> &'b T: Into<RawSymbolTokenRef<'b>>,
+    for<'b> &'b T: Into<RawSymbolRef<'b>>,
 {
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut annotations = AnnotationsVec::new();
@@ -89,7 +89,7 @@ where
 
 impl<'a, T, const N: usize> AnnotationSeq<'a> for [T; N]
 where
-    T: Into<RawSymbolTokenRef<'a>>,
+    T: Into<RawSymbolRef<'a>>,
 {
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut annotations = AnnotationsVec::new();
@@ -102,7 +102,7 @@ where
 
 impl<'a, T, const N: usize> AnnotationSeq<'a> for &'a [T; N]
 where
-    for<'b> &'b T: Into<RawSymbolTokenRef<'b>>,
+    for<'b> &'b T: Into<RawSymbolRef<'b>>,
 {
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut annotations = AnnotationsVec::new();

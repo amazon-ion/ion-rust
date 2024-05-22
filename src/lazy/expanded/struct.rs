@@ -17,7 +17,7 @@ use crate::lazy::expanded::{
 };
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{IonError, IonResult, RawSymbolTokenRef, SymbolRef};
+use crate::{IonError, IonResult, RawSymbolRef, SymbolRef};
 
 /// A unified type embodying all possible field representations coming from both input data
 /// (i.e. raw structs of some encoding) and template bodies.
@@ -98,8 +98,8 @@ impl<'top, D: LazyDecoder> LazyExpandedFieldName<'top, D> {
     pub(crate) fn read(&self) -> IonResult<SymbolRef<'top>> {
         match self {
             LazyExpandedFieldName::RawName(context, name) => match name.read()? {
-                RawSymbolTokenRef::Text(text) => Ok(text.into()),
-                RawSymbolTokenRef::SymbolId(sid) => context
+                RawSymbolRef::Text(text) => Ok(text.into()),
+                RawSymbolRef::SymbolId(sid) => context
                     .symbol_table
                     .symbol_for(sid)
                     .map(AsSymbolRef::as_symbol_ref)
@@ -113,7 +113,7 @@ impl<'top, D: LazyDecoder> LazyExpandedFieldName<'top, D> {
         }
     }
 
-    pub(crate) fn read_raw(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+    pub(crate) fn read_raw(&self) -> IonResult<RawSymbolRef<'top>> {
         match self {
             LazyExpandedFieldName::RawName(_, name) => name.read(),
             LazyExpandedFieldName::TemplateName(_, name) => Ok((*name).into()),

@@ -1,4 +1,4 @@
-use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
+use crate::raw_symbol_token_ref::{AsRawSymbolRef, RawSymbolRef};
 use crate::result::IonFailure;
 use crate::{Annotations, Sequence};
 use crate::{Decimal, Int, Struct, Timestamp};
@@ -276,23 +276,20 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         first == '$' && chars.all(|c| c.is_numeric())
     }
 
-    pub(crate) fn format_symbol_token<A: AsRawSymbolTokenRef>(
-        &mut self,
-        token: A,
-    ) -> IonResult<()> {
+    pub(crate) fn format_symbol_token<A: AsRawSymbolRef>(&mut self, token: A) -> IonResult<()> {
         match token.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(sid) => write!(self.output, "${sid}")?,
-            RawSymbolTokenRef::Text(text)
+            RawSymbolRef::SymbolId(sid) => write!(self.output, "${sid}")?,
+            RawSymbolRef::Text(text)
                 if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) =>
             {
                 // Write the symbol text in single quotes
                 write!(self.output, "'{text}'")?;
             }
-            RawSymbolTokenRef::Text(text) if Self::token_is_identifier(text) => {
+            RawSymbolRef::Text(text) if Self::token_is_identifier(text) => {
                 // Write the symbol text without quotes
                 write!(self.output, "{text}")?
             }
-            RawSymbolTokenRef::Text(text) => {
+            RawSymbolRef::Text(text) => {
                 // Write the symbol text using quotes and escaping any characters that require it.
                 write!(self.output, "\'")?;
                 self.format_escaped_text_body(text)?;
@@ -417,7 +414,7 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
         value.format(self.output)
     }
 
-    pub fn format_symbol<A: AsRawSymbolTokenRef>(&mut self, value: A) -> IonResult<()> {
+    pub fn format_symbol<A: AsRawSymbolRef>(&mut self, value: A) -> IonResult<()> {
         self.format_symbol_token(value)?;
         Ok(())
     }

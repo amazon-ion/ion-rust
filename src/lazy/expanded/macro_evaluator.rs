@@ -29,7 +29,7 @@ use crate::lazy::expanded::{ExpandedValueRef, LazyExpandedValue};
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult, RawSymbolTokenRef};
+use crate::{IonError, IonResult, RawSymbolRef};
 
 /// The syntactic entity in format `D` that represents an e-expression. This expression has not
 /// yet been resolved in the current encoding context.
@@ -620,10 +620,8 @@ impl<'top, D: LazyDecoder> MakeStringExpansion<'top, D> {
     ) -> IonResult<()> {
         match value {
             ExpandedValueRef::String(text) => buffer.push_str(text.as_ref()),
-            ExpandedValueRef::Symbol(RawSymbolTokenRef::Text(text)) => {
-                buffer.push_str(text.as_ref())
-            }
-            ExpandedValueRef::Symbol(RawSymbolTokenRef::SymbolId(sid)) => {
+            ExpandedValueRef::Symbol(RawSymbolRef::Text(text)) => buffer.push_str(text.as_ref()),
+            ExpandedValueRef::Symbol(RawSymbolRef::SymbolId(sid)) => {
                 let symbol = context.symbol_table.symbol_for(sid).ok_or_else(|| {
                     IonError::decoding_error(format!(
                         "found unknown symbol ID {sid} in call to `make_string`"
@@ -708,16 +706,16 @@ impl<'top> TemplateExpansion<'top> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::reader::LazyTextReader_1_1;
+    use crate::lazy::reader::TextReader_1_1;
     use crate::{ElementReader, IonResult};
 
     /// Reads `input` and `expected` using an expanding reader and asserts that their output
     /// is the same.
     fn eval_enc_expr<'data>(input: &'data str, expected: &'data str) -> IonResult<()> {
-        let mut actual_reader = LazyTextReader_1_1::new(input.as_bytes())?;
+        let mut actual_reader = TextReader_1_1::new(input.as_bytes())?;
         let actual = actual_reader.read_all_elements()?;
 
-        let mut expected_reader = LazyTextReader_1_1::new(expected.as_bytes())?;
+        let mut expected_reader = TextReader_1_1::new(expected.as_bytes())?;
         // For the moment, this is using the old reader impl.
         let expected = expected_reader.read_all_elements()?;
 
@@ -740,10 +738,10 @@ mod tests {
         invocation: &str,
         expected: &str,
     ) -> IonResult<()> {
-        let mut reader = LazyTextReader_1_1::new(invocation.as_bytes())?;
+        let mut reader = TextReader_1_1::new(invocation.as_bytes())?;
         let _macro_address = reader.register_template(template_definition)?;
         let actual = reader.read_all_elements()?;
-        let mut expected_reader = LazyTextReader_1_1::new(expected.as_bytes())?;
+        let mut expected_reader = TextReader_1_1::new(expected.as_bytes())?;
         let expected = expected_reader.read_all_elements()?;
         assert_eq!(actual, expected);
         assert!(matches!(expected_reader.next(), Ok(None)));

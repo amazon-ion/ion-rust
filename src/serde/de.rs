@@ -3,7 +3,7 @@ use serde::de::{DeserializeOwned, DeserializeSeed, EnumAccess, MapAccess, SeqAcc
 
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::r#struct::{LazyField, StructIterator};
-use crate::lazy::reader::LazyReader;
+use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::IonInput;
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
@@ -19,7 +19,7 @@ where
     T: DeserializeOwned,
     I: IonInput,
 {
-    let mut reader = LazyReader::new(input);
+    let mut reader = Reader::new(input);
     let value = reader.expect_next()?;
     let value_deserializer = ValueDeserializer::new(&value);
     T::deserialize(value_deserializer)

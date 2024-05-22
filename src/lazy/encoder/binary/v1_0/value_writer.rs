@@ -17,9 +17,9 @@ use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::raw_symbol_token_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
-use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp};
+use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
 /// The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
 /// Larger length values will need to be written as a VarUInt following the type descriptor.
@@ -212,10 +212,10 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         Ok(())
     }
 
-    pub fn write_symbol<A: AsRawSymbolTokenRef>(self, value: A) -> IonResult<()> {
+    pub fn write_symbol<A: AsRawSymbolRef>(self, value: A) -> IonResult<()> {
         match value.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(sid) => self.write_symbol_id(sid),
-            RawSymbolTokenRef::Text(text) => IonResult::illegal_operation(format!(
+            RawSymbolRef::SymbolId(sid) => self.write_symbol_id(sid),
+            RawSymbolRef::Text(text) => IonResult::illegal_operation(format!(
                 "the Ion 1.0 raw binary writer cannot write text symbols (here: '{text}')"
             )),
         }
@@ -361,7 +361,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
 
     fn encode_annotations_sequence(&self, buffer: &'_ mut BumpVec<'_, u8>) -> IonResult<()> {
         for annotation in &self.annotations {
-            let RawSymbolTokenRef::SymbolId(sid) = annotation.as_raw_symbol_token_ref() else {
+            let RawSymbolRef::SymbolId(sid) = annotation.as_raw_symbol_token_ref() else {
                 return Err(IonError::Encoding(EncodingError::new(
                     "binary Ion 1.0 cannot encode text literal annotations",
                 )));
@@ -412,7 +412,7 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> 
         &Decimal => write_decimal,
         &Timestamp => write_timestamp,
         impl AsRef<str> => write_string,
-        impl AsRawSymbolTokenRef => write_symbol,
+        impl AsRawSymbolRef => write_symbol,
         impl AsRef<[u8]> => write_clob,
         impl AsRef<[u8]> => write_blob,
     );
@@ -440,8 +440,8 @@ mod tests {
     use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::value_writer::StructWriter;
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
-    use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-    use crate::{Element, IonData, IonResult, RawSymbolTokenRef, Timestamp};
+    use crate::raw_symbol_token_ref::AsRawSymbolRef;
+    use crate::{Element, IonData, IonResult, RawSymbolRef, Timestamp};
 
     fn writer_test(
         expected: &str,
@@ -477,7 +477,7 @@ mod tests {
                 .write(false)?
                 .write(3f32)?
                 .write("foo")?
-                .write(RawSymbolTokenRef::SymbolId(4))?
+                .write(RawSymbolRef::SymbolId(4))?
                 .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
                 .write([0xE0u8, 0x01, 0x00, 0xEA])?;
             Ok(())
@@ -511,7 +511,7 @@ mod tests {
                 .write(false)?
                 .write(3f32)?
                 .write("foo")?
-                .write(RawSymbolTokenRef::SymbolId(4))?
+                .write(RawSymbolRef::SymbolId(4))?
                 .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
                 .write([0xE0u8, 0x01, 0x00, 0xEA])?
                 .write([1, 2, 3])?;
@@ -546,7 +546,7 @@ mod tests {
                 .write(false)?
                 .write(3f32)?
                 .write("foo")?
-                .write(RawSymbolTokenRef::SymbolId(4))?
+                .write(RawSymbolRef::SymbolId(4))?
                 .write(Timestamp::with_ymd(2023, 11, 9).build()?)?
                 .write([0xE0u8, 0x01, 0x00, 0xEA])?
                 .write([1, 2, 3])?;
@@ -583,7 +583,7 @@ mod tests {
                 .write(1, false)?
                 .write(2, 3f32)?
                 .write(3, "foo")?
-                .write(4, RawSymbolTokenRef::SymbolId(4))?
+                .write(4, RawSymbolRef::SymbolId(4))?
                 .write(5, Timestamp::with_ymd(2023, 11, 9).build()?)?
                 .write(6, [0xE0u8, 0x01, 0x00, 0xEA])?
                 .write(7, [1, 2, 3])?;

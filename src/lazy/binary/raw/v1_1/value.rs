@@ -23,7 +23,7 @@ use crate::{
     },
     result::IonFailure,
     types::SymbolId,
-    IonError, IonResult, IonType, RawSymbolTokenRef,
+    IonError, IonResult, IonType, RawSymbolRef,
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -316,10 +316,10 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             let raw_bytes = self.value_body()?;
             let text = std::str::from_utf8(raw_bytes)
                 .map_err(|_| IonError::decoding_error("found symbol with invalid UTF-8 data"))?;
-            Ok(RawValueRef::Symbol(RawSymbolTokenRef::from(text)))
+            Ok(RawValueRef::Symbol(RawSymbolRef::from(text)))
         } else if type_code == OpcodeType::SymbolAddress {
             let symbol_id = self.read_symbol_id()?;
-            Ok(RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(symbol_id)))
+            Ok(RawValueRef::Symbol(RawSymbolRef::SymbolId(symbol_id)))
         } else {
             unreachable!("invalid Opcode type found for symbol");
         }

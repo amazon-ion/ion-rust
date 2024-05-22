@@ -8,16 +8,16 @@ use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
-use crate::{IonResult, IonType, RawSymbolTokenRef, SymbolTable};
+use crate::{IonResult, IonType, RawSymbolRef, SymbolTable};
 
 // Symbol IDs used for processing symbol table structs
-const ION_SYMBOL_TABLE: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(3);
-const IMPORTS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(6);
-const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
+const ION_SYMBOL_TABLE: RawSymbolRef = RawSymbolRef::SymbolId(3);
+const IMPORTS: RawSymbolRef = RawSymbolRef::SymbolId(6);
+const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
-/// Unlike [`crate::lazy::reader::LazyApplicationReader`], which only exposes values that are part
+/// Unlike [`crate::lazy::reader::IonReader`], which only exposes values that are part
 /// of the application data model, [`LazySystemReader`] also yields Ion version markers
 /// (as [`SystemStreamItem::VersionMarker`]) and structs representing a symbol table (as
 /// [`SystemStreamItem::SymbolTable`]).
@@ -39,12 +39,12 @@ const SYMBOLS: RawSymbolTokenRef = RawSymbolTokenRef::SymbolId(7);
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::lazy::reader::LazyBinaryReader;;
+/// use ion_rs::v1_0::BinaryReader;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;
 ///
-/// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+/// let mut lazy_reader = BinaryReader::new(binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;

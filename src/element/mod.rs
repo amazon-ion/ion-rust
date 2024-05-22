@@ -28,9 +28,9 @@ use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::element_writer::ElementWriter;
 use crate::element::reader::ElementReader;
 use crate::ion_data::{IonEq, IonOrd};
-use crate::lazy::encoder::writer::ApplicationWriter;
+use crate::lazy::encoder::writer::IonWriter;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
-use crate::lazy::reader::LazyReader;
+use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
 use crate::result::IonFailure;
 use crate::text::text_formatter::IonValueFormatter;
@@ -657,14 +657,14 @@ impl Element {
     /// If the data source has at least one value, returns `Ok(Some(Element))`.
     /// If the data source has invalid data, returns `Err`.
     pub fn read_first<A: AsRef<[u8]>>(data: A) -> IonResult<Option<Element>> {
-        let mut reader = LazyReader::new(IonSlice::new(data));
+        let mut reader = Reader::new(IonSlice::new(data));
         reader.read_next_element()
     }
 
     /// Reads a single Ion [`Element`] from the provided data source. If the input has invalid
     /// data or does not contain at exactly one Ion value, returns `Err(IonError)`.
     pub fn read_one<A: AsRef<[u8]>>(data: A) -> IonResult<Element> {
-        let mut reader = LazyReader::new(IonSlice::new(data));
+        let mut reader = Reader::new(IonSlice::new(data));
         reader.read_one_element()
     }
 
@@ -673,7 +673,7 @@ impl Element {
     /// If the input has valid data, returns `Ok(Sequence)`.
     /// If the input has invalid data, returns `Err(IonError)`.
     pub fn read_all<A: AsRef<[u8]>>(data: A) -> IonResult<Sequence> {
-        Ok(LazyReader::new(IonSlice::new(data))
+        Ok(Reader::new(IonSlice::new(data))
             .into_elements()
             .collect::<IonResult<Vec<_>>>()?
             .into())
@@ -685,7 +685,7 @@ impl Element {
     pub fn iter<'a, I: IonInput + 'a>(
         source: I,
     ) -> IonResult<impl Iterator<Item = IonResult<Element>> + 'a> {
-        Ok(LazyReader::new(source).into_elements())
+        Ok(Reader::new(source).into_elements())
     }
 
     /// Serializes this element to the provided writer.
@@ -770,13 +770,13 @@ assert_eq!(element_before, element_after);
         match format {
             Format::Text(text_kind) => {
                 let config = WriteConfig::<TextEncoding_1_0>::new(text_kind);
-                let mut writer = ApplicationWriter::with_config(config, output)?;
+                let mut writer = IonWriter::with_config(config, output)?;
                 Element::write_element_to(self, &mut writer)?;
                 writer.flush()
             }
             Format::Binary => {
                 let config = WriteConfig::<BinaryEncoding_1_0>::new();
-                let mut writer = ApplicationWriter::with_config(config, output)?;
+                let mut writer = IonWriter::with_config(config, output)?;
                 Element::write_element_to(self, &mut writer)?;
                 writer.flush()
             }
@@ -812,7 +812,7 @@ assert_eq!(element_before, element_after);
         match format {
             Format::Text(text_kind) => {
                 let config = WriteConfig::<TextEncoding_1_0>::new(text_kind);
-                let mut text_writer = ApplicationWriter::with_config(config, output)?;
+                let mut text_writer = IonWriter::with_config(config, output)?;
                 for element in elements {
                     Element::write_element_to(element, &mut text_writer)?;
                 }
@@ -820,7 +820,7 @@ assert_eq!(element_before, element_after);
             }
             Format::Binary => {
                 let config = WriteConfig::<BinaryEncoding_1_0>::new();
-                let mut binary_writer = ApplicationWriter::with_config(config, output)?;
+                let mut binary_writer = IonWriter::with_config(config, output)?;
                 for element in elements {
                     Element::write_element_to(element, &mut binary_writer)?;
                 }

@@ -2,7 +2,7 @@ use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
 
 /// As RawValueRef represents a reference to an unresolved value read from the data stream.
@@ -19,7 +19,7 @@ pub enum RawValueRef<'top, D: LazyDecoder> {
     Decimal(Decimal),
     Timestamp(Timestamp),
     String(StrRef<'top>),
-    Symbol(RawSymbolTokenRef<'top>),
+    Symbol(RawSymbolRef<'top>),
     Blob(BytesRef<'top>),
     Clob(BytesRef<'top>),
     SExp(D::SExp<'top>),
@@ -134,7 +134,7 @@ impl<'top, D: LazyDecoder> RawValueRef<'top, D> {
         }
     }
 
-    pub fn expect_symbol(self) -> IonResult<RawSymbolTokenRef<'top>> {
+    pub fn expect_symbol(self) -> IonResult<RawSymbolRef<'top>> {
         if let RawValueRef::Symbol(s) = self {
             Ok(s)
         } else {
@@ -187,7 +187,7 @@ impl<'top, D: LazyDecoder> RawValueRef<'top, D> {
 mod tests {
     use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0 as LazyRawBinaryReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::{Decimal, IonResult, IonType, RawSymbolTokenRef, Timestamp};
+    use crate::{Decimal, IonResult, IonType, RawSymbolRef, Timestamp};
 
     #[test]
     fn expect_type() -> IonResult<()> {
@@ -241,7 +241,7 @@ mod tests {
         );
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_symbol()?,
-            RawSymbolTokenRef::SymbolId(10) // foo
+            RawSymbolRef::SymbolId(10) // foo
         );
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_string()?,

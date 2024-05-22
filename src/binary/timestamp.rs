@@ -131,7 +131,7 @@ where
 #[cfg(test)]
 mod binary_timestamp_tests {
     use super::*;
-    use crate::lazy::reader::LazyReader;
+    use crate::lazy::reader::Reader;
     use rstest::*;
 
     // These tests show how varying levels of precision affects number of bytes
@@ -147,7 +147,7 @@ mod binary_timestamp_tests {
         #[case] input: &str,
         #[case] expected: usize,
     ) -> IonResult<()> {
-        let mut reader = LazyReader::new(input);
+        let mut reader = Reader::new(input);
         let timestamp = reader.expect_next()?.read()?.expect_timestamp()?;
         let mut buf = vec![];
         let written = buf.encode_timestamp_value(&timestamp)?;

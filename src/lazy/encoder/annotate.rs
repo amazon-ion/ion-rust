@@ -9,20 +9,19 @@ pub struct Annotated<'a, T: ?Sized, A: 'a> {
     annotations: A,
 }
 
-/// Provides implementors with an extension method ([`annotate`](Annotatable::annotated_with)) that allows
-/// them to be serialized with an associated sequence of annotations.    
+/// Provides implementors with an extension method ([`annotated_with`](Annotatable::annotated_with))
+/// that allows them to be serialized with an associated sequence of annotations.
 pub trait Annotatable {
     /// Pairs a reference to the provided value with a slice containing annotations.
     ///
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::{Element, IonData};
-    /// use ion_rs::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
-    /// use ion_rs::lazy::encoder::annotate::Annotatable;
+    /// use ion_rs::{Annotatable, Element, IonData};
+    /// use ion_rs::v1_0::TextWriter;
     ///
     /// let mut buffer = vec![];
-    /// let mut writer = LazyRawTextWriter_1_0::new(&mut buffer)?;
+    /// let mut writer = TextWriter::new(&mut buffer)?;
     ///
     /// writer.write(42_usize.annotated_with(["foo", "bar", "baz"]))?.flush()?;
     ///

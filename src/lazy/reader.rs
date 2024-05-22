@@ -4,7 +4,7 @@ use crate::element::reader::ElementReader;
 use crate::element::Element;
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::LazyDecoder;
-use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::streaming_raw_reader::IonInput;
 use crate::lazy::system_reader::{
     LazySystemAnyReader, LazySystemBinaryReader, LazySystemReader, LazySystemTextReader_1_1,
@@ -16,7 +16,7 @@ use crate::{IonError, IonResult};
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
-/// Each time [`LazyApplicationReader::next`] is called, the reader will advance to the next top-level value
+/// Each time [`IonReader::next`] is called, the reader will advance to the next top-level value
 /// in the input stream. Once positioned on a top-level value, users may visit nested values by
 /// calling [`LazyValue::read`] and working with the resulting [`crate::lazy::value_ref::ValueRef`],
 /// which may contain either a scalar value or a lazy container that may itself be traversed.
@@ -24,7 +24,7 @@ use crate::{IonError, IonResult};
 /// The values that the reader yields ([`LazyValue`],
 /// [`LazyList`](crate::lazy::sequence::LazyList), [`LazySExp`](crate::lazy::sequence::LazySExp),
 /// and [`LazyStruct`](crate::lazy::struct::LazyStruct)) are immutable references to the data
-/// stream, and remain valid until [`LazyApplicationReader::next`] is called again to advance the
+/// stream, and remain valid until [`IonReader::next`] is called again to advance the
 /// reader to the next top level value. This means that these references can be stored, read, and
 /// re-read as long as the reader remains on the same top-level value.
 /// ```
@@ -33,12 +33,12 @@ use crate::{IonError, IonResult};
 ///
 /// // Construct an Element and serialize it as binary Ion.
 /// use ion_rs::{Element, ion_list};
-/// use ion_rs::lazy::reader::LazyBinaryReader;;
+/// use ion_rs::v1_0::BinaryReader;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.to_binary()?;
 ///
-/// let mut lazy_reader = LazyBinaryReader::new(binary_ion)?;
+/// let mut lazy_reader = BinaryReader::new(binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
@@ -61,7 +61,7 @@ use crate::{IonError, IonResult};
 ///# Ok(())
 ///# }
 /// ```
-pub struct LazyApplicationReader<Encoding: LazyDecoder, Input: IonInput> {
+pub struct IonReader<Encoding: LazyDecoder, Input: IonInput> {
     system_reader: LazySystemReader<Encoding, Input>,
 }
 
@@ -71,7 +71,7 @@ pub(crate) enum NextApplicationValue<'top, D: LazyDecoder> {
     EndOfStream,
 }
 
-impl<Encoding: LazyDecoder, Input: IonInput> LazyApplicationReader<Encoding, Input> {
+impl<Encoding: LazyDecoder, Input: IonInput> IonReader<Encoding, Input> {
     /// Returns the next top-level value in the input stream as `Ok(Some(lazy_value))`.
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
     /// If the next value is incomplete (that is: only part of it is in the input buffer) or if the
@@ -116,29 +116,30 @@ impl<Encoding: LazyDecoder, Input: IonInput> LazyApplicationReader<Encoding, Inp
     }
 }
 
-pub type LazyBinaryReader<Input> = LazyApplicationReader<BinaryEncoding_1_0, Input>;
-pub type LazyTextReader_1_0<Input> = LazyApplicationReader<TextEncoding_1_0, Input>;
-pub type LazyTextReader_1_1<Input> = LazyApplicationReader<TextEncoding_1_1, Input>;
-pub type LazyReader<Input> = LazyApplicationReader<AnyEncoding, Input>;
+pub type BinaryReader_1_0<Input> = IonReader<BinaryEncoding_1_0, Input>;
+pub type BinaryReader_1_1<Input> = IonReader<BinaryEncoding_1_1, Input>;
+pub type TextReader_1_0<Input> = IonReader<TextEncoding_1_0, Input>;
+pub type TextReader_1_1<Input> = IonReader<TextEncoding_1_1, Input>;
+pub type Reader<Input> = IonReader<AnyEncoding, Input>;
 
-impl<Input: IonInput> LazyReader<Input> {
-    pub fn new(ion_data: Input) -> LazyReader<Input> {
+impl<Input: IonInput> Reader<Input> {
+    pub fn new(ion_data: Input) -> Reader<Input> {
         let system_reader = LazySystemAnyReader::new(ion_data);
-        LazyApplicationReader { system_reader }
+        IonReader { system_reader }
     }
 }
 
-impl<Input: IonInput> LazyBinaryReader<Input> {
-    pub fn new(ion_data: Input) -> IonResult<LazyBinaryReader<Input>> {
+impl<Input: IonInput> BinaryReader_1_0<Input> {
+    pub fn new(ion_data: Input) -> IonResult<BinaryReader_1_0<Input>> {
         let system_reader = LazySystemBinaryReader::new(ion_data);
-        Ok(LazyApplicationReader { system_reader })
+        Ok(IonReader { system_reader })
     }
 }
 
-impl<Input: IonInput> LazyTextReader_1_1<Input> {
-    pub fn new(ion_data: Input) -> IonResult<LazyTextReader_1_1<Input>> {
+impl<Input: IonInput> TextReader_1_1<Input> {
+    pub fn new(ion_data: Input) -> IonResult<TextReader_1_1<Input>> {
         let system_reader = LazySystemTextReader_1_1::new(ion_data);
-        Ok(LazyApplicationReader { system_reader })
+        Ok(IonReader { system_reader })
     }
 
     // Temporary method for defining/testing templates.
@@ -151,7 +152,7 @@ impl<Input: IonInput> LazyTextReader_1_1<Input> {
 }
 
 pub struct LazyElementIterator<'iter, Encoding: LazyDecoder, Input: IonInput> {
-    lazy_reader: &'iter mut LazyApplicationReader<Encoding, Input>,
+    lazy_reader: &'iter mut IonReader<Encoding, Input>,
 }
 
 impl<'iter, Encoding: LazyDecoder, Input: IonInput> Iterator
@@ -169,7 +170,7 @@ impl<'iter, Encoding: LazyDecoder, Input: IonInput> Iterator
 }
 
 impl<Encoding: LazyDecoder, Input: IonInput> ElementReader
-    for LazyApplicationReader<Encoding, Input>
+    for IonReader<Encoding, Input>
 {
     type ElementIterator<'a> = LazyElementIterator<'a, Encoding, Input> where Self: 'a,;
 
@@ -192,7 +193,7 @@ mod tests {
     use crate::element::element_writer::ElementWriter;
     use crate::element::Element;
     use crate::lazy::encoder::value_writer::SequenceWriter;
-    use crate::lazy::encoder::writer::ApplicationWriter;
+    use crate::lazy::encoder::writer::IonWriter;
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;
     use crate::{ion_list, ion_sexp, ion_struct, Int, IonResult, IonType};
@@ -202,7 +203,7 @@ mod tests {
     fn to_binary_ion(text_ion: &str) -> IonResult<Vec<u8>> {
         let buffer = Vec::new();
         let config = WriteConfig::<BinaryEncoding_1_0>::new();
-        let mut writer = ApplicationWriter::with_config(config, buffer)?;
+        let mut writer = IonWriter::with_config(config, buffer)?;
         let elements = Element::read_all(text_ion)?;
         writer.write_elements(&elements)?;
         writer.flush()?;
@@ -218,7 +219,7 @@ mod tests {
                 (a b c)
         "#,
         )?;
-        let mut reader = LazyBinaryReader::new(ion_data)?;
+        let mut reader = BinaryReader_1_0::new(ion_data)?;
         // For each top-level value...
         while let Some(top_level_value) = reader.next()? {
             // ...see if it's an S-expression...
@@ -244,7 +245,7 @@ mod tests {
             ]
         "#,
         )?;
-        let mut reader = LazyBinaryReader::new(data)?;
+        let mut reader = BinaryReader_1_0::new(data)?;
 
         let first_value = reader.expect_next()?;
         let list = first_value.read()?.expect_list()?;
@@ -269,7 +270,7 @@ mod tests {
             (null null.string)
         "#,
         )?;
-        let mut reader = LazyBinaryReader::new(data)?;
+        let mut reader = BinaryReader_1_0::new(data)?;
         let list: Element = ion_list![
             "yo",
             77,

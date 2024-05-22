@@ -7,7 +7,7 @@ use serde::{ser, Serialize};
 
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
-use crate::lazy::encoder::writer::ApplicationWriter;
+use crate::lazy::encoder::writer::IonWriter;
 use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0};
 use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
@@ -19,7 +19,7 @@ use crate::{Decimal, IonError, IonResult, IonType, TextKind, Timestamp};
 
 pub fn write_to<T: Serialize, E: Encoding, O: Write>(
     value: &T,
-    writer: &mut ApplicationWriter<E, O>,
+    writer: &mut IonWriter<E, O>,
 ) -> IonResult<()> {
     let serializer = ValueSerializer::new(writer.value_writer());
     value.serialize(serializer)
@@ -29,10 +29,12 @@ fn write_with_config<T: Serialize, E: Encoding>(
     value: &T,
     config: WriteConfig<E>,
 ) -> IonResult<Vec<u8>> {
-    let mut writer = ApplicationWriter::with_config(config, vec![])?;
+    let mut writer = IonWriter::with_config(config, vec![])?;
     write_to(value, &mut writer)?;
     writer.close()
 }
+
+// TODO: Break these into modules for 1.0 and 1.1
 
 /// Serialize an object into pretty formatted Ion text
 pub fn to_pretty<T>(value: &T) -> IonResult<String>

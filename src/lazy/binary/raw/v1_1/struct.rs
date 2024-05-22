@@ -15,19 +15,19 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::span::Span;
-use crate::{IonResult, RawSymbolTokenRef};
+use crate::{IonResult, RawSymbolRef};
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryFieldName_1_1<'top> {
     // The field name has to be read in order to discover its length, so we store it here to avoid
     // needing to re-read it.
-    field_name: RawSymbolTokenRef<'top>,
+    field_name: RawSymbolRef<'top>,
     // For viewing the span/range of the field name
     matched: ImmutableBuffer<'top>,
 }
 
 impl<'top> LazyRawBinaryFieldName_1_1<'top> {
-    pub fn new(field_name: RawSymbolTokenRef<'top>, matched: ImmutableBuffer<'top>) -> Self {
+    pub fn new(field_name: RawSymbolRef<'top>, matched: ImmutableBuffer<'top>) -> Self {
         Self {
             field_name,
             matched,
@@ -48,7 +48,7 @@ impl<'top> HasRange for LazyRawBinaryFieldName_1_1<'top> {
 }
 
 impl<'top> LazyRawFieldName<'top> for LazyRawBinaryFieldName_1_1<'top> {
-    fn read(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+    fn read(&self) -> IonResult<RawSymbolRef<'top>> {
         todo!()
     }
 }

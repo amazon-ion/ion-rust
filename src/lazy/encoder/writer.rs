@@ -4,19 +4,23 @@ use delegate::delegate;
 use ice_code::ice as cold_path;
 
 use crate::constants::v1_0::system_symbol_ids;
+use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::encoder::annotation_seq::AnnotationSeq;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
     AnnotatableWriter, EExpWriter, SequenceWriter, StructWriter, ValueWriter,
 };
+use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{LazyRawWriter, SymbolCreationPolicy};
-use crate::lazy::encoding::Encoding;
+use crate::lazy::encoding::{
+    BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
+};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::raw_symbol_token_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    Decimal, Element, ElementWriter, Int, IonResult, IonType, RawSymbolTokenRef, Symbol, SymbolId,
+    Decimal, Element, ElementWriter, Int, IonResult, IonType, RawSymbolRef, Symbol, SymbolId,
     SymbolTable, Timestamp, Value,
 };
 
@@ -43,14 +47,20 @@ impl EncodingContext {
 }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
-pub struct ApplicationWriter<E: Encoding, Output: Write> {
+pub struct IonWriter<E: Encoding, Output: Write> {
     encoding_context: EncodingContext,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
     output: Output,
 }
 
-impl<E: Encoding, Output: Write> ApplicationWriter<E, Output> {
+pub type Writer<Output> = IonWriter<AnyEncoding, Output>;
+pub type TextWriter_1_0<Output> = IonWriter<TextEncoding_1_0, Output>;
+pub type BinaryWriter_1_0<Output> = IonWriter<BinaryEncoding_1_0, Output>;
+pub type TextWriter_1_1<Output> = IonWriter<TextEncoding_1_1, Output>;
+pub type BinaryWriter_1_1<Output> = IonWriter<BinaryEncoding_1_1, Output>;
+
+impl<E: Encoding, Output: Write> IonWriter<E, Output> {
     /// Constructs a writer for the requested encoding using its default configuration.
     pub fn new(output: Output) -> IonResult<Self> {
         Self::with_config(E::default_write_config(), output)
@@ -69,7 +79,7 @@ impl<E: Encoding, Output: Write> ApplicationWriter<E, Output> {
             E::DEFAULT_SYMBOL_CREATION_POLICY,
             E::SUPPORTS_TEXT_TOKENS,
         );
-        let mut writer = ApplicationWriter {
+        let mut writer = IonWriter {
             encoding_context,
             data_writer,
             directive_writer,
@@ -85,6 +95,13 @@ impl<E: Encoding, Output: Write> ApplicationWriter<E, Output> {
 
     pub fn output_mut(&mut self) -> &mut Output {
         &mut self.output
+    }
+
+    pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
+        // This method forwards the call to the trait method implementation. It's here so
+        // you can call `write()` on an ApplicationWriter without having to import SequenceWriter
+        // separately.
+        <Self as SequenceWriter>::write(self, value)
     }
 
     /// Writes bytes of previously encoded values to the output stream.
@@ -145,7 +162,7 @@ impl<E: Encoding, Output: Write> ApplicationWriter<E, Output> {
     }
 }
 
-impl<E: Encoding, Output: Write> MakeValueWriter for ApplicationWriter<E, Output> {
+impl<E: Encoding, Output: Write> MakeValueWriter for IonWriter<E, Output> {
     type ValueWriter<'a> = ApplicationValueWriter<'a, <E::Writer<Vec<u8>> as MakeValueWriter>::ValueWriter<'a>>
     where
         Self: 'a;
@@ -160,7 +177,7 @@ impl<E: Encoding, Output: Write> MakeValueWriter for ApplicationWriter<E, Output
     }
 }
 
-impl<E: Encoding, Output: Write> SequenceWriter for ApplicationWriter<E, Output> {
+impl<E: Encoding, Output: Write> SequenceWriter for IonWriter<E, Output> {
     type Resources = Output;
 
     fn close(mut self) -> IonResult<Self::Resources> {
@@ -212,9 +229,9 @@ impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value
         for annotation in &mut annotations {
             let sid: SymbolId = match annotation.as_raw_symbol_token_ref() {
                 // The token is already a symbol ID.
-                RawSymbolTokenRef::SymbolId(sid) => sid,
+                RawSymbolRef::SymbolId(sid) => sid,
                 // The token is text...
-                RawSymbolTokenRef::Text(text) => {
+                RawSymbolRef::Text(text) => {
                     if let Some(sid) = self.symbol_table().sid_for(&text) {
                         //...that was already in the symbol table.
                         sid
@@ -225,7 +242,7 @@ impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value
                     }
                 }
             };
-            *annotation = RawSymbolTokenRef::SymbolId(sid);
+            *annotation = RawSymbolRef::SymbolId(sid);
         }
 
         Ok(ApplicationValueWriter {
@@ -257,11 +274,11 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         }
     }
 
-    fn write_symbol(mut self, value: impl AsRawSymbolTokenRef) -> IonResult<()> {
+    fn write_symbol(mut self, value: impl AsRawSymbolRef) -> IonResult<()> {
         // If it's a symbol ID, do a bounds check and then write it.
         // Otherwise, get its associated text.
         let text = match value.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(symbol_id) => {
+            RawSymbolRef::SymbolId(symbol_id) => {
                 if !self.symbol_table().sid_is_valid(symbol_id) {
                     return cold_path!(IonResult::encoding_error(format!(
                         "symbol ID ${symbol_id} is out of bounds"
@@ -269,7 +286,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
                 }
                 return self.raw_value_writer.write_symbol(symbol_id);
             }
-            RawSymbolTokenRef::Text(text) => text,
+            RawSymbolRef::Text(text) => text,
         };
 
         // If the writer can write it as inline text, do so.
@@ -352,11 +369,11 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'value,
 }
 
 impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V> {
-    fn encode_field_name(&mut self, name: impl AsRawSymbolTokenRef) -> IonResult<()> {
+    fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         // If it's a symbol ID, do a bounds check and then write it.
         // Otherwise, get its associated text.
         let text = match name.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(symbol_id) => {
+            RawSymbolRef::SymbolId(symbol_id) => {
                 if !self.encoding.symbol_table.sid_is_valid(symbol_id) {
                     return cold_path!(IonResult::encoding_error(format!(
                         "symbol ID ${symbol_id} is out of bounds"
@@ -364,7 +381,7 @@ impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V>
                 }
                 return self.raw_struct_writer.encode_field_name(symbol_id);
             }
-            RawSymbolTokenRef::Text(text) => text,
+            RawSymbolRef::Text(text) => text,
         };
 
         // If the writer can write it as inline text, do so.

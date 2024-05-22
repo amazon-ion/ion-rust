@@ -6,7 +6,7 @@ use crate::ion_tests::{
     bad, equivs, non_equivs, ElementApi, SkipList, ELEMENT_EQUIVS_SKIP_LIST,
     ELEMENT_GLOBAL_SKIP_LIST, ELEMENT_ROUND_TRIP_SKIP_LIST,
 };
-use ion_rs::lazy::reader::LazyReader;
+use ion_rs::lazy::reader::Reader;
 use ion_rs::IonResult;
 use ion_rs::{Format, TextKind};
 use test_generator::test_resources;
@@ -14,10 +14,10 @@ use test_generator::test_resources;
 struct LazyReaderElementApi;
 
 impl ElementApi for LazyReaderElementApi {
-    type ElementReader<'a> = LazyReader<&'a [u8]>;
+    type ElementReader<'a> = Reader<&'a [u8]>;
 
     fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
-        Ok(LazyReader::new(data))
+        Ok(Reader::new(data))
     }
 
     fn global_skip_list() -> SkipList {

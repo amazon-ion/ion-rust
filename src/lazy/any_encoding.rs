@@ -56,7 +56,7 @@ use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
-use crate::{IonResult, IonType, RawSymbolTokenRef};
+use crate::{IonResult, IonType, RawSymbolRef};
 
 /// An implementation of the `LazyDecoder` trait that can read any encoding of Ion.
 #[derive(Debug, Clone, Copy)]
@@ -739,7 +739,7 @@ pub enum RawAnnotationsIteratorKind<'top> {
 }
 
 impl<'top> Iterator for RawAnyAnnotationsIterator<'top> {
-    type Item = IonResult<RawSymbolTokenRef<'top>>;
+    type Item = IonResult<RawSymbolRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.encoding {
@@ -1126,7 +1126,7 @@ impl<'top> HasRange for LazyRawAnyFieldName<'top> {
 }
 
 impl<'top> LazyRawFieldName<'top> for LazyRawAnyFieldName<'top> {
-    fn read(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+    fn read(&self) -> IonResult<RawSymbolRef<'top>> {
         use LazyRawFieldNameKind::*;
         match self.encoding {
             Text_1_0(name) => name.read(),
@@ -1356,7 +1356,7 @@ mod tests {
     use crate::lazy::decoder::{LazyRawReader, LazyRawSequence, LazyRawValue};
     use crate::lazy::raw_stream_item::LazyRawStreamItem;
     use crate::lazy::raw_value_ref::RawValueRef;
-    use crate::{IonResult, RawSymbolTokenRef, Timestamp};
+    use crate::{IonResult, RawSymbolRef, Timestamp};
 
     use super::*;
 
@@ -1375,7 +1375,7 @@ mod tests {
             let name = reader.next(&allocator)?.expect_value()?;
             assert_eq!(
                 name.annotations().next().unwrap()?,
-                RawSymbolTokenRef::SymbolId(4)
+                RawSymbolRef::SymbolId(4)
             );
             assert_eq!(name.read()?.expect_string()?.text(), "Gary");
             assert_eq!(

@@ -1,4 +1,5 @@
-use crate::{FlexUInt, IonResult};
+use crate::v1_1::FlexUInt;
+use crate::IonResult;
 use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;
 use std::io::Write;

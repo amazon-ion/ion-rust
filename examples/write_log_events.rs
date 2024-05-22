@@ -194,9 +194,9 @@ mod example {
                 .write(11, event.thread_id)?
                 .write(12, &event.thread_name)?
                 //                 v--- The fixed strings from the log statement are also SIDs
-                .write(13, RawSymbolTokenRef::SymbolId(17))? // logger name
-                .write(14, RawSymbolTokenRef::SymbolId(18))? // log level
-                .write(15, RawSymbolTokenRef::SymbolId(19))? // format
+                .write(13, RawSymbolRef::SymbolId(17))? // logger name
+                .write(14, RawSymbolRef::SymbolId(18))? // log level
+                .write(15, RawSymbolRef::SymbolId(19))? // format
                 .write(16, &event.parameters)?;
             struct_.close()
         }

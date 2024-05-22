@@ -11,7 +11,7 @@ use crate::lazy::expanded::template::{
 };
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::r#struct::LazyStruct;
-use crate::lazy::reader::LazyTextReader_1_1;
+use crate::lazy::reader::TextReader_1_1;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
@@ -66,7 +66,7 @@ impl TemplateCompiler {
     ) -> IonResult<TemplateMacro> {
         // TODO: This is a rudimentary implementation that panics instead of performing thorough
         //       validation. Where it does surface errors, the messages are too terse.
-        let mut reader = LazyTextReader_1_1::new(expression.as_bytes())?;
+        let mut reader = TextReader_1_1::new(expression.as_bytes())?;
         let invocation = reader.expect_next()?.read()?.expect_sexp()?;
         let mut values = invocation.iter();
 

@@ -1,4 +1,4 @@
-use crate::raw_symbol_token_ref::{AsRawSymbolTokenRef, RawSymbolTokenRef};
+use crate::raw_symbol_token_ref::{AsRawSymbolRef, RawSymbolRef};
 use crate::{Str, Symbol};
 use std::borrow::Borrow;
 use std::fmt::{Debug, Formatter};
@@ -116,11 +116,11 @@ impl AsSymbolRef for &Symbol {
     }
 }
 
-impl<'a> AsRawSymbolTokenRef for SymbolRef<'a> {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolTokenRef {
+impl<'a> AsRawSymbolRef for SymbolRef<'a> {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
         match &self.text {
-            None => RawSymbolTokenRef::SymbolId(0),
-            Some(text) => RawSymbolTokenRef::Text(text),
+            None => RawSymbolRef::SymbolId(0),
+            Some(text) => RawSymbolRef::Text(text),
         }
     }
 }

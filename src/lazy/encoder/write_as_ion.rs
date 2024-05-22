@@ -22,8 +22,8 @@ use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWrit
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::{
-    Blob, Clob, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolTokenRef, Symbol,
-    SymbolRef, Timestamp, Value,
+    Blob, Clob, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, Symbol, SymbolRef,
+    Timestamp, Value,
 };
 
 /// Defines how a Rust type should be serialized as Ion in terms of the methods available
@@ -99,7 +99,7 @@ impl_write_as_ion_value!(
     Clob => write_clob,
 );
 
-impl<'b> WriteAsIon for RawSymbolTokenRef<'b> {
+impl<'b> WriteAsIon for RawSymbolRef<'b> {
     #[inline]
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         writer.write_symbol(self)
