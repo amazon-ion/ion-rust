@@ -17,13 +17,10 @@ fn main() -> IonResult<()> {
 mod example {
     use chrono::{DateTime, FixedOffset};
     use ion_rs::*;
-    use std::env::args;
-
-    use ion_rs::v1_0::LazyRawBinaryWriter_1_0;
-    use ion_rs::v1_1::LazyRawBinaryWriter_1_1;
     use rand::rngs::StdRng;
     use rand::seq::SliceRandom;
     use rand::{Rng, SeedableRng};
+    use std::env::args;
     use std::io::BufWriter;
     use std::ops::Range;
     use tempfile::NamedTempFile;
@@ -60,7 +57,7 @@ mod example {
 
         // Encode the log events as Ion 1.0 data
         let buf_writer = BufWriter::new(ion_1_0_file.as_file());
-        let mut ion_writer = LazyRawBinaryWriter_1_0::new(buf_writer)?;
+        let mut ion_writer = v1_0::RawBinaryWriter::new(buf_writer)?;
         for event in &events {
             ion_writer.write(SerializeWithoutMacros(event))?;
         }
@@ -69,7 +66,7 @@ mod example {
 
         // Encode the log events as Ion 1.1 data
         let buf_writer = BufWriter::new(ion_1_1_file.as_file());
-        let mut ion_writer = LazyRawBinaryWriter_1_1::new(buf_writer)?;
+        let mut ion_writer = v1_1::RawBinaryWriter::new(buf_writer)?;
         for event in &events {
             ion_writer.write(SerializeWithMacros(event))?;
         }
