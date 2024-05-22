@@ -113,7 +113,7 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
 mod tests {
     use crate::lazy::decoder::{HasRange, HasSpan, LazyRawFieldName, LazyRawStruct, LazyRawValue};
     use crate::lazy::raw_value_ref::RawValueRef;
-    use crate::raw_symbol_token_ref::AsRawSymbolRef;
+    use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{Decimal, IonType, RawSymbolRef, Timestamp};
 
     use super::*;

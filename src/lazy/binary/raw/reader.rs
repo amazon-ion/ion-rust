@@ -236,7 +236,7 @@ mod tests {
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::decoder::{LazyRawFieldName, RawVersionMarker};
     use crate::lazy::raw_stream_item::RawStreamItem;
-    use crate::raw_symbol_token_ref::AsRawSymbolRef;
+    use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{IonResult, IonType, RawSymbolRef};
 
     #[test]

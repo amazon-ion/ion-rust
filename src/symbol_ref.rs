@@ -1,4 +1,4 @@
-use crate::raw_symbol_token_ref::{AsRawSymbolRef, RawSymbolRef};
+use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
 use crate::{Str, Symbol};
 use std::borrow::Borrow;
 use std::fmt::{Debug, Formatter};

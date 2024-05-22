@@ -6,7 +6,7 @@ use crate::lazy::encoder::binary::v1_1::{flex_sym::FlexSym, flex_uint::FlexUInt}
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::raw_symbol_token_ref::AsRawSymbolRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::IonResult;
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_1`],
@@ -314,7 +314,7 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
 impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_1<'value, 'top> {
     #[inline]
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
-        use crate::raw_symbol_token_ref::RawSymbolRef::*;
+        use crate::raw_symbol_ref::RawSymbolRef::*;
 
         match (self.flex_uint_encoding, name.as_raw_symbol_token_ref()) {
             // We're already in FlexSym encoding mode

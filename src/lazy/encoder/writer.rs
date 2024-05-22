@@ -16,7 +16,7 @@ use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
 };
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{

@@ -1,4 +1,4 @@
-use crate::raw_symbol_token_ref::{AsRawSymbolRef, RawSymbolRef};
+use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
 use crate::result::IonFailure;
 use crate::{Annotations, Sequence};
 use crate::{Decimal, Int, Struct, Timestamp};
@@ -182,11 +182,11 @@ pub(crate) const fn string_escape_code_init() -> [&'static str; 256] {
 
 /// Provides a text formatter for Ion values
 /// This is used with the Display implementation of `OwnedElement`
-pub struct IonValueFormatter<'a, W: fmt::Write> {
+pub struct FmtValueFormatter<'a, W: fmt::Write> {
     pub(crate) output: &'a mut W,
 }
 
-impl<'a, W: fmt::Write> IonValueFormatter<'a, W> {
+impl<'a, W: fmt::Write> FmtValueFormatter<'a, W> {
     pub fn new(output: &'a mut W) -> Self {
         Self { output }
     }
@@ -194,7 +194,7 @@ impl<'a, W: fmt::Write> IonValueFormatter<'a, W> {
 
 /// A shim that allows values to be formatted to implementations of `io::Write` instead of being limited
 /// to implementations of `fmt::Write`.
-pub struct IoFmtShim<W: io::Write> {
+pub struct IoValueFormatter<W: io::Write> {
     output: W,
     // If an I/O error happens while writing the formatted text to output, write!() will return
     // a `fmt::Error` (which contains no information). This result can then be inspected for the
@@ -203,7 +203,7 @@ pub struct IoFmtShim<W: io::Write> {
     result: IonResult<()>,
 }
 
-impl<W: io::Write> IoFmtShim<W> {
+impl<W: io::Write> IoValueFormatter<W> {
     pub fn new(output: W) -> Self {
         Self {
             output,
@@ -215,12 +215,12 @@ impl<W: io::Write> IoFmtShim<W> {
         self.result
     }
 
-    pub fn value_formatter(&mut self) -> IonValueFormatter<'_, Self> {
-        IonValueFormatter::new(self)
+    pub fn value_formatter(&mut self) -> FmtValueFormatter<'_, Self> {
+        FmtValueFormatter::new(self)
     }
 }
 
-impl<W: io::Write> fmt::Write for IoFmtShim<W> {
+impl<W: io::Write> fmt::Write for IoValueFormatter<W> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         let io_result = self.output.write_all(s.as_bytes());
         match io_result {
@@ -238,7 +238,7 @@ impl<W: io::Write> fmt::Write for IoFmtShim<W> {
     }
 }
 
-impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
+impl<'a, W: std::fmt::Write> FmtValueFormatter<'a, W> {
     /// Returns `true` if the provided `token`'s text is an 'identifier'. That is, the text starts
     /// with a `$`, `_` or ASCII letter and is followed by a sequence of `$`, `_`, or ASCII letters
     /// and numbers. Examples:
@@ -502,15 +502,15 @@ impl<'a, W: std::fmt::Write> IonValueFormatter<'a, W> {
 
 #[cfg(test)]
 mod formatter_test {
-    use crate::text::text_formatter::IonValueFormatter;
+    use crate::text::text_formatter::FmtValueFormatter;
     use crate::{ion_list, ion_sexp, ion_struct, IonResult, IonType, Timestamp};
 
     fn formatter<F>(mut f: F, expected: &str)
     where
-        F: for<'a> FnMut(&mut IonValueFormatter<'a, String>) -> IonResult<()>,
+        F: for<'a> FnMut(&mut FmtValueFormatter<'a, String>) -> IonResult<()>,
     {
         let mut actual = String::new();
-        let mut ivf = IonValueFormatter {
+        let mut ivf = FmtValueFormatter {
             output: &mut actual,
         };
 

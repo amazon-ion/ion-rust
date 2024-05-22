@@ -11,7 +11,7 @@ use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWrite
 use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
 use crate::lazy::span::Span;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{Decimal, Int, IonResult, IonType, Timestamp};
 
 /// An uninhabited type that signals to the compiler that related code paths are not reachable.

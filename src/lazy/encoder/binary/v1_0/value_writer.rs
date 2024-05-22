@@ -17,7 +17,7 @@ use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
@@ -440,7 +440,7 @@ mod tests {
     use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::value_writer::StructWriter;
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
-    use crate::raw_symbol_token_ref::AsRawSymbolRef;
+    use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{Element, IonData, IonResult, RawSymbolRef, Timestamp};
 
     fn writer_test(

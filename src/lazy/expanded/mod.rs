@@ -62,7 +62,7 @@ use crate::lazy::system_reader::{LazySystemReader, PendingLst};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
-use crate::raw_symbol_token_ref::AsRawSymbolRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolTable, Timestamp};
 

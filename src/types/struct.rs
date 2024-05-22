@@ -2,7 +2,7 @@ use crate::element::builders::StructBuilder;
 use crate::element::Element;
 use crate::ion_data::{IonEq, IonOrd};
 use crate::symbol_ref::AsSymbolRef;
-use crate::text::text_formatter::IonValueFormatter;
+use crate::text::text_formatter::FmtValueFormatter;
 use crate::Symbol;
 use smallvec::SmallVec;
 use std::cmp::Ordering;
@@ -151,7 +151,7 @@ pub struct Struct {
 
 impl Display for Struct {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = IonValueFormatter { output: f };
+        let mut ivf = FmtValueFormatter { output: f };
         ivf.format_struct(self).map_err(|_| std::fmt::Error)?;
         Ok(())
     }

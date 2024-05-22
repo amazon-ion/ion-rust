@@ -29,7 +29,7 @@ use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
 use crate::result::IonFailure;
-use crate::text::text_formatter::IonValueFormatter;
+use crate::text::text_formatter::FmtValueFormatter;
 use crate::write_config::WriteConfig;
 
 mod annotations;
@@ -148,7 +148,7 @@ impl Value {
 
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = IonValueFormatter { output: f };
+        let mut ivf = FmtValueFormatter { output: f };
         match &self {
             Value::Null(ion_type) => ivf.format_null(*ion_type),
             Value::Bool(bool) => ivf.format_bool(*bool),
@@ -750,7 +750,7 @@ impl Element {
 
 impl Display for Element {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let mut ivf = IonValueFormatter { output: f };
+        let mut ivf = FmtValueFormatter { output: f };
 
         // display for annotations of this element
         ivf.format_annotations(&self.annotations)

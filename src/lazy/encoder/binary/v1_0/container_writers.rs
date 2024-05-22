@@ -7,7 +7,7 @@ use crate::lazy::encoder::binary::v1_0::value_writer::{BinaryValueWriter_1_0, MA
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::raw_symbol_token_ref::AsRawSymbolRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
 use crate::{IonError, IonResult, RawSymbolRef, SymbolId};
 

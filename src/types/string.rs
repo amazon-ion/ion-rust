@@ -1,5 +1,5 @@
 use crate::ion_data::{IonEq, IonOrd};
-use crate::text::text_formatter::IonValueFormatter;
+use crate::text::text_formatter::FmtValueFormatter;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
@@ -64,7 +64,7 @@ impl Str {
 
 impl Display for Str {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut formatter = IonValueFormatter { output: f };
+        let mut formatter = FmtValueFormatter { output: f };
         formatter
             .format_string(self.as_ref())
             .map_err(|_| std::fmt::Error)

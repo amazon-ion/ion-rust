@@ -2,12 +2,12 @@ use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
 
 pub mod internal {
     use crate::lazy::encoder::value_writer::ValueWriter;
-    use crate::raw_symbol_token_ref::AsRawSymbolRef;
+    use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::IonResult;
 
     pub trait MakeValueWriter {

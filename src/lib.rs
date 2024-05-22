@@ -159,14 +159,15 @@ pub use types::{
 // Allow access to less commonly used types like decimal::coefficient::{Coefficient, Sign}
 pub use types::decimal;
 
-pub use crate::text::text_formatter::{IoFmtShim, IonValueFormatter};
+#[cfg(feature = "experimental-tooling-apis")]
+pub use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
 
 // Private modules that serve to organize implementation details.
 pub(crate) mod binary;
 mod catalog;
 mod constants;
 mod ion_data;
-mod raw_symbol_token_ref;
+mod raw_symbol_ref;
 mod shared_symbol_table;
 mod symbol_ref;
 mod symbol_table;
@@ -198,7 +199,7 @@ macro_rules! v1_x_reader_writer {
             lazy::encoder::write_as_ion::WriteAsIon,
             lazy::encoder::writer::Writer,
             lazy::reader::Reader,
-            raw_symbol_token_ref::RawSymbolRef,
+            raw_symbol_ref::RawSymbolRef,
             symbol_table::SymbolTable,
             lazy::value_ref::ValueRef,
         };

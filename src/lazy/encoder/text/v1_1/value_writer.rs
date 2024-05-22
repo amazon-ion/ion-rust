@@ -9,7 +9,7 @@ use crate::lazy::encoder::value_writer::{
     AnnotatableWriter, EExpWriter, SequenceWriter, StructWriter, ValueWriter,
 };
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::types::{ContainerType, ParentType};
 use crate::{Decimal, Int, IonResult, IonType, Timestamp};
