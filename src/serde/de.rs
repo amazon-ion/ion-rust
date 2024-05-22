@@ -241,19 +241,14 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
     where
         V: Visitor<'de>,
     {
-        let value = self.value.read()?.expect_string()?;
-        visitor.visit_str(value.text())
+        visitor.visit_str(self.value.read()?.expect_text()?)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        let value: crate::lazy::str_ref::StrRef = self.value.read()?.expect_string()?;
-        // The `StrRef` above may already contain an owned `String`. Using `into_owned()` will
-        // convert it into a `Str` (possibly preserving an existing `String`) and calling `into()`
-        // will discard the `Str` wrapper leaving a `String`.
-        visitor.visit_string(value.into_owned().into())
+        visitor.visit_string(self.value.read()?.expect_text()?.to_owned())
     }
 
     fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
