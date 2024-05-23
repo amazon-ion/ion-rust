@@ -70,7 +70,7 @@ impl ElementApi for LazyReaderElementApi {
 mod good_round_trip {
     use super::*;
     use ion_rs::Format::Text;
-    use ion_rs::TextKind;
+    use ion_rs::TextFormat;
     use test_generator::test_resources;
 
     #[test_resources("ion-tests/iontestdata_1_1/good/**/*.ion")]
@@ -81,8 +81,8 @@ mod good_round_trip {
             || {
                 LazyReaderElementApi::assert_three_way_round_trip(
                     file_name,
-                    Text(TextKind::Lines),
-                    Text(TextKind::Lines),
+                    Text(TextFormat::Lines),
+                    Text(TextFormat::Lines),
                 )
             },
         );

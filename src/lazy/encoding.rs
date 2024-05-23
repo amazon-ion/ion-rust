@@ -33,7 +33,7 @@ use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
-use crate::{IonResult, TextKind, WriteConfig};
+use crate::{IonResult, TextFormat, WriteConfig};
 
 /// Marker trait for types that represent an Ion encoding.
 pub trait Encoding: LazyEncoder + LazyDecoder {
@@ -129,7 +129,7 @@ impl Encoding for TextEncoding_1_0 {
         "text Ion v1.0"
     }
     fn default_write_config() -> WriteConfig<Self> {
-        WriteConfig::<Self>::new(<TextKind as Default>::default())
+        WriteConfig::<Self>::new(<TextFormat as Default>::default())
     }
 }
 impl Encoding for TextEncoding_1_1 {
@@ -138,7 +138,7 @@ impl Encoding for TextEncoding_1_1 {
         "text Ion v1.1"
     }
     fn default_write_config() -> WriteConfig<Self> {
-        WriteConfig::<Self>::new(<TextKind as Default>::default())
+        WriteConfig::<Self>::new(<TextFormat as Default>::default())
     }
 }
 
