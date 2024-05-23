@@ -1,4 +1,4 @@
-use crate::text::text_formatter::IonValueFormatter;
+use crate::text::text_formatter::FmtValueFormatter;
 use crate::Bytes;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
@@ -17,7 +17,7 @@ impl<'data> Deref for BytesRef<'data> {
 }
 
 impl<'data> BytesRef<'data> {
-    pub fn to_owned(&self) -> Bytes {
+    pub fn to_owned(self) -> Bytes {
         Bytes::from(self.data)
     }
 
@@ -82,7 +82,7 @@ impl<'a, 'b> PartialEq<BytesRef<'a>> for BytesRef<'b> {
 
 impl<'data> Display for BytesRef<'data> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut formatter = IonValueFormatter { output: f };
+        let mut formatter = FmtValueFormatter { output: f };
         formatter
             .format_blob(self.data())
             .map_err(|_| std::fmt::Error)

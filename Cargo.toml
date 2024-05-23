@@ -24,38 +24,31 @@ edition = "2021"
 rust-version = "1.67"
 
 [features]
-default = ["experimental"]
-experimental-ion-hash = ["digest"]
+default = []
+experimental-ion-hash = ["digest", "experimental-reader-writer"]
 
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
 # These are not guaranteed any sort of API stability and may also have non-standard
 # Ion behavior (e.g., draft Ion 1.1 capabilities).
 experimental = [
-    "experimental-lazy-reader",
-    "experimental-reader",
-    "experimental-writer",
+    "experimental-reader-writer",
+    "experimental-tooling-apis",
     "experimental-serde",
 ]
 
-# Access to the `IonReader` trait, its implementations, and the `ReaderBuilder`.
+# Access to the streaming Reader and Writer types.
 # These APIs are functional and well-tested, but are not yet stable.
-experimental-reader = []
+experimental-reader-writer = []
 
-# Access to the `IonWriter` trait and its implementations.
-# These APIs are functional and well-tested, but are not yet stable.
-experimental-writer = []
-
-# A reader API that parks on a top-level value and yields 'lazy' handles to the data
-# contained therein. These lazy handles can be read multiple times, allowing for
-# an inexpensive form of 'rewind' functionality.
-experimental-lazy-reader = []
+# Access to low-level encoding information. These APIs are not near stabilization.
+experimental-tooling-apis = []
 
 # Experimental serde API to serialize and deserialize Ion data into Rust objects using serde crate
-experimental-serde = ["dep:serde_with", "dep:serde"]
+experimental-serde = ["experimental-reader-writer", "dep:serde_with", "dep:serde"]
 
 [dependencies]
 base64 = "0.12"
-bytes = "0.4"
+
 # chrono < 0.5 brings in a deprecated version of the `time` crate via `oldtime` feature by default
 # this makes it explicitly not do this as there is an advisory warning against this:
 # See: https://github.com/chronotope/chrono/issues/602
@@ -75,7 +68,7 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 serde_with = { version = "3.7.0", optional = true }
 
 [dev-dependencies]
-rstest = "0.18.2"
+rstest = "0.19.0"
 rstest_reuse = "0.6.0"
 # Used by ion-tests integration
 walkdir = "2.5.0"

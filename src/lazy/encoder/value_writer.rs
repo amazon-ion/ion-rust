@@ -2,12 +2,12 @@ use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
+use crate::raw_symbol_ref::AsRawSymbolRef;
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
 
 pub mod internal {
     use crate::lazy::encoder::value_writer::ValueWriter;
-    use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+    use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::IonResult;
 
     pub trait MakeValueWriter {
@@ -27,7 +27,7 @@ pub mod internal {
         ///
         /// For text implementations, this typically includes indentation, a symbol token representing
         /// the field name itself, and the delimiting `:`.
-        fn encode_field_name(&mut self, name: impl AsRawSymbolTokenRef) -> IonResult<()>;
+        fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()>;
     }
 }
 
@@ -63,7 +63,7 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
     fn write_decimal(self, value: &Decimal) -> IonResult<()>;
     fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
     fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
-    fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+    fn write_symbol(self, value: impl AsRawSymbolRef) -> IonResult<()>;
     fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
     fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
 
@@ -88,7 +88,7 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
         sexp.close()
     }
 
-    fn write_struct<K: AsRawSymbolTokenRef, V: WriteAsIon, I: IntoIterator<Item = (K, V)>>(
+    fn write_struct<K: AsRawSymbolRef, V: WriteAsIon, I: IntoIterator<Item = (K, V)>>(
         self,
         values: I,
     ) -> IonResult<()> {
@@ -166,7 +166,7 @@ macro_rules! delegate_value_writer_to {
                 fn write_decimal(self, value: &Decimal) -> IonResult<()>;
                 fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
                 fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
-                fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+                fn write_symbol(self, value: impl AsRawSymbolRef) -> IonResult<()>;
                 fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
                 fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
                 fn list_writer(self) -> IonResult<Self::ListWriter>;
@@ -194,15 +194,12 @@ pub(crate) use delegate_value_writer_to;
 pub(crate) use delegate_value_writer_to_self;
 
 pub struct FieldWriter<'field, StructWriterType> {
-    name: RawSymbolTokenRef<'field>,
+    name: RawSymbolRef<'field>,
     struct_writer: &'field mut StructWriterType,
 }
 
 impl<'field, StructWriterType> FieldWriter<'field, StructWriterType> {
-    pub fn new(
-        name: RawSymbolTokenRef<'field>,
-        struct_writer: &'field mut StructWriterType,
-    ) -> Self {
+    pub fn new(name: RawSymbolRef<'field>, struct_writer: &'field mut StructWriterType) -> Self {
         Self {
             name,
             struct_writer,
@@ -248,14 +245,14 @@ impl<'field, StructWriterType: StructWriter> ValueWriter for FieldWriter<'field,
 }
 
 pub struct AnnotatedFieldWriter<'field, StructWriterType> {
-    name: RawSymbolTokenRef<'field>,
+    name: RawSymbolRef<'field>,
     annotations: AnnotationsVec<'field>,
     struct_writer: &'field mut StructWriterType,
 }
 
 impl<'field, StructWriterType: StructWriter> AnnotatedFieldWriter<'field, StructWriterType> {
     pub(crate) fn new(
-        name: RawSymbolTokenRef<'field>,
+        name: RawSymbolRef<'field>,
         annotations: impl AnnotationSeq<'field>,
         struct_writer: &'field mut StructWriterType,
     ) -> Self {
@@ -308,7 +305,7 @@ impl<'field, StructWriterType: StructWriter> ValueWriter
 
 pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
     /// Writes a struct field using the provided name/value pair.
-    fn write<A: AsRawSymbolTokenRef, V: WriteAsIon>(
+    fn write<A: AsRawSymbolRef, V: WriteAsIon>(
         &mut self,
         name: A,
         value: V,
@@ -318,7 +315,7 @@ pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
         Ok(self)
     }
 
-    fn write_all<A: AsRawSymbolTokenRef, V: WriteAsIon, I: IntoIterator<Item = (A, V)>>(
+    fn write_all<A: AsRawSymbolRef, V: WriteAsIon, I: IntoIterator<Item = (A, V)>>(
         &mut self,
         fields: I,
     ) -> IonResult<&mut Self> {
@@ -328,10 +325,7 @@ pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
         Ok(self)
     }
 
-    fn field_writer<'a>(
-        &'a mut self,
-        name: impl Into<RawSymbolTokenRef<'a>>,
-    ) -> FieldWriter<'a, Self> {
+    fn field_writer<'a>(&'a mut self, name: impl Into<RawSymbolRef<'a>>) -> FieldWriter<'a, Self> {
         FieldWriter::new(name.into(), self)
     }
 
@@ -402,7 +396,7 @@ pub trait SequenceWriter: MakeValueWriter {
         &Decimal => write_decimal,
         &Timestamp => write_timestamp,
         impl AsRef<str> => write_string,
-        impl AsRawSymbolTokenRef => write_symbol,
+        impl AsRawSymbolRef => write_symbol,
         impl AsRef<[u8]> => write_clob,
         impl AsRef<[u8]> => write_blob,
     );
@@ -442,7 +436,7 @@ pub trait SequenceWriter: MakeValueWriter {
         Ok(self)
     }
 
-    fn write_struct<K: AsRawSymbolTokenRef, V: WriteAsIon, I: IntoIterator<Item = (K, V)>>(
+    fn write_struct<K: AsRawSymbolRef, V: WriteAsIon, I: IntoIterator<Item = (K, V)>>(
         &mut self,
         fields: I,
     ) -> IonResult<&mut Self> {

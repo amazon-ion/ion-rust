@@ -8,12 +8,12 @@ use crate::lazy::encoder::value_writer::{
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
-use crate::text::text_formatter::{IoFmtShim, IonValueFormatter};
+use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
 use crate::text::whitespace_config::WhitespaceConfig;
 use crate::types::{ContainerType, ParentType};
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolTokenRef, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
 use delegate::delegate;
 use std::fmt::Formatter;
 use std::io::Write;
@@ -28,11 +28,11 @@ pub struct TextValueWriter_1_0<'value, W: Write + 'value> {
     pub(crate) parent_type: ParentType,
 }
 
-pub(crate) fn write_symbol_token<O: Write, A: AsRawSymbolTokenRef>(
+pub(crate) fn write_symbol_token<O: Write, A: AsRawSymbolRef>(
     output: &mut O,
     token: A,
 ) -> IonResult<()> {
-    let mut io_shim = IoFmtShim::new(output);
+    let mut io_shim = IoValueFormatter::new(output);
     let _ = io_shim.value_formatter().format_symbol_token(token);
     io_shim.into_result()
 }
@@ -43,7 +43,7 @@ pub(crate) fn write_escaped_text_body<O: Write, S: AsRef<str>>(
     output: &mut O,
     value: S,
 ) -> IonResult<()> {
-    let mut io_shim = IoFmtShim::new(output);
+    let mut io_shim = IoValueFormatter::new(output);
     let _ = io_shim.value_formatter().format_escaped_text_body(value);
     io_shim.into_result()
 }
@@ -115,11 +115,11 @@ impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
         let output = &mut self.value_writer.writer.output;
         for annotation in self.annotations {
             match annotation.as_raw_symbol_token_ref() {
-                RawSymbolTokenRef::Text(token) => {
+                RawSymbolRef::Text(token) => {
                     write_symbol_token(output, token)?;
                     write!(output, "::")
                 }
-                RawSymbolTokenRef::SymbolId(sid) => write!(output, "${sid}::"),
+                RawSymbolRef::SymbolId(sid) => write!(output, "${sid}::"),
             }?;
         }
 
@@ -398,7 +398,7 @@ impl<'a, W: Write> TextStructWriter_1_0<'a, W> {
 }
 
 impl<'a, W: Write> FieldEncoder for TextStructWriter_1_0<'a, W> {
-    fn encode_field_name(&mut self, name: impl AsRawSymbolTokenRef) -> IonResult<()> {
+    fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         // Leading indentation for the current depth
         self.container_writer
             .write_indentation(self.container_writer.depth + 1)?;
@@ -584,7 +584,7 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
         self.write_delimiter_text()
     }
 
-    fn write_symbol(mut self, value: impl AsRawSymbolTokenRef) -> IonResult<()> {
+    fn write_symbol(mut self, value: impl AsRawSymbolRef) -> IonResult<()> {
         self.write_indentation()?;
         write_symbol_token(self.output(), value)?;
         self.write_delimiter_text()
@@ -596,7 +596,7 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
         struct ClobShim<'a>(&'a [u8]);
         impl<'a> std::fmt::Display for ClobShim<'a> {
             fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-                let mut formatter = IonValueFormatter { output: f };
+                let mut formatter = FmtValueFormatter { output: f };
                 formatter.format_clob(self.0)?;
                 Ok(())
             }

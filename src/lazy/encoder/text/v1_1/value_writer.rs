@@ -9,7 +9,7 @@ use crate::lazy::encoder::value_writer::{
     AnnotatableWriter, EExpWriter, SequenceWriter, StructWriter, ValueWriter,
 };
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::types::{ContainerType, ParentType};
 use crate::{Decimal, Int, IonResult, IonType, Timestamp};
@@ -58,7 +58,7 @@ impl<'value, W: Write + 'value> ValueWriter for TextValueWriter_1_1<'value, W> {
             fn write_decimal(self, value: &Decimal) -> IonResult<()>;
             fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
             fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
-            fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+            fn write_symbol(self, value: impl AsRawSymbolRef) -> IonResult<()>;
             fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
             fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
         }
@@ -133,7 +133,7 @@ impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_1<'va
             fn write_decimal(self, value: &Decimal) -> IonResult<()>;
             fn write_timestamp(self, value: &Timestamp) -> IonResult<()>;
             fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
-            fn write_symbol(self, value: impl AsRawSymbolTokenRef) -> IonResult<()>;
+            fn write_symbol(self, value: impl AsRawSymbolRef) -> IonResult<()>;
             fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
             fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
         }
@@ -211,7 +211,7 @@ pub struct TextStructWriter_1_1<'value, W: Write> {
 }
 
 impl<'value, W: Write> FieldEncoder for TextStructWriter_1_1<'value, W> {
-    fn encode_field_name(&mut self, name: impl AsRawSymbolTokenRef) -> IonResult<()> {
+    fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         self.writer_1_0.encode_field_name(name)
     }
 }

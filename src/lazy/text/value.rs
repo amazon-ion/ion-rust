@@ -12,7 +12,7 @@ use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::encoded_value::EncodedTextValue;
-use crate::{IonResult, IonType, RawSymbolTokenRef};
+use crate::{IonResult, IonType, RawSymbolRef};
 
 /// A value that has been identified in the text input stream but whose data has not yet been read.
 ///
@@ -227,7 +227,7 @@ impl<'top> RawTextAnnotationsIterator<'top> {
 }
 
 impl<'top> Iterator for RawTextAnnotationsIterator<'top> {
-    type Item = IonResult<RawSymbolTokenRef<'top>>;
+    type Item = IonResult<RawSymbolRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error || self.input.is_empty() {
@@ -261,7 +261,7 @@ mod tests {
 
     use crate::lazy::text::buffer::TextBufferView;
     use crate::lazy::text::value::RawTextAnnotationsIterator;
-    use crate::{IonResult, RawSymbolTokenRef};
+    use crate::{IonResult, RawSymbolRef};
 
     #[test]
     fn iterate_annotations() -> IonResult<()> {
@@ -269,9 +269,9 @@ mod tests {
             let allocator = BumpAllocator::new();
             let input = TextBufferView::new(&allocator, input.as_bytes());
             let mut iter = RawTextAnnotationsIterator::new(input);
-            assert_eq!(iter.next().unwrap()?, RawSymbolTokenRef::Text("foo"));
-            assert_eq!(iter.next().unwrap()?, RawSymbolTokenRef::Text("bar"));
-            assert_eq!(iter.next().unwrap()?, RawSymbolTokenRef::Text("baz"));
+            assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("foo"));
+            assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("bar"));
+            assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("baz"));
             Ok(())
         }
         test("foo::bar::baz::")?;

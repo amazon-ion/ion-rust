@@ -14,22 +14,63 @@
 //! that uses an empty annotations sequence. A custom annotations sequence can be set on a per-value
 //! basis by using the [`annotate`](crate::lazy::encoder::annotate::Annotatable::annotated_with) method
 //! provided by the [`Annotate`](crate::lazy::encoder::annotate::Annotatable) trait.
+use std::io;
 use std::marker::PhantomData;
 
 use crate::lazy::decoder::LazyDecoder;
 use crate::lazy::encoder::annotation_seq::AnnotationsVec;
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
+use crate::lazy::encoding::Encoding;
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::{
-    Blob, Clob, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolTokenRef, Symbol,
-    SymbolRef, Timestamp, Value,
+    Blob, Clob, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, Symbol, SymbolRef,
+    Timestamp, Value, WriteConfig,
 };
 
 /// Defines how a Rust type should be serialized as Ion in terms of the methods available
 /// on [`ValueWriter`].
 pub trait WriteAsIon {
+    /// Maps this value to the Ion data model using the provided [`ValueWriter`] implementation.
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()>;
+
+    /// Encodes this value as an Ion stream with `self` as the single top-level value.
+    /// If the requested encoding is binary of any version, returns a `Vec<u8>` containing the
+    /// encoded bytes. If the requested encoding is text of any version, returns a `String` instead.
+    /// ```
+    ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
+    ///# fn main() -> IonResult<()> {
+    ///# use ion_rs::*;
+    ///
+    /// use ion_rs::WriteAsIon;
+    /// let ion_text: String = "foo bar baz".encode_as(v1_0::Text)?;
+    /// let element = Element::read_one(ion_text)?;
+    /// assert_eq!(element.as_string().unwrap(), "foo bar baz");
+    ///# Ok(())
+    ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
+    /// ```
+    fn encode_as<E: Encoding, C: Into<WriteConfig<E>>>(&self, config: C) -> IonResult<E::Output>
+    where
+        for<'a> &'a Self: WriteAsIon,
+    {
+        config.into().encode(self)
+    }
+
+    /// Encodes this value as an Ion stream with `self` as the single top-level value, writing
+    /// the resulting stream to the specified `output`.
+    fn encode_to<E: Encoding, C: Into<WriteConfig<E>>, W: io::Write>(
+        &self,
+        config: C,
+        output: W,
+    ) -> IonResult<W>
+    where
+        for<'a> &'a Self: WriteAsIon,
+    {
+        config.into().encode_to(self, output)
+    }
 }
 
 impl WriteAsIon for &Element {
@@ -99,7 +140,7 @@ impl_write_as_ion_value!(
     Clob => write_clob,
 );
 
-impl<'b> WriteAsIon for RawSymbolTokenRef<'b> {
+impl<'b> WriteAsIon for RawSymbolRef<'b> {
     #[inline]
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         writer.write_symbol(self)

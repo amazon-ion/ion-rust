@@ -7,9 +7,9 @@ use crate::lazy::encoder::binary::v1_0::value_writer::{BinaryValueWriter_1_0, MA
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
-use crate::{IonError, IonResult, RawSymbolTokenRef, SymbolId};
+use crate::{IonError, IonResult, RawSymbolRef, SymbolId};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_0`],
 /// [`BinarySExpWriter_1_0`], and [`BinaryStructWriter_1_0`].
@@ -45,7 +45,7 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
         }
     }
 
-    pub fn with_annotations<S: AsRawSymbolTokenRef, I: IntoIterator<Item = S>>(
+    pub fn with_annotations<S: AsRawSymbolRef, I: IntoIterator<Item = S>>(
         mut self,
         annotations: I,
     ) -> IonResult<Self> {
@@ -53,8 +53,8 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
         let mut symbol_ids = BumpVec::with_capacity_in(iterator.size_hint().0, self.allocator);
         for annotation in iterator {
             match annotation.as_raw_symbol_token_ref() {
-                RawSymbolTokenRef::SymbolId(symbol_id) => symbol_ids.push(symbol_id),
-                RawSymbolTokenRef::Text(text) => {
+                RawSymbolRef::SymbolId(symbol_id) => symbol_ids.push(symbol_id),
+                RawSymbolRef::Text(text) => {
                     return cold_path! {
                         IonResult::encoding_error(
                             format!("binary Ion 1.0 does not support text annotation literals (received '{}')", text)
@@ -183,7 +183,7 @@ impl<'value, 'top> BinaryListWriter_1_0<'value, 'top> {
         ))
     }
 
-    pub(crate) fn with_annotations<S: AsRawSymbolTokenRef, I: IntoIterator<Item = S>>(
+    pub(crate) fn with_annotations<S: AsRawSymbolRef, I: IntoIterator<Item = S>>(
         mut self,
         annotations: I,
     ) -> IonResult<Self> {
@@ -254,7 +254,7 @@ impl<'value, 'top> BinarySExpWriter_1_0<'value, 'top> {
         Self::with_container_writer(container_writer)
     }
 
-    pub(crate) fn with_annotations<S: AsRawSymbolTokenRef, I: IntoIterator<Item = S>>(
+    pub(crate) fn with_annotations<S: AsRawSymbolRef, I: IntoIterator<Item = S>>(
         mut self,
         annotations: I,
     ) -> IonResult<Self> {
@@ -292,7 +292,7 @@ impl<'value, 'top> BinaryStructWriter_1_0<'value, 'top> {
         ))
     }
 
-    pub(crate) fn with_annotations<S: AsRawSymbolTokenRef, I: IntoIterator<Item = S>>(
+    pub(crate) fn with_annotations<S: AsRawSymbolRef, I: IntoIterator<Item = S>>(
         mut self,
         annotations: I,
     ) -> IonResult<Self> {
@@ -306,11 +306,11 @@ impl<'value, 'top> BinaryStructWriter_1_0<'value, 'top> {
 }
 
 impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_0<'value, 'top> {
-    fn encode_field_name(&mut self, name: impl AsRawSymbolTokenRef) -> IonResult<()> {
+    fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         // Write the field name
         let sid = match name.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(sid) => sid,
-            RawSymbolTokenRef::Text(text) => {
+            RawSymbolRef::SymbolId(sid) => sid,
+            RawSymbolRef::Text(text) => {
                 return Err(IonError::Encoding(EncodingError::new(format!(
                     "tried to write a text literal using the v1.0 raw binary writer: '{text}'"
                 ))));

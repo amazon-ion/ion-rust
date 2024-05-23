@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
-use crate::{IonResult, RawSymbolTokenRef};
+use crate::{IonResult, RawSymbolRef};
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of FlexUInt- or
 /// FlexSym-encoded symbol IDs.
@@ -15,7 +15,7 @@ impl<'a> RawBinaryAnnotationsIterator_1_1<'a> {
 }
 
 impl<'a> Iterator for RawBinaryAnnotationsIterator_1_1<'a> {
-    type Item = IonResult<RawSymbolTokenRef<'a>>;
+    type Item = IonResult<RawSymbolRef<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         todo!()

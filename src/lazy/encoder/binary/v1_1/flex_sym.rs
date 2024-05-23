@@ -1,9 +1,9 @@
 use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;
 
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-use crate::RawSymbolTokenRef::{SymbolId, Text};
-use crate::{FlexInt, RawSymbolTokenRef};
+use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
+use crate::raw_symbol_ref::AsRawSymbolRef;
+use crate::RawSymbolRef::{self, SymbolId, Text};
 
 /// An Ion 1.1 encoding primitive that can compactly represent a symbol ID or inline text.
 #[derive(Debug)]
@@ -16,7 +16,7 @@ impl FlexSym {
     pub const ZERO: u8 = 0x01;
 
     /// Encode the provided `symbol` as a FlexSym and write it to the provided [`BumpVec`].
-    pub fn encode_symbol(output: &mut BumpVec<u8>, symbol: impl AsRawSymbolTokenRef) {
+    pub fn encode_symbol(output: &mut BumpVec<u8>, symbol: impl AsRawSymbolRef) {
         let symbol_token = symbol.as_raw_symbol_token_ref();
         // Write the field name
         match symbol_token {
@@ -36,7 +36,7 @@ impl FlexSym {
 
     /// Encodes the empty string or symbol ID zero as a FlexSym. The caller is responsible for
     /// confirming that `symbol` is one of those two cases before calling.
-    fn encode_special_case(output: &mut BumpVec<u8>, symbol: RawSymbolTokenRef) {
+    fn encode_special_case(output: &mut BumpVec<u8>, symbol: RawSymbolRef) {
         let encoding: &[u8] = match symbol {
             SymbolId(_) => &[FlexSym::ZERO, 0xE1, 0x00],
             Text(_) => &[FlexSym::ZERO, 0x80],

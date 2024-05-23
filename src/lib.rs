@@ -138,9 +138,6 @@
 #[allow(clippy::single_component_path_imports)]
 use rstest_reuse;
 
-// These re-exports are only visible if the "experimental-reader" feature is enabled.
-#[cfg(feature = "experimental-reader")]
-pub use {raw_symbol_token_ref::RawSymbolTokenRef, symbol_table::SymbolTable};
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
 pub use catalog::{Catalog, MapCatalog};
 pub use element::builders::{SequenceBuilder, StructBuilder};
@@ -149,16 +146,7 @@ pub use element::{
     IntoAnnotatedElement, IntoAnnotations, Sequence, Value,
 };
 pub use ion_data::IonData;
-#[cfg(feature = "experimental-lazy-reader")]
-pub use {
-    binary::uint::DecodedUInt, binary::var_int::VarInt, binary::var_uint::VarUInt,
-    lazy::binary::immutable_buffer::ImmutableBuffer,
-    lazy::encoder::binary::v1_1::flex_int::FlexInt,
-    lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
-};
-// These re-exports are only visible if the "experimental-writer" feature is enabled.
-#[cfg(feature = "experimental-writer")]
-pub use lazy::encoder::writer::ApplicationWriter;
+
 #[doc(inline)]
 pub use result::{IonError, IonResult};
 pub use shared_symbol_table::SharedSymbolTable;
@@ -170,18 +158,16 @@ pub use types::{
 };
 // Allow access to less commonly used types like decimal::coefficient::{Coefficient, Sign}
 pub use types::decimal;
-// Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
-#[cfg(feature = "experimental-lazy-reader")]
-pub use write_config::WriteConfig;
 
-pub use crate::text::text_formatter::{IoFmtShim, IonValueFormatter};
+#[cfg(feature = "experimental-tooling-apis")]
+pub use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
 
 // Private modules that serve to organize implementation details.
 pub(crate) mod binary;
 mod catalog;
 mod constants;
 mod ion_data;
-mod raw_symbol_token_ref;
+mod raw_symbol_ref;
 mod shared_symbol_table;
 mod symbol_ref;
 mod symbol_table;
@@ -189,21 +175,190 @@ mod text;
 
 // Publicly-visible modules with nested items which users may choose to import
 mod element;
-pub mod result;
+pub(crate) mod result;
 mod types;
 
-#[cfg(feature = "experimental-ion-hash")]
-pub mod ion_hash;
-
-#[cfg(feature = "experimental-lazy-reader")]
-pub mod lazy;
-// Experimental Streaming APIs
 mod position;
 mod read_config;
 #[cfg(feature = "experimental-serde")]
 pub mod serde;
 pub(crate) mod unsafe_helpers;
+
+#[cfg(feature = "experimental-ion-hash")]
+pub mod ion_hash;
+mod lazy;
 mod write_config;
+
+pub use crate::lazy::any_encoding::AnyEncoding as Any;
+pub use crate::lazy::decoder::{HasRange, HasSpan};
+pub use crate::lazy::span::Span;
+pub use crate::write_config::WriteConfig;
+
+macro_rules! v1_x_reader_writer {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            lazy::streaming_raw_reader::{IonInput, IonSlice, IonStream},
+            lazy::decoder::LazyDecoder,
+            lazy::encoder::LazyEncoder,
+            lazy::encoding::Encoding,
+            lazy::encoder::annotate::Annotatable,
+            lazy::encoder::write_as_ion::WriteAsIon,
+            lazy::encoder::writer::Writer,
+            lazy::reader::Reader,
+            lazy::reader::IonReader,
+            raw_symbol_ref::RawSymbolRef,
+            symbol_table::SymbolTable,
+            lazy::value::LazyValue,
+            lazy::value_ref::ValueRef,
+            lazy::r#struct::{LazyStruct, LazyField},
+            lazy::sequence::{LazyList, LazySExp},
+            lazy::encoder::value_writer::{ValueWriter, StructWriter, SequenceWriter, EExpWriter},
+        };
+    };
+}
+
+macro_rules! v1_0_reader_writer {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            lazy::encoder::writer::{BinaryWriter_1_0 as BinaryWriter, TextWriter_1_0 as TextWriter},
+            lazy::reader::{BinaryReader_1_0 as BinaryReader, TextReader_1_0 as TextReader},
+        };
+    };
+}
+
+macro_rules! v1_1_reader_writer {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            lazy::encoder::writer::{BinaryWriter_1_1 as BinaryWriter, TextWriter_1_1 as TextWriter},
+            lazy::encoding::{BinaryEncoding_1_1 as Binary, TextEncoding_1_1 as Text},
+            lazy::reader::{BinaryReader_1_1 as BinaryReader, TextReader_1_1 as TextReader},
+        };
+    };
+}
+
+macro_rules! v1_x_tooling_apis {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            lazy::raw_stream_item::RawStreamItem,
+            lazy::any_encoding::{
+                LazyRawAnyVersionMarker, LazyRawAnyVersionMarkerKind,
+                LazyRawAnyValue, LazyRawValueKind,
+                LazyRawAnyList, LazyRawListKind,
+                LazyRawAnySExp, LazyRawSExpKind,
+                LazyRawAnyStruct, LazyRawStructKind,
+                LazyRawAnyFieldName, LazyRawFieldNameKind,
+                LazyRawAnyEExpression, LazyRawAnyEExpressionKind,
+            },
+            lazy::decoder::{
+                LazyRawSequence,
+                LazyRawStruct,
+                LazyRawFieldExpr,
+                LazyRawFieldName,
+                LazyRawValue,
+                LazyRawReader,
+                RawVersionMarker,
+                LazyRawContainer,
+            },
+            lazy::encoder::{
+                LazyRawWriter
+            },
+            lazy::expanded::r#struct::{
+                LazyExpandedStruct, ExpandedStructSource,
+                LazyExpandedField,
+                LazyExpandedFieldName
+            },
+            lazy::expanded::sequence::{Environment, ExpandedListSource, ExpandedSExpSource, LazyExpandedList, LazyExpandedSExp},
+            lazy::expanded::{LazyExpandedValue, ExpandingReader, ExpandedValueSource, ExpandedAnnotationsSource, ExpandedValueRef},
+            lazy::system_stream_item::SystemStreamItem,
+            lazy::system_reader::{SystemReader},
+        };
+    };
+}
+
+macro_rules! v1_0_tooling_apis {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            binary::uint::DecodedUInt,
+            binary::var_int::VarInt,
+            binary::var_uint::VarUInt,
+            lazy::binary::immutable_buffer::{ImmutableBuffer, AnnotationsWrapper},
+            lazy::binary::raw::type_descriptor::Header,
+            lazy::raw_value_ref::RawValueRef,
+            lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0 as RawBinaryWriter,
+            lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0 as RawTextWriter,
+            lazy::binary::raw::sequence::{
+                LazyRawBinaryList_1_0 as LazyRawBinaryList,
+                LazyRawBinarySExp_1_0 as LazyRawBinarySExp
+            },
+            lazy::binary::raw::r#struct::{LazyRawBinaryStruct_1_0 as LazyRawBinaryStruct, LazyRawBinaryFieldName_1_0 as LazyRawBinaryFieldName},
+            lazy::binary::raw::value::{
+                LazyRawBinaryValue_1_0 as LazyRawBinaryValue,
+                LazyRawBinaryVersionMarker_1_0 as LazyRawBinaryVersionMarker,
+                EncodedBinaryValueData_1_0 as EncodedBinaryValueData,
+                EncodedBinaryAnnotations_1_0 as EncodedBinaryAnnotations
+            },
+        };
+    };
+}
+
+macro_rules! v1_1_tooling_apis {
+    ($visibility:vis) => {
+        #[allow(unused_imports)]
+        $visibility use crate::{
+            lazy::encoder::binary::v1_1::flex_int::FlexInt,
+            lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
+            lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1 as RawBinaryWriter,
+            lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1 as RawTextWriter,
+        };
+    };
+}
+
+#[cfg(feature = "experimental-reader-writer")]
+v1_x_reader_writer!(pub);
+
+#[cfg(not(feature = "experimental-reader-writer"))]
+v1_x_reader_writer!(pub(crate));
+
+#[cfg(feature = "experimental-tooling-apis")]
+v1_x_tooling_apis!(pub);
+
+#[cfg(not(feature = "experimental-tooling-apis"))]
+v1_x_tooling_apis!(pub(crate));
+
+pub mod v1_0 {
+    #[cfg(feature = "experimental-tooling-apis")]
+    v1_0_tooling_apis!(pub);
+
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    v1_0_tooling_apis!(pub(crate));
+
+    #[cfg(feature = "experimental-reader-writer")]
+    v1_0_reader_writer!(pub);
+
+    #[cfg(not(feature = "experimental-reader-writer"))]
+    v1_0_reader_writer!(pub(crate));
+
+    pub use crate::lazy::encoding::{BinaryEncoding_1_0 as Binary, TextEncoding_1_0 as Text};
+}
+
+pub mod v1_1 {
+    #[cfg(feature = "experimental-tooling-apis")]
+    v1_1_tooling_apis!(pub);
+
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    v1_1_tooling_apis!(pub(crate));
+
+    #[cfg(feature = "experimental-reader-writer")]
+    v1_1_reader_writer!(pub);
+
+    #[cfg(not(feature = "experimental-reader-writer"))]
+    v1_1_reader_writer!(pub(crate));
+}
 
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]

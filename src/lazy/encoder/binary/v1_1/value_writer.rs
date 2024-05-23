@@ -10,15 +10,14 @@ use crate::lazy::encoder::binary::v1_1::container_writers::{
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
+use crate::lazy::encoder::binary::v1_1::{flex_int::FlexInt, flex_uint::FlexUInt};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
-use crate::{
-    Decimal, FlexInt, FlexUInt, Int, IonResult, IonType, RawSymbolTokenRef, SymbolId, Timestamp,
-};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
 /// The initial size of the bump-allocated buffer created to hold a container's child elements.
 // This number was chosen somewhat arbitrarily and can be updated as needed.
@@ -500,12 +499,12 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     }
 
     #[inline]
-    pub fn write_symbol<A: AsRawSymbolTokenRef>(mut self, value: A) -> IonResult<()> {
+    pub fn write_symbol<A: AsRawSymbolRef>(mut self, value: A) -> IonResult<()> {
         const SYMBOL_OPCODE: u8 = 0x90;
         const SYMBOL_FLEX_UINT_LEN_OPCODE: u8 = 0xF9;
         match value.as_raw_symbol_token_ref() {
-            RawSymbolTokenRef::SymbolId(sid) => self.write_symbol_id(sid),
-            RawSymbolTokenRef::Text(text) => {
+            RawSymbolRef::SymbolId(sid) => self.write_symbol_id(sid),
+            RawSymbolRef::Text(text) => {
                 self.write_text(SYMBOL_OPCODE, SYMBOL_FLEX_UINT_LEN_OPCODE, text.as_ref());
                 Ok(())
             }
@@ -708,10 +707,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
         }
     }
 
-    fn write_flex_sym_annotation(
-        buffer: &mut BumpVec<'top, u8>,
-        annotation: impl AsRawSymbolTokenRef,
-    ) {
+    fn write_flex_sym_annotation(buffer: &mut BumpVec<'top, u8>, annotation: impl AsRawSymbolRef) {
         FlexSym::encode_symbol(buffer, annotation);
     }
 
@@ -772,7 +768,7 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> 
         &Decimal => write_decimal,
         &Timestamp => write_timestamp,
         impl AsRef<str> => write_string,
-        impl AsRawSymbolTokenRef => write_symbol,
+        impl AsRawSymbolRef => write_symbol,
         impl AsRef<[u8]> => write_clob,
         impl AsRef<[u8]> => write_blob,
     );
@@ -834,9 +830,9 @@ mod tests {
     use crate::lazy::encoder::value_writer::ValueWriter;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsSExp};
-    use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
+    use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        Decimal, Element, Int, IonResult, IonType, Null, RawSymbolTokenRef, SymbolId, Timestamp,
+        Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
     };
 
     fn encoding_test(
@@ -2319,7 +2315,7 @@ mod tests {
     }
 
     /// A list of field name/value pairs that will be serialized as a struct in each test.
-    type TestStruct<'a> = &'a [(RawSymbolTokenRef<'a>, Element)];
+    type TestStruct<'a> = &'a [(RawSymbolRef<'a>, Element)];
     impl<'a> WriteAsIon for TestStruct<'a> {
         fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             let mut struct_writer = writer.struct_writer()?;
@@ -2331,10 +2327,7 @@ mod tests {
     }
 
     /// Constructs a field name/value pair out of a symbol token and a value written as Ion text.
-    fn field<'a>(
-        name: impl Into<RawSymbolTokenRef<'a>>,
-        value: &'a str,
-    ) -> (RawSymbolTokenRef<'a>, Element) {
+    fn field<'a>(name: impl Into<RawSymbolRef<'a>>, value: &'a str) -> (RawSymbolRef<'a>, Element) {
         (
             name.into(),
             Element::read_one(value).expect("failed to read field value"),
@@ -2690,10 +2683,7 @@ mod tests {
         // === Mixed symbol IDs and inline text ===
 
         case(
-            0.annotated_with([
-                RawSymbolTokenRef::SymbolId(4),
-                RawSymbolTokenRef::Text("foo"),
-            ]),
+            0.annotated_with([RawSymbolRef::SymbolId(4), RawSymbolRef::Text("foo")]),
             &[
                 0xE8, // Two FlexSym annotations follow
                 0x09, // FlexSym $4,
@@ -2703,10 +2693,7 @@ mod tests {
             ],
         )?;
         case(
-            0.annotated_with([
-                RawSymbolTokenRef::Text("foo"),
-                RawSymbolTokenRef::SymbolId(4),
-            ]),
+            0.annotated_with([RawSymbolRef::Text("foo"), RawSymbolRef::SymbolId(4)]),
             &[
                 0xE8, // Two FlexSym annotations follow
                 0xFB, // FlexSym: 3 UTF-8 bytes
@@ -2717,9 +2704,9 @@ mod tests {
         )?;
         case(
             0.annotated_with([
-                RawSymbolTokenRef::Text("foo"),
-                RawSymbolTokenRef::SymbolId(4),
-                RawSymbolTokenRef::Text("baz"),
+                RawSymbolRef::Text("foo"),
+                RawSymbolRef::SymbolId(4),
+                RawSymbolRef::Text("baz"),
             ]),
             &[
                 0xE9, // A FlexUInt follows that indicates the byte length of the FlexSym annotations sequence
@@ -2734,9 +2721,9 @@ mod tests {
         )?;
         case(
             0.annotated_with([
-                RawSymbolTokenRef::SymbolId(4),
-                RawSymbolTokenRef::Text("foo"),
-                RawSymbolTokenRef::SymbolId(5),
+                RawSymbolRef::SymbolId(4),
+                RawSymbolRef::Text("foo"),
+                RawSymbolRef::SymbolId(5),
             ]),
             &[
                 0xE9, // A FlexUInt follows that indicates the byte length of the FlexSym annotations sequence
@@ -2751,7 +2738,7 @@ mod tests {
 
         // === Special cases: "" and $0 ===
         case(
-            0.annotated_with([RawSymbolTokenRef::Text(""), RawSymbolTokenRef::SymbolId(0)]),
+            0.annotated_with([RawSymbolRef::Text(""), RawSymbolRef::SymbolId(0)]),
             &[
                 0xE8, // Two FlexSym annotations follow
                 0x01, // Opcode follows

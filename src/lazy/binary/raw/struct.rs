@@ -15,7 +15,7 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::span::Span;
-use crate::{IonResult, RawSymbolTokenRef, SymbolId};
+use crate::{IonResult, RawSymbolRef, SymbolId};
 
 #[derive(Copy, Clone)]
 pub struct LazyRawBinaryStruct_1_0<'top> {
@@ -136,8 +136,8 @@ impl<'top> HasRange for LazyRawBinaryFieldName_1_0<'top> {
 }
 
 impl<'top> LazyRawFieldName<'top> for LazyRawBinaryFieldName_1_0<'top> {
-    fn read(&self) -> IonResult<RawSymbolTokenRef<'top>> {
-        Ok(RawSymbolTokenRef::SymbolId(self.field_id))
+    fn read(&self) -> IonResult<RawSymbolRef<'top>> {
+        Ok(RawSymbolRef::SymbolId(self.field_id))
     }
 }
 
@@ -155,13 +155,13 @@ mod tests {
     fn field_name_ranges() -> IonResult<()> {
         // For each pair below, we'll confirm that the top-level struct's field names are found to
         // occupy the specified input ranges.
-        type FieldNameAndRange<'a> = (RawSymbolTokenRef<'a>, Range<usize>);
+        type FieldNameAndRange<'a> = (RawSymbolRef<'a>, Range<usize>);
         type FieldTest<'a> = (&'a [u8], &'a [FieldNameAndRange<'a>]);
         let tests: &[FieldTest] = &[
             // (Ion input, expected ranges of the struct's field names)
             (
                 &[0xD2, 0x84, 0x80], // {name: ""}
-                &[(RawSymbolTokenRef::SymbolId(4), 1..2)],
+                &[(RawSymbolRef::SymbolId(4), 1..2)],
             ),
         ];
         for (input, field_name_ranges) in tests {

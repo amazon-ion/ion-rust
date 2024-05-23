@@ -17,8 +17,7 @@ use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
-use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolTokenRef, Timestamp};
-use bytes::{BigEndian, ByteOrder};
+use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::{fmt, mem};
@@ -259,6 +258,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
 }
 
 impl<'top> LazyRawBinaryValue_1_0<'top> {
+    #[cfg(feature = "experimental-tooling-apis")]
     pub fn encoded_annotations(&self) -> Option<EncodedBinaryAnnotations_1_0<'_, 'top>> {
         if self.has_annotations() {
             Some(EncodedBinaryAnnotations_1_0 { value: self })
@@ -267,6 +267,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         }
     }
 
+    #[cfg(feature = "experimental-tooling-apis")]
     pub fn encoded_data(&self) -> EncodedBinaryValueData_1_0<'_, 'top> {
         EncodedBinaryValueData_1_0 { value: self }
     }
@@ -318,7 +319,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
 
     /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,
     /// calling this method will not read additional data; the `RawValueRef` will provide a
-    /// [`LazyRawBinarySequence_1_0`] or [`LazyStruct`](crate::lazy::struct::LazyStruct)
+    /// [`LazyRawBinaryList_1_0`], [`LazyRawBinarySExp_1_0`], or [`LazyRawBinaryStruct_1_0`]
     /// that can be traversed to access the container's contents.
     pub fn read(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         if self.is_null() {
@@ -411,8 +412,10 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         let number_of_bytes = self.encoded_value.value_body_length();
         let value = match number_of_bytes {
             0 => 0f64,
-            4 => f64::from(BigEndian::read_f32(ieee_bytes)),
-            8 => BigEndian::read_f64(ieee_bytes),
+            4 => f64::from(f32::from_be_bytes(
+                ieee_bytes.try_into().expect("already confirmed length"),
+            )),
+            8 => f64::from_be_bytes(ieee_bytes.try_into().expect("already confirmed length")),
             _ => return IonResult::decoding_error("encountered a float with an illegal length"),
         };
         Ok(RawValueRef::Float(value))
@@ -560,7 +563,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     fn read_symbol(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         self.read_symbol_id()
-            .map(|sid| RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(sid)))
+            .map(|sid| RawValueRef::Symbol(RawSymbolRef::SymbolId(sid)))
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a string.

@@ -1,5 +1,5 @@
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
-use crate::{IonResult, RawSymbolTokenRef};
+use crate::{IonResult, RawSymbolRef};
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of VarUInt symbol IDs.
 pub struct RawBinaryAnnotationsIterator<'a> {
@@ -13,7 +13,7 @@ impl<'a> RawBinaryAnnotationsIterator<'a> {
 }
 
 impl<'a> Iterator for RawBinaryAnnotationsIterator<'a> {
-    type Item = IonResult<RawSymbolTokenRef<'a>>;
+    type Item = IonResult<RawSymbolRef<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.buffer.is_empty() {
@@ -25,7 +25,7 @@ impl<'a> Iterator for RawBinaryAnnotationsIterator<'a> {
             Ok(output) => output,
             Err(error) => return Some(Err(error)),
         };
-        let symbol_id = RawSymbolTokenRef::SymbolId(var_uint.value());
+        let symbol_id = RawSymbolRef::SymbolId(var_uint.value());
         self.buffer = buffer_after_var_uint;
         Some(Ok(symbol_id))
     }

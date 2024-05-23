@@ -15,7 +15,7 @@ use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::matched::MatchedFieldName;
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
-use crate::{IonResult, RawSymbolTokenRef};
+use crate::{IonResult, RawSymbolRef};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RawTextStructIterator_1_0<'top> {
@@ -107,7 +107,7 @@ impl<'top> HasRange for LazyRawTextFieldName_1_0<'top> {
 }
 
 impl<'top> LazyRawFieldName<'top> for LazyRawTextFieldName_1_0<'top> {
-    fn read(&self) -> IonResult<RawSymbolTokenRef<'top>> {
+    fn read(&self) -> IonResult<RawSymbolRef<'top>> {
         self.matched.read()
     }
 }

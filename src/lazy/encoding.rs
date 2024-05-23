@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use std::fmt::Debug;
+use std::io;
 
 use crate::lazy::any_encoding::LazyRawAnyValue;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
@@ -18,6 +19,7 @@ use crate::lazy::binary::raw::v1_1::{
 };
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
 use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::LazyEncoder;
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::r#struct::{LazyRawTextFieldName_1_0, LazyRawTextStruct_1_0};
@@ -31,37 +33,79 @@ use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
-use crate::{TextKind, WriteConfig};
+use crate::{IonResult, TextKind, WriteConfig};
 
 /// Marker trait for types that represent an Ion encoding.
 pub trait Encoding: LazyEncoder + LazyDecoder {
+    type Output: 'static + OutputFromBytes + AsRef<[u8]>;
+
+    fn encode<V: WriteAsIon>(value: V) -> IonResult<Self::Output> {
+        let bytes = Self::encode_to(value, Vec::new())?;
+        Ok(Self::Output::from_bytes(bytes))
+    }
+
+    fn encode_all<V: WriteAsIon, I: IntoIterator<Item = V>>(values: I) -> IonResult<Self::Output> {
+        let bytes = Self::encode_all_to(values, Vec::new())?;
+        Ok(Self::Output::from_bytes(bytes))
+    }
+
+    fn encode_to<V: WriteAsIon, W: io::Write>(value: V, output: W) -> IonResult<W> {
+        Self::default_write_config().encode_to(value, output)
+    }
+
+    fn encode_all_to<V: WriteAsIon, I: IntoIterator<Item = V>, W: io::Write>(
+        values: I,
+        output: W,
+    ) -> IonResult<W> {
+        Self::default_write_config().encode_all_to(output, values)
+    }
     fn name() -> &'static str;
     fn default_write_config() -> WriteConfig<Self>;
+}
+
+// Similar to a simple `From` implementation, but can be defined for both String and Vec<u8> because
+// this crate owns the trait.
+pub trait OutputFromBytes {
+    fn from_bytes(bytes: Vec<u8>) -> Self;
+}
+
+impl OutputFromBytes for Vec<u8> {
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        bytes
+    }
+}
+
+impl OutputFromBytes for String {
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        String::from_utf8(bytes).expect("writer produced invalid UTF-8 bytes")
+    }
 }
 
 // These types derive trait implementations in order to allow types that containing them
 // to also derive trait implementations.
 
 /// The Ion 1.0 binary encoding.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct BinaryEncoding_1_0;
 
 /// The Ion 1.1 binary encoding.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct BinaryEncoding_1_1;
 
 impl<'top> BinaryEncoding<'top> for BinaryEncoding_1_0 {}
 impl<'top> BinaryEncoding<'top> for BinaryEncoding_1_1 {}
 
 /// The Ion 1.0 text encoding.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct TextEncoding_1_0;
 
 /// The Ion 1.1 text encoding.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct TextEncoding_1_1;
 
 impl Encoding for BinaryEncoding_1_0 {
+    type Output = Vec<u8>;
+
     fn name() -> &'static str {
         "binary Ion v1.0"
     }
@@ -70,6 +114,8 @@ impl Encoding for BinaryEncoding_1_0 {
     }
 }
 impl Encoding for BinaryEncoding_1_1 {
+    type Output = Vec<u8>;
+
     fn name() -> &'static str {
         "binary Ion v1.1"
     }
@@ -78,6 +124,7 @@ impl Encoding for BinaryEncoding_1_1 {
     }
 }
 impl Encoding for TextEncoding_1_0 {
+    type Output = String;
     fn name() -> &'static str {
         "text Ion v1.0"
     }
@@ -85,8 +132,8 @@ impl Encoding for TextEncoding_1_0 {
         WriteConfig::<Self>::new(<TextKind as Default>::default())
     }
 }
-
 impl Encoding for TextEncoding_1_1 {
+    type Output = String;
     fn name() -> &'static str {
         "text Ion v1.1"
     }
@@ -96,11 +143,11 @@ impl Encoding for TextEncoding_1_1 {
 }
 
 /// Marker trait for binary encodings of any version.
-pub trait BinaryEncoding<'top>: Encoding + LazyDecoder {}
+pub trait BinaryEncoding<'top>: Encoding<Output = Vec<u8>> + LazyDecoder {}
 
 /// Marker trait for text encodings.
 pub trait TextEncoding<'top>:
-    Encoding
+    Encoding<Output = String>
     + LazyDecoder<
         AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>,
         Value<'top> = LazyRawTextValue<'top, Self>,

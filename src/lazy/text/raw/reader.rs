@@ -113,8 +113,8 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
 mod tests {
     use crate::lazy::decoder::{HasRange, HasSpan, LazyRawFieldName, LazyRawStruct, LazyRawValue};
     use crate::lazy::raw_value_ref::RawValueRef;
-    use crate::raw_symbol_token_ref::AsRawSymbolTokenRef;
-    use crate::{Decimal, IonType, RawSymbolTokenRef, Timestamp};
+    use crate::raw_symbol_ref::AsRawSymbolRef;
+    use crate::{Decimal, IonType, RawSymbolRef, Timestamp};
 
     use super::*;
 
@@ -373,25 +373,21 @@ mod tests {
         // "\"Hello,\\\n world!\" "
         reader.expect_next(RawValueRef::String("Hello, world!".into()));
         // 'foo'
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text("foo")));
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
-            "Hello, world!",
-        )));
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text("😎😎😎")));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolRef::Text("foo")));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolRef::Text("Hello, world!")));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolRef::Text("😎😎😎")));
         // firstName
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text("firstName")));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolRef::Text("firstName")));
         // date_of_birth
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text(
-            "date_of_birth",
-        )));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolRef::Text("date_of_birth")));
         // $variable
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::Text("$variable")));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolRef::Text("$variable")));
         // $0
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(0)));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolRef::SymbolId(0)));
         // $10
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(10)));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolRef::SymbolId(10)));
         // $733
-        reader.expect_next(RawValueRef::Symbol(RawSymbolTokenRef::SymbolId(733)));
+        reader.expect_next(RawValueRef::Symbol(RawSymbolRef::SymbolId(733)));
 
         // {{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}
         reader.expect_next(RawValueRef::Blob("razzle dazzle root beer".into()));
@@ -454,9 +450,9 @@ mod tests {
         let value = reader.next()?.expect_value()?;
         assert_eq!(value.read()?.expect_i64()?, 42);
         let mut annotations = value.annotations();
-        assert_eq!(annotations.next().unwrap()?, RawSymbolTokenRef::Text("foo"));
-        assert_eq!(annotations.next().unwrap()?, RawSymbolTokenRef::Text("bar"));
-        assert_eq!(annotations.next().unwrap()?, RawSymbolTokenRef::Text("baz"));
+        assert_eq!(annotations.next().unwrap()?, RawSymbolRef::Text("foo"));
+        assert_eq!(annotations.next().unwrap()?, RawSymbolRef::Text("bar"));
+        assert_eq!(annotations.next().unwrap()?, RawSymbolRef::Text("baz"));
 
         Ok(())
     }

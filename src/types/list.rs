@@ -1,7 +1,7 @@
 use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::SequenceIterator;
 use crate::ion_data::IonEq;
-use crate::text::text_formatter::IonValueFormatter;
+use crate::text::text_formatter::FmtValueFormatter;
 use crate::{Element, Sequence};
 use delegate::delegate;
 use std::fmt::{Display, Formatter};
@@ -64,7 +64,7 @@ impl<'a> IntoIterator for &'a List {
 
 impl Display for List {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = IonValueFormatter { output: f };
+        let mut ivf = FmtValueFormatter { output: f };
         ivf.format_list(self).map_err(|_| std::fmt::Error)?;
         Ok(())
     }

@@ -199,7 +199,7 @@ pub mod ser;
 mod timestamp;
 
 pub use de::from_ion;
-pub use ser::{to_binary, to_pretty, to_string};
+pub use ser::{to_pretty, to_string};
 
 #[cfg(test)]
 #[cfg(feature = "experimental-serde")]
