@@ -33,6 +33,7 @@ use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
+
 use crate::{IonResult, TextFormat, WriteConfig};
 
 /// Marker trait for types that represent an Ion encoding.
