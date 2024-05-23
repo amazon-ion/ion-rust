@@ -15,7 +15,7 @@ use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
 use crate::symbol_ref::AsSymbolRef;
 use crate::write_config::WriteConfig;
 use crate::Value::Null;
-use crate::{Decimal, IonError, IonResult, IonType, TextKind, Timestamp};
+use crate::{Decimal, IonError, IonResult, IonType, TextFormat, Timestamp};
 
 pub fn write_to<T: Serialize, E: Encoding, O: Write>(
     value: &T,
@@ -41,7 +41,7 @@ pub fn to_pretty<T>(value: &T) -> IonResult<String>
 where
     T: Serialize,
 {
-    let config = WriteConfig::<TextEncoding_1_0>::new(TextKind::Pretty);
+    let config = WriteConfig::<TextEncoding_1_0>::new(TextFormat::Pretty);
     let bytes = write_with_config(value, config)?;
     match String::from_utf8(bytes) {
         Ok(data) => Ok(data),
@@ -54,7 +54,7 @@ pub fn to_string<T>(value: &T) -> IonResult<String>
 where
     T: Serialize,
 {
-    let config = WriteConfig::<TextEncoding_1_0>::new(TextKind::Compact);
+    let config = WriteConfig::<TextEncoding_1_0>::new(TextFormat::Compact);
     let bytes = write_with_config(value, config)?;
     match String::from_utf8(bytes) {
         Ok(data) => Ok(data),

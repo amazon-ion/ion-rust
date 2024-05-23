@@ -363,7 +363,7 @@ pub mod v1_1 {
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 #[non_exhaustive]
-pub enum TextKind {
+pub enum TextFormat {
     Compact,
     Lines,
     #[default]
@@ -374,7 +374,7 @@ pub enum TextKind {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Format {
-    Text(TextKind),
+    Text(TextFormat),
     Binary,
     // TODO: Json(TextKind)
 }

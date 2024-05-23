@@ -10,7 +10,7 @@ use crate::text::whitespace_config::{
     COMPACT_WHITESPACE_CONFIG, LINES_WHITESPACE_CONFIG, PRETTY_WHITESPACE_CONFIG,
 };
 use crate::write_config::WriteConfigKind;
-use crate::{IonResult, TextKind, WriteConfig};
+use crate::{IonResult, TextFormat, WriteConfig};
 
 // Text Ion 1.1 is a syntactic superset of Ion 1.0. The types comprising this writer implementation
 // delegates nearly all of their functionality to the 1.0 text writer.
@@ -45,7 +45,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
         Self: Sized,
     {
         Self::build(
-            WriteConfig::<TextEncoding_1_1>::new(TextKind::default()),
+            WriteConfig::<TextEncoding_1_1>::new(TextFormat::default()),
             output,
         )
     }
@@ -57,9 +57,9 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
         match &config.kind {
             WriteConfigKind::Text(text_config) => {
                 let whitespace_config = match text_config.text_kind {
-                    TextKind::Compact => &COMPACT_WHITESPACE_CONFIG,
-                    TextKind::Lines => &LINES_WHITESPACE_CONFIG,
-                    TextKind::Pretty => &PRETTY_WHITESPACE_CONFIG,
+                    TextFormat::Compact => &COMPACT_WHITESPACE_CONFIG,
+                    TextFormat::Lines => &LINES_WHITESPACE_CONFIG,
+                    TextFormat::Pretty => &PRETTY_WHITESPACE_CONFIG,
                 };
                 write!(
                     output,

@@ -13,7 +13,7 @@ use crate::text::whitespace_config::{
 };
 use crate::types::ParentType;
 use crate::write_config::WriteConfigKind;
-use crate::{IonResult, TextKind, WriteConfig};
+use crate::{IonResult, TextFormat, WriteConfig};
 
 /// A raw text Ion 1.0 writer.
 pub struct LazyRawTextWriter_1_0<W: Write> {
@@ -73,7 +73,7 @@ impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_0<W> {
 impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
     fn new(output: W) -> IonResult<Self> {
         Self::build(
-            WriteConfig::<TextEncoding_1_0>::new(TextKind::default()),
+            WriteConfig::<TextEncoding_1_0>::new(TextFormat::default()),
             output,
         )
     }
@@ -83,9 +83,9 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
         match &config.kind {
             WriteConfigKind::Text(text_config) => {
                 let whitespace_config = match text_config.text_kind {
-                    TextKind::Compact => &COMPACT_WHITESPACE_CONFIG,
-                    TextKind::Lines => &LINES_WHITESPACE_CONFIG,
-                    TextKind::Pretty => &PRETTY_WHITESPACE_CONFIG,
+                    TextFormat::Compact => &COMPACT_WHITESPACE_CONFIG,
+                    TextFormat::Lines => &LINES_WHITESPACE_CONFIG,
+                    TextFormat::Pretty => &PRETTY_WHITESPACE_CONFIG,
                 };
                 Ok(LazyRawTextWriter_1_0 {
                     output,

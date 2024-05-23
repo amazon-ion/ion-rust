@@ -9,7 +9,7 @@ use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, OutputFromBytes, TextEncoding_1_0,
     TextEncoding_1_1,
 };
-use crate::{IonResult, TextKind};
+use crate::{IonResult, TextFormat};
 
 /// Writer configuration to provide format and Ion version details to writer through encoding
 /// This will be used to create a writer without specifying which writer methods to use
@@ -80,7 +80,7 @@ impl<E: Encoding> WriteConfig<E> {
 }
 
 impl WriteConfig<TextEncoding_1_0> {
-    pub fn new(text_kind: TextKind) -> Self {
+    pub fn new(text_kind: TextFormat) -> Self {
         Self {
             kind: WriteConfigKind::Text(TextWriteConfig { text_kind }),
             phantom_data: Default::default(),
@@ -89,7 +89,7 @@ impl WriteConfig<TextEncoding_1_0> {
 }
 
 impl WriteConfig<TextEncoding_1_1> {
-    pub fn new(text_kind: TextKind) -> Self {
+    pub fn new(text_kind: TextFormat) -> Self {
         Self {
             kind: WriteConfigKind::Text(TextWriteConfig { text_kind }),
             phantom_data: Default::default(),
@@ -117,13 +117,13 @@ impl WriteConfig<BinaryEncoding_1_1> {
 
 impl Default for WriteConfig<TextEncoding_1_0> {
     fn default() -> Self {
-        Self::new(TextKind::Compact)
+        Self::new(TextFormat::Compact)
     }
 }
 
 impl Default for WriteConfig<TextEncoding_1_1> {
     fn default() -> Self {
-        Self::new(TextKind::Compact)
+        Self::new(TextFormat::Compact)
     }
 }
 
@@ -149,7 +149,7 @@ pub(crate) enum WriteConfigKind {
 /// Text writer configuration with text kind to be used to create a writer
 #[derive(Clone, Debug)]
 pub(crate) struct TextWriteConfig {
-    pub(crate) text_kind: TextKind,
+    pub(crate) text_kind: TextFormat,
 }
 
 /// Binary writer configuration to be used to create a writer

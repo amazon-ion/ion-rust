@@ -326,7 +326,7 @@ impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
             parent_type,
             ContainerType::SExp,
             "(",
-            " ",
+            "",
             trailing_delimiter,
         )?;
         Ok(Self { container_writer })

@@ -8,7 +8,7 @@ use crate::ion_tests::{
 };
 use ion_rs::lazy::reader::Reader;
 use ion_rs::IonResult;
-use ion_rs::{Format, TextKind};
+use ion_rs::{Format, TextFormat};
 use test_generator::test_resources;
 
 struct LazyReaderElementApi;
