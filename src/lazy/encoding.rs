@@ -99,9 +99,21 @@ impl<'top> BinaryEncoding<'top> for BinaryEncoding_1_1 {}
 #[derive(Copy, Clone, Debug, Default)]
 pub struct TextEncoding_1_0;
 
+impl TextEncoding_1_0 {
+    fn with_format(self, format: TextFormat) -> WriteConfig<Self> {
+        WriteConfig::<Self>::new(format)
+    }
+}
+
 /// The Ion 1.1 text encoding.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct TextEncoding_1_1;
+
+impl TextEncoding_1_1 {
+    fn with_format(self, format: TextFormat) -> WriteConfig<Self> {
+        WriteConfig::<Self>::new(format)
+    }
+}
 
 impl Encoding for BinaryEncoding_1_0 {
     type Output = Vec<u8>;
@@ -226,10 +238,68 @@ impl LazyDecoder for BinaryEncoding_1_1 {
 //
 // If we do not confine the implementation to types with a marker trait, rustc complains that
 // someone may someday use `ExpandedValueSource` as a `LazyDecoder::Value`, and then the
-// the implementation will conflict with the core `impl<T> From<T> for T` implementation.
+// implementation will conflict with the core `impl<T> From<T> for T` implementation.
 pub trait RawValueLiteral {}
 
 impl<'top, E: TextEncoding<'top>> RawValueLiteral for LazyRawTextValue<'top, E> {}
 impl<'top> RawValueLiteral for LazyRawBinaryValue_1_0<'top> {}
 impl<'top> RawValueLiteral for LazyRawBinaryValue_1_1<'top> {}
 impl<'top> RawValueLiteral for LazyRawAnyValue<'top> {}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use crate::lazy::encoding::TextEncoding;
+    use crate::{
+        ion_list, ion_seq, ion_sexp, ion_struct, v1_0, v1_1, IonResult, Sequence, TextFormat,
+        WriteConfig,
+    };
+
+    #[rstest]
+    #[case::pretty_v1_0(
+        v1_0::Text.with_format(TextFormat::Pretty),
+        "{\n  foo: 1,\n  bar: 2,\n}\n[\n  1,\n  2,\n]\n(\n  1\n  2\n)\n"
+    )]
+    #[case::pretty_v1_1(
+        v1_1::Text.with_format(TextFormat::Pretty),
+        "$ion_1_1\n{\n  foo: 1,\n  bar: 2,\n}\n[\n  1,\n  2,\n]\n(\n  1\n  2\n)\n"
+    )]
+    #[case::compact_v1_0(
+        v1_0::Text.with_format(TextFormat::Compact),
+        "{foo: 1, bar: 2, } [1, 2, ] (1 2 ) "
+    )]
+    #[case::compact_v1_1(
+        v1_1::Text.with_format(TextFormat::Compact),
+        "$ion_1_1 {foo: 1, bar: 2, } [1, 2, ] (1 2 ) "
+    )]
+    #[case::lines_v1_0(
+        v1_0::Text.with_format(TextFormat::Lines),
+        "{foo: 1, bar: 2, }\n[1, 2, ]\n(1 2 )\n"
+    )]
+    #[case::lines_v1_1(
+        v1_1::Text.with_format(TextFormat::Lines),
+        "$ion_1_1\n{foo: 1, bar: 2, }\n[1, 2, ]\n(1 2 )\n"
+    )]
+    fn encode_formatted_text<'a, E: TextEncoding<'a>>(
+        #[case] config: impl Into<WriteConfig<E>>,
+        #[case] expected: &str,
+    ) -> IonResult<()> {
+        let sequence: Sequence = ion_seq![
+            ion_struct! {
+                "foo" : 1,
+                "bar" : 2,
+            },
+            ion_list![1, 2],
+            ion_sexp! (1 2),
+        ];
+
+        // The goal of this test is to confirm that the value was serialized using the requested text format.
+        // This string equality checks are unfortunately specific/fragile and can be modified if/when
+        // changes are made to the text formatting.
+
+        let text = sequence.encode_as(config)?;
+        assert_eq!(text, expected);
+        Ok(())
+    }
+}
