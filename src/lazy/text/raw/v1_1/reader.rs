@@ -10,7 +10,7 @@ use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    HasRange, HasSpan, LazyDecoder, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
+    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
     LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
     RawVersionMarker,
 };
@@ -138,7 +138,7 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
     fn resume_at_offset(
         data: &'data [u8],
         offset: usize,
-        _config: <TextEncoding_1_1 as LazyDecoder>::ReaderSavedState,
+        _config: <TextEncoding_1_1 as Decoder>::ReaderSavedState,
     ) -> Self {
         LazyRawTextReader_1_1 {
             input: data,
@@ -414,7 +414,7 @@ impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<
 }
 
 impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
-    fn as_value(&self) -> <TextEncoding_1_1 as LazyDecoder>::Value<'top> {
+    fn as_value(&self) -> <TextEncoding_1_1 as Decoder>::Value<'top> {
         self.value
     }
 }
@@ -624,7 +624,7 @@ impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextStruct_1_
 }
 
 impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top> {
-    fn as_value(&self) -> <TextEncoding_1_1 as LazyDecoder>::Value<'top> {
+    fn as_value(&self) -> <TextEncoding_1_1 as Decoder>::Value<'top> {
         self.value
     }
 }

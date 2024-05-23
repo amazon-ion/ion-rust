@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::private::{LazyRawStructPrivate, RawStructUnexpandedFieldsIterator};
-use crate::lazy::decoder::{LazyDecoder, LazyRawFieldName, LazyRawStruct};
+use crate::lazy::decoder::{Decoder, LazyRawFieldName, LazyRawStruct};
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExpr, RawEExpression, ValueExpr,
 };
@@ -26,7 +26,7 @@ use crate::{IonError, IonResult, RawSymbolRef, SymbolRef};
 // template's struct body into `UnexpandedField` instances. The `ExpandedStructIterator` unpacks
 // and expands the field as part of its iteration process.
 #[derive(Debug, Clone, Copy)]
-pub enum UnexpandedField<'top, D: LazyDecoder> {
+pub enum UnexpandedField<'top, D: Decoder> {
     RawNameValue(EncodingContextRef<'top>, D::FieldName<'top>, D::Value<'top>),
     RawNameEExp(EncodingContextRef<'top>, D::FieldName<'top>, D::EExp<'top>),
     RawEExp(EncodingContextRef<'top>, D::EExp<'top>),
@@ -42,14 +42,14 @@ pub enum UnexpandedField<'top, D: LazyDecoder> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct LazyExpandedField<'top, D: LazyDecoder> {
+pub struct LazyExpandedField<'top, D: Decoder> {
     name: LazyExpandedFieldName<'top, D>,
     value: LazyExpandedValue<'top, D>,
 }
 
-impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {}
+impl<'top, D: Decoder> LazyExpandedField<'top, D> {}
 
-impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
+impl<'top, D: Decoder> LazyExpandedField<'top, D> {
     pub fn new(name: LazyExpandedFieldName<'top, D>, value: LazyExpandedValue<'top, D>) -> Self {
         Self { name, value }
     }
@@ -63,7 +63,7 @@ impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
+impl<'top, D: Decoder> LazyExpandedField<'top, D> {
     fn from_raw_field(
         context: EncodingContextRef<'top>,
         name: D::FieldName<'top>,
@@ -88,13 +88,13 @@ impl<'top, D: LazyDecoder> LazyExpandedField<'top, D> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum LazyExpandedFieldName<'top, D: LazyDecoder> {
+pub enum LazyExpandedFieldName<'top, D: Decoder> {
     RawName(EncodingContextRef<'top>, D::FieldName<'top>),
     TemplateName(TemplateMacroRef<'top>, SymbolRef<'top>),
     // TODO: `Constructed` needed for names in `(make_struct ...)`
 }
 
-impl<'top, D: LazyDecoder> LazyExpandedFieldName<'top, D> {
+impl<'top, D: Decoder> LazyExpandedFieldName<'top, D> {
     pub(crate) fn read(&self) -> IonResult<SymbolRef<'top>> {
         match self {
             LazyExpandedFieldName::RawName(context, name) => match name.read()? {
@@ -122,7 +122,7 @@ impl<'top, D: LazyDecoder> LazyExpandedFieldName<'top, D> {
 }
 
 #[derive(Copy, Clone)]
-pub enum ExpandedStructSource<'top, D: LazyDecoder> {
+pub enum ExpandedStructSource<'top, D: Decoder> {
     ValueLiteral(D::Struct<'top>),
     Template(
         Environment<'top, D>,
@@ -135,13 +135,13 @@ pub enum ExpandedStructSource<'top, D: LazyDecoder> {
 }
 
 #[derive(Copy, Clone)]
-pub struct LazyExpandedStruct<'top, D: LazyDecoder> {
+pub struct LazyExpandedStruct<'top, D: Decoder> {
     pub(crate) context: EncodingContextRef<'top>,
     pub(crate) source: ExpandedStructSource<'top, D>,
 }
 
 #[cfg(feature = "experimental-tooling-apis")]
-impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
+impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
@@ -150,7 +150,7 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
+impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
     pub fn from_literal(
         context: EncodingContextRef<'top>,
         sexp: D::Struct<'top>,
@@ -321,7 +321,7 @@ impl<'top, D: LazyDecoder> LazyExpandedStruct<'top, D> {
     }
 }
 
-pub enum ExpandedStructIteratorSource<'top, D: LazyDecoder> {
+pub enum ExpandedStructIteratorSource<'top, D: Decoder> {
     // The struct we're iterating over is a literal in the data stream. It may contain
     // e-expressions that need to be evaluated.
     ValueLiteral(
@@ -339,7 +339,7 @@ pub enum ExpandedStructIteratorSource<'top, D: LazyDecoder> {
     // TODO: Constructed
 }
 
-pub struct ExpandedStructIterator<'top, D: LazyDecoder> {
+pub struct ExpandedStructIterator<'top, D: Decoder> {
     // Each variant of 'source' below holds its own encoding context reference
     source: ExpandedStructIteratorSource<'top, D>,
     // Stores information about any operations that are still in progress.
@@ -348,7 +348,7 @@ pub struct ExpandedStructIterator<'top, D: LazyDecoder> {
 
 /// Ion 1.1's struct is very versatile, and supports a variety of expansion operations. This
 /// types indicates which operation is in the process of being carried out.
-enum ExpandedStructIteratorState<'top, D: LazyDecoder> {
+enum ExpandedStructIteratorState<'top, D: Decoder> {
     // The iterator is not performing any operations. It is ready to pull the next field from its
     // source.
     ReadingFieldFromSource,
@@ -375,7 +375,7 @@ enum ExpandedStructIteratorState<'top, D: LazyDecoder> {
     ),
 }
 
-impl<'top, D: LazyDecoder> Iterator for ExpandedStructIterator<'top, D> {
+impl<'top, D: Decoder> Iterator for ExpandedStructIterator<'top, D> {
     type Item = IonResult<LazyExpandedField<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -410,7 +410,7 @@ impl<'top, D: LazyDecoder> Iterator for ExpandedStructIterator<'top, D> {
 //
 //  'top: The lifetime associated with the top-level value we're currently reading at some depth.
 //     D: The decoder being used to read the Ion data stream. For example: `TextEncoding_1_1`
-impl<'top, D: LazyDecoder> ExpandedStructIterator<'top, D> {
+impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
     /// Pulls the next expanded field from the raw source struct. The field returned may correspond
     /// to a `(name, value literal)` pair in the raw struct, or it may be the product of a macro
     /// evaluation.

@@ -7,7 +7,7 @@ use std::fs::read;
 use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
 
 use ion_rs::lazy::encoder::value_writer::SequenceWriter;
-use ion_rs::lazy::encoder::writer::IonWriter;
+use ion_rs::lazy::encoder::writer::Writer;
 use ion_rs::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
 use ion_rs::WriteConfig;
 use ion_rs::{
@@ -52,7 +52,7 @@ pub fn serialize(format: Format, elements: &Sequence) -> IonResult<Vec<u8>> {
     match format {
         Format::Text(kind) => {
             let write_config = WriteConfig::<TextEncoding_1_0>::new(kind);
-            let mut writer = IonWriter::with_config(write_config, buffer)?;
+            let mut writer = Writer::with_config(write_config, buffer)?;
             writer.write_elements(elements)?;
             buffer = writer.close()?;
             println!(
@@ -61,7 +61,7 @@ pub fn serialize(format: Format, elements: &Sequence) -> IonResult<Vec<u8>> {
             );
         }
         Format::Binary => {
-            let mut binary_writer = IonWriter::<BinaryEncoding_1_0, _>::new(buffer)?;
+            let mut binary_writer = Writer::<BinaryEncoding_1_0, _>::new(buffer)?;
             binary_writer.write_elements(elements)?;
             buffer = binary_writer.close()?;
         }

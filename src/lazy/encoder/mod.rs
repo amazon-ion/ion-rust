@@ -24,10 +24,7 @@ pub mod writer;
 // However, many types are generic over some `E: LazyEncoder`, and having this trait
 // extend 'static, Sized, Debug, Clone and Copy means that those types can #[derive(...)]
 // those traits themselves without boilerplate `where` clauses.
-pub trait LazyEncoder: 'static + Sized + Debug + Clone + Copy {
-    // XXX: ^-- This is named 'Lazy' for symmetry with the `LazyDecoder`. In reality, there's nothing
-    //      lazy about it. We should revisit the Lazy* naming scheme, as eventually it will be the
-    //      only implementation of a reader and won't need the word 'Lazy' to distinguish itself.
+pub trait Encoder: 'static + Sized + Debug + Clone + Copy {
     const SUPPORTS_TEXT_TOKENS: bool;
     const DEFAULT_SYMBOL_CREATION_POLICY: SymbolCreationPolicy;
 

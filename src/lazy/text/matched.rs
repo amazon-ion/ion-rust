@@ -36,7 +36,7 @@ use smallvec::SmallVec;
 
 use crate::decimal::coefficient::Coefficient;
 use crate::lazy::bytes_ref::BytesRef;
-use crate::lazy::decoder::{LazyDecoder, LazyRawFieldExpr, LazyRawValueExpr};
+use crate::lazy::decoder::{Decoder, LazyRawFieldExpr, LazyRawValueExpr};
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::as_utf8::AsUtf8;
@@ -49,7 +49,7 @@ use crate::{
 
 /// A partially parsed Ion value.
 #[derive(Clone, Copy, Debug)]
-pub enum MatchedValue<'top, D: LazyDecoder> {
+pub enum MatchedValue<'top, D: Decoder> {
     // `Null` and `Bool` are fully parsed because they only involve matching a keyword.
     Null(IonType),
     Bool(bool),
@@ -66,7 +66,7 @@ pub enum MatchedValue<'top, D: LazyDecoder> {
     Struct(&'top [LazyRawFieldExpr<'top, D>]),
 }
 
-impl<'top, D: LazyDecoder> PartialEq for MatchedValue<'top, D> {
+impl<'top, D: Decoder> PartialEq for MatchedValue<'top, D> {
     fn eq(&self, other: &Self) -> bool {
         use MatchedValue::*;
         match (self, other) {

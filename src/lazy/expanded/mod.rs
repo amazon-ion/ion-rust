@@ -43,7 +43,7 @@ use sequence::{LazyExpandedList, LazyExpandedSExp};
 
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::bytes_ref::BytesRef;
-use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
+use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression};
@@ -134,7 +134,7 @@ impl<'top> Deref for EncodingContextRef<'top> {
 #[derive(Debug)]
 /// Stream components emitted by a LazyExpandingReader. These items may be encoded directly in the
 /// stream, or may have been produced by the evaluation of an encoding expression (e-expression).
-pub enum ExpandedStreamItem<'top, D: LazyDecoder> {
+pub enum ExpandedStreamItem<'top, D: Decoder> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(u8, u8),
@@ -146,7 +146,7 @@ pub enum ExpandedStreamItem<'top, D: LazyDecoder> {
     EndOfStream,
 }
 
-impl<'top, D: LazyDecoder> ExpandedStreamItem<'top, D> {
+impl<'top, D: Decoder> ExpandedStreamItem<'top, D> {
     /// Returns an error if this stream item is a version marker or the end of the stream.
     /// Otherwise, returns the lazy value it contains.
     fn expect_value(&self) -> IonResult<&LazyExpandedValue<'top, D>> {
@@ -159,7 +159,7 @@ impl<'top, D: LazyDecoder> ExpandedStreamItem<'top, D> {
 
 /// A reader that evaluates macro invocations in the data stream and surfaces the resulting
 /// raw values to the caller.
-pub struct ExpandingReader<Encoding: LazyDecoder, Input: IonInput> {
+pub struct ExpandingReader<Encoding: Decoder, Input: IonInput> {
     raw_reader: UnsafeCell<StreamingRawReader<Encoding, Input>>,
     // The expanding raw reader needs to be able to return multiple values from a single expression.
     // For example, if the raw reader encounters this e-expression:
@@ -220,7 +220,7 @@ pub struct ExpandingReader<Encoding: LazyDecoder, Input: IonInput> {
     macro_table: UnsafeCell<MacroTable>,
 }
 
-impl<Encoding: LazyDecoder, Input: IonInput> ExpandingReader<Encoding, Input> {
+impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     pub(crate) fn new(raw_reader: StreamingRawReader<Encoding, Input>) -> Self {
         Self {
             raw_reader: raw_reader.into(),
@@ -466,7 +466,7 @@ impl<Encoding: LazyDecoder, Input: IonInput> ExpandingReader<Encoding, Input> {
 
 /// The source of data backing a [`LazyExpandedValue`].
 #[derive(Copy, Clone)]
-pub enum ExpandedValueSource<'top, D: LazyDecoder> {
+pub enum ExpandedValueSource<'top, D: Decoder> {
     /// This value was a literal in the input stream.
     ValueLiteral(D::Value<'top>),
     /// This value was part of a template definition.
@@ -482,7 +482,7 @@ pub enum ExpandedValueSource<'top, D: LazyDecoder> {
     ),
 }
 
-impl<'top, Encoding: LazyDecoder> Debug for ExpandedValueSource<'top, Encoding> {
+impl<'top, Encoding: Decoder> Debug for ExpandedValueSource<'top, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
             ExpandedValueSource::ValueLiteral(v) => write!(f, "{v:?}"),
@@ -496,7 +496,7 @@ impl<'top, Encoding: LazyDecoder> Debug for ExpandedValueSource<'top, Encoding> 
 
 // Converts the raw value literal types associated with each format decoder (e.g. LazyRawTextValue_1_1)
 // into an ExpandedValueSource.
-impl<'top, V: RawValueLiteral, Encoding: LazyDecoder<Value<'top> = V>> From<V>
+impl<'top, V: RawValueLiteral, Encoding: Decoder<Value<'top> = V>> From<V>
     for ExpandedValueSource<'top, Encoding>
 {
     fn from(value: V) -> Self {
@@ -534,7 +534,7 @@ impl<'top> TemplateVariableReference<'top> {
 
 /// A value produced by expanding the 'raw' view of the input data.
 #[derive(Copy, Clone)]
-pub struct LazyExpandedValue<'top, Encoding: LazyDecoder> {
+pub struct LazyExpandedValue<'top, Encoding: Decoder> {
     pub(crate) context: EncodingContextRef<'top>,
     pub(crate) source: ExpandedValueSource<'top, Encoding>,
     // If this value came from a variable reference in a template macro expansion, the
@@ -542,13 +542,13 @@ pub struct LazyExpandedValue<'top, Encoding: LazyDecoder> {
     pub(crate) variable: Option<TemplateVariableReference<'top>>,
 }
 
-impl<'top, Encoding: LazyDecoder> Debug for LazyExpandedValue<'top, Encoding> {
+impl<'top, Encoding: Decoder> Debug for LazyExpandedValue<'top, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.source)
     }
 }
 
-impl<'top, Encoding: LazyDecoder> LazyExpandedValue<'top, Encoding> {
+impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
     pub(crate) fn from_literal(
         context: EncodingContextRef<'top>,
         value: Encoding::Value<'top>,
@@ -652,7 +652,7 @@ impl<'top, Encoding: LazyDecoder> LazyExpandedValue<'top, Encoding> {
     }
 }
 
-impl<'top, Encoding: LazyDecoder> From<LazyExpandedValue<'top, Encoding>>
+impl<'top, Encoding: Decoder> From<LazyExpandedValue<'top, Encoding>>
     for LazyValue<'top, Encoding>
 {
     fn from(expanded_value: LazyExpandedValue<'top, Encoding>) -> Self {
@@ -660,7 +660,7 @@ impl<'top, Encoding: LazyDecoder> From<LazyExpandedValue<'top, Encoding>>
     }
 }
 
-impl<'top, Encoding: LazyDecoder> From<LazyExpandedStruct<'top, Encoding>>
+impl<'top, Encoding: Decoder> From<LazyExpandedStruct<'top, Encoding>>
     for LazyStruct<'top, Encoding>
 {
     fn from(expanded_struct: LazyExpandedStruct<'top, Encoding>) -> Self {
@@ -668,40 +668,36 @@ impl<'top, Encoding: LazyDecoder> From<LazyExpandedStruct<'top, Encoding>>
     }
 }
 
-impl<'top, Encoding: LazyDecoder> From<LazyExpandedSExp<'top, Encoding>>
-    for LazySExp<'top, Encoding>
-{
+impl<'top, Encoding: Decoder> From<LazyExpandedSExp<'top, Encoding>> for LazySExp<'top, Encoding> {
     fn from(expanded_sexp: LazyExpandedSExp<'top, Encoding>) -> Self {
         LazySExp { expanded_sexp }
     }
 }
 
-impl<'top, Encoding: LazyDecoder> From<LazyExpandedList<'top, Encoding>>
-    for LazyList<'top, Encoding>
-{
+impl<'top, Encoding: Decoder> From<LazyExpandedList<'top, Encoding>> for LazyList<'top, Encoding> {
     fn from(expanded_list: LazyExpandedList<'top, Encoding>) -> Self {
         LazyList { expanded_list }
     }
 }
 
-pub enum ExpandedAnnotationsSource<'top, Encoding: LazyDecoder> {
+pub enum ExpandedAnnotationsSource<'top, Encoding: Decoder> {
     ValueLiteral(Encoding::AnnotationsIterator<'top>),
     Template(SymbolsIterator<'top>),
     // TODO: This is a placeholder impl and always returns an empty iterator
     Constructed(Box<dyn Iterator<Item = IonResult<RawSymbolRef<'top>>> + 'top>),
 }
 
-pub struct ExpandedAnnotationsIterator<'top, Encoding: LazyDecoder> {
+pub struct ExpandedAnnotationsIterator<'top, Encoding: Decoder> {
     source: ExpandedAnnotationsSource<'top, Encoding>,
 }
 
-impl<'top, Encoding: LazyDecoder> ExpandedAnnotationsIterator<'top, Encoding> {
+impl<'top, Encoding: Decoder> ExpandedAnnotationsIterator<'top, Encoding> {
     pub fn new(source: ExpandedAnnotationsSource<'top, Encoding>) -> Self {
         Self { source }
     }
 }
 
-impl<'top, Encoding: LazyDecoder> Iterator for ExpandedAnnotationsIterator<'top, Encoding> {
+impl<'top, Encoding: Decoder> Iterator for ExpandedAnnotationsIterator<'top, Encoding> {
     type Item = IonResult<RawSymbolRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -722,7 +718,7 @@ impl<'top, Encoding: LazyDecoder> Iterator for ExpandedAnnotationsIterator<'top,
 //       hold a 'top reference to a bump allocation instead of a static reference to a heap allocation.
 //       This will enable us to remove several calls to `clone()`, which can be much slower than copies.
 #[derive(Clone)]
-pub enum ExpandedValueRef<'top, Encoding: LazyDecoder> {
+pub enum ExpandedValueRef<'top, Encoding: Decoder> {
     Null(IonType),
     Bool(bool),
     Int(Int),
@@ -738,7 +734,7 @@ pub enum ExpandedValueRef<'top, Encoding: LazyDecoder> {
     Struct(LazyExpandedStruct<'top, Encoding>),
 }
 
-impl<'top, Encoding: LazyDecoder> PartialEq for ExpandedValueRef<'top, Encoding> {
+impl<'top, Encoding: Decoder> PartialEq for ExpandedValueRef<'top, Encoding> {
     fn eq(&self, other: &Self) -> bool {
         use ExpandedValueRef::*;
         match (self, other) {
@@ -762,7 +758,7 @@ impl<'top, Encoding: LazyDecoder> PartialEq for ExpandedValueRef<'top, Encoding>
     }
 }
 
-impl<'top, Encoding: LazyDecoder> ExpandedValueRef<'top, Encoding> {
+impl<'top, Encoding: Decoder> ExpandedValueRef<'top, Encoding> {
     fn expected<T>(self, expected_name: &str) -> IonResult<T> {
         IonResult::decoding_error(format!(
             "expected a(n) {} but found a {:?}",
@@ -902,7 +898,7 @@ impl<'top, Encoding: LazyDecoder> ExpandedValueRef<'top, Encoding> {
     }
 }
 
-impl<'top, D: LazyDecoder> Debug for ExpandedValueRef<'top, D> {
+impl<'top, D: Decoder> Debug for ExpandedValueRef<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ExpandedValueRef::*;
         match self {
@@ -924,7 +920,7 @@ impl<'top, D: LazyDecoder> Debug for ExpandedValueRef<'top, D> {
     }
 }
 
-impl<'top, Encoding: LazyDecoder> ExpandedValueRef<'top, Encoding> {
+impl<'top, Encoding: Decoder> ExpandedValueRef<'top, Encoding> {
     fn from_template(
         context: EncodingContextRef<'top>,
         environment: Environment<'top, Encoding>,

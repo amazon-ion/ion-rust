@@ -1,4 +1,4 @@
-use crate::lazy::decoder::{HasRange, HasSpan, LazyDecoder};
+use crate::lazy::decoder::{Decoder, HasRange, HasSpan};
 use crate::lazy::span::Span;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
@@ -22,9 +22,9 @@ pub enum RawStreamItem<M: Debug, V: Debug, E: Debug> {
 }
 
 pub type LazyRawStreamItem<'top, D> = RawStreamItem<
-    <D as LazyDecoder>::VersionMarker<'top>,
-    <D as LazyDecoder>::Value<'top>,
-    <D as LazyDecoder>::EExp<'top>,
+    <D as Decoder>::VersionMarker<'top>,
+    <D as Decoder>::Value<'top>,
+    <D as Decoder>::EExp<'top>,
 >;
 
 impl<M: Debug + HasRange, V: Debug + HasRange, E: Debug + HasRange> HasRange

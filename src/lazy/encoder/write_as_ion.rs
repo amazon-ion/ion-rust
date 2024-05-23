@@ -17,7 +17,7 @@
 use std::io;
 use std::marker::PhantomData;
 
-use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::Decoder;
 use crate::lazy::encoder::annotation_seq::AnnotationsVec;
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
 use crate::lazy::encoding::Encoding;
@@ -271,7 +271,7 @@ impl WriteAsIon for Value {
     }
 }
 
-impl<'a, D: LazyDecoder> WriteAsIon for LazyValue<'a, D> {
+impl<'a, D: Decoder> WriteAsIon for LazyValue<'a, D> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         let mut annotations = AnnotationsVec::new();
         for annotation in self.annotations() {
@@ -282,7 +282,7 @@ impl<'a, D: LazyDecoder> WriteAsIon for LazyValue<'a, D> {
     }
 }
 
-impl<'a, D: LazyDecoder> WriteAsIon for ValueRef<'a, D> {
+impl<'a, D: Decoder> WriteAsIon for ValueRef<'a, D> {
     fn write_as_ion<V: ValueWriter>(&self, value_writer: V) -> IonResult<()> {
         use ValueRef::*;
         match self {

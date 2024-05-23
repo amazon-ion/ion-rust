@@ -18,9 +18,9 @@ use crate::lazy::binary::raw::v1_1::{
     RawBinaryAnnotationsIterator_1_1,
 };
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
-use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::Decoder;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::encoder::LazyEncoder;
+use crate::lazy::encoder::Encoder;
 use crate::lazy::never::Never;
 use crate::lazy::text::raw::r#struct::{LazyRawTextFieldName_1_0, LazyRawTextStruct_1_0};
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
@@ -37,7 +37,7 @@ use crate::lazy::text::value::{
 use crate::{IonResult, TextFormat, WriteConfig};
 
 /// Marker trait for types that represent an Ion encoding.
-pub trait Encoding: LazyEncoder + LazyDecoder {
+pub trait Encoding: Encoder + Decoder {
     type Output: 'static + OutputFromBytes + AsRef<[u8]>;
 
     fn encode<V: WriteAsIon>(value: V) -> IonResult<Self::Output> {
@@ -156,12 +156,12 @@ impl Encoding for TextEncoding_1_1 {
 }
 
 /// Marker trait for binary encodings of any version.
-pub trait BinaryEncoding<'top>: Encoding<Output = Vec<u8>> + LazyDecoder {}
+pub trait BinaryEncoding<'top>: Encoding<Output = Vec<u8>> + Decoder {}
 
 /// Marker trait for text encodings.
 pub trait TextEncoding<'top>:
     Encoding<Output = String>
-    + LazyDecoder<
+    + Decoder<
         AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>,
         Value<'top> = LazyRawTextValue<'top, Self>,
     >
@@ -175,7 +175,7 @@ impl<'top> TextEncoding<'top> for TextEncoding_1_1 {}
 pub trait EncodingWithMacroSupport {}
 impl EncodingWithMacroSupport for TextEncoding_1_1 {}
 
-impl LazyDecoder for BinaryEncoding_1_0 {
+impl Decoder for BinaryEncoding_1_0 {
     type Reader<'data> = LazyRawBinaryReader_1_0<'data>;
     type ReaderSavedState = ();
     type Value<'top> = LazyRawBinaryValue_1_0<'top>;
@@ -189,7 +189,7 @@ impl LazyDecoder for BinaryEncoding_1_0 {
     type VersionMarker<'top> = LazyRawBinaryVersionMarker_1_0<'top>;
 }
 
-impl LazyDecoder for TextEncoding_1_0 {
+impl Decoder for TextEncoding_1_0 {
     type Reader<'data> = LazyRawTextReader_1_0<'data>;
     type ReaderSavedState = ();
     type Value<'top> = LazyRawTextValue_1_0<'top>;
@@ -203,7 +203,7 @@ impl LazyDecoder for TextEncoding_1_0 {
     type VersionMarker<'top> = LazyRawTextVersionMarker_1_0<'top>;
 }
 
-impl LazyDecoder for TextEncoding_1_1 {
+impl Decoder for TextEncoding_1_1 {
     type Reader<'data> = LazyRawTextReader_1_1<'data>;
     type ReaderSavedState = ();
     type Value<'top> = LazyRawTextValue_1_1<'top>;
@@ -216,7 +216,7 @@ impl LazyDecoder for TextEncoding_1_1 {
     type VersionMarker<'top> = LazyRawTextVersionMarker_1_1<'top>;
 }
 
-impl LazyDecoder for BinaryEncoding_1_1 {
+impl Decoder for BinaryEncoding_1_1 {
     type Reader<'data> = LazyRawBinaryReader_1_1<'data>;
     type ReaderSavedState = ();
     type Value<'top> = LazyRawBinaryValue_1_1<'top>;

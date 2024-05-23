@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
-use crate::lazy::decoder::{LazyDecoder, RawVersionMarker};
+use crate::lazy::decoder::{Decoder, RawVersionMarker};
 use crate::lazy::expanded::ExpandedValueSource;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
@@ -10,7 +10,7 @@ use crate::{IonError, IonResult};
 
 /// System stream elements that a SystemReader may encounter.
 #[non_exhaustive]
-pub enum SystemStreamItem<'top, D: LazyDecoder> {
+pub enum SystemStreamItem<'top, D: Decoder> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(D::VersionMarker<'top>),
@@ -22,7 +22,7 @@ pub enum SystemStreamItem<'top, D: LazyDecoder> {
     EndOfStream(EndPosition),
 }
 
-impl<'top, D: LazyDecoder> Debug for SystemStreamItem<'top, D> {
+impl<'top, D: Decoder> Debug for SystemStreamItem<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             SystemStreamItem::VersionMarker(marker) => {
@@ -35,7 +35,7 @@ impl<'top, D: LazyDecoder> Debug for SystemStreamItem<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> SystemStreamItem<'top, D> {
+impl<'top, D: Decoder> SystemStreamItem<'top, D> {
     /// If this item is an Ion version marker (IVM), returns `Some(version_marker)` indicating the
     /// version. Otherwise, returns `None`.
     pub fn version_marker(&self) -> Option<D::VersionMarker<'top>> {

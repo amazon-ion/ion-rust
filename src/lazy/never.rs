@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::ops::Range;
 
-use crate::lazy::decoder::{HasRange, HasSpan, LazyDecoder, LazyRawValueExpr};
+use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValueExpr};
 use crate::lazy::encoder::annotation_seq::AnnotationSeq;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
@@ -34,7 +34,7 @@ impl HasRange for Never {
 
 // Ion 1.0 uses `Never` as a placeholder type for MacroInvocation.
 // The compiler should optimize these methods away.
-impl<'top, D: LazyDecoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
+impl<'top, D: Decoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
     // These use Box<dyn> to avoid defining yet another placeholder type.
     type RawArgumentsIterator<'a> = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>>;
 
@@ -47,7 +47,7 @@ impl<'top, D: LazyDecoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never 
     }
 }
 
-impl<'top, D: LazyDecoder> From<Never> for MacroExpr<'top, D> {
+impl<'top, D: Decoder> From<Never> for MacroExpr<'top, D> {
     fn from(_value: Never) -> Self {
         unreachable!("macro in Ion 1.0 (method: into)")
     }

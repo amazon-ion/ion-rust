@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::template::{
     ExprRange, MacroSignature, Parameter, ParameterEncoding, TemplateBody, TemplateBodyElement,
     TemplateBodyMacroInvocation, TemplateBodyValueExpr, TemplateMacro, TemplateStructIndex,
@@ -136,7 +136,7 @@ impl TemplateCompiler {
     /// [`TemplateBodyValueExpr`] sequences to the `TemplateBody`.
     ///
     /// If `is_quoted` is true, nested symbols and s-expressions will not be interpreted.
-    fn compile_value<'top, D: LazyDecoder>(
+    fn compile_value<'top, D: Decoder>(
         context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
@@ -209,7 +209,7 @@ impl TemplateCompiler {
     }
 
     /// Helper method for visiting all of the child expressions in a list.
-    fn compile_list<'top, D: LazyDecoder>(
+    fn compile_list<'top, D: Decoder>(
         context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
@@ -237,7 +237,7 @@ impl TemplateCompiler {
     }
 
     /// Helper method for visiting all of the child expressions in a sexp.
-    fn compile_sexp<'top, D: LazyDecoder>(
+    fn compile_sexp<'top, D: Decoder>(
         context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
@@ -271,7 +271,7 @@ impl TemplateCompiler {
 
     /// Adds a `lazy_sexp` that has been determined to represent a macro invocation to the
     /// TemplateBody.
-    fn compile_macro<'top, D: LazyDecoder>(
+    fn compile_macro<'top, D: Decoder>(
         context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
@@ -310,7 +310,7 @@ impl TemplateCompiler {
 
     /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
     /// ID to a macro address.
-    fn name_and_address_from_id_expr<'top, D: LazyDecoder>(
+    fn name_and_address_from_id_expr<'top, D: Decoder>(
         context: EncodingContextRef<'top>,
         id_expr: Option<IonResult<LazyValue<'top, D>>>,
     ) -> IonResult<(Option<String>, usize)> {
@@ -351,7 +351,7 @@ impl TemplateCompiler {
     /// Visits all of the child expressions of `lazy_sexp`, adding them to the `TemplateBody`
     /// without interpretation. `lazy_sexp` itself is the `quote` macro, and does not get added
     /// to the template body as there is nothing more for it to do at evaluation time.
-    fn compile_quoted_elements<'top, D: LazyDecoder>(
+    fn compile_quoted_elements<'top, D: Decoder>(
         context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
@@ -374,7 +374,7 @@ impl TemplateCompiler {
     }
 
     /// Adds `lazy_sexp` to the template body without interpretation.
-    fn compile_quoted_sexp<'top, D: LazyDecoder>(
+    fn compile_quoted_sexp<'top, D: Decoder>(
         context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
@@ -404,7 +404,7 @@ impl TemplateCompiler {
 
     /// Returns `Ok(true)` if the first child value in the `LazySexp` is the symbol `quote`.
     /// This method should only be called in an unquoted context.
-    fn sexp_is_quote_macro<D: LazyDecoder>(sexp: &LazySExp<D>) -> IonResult<bool> {
+    fn sexp_is_quote_macro<D: Decoder>(sexp: &LazySExp<D>) -> IonResult<bool> {
         let first_expr = sexp.iter().next();
         match first_expr {
             // If the sexp is empty and we're not in a quoted context, that's an error.
@@ -418,7 +418,7 @@ impl TemplateCompiler {
     }
 
     /// Recursively adds all of the expressions in `lazy_struct` to the `TemplateBody`.
-    fn compile_struct<'top, D: LazyDecoder>(
+    fn compile_struct<'top, D: Decoder>(
         context: EncodingContextRef<'top>,
         signature: &MacroSignature,
         definition: &mut TemplateBody,

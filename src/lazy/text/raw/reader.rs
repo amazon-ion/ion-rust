@@ -2,7 +2,7 @@
 
 use bumpalo::Bump as BumpAllocator;
 
-use crate::lazy::decoder::{LazyDecoder, LazyRawReader, RawVersionMarker};
+use crate::lazy::decoder::{Decoder, LazyRawReader, RawVersionMarker};
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::text::buffer::TextBufferView;
@@ -89,7 +89,7 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
     fn resume_at_offset(
         data: &'data [u8],
         offset: usize,
-        _config: <TextEncoding_1_0 as LazyDecoder>::ReaderSavedState,
+        _config: <TextEncoding_1_0 as Decoder>::ReaderSavedState,
     ) -> Self {
         LazyRawTextReader_1_0::new_with_offset(data, offset)
     }

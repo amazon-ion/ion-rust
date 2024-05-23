@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 
 use crate::element::builders::StructBuilder;
-use crate::lazy::decoder::{LazyDecoder, LazyRawContainer};
+use crate::lazy::decoder::{Decoder, LazyRawContainer};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::r#struct::{
     ExpandedStructIterator, ExpandedStructSource, LazyExpandedField, LazyExpandedStruct,
@@ -49,7 +49,7 @@ use crate::{Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Str
 ///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 #[derive(Copy, Clone)]
-pub struct LazyStruct<'top, D: LazyDecoder> {
+pub struct LazyStruct<'top, D: Decoder> {
     pub(crate) expanded_struct: LazyExpandedStruct<'top, D>,
 }
 
@@ -57,7 +57,7 @@ pub type LazyBinaryStruct_1_0<'top> = LazyStruct<'top, BinaryEncoding_1_0>;
 
 // Best-effort debug formatting for LazyStruct. Any failures that occur during reading will result
 // in the output being silently truncated.
-impl<'top, D: LazyDecoder> Debug for LazyStruct<'top, D> {
+impl<'top, D: Decoder> Debug for LazyStruct<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {
@@ -72,7 +72,7 @@ impl<'top, D: LazyDecoder> Debug for LazyStruct<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
+impl<'top, D: Decoder> LazyStruct<'top, D> {
     /// Returns an iterator over this struct's fields. See [`LazyField`].
     pub fn iter(&self) -> StructIterator<'top, D> {
         StructIterator {
@@ -273,11 +273,11 @@ impl<'top, D: LazyDecoder> LazyStruct<'top, D> {
 }
 
 /// A single field within a [`LazyStruct`].
-pub struct LazyField<'top, D: LazyDecoder> {
+pub struct LazyField<'top, D: Decoder> {
     pub(crate) expanded_field: LazyExpandedField<'top, D>,
 }
 
-impl<'top, D: LazyDecoder> Debug for LazyField<'top, D> {
+impl<'top, D: Decoder> Debug for LazyField<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -288,7 +288,7 @@ impl<'top, D: LazyDecoder> Debug for LazyField<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> LazyField<'top, D> {
+impl<'top, D: Decoder> LazyField<'top, D> {
     /// Returns a symbol representing the name of this field.
     pub fn name(&self) -> IonResult<SymbolRef<'top>> {
         self.expanded_field.name().read()
@@ -303,11 +303,11 @@ impl<'top, D: LazyDecoder> LazyField<'top, D> {
     }
 }
 
-pub struct StructIterator<'top, D: LazyDecoder> {
+pub struct StructIterator<'top, D: Decoder> {
     pub(crate) expanded_struct_iter: ExpandedStructIterator<'top, D>,
 }
 
-impl<'top, D: LazyDecoder> Iterator for StructIterator<'top, D> {
+impl<'top, D: Decoder> Iterator for StructIterator<'top, D> {
     type Item = IonResult<LazyField<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -315,7 +315,7 @@ impl<'top, D: LazyDecoder> Iterator for StructIterator<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> StructIterator<'top, D> {
+impl<'top, D: Decoder> StructIterator<'top, D> {
     pub fn next_field(&mut self) -> IonResult<Option<LazyField<'top, D>>> {
         let expanded_field = match self.expanded_struct_iter.next() {
             Some(expanded_field) => expanded_field?,
@@ -327,7 +327,7 @@ impl<'top, D: LazyDecoder> StructIterator<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> TryFrom<LazyStruct<'top, D>> for Struct {
+impl<'top, D: Decoder> TryFrom<LazyStruct<'top, D>> for Struct {
     type Error = IonError;
 
     fn try_from(lazy_struct: LazyStruct<'top, D>) -> Result<Self, Self::Error> {
@@ -340,7 +340,7 @@ impl<'top, D: LazyDecoder> TryFrom<LazyStruct<'top, D>> for Struct {
     }
 }
 
-impl<'top, D: LazyDecoder> TryFrom<LazyStruct<'top, D>> for Element {
+impl<'top, D: Decoder> TryFrom<LazyStruct<'top, D>> for Element {
     type Error = IonError;
 
     fn try_from(lazy_struct: LazyStruct<'top, D>) -> Result<Self, Self::Error> {
@@ -350,7 +350,7 @@ impl<'top, D: LazyDecoder> TryFrom<LazyStruct<'top, D>> for Element {
     }
 }
 
-impl<'a, 'top, 'data: 'top, D: LazyDecoder> IntoIterator for &'a LazyStruct<'top, D> {
+impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazyStruct<'top, D> {
     type Item = IonResult<LazyField<'top, D>>;
     type IntoIter = StructIterator<'top, D>;
 

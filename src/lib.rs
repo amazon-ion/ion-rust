@@ -199,8 +199,8 @@ macro_rules! v1_x_reader_writer {
         #[allow(unused_imports)]
         $visibility use crate::{
             lazy::streaming_raw_reader::{IonInput, IonSlice, IonStream},
-            lazy::decoder::LazyDecoder,
-            lazy::encoder::LazyEncoder,
+            lazy::decoder::Decoder,
+            lazy::encoder::Encoder,
             lazy::encoding::Encoding,
             lazy::encoder::annotate::Annotatable,
             lazy::encoder::write_as_ion::WriteAsIon,

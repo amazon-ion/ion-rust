@@ -16,7 +16,7 @@ use crate::{
                 value::ValueParseResult,
             },
         },
-        decoder::{LazyDecoder, LazyRawValue},
+        decoder::{Decoder, LazyRawValue},
         encoder::binary::v1_1::fixed_int::FixedInt,
         encoding::BinaryEncoding_1_1,
         raw_value_ref::RawValueRef,
@@ -91,7 +91,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for LazyRawBinaryValue_1_1<'to
         self.is_null()
     }
 
-    fn annotations(&self) -> <BinaryEncoding_1_1 as LazyDecoder>::AnnotationsIterator<'top> {
+    fn annotations(&self) -> <BinaryEncoding_1_1 as Decoder>::AnnotationsIterator<'top> {
         self.annotations()
     }
 

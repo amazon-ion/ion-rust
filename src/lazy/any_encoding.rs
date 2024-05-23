@@ -28,7 +28,7 @@ use crate::lazy::binary::raw::v1_1::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    HasRange, HasSpan, LazyDecoder, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
+    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
     LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr, RawValueExpr,
     RawVersionMarker,
 };
@@ -65,7 +65,7 @@ pub struct AnyEncoding;
 // This family of types avoids boxing and dynamic dispatch by using enums of the supported formats
 // within each type. Trait methods are implemented by forwarding the call to the appropriate
 // underlying type.
-impl LazyDecoder for AnyEncoding {
+impl Decoder for AnyEncoding {
     type Reader<'data> = LazyRawAnyReader<'data>;
     type ReaderSavedState = RawReaderType;
     type Value<'top> = LazyRawAnyValue<'top>;
@@ -358,7 +358,7 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
     }
 
     #[inline]
-    fn save_state(&self) -> <AnyEncoding as LazyDecoder>::ReaderSavedState {
+    fn save_state(&self) -> <AnyEncoding as Decoder>::ReaderSavedState {
         use RawReaderKind::*;
         match &self.encoding {
             Text_1_0(_) => RawReaderType::Text_1_0,
@@ -837,7 +837,7 @@ impl<'data> Iterator for RawAnyListIterator<'data> {
 }
 
 impl<'top> LazyRawContainer<'top, AnyEncoding> for LazyRawAnyList<'top> {
-    fn as_value(&self) -> <AnyEncoding as LazyDecoder>::Value<'top> {
+    fn as_value(&self) -> <AnyEncoding as Decoder>::Value<'top> {
         match &self.encoding {
             LazyRawListKind::Text_1_0(s) => s.as_value().into(),
             LazyRawListKind::Binary_1_0(s) => s.as_value().into(),
@@ -850,7 +850,7 @@ impl<'top> LazyRawContainer<'top, AnyEncoding> for LazyRawAnyList<'top> {
 impl<'top> LazyRawSequence<'top, AnyEncoding> for LazyRawAnyList<'top> {
     type Iterator = RawAnyListIterator<'top>;
 
-    fn annotations(&self) -> <AnyEncoding as LazyDecoder>::AnnotationsIterator<'top> {
+    fn annotations(&self) -> <AnyEncoding as Decoder>::AnnotationsIterator<'top> {
         self.as_value().annotations()
     }
 
@@ -935,7 +935,7 @@ pub enum LazyRawSExpKind<'data> {
 }
 
 impl<'top> LazyRawContainer<'top, AnyEncoding> for LazyRawAnySExp<'top> {
-    fn as_value(&self) -> <AnyEncoding as LazyDecoder>::Value<'top> {
+    fn as_value(&self) -> <AnyEncoding as Decoder>::Value<'top> {
         use LazyRawSExpKind::*;
         match self.encoding {
             Text_1_0(s) => s.as_value().into(),
@@ -1000,7 +1000,7 @@ impl<'data> Iterator for RawAnySExpIterator<'data> {
 impl<'top> LazyRawSequence<'top, AnyEncoding> for LazyRawAnySExp<'top> {
     type Iterator = RawAnySExpIterator<'top>;
 
-    fn annotations(&self) -> <AnyEncoding as LazyDecoder>::AnnotationsIterator<'top> {
+    fn annotations(&self) -> <AnyEncoding as Decoder>::AnnotationsIterator<'top> {
         self.as_value().annotations()
     }
 
@@ -1079,7 +1079,7 @@ pub enum LazyRawStructKind<'data> {
 }
 
 impl<'top> LazyRawContainer<'top, AnyEncoding> for LazyRawAnyStruct<'top> {
-    fn as_value(&self) -> <AnyEncoding as LazyDecoder>::Value<'top> {
+    fn as_value(&self) -> <AnyEncoding as Decoder>::Value<'top> {
         match self.encoding {
             LazyRawStructKind::Text_1_0(s) => s.as_value().into(),
             LazyRawStructKind::Binary_1_0(s) => s.as_value().into(),
@@ -1274,7 +1274,7 @@ impl<'data> LazyContainerPrivate<'data, AnyEncoding> for LazyRawAnyStruct<'data>
 impl<'top> LazyRawStruct<'top, AnyEncoding> for LazyRawAnyStruct<'top> {
     type Iterator = RawAnyStructIterator<'top>;
 
-    fn annotations(&self) -> <AnyEncoding as LazyDecoder>::AnnotationsIterator<'top> {
+    fn annotations(&self) -> <AnyEncoding as Decoder>::AnnotationsIterator<'top> {
         match &self.encoding {
             LazyRawStructKind::Text_1_0(s) => RawAnyAnnotationsIterator {
                 encoding: RawAnnotationsIteratorKind::Text_1_0(s.annotations()),

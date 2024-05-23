@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{HasRange, HasSpan, LazyDecoder, LazyRawValue, RawVersionMarker};
+use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValue, RawVersionMarker};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
@@ -178,7 +178,7 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
         self.encoded_value.is_null()
     }
 
-    fn annotations(&self) -> <E as LazyDecoder>::AnnotationsIterator<'top> {
+    fn annotations(&self) -> <E as Decoder>::AnnotationsIterator<'top> {
         let range = self
             .encoded_value
             .annotations_range()

@@ -6,7 +6,7 @@ use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    HasRange, HasSpan, LazyDecoder, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
+    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
     LazyRawStruct, LazyRawValue,
 };
 use crate::lazy::encoding::TextEncoding_1_0;
@@ -124,7 +124,7 @@ impl<'top> LazyContainerPrivate<'top, TextEncoding_1_0> for LazyRawTextStruct_1_
 }
 
 impl<'top> LazyRawContainer<'top, TextEncoding_1_0> for LazyRawTextStruct_1_0<'top> {
-    fn as_value(&self) -> <TextEncoding_1_0 as LazyDecoder>::Value<'top> {
+    fn as_value(&self) -> <TextEncoding_1_0 as Decoder>::Value<'top> {
         self.value
     }
 }

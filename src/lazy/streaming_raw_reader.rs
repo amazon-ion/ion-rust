@@ -4,12 +4,12 @@ use std::io::{BufReader, Read, StdinLock};
 
 use bumpalo::Bump as BumpAllocator;
 
-use crate::lazy::decoder::{LazyDecoder, LazyRawReader};
+use crate::lazy::decoder::{Decoder, LazyRawReader};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::IonResult;
 
 /// Wraps an implementation of [`IonDataSource`] and reads one top level value at a time from the input.
-pub struct StreamingRawReader<Encoding: LazyDecoder, Input: IonInput> {
+pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
     // The Ion encoding that this reader recognizes.
     encoding: Encoding,
     // The StreamingRawReader works by reading the next value from the bytes currently available
@@ -45,7 +45,7 @@ pub struct StreamingRawReader<Encoding: LazyDecoder, Input: IonInput> {
 
 const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 
-impl<Encoding: LazyDecoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
+impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     pub fn new(encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
         StreamingRawReader {
             encoding,
@@ -325,13 +325,13 @@ mod tests {
     use bumpalo::Bump as BumpAllocator;
 
     use crate::lazy::any_encoding::AnyEncoding;
-    use crate::lazy::decoder::{LazyDecoder, LazyRawValue};
+    use crate::lazy::decoder::{Decoder, LazyRawValue};
     use crate::lazy::raw_stream_item::LazyRawStreamItem;
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
     use crate::{IonError, IonResult};
 
-    fn expect_value<'a, D: LazyDecoder>(
+    fn expect_value<'a, D: Decoder>(
         actual: LazyRawStreamItem<'a, D>,
         expected: RawValueRef<'a, D>,
     ) -> IonResult<()> {

@@ -1,4 +1,4 @@
-use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::Decoder;
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::{ExpandedAnnotationsIterator, ExpandedValueRef, LazyExpandedValue};
 use crate::lazy::r#struct::LazyStruct;
@@ -55,13 +55,13 @@ use crate::{
 ///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 #[derive(Copy, Clone)]
-pub struct LazyValue<'top, D: LazyDecoder> {
+pub struct LazyValue<'top, D: Decoder> {
     pub(crate) expanded_value: LazyExpandedValue<'top, D>,
 }
 
 pub type LazyBinaryValue<'top> = LazyValue<'top, BinaryEncoding_1_0>;
 
-impl<'top, D: LazyDecoder> LazyValue<'top, D> {
+impl<'top, D: Decoder> LazyValue<'top, D> {
     pub(crate) fn new(expanded_value: LazyExpandedValue<'top, D>) -> LazyValue<'top, D> {
         LazyValue { expanded_value }
     }
@@ -273,7 +273,7 @@ impl<'top, D: LazyDecoder> LazyValue<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> TryFrom<LazyValue<'top, D>> for Element {
+impl<'top, D: Decoder> TryFrom<LazyValue<'top, D>> for Element {
     type Error = IonError;
 
     fn try_from(value: LazyValue<'top, D>) -> Result<Self, Self::Error> {
@@ -285,12 +285,12 @@ impl<'top, D: LazyDecoder> TryFrom<LazyValue<'top, D>> for Element {
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of symbol tokens encoded
 /// using the format described by generic type parameter `D`.
-pub struct AnnotationsIterator<'top, D: LazyDecoder> {
+pub struct AnnotationsIterator<'top, D: Decoder> {
     pub(crate) expanded_annotations: ExpandedAnnotationsIterator<'top, D>,
     pub(crate) symbol_table: &'top SymbolTable,
 }
 
-impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
+impl<'top, D: Decoder> AnnotationsIterator<'top, D> {
     /// Returns `Ok(true)` if this annotations iterator matches the provided sequence exactly, or
     /// `Ok(false)` if not. If a decoding error occurs while visiting and resolving each annotation,
     /// returns an `Err(IonError)`.
@@ -379,7 +379,7 @@ impl<'top, D: LazyDecoder> AnnotationsIterator<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> Iterator for AnnotationsIterator<'top, D> {
+impl<'top, D: Decoder> Iterator for AnnotationsIterator<'top, D> {
     type Item = IonResult<SymbolRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -397,7 +397,7 @@ impl<'top, D: LazyDecoder> Iterator for AnnotationsIterator<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> TryFrom<AnnotationsIterator<'top, D>> for Annotations {
+impl<'top, D: Decoder> TryFrom<AnnotationsIterator<'top, D>> for Annotations {
     type Error = IonError;
 
     fn try_from(iter: AnnotationsIterator<'top, D>) -> Result<Self, Self::Error> {

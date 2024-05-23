@@ -2,9 +2,7 @@
 
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
-use crate::lazy::decoder::{
-    HasRange, LazyDecoder, LazyRawFieldExpr, LazyRawReader, RawVersionMarker,
-};
+use crate::lazy::decoder::{Decoder, HasRange, LazyRawFieldExpr, LazyRawReader, RawVersionMarker};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::result::IonFailure;
@@ -114,7 +112,7 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
     fn resume_at_offset(
         data: &'data [u8],
         offset: usize,
-        _config: <BinaryEncoding_1_0 as LazyDecoder>::ReaderSavedState,
+        _config: <BinaryEncoding_1_0 as Decoder>::ReaderSavedState,
     ) -> Self {
         LazyRawBinaryReader_1_0 {
             data: DataSource {

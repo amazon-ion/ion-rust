@@ -147,7 +147,7 @@ mod binary_timestamp_tests {
         #[case] input: &str,
         #[case] expected: usize,
     ) -> IonResult<()> {
-        let mut reader = Reader::new(input);
+        let mut reader = Reader::new(input)?;
         let timestamp = reader.expect_next()?.read()?.expect_timestamp()?;
         let mut buf = vec![];
         let written = buf.encode_timestamp_value(&timestamp)?;

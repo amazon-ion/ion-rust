@@ -10,8 +10,7 @@ use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    HasRange, HasSpan, LazyDecoder, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
-    LazyRawStruct,
+    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName, LazyRawStruct,
 };
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::span::Span;
@@ -70,7 +69,7 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryStruc
 }
 
 impl<'top> LazyRawContainer<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct_1_0<'top> {
-    fn as_value(&self) -> <BinaryEncoding_1_0 as LazyDecoder>::Value<'top> {
+    fn as_value(&self) -> <BinaryEncoding_1_0 as Decoder>::Value<'top> {
         self.value
     }
 }
