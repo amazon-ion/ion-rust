@@ -6,7 +6,7 @@ use bumpalo::Bump as BumpAllocator;
 
 use crate::lazy::decoder::{Decoder, LazyRawReader};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
-use crate::IonResult;
+use crate::{IonError, IonResult};
 
 /// Wraps an implementation of [`IonDataSource`] and reads one top level value at a time from the input.
 pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
@@ -84,12 +84,13 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             let bytes_read = end_position - starting_position;
             let input = unsafe { &mut *self.input.get() };
             // If we've exhausted the buffer...
-            if bytes_read >= available_bytes.len() {
-                // ...try to pull more data from the data source. If there's nothing available,
-                // return the result we got.
+            if bytes_read >= available_bytes.len() || matches!(result, Err(IonError::Incomplete(_)))
+            {
+                // ...try to pull more data from the data source. If we get more data, try again.
                 if input.fill_buffer()? > 0 {
                     continue;
                 }
+                // If there's nothing available, return the result we got.
             }
             // Mark those input bytes as having been consumed so they are not read again.
             input.consume(bytes_read);

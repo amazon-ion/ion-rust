@@ -429,6 +429,12 @@ impl<'a> ImmutableBuffer<'a> {
 
         // Skip over the annotations sequence itself; the reader will return to it if/when the
         // reader asks to iterate over those symbol IDs.
+        if input_after_annotations_length.len() < annotations_length.value() {
+            return IonResult::incomplete(
+                "an annotations sequence",
+                input_after_annotations_length.offset(),
+            );
+        }
         let final_input = input_after_annotations_length.consume(annotations_length.value());
 
         // Here, `self` is the (immutable) buffer we started with. Comparing it with `input`
