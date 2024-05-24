@@ -11,9 +11,7 @@ mod benchmark {
 #[cfg(feature = "experimental")]
 mod benchmark {
     use criterion::{black_box, Criterion};
-    use ion_rs::v1_0::LazyRawBinaryWriter_1_0;
-    use ion_rs::v1_1::LazyRawBinaryWriter_1_1;
-    use ion_rs::{IonResult, RawSymbolRef, SequenceWriter, StructWriter, ValueWriter};
+    use ion_rs::{v1_0, v1_1, IonResult, RawSymbolRef, SequenceWriter, StructWriter, ValueWriter};
 
     fn write_struct_with_string_values(value_writer: impl ValueWriter) -> IonResult<()> {
         let mut struct_ = value_writer.struct_writer()?;
@@ -131,7 +129,7 @@ mod benchmark {
         binary_1_0_group.bench_function("write structs with string values", |b| {
             b.iter(|| {
                 buffer.clear();
-                let mut writer = LazyRawBinaryWriter_1_0::new(&mut buffer).unwrap();
+                let mut writer = v1_0::RawBinaryWriter::new(&mut buffer).unwrap();
                 write_struct_with_string_values(writer.value_writer()).unwrap();
                 writer.flush().unwrap();
                 black_box(buffer.as_slice());
@@ -149,7 +147,7 @@ mod benchmark {
         binary_1_0_group.bench_function("write structs with symbol values", |b| {
             b.iter(|| {
                 buffer.clear();
-                let mut writer = LazyRawBinaryWriter_1_0::new(&mut buffer).unwrap();
+                let mut writer = v1_0::RawBinaryWriter::new(&mut buffer).unwrap();
                 write_struct_with_symbol_values(writer.value_writer()).unwrap();
                 writer.flush().unwrap();
 
@@ -166,7 +164,7 @@ mod benchmark {
         binary_1_1_group.bench_function("write structs with string values", |b| {
             b.iter(|| {
                 buffer.clear();
-                let mut writer = LazyRawBinaryWriter_1_1::new(&mut buffer).unwrap();
+                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
                 write_struct_with_string_values(writer.value_writer()).unwrap();
                 writer.flush().unwrap();
                 black_box(buffer.as_slice());
@@ -180,7 +178,7 @@ mod benchmark {
         binary_1_1_group.bench_function("write structs with symbol values", |b| {
             b.iter(|| {
                 buffer.clear();
-                let mut writer = LazyRawBinaryWriter_1_1::new(&mut buffer).unwrap();
+                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
                 write_struct_with_symbol_values(writer.value_writer()).unwrap();
                 writer.flush().unwrap();
 
@@ -195,7 +193,7 @@ mod benchmark {
         binary_1_1_group.bench_function("write delimited structs with string values", |b| {
             b.iter(|| {
                 buffer.clear();
-                let mut writer = LazyRawBinaryWriter_1_1::new(&mut buffer).unwrap();
+                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
                 write_struct_with_string_values(writer.value_writer().with_delimited_containers())
                     .unwrap();
                 writer.flush().unwrap();
@@ -213,7 +211,7 @@ mod benchmark {
         binary_1_1_group.bench_function("write delimited structs with symbol values", |b| {
             b.iter(|| {
                 buffer.clear();
-                let mut writer = LazyRawBinaryWriter_1_1::new(&mut buffer).unwrap();
+                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
                 write_struct_with_symbol_values(writer.value_writer().with_delimited_containers())
                     .unwrap();
                 writer.flush().unwrap();
@@ -229,7 +227,7 @@ mod benchmark {
         binary_1_1_group.bench_function("write structs with string values using macros", |b| {
             b.iter(|| {
                 buffer.clear();
-                let mut writer = LazyRawBinaryWriter_1_1::new(&mut buffer).unwrap();
+                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
                 write_eexp_with_string_values(writer.value_writer()).unwrap();
                 writer.flush().unwrap();
                 black_box(buffer.as_slice());
@@ -246,7 +244,7 @@ mod benchmark {
         binary_1_1_group.bench_function("write structs with symbol values using macros", |b| {
             b.iter(|| {
                 buffer.clear();
-                let mut writer = LazyRawBinaryWriter_1_1::new(&mut buffer).unwrap();
+                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
                 write_eexp_with_symbol_values(writer.value_writer()).unwrap();
                 writer.flush().unwrap();
                 black_box(buffer.as_slice());
