@@ -101,7 +101,7 @@ impl<'top> BinaryEncoding<'top> for BinaryEncoding_1_1 {}
 pub struct TextEncoding_1_0;
 
 impl TextEncoding_1_0 {
-    fn with_format(self, format: TextFormat) -> WriteConfig<Self> {
+    pub fn with_format(self, format: TextFormat) -> WriteConfig<Self> {
         WriteConfig::<Self>::new(format)
     }
 }
@@ -111,7 +111,7 @@ impl TextEncoding_1_0 {
 pub struct TextEncoding_1_1;
 
 impl TextEncoding_1_1 {
-    fn with_format(self, format: TextFormat) -> WriteConfig<Self> {
+    pub fn with_format(self, format: TextFormat) -> WriteConfig<Self> {
         WriteConfig::<Self>::new(format)
     }
 }

@@ -10,13 +10,12 @@ A Rust implementation of the [Amazon Ion][spec] data format.
 
 ## Example
 
-For more information, please see our [official documentation](https://docs.rs/ion-rs). 
+For more information, please see the [documentation](https://docs.rs/ion-rs).
 
 ```rust
-use ion_rs::{Element, IonResult, IonType, ion_seq};
+use crate::{ion_seq, Element, IonResult, Timestamp};
 
 fn main() -> IonResult<()> {
-
     // Read a single value from a string/slice/Vec
     let element = Element::read_one("\"Hello, world!\"")?;
     let text = element.expect_string()?;
@@ -35,25 +34,23 @@ fn main() -> IonResult<()> {
     for element in Element::iter(ion_file)? {
         println!("{}", element?)
     }
-    
+
     // Construct a sequence of Ion elements from Rust values
     let values = ion_seq!(
         "foo",
-        Timestamp::with_ymd(2016, 5, 11).build(),
+        Timestamp::with_ymd(2016, 5, 11).build()?,
         3.1416f64,
         true
     );
 
-    // Write values to a buffer in generously-spaced text
-    let mut text_buffer: Vec<u8> = Vec::new();
-    Element::write_all_as(&values, Format::Text(TextKind::Pretty), &mut text_buffer)?;
-    assert_eq!(values, Element::read_all(text_buffer)?);
+    // Write values to a String using generously-spaced text
+    let text_ion: String = values.encode_as(v1_0::Text.with_format(TextFormat::Pretty))?;
+    assert_eq!(values, Element::read_all(text_ion)?);
 
     // Write values to a buffer in compact binary
-    let mut binary_buffer: Vec<u8> = Vec::new();
-    Element::write_all_as(&values, Format::Binary, &mut binary_buffer)?;
+    let binary_buffer: Vec<u8> = values.encode_as(v1_0::Binary)?;
     assert_eq!(values, Element::read_all(binary_buffer)?);
-    
+
     Ok(())
 }
 ```
@@ -64,11 +61,10 @@ The `ion_rs` library has a number of features that users can opt into. While the
 are complete and well-tested, their APIs are not stable and are subject to change without notice
 between minor versions of the library.
 
-1. `experimental-ion-hash`, an implementation of [Ion Hash][ion-hash-spec].
-2. `experimental-reader`, a streaming reader API.
-3. `experimental-writer`, a streaming writer API.
-
-Features that are defined in `Cargo.toml` but not listed above have not been thoroughly tested.
+1. `experimental-reader-writer`, a streaming reader and writer API.
+2. `experimental-tooling-apis`, APIs for accessing the encoding-level details of the stream.
+3. `experimental-serde`, a `serde` serializer and deserializer.
+4. `experimental-ion-hash`, an implementation of [Ion Hash][ion-hash-spec].
 
 ## Development
 
@@ -106,6 +102,9 @@ $ ./clean-rebuild.sh
 ```
 
 [spec]: https://amazon-ion.github.io/ion-docs/docs/spec.html
+
 [ion-tests]: https://github.com/amazon-ion/ion-tests
+
 [ion-hash-spec]: https://amazon-ion.github.io/ion-hash/docs/spec.html
+
 [ion-hash-tests]: https://github.com/amazon-ion/ion-hash-tests
