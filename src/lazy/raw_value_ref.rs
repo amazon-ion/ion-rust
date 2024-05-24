@@ -1,5 +1,5 @@
 use crate::lazy::bytes_ref::BytesRef;
-use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::Decoder;
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
@@ -11,7 +11,7 @@ use std::fmt::{Debug, Formatter};
 ///
 /// For a resolved version of this type, see [crate::lazy::value_ref::ValueRef].
 #[derive(Copy, Clone)]
-pub enum RawValueRef<'top, D: LazyDecoder> {
+pub enum RawValueRef<'top, D: Decoder> {
     Null(IonType),
     Bool(bool),
     Int(Int),
@@ -28,7 +28,7 @@ pub enum RawValueRef<'top, D: LazyDecoder> {
 }
 
 // Provides equality for scalar types, but not containers.
-impl<'top, D: LazyDecoder> PartialEq for RawValueRef<'top, D> {
+impl<'top, D: Decoder> PartialEq for RawValueRef<'top, D> {
     fn eq(&self, other: &Self) -> bool {
         use RawValueRef::*;
         match (self, other) {
@@ -49,7 +49,7 @@ impl<'top, D: LazyDecoder> PartialEq for RawValueRef<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> Debug for RawValueRef<'top, D> {
+impl<'top, D: Decoder> Debug for RawValueRef<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             RawValueRef::Null(ion_type) => write!(f, "null.{}", ion_type),
@@ -69,7 +69,7 @@ impl<'top, D: LazyDecoder> Debug for RawValueRef<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> RawValueRef<'top, D> {
+impl<'top, D: Decoder> RawValueRef<'top, D> {
     pub fn expect_null(self) -> IonResult<IonType> {
         if let RawValueRef::Null(ion_type) = self {
             Ok(ion_type)

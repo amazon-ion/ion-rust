@@ -6,7 +6,7 @@ use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    LazyDecoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr, RawValueExpr,
+    Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr, RawValueExpr,
 };
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::{IonResult, IonType};
@@ -37,7 +37,7 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryList_
 }
 
 impl<'top> LazyRawContainer<'top, BinaryEncoding_1_0> for LazyRawBinaryList_1_0<'top> {
-    fn as_value(&self) -> <BinaryEncoding_1_0 as LazyDecoder>::Value<'top> {
+    fn as_value(&self) -> <BinaryEncoding_1_0 as Decoder>::Value<'top> {
         self.sequence.value
     }
 }
@@ -67,7 +67,7 @@ impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinarySExp_
 }
 
 impl<'top> LazyRawContainer<'top, BinaryEncoding_1_0> for LazyRawBinarySExp_1_0<'top> {
-    fn as_value(&self) -> <BinaryEncoding_1_0 as LazyDecoder>::Value<'top> {
+    fn as_value(&self) -> <BinaryEncoding_1_0 as Decoder>::Value<'top> {
         self.sequence.value
     }
 }

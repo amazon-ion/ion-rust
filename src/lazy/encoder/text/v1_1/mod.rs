@@ -2,11 +2,11 @@ pub(crate) mod value_writer;
 pub(crate) mod writer;
 
 use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
-use crate::lazy::encoder::{LazyEncoder, SymbolCreationPolicy};
+use crate::lazy::encoder::{Encoder, SymbolCreationPolicy};
 use crate::lazy::encoding::TextEncoding_1_1;
 use std::io::Write;
 
-impl LazyEncoder for TextEncoding_1_1 {
+impl Encoder for TextEncoding_1_1 {
     const SUPPORTS_TEXT_TOKENS: bool = true;
     const DEFAULT_SYMBOL_CREATION_POLICY: SymbolCreationPolicy =
         SymbolCreationPolicy::WriteProvidedToken;

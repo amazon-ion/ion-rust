@@ -1,6 +1,6 @@
 use crate::element::Value;
 use crate::lazy::bytes_ref::BytesRef;
-use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::Decoder;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
@@ -16,7 +16,7 @@ use std::fmt::{Debug, Formatter};
 /// to existing resources. Numeric values and timestamps are stored within the `ValueRef` itself.
 /// Text values and lobs hold references to either a slice of input data or text in the symbol table.
 #[derive(Copy, Clone)]
-pub enum ValueRef<'top, D: LazyDecoder> {
+pub enum ValueRef<'top, D: Decoder> {
     Null(IonType),
     Bool(bool),
     Int(Int),
@@ -32,7 +32,7 @@ pub enum ValueRef<'top, D: LazyDecoder> {
     Struct(LazyStruct<'top, D>),
 }
 
-impl<'top, D: LazyDecoder> PartialEq for ValueRef<'top, D> {
+impl<'top, D: Decoder> PartialEq for ValueRef<'top, D> {
     fn eq(&self, other: &Self) -> bool {
         use ValueRef::*;
         match (self, other) {
@@ -55,7 +55,7 @@ impl<'top, D: LazyDecoder> PartialEq for ValueRef<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> Debug for ValueRef<'top, D> {
+impl<'top, D: Decoder> Debug for ValueRef<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ValueRef::*;
         match self {
@@ -76,7 +76,7 @@ impl<'top, D: LazyDecoder> Debug for ValueRef<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> TryFrom<ValueRef<'top, D>> for Value {
+impl<'top, D: Decoder> TryFrom<ValueRef<'top, D>> for Value {
     type Error = IonError;
 
     fn try_from(value: ValueRef<'top, D>) -> Result<Self, Self::Error> {
@@ -100,7 +100,7 @@ impl<'top, D: LazyDecoder> TryFrom<ValueRef<'top, D>> for Value {
     }
 }
 
-impl<'top, D: LazyDecoder> TryFrom<ValueRef<'top, D>> for Element {
+impl<'top, D: Decoder> TryFrom<ValueRef<'top, D>> for Element {
     type Error = IonError;
 
     fn try_from(value_ref: ValueRef<'top, D>) -> Result<Self, Self::Error> {
@@ -109,7 +109,7 @@ impl<'top, D: LazyDecoder> TryFrom<ValueRef<'top, D>> for Element {
     }
 }
 
-impl<'top, D: LazyDecoder> ValueRef<'top, D> {
+impl<'top, D: Decoder> ValueRef<'top, D> {
     pub fn expect_null(self) -> IonResult<IonType> {
         if let ValueRef::Null(ion_type) = self {
             Ok(ion_type)

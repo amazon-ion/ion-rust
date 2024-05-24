@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::any_encoding::AnyEncoding;
-use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::Decoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::{ExpandedValueRef, ExpandingReader, LazyExpandedValue};
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
@@ -69,7 +69,7 @@ const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
 ///# #[cfg(not(feature = "experimental-reader-writer"))]
 ///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
-pub struct SystemReader<Encoding: LazyDecoder, Input: IonInput> {
+pub struct SystemReader<Encoding: Decoder, Input: IonInput> {
     pub(crate) expanding_reader: ExpandingReader<Encoding, Input>,
 }
 
@@ -122,7 +122,7 @@ impl<Input: IonInput> SystemTextReader_1_1<Input> {
     }
 }
 
-impl<Encoding: LazyDecoder, Input: IonInput> SystemReader<Encoding, Input> {
+impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     // Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
     // `$ion_symbol_table`.
     pub fn is_symbol_table_struct(

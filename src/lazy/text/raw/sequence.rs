@@ -7,7 +7,7 @@ use nom::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    LazyDecoder, LazyRawContainer, LazyRawSequence, LazyRawValue, LazyRawValueExpr, RawValueExpr,
+    Decoder, LazyRawContainer, LazyRawSequence, LazyRawValue, LazyRawValueExpr, RawValueExpr,
 };
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::text::buffer::TextBufferView;
@@ -43,7 +43,7 @@ impl<'data> LazyContainerPrivate<'data, TextEncoding_1_0> for LazyRawTextList_1_
 }
 
 impl<'data> LazyRawContainer<'data, TextEncoding_1_0> for LazyRawTextList_1_0<'data> {
-    fn as_value(&self) -> <TextEncoding_1_0 as LazyDecoder>::Value<'data> {
+    fn as_value(&self) -> <TextEncoding_1_0 as Decoder>::Value<'data> {
         self.value
     }
 }
@@ -255,7 +255,7 @@ impl<'data> LazyContainerPrivate<'data, TextEncoding_1_0> for LazyRawTextSExp_1_
 }
 
 impl<'data> LazyRawContainer<'data, TextEncoding_1_0> for LazyRawTextSExp_1_0<'data> {
-    fn as_value(&self) -> <TextEncoding_1_0 as LazyDecoder>::Value<'data> {
+    fn as_value(&self) -> <TextEncoding_1_0 as Decoder>::Value<'data> {
         self.value
     }
 }

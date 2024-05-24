@@ -1,7 +1,7 @@
 //! Types and traits representing an e-expression in an Ion stream.
 #![allow(non_camel_case_types)]
 
-use crate::lazy::decoder::{LazyDecoder, LazyRawValueExpr};
+use crate::lazy::decoder::{Decoder, LazyRawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression, ValueExpr};
 use crate::lazy::expanded::macro_table::MacroRef;
@@ -12,13 +12,13 @@ use std::fmt::{Debug, Formatter};
 
 /// An e-expression (in Ion format `D`) that has been resolved in the current encoding context.
 #[derive(Copy, Clone)]
-pub struct EExpression<'top, D: LazyDecoder> {
+pub struct EExpression<'top, D: Decoder> {
     pub(crate) context: EncodingContextRef<'top>,
     pub(crate) raw_invocation: D::EExp<'top>,
     pub(crate) invoked_macro: MacroRef<'top>,
 }
 
-impl<'top, D: LazyDecoder> EExpression<'top, D> {
+impl<'top, D: Decoder> EExpression<'top, D> {
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
@@ -30,13 +30,13 @@ impl<'top, D: LazyDecoder> EExpression<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> Debug for EExpression<'top, D> {
+impl<'top, D: Decoder> Debug for EExpression<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "EExpression {:?}", self.raw_invocation)
     }
 }
 
-impl<'top, D: LazyDecoder> EExpression<'top, D> {
+impl<'top, D: Decoder> EExpression<'top, D> {
     pub fn new(
         context: EncodingContextRef<'top>,
         raw_invocation: D::EExp<'top>,
@@ -50,7 +50,7 @@ impl<'top, D: LazyDecoder> EExpression<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> EExpression<'top, D> {
+impl<'top, D: Decoder> EExpression<'top, D> {
     pub fn id(&self) -> MacroIdRef<'top> {
         self.raw_invocation.id()
     }
@@ -63,18 +63,18 @@ impl<'top, D: LazyDecoder> EExpression<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> From<EExpression<'top, D>> for MacroExpr<'top, D> {
+impl<'top, D: Decoder> From<EExpression<'top, D>> for MacroExpr<'top, D> {
     fn from(value: EExpression<'top, D>) -> Self {
         MacroExpr::EExp(value)
     }
 }
 
-pub struct EExpressionArgsIterator<'top, D: LazyDecoder> {
+pub struct EExpressionArgsIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     raw_args: <D::EExp<'top> as RawEExpression<'top, D>>::RawArgumentsIterator<'top>,
 }
 
-impl<'top, D: LazyDecoder> Iterator for EExpressionArgsIterator<'top, D> {
+impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {
     type Item = IonResult<ValueExpr<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {

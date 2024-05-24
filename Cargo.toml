@@ -73,7 +73,6 @@ rstest_reuse = "0.6.0"
 # Used by ion-tests integration
 walkdir = "2.5.0"
 test-generator = "0.3"
-memmap = "0.7.0"
 criterion = "0.5.1"
 rand = "0.8.5"
 tempfile = "3.10.0"

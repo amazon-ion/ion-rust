@@ -222,8 +222,8 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
     /// complete encoding, not including any annotations.
     pub fn unannotated_value_range(&self) -> Range<usize> {
         // [ annotations? | header (type descriptor) | header_length? | value ]
-        let start = self.header_offset - self.annotations_header_length as usize;
-        let end = start + self.total_length;
+        let start = self.header_offset;
+        let end = start + self.total_length - self.annotations_header_length as usize;
         start..end
     }
 

@@ -12,7 +12,7 @@ mod benchmark {
 mod benchmark {
     use criterion::{black_box, Criterion};
     use ion_rs::{v1_0, v1_1, ElementReader, Encoding, IonData, IonReader, WriteConfig};
-    use ion_rs::{Element, IonResult, LazyDecoder, LazyStruct, LazyValue, ValueRef};
+    use ion_rs::{Decoder, Element, IonResult, LazyStruct, LazyValue, ValueRef};
 
     fn rewrite_as<E: Encoding>(
         pretty_ion: &str,
@@ -24,7 +24,7 @@ mod benchmark {
         Ok(buffer)
     }
 
-    fn count_value_and_children<D: LazyDecoder>(lazy_value: &LazyValue<'_, D>) -> IonResult<usize> {
+    fn count_value_and_children<D: Decoder>(lazy_value: &LazyValue<'_, D>) -> IonResult<usize> {
         use ValueRef::*;
         let child_count = match lazy_value.read()? {
             List(s) => count_sequence_children(s.iter())?,
@@ -38,7 +38,7 @@ mod benchmark {
         Ok(1 + child_count)
     }
 
-    fn count_sequence_children<'a, D: LazyDecoder>(
+    fn count_sequence_children<'a, D: Decoder>(
         lazy_sequence: impl Iterator<Item = IonResult<LazyValue<'a, D>>>,
     ) -> IonResult<usize> {
         let mut count = 0;
@@ -48,7 +48,7 @@ mod benchmark {
         Ok(count)
     }
 
-    fn count_struct_children<D: LazyDecoder>(lazy_struct: &LazyStruct<'_, D>) -> IonResult<usize> {
+    fn count_struct_children<D: Decoder>(lazy_struct: &LazyStruct<'_, D>) -> IonResult<usize> {
         let mut count = 0;
         for field in lazy_struct {
             count += count_value_and_children(&field?.value())?;

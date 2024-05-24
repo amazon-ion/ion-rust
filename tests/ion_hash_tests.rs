@@ -122,7 +122,7 @@ fn ion_hash_tests() -> IonHashTestResult<()> {
 
 fn test_file(file_name: &str) -> IonHashTestResult<()> {
     let data = read(file_name).map_err(IonError::from)?;
-    let mut reader = Reader::new(data);
+    let mut reader = Reader::new(data)?;
     let mut elems = Vec::new();
     while let Some(value) = reader.next()? {
         // Similar logic to skip test cases with a name on the skip list also appears in the

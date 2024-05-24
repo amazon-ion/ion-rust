@@ -4,7 +4,6 @@ use delegate::delegate;
 use ice_code::ice as cold_path;
 
 use crate::constants::v1_0::system_symbol_ids;
-use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::encoder::annotation_seq::AnnotationSeq;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
@@ -47,20 +46,19 @@ impl EncodingContext {
 }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
-pub struct IonWriter<E: Encoding, Output: Write> {
+pub struct Writer<E: Encoding, Output: Write> {
     encoding_context: EncodingContext,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
     output: Output,
 }
 
-pub type Writer<Output> = IonWriter<AnyEncoding, Output>;
-pub type TextWriter_1_0<Output> = IonWriter<TextEncoding_1_0, Output>;
-pub type BinaryWriter_1_0<Output> = IonWriter<BinaryEncoding_1_0, Output>;
-pub type TextWriter_1_1<Output> = IonWriter<TextEncoding_1_1, Output>;
-pub type BinaryWriter_1_1<Output> = IonWriter<BinaryEncoding_1_1, Output>;
+pub type TextWriter_1_0<Output> = Writer<TextEncoding_1_0, Output>;
+pub type BinaryWriter_1_0<Output> = Writer<BinaryEncoding_1_0, Output>;
+pub type TextWriter_1_1<Output> = Writer<TextEncoding_1_1, Output>;
+pub type BinaryWriter_1_1<Output> = Writer<BinaryEncoding_1_1, Output>;
 
-impl<E: Encoding, Output: Write> IonWriter<E, Output> {
+impl<E: Encoding, Output: Write> Writer<E, Output> {
     /// Constructs a writer for the requested encoding using its default configuration.
     pub fn new(output: Output) -> IonResult<Self> {
         Self::with_config(E::default_write_config(), output)
@@ -79,7 +77,7 @@ impl<E: Encoding, Output: Write> IonWriter<E, Output> {
             E::DEFAULT_SYMBOL_CREATION_POLICY,
             E::SUPPORTS_TEXT_TOKENS,
         );
-        let mut writer = IonWriter {
+        let mut writer = Writer {
             encoding_context,
             data_writer,
             directive_writer,
@@ -162,7 +160,7 @@ impl<E: Encoding, Output: Write> IonWriter<E, Output> {
     }
 }
 
-impl<E: Encoding, Output: Write> MakeValueWriter for IonWriter<E, Output> {
+impl<E: Encoding, Output: Write> MakeValueWriter for Writer<E, Output> {
     type ValueWriter<'a> = ApplicationValueWriter<'a, <E::Writer<Vec<u8>> as MakeValueWriter>::ValueWriter<'a>>
     where
         Self: 'a;
@@ -177,7 +175,7 @@ impl<E: Encoding, Output: Write> MakeValueWriter for IonWriter<E, Output> {
     }
 }
 
-impl<E: Encoding, Output: Write> SequenceWriter for IonWriter<E, Output> {
+impl<E: Encoding, Output: Write> SequenceWriter for Writer<E, Output> {
     type Resources = Output;
 
     fn close(mut self) -> IonResult<Self::Resources> {

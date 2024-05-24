@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
-use crate::lazy::decoder::LazyDecoder;
+use crate::lazy::decoder::Decoder;
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::sequence::{
     ExpandedListIterator, ExpandedSExpIterator, LazyExpandedList, LazyExpandedSExp,
@@ -52,13 +52,13 @@ use crate::{IonError, IonResult};
 ///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 #[derive(Copy, Clone)]
-pub struct LazyList<'top, D: LazyDecoder> {
+pub struct LazyList<'top, D: Decoder> {
     pub(crate) expanded_list: LazyExpandedList<'top, D>,
 }
 
 pub type LazyBinarySequence<'top, 'data> = LazyList<'top, BinaryEncoding_1_0>;
 
-impl<'top, D: LazyDecoder> LazyList<'top, D> {
+impl<'top, D: Decoder> LazyList<'top, D> {
     /// Returns an iterator over the values in this sequence. See: [`LazyValue`].
     pub fn iter(&self) -> ListIterator<'top, D> {
         ListIterator {
@@ -115,7 +115,7 @@ impl<'top, D: LazyDecoder> LazyList<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> TryFrom<LazyList<'top, D>> for Sequence {
+impl<'top, D: Decoder> TryFrom<LazyList<'top, D>> for Sequence {
     type Error = IonError;
 
     fn try_from(lazy_sequence: LazyList<'top, D>) -> Result<Self, Self::Error> {
@@ -128,7 +128,7 @@ impl<'top, D: LazyDecoder> TryFrom<LazyList<'top, D>> for Sequence {
     }
 }
 
-impl<'top, D: LazyDecoder> TryFrom<LazyList<'top, D>> for Element {
+impl<'top, D: Decoder> TryFrom<LazyList<'top, D>> for Element {
     type Error = IonError;
 
     fn try_from(lazy_list: LazyList<'top, D>) -> Result<Self, Self::Error> {
@@ -139,7 +139,7 @@ impl<'top, D: LazyDecoder> TryFrom<LazyList<'top, D>> for Element {
     }
 }
 
-impl<'a, 'top, 'data: 'top, D: LazyDecoder> IntoIterator for &'a LazyList<'top, D> {
+impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazyList<'top, D> {
     type Item = IonResult<LazyValue<'top, D>>;
     type IntoIter = ListIterator<'top, D>;
 
@@ -148,11 +148,11 @@ impl<'a, 'top, 'data: 'top, D: LazyDecoder> IntoIterator for &'a LazyList<'top, 
     }
 }
 
-pub struct ListIterator<'top, D: LazyDecoder> {
+pub struct ListIterator<'top, D: Decoder> {
     expanded_list_iter: ExpandedListIterator<'top, D>,
 }
 
-impl<'top, D: LazyDecoder> Iterator for ListIterator<'top, D> {
+impl<'top, D: Decoder> Iterator for ListIterator<'top, D> {
     type Item = IonResult<LazyValue<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -167,7 +167,7 @@ impl<'top, D: LazyDecoder> Iterator for ListIterator<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> Debug for LazyList<'top, D> {
+impl<'top, D: Decoder> Debug for LazyList<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self {
@@ -182,11 +182,11 @@ impl<'top, D: LazyDecoder> Debug for LazyList<'top, D> {
 // ===== SExps =====
 
 #[derive(Copy, Clone)]
-pub struct LazySExp<'top, D: LazyDecoder> {
+pub struct LazySExp<'top, D: Decoder> {
     pub(crate) expanded_sexp: LazyExpandedSExp<'top, D>,
 }
 
-impl<'top, D: LazyDecoder> Debug for LazySExp<'top, D> {
+impl<'top, D: Decoder> Debug for LazySExp<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self {
@@ -198,7 +198,7 @@ impl<'top, D: LazyDecoder> Debug for LazySExp<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> LazySExp<'top, D> {
+impl<'top, D: Decoder> LazySExp<'top, D> {
     pub fn lower(&self) -> LazyExpandedSExp<'top, D> {
         self.expanded_sexp
     }
@@ -249,7 +249,7 @@ impl<'top, D: LazyDecoder> LazySExp<'top, D> {
     }
 }
 
-impl<'top, D: LazyDecoder> TryFrom<LazySExp<'top, D>> for Sequence {
+impl<'top, D: Decoder> TryFrom<LazySExp<'top, D>> for Sequence {
     type Error = IonError;
 
     fn try_from(lazy_sequence: LazySExp<'top, D>) -> Result<Self, Self::Error> {
@@ -262,7 +262,7 @@ impl<'top, D: LazyDecoder> TryFrom<LazySExp<'top, D>> for Sequence {
     }
 }
 
-impl<'top, D: LazyDecoder> TryFrom<LazySExp<'top, D>> for Element {
+impl<'top, D: Decoder> TryFrom<LazySExp<'top, D>> for Element {
     type Error = IonError;
 
     fn try_from(lazy_sequence: LazySExp<'top, D>) -> Result<Self, Self::Error> {
@@ -273,7 +273,7 @@ impl<'top, D: LazyDecoder> TryFrom<LazySExp<'top, D>> for Element {
     }
 }
 
-impl<'a, 'top, 'data: 'top, D: LazyDecoder> IntoIterator for &'a LazySExp<'top, D> {
+impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazySExp<'top, D> {
     type Item = IonResult<LazyValue<'top, D>>;
     type IntoIter = SExpIterator<'top, D>;
 
@@ -282,11 +282,11 @@ impl<'a, 'top, 'data: 'top, D: LazyDecoder> IntoIterator for &'a LazySExp<'top, 
     }
 }
 
-pub struct SExpIterator<'top, D: LazyDecoder> {
+pub struct SExpIterator<'top, D: Decoder> {
     expanded_sexp_iter: ExpandedSExpIterator<'top, D>,
 }
 
-impl<'top, D: LazyDecoder> Iterator for SExpIterator<'top, D> {
+impl<'top, D: Decoder> Iterator for SExpIterator<'top, D> {
     type Item = IonResult<LazyValue<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
