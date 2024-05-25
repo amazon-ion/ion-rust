@@ -59,13 +59,9 @@ pub type TextWriter_1_1<Output> = Writer<TextEncoding_1_1, Output>;
 pub type BinaryWriter_1_1<Output> = Writer<BinaryEncoding_1_1, Output>;
 
 impl<E: Encoding, Output: Write> Writer<E, Output> {
-    /// Constructs a writer for the requested encoding using its default configuration.
-    pub fn new(output: Output) -> IonResult<Self> {
-        Self::with_config(E::default_write_config(), output)
-    }
-
     /// Constructs a writer for the requested encoding using the provided configuration.
-    pub fn with_config(config: WriteConfig<E>, output: Output) -> IonResult<Self> {
+    pub fn new(config: impl Into<WriteConfig<E>>, output: Output) -> IonResult<Self> {
+        let config = config.into();
         let directive_writer = E::Writer::build(config.clone(), vec![])?;
         let mut data_writer = E::Writer::build(config, vec![])?;
         // Erase the IVM that's created by default

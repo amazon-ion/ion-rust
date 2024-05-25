@@ -38,7 +38,7 @@ impl<E: Encoding> WriteConfig<E> {
         value: V,
         output: W,
     ) -> IonResult<W> {
-        let mut writer = Writer::with_config(self.clone(), output)?;
+        let mut writer = Writer::new(self.clone(), output)?;
         writer.write(value)?;
         writer.close()
     }
@@ -48,21 +48,21 @@ impl<E: Encoding> WriteConfig<E> {
         output: W,
         values: I,
     ) -> IonResult<W> {
-        let mut writer = Writer::with_config(self.clone(), output)?;
+        let mut writer = Writer::new(self.clone(), output)?;
         writer.write_all(values)?;
         writer.close()
     }
 
     #[cfg(feature = "experimental-reader-writer")]
     pub fn build_writer<W: io::Write>(self, output: W) -> IonResult<Writer<E, W>> {
-        Writer::with_config(self, output)
+        Writer::new(self, output)
     }
 
     // When the experimental-reader-writer feature is disabled, this method is `pub(crate)` instead
     // of `pub`
     #[cfg(not(feature = "experimental-reader-writer"))]
     pub(crate) fn build_writer<W: io::Write>(self, output: W) -> IonResult<Writer<E, W>> {
-        Writer::with_config(self, output)
+        Writer::new(self, output)
     }
 
     #[cfg(feature = "experimental-tooling-apis")]
