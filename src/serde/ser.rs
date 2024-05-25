@@ -29,7 +29,7 @@ fn write_with_config<T: Serialize, E: Encoding>(
     value: &T,
     config: WriteConfig<E>,
 ) -> IonResult<Vec<u8>> {
-    let mut writer = Writer::with_config(config, vec![])?;
+    let mut writer = Writer::new(config, vec![])?;
     write_to(value, &mut writer)?;
     writer.close()
 }

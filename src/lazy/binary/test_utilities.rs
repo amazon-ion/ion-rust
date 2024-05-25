@@ -8,7 +8,7 @@ use crate::IonResult;
 pub fn to_binary_ion(text_ion: &str) -> IonResult<Vec<u8>> {
     let buffer = Vec::new();
     let config = WriteConfig::<BinaryEncoding_1_0>::new();
-    let mut writer = Writer::with_config(config, buffer)?;
+    let mut writer = Writer::new(config, buffer)?;
     let elements = Element::read_all(text_ion)?;
     for element in &elements {
         writer.write(element)?;

@@ -18,11 +18,10 @@ pub trait Annotatable {
     ///# use ion_rs::IonResult;
     ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
-    /// use ion_rs::{Annotatable, Element, IonData};
-    /// use ion_rs::v1_0::TextWriter;
+    /// use ion_rs::{Annotatable, Element, IonData, Writer, v1_0::Text};
     ///
     /// let mut buffer = vec![];
-    /// let mut writer = TextWriter::new(&mut buffer)?;
+    /// let mut writer = Writer::new(Text, &mut buffer)?;
     ///
     /// writer.write(42_usize.annotated_with(["foo", "bar", "baz"]))?.flush()?;
     ///
