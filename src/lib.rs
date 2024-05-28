@@ -29,7 +29,7 @@
 //! # }
 //! ```
 //!
-//! [Element::read_all] will read any number of Ion values and return them as a `Vec<Element>`.
+//! [Element::read_all] will read any number of Ion values and return them as a [`Sequence`].
 //!
 //! [Element::read_first] will read the first Ion value without requiring that the stream have
 //! exactly one value.
