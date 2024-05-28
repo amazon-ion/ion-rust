@@ -174,7 +174,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
                 let body = self.value_body()?;
                 ION_1_1_TYPED_NULL_TYPES[body[0] as usize]
             } else {
-                self.ion_type()
+                IonType::Null
             };
             return Ok(RawValueRef::Null(ion_type));
         }
