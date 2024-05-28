@@ -755,4 +755,30 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn nulls() -> IonResult<()> {
+        #[rustfmt::skip]
+        let data: Vec<([u8; 2], IonType)> = vec![
+            ([0xEB, 0x00], IonType::Bool),      // null.bool
+            ([0xEB, 0x01], IonType::Int),       // null.int
+            ([0xEB, 0x02], IonType::Float),     // null.float
+            ([0xEB, 0x03], IonType::Decimal),   // null.decimal
+            ([0xEB, 0x04], IonType::Timestamp), // null.timestamp
+            ([0xEB, 0x05], IonType::String),    // null.string
+            ([0xEB, 0x06], IonType::Symbol),    // null.symbol
+            ([0xEB, 0x07], IonType::Blob),      // null.blob
+            ([0xEB, 0x08], IonType::Clob),      // null.clob
+            ([0xEB, 0x09], IonType::List),      // null.list
+            ([0xEB, 0x0A], IonType::SExp),      // null.sexp
+            ([0xEB, 0x0B], IonType::Struct),    // null.struct
+        ];
+
+        for (data, expected_type) in data {
+            let mut reader = LazyRawBinaryReader_1_1::new(&data);
+            let actual_type = reader.next()?.expect_value()?.read()?.expect_null()?;
+            assert_eq!(actual_type, expected_type);
+        }
+        Ok(())
+    }
 }
