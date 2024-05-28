@@ -7,6 +7,7 @@ use crate::lazy::expanded::{ExpandedValueRef, ExpandingReader, LazyExpandedValue
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::value::LazyValue;
+use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, RawSymbolRef, SymbolTable};
 
@@ -17,7 +18,7 @@ const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
-/// Unlike [`crate::lazy::reader::IonReader`], which only exposes values that are part
+/// Unlike [`crate::lazy::reader::Reader`], which only exposes values that are part
 /// of the application data model, [`SystemReader`] also yields Ion version markers
 /// (as [`SystemStreamItem::VersionMarker`]) and structs representing a symbol table (as
 /// [`SystemStreamItem::SymbolTable`]).
@@ -38,13 +39,13 @@ const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
-/// use ion_rs::{Element, ion_list};
-/// use ion_rs::v1_0::{Binary, BinaryReader};
+/// use ion_rs::{Element, ion_list, Reader};
+/// use ion_rs::v1_0::Binary;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.encode_as(Binary)?;
 ///
-/// let mut lazy_reader = BinaryReader::new(binary_ion)?;
+/// let mut lazy_reader = Reader::new(Binary, binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
@@ -98,25 +99,15 @@ impl PendingLst {
     }
 }
 
-impl<Input: IonInput> SystemAnyReader<Input> {
-    pub fn new(ion_data: Input) -> SystemAnyReader<Input> {
-        let raw_reader = StreamingRawReader::new(AnyEncoding, ion_data);
-        let expanding_reader = ExpandingReader::new(raw_reader);
-        SystemReader { expanding_reader }
-    }
-}
+// pub fn new(config: impl Into<WriteConfig<E>>, output: Output) -> IonResult<Self> {
 
-impl<Input: IonInput> SystemBinaryReader_1_0<Input> {
-    pub fn new(ion_data: Input) -> SystemBinaryReader_1_0<Input> {
-        let raw_reader = StreamingRawReader::new(BinaryEncoding_1_0, ion_data);
-        let expanding_reader = ExpandingReader::new(raw_reader);
-        SystemReader { expanding_reader }
-    }
-}
-
-impl<Input: IonInput> SystemTextReader_1_1<Input> {
-    pub fn new(ion_data: Input) -> SystemTextReader_1_1<Input> {
-        let raw_reader = StreamingRawReader::new(TextEncoding_1_1, ion_data);
+impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
+    pub fn new(
+        config: impl Into<ReadConfig<Encoding>>,
+        input: Input,
+    ) -> SystemReader<Encoding, Input> {
+        let config = config.into();
+        let raw_reader = StreamingRawReader::new(config.encoding(), input);
         let expanding_reader = ExpandingReader::new(raw_reader);
         SystemReader { expanding_reader }
     }
@@ -275,7 +266,7 @@ mod tests {
         hello
         "#,
         )?;
-        let mut system_reader = SystemBinaryReader_1_0::new(ion_data);
+        let mut system_reader = SystemReader::new(BinaryEncoding_1_0, ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::VersionMarker(marker) => {
@@ -300,7 +291,7 @@ mod tests {
         )
         "#,
         )?;
-        let mut system_reader = SystemBinaryReader_1_0::new(ion_data);
+        let mut system_reader = SystemReader::new(BinaryEncoding_1_0, ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {
@@ -327,7 +318,7 @@ mod tests {
         }
         "#,
         )?;
-        let mut system_reader = SystemBinaryReader_1_0::new(ion_data);
+        let mut system_reader = SystemReader::new(BinaryEncoding_1_0, ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {

@@ -25,6 +25,7 @@ use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
 use crate::ion_data::{IonEq, IonOrd};
+use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
@@ -653,14 +654,14 @@ impl Element {
     /// If the data source has at least one value, returns `Ok(Some(Element))`.
     /// If the data source has invalid data, returns `Err`.
     pub fn read_first<A: AsRef<[u8]>>(data: A) -> IonResult<Option<Element>> {
-        let mut reader = Reader::new(IonSlice::new(data))?;
+        let mut reader = Reader::new(AnyEncoding, IonSlice::new(data))?;
         reader.read_next_element()
     }
 
     /// Reads a single Ion [`Element`] from the provided data source. If the input has invalid
     /// data or does not contain at exactly one Ion value, returns `Err(IonError)`.
     pub fn read_one<A: AsRef<[u8]>>(data: A) -> IonResult<Element> {
-        let mut reader = Reader::new(IonSlice::new(data))?;
+        let mut reader = Reader::new(AnyEncoding, IonSlice::new(data))?;
         reader.read_one_element()
     }
 
@@ -669,7 +670,7 @@ impl Element {
     /// If the input has valid data, returns `Ok(Sequence)`.
     /// If the input has invalid data, returns `Err(IonError)`.
     pub fn read_all<A: AsRef<[u8]>>(data: A) -> IonResult<Sequence> {
-        Ok(Reader::new(IonSlice::new(data))?
+        Ok(Reader::new(AnyEncoding, IonSlice::new(data))?
             .into_elements()
             .collect::<IonResult<Vec<_>>>()?
             .into())
@@ -681,7 +682,7 @@ impl Element {
     pub fn iter<'a, I: IonInput + 'a>(
         source: I,
     ) -> IonResult<impl Iterator<Item = IonResult<Element>> + 'a> {
-        Ok(Reader::new(source)?.into_elements())
+        Ok(Reader::new(AnyEncoding, source)?.into_elements())
     }
 
     /// Encodes this element as an Ion stream with itself as the only top-level value.

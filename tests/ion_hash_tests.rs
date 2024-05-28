@@ -4,7 +4,7 @@
 use digest::consts::U4096;
 use digest::{FixedOutput, Reset, Update};
 use ion_rs::ion_hash::IonHasher;
-use ion_rs::{Element, IonResult, Sequence, Struct};
+use ion_rs::{AnyEncoding, Element, IonResult, Sequence, Struct};
 
 use ion_rs::IonError;
 use ion_rs::Reader;
@@ -122,7 +122,7 @@ fn ion_hash_tests() -> IonHashTestResult<()> {
 
 fn test_file(file_name: &str) -> IonHashTestResult<()> {
     let data = read(file_name).map_err(IonError::from)?;
-    let mut reader = Reader::new(data)?;
+    let mut reader = Reader::new(AnyEncoding, data)?;
     let mut elems = Vec::new();
     while let Some(value) = reader.next()? {
         // Similar logic to skip test cases with a name on the skip list also appears in the

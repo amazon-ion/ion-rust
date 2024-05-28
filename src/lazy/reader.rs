@@ -2,21 +2,21 @@
 
 use crate::element::reader::ElementReader;
 use crate::element::Element;
-use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::decoder::Decoder;
-use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::encoding::{TextEncoding_1_1};
 use crate::lazy::streaming_raw_reader::IonInput;
 use crate::lazy::system_reader::{
-    SystemAnyReader, SystemBinaryReader_1_0, SystemReader, SystemTextReader_1_1,
+    SystemReader,
 };
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
+use crate::read_config::ReadConfig;
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
-/// Each time [`IonReader::next`] is called, the reader will advance to the next top-level value
+/// Each time [`Reader::next`] is called, the reader will advance to the next top-level value
 /// in the input stream. Once positioned on a top-level value, users may visit nested values by
 /// calling [`LazyValue::read`] and working with the resulting [`crate::lazy::value_ref::ValueRef`],
 /// which may contain either a scalar value or a lazy container that may itself be traversed.
@@ -24,7 +24,7 @@ use crate::{IonError, IonResult};
 /// The values that the reader yields ([`LazyValue`],
 /// [`LazyList`](crate::lazy::sequence::LazyList), [`LazySExp`](crate::lazy::sequence::LazySExp),
 /// and [`LazyStruct`](crate::lazy::struct::LazyStruct)) are immutable references to the data
-/// stream, and remain valid until [`IonReader::next`] is called again to advance the
+/// stream, and remain valid until [`Reader::next`] is called again to advance the
 /// reader to the next top level value. This means that these references can be stored, read, and
 /// re-read as long as the reader remains on the same top-level value.
 /// ```
@@ -33,13 +33,13 @@ use crate::{IonError, IonResult};
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
-/// use ion_rs::{Element, ion_list};
-/// use ion_rs::v1_0::{Binary, BinaryReader};
+/// use ion_rs::{Element, ion_list, Reader};
+/// use ion_rs::v1_0::Binary;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.encode_as(Binary)?;
 ///
-/// let mut lazy_reader = BinaryReader::new(binary_ion)?;
+/// let mut lazy_reader = Reader::new(Binary, binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
@@ -64,7 +64,7 @@ use crate::{IonError, IonResult};
 ///# #[cfg(not(feature = "experimental-reader-writer"))]
 ///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
-pub struct IonReader<Encoding: Decoder, Input: IonInput> {
+pub struct Reader<Encoding: Decoder, Input: IonInput> {
     system_reader: SystemReader<Encoding, Input>,
 }
 
@@ -74,7 +74,7 @@ pub(crate) enum NextApplicationValue<'top, D: Decoder> {
     EndOfStream,
 }
 
-impl<Encoding: Decoder, Input: IonInput> IonReader<Encoding, Input> {
+impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     /// Returns the next top-level value in the input stream as `Ok(Some(lazy_value))`.
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
     /// If the next value is incomplete (that is: only part of it is in the input buffer) or if the
@@ -119,32 +119,14 @@ impl<Encoding: Decoder, Input: IonInput> IonReader<Encoding, Input> {
     }
 }
 
-pub type BinaryReader_1_0<Input> = IonReader<BinaryEncoding_1_0, Input>;
-pub type BinaryReader_1_1<Input> = IonReader<BinaryEncoding_1_1, Input>;
-pub type TextReader_1_0<Input> = IonReader<TextEncoding_1_0, Input>;
-pub type TextReader_1_1<Input> = IonReader<TextEncoding_1_1, Input>;
-pub type Reader<Input> = IonReader<AnyEncoding, Input>;
-
-impl<Input: IonInput> Reader<Input> {
-    pub fn new(ion_data: Input) -> IonResult<Reader<Input>> {
-        let system_reader = SystemAnyReader::new(ion_data);
-        Ok(IonReader { system_reader })
+impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
+    pub fn new(config: impl Into<ReadConfig<Encoding>>, ion_data: Input) -> IonResult<Reader<Encoding, Input>> {
+        let system_reader = SystemReader::new(config, ion_data);
+        Ok(Reader { system_reader })
     }
 }
 
-impl<Input: IonInput> BinaryReader_1_0<Input> {
-    pub fn new(ion_data: Input) -> IonResult<BinaryReader_1_0<Input>> {
-        let system_reader = SystemBinaryReader_1_0::new(ion_data);
-        Ok(IonReader { system_reader })
-    }
-}
-
-impl<Input: IonInput> TextReader_1_1<Input> {
-    pub fn new(ion_data: Input) -> IonResult<TextReader_1_1<Input>> {
-        let system_reader = SystemTextReader_1_1::new(ion_data);
-        Ok(IonReader { system_reader })
-    }
-
+impl<Input: IonInput> Reader<TextEncoding_1_1, Input> {
     // Temporary method for defining/testing templates.
     // TODO: Remove this when the reader can understand 1.1 encoding directives.
     pub fn register_template(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
@@ -155,7 +137,7 @@ impl<Input: IonInput> TextReader_1_1<Input> {
 }
 
 pub struct LazyElementIterator<'iter, Encoding: Decoder, Input: IonInput> {
-    lazy_reader: &'iter mut IonReader<Encoding, Input>,
+    lazy_reader: &'iter mut Reader<Encoding, Input>,
 }
 
 impl<'iter, Encoding: Decoder, Input: IonInput> Iterator
@@ -173,7 +155,7 @@ impl<'iter, Encoding: Decoder, Input: IonInput> Iterator
 }
 
 impl<Encoding: Decoder, Input: IonInput> ElementReader
-    for IonReader<Encoding, Input>
+    for Reader<Encoding, Input>
 {
     type ElementIterator<'a> = LazyElementIterator<'a, Encoding, Input> where Self: 'a,;
 
@@ -198,7 +180,7 @@ mod tests {
     use crate::lazy::encoder::writer::Writer;
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;
-    use crate::{ion_list, ion_sexp, ion_struct, Int, IonResult, IonType};
+    use crate::{ion_list, ion_sexp, ion_struct, Int, IonResult, IonType, v1_0};
 
     use super::*;
 
@@ -221,7 +203,7 @@ mod tests {
                 (a b c)
         "#,
         )?;
-        let mut reader = BinaryReader_1_0::new(ion_data)?;
+        let mut reader = Reader::new(v1_0::Binary, ion_data)?;
         // For each top-level value...
         while let Some(top_level_value) = reader.next()? {
             // ...see if it's an S-expression...
@@ -247,7 +229,7 @@ mod tests {
             ]
         "#,
         )?;
-        let mut reader = BinaryReader_1_0::new(data)?;
+        let mut reader = Reader::new(v1_0::Binary, data)?;
 
         let first_value = reader.expect_next()?;
         let list = first_value.read()?.expect_list()?;
@@ -272,7 +254,7 @@ mod tests {
             (null null.string)
         "#,
         )?;
-        let mut reader = BinaryReader_1_0::new(data)?;
+        let mut reader = Reader::new(v1_0::Binary, data)?;
         let list: Element = ion_list![
             "yo",
             77,

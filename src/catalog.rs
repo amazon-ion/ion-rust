@@ -68,7 +68,7 @@ impl MapCatalog {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct EmptyCatalog {}
+pub struct EmptyCatalog;
 
 impl Catalog for EmptyCatalog {
     fn get_table(&self, _name: &str) -> Option<&SharedSymbolTable> {

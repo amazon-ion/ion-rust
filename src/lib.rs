@@ -139,7 +139,7 @@
 use rstest_reuse;
 
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
-pub use catalog::{Catalog, MapCatalog};
+pub use catalog::{Catalog, EmptyCatalog, MapCatalog};
 pub use element::builders::{SequenceBuilder, StructBuilder};
 pub use element::{
     element_writer::ElementWriter, reader::ElementReader, Annotations, Element,
@@ -164,7 +164,7 @@ pub use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
 
 // Private modules that serve to organize implementation details.
 pub(crate) mod binary;
-mod catalog;
+pub(crate) mod catalog;
 mod constants;
 mod ion_data;
 mod raw_symbol_ref;
@@ -189,7 +189,7 @@ pub mod ion_hash;
 mod lazy;
 mod write_config;
 
-pub use crate::lazy::any_encoding::AnyEncoding as Any;
+pub use crate::lazy::any_encoding::AnyEncoding;
 pub use crate::lazy::decoder::{HasRange, HasSpan};
 pub use crate::lazy::span::Span;
 pub use crate::write_config::WriteConfig;
@@ -206,7 +206,6 @@ macro_rules! v1_x_reader_writer {
             lazy::encoder::write_as_ion::WriteAsIon,
             lazy::encoder::writer::Writer,
             lazy::reader::Reader,
-            lazy::reader::IonReader,
             raw_symbol_ref::RawSymbolRef,
             symbol_table::SymbolTable,
             lazy::value::LazyValue,
@@ -223,7 +222,6 @@ macro_rules! v1_0_reader_writer {
         #[allow(unused_imports)]
         $visibility use crate::{
             lazy::encoder::writer::{BinaryWriter_1_0 as BinaryWriter, TextWriter_1_0 as TextWriter},
-            lazy::reader::{BinaryReader_1_0 as BinaryReader, TextReader_1_0 as TextReader},
         };
     };
 }
@@ -234,7 +232,6 @@ macro_rules! v1_1_reader_writer {
         $visibility use crate::{
             lazy::encoder::writer::{BinaryWriter_1_1 as BinaryWriter, TextWriter_1_1 as TextWriter},
             lazy::encoding::{BinaryEncoding_1_1 as Binary, TextEncoding_1_1 as Text},
-            lazy::reader::{BinaryReader_1_1 as BinaryReader, TextReader_1_1 as TextReader},
         };
     };
 }

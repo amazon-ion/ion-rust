@@ -11,13 +11,12 @@ use crate::lazy::expanded::template::{
 };
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::r#struct::LazyStruct;
-use crate::lazy::reader::TextReader_1_1;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{IonError, IonResult, IonType, SymbolRef};
+use crate::{v1_1, IonError, IonResult, IonType, Reader, SymbolRef};
 
 /// Validates a given TDL expression and compiles it into a [`TemplateMacro`] that can be added
 /// to a [`MacroTable`](crate::lazy::expanded::macro_table::MacroTable).
@@ -66,7 +65,7 @@ impl TemplateCompiler {
     ) -> IonResult<TemplateMacro> {
         // TODO: This is a rudimentary implementation that panics instead of performing thorough
         //       validation. Where it does surface errors, the messages are too terse.
-        let mut reader = TextReader_1_1::new(expression.as_bytes())?;
+        let mut reader = Reader::new(v1_1::Text, expression.as_bytes())?;
         let invocation = reader.expect_next()?.read()?.expect_sexp()?;
         let mut values = invocation.iter();
 
