@@ -14,6 +14,22 @@ pub struct Opcode {
 /// A statically defined array of TypeDescriptor that allows a binary reader to map a given
 /// byte (`u8`) to a `TypeDescriptor` without having to perform any masking or bitshift operations.
 pub(crate) static ION_1_1_OPCODES: &[Opcode; 256] = &init_opcode_cache();
+pub(crate) static ION_1_1_TYPED_NULL_TYPES: &[IonType; 12] = &[
+    IonType::Bool,
+    IonType::Int,
+    IonType::Float,
+    IonType::Decimal,
+    IonType::Timestamp,
+    IonType::String,
+    IonType::Symbol,
+    IonType::Blob,
+    IonType::Clob,
+    IonType::List,
+    IonType::SExp,
+    IonType::Struct,
+];
+
+static ION_1_1_TIMESTAMP_SHORT_SIZE: [u8; 13] = [1, 2, 2, 4, 5, 6, 7, 8, 5, 5, 7, 8, 9];
 
 const DEFAULT_HEADER: Opcode = Opcode {
     opcode_type: OpcodeType::Nop,
@@ -44,6 +60,7 @@ impl Opcode {
             (0x5, 0xA..=0xD) => (Float, low_nibble, Some(IonType::Float)),
             (0x5, 0xE..=0xF) => (Boolean, low_nibble, Some(IonType::Bool)),
             (0x6, _) => (Decimal, low_nibble, Some(IonType::Decimal)),
+            (0x7, 0x0..=0xC) => (TimestampShort, low_nibble, Some(IonType::Timestamp)),
             (0x8, _) => (String, low_nibble, Some(IonType::String)),
             (0x9, _) => (InlineSymbol, low_nibble, Some(IonType::Symbol)),
             (0xA, _) => (List, low_nibble, Some(IonType::List)),
@@ -51,6 +68,7 @@ impl Opcode {
             (0xE, 0x0) => (IonVersionMarker, low_nibble, None),
             (0xE, 0x1..=0x3) => (SymbolAddress, low_nibble, Some(IonType::Symbol)),
             (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
+            (0xE, 0xB) => (TypedNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xC..=0xD) => (Nop, low_nibble, None),
             (0xF, 0x5) => (LargeInteger, low_nibble, Some(IonType::Int)),
             (0xF, 0x6) => (Decimal, 0xFF, Some(IonType::Decimal)),
@@ -60,6 +78,7 @@ impl Opcode {
             (0xF, 0xB) => (SExpression, 0xFF, Some(IonType::SExp)),
             (0xF, 0xE) => (Blob, low_nibble, Some(IonType::Blob)),
             (0xF, 0xF) => (Clob, low_nibble, Some(IonType::Clob)),
+            (0xF, 0x7) => (TimestampLong, low_nibble, Some(IonType::Timestamp)),
             _ => (Invalid, low_nibble, None),
         };
         Opcode {
@@ -132,6 +151,10 @@ impl Header {
             (OpcodeType::Decimal, 0..=15) => InOpcode(self.length_code),
             (OpcodeType::List, n) if n < 16 => InOpcode(n),
             (OpcodeType::SExpression, n) if n < 16 => InOpcode(n),
+            (OpcodeType::TimestampShort, 0..=12) => {
+                InOpcode(ION_1_1_TIMESTAMP_SHORT_SIZE[self.length_code as usize])
+            }
+            (OpcodeType::TypedNull, _) => InOpcode(1),
             _ => FlexUIntFollows,
         }
     }

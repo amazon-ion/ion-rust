@@ -528,6 +528,77 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case("2024T",                               &[0x70, 0x36])]
+    #[case("2023-10T",                            &[0x71, 0x35, 0x05])]
+    #[case("2023-10-15T",                         &[0x72, 0x35, 0x7D])]
+    #[case("2023-10-15T05:04Z",                   &[0x73, 0x35, 0x7D, 0x85, 0x08])]
+    #[case("2023-10-15T05:04:03Z",                &[0x74, 0x35, 0x7D, 0x85, 0x38, 0x00])]
+    #[case("2023-10-15T05:04:03.123-00:00",       &[0x75, 0x35, 0x7D, 0x85, 0x30, 0xEC, 0x01])]
+    #[case("2023-10-15T05:04:03.000123-00:00",    &[0x76, 0x35, 0x7D, 0x85, 0x30, 0xEC, 0x01, 0x00])]
+    #[case("2023-10-15T05:04:03.000000123-00:00", &[0x77, 0x35, 0x7D, 0x85, 0x30, 0xEC, 0x01, 0x00, 0x00])]
+    #[case("2023-10-15T05:04+01:00",              &[0x78, 0x35, 0x7D, 0x85, 0x20, 0x00])]
+    #[case("2023-10-15T05:04-01:00",              &[0x78, 0x35, 0x7D, 0x85, 0xE0, 0x03])]
+    #[case("2023-10-15T05:04:03+01:00",           &[0x79, 0x35, 0x7D, 0x85, 0x20, 0x0C])]
+    #[case("2023-10-15T05:04:03.123+01:00",       &[0x7A, 0x35, 0x7D, 0x85, 0x20, 0x0C, 0x7B, 0x00])]
+    #[case("2023-10-15T05:04:03.000123+01:00",    &[0x7B, 0x35, 0x7D, 0x85, 0x20, 0x0C, 0x7B, 0x00, 0x00])]
+    #[case("2023-10-15T05:04:03.000000123+01:00", &[0x7C, 0x35, 0x7D, 0x85, 0x20, 0x0C, 0x7B, 0x00, 0x00, 0x00])]
+    fn timestamps_short(#[case] expected_txt: &str, #[case] ion_data: &[u8]) -> IonResult<()> {
+        use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
+        use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
+
+        let bump = bumpalo::Bump::new();
+        let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
+        let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
+
+        assert_eq!(
+            reader_bin
+                .next()?
+                .expect_value()?
+                .read()?
+                .expect_timestamp()?,
+            reader_txt
+                .next(&bump)?
+                .expect_value()?
+                .read()?
+                .expect_timestamp()?,
+        );
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case("1947T",                         &[0xF7, 0x05, 0x9B, 0x07])]
+    #[case("1947-12T",                      &[0xF7, 0x07, 0x9B, 0x07, 0x03])]
+    #[case("1947-12-23T",                   &[0xF7, 0x07, 0x9B, 0x07, 0x5F])]
+    #[case("1947-12-23T11:22-00:00",        &[0xF7, 0x0D, 0x9B, 0x07, 0xDF, 0x65, 0xFD, 0x3F])]
+    #[case("1947-12-23T11:22:33+01:00",     &[0xF7, 0x0F, 0x9B, 0x07, 0xDF, 0x65, 0x71, 0x57, 0x08])]
+    #[case("1947-12-23T11:22:33.127+01:15", &[0xF7, 0x13, 0x9B, 0x07, 0xDF, 0x65, 0xAD, 0x57, 0x08, 0x07, 0x7F])]
+    #[case("1947-12-23T11:22:33-01:00",     &[0xF7, 0x0F, 0x9B, 0x07, 0xDF, 0x65, 0x91, 0x55, 0x08])]
+    fn timestamps_long(#[case] expected_txt: &str, #[case] ion_data: &[u8]) -> IonResult<()> {
+        use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
+        use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
+
+        let bump = bumpalo::Bump::new();
+        let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
+        let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
+
+        assert_eq!(
+            reader_bin
+                .next()?
+                .expect_value()?
+                .read()?
+                .expect_timestamp()?,
+            reader_txt
+                .next(&bump)?
+                .expect_value()?
+                .read()?
+                .expect_timestamp()?,
+        );
+
+        Ok(())
+    }
+
     fn blobs() -> IonResult<()> {
         let data: Vec<u8> = vec![
             0xe0, 0x01, 0x01, 0xea, // IVM
@@ -682,6 +753,32 @@ mod tests {
             assert_eq!(count, expected_types.len());
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn nulls() -> IonResult<()> {
+        #[rustfmt::skip]
+        let data: Vec<([u8; 2], IonType)> = vec![
+            ([0xEB, 0x00], IonType::Bool),      // null.bool
+            ([0xEB, 0x01], IonType::Int),       // null.int
+            ([0xEB, 0x02], IonType::Float),     // null.float
+            ([0xEB, 0x03], IonType::Decimal),   // null.decimal
+            ([0xEB, 0x04], IonType::Timestamp), // null.timestamp
+            ([0xEB, 0x05], IonType::String),    // null.string
+            ([0xEB, 0x06], IonType::Symbol),    // null.symbol
+            ([0xEB, 0x07], IonType::Blob),      // null.blob
+            ([0xEB, 0x08], IonType::Clob),      // null.clob
+            ([0xEB, 0x09], IonType::List),      // null.list
+            ([0xEB, 0x0A], IonType::SExp),      // null.sexp
+            ([0xEB, 0x0B], IonType::Struct),    // null.struct
+        ];
+
+        for (data, expected_type) in data {
+            let mut reader = LazyRawBinaryReader_1_1::new(&data);
+            let actual_type = reader.next()?.expect_value()?.read()?.expect_null()?;
+            assert_eq!(actual_type, expected_type);
+        }
         Ok(())
     }
 }
