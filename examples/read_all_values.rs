@@ -16,7 +16,7 @@ mod lazy_reader_example {
     use std::fs::File;
     use std::process::exit;
 
-    use ion_rs::{Decoder, IonResult, LazyStruct, LazyValue, Reader, ValueRef};
+    use ion_rs::{AnyEncoding, Decoder, IonResult, LazyStruct, LazyValue, Reader, ValueRef};
 
     pub fn read_all_values() -> IonResult<()> {
         let args: Vec<String> = std::env::args().collect();
@@ -27,7 +27,7 @@ mod lazy_reader_example {
         });
 
         let file = File::open(path).unwrap();
-        let mut reader = Reader::new(file)?;
+        let mut reader = Reader::new(AnyEncoding, file)?;
         // We're going to recursively visit and read every value in the input stream, counting
         // them as we go.
         let mut count = 0;

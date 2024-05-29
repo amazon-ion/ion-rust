@@ -55,9 +55,9 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
 
     /// If this item is a application-level value, returns `Some(&LazyValue)`. Otherwise,
     /// returns `None`.
-    pub fn value(&self) -> Option<&LazyValue<'top, D>> {
+    pub fn value(&self) -> Option<LazyValue<'top, D>> {
         if let Self::Value(value) = self {
-            Some(value)
+            Some(*value)
         } else {
             None
         }
@@ -70,6 +70,26 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
             Ok(value)
         } else {
             IonResult::decoding_error(format!("expected value, found {:?}", self))
+        }
+    }
+
+    /// Like [`Self::symbol_table`], but returns a [`IonError::Decoding`] if this item is not
+    /// a symbol table.
+    pub fn symbol_table(self) -> Option<LazyStruct<'top, D>> {
+        if let Self::SymbolTable(struct_) = self {
+            Some(struct_)
+        } else {
+            None
+        }
+    }
+
+    /// Like [`Self::symbol_table`], but returns a [`IonError::Decoding`] if this item is not
+    /// a symbol table.
+    pub fn expect_symbol_table(self) -> IonResult<LazyStruct<'top, D>> {
+        if let Self::SymbolTable(value) = self {
+            Ok(value)
+        } else {
+            IonResult::decoding_error(format!("expected symbol table, found {:?}", self))
         }
     }
 

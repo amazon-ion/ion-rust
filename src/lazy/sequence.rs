@@ -20,13 +20,13 @@ use crate::{IonError, IonResult};
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
-/// use ion_rs::{Element, ion_list};
-/// use ion_rs::v1_0::{Binary, BinaryReader};
+/// use ion_rs::{Element, ion_list, Reader};
+/// use ion_rs::v1_0::Binary;
 ///
 /// let element: Element = ion_list! [10, 20, 30].into();
 /// let binary_ion = element.encode_as(Binary)?;
 ///
-/// let mut lazy_reader = BinaryReader::new(binary_ion)?;
+/// let mut lazy_reader = Reader::new(Binary, binary_ion)?;
 ///
 /// // Get the first value from the stream and confirm that it's a list.
 /// let lazy_list = lazy_reader.expect_next()?.read()?.expect_list()?;
@@ -85,13 +85,13 @@ impl<'top, D: Decoder> LazyList<'top, D> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::{ion_sexp, Element, IntoAnnotatedElement};
-    /// use ion_rs::v1_0::{Binary, BinaryReader};
+    /// use ion_rs::{ion_sexp, Element, IntoAnnotatedElement, Reader};
+    /// use ion_rs::v1_0::Binary;
     ///
     /// let element: Element = ion_sexp!(true false).with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.encode_as(Binary)?;
     ///
-    /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
+    /// let mut lazy_reader = Reader::new(Binary, binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_sexp = lazy_reader.expect_next()?.read()?.expect_sexp()?;
@@ -219,13 +219,13 @@ impl<'top, D: Decoder> LazySExp<'top, D> {
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
-    /// use ion_rs::{ion_sexp, Element, IntoAnnotatedElement};
-    /// use ion_rs::v1_0::{Binary, BinaryReader};
+    /// use ion_rs::{ion_sexp, Element, IntoAnnotatedElement, Reader};
+    /// use ion_rs::v1_0::Binary;
     ///
     /// let element: Element = ion_sexp!(true false).with_annotations(["foo", "bar", "baz"]);
     /// let binary_ion = element.encode_as(Binary)?;
     ///
-    /// let mut lazy_reader = BinaryReader::new(binary_ion)?;
+    /// let mut lazy_reader = Reader::new(Binary, binary_ion)?;
     ///
     /// // Get the first lazy value from the stream.
     /// let lazy_sexp = lazy_reader.expect_next()?.read()?.expect_sexp()?;
@@ -305,13 +305,12 @@ impl<'top, D: Decoder> Iterator for SExpIterator<'top, D> {
 mod tests {
     use crate::element::Element;
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::lazy::reader::BinaryReader_1_0;
-    use crate::IonResult;
+    use crate::{v1_0, IonResult, Reader};
 
     #[test]
     fn annotations() -> IonResult<()> {
         let binary_ion = to_binary_ion("foo::bar::baz::[1, 2, 3]")?;
-        let mut reader = BinaryReader_1_0::new(binary_ion)?;
+        let mut reader = Reader::new(v1_0::Binary, binary_ion)?;
         let list = reader.expect_next()?.read()?.expect_list()?;
         assert!(list.annotations().are(["foo", "bar", "baz"])?);
         list.annotations().expect(["foo", "bar", "baz"])?;
@@ -322,7 +321,7 @@ mod tests {
     fn try_into_element() -> IonResult<()> {
         let ion_text = "foo::baz::baz::[1, 2, 3]";
         let binary_ion = to_binary_ion(ion_text)?;
-        let mut reader = BinaryReader_1_0::new(binary_ion)?;
+        let mut reader = Reader::new(v1_0::Binary, binary_ion)?;
         let list = reader.expect_next()?.read()?.expect_list()?;
         let result: IonResult<Element> = list.try_into();
         assert!(result.is_ok());

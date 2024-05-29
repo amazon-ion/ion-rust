@@ -65,7 +65,7 @@ impl<'top, D: Decoder> Debug for ValueRef<'top, D> {
             Float(float) => write!(f, "{}", float),
             Decimal(d) => write!(f, "{}", d),
             Timestamp(t) => write!(f, "{}", t),
-            String(s) => write!(f, "\"{}\"", s),
+            String(s) => write!(f, "{}", s),
             Symbol(s) => write!(f, "{}", s.text().unwrap_or("$0")),
             Blob(b) => write!(f, "blob ({} bytes)", b.len()),
             Clob(c) => write!(f, "clob ({} bytes)", c.len()),
@@ -263,9 +263,8 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
 #[cfg(test)]
 mod tests {
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::lazy::reader::BinaryReader_1_0;
     use crate::lazy::value_ref::ValueRef;
-    use crate::{Decimal, IonResult, IonType, SymbolRef, Timestamp};
+    use crate::{v1_0, Decimal, IonResult, IonType, Reader, SymbolRef, Timestamp};
 
     #[test]
     fn expect_type() -> IonResult<()> {
@@ -286,7 +285,7 @@ mod tests {
             {this: is, a: struct}
         "#,
         )?;
-        let mut reader = BinaryReader_1_0::new(ion_data)?;
+        let mut reader = Reader::new(v1_0::Binary, ion_data)?;
         assert_eq!(reader.expect_next()?.read()?.expect_null()?, IonType::Null);
         assert!(reader.expect_next()?.read()?.expect_bool()?);
         assert_eq!(reader.expect_next()?.read()?.expect_i64()?, 1);
@@ -335,7 +334,7 @@ mod tests {
             {{"Clob"}}
         "#,
         )?;
-        let mut reader = BinaryReader_1_0::new(ion_data)?;
+        let mut reader = Reader::new(v1_0::Binary, ion_data)?;
         let first_value = reader.expect_next()?.read()?;
         assert_ne!(first_value, ValueRef::String("it's not a string".into()));
         assert_eq!(first_value, ValueRef::Null(IonType::Null));

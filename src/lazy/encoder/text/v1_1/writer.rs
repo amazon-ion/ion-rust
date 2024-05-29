@@ -100,11 +100,11 @@ mod tests {
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
     use crate::lazy::encoder::LazyRawWriter;
     use crate::lazy::expanded::macro_evaluator::RawEExpression;
-    use crate::lazy::reader::TextReader_1_1;
     use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, MacroIdRef};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{
-        Decimal, ElementReader, IonData, IonResult, IonType, Null, RawSymbolRef, Timestamp,
+        v1_1, Decimal, ElementReader, IonData, IonResult, IonType, Null, RawSymbolRef, Reader,
+        Timestamp,
     };
 
     #[test]
@@ -139,10 +139,10 @@ mod tests {
             {{"\xea\x01\x01\xee"}}
         "#;
 
-        let mut reader = TextReader_1_1::new(encoded_text)?;
+        let mut reader = Reader::new(v1_1::Text, encoded_text)?;
         let actual = reader.read_all_elements()?;
 
-        let mut reader = TextReader_1_1::new(expected_ion)?;
+        let mut reader = Reader::new(v1_1::Text, expected_ion)?;
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));
@@ -162,16 +162,17 @@ mod tests {
         let encoded_text = String::from_utf8(encoded_bytes).unwrap();
         println!("{encoded_text}");
         let expected_ion = r#"
+            $ion_1_1
             []
             [1]
             [1, 2]
             [[1, 2], [3, 4], [5, 6]]
         "#;
 
-        let mut reader = TextReader_1_1::new(encoded_text)?;
+        let mut reader = Reader::new(v1_1::Text, encoded_text)?;
         let actual = reader.read_all_elements()?;
 
-        let mut reader = TextReader_1_1::new(expected_ion)?;
+        let mut reader = Reader::new(v1_1::Text, expected_ion)?;
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));
@@ -191,16 +192,17 @@ mod tests {
         let encoded_text = String::from_utf8(encoded_bytes).unwrap();
         println!("{encoded_text}");
         let expected_ion = r#"
+            $ion_1_1
             ()
             (1)
             (1 2)
             ((1 2) (3 4) (5 6))
         "#;
 
-        let mut reader = TextReader_1_1::new(encoded_text)?;
+        let mut reader = Reader::new(v1_1::Text, encoded_text)?;
         let actual = reader.read_all_elements()?;
 
-        let mut reader = TextReader_1_1::new(expected_ion)?;
+        let mut reader = Reader::new(v1_1::Text, expected_ion)?;
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));
@@ -227,6 +229,7 @@ mod tests {
         let encoded_text = String::from_utf8(encoded_bytes).unwrap();
         println!("{encoded_text}");
         let expected_ion = r#"
+            $ion_1_1
             {}
             {foo: 1}
             {foo: 1, bar: 2}
@@ -234,10 +237,10 @@ mod tests {
             {quux: {quuz: 4}}
         "#;
 
-        let mut reader = TextReader_1_1::new(encoded_text)?;
+        let mut reader = Reader::new(v1_1::Text, encoded_text)?;
         let actual = reader.read_all_elements()?;
 
-        let mut reader = TextReader_1_1::new(expected_ion)?;
+        let mut reader = Reader::new(v1_1::Text, expected_ion)?;
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));

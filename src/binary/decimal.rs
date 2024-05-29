@@ -107,6 +107,7 @@ where
 
 #[cfg(test)]
 mod binary_decimal_tests {
+    use crate::lazy::any_encoding::AnyEncoding;
     use crate::lazy::encoder::writer::Writer;
     use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding};
     use crate::lazy::reader::Reader;
@@ -154,7 +155,7 @@ mod binary_decimal_tests {
         let mut writer = Writer::new(BinaryEncoding_1_0::default_write_config(), Vec::new())?;
         writer.write(value)?;
         let output = writer.close()?;
-        let mut reader = Reader::new(output)?;
+        let mut reader = Reader::new(AnyEncoding, output)?;
         let after_round_trip = reader.expect_next()?.read()?.expect_decimal()?;
         assert_eq!(value, after_round_trip);
         Ok(())

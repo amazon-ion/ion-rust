@@ -706,16 +706,15 @@ impl<'top> TemplateExpansion<'top> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::reader::TextReader_1_1;
-    use crate::{ElementReader, IonResult};
+    use crate::{v1_1, ElementReader, IonResult, Reader};
 
     /// Reads `input` and `expected` using an expanding reader and asserts that their output
     /// is the same.
     fn eval_enc_expr<'data>(input: &'data str, expected: &'data str) -> IonResult<()> {
-        let mut actual_reader = TextReader_1_1::new(input.as_bytes())?;
+        let mut actual_reader = Reader::new(v1_1::Text, input.as_bytes())?;
         let actual = actual_reader.read_all_elements()?;
 
-        let mut expected_reader = TextReader_1_1::new(expected.as_bytes())?;
+        let mut expected_reader = Reader::new(v1_1::Text, expected.as_bytes())?;
         // For the moment, this is using the old reader impl.
         let expected = expected_reader.read_all_elements()?;
 
@@ -738,10 +737,10 @@ mod tests {
         invocation: &str,
         expected: &str,
     ) -> IonResult<()> {
-        let mut reader = TextReader_1_1::new(invocation.as_bytes())?;
+        let mut reader = Reader::new(v1_1::Text, invocation.as_bytes())?;
         let _macro_address = reader.register_template(template_definition)?;
         let actual = reader.read_all_elements()?;
-        let mut expected_reader = TextReader_1_1::new(expected.as_bytes())?;
+        let mut expected_reader = Reader::new(v1_1::Text, expected.as_bytes())?;
         let expected = expected_reader.read_all_elements()?;
         assert_eq!(actual, expected);
         assert!(matches!(expected_reader.next(), Ok(None)));

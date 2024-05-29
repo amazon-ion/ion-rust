@@ -11,7 +11,7 @@ mod benchmark {
 #[cfg(feature = "experimental")]
 mod benchmark {
     use criterion::{black_box, Criterion};
-    use ion_rs::{v1_0, v1_1, ElementReader, Encoding, IonData, IonReader, WriteConfig};
+    use ion_rs::{v1_0, v1_1, ElementReader, Encoding, IonData, Reader, WriteConfig};
     use ion_rs::{Decoder, Element, IonResult, LazyStruct, LazyValue, ValueRef};
 
     fn rewrite_as<E: Encoding>(
@@ -96,11 +96,11 @@ mod benchmark {
 
         // As a sanity check, materialize the data from both the Ion 1.0 and 1.1 streams and make sure
         // that they are equivalent before we start measuring the time needed to read them.
-        let seq_1_0 = v1_1::TextReader::new(text_1_0_data.as_slice())
+        let seq_1_0 = Reader::new(v1_1::Text, text_1_0_data.as_slice())
             .unwrap()
             .read_all_elements()
             .unwrap();
-        let mut reader_1_1 = v1_1::TextReader::new(text_1_1_data.as_bytes()).unwrap();
+        let mut reader_1_1 = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
         reader_1_1.register_template(template_text).unwrap();
         let seq_1_1 = reader_1_1.read_all_elements().unwrap();
         assert!(
@@ -111,7 +111,7 @@ mod benchmark {
         let mut binary_1_0_group = c.benchmark_group("binary 1.0");
         binary_1_0_group.bench_function("scan all", |b| {
             b.iter(|| {
-                let mut reader = v1_0::BinaryReader::new(binary_1_0_data.as_slice()).unwrap();
+                let mut reader = Reader::new(v1_0::Binary, binary_1_0_data.as_slice()).unwrap();
                 while let Some(item) = reader.next().unwrap() {
                     black_box(item);
                 }
@@ -119,7 +119,7 @@ mod benchmark {
         });
         binary_1_0_group.bench_function("read all", |b| {
             b.iter(|| {
-                let mut reader = v1_0::BinaryReader::new(binary_1_0_data.as_slice()).unwrap();
+                let mut reader = Reader::new(v1_0::Binary, binary_1_0_data.as_slice()).unwrap();
                 let mut num_values = 0usize;
                 while let Some(item) = reader.next().unwrap() {
                     num_values += count_value_and_children(&item).unwrap();
@@ -132,7 +132,7 @@ mod benchmark {
         let mut text_1_0_group = c.benchmark_group("text 1.0");
         text_1_0_group.bench_function("scan all", |b| {
             b.iter(|| {
-                let mut reader = IonReader::<v1_1::Text, _>::new(text_1_0_data.as_slice()).unwrap();
+                let mut reader = Reader::new(v1_1::Text, text_1_0_data.as_slice()).unwrap();
                 while let Some(item) = reader.next().unwrap() {
                     black_box(item);
                 }
@@ -140,7 +140,7 @@ mod benchmark {
         });
         text_1_0_group.bench_function("read all", |b| {
             b.iter(|| {
-                let mut reader = IonReader::<v1_1::Text, _>::new(text_1_0_data.as_slice()).unwrap();
+                let mut reader = Reader::new(v1_1::Text, text_1_0_data.as_slice()).unwrap();
                 let mut num_values = 0usize;
                 while let Some(item) = reader.next().unwrap() {
                     num_values += count_value_and_children(&item).unwrap();
@@ -150,7 +150,7 @@ mod benchmark {
         });
         text_1_0_group.bench_function("read 'format' field", |b| {
             b.iter(|| {
-                let mut reader = IonReader::<v1_1::Text, _>::new(text_1_0_data.as_slice()).unwrap();
+                let mut reader = Reader::new(v1_1::Text, text_1_0_data.as_slice()).unwrap();
                 let mut num_values = 0usize;
                 while let Some(value) = reader.next().unwrap() {
                     let s = value.read().unwrap().expect_struct().unwrap();
@@ -165,7 +165,7 @@ mod benchmark {
         let mut text_1_1_group = c.benchmark_group("text 1.1");
         text_1_1_group.bench_function("scan all", |b| {
             b.iter(|| {
-                let mut reader = v1_1::TextReader::new(text_1_1_data.as_bytes()).unwrap();
+                let mut reader = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
                 reader.register_template(template_text).unwrap();
                 while let Some(item) = reader.next().unwrap() {
                     black_box(item);
@@ -174,7 +174,7 @@ mod benchmark {
         });
         text_1_1_group.bench_function("read all", |b| {
             b.iter(|| {
-                let mut reader = v1_1::TextReader::new(text_1_1_data.as_bytes()).unwrap();
+                let mut reader = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
                 reader.register_template(template_text).unwrap();
                 let mut num_values = 0usize;
                 while let Some(item) = reader.next().unwrap() {
@@ -185,7 +185,7 @@ mod benchmark {
         });
         text_1_1_group.bench_function("read 'format' field", |b| {
             b.iter(|| {
-                let mut reader = IonReader::<v1_1::Text, _>::new(text_1_1_data.as_bytes()).unwrap();
+                let mut reader = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
                 reader.register_template(template_text).unwrap();
                 let mut num_values = 0usize;
                 while let Some(value) = reader.next().unwrap() {

@@ -8,8 +8,9 @@ use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
+use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{IonResult, IonType, RawSymbolRef};
+use crate::{Catalog, IonResult, IonType, RawSymbolRef};
 
 pub trait HasSpan<'top>: HasRange {
     fn span(&self) -> Span<'top>;
@@ -52,6 +53,10 @@ pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
     type EExp<'top>: RawEExpression<'top, Self>;
 
     type VersionMarker<'top>: RawVersionMarker<'top>;
+
+    fn with_catalog(self, catalog: impl Catalog + 'static) -> ReadConfig<Self> {
+        ReadConfig::new_with_catalog(self, catalog)
+    }
 }
 
 pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
@@ -61,7 +66,6 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
     fn minor(&self) -> u8 {
         self.version().1
     }
-
     fn version(&self) -> (u8, u8);
 }
 

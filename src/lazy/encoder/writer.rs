@@ -232,7 +232,7 @@ impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value
                     } else {
                         // ...that we need to add to the symbol table.
                         self.encoding.num_pending_symbols += 1;
-                        self.symbol_table().add_symbol(text)
+                        self.symbol_table().add_symbol_for_text(text)
                     }
                 }
             };
@@ -298,7 +298,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
             // call to `flush()`. Use the new ID.
             None => {
                 self.encoding.num_pending_symbols += 1;
-                self.symbol_table().add_symbol(text)
+                self.symbol_table().add_symbol_for_text(text)
             }
         };
 
@@ -393,7 +393,7 @@ impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V>
             // call to `flush()`. Use the new ID.
             None => {
                 self.encoding.num_pending_symbols += 1;
-                self.encoding.symbol_table.add_symbol(text)
+                self.encoding.symbol_table.add_symbol_for_text(text)
             }
         };
 

@@ -19,7 +19,7 @@ where
     T: DeserializeOwned,
     I: IonInput,
 {
-    let mut reader = Reader::new(input)?;
+    let mut reader = Reader::new(AnyEncoding, input)?;
     let value = reader.expect_next()?;
     let value_deserializer = ValueDeserializer::new(&value);
     T::deserialize(value_deserializer)
