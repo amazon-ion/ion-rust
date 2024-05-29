@@ -26,7 +26,7 @@ pub enum OpcodeType {
     SExpression,               // 0xB0-0xBF -
     StructEmpty,               // 0xC0      -
     // reserved
-    StructSymAddress, // 0xD2-0xDF -
+    StructSymAddress, // 0xC2-0xCF -
     // reserved
     StructFlexSym,    // 0xD2-0xDF -
     IonVersionMarker, // 0xE0      -

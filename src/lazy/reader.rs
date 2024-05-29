@@ -3,16 +3,14 @@
 use crate::element::reader::ElementReader;
 use crate::element::Element;
 use crate::lazy::decoder::Decoder;
-use crate::lazy::encoding::{TextEncoding_1_1};
+use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::streaming_raw_reader::IonInput;
-use crate::lazy::system_reader::{
-    SystemReader,
-};
+use crate::lazy::system_reader::SystemReader;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
+use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
-use crate::read_config::ReadConfig;
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -120,7 +118,10 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
 }
 
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
-    pub fn new(config: impl Into<ReadConfig<Encoding>>, ion_data: Input) -> IonResult<Reader<Encoding, Input>> {
+    pub fn new(
+        config: impl Into<ReadConfig<Encoding>>,
+        ion_data: Input,
+    ) -> IonResult<Reader<Encoding, Input>> {
         let system_reader = SystemReader::new(config, ion_data);
         Ok(Reader { system_reader })
     }
@@ -154,9 +155,7 @@ impl<'iter, Encoding: Decoder, Input: IonInput> Iterator
     }
 }
 
-impl<Encoding: Decoder, Input: IonInput> ElementReader
-    for Reader<Encoding, Input>
-{
+impl<Encoding: Decoder, Input: IonInput> ElementReader for Reader<Encoding, Input> {
     type ElementIterator<'a> = LazyElementIterator<'a, Encoding, Input> where Self: 'a,;
 
     fn read_next_element(&mut self) -> IonResult<Option<Element>> {
@@ -178,10 +177,10 @@ mod tests {
     use crate::element::element_writer::ElementWriter;
     use crate::element::Element;
     use crate::lazy::encoder::writer::Writer;
+    use crate::lazy::encoding::BinaryEncoding_1_0;
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;
-    use crate::{ion_list, ion_sexp, ion_struct, Int, IonResult, IonType, v1_0};
-    use crate::lazy::encoding::BinaryEncoding_1_0;
+    use crate::{ion_list, ion_sexp, ion_struct, v1_0, Int, IonResult, IonType};
 
     use super::*;
 

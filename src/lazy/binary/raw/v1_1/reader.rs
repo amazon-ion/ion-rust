@@ -169,6 +169,7 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
 #[cfg(test)]
 mod tests {
     use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
+    use crate::raw_symbol_ref::RawSymbolRef;
     use crate::{IonResult, IonType};
     use rstest::*;
 
@@ -310,8 +311,6 @@ mod tests {
 
     #[test]
     fn symbols() -> IonResult<()> {
-        use crate::RawSymbolRef;
-
         #[rustfmt::skip]
         let data: Vec<u8> = vec![
             // IVM
@@ -778,6 +777,127 @@ mod tests {
             let mut reader = LazyRawBinaryReader_1_1::new(&data);
             let actual_type = reader.next()?.expect_value()?.read()?.expect_null()?;
             assert_eq!(actual_type, expected_type);
+        }
+        Ok(())
+    }
+
+    fn structs() -> IonResult<()> {
+        use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawFieldName};
+
+        #[rustfmt::skip]
+        #[allow(clippy::type_complexity)]
+        let tests: &[(&[u8], &[(RawSymbolRef, IonType)])] = &[
+            // Symbol Address
+            (
+                // {}
+                &[0xC0],
+                &[],
+            ),
+            (
+                // { $10: 1, $11: 2 }
+                &[0xC6, 0x15, 0x51, 0x01, 0x17, 0x51, 0x02],
+                &[
+                    (10usize.into(), IonType::Int),
+                    (11usize.into(), IonType::Int),
+                ]
+            ),
+            (
+                // { $10: '', $11: 0e0 }
+                &[0xC4, 0x15, 0x90, 0x17, 0x5A],
+                &[
+                    (10usize.into(), IonType::Symbol),
+                    (11usize.into(), IonType::Float),
+                ],
+            ),
+            (
+                // { $10: <NOP>, $11: 0e0 } - with nops, skip the NOP'd fields.
+                &[ 0xC4, 0x15, 0xEC, 0x17, 0x5A ],
+                &[
+                    (11usize.into(), IonType::Float),
+                ],
+            ),
+            (
+                // { $10: 1, $11: <NOP> } - with nops at end of struct.
+                &[ 0xC5, 0x15, 0x51, 0x01, 0x17, 0xEC ],
+                &[
+                    (10usize.into(), IonType::Int),
+                ],
+            ),
+            (
+                // { $10: { $11: "foo" }, $11: 2 }
+                &[ 0xC6, 0x15, 0xC4, 0x83, 0x66, 0x6F, 0x6F, 0x17, 0x51, 0x02 ],
+                &[
+                    (10usize.into(), IonType::Struct),
+                    (11usize.into(), IonType::Int),
+                ],
+            ),
+            (
+                // {}
+                &[ 0xFC, 0x01 ],
+                &[],
+            ),
+            (
+                // { $10: "variable length struct" }
+                &[
+                    0xFC, 0x33, 0x15, 0xF8, 0x2D, 0x76, 0x61, 0x72, 0x69, 0x61,
+                    0x62, 0x6C, 0x65, 0x20, 0x6c, 0x65, 0x6E, 0x67, 0x74, 0x68,
+                    0x20, 0x73, 0x74, 0x72, 0x75, 0x63, 0x74
+                ],
+                &[ (10usize.into(), IonType::String) ],
+            ),
+            // FlexSym
+            (
+                // { "foo": 1, $11: 2 }
+                &[ 0xD9, 0xFB, 0x66, 0x6F, 0x6F, 0x51, 0x01, 0x17, 0x91, 0x02],
+                &[ ("foo".into(), IonType::Int), (11usize.into(), IonType::Symbol)],
+            ),
+            (
+                // { "foo": 1, $11: 2 }
+                &[ 0xFD, 0x13, 0xFB, 0x66, 0x6F, 0x6F, 0x51, 0x01, 0x17, 0x91, 0x02],
+                &[ ("foo".into(), IonType::Int), (11usize.into(), IonType::Symbol)],
+            ),
+            (
+                // { "foo": <NOP>, $11: 2 }
+                &[ 0xFD, 0x11, 0xFB, 0x66, 0x6F, 0x6F, 0xEC, 0x17, 0x91, 0x02],
+                &[ (11usize.into(), IonType::Symbol) ],
+            ),
+            (
+                // { "foo": 2, $11: <NOP> }
+                &[ 0xFD, 0x11, 0xFB, 0x66, 0x6F, 0x6F, 0x51, 0x02, 0x17, 0xEC],
+                &[ ("foo".into(), IonType::Int) ],
+            ),
+            (
+                // { "foo": { $10: 2 }, "bar": 2 }
+                &[
+                    0xFD, 0x1D, 0xFB, 0x66, 0x6F, 0x6F, 0xC3, 0x15, 0x51, 0x02,
+                    0xFB, 0x62, 0x61, 0x72, 0x51, 0x02,
+                ],
+                &[
+                    ("foo".into(), IonType::Struct),
+                    ("bar".into(), IonType::Int),
+                ],
+            ),
+            (
+                // {}
+                &[0xFD, 0x01],
+                &[],
+            )
+        ];
+
+        for (ion_data, field_pairs) in tests {
+            let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
+            let actual_data = reader.next()?.expect_value()?.read()?.expect_struct()?;
+
+            for (actual_field, expected_field) in actual_data.iter().zip(field_pairs.iter()) {
+                let (expected_name, expected_value_type) = expected_field;
+                match actual_field {
+                    Ok(LazyRawFieldExpr::NameValue(name, value)) => {
+                        assert_eq!(name.read()?, *expected_name);
+                        assert_eq!(value.ion_type(), *expected_value_type);
+                    }
+                    other => panic!("unexpected value for field: {:?}", other),
+                }
+            }
         }
         Ok(())
     }

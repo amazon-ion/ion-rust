@@ -526,7 +526,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     fn read_timestamp_long(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
         use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
         use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
-        use crate::types::decimal::{*, coefficient::Coefficient};
+        use crate::types::decimal::{coefficient::Coefficient, *};
 
         const YEAR_MASK_16BIT: u16 = 0x3FFF;
         const MONTH_MASK_16BIT: u16 = 0x03_C0;
@@ -700,6 +700,10 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a struct.
     fn read_struct(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        todo!();
+        use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
+        use crate::lazy::decoder::private::LazyContainerPrivate;
+        Ok(RawValueRef::Struct(LazyRawBinaryStruct_1_1::from_value(
+            *self,
+        )))
     }
 }

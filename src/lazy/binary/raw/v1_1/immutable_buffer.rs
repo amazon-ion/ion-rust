@@ -1,5 +1,4 @@
 use crate::binary::constants::v1_1::IVM;
-use crate::binary::var_uint::VarUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::raw::v1_1::value::{
     LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
@@ -8,6 +7,7 @@ use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, ION_1_1_OPCODES
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
+use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
@@ -166,6 +166,13 @@ impl<'a> ImmutableBuffer<'a> {
         Ok((flex_uint, remaining))
     }
 
+    #[inline]
+    pub fn read_flex_sym(self) -> ParseResult<'a, FlexSym<'a>> {
+        let flex_sym = FlexSym::read(self.bytes(), self.offset())?;
+        let remaining = self.consume(flex_sym.size_in_bytes());
+        Ok((flex_sym, remaining))
+    }
+
     /// Attempts to decode an annotations wrapper at the beginning of the buffer and returning
     /// its subfields in an [`AnnotationsWrapper`].
     pub fn read_annotations_wrapper(&self, _opcode: Opcode) -> ParseResult<'a, AnnotationsWrapper> {
@@ -246,18 +253,6 @@ impl<'a> ImmutableBuffer<'a> {
         Ok((length, remaining))
     }
 
-    /// Reads a field ID and a value from the buffer.
-    pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
-        todo!();
-    }
-
-    #[cold]
-    /// Consumes (field ID, NOP pad) pairs until a non-NOP value is encountered in field position or
-    /// the buffer is empty. Returns a buffer starting at the field ID before the non-NOP value.
-    fn read_struct_field_nop_pad(self) -> IonResult<Option<(usize, VarUInt, ImmutableBuffer<'a>)>> {
-        todo!();
-    }
-
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
     pub(crate) fn peek_sequence_value(self) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
@@ -282,11 +277,11 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
     /// the next byte (`type_descriptor`) is not a NOP.
-    fn read_value(self, type_descriptor: Opcode) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
-        if type_descriptor.is_annotation_wrapper() {
-            self.read_annotated_value(type_descriptor)
+    pub fn read_value(self, opcode: Opcode) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+        if opcode.is_annotation_wrapper() {
+            self.read_annotated_value(opcode)
         } else {
-            self.read_value_without_annotations(type_descriptor)
+            self.read_value_without_annotations(opcode)
         }
     }
 
