@@ -104,8 +104,6 @@ impl PendingLst {
     }
 }
 
-// pub fn new(config: impl Into<WriteConfig<E>>, output: Output) -> IonResult<Self> {
-
 impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     pub fn new(
         config: impl Into<ReadConfig<Encoding>>,
@@ -156,10 +154,9 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     /// Like [`next_value`](Self::next_value) but returns an error if there is not another
     /// application value in the stream.
     pub fn expect_next_value(&mut self) -> IonResult<LazyValue<Encoding>> {
-        match self.next_value()? {
-            Some(value) => Ok(value),
-            None => IonResult::decoding_error("expected another application value but found none"),
-        }
+        self.next_value()?.ok_or_else(|| {
+            IonError::decoding_error("expected another application value but found none")
+        })
     }
 
     // Traverses a symbol table, processing the `symbols` and `imports` fields as needed to
@@ -254,6 +251,9 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                         .symbols
                         .push(Symbol::shared(Arc::from(str_ref.deref())))
                 } else {
+                    // If the value is null or a non-string, we reserve a spot for it in the symbol
+                    // table (i.e. it gets a symbol ID) but there is no text associated with it.
+                    // See: https://amazon-ion.github.io/ion-docs/docs/symbols.html
                     pending_lst.symbols.push(Symbol::unknown_text())
                 }
             }
