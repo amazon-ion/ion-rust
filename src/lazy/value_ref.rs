@@ -65,7 +65,7 @@ impl<'top, D: Decoder> Debug for ValueRef<'top, D> {
             Float(float) => write!(f, "{}", float),
             Decimal(d) => write!(f, "{}", d),
             Timestamp(t) => write!(f, "{}", t),
-            String(s) => write!(f, "\"{}\"", s),
+            String(s) => write!(f, "{}", s),
             Symbol(s) => write!(f, "{}", s.text().unwrap_or("$0")),
             Blob(b) => write!(f, "blob ({} bytes)", b.len()),
             Clob(c) => write!(f, "clob ({} bytes)", c.len()),

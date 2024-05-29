@@ -64,7 +64,7 @@ use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolTable, Timestamp};
+use crate::{Catalog, Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolTable, Timestamp};
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
 // behind an experimental feature flag. We may constrain access to them in the future as the code
@@ -218,10 +218,14 @@ pub struct ExpandingReader<Encoding: Decoder, Input: IonInput> {
     //       statically. Then 1.0 types can use `Never` for the macro table.
     symbol_table: UnsafeCell<SymbolTable>,
     macro_table: UnsafeCell<MacroTable>,
+    catalog: Box<dyn Catalog>,
 }
 
 impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
-    pub(crate) fn new(raw_reader: StreamingRawReader<Encoding, Input>) -> Self {
+    pub(crate) fn new(
+        raw_reader: StreamingRawReader<Encoding, Input>,
+        catalog: Box<dyn Catalog>,
+    ) -> Self {
         Self {
             raw_reader: raw_reader.into(),
             evaluator_ptr: None.into(),
@@ -229,6 +233,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             pending_lst: PendingLst::new().into(),
             symbol_table: SymbolTable::new().into(),
             macro_table: MacroTable::new().into(),
+            catalog,
         }
     }
 
@@ -243,7 +248,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         macro_table.add_macro(template_macro)
     }
 
-    fn context(&self) -> EncodingContext<'_> {
+    pub fn context(&self) -> EncodingContext<'_> {
         // SAFETY: The only time that the macro table, symbol table, and allocator can be modified
         // is in the body of the method `between_top_level_expressions`. As long as nothing holds
         // a reference to the `EncodingContext` we create here when that method is running,
@@ -255,6 +260,12 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                 &*self.allocator.get(),
             )
         }
+    }
+
+    pub fn pending_symtab_changes(&self) -> &PendingLst {
+        // If the user is able to call this method, the PendingLst is not being modified and it's
+        // safe to immutably reference.
+        unsafe { &*self.pending_lst.get() }
     }
 
     fn ptr_to_mut_ref<'a, T>(ptr: *mut ()) -> &'a mut T {
@@ -288,9 +299,12 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             // We're setting the symbols list, not appending to it.
             symbol_table.reset();
         }
-        // `drain()` empties the pending symbols list
+        // `drain()` empties the pending `imported_symbols` and `symbols` lists
+        for symbol in pending_lst.imported_symbols.drain(..) {
+            symbol_table.add_symbol(symbol);
+        }
         for symbol in pending_lst.symbols.drain(..) {
-            symbol_table.intern_or_add_placeholder(symbol);
+            symbol_table.add_symbol(symbol);
         }
         pending_lst.is_lst_append = false;
         pending_lst.has_changes = false;
@@ -306,7 +320,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         if SystemReader::<_, Input>::is_symbol_table_struct(&value)? {
             // ...traverse it and record any new symbols in our `pending_lst`.
             let pending_lst = unsafe { &mut *self.pending_lst.get() };
-            SystemReader::<_, Input>::process_symbol_table(pending_lst, &value)?;
+            SystemReader::<_, Input>::process_symbol_table(pending_lst, &*self.catalog, &value)?;
             pending_lst.has_changes = true;
             let lazy_struct = LazyStruct {
                 expanded_struct: value.read()?.expect_struct().unwrap(),

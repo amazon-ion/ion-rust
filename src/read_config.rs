@@ -13,8 +13,12 @@ pub struct ReadConfig<D: Decoder> {
 
 impl<D: Decoder> ReadConfig<D> {
     fn new(encoding: D) -> Self {
+        ReadConfig::new_with_catalog(encoding, EmptyCatalog)
+    }
+
+    pub(crate) fn new_with_catalog(encoding: D, catalog: impl Catalog + 'static) -> Self {
         ReadConfig {
-            catalog: Box::new(EmptyCatalog),
+            catalog: Box::new(catalog),
             encoding,
         }
     }

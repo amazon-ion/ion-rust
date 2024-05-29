@@ -181,6 +181,7 @@ mod tests {
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;
     use crate::{ion_list, ion_sexp, ion_struct, Int, IonResult, IonType, v1_0};
+    use crate::lazy::encoding::BinaryEncoding_1_0;
 
     use super::*;
 
