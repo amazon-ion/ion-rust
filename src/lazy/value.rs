@@ -7,8 +7,8 @@ use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{
-    Annotations, Element, IntoAnnotatedElement, IonError, IonResult, IonType, RawSymbolRef,
-    SymbolRef, SymbolTable, Value,
+    Annotations, Element, ExpandedValueSource, IntoAnnotatedElement, IonError, IonResult, IonType,
+    RawSymbolRef, SymbolRef, SymbolTable, Value,
 };
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
@@ -110,14 +110,40 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         !self.is_container()
     }
 
+    /// Returns the `LazyExpandedValue` backing this `LazyValue`. The expanded value can be used to
+    /// determine whether this value was part of the data stream, part of a template, or constructed
+    /// by a macro invocation.
     #[cfg(feature = "experimental-tooling-apis")]
-    pub fn lower(&self) -> LazyExpandedValue<'top, D> {
+    pub fn expanded(&self) -> LazyExpandedValue<'top, D> {
         self.expanded_value
     }
 
+    // When the tooling feature is not enabled, this method is not `pub`.
     #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn lower(&self) -> LazyExpandedValue<'top, D> {
+    pub(crate) fn expanded(&self) -> LazyExpandedValue<'top, D> {
         self.expanded_value
+    }
+
+    /// If this value came from a raw value literal encoded in the data stream (that is: it was not
+    /// an ephemeral value resulting from macro expansion), returns that encoding's representation
+    /// of the raw value. Otherwise, returns `None`.
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub fn raw(&self) -> Option<D::Value<'top>> {
+        if let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded().source() {
+            Some(raw_value)
+        } else {
+            None
+        }
+    }
+
+    // When the tooling feature is not enabled, this method is not `pub`.
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    pub(crate) fn raw(&self) -> Option<D::Value<'top>> {
+        if let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded().source() {
+            Some(raw_value)
+        } else {
+            None
+        }
     }
 
     /// Returns `true` if this value is any form of `null`, including

@@ -3,7 +3,7 @@
 use std::fmt::Debug;
 use std::io;
 
-use crate::lazy::any_encoding::LazyRawAnyValue;
+use crate::lazy::any_encoding::{IonEncoding, LazyRawAnyValue};
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryFieldName_1_0, LazyRawBinaryStruct_1_0};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
@@ -60,6 +60,8 @@ pub trait Encoding: Encoder + Decoder {
     ) -> IonResult<W> {
         Self::default_write_config().encode_all_to(output, values)
     }
+
+    fn encoding(&self) -> IonEncoding;
     fn name() -> &'static str;
     fn default_write_config() -> WriteConfig<Self>;
 }
@@ -119,6 +121,10 @@ impl TextEncoding_1_1 {
 impl Encoding for BinaryEncoding_1_0 {
     type Output = Vec<u8>;
 
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Binary_1_0
+    }
+
     fn name() -> &'static str {
         "binary Ion v1.0"
     }
@@ -129,6 +135,10 @@ impl Encoding for BinaryEncoding_1_0 {
 impl Encoding for BinaryEncoding_1_1 {
     type Output = Vec<u8>;
 
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Binary_1_1
+    }
+
     fn name() -> &'static str {
         "binary Ion v1.1"
     }
@@ -138,6 +148,11 @@ impl Encoding for BinaryEncoding_1_1 {
 }
 impl Encoding for TextEncoding_1_0 {
     type Output = String;
+
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Text_1_0
+    }
+
     fn name() -> &'static str {
         "text Ion v1.0"
     }
@@ -147,6 +162,11 @@ impl Encoding for TextEncoding_1_0 {
 }
 impl Encoding for TextEncoding_1_1 {
     type Output = String;
+
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Text_1_1
+    }
+
     fn name() -> &'static str {
         "text Ion v1.1"
     }

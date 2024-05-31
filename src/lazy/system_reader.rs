@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::{ExpandedValueRef, ExpandingReader, LazyExpandedValue};
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
@@ -8,8 +9,8 @@ use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
-    Catalog, Int, IonError, IonResult, IonType, LazyExpandedField, RawSymbolRef, Symbol,
-    SymbolTable,
+    AnyEncoding, Catalog, Int, IonError, IonResult, IonType, LazyExpandedField, RawSymbolRef,
+    Symbol, SymbolTable,
 };
 use std::ops::Deref;
 use std::sync::Arc;
@@ -114,9 +115,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         let expanding_reader = ExpandingReader::new(raw_reader, config.catalog);
         SystemReader { expanding_reader }
     }
-}
 
-impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     // Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
     // `$ion_symbol_table`.
     pub(crate) fn is_symbol_table_struct(
@@ -337,6 +336,12 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         }
 
         Ok(())
+    }
+}
+
+impl<Input: IonInput> SystemReader<AnyEncoding, Input> {
+    pub fn detected_encoding(&self) -> IonEncoding {
+        self.expanding_reader.detected_encoding()
     }
 }
 

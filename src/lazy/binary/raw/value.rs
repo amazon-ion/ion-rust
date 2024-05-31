@@ -115,6 +115,21 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
     fn read(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_0>> {
         self.read()
     }
+
+    fn annotations_span(&self) -> Span<'top> {
+        let Some(range) = self.encoded_value.annotations_range() else {
+            // If there are no annotations, return an empty slice positioned at the opcode
+            return Span::with_offset(self.encoded_value.header_offset, &[]);
+        };
+        let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
+        Span::with_offset(range.start, &self.input.bytes()[local_range])
+    }
+
+    fn value_span(&self) -> Span<'top> {
+        let range = self.encoded_value.unannotated_value_range();
+        let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
+        Span::with_offset(range.start, &self.input.bytes()[local_range])
+    }
 }
 
 #[derive(Copy, Clone)]

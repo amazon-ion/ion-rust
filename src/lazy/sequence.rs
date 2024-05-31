@@ -67,12 +67,12 @@ impl<'top, D: Decoder> LazyList<'top, D> {
     }
 
     #[cfg(feature = "experimental-tooling-apis")]
-    pub fn lower(&self) -> LazyExpandedList<'top, D> {
+    pub fn expanded(&self) -> LazyExpandedList<'top, D> {
         self.expanded_list
     }
 
     #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn lower(&self) -> LazyExpandedList<'top, D> {
+    pub(crate) fn expanded(&self) -> LazyExpandedList<'top, D> {
         self.expanded_list
     }
 
@@ -148,6 +148,15 @@ impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazyList<'top, D> {
     }
 }
 
+impl<'top, 'data: 'top, D: Decoder> IntoIterator for LazyList<'top, D> {
+    type Item = IonResult<LazyValue<'top, D>>;
+    type IntoIter = ListIterator<'top, D>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 pub struct ListIterator<'top, D: Decoder> {
     expanded_list_iter: ExpandedListIterator<'top, D>,
 }
@@ -199,7 +208,13 @@ impl<'top, D: Decoder> Debug for LazySExp<'top, D> {
 }
 
 impl<'top, D: Decoder> LazySExp<'top, D> {
-    pub fn lower(&self) -> LazyExpandedSExp<'top, D> {
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub fn expanded(&self) -> LazyExpandedSExp<'top, D> {
+        self.expanded_sexp
+    }
+
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    pub(crate) fn expanded(&self) -> LazyExpandedSExp<'top, D> {
         self.expanded_sexp
     }
 
@@ -274,6 +289,15 @@ impl<'top, D: Decoder> TryFrom<LazySExp<'top, D>> for Element {
 }
 
 impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazySExp<'top, D> {
+    type Item = IonResult<LazyValue<'top, D>>;
+    type IntoIter = SExpIterator<'top, D>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'top, 'data: 'top, D: Decoder> IntoIterator for LazySExp<'top, D> {
     type Item = IonResult<LazyValue<'top, D>>;
     type IntoIter = SExpIterator<'top, D>;
 

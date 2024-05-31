@@ -376,6 +376,10 @@ pub trait LazyRawValue<'top, D: Decoder>:
     fn is_null(&self) -> bool;
     fn annotations(&self) -> D::AnnotationsIterator<'top>;
     fn read(&self) -> IonResult<RawValueRef<'top, D>>;
+
+    fn annotations_span(&self) -> Span<'top>;
+
+    fn value_span(&self) -> Span<'top>;
 }
 
 pub trait LazyRawSequence<'top, D: Decoder>:

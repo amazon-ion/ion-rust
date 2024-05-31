@@ -160,8 +160,6 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             return Ok(());
         }
         self.push_byte(0x5C);
-        // Float endianness is an open question.
-        // See: https://github.com/amazon-ion/ion-docs/issues/294
         self.push_bytes(&value.to_le_bytes());
         Ok(())
     }
@@ -171,9 +169,14 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             self.push_byte(0x5A);
             return Ok(());
         }
+        // See if this value can be losslessly encoded in 4 bytes instead of 8
+        let float32 = value as f32;
+        if float32 as f64 == value {
+            // No data lost during cast; write it as an f32 instead.
+            return self.write_f32(float32);
+        }
+
         self.push_byte(0x5D);
-        // Float endianness is an open question.
-        // See: https://github.com/amazon-ion/ion-docs/issues/294
         self.push_bytes(&value.to_le_bytes());
         Ok(())
     }
@@ -823,7 +826,6 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 
 #[cfg(test)]
 mod tests {
-
     use crate::lazy::encoder::annotate::{Annotatable, Annotated};
     use crate::lazy::encoder::annotation_seq::AnnotationSeq;
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
@@ -834,6 +836,7 @@ mod tests {
     use crate::{
         Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
     };
+    use num_traits::FloatConst;
 
     fn encoding_test(
         test: impl FnOnce(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,
@@ -971,10 +974,20 @@ mod tests {
             f64::INFINITY,
             f64::NEG_INFINITY,
             f64::NAN,
+            f64::PI(),
+            f64::E(),
+            f64::EPSILON,
         ];
         for value in test_f64s {
-            let mut expected_encoding = vec![0x5D];
-            expected_encoding.extend_from_slice(&value.to_le_bytes()[..]);
+            let mut expected_encoding = vec![];
+            let float32 = *value as f32;
+            if float32 as f64 == *value {
+                expected_encoding.push(0x5C);
+                expected_encoding.extend_from_slice(&float32.to_le_bytes()[..]);
+            } else {
+                expected_encoding.push(0x5D);
+                expected_encoding.extend_from_slice(&value.to_le_bytes()[..]);
+            }
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
                     writer.write(value)?;
