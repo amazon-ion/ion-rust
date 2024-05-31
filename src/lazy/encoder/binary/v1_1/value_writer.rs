@@ -17,6 +17,7 @@ use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, Annotata
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
+use crate::types::float::{FloatRepr, SmallestFloatRepr};
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
 /// The initial size of the bump-allocated buffer created to hold a container's child elements.
@@ -155,29 +156,34 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     // TODO: write_f16(...)
 
     pub fn write_f32(mut self, value: f32) -> IonResult<()> {
-        if value == 0f32 && !value.is_sign_negative() {
-            self.push_byte(0x5A);
-            return Ok(());
+        match value.smallest_repr() {
+            FloatRepr::Zero => {
+                self.push_byte(0x5A);
+            }
+            FloatRepr::Single(f) => {
+                self.push_byte(0x5C);
+                self.push_bytes(&f.to_le_bytes());
+            }
+            FloatRepr::Double(_) => unreachable!("smallest repr for f32 cannot be f64"),
         }
-        self.push_byte(0x5C);
-        self.push_bytes(&value.to_le_bytes());
         Ok(())
     }
 
     pub fn write_f64(mut self, value: f64) -> IonResult<()> {
-        if value == 0f64 && !value.is_sign_negative() {
-            self.push_byte(0x5A);
-            return Ok(());
-        }
-        // See if this value can be losslessly encoded in 4 bytes instead of 8
-        let float32 = value as f32;
-        if float32 as f64 == value {
-            // No data lost during cast; write it as an f32 instead.
-            return self.write_f32(float32);
+        match value.smallest_repr() {
+            FloatRepr::Zero => {
+                self.push_byte(0x5A);
+            }
+            FloatRepr::Single(f) => {
+                self.push_byte(0x5C);
+                self.push_bytes(&f.to_le_bytes());
+            }
+            FloatRepr::Double(f) => {
+                self.push_byte(0x5D);
+                self.push_bytes(&f.to_le_bytes());
+            }
         }
 
-        self.push_byte(0x5D);
-        self.push_bytes(&value.to_le_bytes());
         Ok(())
     }
 
