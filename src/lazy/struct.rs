@@ -81,12 +81,12 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
     }
 
     #[cfg(feature = "experimental-tooling-apis")]
-    pub fn lower(&self) -> LazyExpandedStruct<'top, D> {
+    pub fn expanded(&self) -> LazyExpandedStruct<'top, D> {
         self.expanded_struct
     }
 
     #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn lower(&self) -> LazyExpandedStruct<'top, D> {
+    pub(crate) fn expanded(&self) -> LazyExpandedStruct<'top, D> {
         self.expanded_struct
     }
 
@@ -273,6 +273,7 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
 }
 
 /// A single field within a [`LazyStruct`].
+#[derive(Copy, Clone)]
 pub struct LazyField<'top, D: Decoder> {
     pub(crate) expanded_field: LazyExpandedField<'top, D>,
 }
@@ -351,6 +352,15 @@ impl<'top, D: Decoder> TryFrom<LazyStruct<'top, D>> for Element {
 }
 
 impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazyStruct<'top, D> {
+    type Item = IonResult<LazyField<'top, D>>;
+    type IntoIter = StructIterator<'top, D>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'top, 'data: 'top, D: Decoder> IntoIterator for LazyStruct<'top, D> {
     type Item = IonResult<LazyField<'top, D>>;
     type IntoIter = StructIterator<'top, D>;
 

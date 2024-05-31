@@ -17,6 +17,7 @@ use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, Annotata
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
+use crate::types::float::{FloatRepr, SmallestFloatRepr};
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
 /// The initial size of the bump-allocated buffer created to hold a container's child elements.
@@ -155,26 +156,34 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     // TODO: write_f16(...)
 
     pub fn write_f32(mut self, value: f32) -> IonResult<()> {
-        if value == 0f32 && !value.is_sign_negative() {
-            self.push_byte(0x5A);
-            return Ok(());
+        match value.smallest_repr() {
+            FloatRepr::Zero => {
+                self.push_byte(0x5A);
+            }
+            FloatRepr::Single(f) => {
+                self.push_byte(0x5C);
+                self.push_bytes(&f.to_le_bytes());
+            }
+            FloatRepr::Double(_) => unreachable!("smallest repr for f32 cannot be f64"),
         }
-        self.push_byte(0x5C);
-        // Float endianness is an open question.
-        // See: https://github.com/amazon-ion/ion-docs/issues/294
-        self.push_bytes(&value.to_le_bytes());
         Ok(())
     }
 
     pub fn write_f64(mut self, value: f64) -> IonResult<()> {
-        if value == 0f64 && !value.is_sign_negative() {
-            self.push_byte(0x5A);
-            return Ok(());
+        match value.smallest_repr() {
+            FloatRepr::Zero => {
+                self.push_byte(0x5A);
+            }
+            FloatRepr::Single(f) => {
+                self.push_byte(0x5C);
+                self.push_bytes(&f.to_le_bytes());
+            }
+            FloatRepr::Double(f) => {
+                self.push_byte(0x5D);
+                self.push_bytes(&f.to_le_bytes());
+            }
         }
-        self.push_byte(0x5D);
-        // Float endianness is an open question.
-        // See: https://github.com/amazon-ion/ion-docs/issues/294
-        self.push_bytes(&value.to_le_bytes());
+
         Ok(())
     }
 
@@ -823,7 +832,6 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 
 #[cfg(test)]
 mod tests {
-
     use crate::lazy::encoder::annotate::{Annotatable, Annotated};
     use crate::lazy::encoder::annotation_seq::AnnotationSeq;
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
@@ -831,9 +839,11 @@ mod tests {
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsSExp};
     use crate::raw_symbol_ref::AsRawSymbolRef;
+    use crate::types::float::{FloatRepr, SmallestFloatRepr};
     use crate::{
         Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
     };
+    use num_traits::FloatConst;
 
     fn encoding_test(
         test: impl FnOnce(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,
@@ -971,10 +981,25 @@ mod tests {
             f64::INFINITY,
             f64::NEG_INFINITY,
             f64::NAN,
+            f64::PI(),
+            f64::E(),
+            f64::EPSILON,
         ];
         for value in test_f64s {
-            let mut expected_encoding = vec![0x5D];
-            expected_encoding.extend_from_slice(&value.to_le_bytes()[..]);
+            let mut expected_encoding = vec![];
+            match value.smallest_repr() {
+                FloatRepr::Zero => {
+                    expected_encoding.push(0x5A);
+                }
+                FloatRepr::Single(f) => {
+                    expected_encoding.push(0x5C);
+                    expected_encoding.extend_from_slice(&f.to_le_bytes()[..]);
+                }
+                FloatRepr::Double(f) => {
+                    expected_encoding.push(0x5D);
+                    expected_encoding.extend_from_slice(&f.to_le_bytes()[..]);
+                }
+            }
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
                     writer.write(value)?;

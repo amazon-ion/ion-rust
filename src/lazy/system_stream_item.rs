@@ -98,14 +98,14 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
             SystemStreamItem::VersionMarker(marker) => RawStreamItem::VersionMarker(*marker),
             SystemStreamItem::SymbolTable(symtab) => {
                 use ExpandedValueSource::*;
-                match symtab.as_value().lower().source {
+                match symtab.as_value().expanded().source {
                     ValueLiteral(literal) => RawStreamItem::Value(literal),
                     Template(..) | Constructed(..) => return None,
                 }
             }
             SystemStreamItem::Value(value) => {
                 use ExpandedValueSource::*;
-                match value.lower().source {
+                match value.expanded().source {
                     ValueLiteral(literal) => RawStreamItem::Value(literal),
                     Template(..) | Constructed(..) => return None,
                 }

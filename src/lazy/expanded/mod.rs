@@ -42,6 +42,7 @@ use bumpalo::Bump as BumpAllocator;
 use sequence::{LazyExpandedList, LazyExpandedSExp};
 
 use crate::element::iterators::SymbolsIterator;
+use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
@@ -64,7 +65,9 @@ use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
-use crate::{Catalog, Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolTable, Timestamp};
+use crate::{
+    AnyEncoding, Catalog, Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolTable, Timestamp,
+};
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
 // behind an experimental feature flag. We may constrain access to them in the future as the code
@@ -478,6 +481,13 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     }
 }
 
+impl<Input: IonInput> ExpandingReader<AnyEncoding, Input> {
+    pub fn detected_encoding(&self) -> IonEncoding {
+        let raw_reader = unsafe { &*self.raw_reader.get() };
+        raw_reader.encoding()
+    }
+}
+
 /// The source of data backing a [`LazyExpandedValue`].
 #[derive(Copy, Clone)]
 pub enum ExpandedValueSource<'top, D: Decoder> {
@@ -655,12 +665,10 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
-    #[cfg(feature = "experimental-tooling-apis")]
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
 
-    #[cfg(feature = "experimental-tooling-apis")]
     pub fn source(&self) -> ExpandedValueSource<'top, Encoding> {
         self.source
     }

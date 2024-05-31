@@ -24,8 +24,8 @@ use crate::lazy::encoding::Encoding;
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::{
-    Blob, Clob, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, Symbol, SymbolRef,
-    Timestamp, Value, WriteConfig,
+    Blob, Clob, Decimal, Element, Int, IonResult, IonType, LazyList, LazySExp, LazyStruct, Null,
+    RawSymbolRef, Symbol, SymbolRef, Timestamp, Value, WriteConfig,
 };
 
 /// Defines how a Rust type should be serialized as Ion in terms of the methods available
@@ -296,29 +296,41 @@ impl<'a, D: Decoder> WriteAsIon for ValueRef<'a, D> {
             String(s) => value_writer.write_string(s.text()),
             Clob(c) => value_writer.write_clob(c.as_ref()),
             Blob(b) => value_writer.write_blob(b.as_ref()),
-            List(l) => {
-                let mut list = value_writer.list_writer()?;
-                for value in l {
-                    list.write(value?.read()?)?;
-                }
-                list.close()
-            }
-            SExp(s) => {
-                let mut sexp = value_writer.list_writer()?;
-                for value in s {
-                    sexp.write(value?.read()?)?;
-                }
-                sexp.close()
-            }
-            Struct(s) => {
-                let mut struct_ = value_writer.struct_writer()?;
-                for field_result in s {
-                    let field = field_result?;
-                    struct_.write(field.name()?, field.value().read()?)?;
-                }
-                struct_.close()
-            }
+            List(l) => value_writer.write(l),
+            SExp(s) => value_writer.write(s),
+            Struct(s) => value_writer.write(s),
         }
+    }
+}
+
+impl<'top, D: Decoder> WriteAsIon for LazyList<'top, D> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        let mut list = writer.list_writer()?;
+        for value in self {
+            list.write(value?)?;
+        }
+        list.close()
+    }
+}
+
+impl<'top, D: Decoder> WriteAsIon for LazySExp<'top, D> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        let mut sexp = writer.sexp_writer()?;
+        for value in self {
+            sexp.write(value?)?;
+        }
+        sexp.close()
+    }
+}
+
+impl<'top, D: Decoder> WriteAsIon for LazyStruct<'top, D> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        let mut struct_writer = writer.struct_writer()?;
+        for field_result in self {
+            let field = field_result?;
+            struct_writer.write(field.name()?, field.value())?;
+        }
+        struct_writer.close()
     }
 }
 

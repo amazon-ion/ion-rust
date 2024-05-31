@@ -1,12 +1,14 @@
 use std::cell::UnsafeCell;
 use std::fs::File;
+use std::io;
 use std::io::{BufReader, Read, StdinLock};
 
 use bumpalo::Bump as BumpAllocator;
 
+use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::{Decoder, LazyRawReader};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
-use crate::{IonError, IonResult};
+use crate::{AnyEncoding, IonError, IonResult};
 
 /// Wraps an implementation of [`IonDataSource`] and reads one top level value at a time from the input.
 pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
@@ -55,11 +57,39 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
         }
     }
 
+    /// Gets a reference to the data source and tries to fill its buffer.
+    #[inline]
+    fn pull_more_data_from_source(&mut self) -> IonResult<usize> {
+        // SAFETY: `self.input` is an `UnsafeCell<Input::DataSource>`, which prevents the borrow
+        //         checker from governing its contents. Because this method has a mutable reference
+        //         to `self`, it is safe to modify `self`'s contents.
+        let input = unsafe { &mut *self.input.get() };
+        input.fill_buffer()
+    }
+
+    /// Returns true if the input buffer is empty.
+    #[inline]
+    fn buffer_is_empty(&self) -> bool {
+        // SAFETY: `self.input` is an `UnsafeCell<Input::DataSource>`, which prevents the borrow
+        //         checker from governing its contents. Because this method has an immutable reference
+        //         to `self`, it is safe to read `self`'s contents.
+        let input = unsafe { &*self.input.get() };
+        input.buffer().is_empty()
+    }
+
     pub fn next<'top>(
         &'top mut self,
         allocator: &'top BumpAllocator,
     ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
         loop {
+            // If the input buffer is empty, try to pull more data from the source before proceeding.
+            // It's important that we do this _before_ reading from the buffer; any item returned
+            // from a successful `slice_reader.next()` will hold a reference to the buffer. We cannot
+            // modify it once we have that item.
+            if self.buffer_is_empty() {
+                self.pull_more_data_from_source()?;
+            }
+
             let available_bytes = unsafe { &*self.input.get() }.buffer();
             let unsafe_cell_reader = UnsafeCell::new(<Encoding::Reader<'top> as LazyRawReader<
                 'top,
@@ -83,11 +113,13 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
 
             let bytes_read = end_position - starting_position;
             let input = unsafe { &mut *self.input.get() };
-            // If we've exhausted the buffer...
-            if bytes_read >= available_bytes.len() || matches!(result, Err(IonError::Incomplete(_)))
-            {
-                // ...try to pull more data from the data source. If we get more data, try again.
+            // If we ran out of data before we could get a result...
+            if matches!(result, Err(IonError::Incomplete(_))) {
+                // ...try to pull more data from the data source. It's ok to modify the buffer in
+                // this case because `result` (which holds a reference to the buffer) will be
+                // discarded.
                 if input.fill_buffer()? > 0 {
+                    // If we get more data, try again.
                     continue;
                 }
                 // If there's nothing available, return the result we got.
@@ -100,6 +132,12 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
 
             return result;
         }
+    }
+}
+
+impl<Input: IonInput> StreamingRawReader<AnyEncoding, Input> {
+    pub fn encoding(&self) -> IonEncoding {
+        self.saved_state
     }
 }
 
@@ -312,6 +350,14 @@ impl<R: Read> IonInput for BufReader<R> {
 }
 
 impl<'a> IonInput for StdinLock<'a> {
+    type DataSource = IonStream<Self>;
+
+    fn into_data_source(self) -> Self::DataSource {
+        IonStream::new(self)
+    }
+}
+
+impl<T: Read, U: Read> IonInput for io::Chain<T, U> {
     type DataSource = IonStream<Self>;
 
     fn into_data_source(self) -> Self::DataSource {

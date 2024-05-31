@@ -55,20 +55,23 @@ impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
         self.encoded_value.data_offset() > 0
     }
 
-    pub fn annotations_range(&self) -> Option<Range<usize>> {
-        if !self.has_annotations() {
-            return None;
-        }
+    pub fn annotations_range(&self) -> Range<usize> {
         let annotations_length = self.encoded_value.data_offset();
         let start = self.input.offset();
         let end = start + annotations_length;
-        Some(start..end)
+        start..end
     }
 
-    pub fn annotations_span(&self) -> Option<Span<'top>> {
-        let range = self.annotations_range()?;
-        let bytes = &self.input.bytes()[..range.len()];
-        Some(Span::with_offset(range.start, bytes))
+    pub fn annotations_span(&self) -> Span<'top> {
+        let local_range = self.annotations_range();
+        let bytes = &self.input.bytes()[..local_range.len()];
+        Span::with_offset(local_range.start, bytes)
+    }
+
+    fn value_span(&self) -> Span<'top> {
+        let start = self.encoded_value.data_offset();
+        let bytes = &self.input.bytes()[start..];
+        Span::with_offset(start, bytes)
     }
 
     /// Returns the total number of bytes used to represent the current value, including its
@@ -209,6 +212,14 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
             Struct(_) => RawValueRef::Struct(E::Struct::from_value(*self)),
         };
         Ok(value_ref)
+    }
+
+    fn annotations_span(&self) -> Span<'top> {
+        self.annotations_span() // Inherent impl
+    }
+
+    fn value_span(&self) -> Span<'top> {
+        self.value_span() // Inherent impl
     }
 }
 

@@ -180,6 +180,13 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
             return Ok(());
         }
 
+        // See if this value can be losslessly encoded in 4 bytes instead of 8
+        let float32 = value as f32;
+        if float32 as f64 == value {
+            // No data lost during cast; write it as an f32 instead.
+            return self.write_f32(float32);
+        }
+
         self.push_byte(0x48);
         self.push_bytes(&value.to_be_bytes());
         Ok(())
