@@ -839,6 +839,7 @@ mod tests {
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsSExp};
     use crate::raw_symbol_ref::AsRawSymbolRef;
+    use crate::types::float::{FloatRepr, SmallestFloatRepr};
     use crate::{
         Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
     };
@@ -986,13 +987,18 @@ mod tests {
         ];
         for value in test_f64s {
             let mut expected_encoding = vec![];
-            let float32 = *value as f32;
-            if float32 as f64 == *value {
-                expected_encoding.push(0x5C);
-                expected_encoding.extend_from_slice(&float32.to_le_bytes()[..]);
-            } else {
-                expected_encoding.push(0x5D);
-                expected_encoding.extend_from_slice(&value.to_le_bytes()[..]);
+            match value.smallest_repr() {
+                FloatRepr::Zero => {
+                    expected_encoding.push(0x5A);
+                }
+                FloatRepr::Single(f) => {
+                    expected_encoding.push(0x5C);
+                    expected_encoding.extend_from_slice(&f.to_le_bytes()[..]);
+                }
+                FloatRepr::Double(f) => {
+                    expected_encoding.push(0x5D);
+                    expected_encoding.extend_from_slice(&f.to_le_bytes()[..]);
+                }
             }
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {

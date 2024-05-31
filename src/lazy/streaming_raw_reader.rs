@@ -58,9 +58,11 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     }
 
     /// Gets a reference to the data source and tries to fill its buffer.
-    // This is a separate method to better encapsulate its use of `unsafe`
     #[inline]
     fn pull_more_data_from_source(&mut self) -> IonResult<usize> {
+        // SAFETY: `self.input` is an `UnsafeCell<Input::DataSource>`, which prevents the borrow
+        //         checker from governing its contents. Because this method has a mutable reference
+        //         to `self`, it is safe to modify `self`'s contents.
         let input = unsafe { &mut *self.input.get() };
         input.fill_buffer()
     }
@@ -68,6 +70,9 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     /// Returns true if the input buffer is empty.
     #[inline]
     fn buffer_is_empty(&self) -> bool {
+        // SAFETY: `self.input` is an `UnsafeCell<Input::DataSource>`, which prevents the borrow
+        //         checker from governing its contents. Because this method has an immutable reference
+        //         to `self`, it is safe to read `self`'s contents.
         let input = unsafe { &*self.input.get() };
         input.buffer().is_empty()
     }
