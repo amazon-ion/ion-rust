@@ -374,6 +374,7 @@ pub trait LazyRawValue<'top, D: Decoder>:
 {
     fn ion_type(&self) -> IonType;
     fn is_null(&self) -> bool;
+    fn has_annotations(&self) -> bool;
     fn annotations(&self) -> D::AnnotationsIterator<'top>;
     fn read(&self) -> IonResult<RawValueRef<'top, D>>;
 

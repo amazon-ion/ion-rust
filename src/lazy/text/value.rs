@@ -181,6 +181,10 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
         self.encoded_value.is_null()
     }
 
+    fn has_annotations(&self) -> bool {
+        self.has_annotations() // Inherent impl
+    }
+
     fn annotations(&self) -> <E as Decoder>::AnnotationsIterator<'top> {
         let range = self
             .encoded_value

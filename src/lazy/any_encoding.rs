@@ -724,6 +724,16 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
         }
     }
 
+    fn has_annotations(&self) -> bool {
+        use LazyRawValueKind::*;
+        match &self.encoding {
+            Text_1_0(v) => v.has_annotations(),
+            Binary_1_0(v) => v.has_annotations(),
+            Text_1_1(v) => v.has_annotations(),
+            Binary_1_1(v) => v.has_annotations(),
+        }
+    }
+
     fn annotations(&self) -> RawAnyAnnotationsIterator<'top> {
         use LazyRawValueKind::*;
         match &self.encoding {

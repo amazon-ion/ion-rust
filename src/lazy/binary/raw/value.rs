@@ -108,6 +108,10 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
         self.is_null()
     }
 
+    fn has_annotations(&self) -> bool {
+        self.has_annotations()
+    }
+
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
         self.annotations()
     }
