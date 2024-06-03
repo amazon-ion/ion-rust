@@ -337,6 +337,11 @@ macro_rules! annotate_and_delegate_1_0 {
 
 impl<'value, 'top> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
     pub(crate) fn annotate_encoded_value(&mut self, encoded_value: &[u8]) -> IonResult<()> {
+        if self.annotations.is_empty() {
+            self.output_buffer.extend_from_slice(encoded_value);
+            return Ok(());
+        }
+
         let mut encoded_annotations_sequence = BumpVec::new_in(self.allocator);
         self.encode_annotations_sequence(&mut encoded_annotations_sequence)?;
 
@@ -444,11 +449,11 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> 
 mod tests {
     use crate::lazy::encoder::annotate::Annotatable;
     use crate::lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0;
-    use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::value_writer::StructWriter;
+    use crate::lazy::encoder::value_writer::{AnnotatableWriter, SequenceWriter};
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
     use crate::raw_symbol_ref::AsRawSymbolRef;
-    use crate::{Element, IonData, IonResult, RawSymbolRef, Timestamp};
+    use crate::{Element, IonData, IonResult, RawSymbolRef, SymbolId, Timestamp, ValueWriter};
 
     fn writer_test(
         expected: &str,
@@ -595,6 +600,23 @@ mod tests {
                 .write(6, [0xE0u8, 0x01, 0x00, 0xEA])?
                 .write(7, [1, 2, 3])?;
             struct_.close()
+        })
+    }
+
+    #[test]
+    fn write_annotated_without_annotations() -> IonResult<()> {
+        // This test explicitly adds an empty annotations sequence to values and value writers
+        // to make sure they do not emit an annotations wrapper without annotations.
+        let expected = "1 name 2024T";
+        const EMPTY_ANNOTATIONS: [SymbolId; 0] = [];
+        writer_test(expected, |writer| {
+            writer.write(1.annotated_with(EMPTY_ANNOTATIONS))?;
+            writer.write(RawSymbolRef::SymbolId(4).annotated_with(EMPTY_ANNOTATIONS))?;
+            writer
+                .value_writer()
+                .with_annotations(EMPTY_ANNOTATIONS)?
+                .write(Timestamp::with_year(2024).build()?)?;
+            Ok(())
         })
     }
 

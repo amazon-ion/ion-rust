@@ -114,3 +114,40 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
         &mut self.output
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
+    use crate::{v1_1, Annotatable, ElementReader, IonData, IonResult, Reader, SequenceWriter};
+
+    #[test]
+    fn write_annotated_values() -> IonResult<()> {
+        const NO_ANNOTATIONS: [&str; 0] = [];
+        let mut writer = LazyRawTextWriter_1_0::new(vec![])?;
+        writer
+            .write(1)?
+            // Explicitly setting an empty annotations sequence
+            .write(2.annotated_with(NO_ANNOTATIONS))?
+            .write(3.annotated_with("foo"))?
+            .write(4.annotated_with(["foo", "bar", "baz"]))?;
+        let encoded_bytes = writer.close()?;
+        let encoded_text = String::from_utf8(encoded_bytes).unwrap();
+        println!("{encoded_text}");
+
+        let expected_ion = r#"
+            1
+            2 // An explicitly empty annotations sequence results in an unannotated value
+            foo::3
+            foo::bar::baz::4
+        "#;
+
+        let mut reader = Reader::new(v1_1::Text, encoded_text)?;
+        let actual = reader.read_all_elements()?;
+
+        let mut reader = Reader::new(v1_1::Text, expected_ion)?;
+        let expected = reader.read_all_elements()?;
+
+        assert!(IonData::eq(&expected, &actual));
+        Ok(())
+    }
+}

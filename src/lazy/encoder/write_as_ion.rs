@@ -273,12 +273,16 @@ impl WriteAsIon for Value {
 
 impl<'a, D: Decoder> WriteAsIon for LazyValue<'a, D> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        let mut annotations = AnnotationsVec::new();
-        for annotation in self.annotations() {
-            annotations.push(annotation?.into());
+        if self.has_annotations() {
+            let mut annotations = AnnotationsVec::new();
+            for annotation in self.annotations() {
+                annotations.push(annotation?.into());
+            }
+            self.read()?
+                .write_as_ion(writer.with_annotations(annotations)?)
+        } else {
+            self.read()?.write_as_ion(writer)
         }
-        self.read()?
-            .write_as_ion(writer.with_annotations(annotations)?)
     }
 }
 

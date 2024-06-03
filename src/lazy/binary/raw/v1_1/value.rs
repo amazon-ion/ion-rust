@@ -110,6 +110,10 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for LazyRawBinaryValue_1_1<'to
         self.is_null()
     }
 
+    fn has_annotations(&self) -> bool {
+        self.encoded_value.has_annotations()
+    }
+
     fn annotations(&self) -> <BinaryEncoding_1_1 as Decoder>::AnnotationsIterator<'top> {
         self.annotations()
     }

@@ -103,8 +103,8 @@ mod tests {
     use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, MacroIdRef};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{
-        v1_1, Decimal, ElementReader, IonData, IonResult, IonType, Null, RawSymbolRef, Reader,
-        Timestamp,
+        v1_1, Annotatable, Decimal, ElementReader, IonData, IonResult, IonType, Null, RawSymbolRef,
+        Reader, Timestamp,
     };
 
     #[test]
@@ -313,6 +313,38 @@ mod tests {
             .expect_symbol()?;
         assert_eq!(symbol_arg, RawSymbolRef::Text("+++"));
 
+        Ok(())
+    }
+
+    #[test]
+    fn write_annotated_values() -> IonResult<()> {
+        const NO_ANNOTATIONS: [&str; 0] = [];
+        let mut writer = LazyRawTextWriter_1_1::new(vec![])?;
+        writer
+            .write(1)?
+            // Explicitly setting an empty annotations sequence
+            .write(2.annotated_with(NO_ANNOTATIONS))?
+            .write(3.annotated_with("foo"))?
+            .write(4.annotated_with(["foo", "bar", "baz"]))?;
+        let encoded_bytes = writer.close()?;
+        let encoded_text = String::from_utf8(encoded_bytes).unwrap();
+        println!("{encoded_text}");
+
+        let expected_ion = r#"
+            $ion_1_1
+            1
+            2 // An explicitly empty annotations sequence results in an unannotated value
+            foo::3
+            foo::bar::baz::4
+        "#;
+
+        let mut reader = Reader::new(v1_1::Text, encoded_text)?;
+        let actual = reader.read_all_elements()?;
+
+        let mut reader = Reader::new(v1_1::Text, expected_ion)?;
+        let expected = reader.read_all_elements()?;
+
+        assert!(IonData::eq(&expected, &actual));
         Ok(())
     }
 }
