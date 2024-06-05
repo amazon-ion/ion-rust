@@ -26,6 +26,8 @@ pub struct TextValueWriter_1_0<'value, W: Write + 'value> {
     // (i.e. following an indented field name) which is the only time we don't write
     // indentation before the value.
     pub(crate) parent_type: ParentType,
+    // If `true`, this value had annotations and so should not write its own indentation.
+    pub(crate) has_annotations: bool,
 }
 
 pub(crate) fn write_symbol_token<O: Write, A: AsRawSymbolRef>(
@@ -60,15 +62,18 @@ impl<'value, W: Write + 'value> TextValueWriter_1_0<'value, W> {
             depth,
             value_delimiter: delimiter,
             parent_type,
+            has_annotations: false,
         }
     }
 
     /// Writes the `indentation` string set in the whitespace config to output `depth` times.
     fn write_indentation(&mut self) -> IonResult<()> {
         let indentation = self.whitespace_config().indentation;
-        if self.parent_type == ParentType::Struct {
+        if self.parent_type == ParentType::Struct || self.has_annotations {
             // If this value is part of a struct field, the indentation was written before the
-            // field name. There's nothing to do here.
+            // field name.
+            // If this value has annotations, the indentation was written before the annotations.
+            // Either way, there's nothing to do here.
             return Ok(());
         }
         if !indentation.is_empty() {
@@ -113,9 +118,11 @@ pub struct TextAnnotatedValueWriter_1_0<'value, W: Write> {
 impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
     fn encode_annotations(mut self) -> IonResult<TextValueWriter_1_0<'value, W>> {
         // The inner ValueWriter knows the indentation depth; we'll have it write the indentation
-        // before we write the value, then set the body's indentation to 0 to avoid re-indenting.
+        // before we write the value.
         self.value_writer.write_indentation()?;
-        self.value_writer.depth = 0;
+        // After indenting, we set the `has_annotations` flag to `true` so the value won't write
+        // indentation a second time.
+        self.value_writer.has_annotations = !self.annotations.is_empty();
         let output = &mut self.value_writer.writer.output;
         for annotation in self.annotations {
             match annotation.as_raw_symbol_token_ref() {
@@ -251,6 +258,7 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
             depth: self.depth + 1,
             value_delimiter: self.value_delimiter,
             parent_type: self.container_type.into(),
+            has_annotations: false,
         }
     }
 }
@@ -429,6 +437,7 @@ impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_0<'value, W> {
             depth: self.container_writer.depth + 1,
             value_delimiter: ",",
             parent_type: ParentType::Struct,
+            has_annotations: false,
         }
     }
 }
