@@ -9,6 +9,7 @@ use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem
 use crate::result::IonFailure;
 use crate::IonResult;
 
+use crate::lazy::any_encoding::IonEncoding;
 use bumpalo::Bump as BumpAllocator;
 
 pub struct LazyRawBinaryReader_1_1<'data> {
@@ -163,6 +164,10 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
 
     fn position(&self) -> usize {
         self.data.offset() + self.bytes_to_skip
+    }
+
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Binary_1_1
     }
 }
 

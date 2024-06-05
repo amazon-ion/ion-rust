@@ -3,6 +3,7 @@ use std::ops::Range;
 
 use bumpalo::Bump as BumpAllocator;
 
+use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::encoding::{BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
@@ -348,6 +349,7 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
 
     fn resume_at_offset(data: &'data [u8], offset: usize, saved_state: D::ReaderSavedState)
         -> Self;
+
     fn next<'top>(
         &'top mut self,
         allocator: &'top BumpAllocator,
@@ -363,6 +365,8 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     /// This position is not necessarily the first byte of the next value; it may be (e.g.) a NOP,
     /// a comment, or whitespace that the reader will traverse as part of matching the next item.
     fn position(&self) -> usize;
+
+    fn encoding(&self) -> IonEncoding;
 }
 
 pub trait LazyRawContainer<'top, D: Decoder> {

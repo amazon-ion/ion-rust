@@ -8,6 +8,7 @@ use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use nom::character::streaming::satisfy;
 
+use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
     Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
@@ -171,9 +172,18 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
             )));
         }
 
-        let (remaining, matched_item) = buffer_after_whitespace
+        // Consume any trailing whitespace that followed this item. Doing this allows us to check
+        // whether this was the last item in the buffer by testing `buffer.is_empty()` afterward.
+        let (buffer_after_item, matched_item) = buffer_after_whitespace
             .match_top_level_item_1_1()
             .with_context("reading a v1.1 top-level value", buffer_after_whitespace)?;
+
+        let (buffer_after_trailing_ws, _trailing_ws) = buffer_after_item
+            .match_optional_comments_and_whitespace()
+            .with_context(
+                "reading trailing top-level whitespace/comments in v1.1",
+                buffer_after_item,
+            )?;
 
         if let RawStreamItem::VersionMarker(marker) = matched_item {
             // TODO: It is not the raw reader's responsibility to report this error. It should
@@ -189,12 +199,16 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
         }
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
-        self.local_offset = remaining.offset() - self.stream_offset;
+        self.local_offset = buffer_after_trailing_ws.offset() - self.stream_offset;
         Ok(matched_item)
     }
 
     fn position(&self) -> usize {
         self.stream_offset + self.local_offset
+    }
+
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Text_1_1
     }
 }
 

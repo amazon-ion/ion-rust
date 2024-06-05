@@ -268,11 +268,11 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     /// Returns the encoded bytes representing the value's body (that is: the content of the value
     /// that follows its opcode and length).
     pub fn body_span(&self) -> Span<'top> {
-        let stream_range = self.body_range();
-        let offset = self.value.input.offset();
-        let local_range = stream_range.start - offset..stream_range.end - offset;
-        let bytes = &self.span().bytes()[local_range];
-        Span::with_offset(stream_range.start, bytes)
+        let body_range = self.body_range();
+        let body_length = body_range.len();
+        let value_bytes = self.span().bytes();
+        let body_bytes = &value_bytes[value_bytes.len() - body_length..];
+        Span::with_offset(body_range.start, body_bytes)
     }
 }
 

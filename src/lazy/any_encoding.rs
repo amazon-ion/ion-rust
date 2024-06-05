@@ -384,13 +384,7 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
 
     #[inline]
     fn save_state(&self) -> <AnyEncoding as Decoder>::ReaderSavedState {
-        use RawReaderKind::*;
-        match &self.encoding {
-            Text_1_0(_) => IonEncoding::Text_1_0,
-            Binary_1_0(_) => IonEncoding::Binary_1_0,
-            Text_1_1(_) => IonEncoding::Text_1_1,
-            Binary_1_1(_) => IonEncoding::Binary_1_1,
-        }
+        self.encoding()
     }
 
     fn position(&self) -> usize {
@@ -400,6 +394,16 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
             Binary_1_0(r) => r.position(),
             Text_1_1(r) => r.position(),
             Binary_1_1(r) => r.position(),
+        }
+    }
+
+    fn encoding(&self) -> IonEncoding {
+        use RawReaderKind::*;
+        match &self.encoding {
+            Text_1_0(_) => IonEncoding::Text_1_0,
+            Binary_1_0(_) => IonEncoding::Binary_1_0,
+            Text_1_1(_) => IonEncoding::Text_1_1,
+            Binary_1_1(_) => IonEncoding::Binary_1_1,
         }
     }
 }
