@@ -258,7 +258,7 @@ impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
     /// value's body (that is: the content of the value that follows its opcode and length).
     pub fn body_range(&self) -> Range<usize> {
         let encoded = &self.value.encoded_value;
-        let body_offset = encoded.header_length();
+        let body_offset = encoded.annotations_header_length as usize + encoded.header_length();
         let body_length = encoded.value_body_length();
         let start = self.range().start + body_offset;
         let end = start + body_length;
