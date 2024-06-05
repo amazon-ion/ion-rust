@@ -111,7 +111,11 @@ pub struct TextAnnotatedValueWriter_1_0<'value, W: Write> {
 }
 
 impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
-    fn encode_annotations(self) -> IonResult<TextValueWriter_1_0<'value, W>> {
+    fn encode_annotations(mut self) -> IonResult<TextValueWriter_1_0<'value, W>> {
+        // The inner ValueWriter knows the indentation depth; we'll have it write the indentation
+        // before we write the value, then set the body's indentation to 0 to avoid re-indenting.
+        self.value_writer.write_indentation()?;
+        self.value_writer.depth = 0;
         let output = &mut self.value_writer.writer.output;
         for annotation in self.annotations {
             match annotation.as_raw_symbol_token_ref() {

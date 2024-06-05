@@ -8,6 +8,7 @@ use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem
 use crate::result::IonFailure;
 use crate::IonResult;
 
+use crate::lazy::any_encoding::IonEncoding;
 use bumpalo::Bump as BumpAllocator;
 
 /// A binary Ion 1.0 reader that yields [`LazyRawBinaryValue_1_0`]s representing the top level values found
@@ -134,6 +135,10 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
 
     fn position(&self) -> usize {
         self.data.buffer.offset() + self.data.bytes_to_skip
+    }
+
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Binary_1_0
     }
 }
 

@@ -2,6 +2,7 @@
 
 use bumpalo::Bump as BumpAllocator;
 
+use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::{Decoder, LazyRawReader, RawVersionMarker};
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
@@ -61,10 +62,19 @@ impl<'data> LazyRawTextReader_1_0<'data> {
                 buffer_after_whitespace.offset(),
             )));
         }
+        // Consume any trailing whitespace that followed this item. Doing this allows us to check
+        // whether this was the last item in the buffer by testing `buffer.is_empty()` afterward.
         let buffer_after_whitespace = buffer_after_whitespace.local_lifespan();
-        let (remaining, matched_item) = buffer_after_whitespace
+        let (buffer_after_item, matched_item) = buffer_after_whitespace
             .match_top_level_item_1_0()
             .with_context("reading a top-level value", buffer_after_whitespace)?;
+
+        let (buffer_after_trailing_ws, _trailing_ws) = buffer_after_item
+            .match_optional_comments_and_whitespace()
+            .with_context(
+                "reading trailing top-level whitespace/comments",
+                buffer_after_item,
+            )?;
 
         if let RawStreamItem::VersionMarker(version_marker) = matched_item {
             // TODO: It is not the raw reader's responsibility to report this error. It should
@@ -80,7 +90,7 @@ impl<'data> LazyRawTextReader_1_0<'data> {
         }
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
-        self.local_offset = remaining.offset() - self.stream_offset;
+        self.local_offset = buffer_after_trailing_ws.offset() - self.stream_offset;
         Ok(matched_item)
     }
 }
@@ -106,6 +116,10 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
 
     fn position(&self) -> usize {
         self.stream_offset + self.local_offset
+    }
+
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Text_1_0
     }
 }
 

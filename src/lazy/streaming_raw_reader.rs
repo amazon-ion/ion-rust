@@ -8,7 +8,7 @@ use bumpalo::Bump as BumpAllocator;
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::{Decoder, LazyRawReader};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
-use crate::{AnyEncoding, IonError, IonResult};
+use crate::{AnyEncoding, IonError, IonResult, LazyRawValue};
 
 /// Wraps an implementation of [`IonDataSource`] and reads one top level value at a time from the input.
 pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
@@ -81,6 +81,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
         &'top mut self,
         allocator: &'top BumpAllocator,
     ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
+        let mut input_source_exhausted = false;
         loop {
             // If the input buffer is empty, try to pull more data from the source before proceeding.
             // It's important that we do this _before_ reading from the buffer; any item returned
@@ -107,6 +108,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             // the borrow checker's limitation (described in a comment on the StreamingRawReader type)
             // by getting a second (read-only) reference to the reader.
             let slice_reader_ref = unsafe { &*unsafe_cell_reader.get() };
+            let encoding = slice_reader_ref.encoding();
             let end_position = slice_reader_ref.position();
             // For the RawAnyReader, remember what encoding we detected for next time.
             self.saved_state = slice_reader_ref.save_state();
@@ -123,12 +125,63 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                     continue;
                 }
                 // If there's nothing available, return the result we got.
+            } else if let Ok(ref item) = result {
+                // We have successfully read something from the buffer.
+                //
+                // In binary encodings, stream items contain enough data for the reader to tell
+                // whether they are complete.
+                //
+                // In text encodings, it's possible for the buffer to end with data that looks like
+                // a complete item but is not. The only way to be certain is to try to read again
+                // from the input source to confirm there's no more data. Consider the following
+                // examples in which Ion is being pulled from a `File` into a `Vec<u8>`:
+                //
+                //       foo /* comment */   ::bar::baz::1000
+                //       └────────┬───────┘ └────────┬───────┘
+                //         buffer contents   remaining in File
+                //
+                //                     $ion _1_0
+                //       └────────┬───────┘ └────────┬───────┘
+                //         buffer contents   remaining in File
+                //
+                //                       75 1.20
+                //       └────────┬───────┘ └────────┬───────┘
+                //         buffer contents   remaining in File
+                //
+                // To avoid this, we perform a final check for text readers who have emptied their
+                // buffer: we do not consider the item complete unless the input source is exhausted.
+                if encoding.is_text()
+                    && bytes_read == available_bytes.len()
+                    && !input_source_exhausted
+                {
+                    use crate::lazy::raw_stream_item::RawStreamItem::*;
+                    match item {
+                        // Text containers and e-expressions have closing delimiters that allow us
+                        // to tell that they're complete.
+                        Value(v) if v.ion_type().is_container() => {}
+                        EExpression(_eexp) => {}
+                        // IVMs (which look like symbols), scalar values, and the end of the
+                        // stream are all cases where the reader looking at a fixed slice of the
+                        // buffer may reach the wrong conclusion.
+                        _ => {
+                            // Try to pull more data from the input source. This invalidates the `result`
+                            // variable because `fill_buffer()` may cause the buffer to be reallocated,
+                            // so we start this iteration over. This results in the last value being parsed
+                            // a second time from the (potentially updated) buffer.
+                            if input.fill_buffer()? == 0 {
+                                input_source_exhausted = true;
+                            }
+                            continue;
+                        }
+                    }
+                }
+
+                // Mark those input bytes as having been consumed so they are not read again.
+                input.consume(bytes_read);
+                // Update the streaming reader's position to reflect the number of bytes we
+                // just read.
+                self.stream_position = end_position;
             }
-            // Mark those input bytes as having been consumed so they are not read again.
-            input.consume(bytes_read);
-            // Update the streaming reader's position to reflect the number of bytes we
-            // just read.
-            self.stream_position = end_position;
 
             return result;
         }
@@ -229,7 +282,7 @@ pub struct IonStream<R: Read> {
 impl<R: Read> IonStream<R> {
     const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 
-    pub(crate) fn new(input: R) -> Self {
+    pub fn new(input: R) -> Self {
         IonStream {
             input,
             buffer: vec![0u8; Self::DEFAULT_IO_BUFFER_SIZE],
@@ -365,9 +418,18 @@ impl<T: Read, U: Read> IonInput for io::Chain<T, U> {
     }
 }
 
+impl IonInput for Box<dyn Read> {
+    type DataSource = IonStream<Self>;
+
+    fn into_data_source(self) -> Self::DataSource {
+        IonStream::new(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::io::{BufReader, Cursor};
+    use std::io;
+    use std::io::{BufReader, Cursor, Read};
 
     use bumpalo::Bump as BumpAllocator;
 
@@ -376,7 +438,8 @@ mod tests {
     use crate::lazy::raw_stream_item::LazyRawStreamItem;
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
-    use crate::{IonError, IonResult};
+    use crate::raw_symbol_ref::AsRawSymbolRef;
+    use crate::{v1_0, Decimal, IonError, IonResult, IonStream, RawSymbolRef, RawVersionMarker};
 
     fn expect_value<'a, D: Decoder>(
         actual: LazyRawStreamItem<'a, D>,
@@ -484,5 +547,57 @@ mod tests {
         read_invalid_example_stream(string)?;
         read_invalid_example_stream(slice)?;
         read_invalid_example_stream(vec)
+    }
+
+    #[test]
+    fn incomplete_trailing_values() -> IonResult<()> {
+        // Each read() call will return these UTF-8 byte sequences in turn:
+        let input_chunks = [
+            "$ion", // $ion_1_0
+            "_1_0",
+            " 87", // 871.25
+            "1.25",
+            " foo ", // foo::bar::baz::quux
+            "   ::bar  :",
+            ":baz",
+            "::quux",
+        ];
+        // We achieve this by wrapping each string in an `io::Chain`.
+        let mut input: Box<dyn Read> = Box::new(io::empty());
+        for input_chunk in input_chunks {
+            input = Box::new(input.chain(Cursor::new(input_chunk)));
+        }
+        // This guarantees that there are several intermediate reading states in which the buffer
+        // contains incomplete data that could be misinterpreted by a reader.
+        let allocator = BumpAllocator::new();
+        let mut reader = StreamingRawReader::new(v1_0::Text, IonStream::new(input));
+
+        assert_eq!(reader.next(&allocator)?.expect_ivm()?.version(), (1, 0));
+        assert_eq!(
+            reader
+                .next(&allocator)?
+                .expect_value()?
+                .read()?
+                .expect_decimal()?,
+            Decimal::new(87125, -2)
+        );
+        let value = reader.next(&allocator)?.expect_value()?;
+        let annotations = value
+            .annotations()
+            .collect::<IonResult<Vec<RawSymbolRef>>>()?;
+        assert_eq!(
+            annotations,
+            vec![
+                "foo".as_raw_symbol_token_ref(),
+                "bar".as_raw_symbol_token_ref(),
+                "baz".as_raw_symbol_token_ref(),
+            ]
+        );
+        assert_eq!(
+            value.read()?.expect_symbol()?,
+            "quux".as_raw_symbol_token_ref()
+        );
+
+        Ok(())
     }
 }

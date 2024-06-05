@@ -327,7 +327,16 @@ impl<'top> TextBufferView<'top> {
         terminated(
             whitespace_and_then(match_and_span(Self::match_symbol)),
             whitespace_and_then(terminated(
-                complete_tag("::"),
+                // The complete_tag/tag pair allows the parser to recognize that:
+                //
+                //     foo::bar::baz:
+                //
+                // is incomplete while:
+                //
+                //     foo::bar::baz
+                //
+                // is a symbol with two annotations.
+                pair(complete_tag(":"), tag(":")),
                 Self::match_optional_comments_and_whitespace,
             )),
         )(self)
