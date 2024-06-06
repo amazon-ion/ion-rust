@@ -50,7 +50,7 @@ impl<'top> FlexSym<'top> {
     fn encode_special_case(output: &mut BumpVec<u8>, symbol: RawSymbolRef) {
         let encoding: &[u8] = match symbol {
             SymbolId(_) => &[FlexSym::ZERO, 0xE1, 0x00],
-            Text(_) => &[FlexSym::ZERO, 0x80],
+            Text(_) => &[FlexSym::ZERO, 0x90],
         };
         output.extend_from_slice_copy(encoding);
     }
