@@ -139,8 +139,8 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
             source: input,
             bytes_to_skip: 0,
             struct_type: match opcode_type {
-                OpcodeType::StructSymAddress => StructType::SymbolAddress,
-                OpcodeType::StructFlexSym => StructType::FlexSym,
+                // TODO: Delimited struct handling
+                OpcodeType::Struct => StructType::FlexSym,
                 _ => unreachable!("Unexpected opcode for structure"),
             },
         }
