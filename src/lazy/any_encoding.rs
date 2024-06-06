@@ -53,7 +53,7 @@ use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
-use crate::{IonResult, IonType, RawSymbolRef};
+use crate::{Encoding, IonResult, IonType, RawSymbolRef};
 use bumpalo::Bump as BumpAllocator;
 
 /// An implementation of the `LazyDecoder` trait that can read any encoding of Ion.
@@ -278,7 +278,7 @@ pub enum RawReaderKind<'data> {
     Binary_1_1(LazyRawBinaryReader_1_1<'data>),
 }
 
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 #[non_exhaustive]
 pub enum IonEncoding {
     // In the absence of a binary IVM, readers must assume Ion 1.0 text data until a
@@ -299,6 +299,24 @@ impl IonEncoding {
     pub fn is_binary(&self) -> bool {
         use IonEncoding::*;
         matches!(*self, Binary_1_0 | Binary_1_1)
+    }
+
+    pub fn name(&self) -> &str {
+        use IonEncoding::*;
+        match self {
+            Text_1_0 => TextEncoding_1_0::name(),
+            Binary_1_0 => BinaryEncoding_1_0::name(),
+            Text_1_1 => TextEncoding_1_1::name(),
+            Binary_1_1 => BinaryEncoding_1_1::name(),
+        }
+    }
+
+    pub fn version(&self) -> (u8, u8) {
+        use IonEncoding::*;
+        match self {
+            Text_1_0 | Binary_1_0 => (1, 0),
+            Text_1_1 | Binary_1_1 => (1, 1),
+        }
     }
 }
 
