@@ -24,7 +24,7 @@ use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
 use crate::result::IonFailure;
-use crate::{IonResult, IonType, RawSymbolRef};
+use crate::{Encoding, IonResult, IonType, RawSymbolRef};
 
 pub struct LazyRawTextReader_1_1<'data> {
     input: &'data [u8],
@@ -168,6 +168,7 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
             .with_context("reading v1.1 whitespace/comments at the top level", input)?;
         if buffer_after_whitespace.is_empty() {
             return Ok(RawStreamItem::EndOfStream(EndPosition::new(
+                TextEncoding_1_1.encoding(),
                 buffer_after_whitespace.offset(),
             )));
         }

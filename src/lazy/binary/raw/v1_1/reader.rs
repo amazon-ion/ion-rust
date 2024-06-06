@@ -7,7 +7,7 @@ use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::result::IonFailure;
-use crate::IonResult;
+use crate::{Encoding, IonResult};
 
 use crate::lazy::any_encoding::IonEncoding;
 use bumpalo::Bump as BumpAllocator;
@@ -62,7 +62,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
             Some(lazy_value) => lazy_value,
             None => {
                 return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream(
-                    EndPosition::new(self.position()),
+                    EndPosition::new(BinaryEncoding_1_1.encoding(), self.position()),
                 ))
             }
         };
@@ -93,7 +93,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
         let mut buffer = self.advance_to_next_item()?;
         if buffer.is_empty() {
             return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream(
-                EndPosition::new(buffer.offset()),
+                EndPosition::new(BinaryEncoding_1_1.encoding(), buffer.offset()),
             ));
         }
 
@@ -102,7 +102,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
             (_, buffer) = buffer.consume_nop_padding(type_descriptor)?;
             if buffer.is_empty() {
                 return Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream(
-                    EndPosition::new(buffer.offset()),
+                    EndPosition::new(BinaryEncoding_1_1.encoding(), buffer.offset()),
                 ));
             }
         }

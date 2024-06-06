@@ -73,9 +73,8 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
         }
     }
 
-    /// Like [`Self::symbol_table`], but returns a [`IonError::Decoding`] if this item is not
-    /// a symbol table.
-    pub fn symbol_table(self) -> Option<LazyStruct<'top, D>> {
+    /// If this item is a symbol table, returns `Some(lazy_struct)`. Otherwise, returns `None`.
+    pub fn as_symbol_table(self) -> Option<LazyStruct<'top, D>> {
         if let Self::SymbolTable(struct_) = self {
             Some(struct_)
         } else {
@@ -83,7 +82,7 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
         }
     }
 
-    /// Like [`Self::symbol_table`], but returns a [`IonError::Decoding`] if this item is not
+    /// Like [`Self::as_symbol_table`], but returns a [`IonError::Decoding`] if this item is not
     /// a symbol table.
     pub fn expect_symbol_table(self) -> IonResult<LazyStruct<'top, D>> {
         if let Self::SymbolTable(value) = self {

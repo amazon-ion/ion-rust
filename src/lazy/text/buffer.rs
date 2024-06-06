@@ -43,7 +43,7 @@ use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
 };
 use crate::result::DecodingError;
-use crate::{IonError, IonResult, IonType, TimestampPrecision};
+use crate::{Encoding, IonError, IonResult, IonType, TimestampPrecision};
 
 impl<'a> Debug for TextBufferView<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -558,7 +558,10 @@ impl<'top> TextBufferView<'top> {
         if input_after_ws.is_empty() {
             return Ok((
                 input_after_ws,
-                RawStreamItem::EndOfStream(EndPosition::new(input_after_ws.offset())),
+                RawStreamItem::EndOfStream(EndPosition::new(
+                    TextEncoding_1_0.encoding(),
+                    input_after_ws.offset(),
+                )),
             ));
         }
         // Otherwise, the next item must be an IVM or a value.
@@ -581,7 +584,10 @@ impl<'top> TextBufferView<'top> {
         if input_after_ws.is_empty() {
             return Ok((
                 input_after_ws,
-                RawStreamItem::EndOfStream(EndPosition::new(input_after_ws.offset())),
+                RawStreamItem::EndOfStream(EndPosition::new(
+                    TextEncoding_1_1.encoding(),
+                    input_after_ws.offset(),
+                )),
             ));
         }
         // Otherwise, the next item must be an IVM or a value.
