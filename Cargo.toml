@@ -16,7 +16,7 @@ exclude = [
     "**/ion-tests/iontestdata/**",
     "*.pdf"
 ]
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 edition = "2021"
 # We need at least 1.65 for GATs[1] and 1.67 for `ilog`[2]
 # [1] https://blog.rust-lang.org/2022/11/03/Rust-1.65.0.html
