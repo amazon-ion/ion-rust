@@ -73,7 +73,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
 
     // When the `experimental-tooling-apis` feature is disabled, this method is `pub(crate)`
     #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub fn symbol_table(&self) -> &SymbolTable {
+    pub(crate) fn symbol_table(&self) -> &SymbolTable {
         self.expanded_value.context.symbol_table
     }
 
