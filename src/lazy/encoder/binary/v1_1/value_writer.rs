@@ -95,8 +95,8 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
 
     pub fn write_bool(mut self, value: bool) -> IonResult<()> {
         let encoding = match value {
-            true => 0x5E,
-            false => 0x5F,
+            true => 0x6E,
+            false => 0x6F,
         };
         self.push_byte(encoding);
         Ok(())
@@ -104,7 +104,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
 
     #[inline]
     pub fn write_i64(mut self, value: i64) -> IonResult<()> {
-        let mut opcode = 0x50;
+        let mut opcode = 0x60;
         if value == 0 {
             self.push_byte(opcode);
             return Ok(());
@@ -135,7 +135,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             let value: i128 = value.data;
             // Because we've ruled out numbers small enough to fit in an i64, its encoded length
             // must be greater than 8. Write the opcode for an integer with a FlexUInt length.
-            self.push_byte(0xF5);
+            self.push_byte(0xF6);
             let num_sign_bits = if value < 0 {
                 value.leading_ones()
             } else {
@@ -153,15 +153,14 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         }}
     }
 
-    // TODO: write_f16(...)
-
     pub fn write_f32(mut self, value: f32) -> IonResult<()> {
         match value.smallest_repr() {
             FloatRepr::Zero => {
-                self.push_byte(0x5A);
+                self.push_byte(0x6A);
             }
+            // TODO: FloatRepr::Half => ...0x6B...
             FloatRepr::Single(f) => {
-                self.push_byte(0x5C);
+                self.push_byte(0x6C);
                 self.push_bytes(&f.to_le_bytes());
             }
             FloatRepr::Double(_) => unreachable!("smallest repr for f32 cannot be f64"),
@@ -172,14 +171,15 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     pub fn write_f64(mut self, value: f64) -> IonResult<()> {
         match value.smallest_repr() {
             FloatRepr::Zero => {
-                self.push_byte(0x5A);
+                self.push_byte(0x6A);
             }
+            // TODO: FloatRepr::Half => ...0x6B...
             FloatRepr::Single(f) => {
-                self.push_byte(0x5C);
+                self.push_byte(0x6C);
                 self.push_bytes(&f.to_le_bytes());
             }
             FloatRepr::Double(f) => {
-                self.push_byte(0x5D);
+                self.push_byte(0x6D);
                 self.push_bytes(&f.to_le_bytes());
             }
         }
@@ -191,7 +191,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         // Insert a placeholder opcode; we'll overwrite the length nibble with the appropriate value when the encoding
         // is complete.
         let opcode_index = self.encoding_buffer.len();
-        self.push_byte(0x60);
+        self.push_byte(0x70);
 
         // Whether the decimal has a positive zero coefficient (of any exponent). This value is needed in two places
         // and is non-trivial, so we compute it up front and store the result.
@@ -235,7 +235,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             _ => {
                 // If the encoded size ends up being unusually large, we will splice in a corrected header.
                 // Start by overwriting our original opcode with 0xF6, which indicates a Decimal with a FlexUInt length.
-                self.encoding_buffer[opcode_index] = 0xF6;
+                self.encoding_buffer[opcode_index] = 0xF7;
                 // We'll use an `ArrayVec` as our encoding buffer because it's stack-allocated and implements `io::Write`.
                 // It has a capacity of 16 bytes because it's the smallest power of two that is still large enough to
                 // hold a FlexUInt encoding of usize::MAX on a 64-bit platform.
@@ -334,18 +334,18 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         // These opcodes assume UTC or unknown offset--we adjust for known offsets afterwards.
         let (mut opcode, bits_populated, mut encoded_body_length, subseconds) =
             match (precision, scale) {
-                (Year, _) => (0x70, 7, 1, 0),
-                (Month, _) => (0x71, 11, 2, 0),
-                (Day, _) => (0x72, 16, 2, 0),
-                (HourAndMinute, _) => (0x73, 27 + num_offset_bits, 4, 0),
+                (Year, _) => (0x80, 7, 1, 0),
+                (Month, _) => (0x81, 11, 2, 0),
+                (Day, _) => (0x82, 16, 2, 0),
+                (HourAndMinute, _) => (0x83, 27 + num_offset_bits, 4, 0),
                 // Seconds
-                (Second, 0) => (0x74, 33 + num_offset_bits, 5, 0),
+                (Second, 0) => (0x84, 33 + num_offset_bits, 5, 0),
                 // Milliseconds
-                (Second, 3) => (0x75, 43 + num_offset_bits, 6, value.milliseconds()),
+                (Second, 3) => (0x85, 43 + num_offset_bits, 6, value.milliseconds()),
                 // Microseconds
-                (Second, 6) => (0x76, 53 + num_offset_bits, 7, value.microseconds()),
+                (Second, 6) => (0x86, 53 + num_offset_bits, 7, value.microseconds()),
                 // Nanoseconds
-                (Second, 9) => (0x77, 63 + num_offset_bits, 8, value.nanoseconds()),
+                (Second, 9) => (0x87, 63 + num_offset_bits, 8, value.nanoseconds()),
                 _ => {
                     unreachable!("illegal precision / fractional second seconds scale encountered")
                 }
@@ -382,7 +382,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         self.push_byte(opcode);
 
         // If the timestamp is at a known offset and uses nanosecond precision...
-        if opcode == 0x7C {
+        if opcode == 0x8C {
             // ...then its encoding requires 70 bits. We've been using a u64 to hold the encoding, so the most
             // significant 6 bits have been lost at this point. We need to get the most significant 6 bits of the
             // nanoseconds field and write them out as a final byte. Because `subseconds` represents a number of
@@ -465,9 +465,9 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             .wrapping_sub(1);
         encoding &= mask;
 
-        // Push 0xF7 (the opcode for a Timestamp w/FlexUInt length) and 0x01 (a placeholder 0 FlexUInt that we'll
+        // Push 0xF8 (the opcode for a Timestamp w/FlexUInt length) and 0x01 (a placeholder 0 FlexUInt that we'll
         // overwrite when the final encoding size is known.
-        self.push_bytes(&[0xF7, 0x01]);
+        self.push_bytes(&[0xF8, 0x01]);
         let length_byte_index = self.encoding_buffer.len() - 1;
         self.push_bytes(&encoding.to_le_bytes()[..encoded_length]);
 
@@ -501,16 +501,16 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
 
     #[inline]
     pub fn write_string<A: AsRef<str>>(mut self, value: A) -> IonResult<()> {
-        const STRING_OPCODE: u8 = 0x80;
-        const STRING_FLEX_UINT_LEN_OPCODE: u8 = 0xF8;
+        const STRING_OPCODE: u8 = 0x90;
+        const STRING_FLEX_UINT_LEN_OPCODE: u8 = 0xF9;
         self.write_text(STRING_OPCODE, STRING_FLEX_UINT_LEN_OPCODE, value.as_ref());
         Ok(())
     }
 
     #[inline]
     pub fn write_symbol<A: AsRawSymbolRef>(mut self, value: A) -> IonResult<()> {
-        const SYMBOL_OPCODE: u8 = 0x90;
-        const SYMBOL_FLEX_UINT_LEN_OPCODE: u8 = 0xF9;
+        const SYMBOL_OPCODE: u8 = 0xA0;
+        const SYMBOL_FLEX_UINT_LEN_OPCODE: u8 = 0xFA;
         match value.as_raw_symbol_token_ref() {
             RawSymbolRef::SymbolId(sid) => self.write_symbol_id(sid),
             RawSymbolRef::Text(text) => {
@@ -896,7 +896,7 @@ mod tests {
 
     #[test]
     fn write_bools() -> IonResult<()> {
-        let test_cases: &[(bool, &[u8])] = &[(true, &[0x5E]), (false, &[0x5F])];
+        let test_cases: &[(bool, &[u8])] = &[(true, &[0x6E]), (false, &[0x6F])];
         for (value, expected_encoding) in test_cases {
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
@@ -912,22 +912,22 @@ mod tests {
     #[test]
     fn write_ints() -> IonResult<()> {
         let test_cases: &[(i64, &[u8])] = &[
-            (0, &[0x50]),
-            (-1, &[0x51, 0xFF]),
-            (1, &[0x51, 0x01]),
-            (100, &[0x51, 0x64]),
-            (-100, &[0x51, 0x9C]),
-            (127, &[0x51, 0x7F]),
-            (-127, &[0x51, 0x81]),
-            (128, &[0x52, 0x80, 0x00]),
-            (-128, &[0x51, 0x80]),
+            (0, &[0x60]),
+            (-1, &[0x61, 0xFF]),
+            (1, &[0x61, 0x01]),
+            (100, &[0x61, 0x64]),
+            (-100, &[0x61, 0x9C]),
+            (127, &[0x61, 0x7F]),
+            (-127, &[0x61, 0x81]),
+            (128, &[0x62, 0x80, 0x00]),
+            (-128, &[0x61, 0x80]),
             (
                 i64::MAX,
-                &[0x58, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F],
+                &[0x68, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F],
             ),
             (
                 i64::MIN,
-                &[0x58, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80],
+                &[0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80],
             ),
         ];
         for (value, expected_encoding) in test_cases {
@@ -956,7 +956,7 @@ mod tests {
             f32::NAN,
         ];
         for value in test_f64s {
-            let mut expected_encoding = vec![0x5C];
+            let mut expected_encoding = vec![0x6C];
             expected_encoding.extend_from_slice(&value.to_le_bytes()[..]);
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
@@ -989,14 +989,14 @@ mod tests {
             let mut expected_encoding = vec![];
             match value.smallest_repr() {
                 FloatRepr::Zero => {
-                    expected_encoding.push(0x5A);
+                    expected_encoding.push(0x6A);
                 }
                 FloatRepr::Single(f) => {
-                    expected_encoding.push(0x5C);
+                    expected_encoding.push(0x6C);
                     expected_encoding.extend_from_slice(&f.to_le_bytes()[..]);
                 }
                 FloatRepr::Double(f) => {
-                    expected_encoding.push(0x5D);
+                    expected_encoding.push(0x6D);
                     expected_encoding.extend_from_slice(&f.to_le_bytes()[..]);
                 }
             }
@@ -1014,13 +1014,13 @@ mod tests {
     #[test]
     fn write_strings() -> IonResult<()> {
         let test_cases: &[(&str, &[u8])] = &[
-            ("", &[0x80]),
+            ("", &[0x90]),
             //                 f     o     o
-            ("foo", &[0x83, 0x66, 0x6F, 0x6F]),
+            ("foo", &[0x93, 0x66, 0x6F, 0x6F]),
             (
                 "foo bar baz quux quuz",
                 &[
-                    0xF8, // Opcode: string with variable-width length
+                    0xF9, // Opcode: string with variable-width length
                     0x2B, // FlexUInt length
                     0x66, // UTF-8 text bytes
                     0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a, 0x20, 0x71, 0x75,
@@ -1043,13 +1043,13 @@ mod tests {
     #[test]
     fn write_symbols_with_inline_text() -> IonResult<()> {
         let test_cases: &[(&str, &[u8])] = &[
-            ("", &[0x90]),
+            ("", &[0xA0]),
             //                 f     o     o
-            ("foo", &[0x93, 0x66, 0x6F, 0x6F]),
+            ("foo", &[0xA3, 0x66, 0x6F, 0x6F]),
             (
                 "foo bar baz quux quuz",
                 &[
-                    0xF9, // Opcode: symbol with variable-width length
+                    0xFA, // Opcode: symbol with variable-width length
                     0x2B, // FlexUInt length
                     0x66, // UTF-8 text bytes
                     0x6F, 0x6F, 0x20, 0x62, 0x61, 0x72, 0x20, 0x62, 0x61, 0x7a, 0x20, 0x71, 0x75,
@@ -1094,25 +1094,25 @@ mod tests {
     #[test]
     fn write_decimals() -> IonResult<()> {
         let test_cases: &[(Decimal, &[u8])] = &[
-            (Decimal::new(0, 0), &[0x60]),
-            (Decimal::new(0, 3), &[0x61, 0x07]),
-            (Decimal::negative_zero(), &[0x62, 0x01, 0x00]),
-            (Decimal::negative_zero_with_exponent(3), &[0x62, 0x07, 0x00]),
+            (Decimal::new(0, 0), &[0x70]),
+            (Decimal::new(0, 3), &[0x71, 0x07]),
+            (Decimal::negative_zero(), &[0x72, 0x01, 0x00]),
+            (Decimal::negative_zero_with_exponent(3), &[0x72, 0x07, 0x00]),
             (
                 Decimal::negative_zero_with_exponent(-3),
-                &[0x62, 0xFB, 0x00],
+                &[0x72, 0xFB, 0x00],
             ),
-            (Decimal::new(7, 4), &[0x62, 0x09, 0x07]),
+            (Decimal::new(7, 4), &[0x72, 0x09, 0x07]),
             (
                 // ~Pi
                 Decimal::new(3_1415926535i64, -10),
-                &[0x66, 0xED, 0x07, 0xFF, 0x88, 0x50, 0x07],
+                &[0x76, 0xED, 0x07, 0xFF, 0x88, 0x50, 0x07],
             ),
             (
                 // ~e
                 Decimal::new(Int::from(27182818284590452353602874713526624i128), -40),
                 &[
-                    0xF6, 0x21, 0xB1, 0x60, 0x51, 0x2B, 0xF8, 0xFE, 0x2B, 0xA4, 0x11, 0xAF, 0x90,
+                    0xF7, 0x21, 0xB1, 0x60, 0x51, 0x2B, 0xF8, 0xFE, 0x2B, 0xA4, 0x11, 0xAF, 0x90,
                     0xF7, 0x66, 0x37, 0x3C, 0x05,
                 ],
             ),
@@ -1134,39 +1134,39 @@ mod tests {
         let test_cases: &[(&str, &[u8])] = &[
             // === Year ===
             //                  .YYY_YYYY
-            ("1970T", &[0x70, 0b0000_0000]),
-            ("2097T", &[0x70, 0b0111_1111]),
-            ("2024T", &[0x70, 0b0011_0110]),
+            ("1970T", &[0x80, 0b0000_0000]),
+            ("2097T", &[0x80, 0b0111_1111]),
+            ("2024T", &[0x80, 0b0011_0110]),
             //
             // === Month ===
             //                     MYYY_YYYY    ...._.MMM
-            ("2024-01T", &[0x71, 0b1011_0110, 0b0000_0000]),
-            ("2024-10T", &[0x71, 0b0011_0110, 0b0000_0101]),
-            ("2024-11T", &[0x71, 0b1011_0110, 0b0000_0101]),
-            ("2024-12T", &[0x71, 0b0011_0110, 0b0000_0110]),
+            ("2024-01T", &[0x81, 0b1011_0110, 0b0000_0000]),
+            ("2024-10T", &[0x81, 0b0011_0110, 0b0000_0101]),
+            ("2024-11T", &[0x81, 0b1011_0110, 0b0000_0101]),
+            ("2024-12T", &[0x81, 0b0011_0110, 0b0000_0110]),
             //
             // === Day ===
             //                       MYYY_YYYY    DDDD_DMMM
-            ("2024-06-01", &[0x72, 0b0011_0110, 0b0000_1011]),
-            ("2024-06-15", &[0x72, 0b0011_0110, 0b0111_1011]),
-            ("2024-06-30", &[0x72, 0b0011_0110, 0b1111_0011]),
+            ("2024-06-01", &[0x82, 0b0011_0110, 0b0000_1011]),
+            ("2024-06-15", &[0x82, 0b0011_0110, 0b0111_1011]),
+            ("2024-06-30", &[0x82, 0b0011_0110, 0b1111_0011]),
             //
             // === Hour & Minute @ UTC ===
             //
             (
                 "2024-06-01T08:00Z",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x73, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_0000],
+                &[0x83, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_0000],
             ),
             (
                 "2024-06-15T12:30Z",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x73, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_0011],
+                &[0x83, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_0011],
             ),
             (
                 "2024-06-30T16:45Z",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x73, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_0101],
+                &[0x83, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_0101],
             ),
             //
             // === Hour & Minute @ Unknown Offset ===
@@ -1174,17 +1174,17 @@ mod tests {
             (
                 "2024-06-01T08:00-00:00",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x73, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_1000],
+                &[0x83, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_1000],
             ),
             (
                 "2024-06-15T12:30-00:00",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x73, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_1011],
+                &[0x83, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_1011],
             ),
             (
                 "2024-06-30T16:45-00:00",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x73, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_1101],
+                &[0x83, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_1101],
             ),
             //
             // === Second @ UTC ===
@@ -1192,7 +1192,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00Z",
                 &[
-                    0x74,
+                    0x84,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1203,7 +1203,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30Z",
                 &[
-                    0x74,
+                    0x84,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1214,7 +1214,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45Z",
                 &[
-                    0x74,
+                    0x84,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1228,7 +1228,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00-00:00",
                 &[
-                    0x74,
+                    0x84,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1239,7 +1239,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30-00:00",
                 &[
-                    0x74,
+                    0x84,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1250,7 +1250,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45-00:00",
                 &[
-                    0x74,
+                    0x84,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1264,7 +1264,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00.000Z",
                 &[
-                    0x75,
+                    0x85,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1276,7 +1276,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30.030Z",
                 &[
-                    0x75,
+                    0x85,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1288,7 +1288,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45.045Z",
                 &[
-                    0x75,
+                    0x85,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1303,7 +1303,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00.000-00:00",
                 &[
-                    0x75,
+                    0x85,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1315,7 +1315,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30.030-00:00",
                 &[
-                    0x75,
+                    0x85,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1327,7 +1327,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45.045-00:00",
                 &[
-                    0x75,
+                    0x85,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1342,7 +1342,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00.000000Z",
                 &[
-                    0x76,
+                    0x86,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1355,7 +1355,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30.000030Z",
                 &[
-                    0x76,
+                    0x86,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1368,7 +1368,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45.000045Z",
                 &[
-                    0x76,
+                    0x86,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1384,7 +1384,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00.000000-00:00",
                 &[
-                    0x76,
+                    0x86,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1397,7 +1397,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30.000030-00:00",
                 &[
-                    0x76,
+                    0x86,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1410,7 +1410,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45.000045-00:00",
                 &[
-                    0x76,
+                    0x86,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1426,7 +1426,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00.000000000Z",
                 &[
-                    0x77,
+                    0x87,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1440,7 +1440,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30.000000030Z",
                 &[
-                    0x77,
+                    0x87,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1454,7 +1454,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45.000000045Z",
                 &[
-                    0x77,
+                    0x87,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1471,7 +1471,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00.000000000-00:00",
                 &[
-                    0x77,
+                    0x87,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1485,7 +1485,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30.000000030-00:00",
                 &[
-                    0x77,
+                    0x87,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1499,7 +1499,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45.000000045-00:00",
                 &[
-                    0x77,
+                    0x87,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1517,7 +1517,7 @@ mod tests {
             (
                 "2024-06-01T08:00-05:00",
                 &[
-                    0x78,
+                    0x88,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1528,7 +1528,7 @@ mod tests {
             (
                 "2024-06-15T12:30-05:00",
                 &[
-                    0x78,
+                    0x88,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1539,7 +1539,7 @@ mod tests {
             (
                 "2024-06-30T16:45-05:00",
                 &[
-                    0x78,
+                    0x88,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1553,7 +1553,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00-05:00",
                 &[
-                    0x79,
+                    0x89,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1564,7 +1564,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30-05:00",
                 &[
-                    0x79,
+                    0x89,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1575,7 +1575,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45-05:00",
                 &[
-                    0x79,
+                    0x89,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1589,7 +1589,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00.000-05:00",
                 &[
-                    0x7A,
+                    0x8A,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1602,7 +1602,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30.030-05:00",
                 &[
-                    0x7A,
+                    0x8A,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1615,7 +1615,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45.045-05:00",
                 &[
-                    0x7A,
+                    0x8A,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1631,7 +1631,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00.000000-05:00",
                 &[
-                    0x7B,
+                    0x8B,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1645,7 +1645,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30.000030-05:00",
                 &[
-                    0x7B,
+                    0x8B,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1659,7 +1659,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45.000045-05:00",
                 &[
-                    0x7B,
+                    0x8B,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1676,7 +1676,7 @@ mod tests {
             (
                 "2024-06-01T08:00:00.000000000-05:00",
                 &[
-                    0x7C,
+                    0x8C,
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
@@ -1691,7 +1691,7 @@ mod tests {
             (
                 "2024-06-15T12:30:30.000000030-05:00",
                 &[
-                    0x7C,
+                    0x8C,
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
@@ -1706,7 +1706,7 @@ mod tests {
             (
                 "2024-06-30T16:45:45.000000045-05:00",
                 &[
-                    0x7C,
+                    0x8C,
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
@@ -1724,7 +1724,7 @@ mod tests {
             (
                 "1969T",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x05,        // FlexUInt length 2
                     0b1011_0001, // YYYY_YYYY
                     0b0000_0111, // ..YY_YYYY
@@ -1733,7 +1733,7 @@ mod tests {
             (
                 "0001T",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x05,        // FlexUInt length 2
                     0b0000_0001, // YYYY_YYYY
                     0b0000_0000, // ..YY_YYYY
@@ -1742,7 +1742,7 @@ mod tests {
             (
                 "9999T",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x05,        // FlexUInt length 2
                     0b0000_1111, // YYYY_YYYY
                     0b0010_0111, // ..YY_YYYY
@@ -1754,7 +1754,7 @@ mod tests {
             (
                 "1969-01T",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x07,        // FlexUInt length 3
                     0b1011_0001, // YYYY_YYYY
                     0b0100_0111, // MMYY_YYYY
@@ -1764,7 +1764,7 @@ mod tests {
             (
                 "1969-06T",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x07,        // FlexUInt length 3
                     0b1011_0001, // YYYY_YYYY
                     0b1000_0111, // MMYY_YYYY
@@ -1774,7 +1774,7 @@ mod tests {
             (
                 "1969-12T",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x07,        // FlexUInt length 3
                     0b1011_0001, // YYYY_YYYY
                     0b0000_0111, // MMYY_YYYY
@@ -1787,7 +1787,7 @@ mod tests {
             (
                 "1969-01-01T",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x07,        // FlexUInt length 3
                     0b1011_0001, // YYYY_YYYY
                     0b0100_0111, // MMYY_YYYY
@@ -1797,7 +1797,7 @@ mod tests {
             (
                 "1969-06-15T",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x07,        // FlexUInt length 3
                     0b1011_0001, // YYYY_YYYY
                     0b1000_0111, // MMYY_YYYY
@@ -1807,7 +1807,7 @@ mod tests {
             (
                 "1969-12-31T",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x07,        // FlexUInt length 3
                     0b1011_0001, // YYYY_YYYY
                     0b0000_0111, // MMYY_YYYY
@@ -1820,7 +1820,7 @@ mod tests {
             (
                 "1969-01-01T00:00Z",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x0D,        // FlexUInt length 6
                     0b1011_0001, // YYYY_YYYY
                     0b0100_0111, // MMYY_YYYY
@@ -1833,7 +1833,7 @@ mod tests {
             (
                 "1969-06-15T12:30Z",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x0D,        // FlexUInt length 6
                     0b1011_0001, // YYYY_YYYY
                     0b1000_0111, // MMYY_YYYY
@@ -1846,7 +1846,7 @@ mod tests {
             (
                 "1969-12-31T18:45Z",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x0D,        // FlexUInt length 6
                     0b1011_0001, // YYYY_YYYY
                     0b0000_0111, // MMYY_YYYY
@@ -1859,7 +1859,7 @@ mod tests {
             (
                 "1969-12-31T18:45-00:00", // Unknown offset
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x0D,        // FlexUInt length 6
                     0b1011_0001, // YYYY_YYYY
                     0b0000_0111, // MMYY_YYYY
@@ -1875,7 +1875,7 @@ mod tests {
             (
                 "1969-01-01T00:00:00Z",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x0F,        // FlexUInt length 7
                     0b1011_0001, // YYYY_YYYY
                     0b0100_0111, // MMYY_YYYY
@@ -1889,7 +1889,7 @@ mod tests {
             (
                 "1969-06-15T12:30:30Z",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x0F,        // FlexUInt length 7
                     0b1011_0001, // YYYY_YYYY
                     0b1000_0111, // MMYY_YYYY
@@ -1903,7 +1903,7 @@ mod tests {
             (
                 "1969-12-31T18:45:45Z",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x0F,        // FlexUInt length 7
                     0b1011_0001, // YYYY_YYYY
                     0b0000_0111, // MMYY_YYYY
@@ -1917,7 +1917,7 @@ mod tests {
             (
                 "1969-12-31T18:45:45-00:00", // Unknown offset
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x0F,        // FlexUInt length 7
                     0b1011_0001, // YYYY_YYYY
                     0b0000_0111, // MMYY_YYYY
@@ -1934,7 +1934,7 @@ mod tests {
             (
                 "1969-01-01T00:00:00.000Z",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x13,        // FlexUInt length 9
                     0b1011_0001, // YYYY_YYYY
                     0b0100_0111, // MMYY_YYYY
@@ -1950,7 +1950,7 @@ mod tests {
             (
                 "1969-06-15T12:30:30.000030Z",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x13,        // FlexUInt length 9
                     0b1011_0001, // YYYY_YYYY
                     0b1000_0111, // MMYY_YYYY
@@ -1966,7 +1966,7 @@ mod tests {
             (
                 "1969-12-31T18:45:45.000000045Z",
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x13,        // FlexUInt length 7
                     0b1011_0001, // YYYY_YYYY
                     0b0000_0111, // MMYY_YYYY
@@ -1982,7 +1982,7 @@ mod tests {
             (
                 "1969-12-31T18:45:45.000000045-00:00", // Unknown offset
                 &[
-                    0xF7,        // Timestamp w/FlexUInt length
+                    0xF8,        // Timestamp w/FlexUInt length
                     0x13,        // FlexUInt length 7
                     0b1011_0001, // YYYY_YYYY
                     0b0000_0111, // MMYY_YYYY
@@ -2144,35 +2144,35 @@ mod tests {
     #[test]
     fn write_length_prefixed_lists() -> IonResult<()> {
         let test_cases: &[(&[&str], &[u8])] = &[
-            (&[], &[0xA0]),
+            (&[], &[0xB0]),
             (
                 &["foo"],
                 &[
                     //             f     o     o
-                    0xA4, 0x83, 0x66, 0x6F, 0x6F,
+                    0xB4, 0x93, 0x66, 0x6F, 0x6F,
                 ],
             ),
             (
                 &["foo", "bar"],
                 &[
                     //             f     o     o           b     a     r
-                    0xA8, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72,
+                    0xB8, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72,
                 ],
             ),
             (
                 &["foo", "bar", "baz"],
                 &[
                     //             f     o     o           b     a     r           b     a     z
-                    0xAC, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61, 0x7a,
+                    0xBC, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72, 0x93, 0x62, 0x61, 0x7a,
                 ],
             ),
             (
                 &["foo", "bar", "baz", "quux", "quuz"],
                 &[
                     //                   f     o     o           b     a     r           b     a
-                    0xFA, 0x2D, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61,
+                    0xFB, 0x2D, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72, 0x93, 0x62, 0x61,
                     // r           q     u     u     x           q     u     u     z
-                    0x7a, 0x84, 0x71, 0x75, 0x75, 0x78, 0x84, 0x71, 0x75, 0x75, 0x7a,
+                    0x7a, 0x94, 0x71, 0x75, 0x75, 0x78, 0x94, 0x71, 0x75, 0x75, 0x7a,
                 ],
             ),
         ];
@@ -2196,21 +2196,21 @@ mod tests {
                 &["foo"],
                 &[
                     //             f     o     o
-                    0xF1, 0x83, 0x66, 0x6F, 0x6F, 0xF0,
+                    0xF1, 0x93, 0x66, 0x6F, 0x6F, 0xF0,
                 ],
             ),
             (
                 &["foo", "bar"],
                 &[
                     //             f     o     o           b     a     r
-                    0xF1, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0xF0,
+                    0xF1, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72, 0xF0,
                 ],
             ),
             (
                 &["foo", "bar", "baz"],
                 &[
                     //             f     o     o           b     a     r           b     a     z
-                    0xF1, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61, 0x7a,
+                    0xF1, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72, 0x93, 0x62, 0x61, 0x7a,
                     0xF0,
                 ],
             ),
@@ -2218,9 +2218,9 @@ mod tests {
                 &["foo", "bar", "baz", "quux", "quuz"],
                 &[
                     //             f     o     o           b     a     r           b     a
-                    0xF1, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61,
+                    0xF1, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72, 0x93, 0x62, 0x61,
                     // r           q     u     u     x           q     u     u     z
-                    0x7a, 0x84, 0x71, 0x75, 0x75, 0x78, 0x84, 0x71, 0x75, 0x75, 0x7a, 0xF0,
+                    0x7a, 0x94, 0x71, 0x75, 0x75, 0x78, 0x94, 0x71, 0x75, 0x75, 0x7a, 0xF0,
                 ],
             ),
         ];
@@ -2243,35 +2243,35 @@ mod tests {
     #[test]
     fn write_length_prefixed_sexps() -> IonResult<()> {
         let test_cases: &[(&[&str], &[u8])] = &[
-            (&[], &[0xB0]),
+            (&[], &[0xC0]),
             (
                 &["foo"],
                 &[
                     //             f     o     o
-                    0xB4, 0x83, 0x66, 0x6F, 0x6F,
+                    0xC4, 0x93, 0x66, 0x6F, 0x6F,
                 ],
             ),
             (
                 &["foo", "bar"],
                 &[
                     //             f     o     o           b     a     r
-                    0xB8, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72,
+                    0xC8, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72,
                 ],
             ),
             (
                 &["foo", "bar", "baz"],
                 &[
                     //             f     o     o           b     a     r           b     a     z
-                    0xBC, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61, 0x7a,
+                    0xCC, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72, 0x93, 0x62, 0x61, 0x7a,
                 ],
             ),
             (
                 &["foo", "bar", "baz", "quux", "quuz"],
                 &[
                     //                   f     o     o           b     a     r           b     a
-                    0xFB, 0x2D, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61,
+                    0xFC, 0x2D, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72, 0x93, 0x62, 0x61,
                     // r           q     u     u     x           q     u     u     z
-                    0x7a, 0x84, 0x71, 0x75, 0x75, 0x78, 0x84, 0x71, 0x75, 0x75, 0x7a,
+                    0x7a, 0x94, 0x71, 0x75, 0x75, 0x78, 0x94, 0x71, 0x75, 0x75, 0x7a,
                 ],
             ),
         ];
@@ -2295,21 +2295,21 @@ mod tests {
                 &["foo"],
                 &[
                     //             f     o     o
-                    0xF2, 0x83, 0x66, 0x6F, 0x6F, 0xF0,
+                    0xF2, 0x93, 0x66, 0x6F, 0x6F, 0xF0,
                 ],
             ),
             (
                 &["foo", "bar"],
                 &[
                     //             f     o     o           b     a     r
-                    0xF2, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0xF0,
+                    0xF2, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72, 0xF0,
                 ],
             ),
             (
                 &["foo", "bar", "baz"],
                 &[
                     //             f     o     o           b     a     r           b     a     z
-                    0xF2, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61, 0x7a,
+                    0xF2, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72, 0x93, 0x62, 0x61, 0x7a,
                     0xF0,
                 ],
             ),
@@ -2317,9 +2317,9 @@ mod tests {
                 &["foo", "bar", "baz", "quux", "quuz"],
                 &[
                     //             f     o     o           b     a     r           b     a
-                    0xF2, 0x83, 0x66, 0x6F, 0x6F, 0x83, 0x62, 0x61, 0x72, 0x83, 0x62, 0x61,
+                    0xF2, 0x93, 0x66, 0x6F, 0x6F, 0x93, 0x62, 0x61, 0x72, 0x93, 0x62, 0x61,
                     // r           q     u     u     x           q     u     u     z
-                    0x7a, 0x84, 0x71, 0x75, 0x75, 0x78, 0x84, 0x71, 0x75, 0x75, 0x7a, 0xF0,
+                    0x7a, 0x94, 0x71, 0x75, 0x75, 0x78, 0x94, 0x71, 0x75, 0x75, 0x7a, 0xF0,
                 ],
             ),
         ];
@@ -2364,18 +2364,18 @@ mod tests {
         #[rustfmt::skip]
         let test_cases: &[(TestStruct, &[u8])] = &[
             // Empty struct
-            (&[], &[0xC0]),
+            (&[], &[0xD0]),
             // Struct with a single FlexUInt field name
             (
                 &[field(4, "foo")],
                 &[
                     // 5-byte struct
-                    0xC5,
+                    0xD5,
                     // FlexUInt symbol ID 4
                     0x09,
                     // 3-byte symbol
                     // ↓     f     o     o
-                    0x93, 0x66, 0x6F, 0x6F,
+                    0xA3, 0x66, 0x6F, 0x6F,
                 ],
             ),
             // Struct with multiple FlexUInt field names
@@ -2383,31 +2383,31 @@ mod tests {
                 &[field(4, "foo"), field(5, "bar"), field(6, "baz")],
                 &[
                     // 15-byte struct
-                    0xCF,
+                    0xDF,
                     // FlexUInt symbol ID 4
                     0x09,
                     // 3-byte symbol
                     // ↓     f     o     o
-                    0x93, 0x66, 0x6F, 0x6F,
+                    0xA3, 0x66, 0x6F, 0x6F,
                     // FlexUInt symbol ID 5
                     0x0B,
                     // 3-byte symbol
                     // ↓     b     a     r
-                    0x93, 0x62, 0x61, 0x72,
+                    0xA3, 0x62, 0x61, 0x72,
                     // --------------------
                     // FlexUInt symbol ID 6
                     0x0D,
                     // 3-byte symbol
                     // ↓     b     a     z
-                    0x93, 0x62, 0x61, 0x7A,
+                    0xA3, 0x62, 0x61, 0x7A,
                 ],
             ),
             // Struct with single FlexSym field name
             (
                 &[field("foo", "bar")],
                 &[
-                    // 8-byte struct
-                    0xC9,
+                    // 9-byte struct
+                    0xD9,
                     // Enable FlexSym field name encoding
                     0x01,
                     // Inline 3-byte field name
@@ -2415,7 +2415,7 @@ mod tests {
                     0xFB, 0x66, 0x6F, 0x6F,
                     // 3-byte symbol
                     // ↓     b     a     r
-                    0x93, 0x62, 0x61, 0x72,
+                    0xA3, 0x62, 0x61, 0x72,
                 ],
             ),
             // Struct with multiple FlexSym field names
@@ -2423,7 +2423,7 @@ mod tests {
                 &[field("foo", "bar"), field("baz", "quux")],
                 &[
                     // Struct with FlexUInt length
-                    0xFC,
+                    0xFD,
                     // FlexUInt 18
                     0x25,
                     // Enable FlexSym field name encoding
@@ -2433,13 +2433,13 @@ mod tests {
                     0xFB, 0x66, 0x6F, 0x6F,
                     // 3-byte symbol
                     // ↓     b     a     r
-                    0x93, 0x62, 0x61, 0x72,
+                    0xA3, 0x62, 0x61, 0x72,
                     // Inline 3-byte field name
                     // ↓     b     a     z
                     0xFB, 0x62, 0x61, 0x7A,
                     // 4-byte symbol
                     // ↓     q     u     u     x
-                    0x94, 0x71, 0x75, 0x75, 0x78
+                    0xA4, 0x71, 0x75, 0x75, 0x78
                 ],
             ),
             // Struct with multiple FlexUInt field names followed by a FlexSym field name
@@ -2447,19 +2447,19 @@ mod tests {
                 &[field(4, "foo"), field(5, "bar"), field("quux", "quuz")],
                 &[
                     // Struct with FlexUInt length
-                    0xFC,
+                    0xFD,
                     // FlexUInt length 21 
                     0x2B,
                     // FlexUInt symbol ID 4
                     0x09,
                     // 3-byte symbol
                     // ↓     f     o     o
-                    0x93, 0x66, 0x6F, 0x6F,
+                    0xA3, 0x66, 0x6F, 0x6F,
                     // FlexUInt symbol ID 5
                     0x0B,
                     // 3-byte symbol
                     // ↓     b     a     r
-                    0x93, 0x62, 0x61, 0x72,
+                    0xA3, 0x62, 0x61, 0x72,
                     // Enable FlexSym field name encoding
                     0x01,
                     // Inline 4-byte field name
@@ -2467,7 +2467,7 @@ mod tests {
                     0xF9, 0x71, 0x75, 0x75, 0x78,
                     // 4-byte symbol
                     // ↓     q     u     u     z
-                    0x94, 0x71, 0x75, 0x75, 0x7A
+                    0xA4, 0x71, 0x75, 0x75, 0x7A
                 ],
             ),
         ];
@@ -2499,7 +2499,7 @@ mod tests {
                     0x09,
                     // 3-byte symbol
                     // ↓     f     o     o
-                    0x93, 0x66, 0x6F, 0x6F,
+                    0xA3, 0x66, 0x6F, 0x6F,
                     // End delimited struct
                     0x01, 0xF0,
                 ],
@@ -2514,18 +2514,18 @@ mod tests {
                     0x09,
                     // 3-byte symbol
                     // ↓     f     o     o
-                    0x93, 0x66, 0x6F, 0x6F,
+                    0xA3, 0x66, 0x6F, 0x6F,
                     // FlexUInt symbol ID 5
                     0x0B,
                     // 3-byte symbol
                     // ↓     b     a     r
-                    0x93, 0x62, 0x61, 0x72,
+                    0xA3, 0x62, 0x61, 0x72,
                     // --------------------
                     // FlexUInt symbol ID 6
                     0x0D,
                     // 3-byte symbol
                     // ↓     b     a     z
-                    0x93, 0x62, 0x61, 0x7A,
+                    0xA3, 0x62, 0x61, 0x7A,
                     // End delimited struct
                     0x01, 0xF0,
                 ],
@@ -2541,7 +2541,7 @@ mod tests {
                     0xFB, 0x66, 0x6F, 0x6F,
                     // 3-byte symbol
                     // ↓     b     a     r
-                    0x93, 0x62, 0x61, 0x72,
+                    0xA3, 0x62, 0x61, 0x72,
                     // End delimited struct
                     0x01, 0xF0,
                 ],
@@ -2557,13 +2557,13 @@ mod tests {
                     0xFB, 0x66, 0x6F, 0x6F,
                     // 3-byte symbol
                     // ↓     b     a     r
-                    0x93, 0x62, 0x61, 0x72,
+                    0xA3, 0x62, 0x61, 0x72,
                     // Inline 3-byte field name
                     // ↓     b     a     z
                     0xFB, 0x62, 0x61, 0x7A,
                     // 4-byte symbol
                     // ↓     q     u     u     x
-                    0x94, 0x71, 0x75, 0x75, 0x78,
+                    0xA4, 0x71, 0x75, 0x75, 0x78,
                     // End delimited struct
                     0x01, 0xF0,
                 ],
@@ -2578,18 +2578,18 @@ mod tests {
                     0x09,
                     // 3-byte symbol
                     // ↓     f     o     o
-                    0x93, 0x66, 0x6F, 0x6F,
+                    0xA3, 0x66, 0x6F, 0x6F,
                     // FlexUInt symbol ID 5
                     0x0B,
                     // 3-byte symbol
                     // ↓     b     a     r
-                    0x93, 0x62, 0x61, 0x72,
+                    0xA3, 0x62, 0x61, 0x72,
                     // Inline 4-byte field name
                     // ↓     q     u     u     x
                     0xF9, 0x71, 0x75, 0x75, 0x78,
                     // 4-byte symbol
                     // ↓     q     u     u     z
-                    0x94, 0x71, 0x75, 0x75, 0x7A,
+                    0xA4, 0x71, 0x75, 0x75, 0x7A,
                     // End delimited struct
                     0x01, 0xF0,
                 ],
@@ -2637,7 +2637,7 @@ mod tests {
             0.annotated_with(NO_ANNOTATIONS),
             &[
                 // Integer 0
-                0x50,
+                0x60,
             ],
         )?;
         case(
@@ -2645,7 +2645,7 @@ mod tests {
             &[
                 0xE7, // One FlexSym annotation follows
                 0x09, // FlexSym $4
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
         case(
@@ -2654,7 +2654,7 @@ mod tests {
                 0xE8, // Two FlexSym annotations follow
                 0x09, // FlexSym $4
                 0x0B, // FlexSym $5
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
         case(
@@ -2665,7 +2665,7 @@ mod tests {
                 0x09, // FlexSym $4
                 0x0B, // FlexSym $5
                 0x0D, // FlexSym $6
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
 
@@ -2676,7 +2676,7 @@ mod tests {
                 0xE7, // One FlexSym annotation follows
                 0xFB, // FlexSym: 3 UTF-8 bytes
                 0x66, 0x6F, 0x6F, // foo
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
         case(
@@ -2687,7 +2687,7 @@ mod tests {
                 0x66, 0x6F, 0x6F, // foo
                 0xFB, // FlexSym: 3 UTF-8 bytes
                 0x62, 0x61, 0x72, // bar
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
         case(
@@ -2701,7 +2701,7 @@ mod tests {
                 0x62, 0x61, 0x72, // bar
                 0xFB, // FlexSym: 3 UTF-8 bytes
                 0x62, 0x61, 0x7a, // baz
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
 
@@ -2714,7 +2714,7 @@ mod tests {
                 0x09, // FlexSym $4,
                 0xFB, // FlexSym: 3 UTF-8 bytes
                 0x66, 0x6F, 0x6F, // foo
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
         case(
@@ -2724,7 +2724,7 @@ mod tests {
                 0xFB, // FlexSym: 3 UTF-8 bytes
                 0x66, 0x6F, 0x6F, // foo
                 0x09, // FlexSym $4,
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
         case(
@@ -2741,7 +2741,7 @@ mod tests {
                 0x09, // FlexSym $4
                 0xFB, // FlexSym: 3 UTF-8 bytes
                 0x62, 0x61, 0x7a, // baz
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
         case(
@@ -2757,7 +2757,7 @@ mod tests {
                 0xFB, // FlexSym: 3 UTF-8 bytes
                 0x66, 0x6F, 0x6F, // foo
                 0x0B, // FlexSym $5
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
 
@@ -2767,11 +2767,11 @@ mod tests {
             &[
                 0xE8, // Two FlexSym annotations follow
                 0x01, // Opcode follows
-                0x80, // String of length 0
+                0x90, // String of length 0
                 0x01, // Opcode follows
                 0xE1, // 1-byte FixedUInt symbol ID follows
                 0x00, // Symbol ID 0
-                0x50, // Integer 0
+                0x60, // Integer 0
             ],
         )?;
 
@@ -2790,9 +2790,9 @@ mod tests {
             },
             &[
                 0x00, // Invoke macro address 0
-                0x93, 0x66, 0x6f, 0x6f, // foo
-                0x93, 0x62, 0x61, 0x72, // bar
-                0x93, 0x62, 0x61, 0x7a, // baz
+                0xA3, 0x66, 0x6f, 0x6f, // foo
+                0xA3, 0x62, 0x61, 0x72, // bar
+                0xA3, 0x62, 0x61, 0x7a, // baz
             ],
         )?;
         Ok(())

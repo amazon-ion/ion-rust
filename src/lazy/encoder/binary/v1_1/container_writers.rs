@@ -167,8 +167,8 @@ impl<'value, 'top> BinaryListWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
     ) -> Self {
-        const LENGTH_PREFIXED_LIST_TYPE_CODE: u8 = 0xA0;
-        const LENGTH_PREFIXED_FLEX_LEN_LIST_TYPE_CODE: u8 = 0xFA;
+        const LENGTH_PREFIXED_LIST_TYPE_CODE: u8 = 0xB0;
+        const LENGTH_PREFIXED_FLEX_LEN_LIST_TYPE_CODE: u8 = 0xFB;
         let container_writer = BinaryContainerWriter_1_1::new_length_prefixed(
             LENGTH_PREFIXED_LIST_TYPE_CODE,
             LENGTH_PREFIXED_FLEX_LEN_LIST_TYPE_CODE,
@@ -225,8 +225,8 @@ impl<'value, 'top> BinarySExpWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
     ) -> Self {
-        const LENGTH_PREFIXED_SEXP_TYPE_CODE: u8 = 0xB0;
-        const LENGTH_PREFIXED_FLEX_LEN_SEXP_TYPE_CODE: u8 = 0xFB;
+        const LENGTH_PREFIXED_SEXP_TYPE_CODE: u8 = 0xC0;
+        const LENGTH_PREFIXED_FLEX_LEN_SEXP_TYPE_CODE: u8 = 0xFC;
         let container_writer = BinaryContainerWriter_1_1::new_length_prefixed(
             LENGTH_PREFIXED_SEXP_TYPE_CODE,
             LENGTH_PREFIXED_FLEX_LEN_SEXP_TYPE_CODE,
@@ -278,8 +278,8 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
     ) -> Self {
-        const LENGTH_PREFIXED_STRUCT_TYPE_CODE: u8 = 0xC0;
-        const LENGTH_PREFIXED_FLEX_LEN_STRUCT_TYPE_CODE: u8 = 0xFC;
+        const LENGTH_PREFIXED_STRUCT_TYPE_CODE: u8 = 0xD0;
+        const LENGTH_PREFIXED_FLEX_LEN_STRUCT_TYPE_CODE: u8 = 0xFD;
         let container_writer = BinaryContainerWriter_1_1::new_length_prefixed(
             LENGTH_PREFIXED_STRUCT_TYPE_CODE,
             LENGTH_PREFIXED_FLEX_LEN_STRUCT_TYPE_CODE,

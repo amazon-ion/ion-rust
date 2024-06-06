@@ -56,33 +56,31 @@ impl Opcode {
         use OpcodeType::*;
 
         let (opcode_type, length_code, ion_type) = match (high_nibble, low_nibble) {
-            (0x5, 0x0..=0x8) => (Integer, low_nibble, Some(IonType::Int)),
-            (0x5, 0xA..=0xD) => (Float, low_nibble, Some(IonType::Float)),
-            (0x5, 0xE..=0xF) => (Boolean, low_nibble, Some(IonType::Bool)),
-            (0x6, _) => (Decimal, low_nibble, Some(IonType::Decimal)),
-            (0x7, 0x0..=0xC) => (TimestampShort, low_nibble, Some(IonType::Timestamp)),
-            (0x8, _) => (String, low_nibble, Some(IonType::String)),
-            (0x9, _) => (InlineSymbol, low_nibble, Some(IonType::Symbol)),
-            (0xA, _) => (List, low_nibble, Some(IonType::List)),
-            (0xB, _) => (SExpression, low_nibble, Some(IonType::SExp)),
-            (0xC, _) => (StructSymAddress, low_nibble, Some(IonType::Struct)),
-            (0xD, _) => (StructFlexSym, low_nibble, Some(IonType::Struct)),
+            (0x6, 0x0..=0x8) => (Integer, low_nibble, Some(IonType::Int)),
+            (0x6, 0xA..=0xD) => (Float, low_nibble, Some(IonType::Float)),
+            (0x6, 0xE..=0xF) => (Boolean, low_nibble, Some(IonType::Bool)),
+            (0x7, _) => (Decimal, low_nibble, Some(IonType::Decimal)),
+            (0x8, 0x0..=0xC) => (TimestampShort, low_nibble, Some(IonType::Timestamp)),
+            (0x9, _) => (String, low_nibble, Some(IonType::String)),
+            (0xA, _) => (InlineSymbol, low_nibble, Some(IonType::Symbol)),
+            (0xB, _) => (List, low_nibble, Some(IonType::List)),
+            (0xC, _) => (SExpression, low_nibble, Some(IonType::SExp)),
+            (0xD, _) => (Struct, low_nibble, Some(IonType::Struct)),
             (0xE, 0x0) => (IonVersionMarker, low_nibble, None),
             (0xE, 0x1..=0x3) => (SymbolAddress, low_nibble, Some(IonType::Symbol)),
             (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xB) => (TypedNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xC..=0xD) => (Nop, low_nibble, None),
-            (0xF, 0x5) => (LargeInteger, low_nibble, Some(IonType::Int)),
-            (0xF, 0x6) => (Decimal, 0xFF, Some(IonType::Decimal)),
-            (0xF, 0x8) => (String, 0xFF, Some(IonType::String)), // 0xFF indicates >15 byte string.
-            (0xF, 0x9) => (InlineSymbol, 0xFF, Some(IonType::Symbol)),
-            (0xF, 0xA) => (List, 0xFF, Some(IonType::List)),
-            (0xF, 0xB) => (SExpression, 0xFF, Some(IonType::SExp)),
-            (0xF, 0xC) => (StructSymAddress, 0xFF, Some(IonType::Struct)),
-            (0xF, 0xD) => (StructFlexSym, 0xFF, Some(IonType::Struct)),
+            (0xF, 0x6) => (LargeInteger, low_nibble, Some(IonType::Int)),
+            (0xF, 0x7) => (Decimal, 0xFF, Some(IonType::Decimal)),
+            (0xF, 0x8) => (TimestampLong, low_nibble, Some(IonType::Timestamp)),
+            (0xF, 0x9) => (String, 0xFF, Some(IonType::String)), // 0xFF indicates >15 byte string.
+            (0xF, 0xA) => (InlineSymbol, 0xFF, Some(IonType::Symbol)),
+            (0xF, 0xB) => (List, 0xFF, Some(IonType::List)),
+            (0xF, 0xC) => (SExpression, 0xFF, Some(IonType::SExp)),
+            (0xF, 0xD) => (Struct, 0xFF, Some(IonType::Struct)),
             (0xF, 0xE) => (Blob, low_nibble, Some(IonType::Blob)),
             (0xF, 0xF) => (Clob, low_nibble, Some(IonType::Clob)),
-            (0xF, 0x7) => (TimestampLong, low_nibble, Some(IonType::Timestamp)),
             _ => (Invalid, low_nibble, None),
         };
         Opcode {
@@ -159,8 +157,7 @@ impl Header {
                 InOpcode(ION_1_1_TIMESTAMP_SHORT_SIZE[self.length_code as usize])
             }
             (OpcodeType::TypedNull, _) => InOpcode(1),
-            (OpcodeType::StructSymAddress, n) if n < 16 => InOpcode(n),
-            (OpcodeType::StructFlexSym, n) if n < 16 => InOpcode(n),
+            (OpcodeType::Struct, n) if n < 16 => InOpcode(n),
             _ => FlexUIntFollows,
         }
     }

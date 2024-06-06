@@ -268,7 +268,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
                 // We have n bytes following that make up our integer.
                 self.input.consume(1).read_fixed_int(n)?.0.into()
             }
-            (OpcodeType::LargeInteger, 0x5) => {
+            (OpcodeType::LargeInteger, 0x6) => {
                 // We have a FlexUInt size, then big int.
                 let value_bytes = self.value_body()?;
                 FixedInt::read(value_bytes, value_bytes.len(), 0)?.into()

@@ -15,20 +15,18 @@ use crate::IonType;
 pub enum OpcodeType {
     EExpressionWithAddress,    // 0x00-0x4F -
     EExpressionAddressFollows, // 0x40-0x4F -
-    Integer,                   // 0x50-0x58 - Integer up to 8 bytes wide
-    Float,                     // 0x5A-0x5D -
-    Boolean,                   // 0x5E-0x5F -
-    Decimal,                   // 0x60-0x6F -
-    TimestampShort,            // 0x70-0x7F -
-    String,                    // 0x80-0x80 -
-    InlineSymbol,              // 0x90-0x9F -
-    List,                      // 0xA0-0xAF -
-    SExpression,               // 0xB0-0xBF -
-    StructEmpty,               // 0xC0      -
-    // reserved
-    StructSymAddress, // 0xC2-0xCF -
-    // reserved
-    StructFlexSym,    // 0xD2-0xDF -
+    Integer,                   // 0x60-0x68 - Integer up to 8 bytes wide
+    Float,                     // 0x6A-0x6D -
+    Boolean,                   // 0x6E-0x6F -
+    Decimal,                   // 0x70-0x7F -
+    TimestampShort,            // 0x80-0x8F -
+    String,                    // 0x90-0x9F -
+    InlineSymbol,              // 0xA0-0xAF -
+    List,                      // 0xB0-0xBF -
+    SExpression,               // 0xC0-0xCF -
+    StructEmpty,               // 0xD0      -
+    // 0xD1 reserved
+    Struct,           // 0xD2-0xDF -
     IonVersionMarker, // 0xE0      -
 
     SymbolAddress,        // 0xE1-0xE3 -
@@ -39,14 +37,21 @@ pub enum OpcodeType {
     Nop,                  // 0xEC-0xED -
     // Reserved
     SystemMacroInvoke, // 0xEF      -
-    // delimited container end
-    // delimited list start
-    // delimited s-expression start
-    LargeInteger,  // 0xF5 - Integer preceeded by FlexUInt length
-    Blob,          // 0xFE -
-    Clob,          // 0xFF -
-    TimestampLong, // 0xF7 - Long-form Timestamp
-    Invalid,       // Represents an encoded value that does not match a defined opcode.
+    // 0xF0 delimited container end
+    // 0xF1 delimited list start
+    // 0xF2 delimited s-expression start
+    // 0xF3 delimited struct start
+    LargeInteger, // 0xF6 - Integer preceded by FlexUInt length
+    Blob,         // 0xFE -
+    Clob,         // 0xFF -
+    // 0xF8 Long decimal
+    TimestampLong, // 0xF8 - Long-form Timestamp
+    // 0xF9 - Long string
+    // 0xFA - FlexSym symbol
+    // 0xFB - Long list
+    // 0xFC - Long sexp
+    // 0xFD - Long struct
+    Invalid, // Represents an encoded value that does not match a defined opcode.
 }
 
 impl TryFrom<OpcodeType> for IonType {
