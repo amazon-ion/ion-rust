@@ -1,8 +1,9 @@
 use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
-use crate::{Str, Symbol};
+use crate::{IonResult, Str, Symbol};
 use std::borrow::Borrow;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
+use crate::result::IonFailure;
 
 /// A reference to a fully resolved symbol. Like `Symbol` (a fully resolved symbol with a
 /// static lifetime), a `SymbolRef` may have known or undefined text (i.e. `$0`).
@@ -37,6 +38,13 @@ impl<'a> SymbolRef<'a> {
         match self.text {
             None => Symbol::unknown_text(),
             Some(text) => Symbol::owned(Str::from(text)),
+        }
+    }
+
+    pub fn expect_text(&self) -> IonResult<&str> {
+        match self.text() {
+            Some(text) => Ok(text),
+            None => IonResult::decoding_error("symbol has unknown text"),
         }
     }
 }

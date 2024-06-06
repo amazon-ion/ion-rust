@@ -114,7 +114,7 @@ impl Symbol {
         self.text.text()
     }
 
-    pub fn text_or_error(&self) -> IonResult<&str> {
+    pub fn expect_text(&self) -> IonResult<&str> {
         match self.text() {
             Some(text) => Ok(text),
             None => IonResult::decoding_error("symbol has unknown text"),
