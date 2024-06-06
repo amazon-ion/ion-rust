@@ -1,7 +1,7 @@
 use crate::lazy::decoder::{Decoder, HasRange, HasSpan};
 use crate::lazy::span::Span;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult};
+use crate::{AnyEncoding, IonEncoding, IonError, IonResult};
 use std::fmt::Debug;
 use std::ops::Range;
 
@@ -26,6 +26,17 @@ pub type LazyRawStreamItem<'top, D> = RawStreamItem<
     <D as Decoder>::Value<'top>,
     <D as Decoder>::EExp<'top>,
 >;
+
+impl<'top> LazyRawStreamItem<'top, AnyEncoding> {
+    pub fn encoding(&self) -> IonEncoding {
+        match self {
+            LazyRawStreamItem::<AnyEncoding>::VersionMarker(m) => m.encoding(),
+            LazyRawStreamItem::<AnyEncoding>::Value(v) => v.encoding(),
+            LazyRawStreamItem::<AnyEncoding>::EExpression(e) => e.encoding(),
+            LazyRawStreamItem::<AnyEncoding>::EndOfStream(eos) => eos.encoding(),
+        }
+    }
+}
 
 impl<M: Debug + HasRange, V: Debug + HasRange, E: Debug + HasRange> HasRange
     for RawStreamItem<M, V, E>
@@ -116,12 +127,17 @@ impl<M: Copy + Debug, V: Copy + Debug, E: Copy + Debug> RawStreamItem<M, V, E> {
 /// an `EndOfStream(EndPosition)` variant) to also implement them.
 #[derive(Debug, Copy, Clone)]
 pub struct EndPosition {
+    encoding: IonEncoding,
     position: usize,
 }
 
 impl EndPosition {
-    pub(crate) fn new(position: usize) -> Self {
-        Self { position }
+    pub(crate) fn new(encoding: IonEncoding, position: usize) -> Self {
+        Self { encoding, position }
+    }
+
+    pub fn encoding(&self) -> IonEncoding {
+        self.encoding
     }
 }
 

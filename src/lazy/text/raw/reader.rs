@@ -9,7 +9,7 @@ use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
 use crate::result::IonFailure;
-use crate::IonResult;
+use crate::{Encoding, IonResult};
 
 /// A text Ion 1.0 reader that yields [`LazyRawStreamItem`]s representing the top level values found
 /// in the provided input stream.
@@ -59,6 +59,7 @@ impl<'data> LazyRawTextReader_1_0<'data> {
             .with_context("reading whitespace/comments at the top level", input)?;
         if buffer_after_whitespace.is_empty() {
             return Ok(RawStreamItem::EndOfStream(EndPosition::new(
+                TextEncoding_1_0.encoding(),
                 buffer_after_whitespace.offset(),
             )));
         }

@@ -89,6 +89,18 @@ pub enum LazyRawAnyVersionMarkerKind<'top> {
     Binary_1_1(LazyRawBinaryVersionMarker_1_1<'top>),
 }
 
+impl<'top> LazyRawAnyVersionMarker<'top> {
+    pub fn encoding(&self) -> IonEncoding {
+        use crate::lazy::any_encoding::LazyRawAnyVersionMarkerKind::*;
+        match self.encoding {
+            Text_1_0(_) => TextEncoding_1_0.encoding(),
+            Binary_1_0(_) => BinaryEncoding_1_0.encoding(),
+            Text_1_1(_) => TextEncoding_1_1.encoding(),
+            Binary_1_1(_) => BinaryEncoding_1_1.encoding(),
+        }
+    }
+}
+
 impl<'top> HasSpan<'top> for LazyRawAnyVersionMarker<'top> {
     fn span(&self) -> Span<'top> {
         use LazyRawAnyVersionMarkerKind::*;
@@ -163,6 +175,16 @@ pub struct LazyRawAnyEExpression<'top> {
 pub enum LazyRawAnyEExpressionKind<'top> {
     Text_1_1(RawTextEExpression_1_1<'top>),
     Binary_1_1(Never), // TODO: RawBinaryEExpression_1_1
+}
+
+impl<'top> LazyRawAnyEExpression<'top> {
+    pub fn encoding(&self) -> IonEncoding {
+        use LazyRawAnyEExpressionKind::*;
+        match self.encoding {
+            Text_1_1(_) => TextEncoding_1_1.encoding(),
+            Binary_1_1(_) => BinaryEncoding_1_1.encoding(),
+        }
+    }
 }
 
 impl<'top> From<RawTextEExpression_1_1<'top>> for LazyRawAnyEExpression<'top> {
@@ -438,6 +460,16 @@ impl<'top> LazyRawAnyValue<'top> {
     #[cfg(feature = "experimental-tooling-apis")]
     pub fn kind(&self) -> LazyRawValueKind<'top> {
         self.encoding
+    }
+
+    pub fn encoding(&self) -> IonEncoding {
+        use LazyRawValueKind::*;
+        match &self.encoding {
+            Text_1_0(_) => TextEncoding_1_0.encoding(),
+            Binary_1_0(_) => BinaryEncoding_1_0.encoding(),
+            Text_1_1(_) => TextEncoding_1_1.encoding(),
+            Binary_1_1(_) => BinaryEncoding_1_1.encoding(),
+        }
     }
 }
 

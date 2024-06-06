@@ -66,9 +66,17 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         LazyValue { expanded_value }
     }
 
-    fn symbol_table(&'top self) -> &'top SymbolTable {
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub fn symbol_table(&'top self) -> &'top SymbolTable {
         self.expanded_value.context.symbol_table
     }
+
+    // When the `experimental-tooling-apis` feature is disabled, this method is `pub(crate)`
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    pub(crate) fn symbol_table(&'top self) -> &'top SymbolTable {
+        self.expanded_value.context.symbol_table
+    }
+
     /// Returns the [`IonType`] of this value.
     /// ```
     ///# use ion_rs::IonResult;
