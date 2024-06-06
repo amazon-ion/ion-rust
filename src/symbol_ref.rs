@@ -1,9 +1,9 @@
 use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
+use crate::result::IonFailure;
 use crate::{IonResult, Str, Symbol};
 use std::borrow::Borrow;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use crate::result::IonFailure;
 
 /// A reference to a fully resolved symbol. Like `Symbol` (a fully resolved symbol with a
 /// static lifetime), a `SymbolRef` may have known or undefined text (i.e. `$0`).
