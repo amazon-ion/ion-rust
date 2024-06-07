@@ -633,6 +633,15 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
+    pub fn has_annotations(&self) -> bool {
+        use ExpandedValueSource::*;
+        match &self.source {
+            ValueLiteral(value) => value.has_annotations(),
+            Template(_, element) => !element.annotations().is_empty(),
+            Constructed(annotations, _) => !annotations.is_empty(),
+        }
+    }
+
     pub fn annotations(&self) -> ExpandedAnnotationsIterator<'top, Encoding> {
         use ExpandedValueSource::*;
         match &self.source {

@@ -226,7 +226,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     }
 
     pub fn has_annotations(&self) -> bool {
-        self.expanded_value.annotations().next().is_some()
+        self.expanded_value.has_annotations()
     }
 
     /// Reads the body of this value (that is: its data) and returns it as a [`ValueRef`].
@@ -310,10 +310,14 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
 impl<'top, D: Decoder> TryFrom<LazyValue<'top, D>> for Element {
     type Error = IonError;
 
-    fn try_from(value: LazyValue<'top, D>) -> Result<Self, Self::Error> {
-        let annotations: Annotations = value.annotations().try_into()?;
-        let value: Value = value.read()?.try_into()?;
-        Ok(value.with_annotations(annotations))
+    fn try_from(lazy_value: LazyValue<'top, D>) -> Result<Self, Self::Error> {
+        let value: Value = lazy_value.read()?.try_into()?;
+        if lazy_value.has_annotations() {
+            let annotations: Annotations = lazy_value.annotations().try_into()?;
+            Ok(value.with_annotations(annotations))
+        } else {
+            Ok(value.into())
+        }
     }
 }
 

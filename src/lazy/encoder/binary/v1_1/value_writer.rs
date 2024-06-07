@@ -832,6 +832,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ion_data::IonEq;
     use crate::lazy::encoder::annotate::{Annotatable, Annotated};
     use crate::lazy::encoder::annotation_seq::AnnotationSeq;
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
@@ -841,9 +842,11 @@ mod tests {
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::types::float::{FloatRepr, SmallestFloatRepr};
     use crate::{
-        Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
+        v1_1, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
+        Writer,
     };
     use num_traits::FloatConst;
+    use rstest::rstest;
 
     fn encoding_test(
         test: impl FnOnce(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,
@@ -2795,6 +2798,115 @@ mod tests {
                 0xA3, 0x62, 0x61, 0x7a, // baz
             ],
         )?;
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::boolean("true false")]
+    #[case::int("1 2 3 4 5")]
+    #[case::float("2.5e0 -2.5e0 100.2e0 -100.2e0")]
+    // `nan` breaks this
+    // #[case::float_special("+inf -inf nan")]
+    #[case::decimal("2.5 -2.5 100.2 -100.2")]
+    #[case::decimal_zero("0. 0d0 -0d0 -0.0")]
+    #[case::timestamp_unknown_offset(
+        r#"
+            2024T
+            2024-06T
+            2024-06-07
+            2024-06-07T10:06-00:00
+            2024-06-07T10:06:30-00:00
+            2024-06-07T10:06:30.333-00:00
+        "#
+    )]
+    #[case::timestamp_utc(
+        r#"
+            2024-06-07T10:06Z
+            2024-06-07T10:06+00:00
+            2024-06-07T10:06:30Z
+            2024-06-07T10:06:30+00:00
+            2024-06-07T10:06:30.333Z
+            2024-06-07T10:06:30.333+00:00
+        "#
+    )]
+    // Offset gets mangled during round-tripping
+    // #[case::timestamp_known_offset(
+    //     r#"
+    //         2024-06-07T10:06+02:00
+    //         2024-06-07T10:06+01:00
+    //         2024-06-07T10:06-05:00
+    //         2024-06-07T10:06-08:00
+    //         2024-06-07T10:06:30+02:00
+    //         2024-06-07T10:06:30+01:00
+    //         2024-06-07T10:06:30-05:00
+    //         2024-06-07T10:06:30-08:00
+    //         2024-06-07T10:06:30.333+02:00
+    //         2024-06-07T10:06:30.333+01:00
+    //         2024-06-07T10:06:30.333-05:00
+    //         2024-06-07T10:06:30.333-08:00
+    //     "#
+    // )]
+    #[case::string(
+        r#"
+            ""
+            "hello"
+            "안녕하세요"
+            "⚛️"
+        "#
+    )]
+    // Requires annotations to create a symbol table
+    // #[case::symbol(
+    //     r#"
+    //         foo
+    //         'bar baz'
+    //     "#
+    // )]
+    #[case::symbol_unknown_text("$0")]
+    #[case::blob("{{}} {{aGVsbG8=}}")]
+    #[case::clob(r#"{{""}} {{"hello"}}"#)]
+    #[case::list(
+        r#"
+            []
+            [1, 2, 3]
+            [1, [2, 3], 4]
+        "#
+    )]
+    #[case::sexp(
+        r#"
+            ()
+            (1 2 3)
+            (1 (2 3) 4)
+        "#
+    )]
+    // Requires annotations to create a symbol table
+    // #[case::struct_(
+    //     r#"
+    //         {}
+    //         {a: 1, b: 2, c: 3}
+    //         {a: 1, b: {c: 2, d: 3}, e: 4}
+    //     "#
+    // )]
+    fn roundtripping(#[case] ion_data_1_0: &str) -> IonResult<()> {
+        let original_sequence = Element::read_all(ion_data_1_0)?;
+        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+        writer.write_all(&original_sequence)?;
+        let binary_data_1_1 = writer.close()?;
+        let output_sequence = Element::read_all(binary_data_1_1)?;
+        assert_eq!(
+            original_sequence,
+            output_sequence,
+            "(original, after roundtrip)\n{}",
+            original_sequence.iter().zip(output_sequence.iter()).fold(
+                String::new(),
+                |mut text, (before, after)| {
+                    use std::fmt::Write;
+                    let is_eq = before.ion_eq(after);
+                    let flag = if is_eq { "" } else { "<- not IonEq" };
+                    writeln!(&mut text, "({}, {}) {}", before, after, flag).unwrap();
+                    text
+                }
+            )
+        );
         Ok(())
     }
 }
