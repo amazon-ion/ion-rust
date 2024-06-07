@@ -158,30 +158,16 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// Returns an `ImmutableBuffer` that contains the bytes comprising this value's encoded
     /// annotations sequence.
     fn annotations_sequence(&self) -> ImmutableBuffer<'top> {
-        let offset_and_length = self
-            .encoded_value
-            .annotations_sequence_offset()
-            .map(|offset| {
-                (
-                    offset,
-                    self.encoded_value.annotations_sequence_length().unwrap(),
-                )
-            });
-        let (sequence_offset, sequence_length) = match offset_and_length {
-            None => {
-                // If there are no annotations, return an empty slice starting at the opcode.
-                return self.input.slice(0, 0);
-            }
-            Some(offset_and_length) => offset_and_length,
-        };
-        let local_sequence_offset = sequence_offset - self.input.offset();
-
-        self.input.slice(local_sequence_offset, sequence_length)
+        let sequence = self.input.slice(
+            self.encoded_value.annotations_header_length as usize,
+            self.encoded_value.annotations_sequence_length as usize
+        );
+        sequence
     }
 
     /// Returns an iterator over this value's unresolved annotation symbols.
     pub fn annotations(&self) -> RawBinaryAnnotationsIterator_1_1<'top> {
-        RawBinaryAnnotationsIterator_1_1::new(self.annotations_sequence())
+        RawBinaryAnnotationsIterator_1_1::new(self.annotations_sequence(), self.encoded_value.annotations_encoding)
     }
 
     /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,
@@ -217,7 +203,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     }
 
     /// Returns the encoded byte slice representing this value's data.
-    fn value_body(&self) -> IonResult<&'top [u8]> {
+    pub(crate) fn value_body(&self) -> IonResult<&'top [u8]> {
         let value_total_length = self.encoded_value.total_length();
         if self.input.len() < value_total_length {
             return IonResult::incomplete(
@@ -266,7 +252,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             (OpcodeType::Integer, 0x0) => 0.into(),
             (OpcodeType::Integer, n) => {
                 // We have n bytes following that make up our integer.
-                self.input.consume(1).read_fixed_int(n)?.0.into()
+                self.available_body().read_fixed_int(n)?.0.into()
             }
             (OpcodeType::LargeInteger, 0x6) => {
                 // We have a FlexUInt size, then big int.
@@ -285,14 +271,14 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         let value = match self.encoded_value.value_body_length {
             8 => {
                 let mut buffer = [0; 8];
-                let val_bytes = self.input.bytes_range(1, 8);
+                let val_bytes = self.available_body().bytes_range(0, 8);
                 buffer[..8].copy_from_slice(val_bytes);
 
                 f64::from_le_bytes(buffer)
             }
             4 => {
                 let mut buffer = [0; 4];
-                let val_bytes = self.input.bytes_range(1, 4);
+                let val_bytes = self.available_body().bytes_range(0, 4);
                 buffer[..4].copy_from_slice(val_bytes);
 
                 f32::from_le_bytes(buffer).into()
@@ -650,7 +636,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         let biases: [usize; 3] = [0, 256, 65792];
         let length_code = self.encoded_value.header.length_code;
         if (1..=3).contains(&length_code) {
-            let (id, _) = self.input.consume(1).read_fixed_uint(length_code.into())?;
+            let (id, _) = self.available_body().read_fixed_uint(length_code.into())?;
             let id = usize::try_from(id.value())?;
             Ok(id + biases[(length_code - 1) as usize])
         } else {

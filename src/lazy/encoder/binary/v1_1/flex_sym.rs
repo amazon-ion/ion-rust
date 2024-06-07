@@ -67,7 +67,7 @@ impl<'top> FlexSym<'top> {
         let sym_value = value.value();
         let (flex_sym_value, size_in_bytes) = match sym_value.cmp(&0) {
             Ordering::Greater => (
-                FlexSymValue::SymbolRef(RawSymbolRef::SymbolId(sym_value as usize)),
+                FlexSymValue::SymbolRef(SymbolId(sym_value as usize)),
                 value.size_in_bytes(),
             ),
             Ordering::Less => {
@@ -76,7 +76,7 @@ impl<'top> FlexSym<'top> {
                 let text = std::str::from_utf8(&input[flex_int_len..flex_int_len + len]).map_err(
                     |_| IonError::decoding_error("found FlexSym with invalid UTF-8 data"),
                 )?;
-                let symbol_ref = RawSymbolRef::Text(text);
+                let symbol_ref = Text(text);
                 (FlexSymValue::SymbolRef(symbol_ref), flex_int_len + len)
             }
             Ordering::Equal => (

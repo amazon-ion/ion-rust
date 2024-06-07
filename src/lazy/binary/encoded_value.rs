@@ -1,4 +1,5 @@
 use crate::lazy::binary::raw::type_descriptor::Header;
+use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
 use crate::IonType;
 use std::ops::Range;
 
@@ -77,7 +78,10 @@ pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
     // sequence itself.
     pub annotations_header_length: u8,
     // The number of bytes used to encode the series of symbol IDs inside the annotations wrapper.
-    pub annotations_sequence_length: u8,
+    pub annotations_sequence_length: u16,
+    // Whether the annotations sequence is encoded as `FlexSym`s or as symbol addresses.
+    // In Ion 1.0, they are always encoded as symbol addresses.
+    pub annotations_encoding: AnnotationsEncoding,
     // The offset of the type descriptor byte within the overall input stream.
     pub header_offset: usize,
     // The number of bytes used to encode the optional length VarUInt following the header byte.
@@ -237,6 +241,7 @@ mod tests {
     use crate::binary::IonTypeCode;
     use crate::lazy::binary::encoded_value::EncodedValue;
     use crate::lazy::binary::raw::type_descriptor::Header;
+    use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
     use crate::{IonResult, IonType};
 
     #[test]
@@ -250,6 +255,7 @@ mod tests {
             },
             annotations_header_length: 3,
             annotations_sequence_length: 1,
+            annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset: 200,
             length_length: 0,
             value_body_length: 3,

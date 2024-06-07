@@ -2804,11 +2804,14 @@ mod tests {
     #[rstest]
     #[case::boolean("true false")]
     #[case::int("1 2 3 4 5")]
+    #[case::annotated_int("foo::1 bar::baz::2 quux::quuz::waldo::3")]
     #[case::float("2.5e0 -2.5e0 100.2e0 -100.2e0")]
+    #[case::annotated_float("foo::2.5e0 bar::baz::-2.5e0 quux::quuz::waldo::100.2e0")]
     // `nan` breaks this
     // #[case::float_special("+inf -inf nan")]
     #[case::decimal("2.5 -2.5 100.2 -100.2")]
     #[case::decimal_zero("0. 0d0 -0d0 -0.0")]
+    #[case::annotated_decimal("foo::2.5 bar::baz::-2.5 quux::quuz::waldo::100.2")]
     #[case::timestamp_unknown_offset(
         r#"
             2024T
@@ -2846,6 +2849,13 @@ mod tests {
     //         2024-06-07T10:06:30.333-08:00
     //     "#
     // )]
+    #[case::annotated_timestamp(
+        r#"
+            foo::2024T
+            bar::baz::2024-06T
+            quux::quuz::waldo::2024-06-07T
+        "#
+    )]
     #[case::string(
         r#"
             ""
@@ -2854,21 +2864,55 @@ mod tests {
             "⚛️"
         "#
     )]
-    // Requires annotations to create a symbol table
-    // #[case::symbol(
-    //     r#"
-    //         foo
-    //         'bar baz'
-    //     "#
-    // )]
+    #[case::annotated_string(
+        r#"
+            foo::""
+            bar::baz::"안녕하세요"
+            quux::quuz::waldo::"⚛️"
+        "#
+    )]
+    #[case::symbol(
+        r#"
+            foo
+            'bar baz'
+        "#
+    )]
+    #[case::annotated_symbol(
+        r#"
+        foo::Earth
+        bar::baz::Mars
+        quux::quuz::waldo::Jupiter
+    "#
+    )]
     #[case::symbol_unknown_text("$0")]
     #[case::blob("{{}} {{aGVsbG8=}}")]
+    #[case::annotated_blob(
+        r#"
+            foo::{{}}
+            bar::baz::{{aGVsbG8=}}
+            quux::quuz::waldo::{{aGVsbG8=}}
+        "#
+    )]
     #[case::clob(r#"{{""}} {{"hello"}}"#)]
+    #[case::annotated_clob(
+        r#"
+            foo::{{""}}
+            bar::baz::{{"hello"}}
+            quux::quuz::waldo::{{"world"}}
+        "#
+    )]
     #[case::list(
         r#"
             []
             [1, 2, 3]
             [1, [2, 3], 4]
+        "#
+    )]
+    #[case::annotated_list(
+        r#"
+            foo::[]
+            bar::baz::[1, 2, 3]
+            quux::quuz::waldo::[1, nested::[2, 3], 4]
         "#
     )]
     #[case::sexp(
@@ -2878,14 +2922,27 @@ mod tests {
             (1 (2 3) 4)
         "#
     )]
-    // Requires annotations to create a symbol table
-    // #[case::struct_(
-    //     r#"
-    //         {}
-    //         {a: 1, b: 2, c: 3}
-    //         {a: 1, b: {c: 2, d: 3}, e: 4}
-    //     "#
-    // )]
+    #[case::annotated_sexp(
+        r#"
+            foo::()
+            bar::baz::(1 2 3)
+            quux::quuz::waldo::(1 nested::(2 3) 4)
+        "#
+    )]
+    #[case::struct_(
+        r#"
+            {}
+            {a: 1, b: 2, c: 3}
+            {a: 1, b: {c: 2, d: 3}, e: 4}
+        "#
+    )]
+    #[case::annotated_struct(
+        r#"
+            foo::{}
+            bar::baz::{a: 1, b: 2, c: 3}
+            quux::quuz::waldo::{a: 1, b: nested::{c: 2, d: 3}, e: 4}
+        "#
+    )]
     fn roundtripping(#[case] ion_data_1_0: &str) -> IonResult<()> {
         let original_sequence = Element::read_all(ion_data_1_0)?;
         let mut writer = Writer::new(v1_1::Binary, Vec::new())?;

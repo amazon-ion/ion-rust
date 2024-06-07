@@ -3,7 +3,7 @@ use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::raw::v1_1::value::{
     LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
 };
-use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, ION_1_1_OPCODES};
+use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, OpcodeType, ION_1_1_OPCODES};
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
@@ -173,12 +173,6 @@ impl<'a> ImmutableBuffer<'a> {
         Ok((flex_sym, remaining))
     }
 
-    /// Attempts to decode an annotations wrapper at the beginning of the buffer and returning
-    /// its subfields in an [`AnnotationsWrapper`].
-    pub fn read_annotations_wrapper(&self, _opcode: Opcode) -> ParseResult<'a, AnnotationsWrapper> {
-        todo!();
-    }
-
     /// Reads a `NOP` encoding primitive from the buffer. If it is successful, returns an `Ok(_)`
     /// containing the number of bytes that were consumed.
     ///
@@ -278,7 +272,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
     /// the next byte (`type_descriptor`) is not a NOP.
     pub fn read_value(self, opcode: Opcode) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
-        if opcode.is_annotation_wrapper() {
+        if opcode.is_annotations_sequence() {
             self.read_annotated_value(opcode)
         } else {
             self.read_value_without_annotations(opcode)
@@ -309,6 +303,7 @@ impl<'a> ImmutableBuffer<'a> {
             // If applicable, these are populated by the caller: `read_annotated_value()`
             annotations_header_length: 0,
             annotations_sequence_length: 0,
+            annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset,
             length_length,
             value_body_length: value_length,
@@ -340,19 +335,114 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads an annotations wrapper and its associated value from the buffer. The caller must confirm
     /// that the next byte in the buffer (`type_descriptor`) begins an annotations wrapper.
-    fn read_annotated_value(
+    fn read_annotated_value(self, opcode: Opcode) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+        let (annotations_seq, input_after_annotations) = self.read_annotations_sequence(opcode)?;
+        let opcode = input_after_annotations.peek_opcode()?;
+        let mut value = input_after_annotations.read_value_without_annotations(opcode)?;
+        value.encoded_value.annotations_header_length = annotations_seq.header_length;
+        value.encoded_value.annotations_sequence_length = annotations_seq.sequence_length;
+        value.encoded_value.annotations_encoding = annotations_seq.encoding;
+        value.encoded_value.total_length +=
+            annotations_seq.header_length as usize + annotations_seq.sequence_length as usize;
+        // Rewind the input to include the annotations sequence
+        value.input = self;
+        Ok(value)
+    }
+
+    fn read_annotations_sequence(self, opcode: Opcode) -> ParseResult<'a, EncodedAnnotations> {
+        match opcode.opcode_type {
+            OpcodeType::AnnotationFlexSym => self.read_flex_sym_annotations_sequence(opcode),
+            OpcodeType::SymbolAddress => self.read_symbol_address_annotations_sequence(opcode),
+            _ => unreachable!("read_annotations_sequence called for non-annotations opcode"),
+        }
+    }
+
+    fn read_flex_sym_annotations_sequence(
         self,
-        mut _type_descriptor: Opcode,
-    ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
-        todo!();
+        opcode: Opcode,
+    ) -> ParseResult<'a, EncodedAnnotations> {
+        let input_after_opcode = self.consume(1);
+        // TODO: This implementation actively reads the annotations, which isn't necessary.
+        //       At this phase of parsing we can just identify the buffer slice that contains
+        //       the annotations and remember their encoding; later on, the annotations iterator
+        //       can actually do the reading. That optimization would be impactful for FlexSyms
+        //       that represent inline text.
+        let (sequence, remaining_input) = match opcode.length_code {
+            7 => {
+                let (flex_sym, remaining_input) = input_after_opcode.read_flex_sym()?;
+                let sequence = EncodedAnnotations {
+                    encoding: AnnotationsEncoding::FlexSym,
+                    header_length: 1, // 0xE7
+                    sequence_length: u16::try_from(flex_sym.size_in_bytes()).map_err(|_| {
+                        IonError::decoding_error(
+                            "the maximum supported annotations sequence length is 65KB.",
+                        )
+                    })?,
+                };
+                (sequence, remaining_input)
+            }
+            8 => {
+                let (flex_sym1, input_after_sym1) = input_after_opcode.read_flex_sym()?;
+                let (flex_sym2, input_after_sym2) = input_after_sym1.read_flex_sym()?;
+                let combined_length = flex_sym1.size_in_bytes() + flex_sym2.size_in_bytes();
+                let sequence = EncodedAnnotations {
+                    encoding: AnnotationsEncoding::FlexSym,
+                    header_length: 1, // 0xE8
+                    sequence_length: u16::try_from(combined_length).map_err(|_| {
+                        IonError::decoding_error(
+                            "the maximum supported annotations sequence length is 65KB.",
+                        )
+                    })?,
+                };
+                (sequence, input_after_sym2)
+            }
+            9 => {
+                let (flex_uint, remaining_input) = input_after_opcode.read_flex_uint()?;
+                let sequence = EncodedAnnotations {
+                    encoding: AnnotationsEncoding::FlexSym,
+                    header_length: u8::try_from(1 + flex_uint.size_in_bytes()).map_err(|_| {
+                        IonError::decoding_error("found a 256+ byte annotations header")
+                    })?,
+                    sequence_length: u16::try_from(flex_uint.value()).map_err(|_| {
+                        IonError::decoding_error(
+                            "the maximum supported annotations sequence length is 65KB.",
+                        )
+                    })?,
+                };
+                (
+                    sequence,
+                    remaining_input.consume(sequence.sequence_length as usize),
+                )
+            }
+            _ => unreachable!("reading flexsym annotations sequence with invalid length code"),
+        };
+        Ok((sequence, remaining_input))
+    }
+
+    fn read_symbol_address_annotations_sequence(
+        self,
+        _opcode: Opcode,
+    ) -> ParseResult<'a, EncodedAnnotations> {
+        todo!()
     }
 }
 
-/// Represents the data found in an Ion 1.0 annotations wrapper.
-pub struct AnnotationsWrapper {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AnnotationsEncoding {
+    SymbolAddress,
+    FlexSym,
+}
+
+/// Represents the data found in an Ion 1.1 annotations sequence
+#[derive(Clone, Copy, Debug)]
+pub struct EncodedAnnotations {
+    pub encoding: AnnotationsEncoding,
+    // The number of bytes used to represent the annotations opcode and the byte length prefix
+    // (in the case of 0xE9). As a result, this will almost always be 1 or 2.
     pub header_length: u8,
-    pub sequence_length: u8,
-    pub expected_value_length: usize,
+    // The number of bytes used to represent the annotations sequence itself. Because these
+    // can be encoded with inline text, it's possible for the length to be non-trivial.
+    pub sequence_length: u16,
 }
 
 #[cfg(test)]

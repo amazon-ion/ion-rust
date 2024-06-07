@@ -68,6 +68,7 @@ impl Opcode {
             (0xD, _) => (Struct, low_nibble, Some(IonType::Struct)),
             (0xE, 0x0) => (IonVersionMarker, low_nibble, None),
             (0xE, 0x1..=0x3) => (SymbolAddress, low_nibble, Some(IonType::Symbol)),
+            (0xE, 0x7..=0x9) => (AnnotationFlexSym, low_nibble, None),
             (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xB) => (TypedNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xC..=0xD) => (Nop, low_nibble, None),
@@ -102,8 +103,11 @@ impl Opcode {
         self.opcode_type == OpcodeType::IonVersionMarker
     }
 
-    pub fn is_annotation_wrapper(&self) -> bool {
-        false
+    pub fn is_annotations_sequence(&self) -> bool {
+        match self.opcode_type {
+            OpcodeType::AnnotationSymAddress | OpcodeType::AnnotationFlexSym => true,
+            _ => false,
+        }
     }
 
     #[inline]
