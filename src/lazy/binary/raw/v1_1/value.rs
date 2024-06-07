@@ -84,6 +84,7 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
 pub struct LazyRawBinaryValue_1_1<'top> {
     pub(crate) encoded_value: EncodedValue<Header>,
     pub(crate) input: ImmutableBuffer<'top>,
+    pub(crate) delimited_offsets: Option<&'top [usize]>,
 }
 
 impl<'top> HasSpan<'top> for LazyRawBinaryValue_1_1<'top> {
@@ -204,6 +205,10 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             IonType::SExp => self.read_sexp(),
             IonType::Struct => self.read_struct(),
         }
+    }
+
+    pub fn is_delimited(&self) -> bool {
+        self.encoded_value.header.ion_type_code.is_delimited()
     }
 
     /// Returns the encoded byte slice representing this value's data.
