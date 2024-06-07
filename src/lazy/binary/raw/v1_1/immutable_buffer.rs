@@ -14,13 +14,14 @@ use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
-use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
+use crate::lazy::encoder::binary::v1_1::flex_sym::{FlexSym, FlexSymValue};
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::expanded::macro_table::MacroKind;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
 use crate::{v1_1, HasRange, IonError, IonResult};
+
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
@@ -247,7 +248,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// from the buffer to interpret as the value's length. If it is successful, returns an `Ok(_)`
     /// containing a [FlexUInt] representation of the value's length. If no additional bytes were
     /// read, the returned `FlexUInt`'s `size_in_bytes()` method will return `0`.
-    pub fn read_value_length(self, header: Header) -> ParseResult<'a, FlexUInt> {
+    pub fn read_value_length(self, header: Header) -> ParseResult<'a, Option<FlexUInt>> {
         let length = match header.length_type() {
             LengthType::InOpcode(n) => {
                 // FlexUInt represents the length, but is not physically present, hence the 0 size.
@@ -257,13 +258,14 @@ impl<'a> ImmutableBuffer<'a> {
                 let (flexuint, _) = self.read_flex_uint()?;
                 flexuint
             }
+            LengthType::Unknown => return Ok((None, self)),
         };
 
         let remaining = self;
 
         // TODO: Validate length to ensure it is a reasonable value.
 
-        Ok((length, remaining))
+        Ok((Some(length), remaining))
     }
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
@@ -275,26 +277,144 @@ impl<'a> ImmutableBuffer<'a> {
             return Ok(None);
         }
         let mut input = self;
-        let mut type_descriptor = input.peek_opcode()?;
+        let mut opcode = input.peek_opcode()?;
         // If we find a NOP...
-        if type_descriptor.is_nop() {
+        if opcode.is_nop() {
             // ...skip through NOPs until we found the next non-NOP byte.
-            (_, input) = self.consume_nop_padding(type_descriptor)?;
+            (_, input) = self.consume_nop_padding(opcode)?;
             // If there is no next byte, we're out of values.
             if input.is_empty() {
                 return Ok(None);
             }
             // Otherwise, there's a value.
-            type_descriptor = input.peek_opcode()?;
+            opcode = input.peek_opcode()?;
         }
-        if type_descriptor.is_e_expression() {
+        if opcode.is_e_expression() {
             return Ok(Some(RawValueExpr::EExp(
-                self.read_e_expression(type_descriptor)?,
+                self.read_e_expression(opcode)?,
             )));
         }
         Ok(Some(RawValueExpr::ValueLiteral(
-            input.read_value(type_descriptor)?,
+            input.read_value(opcode)?,
         )))
+    }
+
+    pub(crate) fn peek_delimited_container(
+        self,
+        opcode: Opcode,
+    ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+        use crate::IonType;
+
+        if let Some(IonType::Struct) = opcode.ion_type {
+            self.peek_delimited_struct()
+        } else {
+            self.peek_delimited_sequence()
+        }
+    }
+
+    pub(crate) fn peek_delimited_sequence(self) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+        let head_opcode = self.peek_opcode()?;
+
+        let mut input = self.consume(1);
+        let header_offset = input.offset();
+        let mut offsets = BumpVec::<usize>::new_in(self.context.allocator());
+
+        loop {
+            let opcode = input.peek_opcode()?;
+            if opcode.opcode_type == OpcodeType::DelimitedContainerClose {
+                offsets.push(input.offset());
+                break;
+            } else if opcode.opcode_type == OpcodeType::Nop {
+                let res = input.consume_nop_padding(opcode)?;
+                input = res.1;
+            } else if let Some(value) = ImmutableBuffer::peek_sequence_value_expr(input)? {
+                offsets.push(input.offset());
+                input = input.consume(value.range().len());
+            }
+        }
+
+        let header = head_opcode
+            .to_header()
+            .ok_or_else(|| IonError::decoding_error("found a non-value in value position"))?;
+
+        let value_body_length = *offsets.last().unwrap() - header_offset;
+        let total_length = 2 + value_body_length; // Opcode + Delimiter + Length
+
+        let encoded_value = EncodedValue {
+            header,
+            annotations_header_length: 0,
+            annotations_sequence_length: 0,
+            annotations_encoding: AnnotationsEncoding::SymbolAddress,
+            header_offset,
+            length_length: 0,
+            total_length,
+            value_body_length,
+        };
+        let lazy_value = LazyRawBinaryValue_1_1 {
+            encoded_value,
+            input: self,
+            delimited_offsets: Some(offsets.into_bump_slice()),
+        };
+        Ok(lazy_value)
+    }
+
+    pub(crate) fn peek_delimited_struct(self) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+        use crate::lazy::binary::raw::v1_1::OpcodeType;
+
+        let head_opcode = self.peek_opcode()?;
+        let mut input = self.consume(1);
+        let mut offsets = BumpVec::<usize>::new_in(self.context.allocator());
+        let header_offset = input.offset();
+
+        loop {
+            let opcode = input.peek_opcode()?;
+            if opcode.opcode_type == OpcodeType::DelimitedContainerClose {
+                offsets.push(input.offset());
+                break;
+            } else {
+                let (flexsym, after) = input.read_flex_sym()?;
+                let field_offset = match flexsym.value() {
+                    FlexSymValue::SymbolRef(_sym) => input.offset(),
+                    FlexSymValue::Opcode(_op) => todo!(),
+                };
+                input = after;
+
+                let mut opcode = input.peek_opcode()?;
+                if opcode.opcode_type == OpcodeType::Nop {
+                    let res = input.consume_nop_padding(opcode)?;
+                    input = res.1;
+                    opcode = input.peek_opcode()?;
+                }
+                let value = input.read_value(opcode)?;
+                input = input.consume(value.encoded_value.total_length());
+                offsets.push(field_offset);
+            }
+        }
+
+        let header = head_opcode
+            .to_header()
+            .ok_or_else(|| IonError::decoding_error("found a non-value in value position"))?;
+        let value_body_length = *offsets.last().unwrap() - header_offset;
+        let total_length = 2 + value_body_length;
+
+        let encoded_value = EncodedValue {
+            header,
+            annotations_header_length: 0,
+            annotations_sequence_length: 0,
+            annotations_encoding: AnnotationsEncoding::SymbolAddress,
+            header_offset,
+            length_length: 0,
+            total_length,
+            value_body_length,
+        };
+
+        let lazy_value = LazyRawBinaryValue_1_1 {
+            encoded_value,
+            input: self,
+            delimited_offsets: Some(offsets.into_bump_slice()),
+        };
+
+        Ok(lazy_value)
     }
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
@@ -311,38 +431,46 @@ impl<'a> ImmutableBuffer<'a> {
     /// the next byte (`type_descriptor`) is neither a NOP nor an annotations wrapper.
     fn read_value_without_annotations(
         self,
-        type_descriptor: Opcode,
+        opcode: Opcode,
     ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
         let input = self;
-        let header = type_descriptor
+        let header = opcode
             .to_header()
-            .ok_or_else(|| IonError::decoding_error("found a non-value in value position"))?;
+            .ok_or_else(|| IonError::decoding_error("found a non-value in value position .."))?;
 
-        let header_offset = input.offset();
-        let (length, _) = input.consume(1).read_value_length(header)?;
-        let length_length = length.size_in_bytes() as u8;
-        let value_length = length.value() as usize; // ha
-        let total_length = 1 // Header byte
+        if opcode.is_delimited() {
+            self.peek_delimited_container(opcode)
+        } else {
+            let header_offset = input.offset();
+            let length = match input.consume(1).read_value_length(header)? {
+                (None, _) => FlexUInt::new(0, 0), // Delimited value, we do not know the size.
+                (Some(length), _) => length,
+            };
+            let length_length = length.size_in_bytes() as u8;
+            let value_length = length.value() as usize; // ha
+            let total_length = 1 // Header byte
                 + length_length as usize
                 + value_length;
 
-        let encoded_value = EncodedValue {
-            header,
-            // If applicable, these are populated by the caller: `read_annotated_value()`
-            annotations_header_length: 0,
-            annotations_sequence_length: 0,
-            annotations_encoding: AnnotationsEncoding::SymbolAddress,
-            header_offset,
-            length_length,
-            value_body_length: value_length,
-            total_length,
-        };
-        let lazy_value = LazyRawBinaryValue_1_1 {
-            encoded_value,
-            // If this value has a field ID or annotations, this will be replaced by the caller.
-            input: self,
-        };
-        Ok(lazy_value)
+            let encoded_value = EncodedValue {
+                header,
+                // If applicable, these are populated by the caller: `read_annotated_value()`
+                annotations_header_length: 0,
+                annotations_sequence_length: 0,
+                annotations_encoding: AnnotationsEncoding::SymbolAddress,
+                header_offset,
+                length_length,
+                value_body_length: value_length,
+                total_length,
+            };
+            let lazy_value = LazyRawBinaryValue_1_1 {
+                encoded_value,
+                // If this value has a field ID or annotations, this will be replaced by the caller.
+                input: self,
+                delimited_offsets: None,
+            };
+            Ok(lazy_value)
+        }
     }
 
     pub fn read_fixed_int(self, length: usize) -> ParseResult<'a, FixedInt> {
