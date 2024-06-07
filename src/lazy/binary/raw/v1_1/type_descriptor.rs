@@ -104,10 +104,8 @@ impl Opcode {
     }
 
     pub fn is_annotations_sequence(&self) -> bool {
-        match self.opcode_type {
-            OpcodeType::AnnotationSymAddress | OpcodeType::AnnotationFlexSym => true,
-            _ => false,
-        }
+        use OpcodeType::*;
+        matches!(self.opcode_type, AnnotationSymAddress | AnnotationFlexSym)
     }
 
     #[inline]
