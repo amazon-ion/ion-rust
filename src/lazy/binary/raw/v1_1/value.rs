@@ -160,14 +160,17 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     fn annotations_sequence(&self) -> ImmutableBuffer<'top> {
         let sequence = self.input.slice(
             self.encoded_value.annotations_header_length as usize,
-            self.encoded_value.annotations_sequence_length as usize
+            self.encoded_value.annotations_sequence_length as usize,
         );
         sequence
     }
 
     /// Returns an iterator over this value's unresolved annotation symbols.
     pub fn annotations(&self) -> RawBinaryAnnotationsIterator_1_1<'top> {
-        RawBinaryAnnotationsIterator_1_1::new(self.annotations_sequence(), self.encoded_value.annotations_encoding)
+        RawBinaryAnnotationsIterator_1_1::new(
+            self.annotations_sequence(),
+            self.encoded_value.annotations_encoding,
+        )
     }
 
     /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,
