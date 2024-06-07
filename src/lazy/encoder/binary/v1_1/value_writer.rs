@@ -313,8 +313,8 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         // Compute the offset, its width in bits, and how that will affect the opcode and encoded length.
         let (num_offset_bits, offset_value, opcode_adjustment, length_adjustment) =
             match value.offset() {
-                None => (1, 1, 0, 0), // Unknown offset uses a single bit (1); opcode and length stay the same.
-                Some(0) => (1, 0, 0, 0), // UTC uses a single bit (0); opcode and length stay the same.
+                None => (1, 0, 0, 0), // Unknown offset uses a single bit (0); opcode and length stay the same.
+                Some(0) => (1, 1, 0, 0), // UTC uses a single bit (1); opcode and length stay the same.
                 Some(offset_minutes) => {
                     // Bump the opcode to the one the corresponds to the same precision/scale but with a known offset
                     let opcode_adjustment = 5;
@@ -1159,17 +1159,17 @@ mod tests {
             (
                 "2024-06-01T08:00Z",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_0000],
+                &[0x83, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_1000],
             ),
             (
                 "2024-06-15T12:30Z",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_0011],
+                &[0x83, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_1011],
             ),
             (
                 "2024-06-30T16:45Z",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_0101],
+                &[0x83, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_1101],
             ),
             //
             // === Hour & Minute @ Unknown Offset ===
@@ -1177,17 +1177,17 @@ mod tests {
             (
                 "2024-06-01T08:00-00:00",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_1000],
+                &[0x83, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_0000],
             ),
             (
                 "2024-06-15T12:30-00:00",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_1011],
+                &[0x83, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_0011],
             ),
             (
                 "2024-06-30T16:45-00:00",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_1101],
+                &[0x83, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_0101],
             ),
             //
             // === Second @ UTC ===
@@ -1199,7 +1199,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_0000, // ssss_Ummm
+                    0b0000_1000, // ssss_Ummm
                     0b0000_0000, // ...._..ss
                 ],
             ),
@@ -1210,7 +1210,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_0011, // ssss_Ummm
+                    0b1110_1011, // ssss_Ummm
                     0b0000_0001, // ...._..ss
                 ],
             ),
@@ -1221,7 +1221,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_0101, // ssss_Ummm
+                    0b1101_1101, // ssss_Ummm
                     0b0000_0010, // ...._..ss
                 ],
             ),
@@ -1235,7 +1235,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_1000, // ssss_Ummm
+                    0b0000_0000, // ssss_Ummm
                     0b0000_0000, // ...._..ss
                 ],
             ),
@@ -1246,7 +1246,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_1011, // ssss_Ummm
+                    0b1110_0011, // ssss_Ummm
                     0b0000_0001, // ...._..ss
                 ],
             ),
@@ -1257,7 +1257,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_1101, // ssss_Ummm
+                    0b1101_0101, // ssss_Ummm
                     0b0000_0010, // ...._..ss
                 ],
             ),
@@ -1271,7 +1271,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_0000, // ssss_Ummm
+                    0b0000_1000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1283,7 +1283,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_0011, // ssss_Ummm
+                    0b1110_1011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1295,7 +1295,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_0101, // ssss_Ummm
+                    0b1101_1101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1310,7 +1310,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_1000, // ssss_Ummm
+                    0b0000_0000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1322,7 +1322,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_1011, // ssss_Ummm
+                    0b1110_0011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1334,7 +1334,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_1101, // ssss_Ummm
+                    0b1101_0101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1349,7 +1349,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_0000, // ssss_Ummm
+                    0b0000_1000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1362,7 +1362,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_0011, // ssss_Ummm
+                    0b1110_1011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1375,7 +1375,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_0101, // ssss_Ummm
+                    0b1101_1101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1391,7 +1391,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_1000, // ssss_Ummm
+                    0b0000_0000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1404,7 +1404,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_1011, // ssss_Ummm
+                    0b1110_0011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1417,7 +1417,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_1101, // ssss_Ummm
+                    0b1101_0101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1433,7 +1433,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_0000, // ssss_Ummm
+                    0b0000_1000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -1447,7 +1447,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_0011, // ssss_Ummm
+                    0b1110_1011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -1461,7 +1461,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_0101, // ssss_Ummm
+                    0b1101_1101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -1478,7 +1478,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_1000, // ssss_Ummm
+                    0b0000_0000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -1492,7 +1492,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_1011, // ssss_Ummm
+                    0b1110_0011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -1506,7 +1506,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_1101, // ssss_Ummm
+                    0b1101_0101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
