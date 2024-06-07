@@ -335,7 +335,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         const MICROSECONDS_MASK_32BIT: u32 = 0x3F_FF_FC_00;
 
         let length_code = self.encoded_value.header.length_code();
-        // An offset bit of `0` indicates UTC while a `1` indicates 'unknown'
+        // An offset bit of `1` indicates UTC while a `0` indicates 'unknown'
         let is_utc = (value_bytes[3] & 0x08) == 0x08;
 
         // Hour & Minute (populated from [`Self::read_timestamp_short`]), just need to know if UTC.
