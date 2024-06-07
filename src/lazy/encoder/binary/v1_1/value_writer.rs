@@ -255,8 +255,8 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     pub fn write_timestamp(mut self, value: &Timestamp) -> IonResult<()> {
         use crate::TimestampPrecision::*;
 
-        const MIN_OFFSET: i32 = -14 * 60; // Western hemisphere, 14:00
-        const MAX_OFFSET: i32 = 14 * 60; // Eastern hemisphere, -14:00
+        const MIN_OFFSET: i32 = -14 * 60; // Western hemisphere, -14:00
+        const MAX_OFFSET: i32 = 14 * 60; // Eastern hemisphere, 14:00
         const SHORT_FORM_OFFSET_RANGE: std::ops::RangeInclusive<i32> = MIN_OFFSET..=MAX_OFFSET;
 
         let precision = value.precision();
@@ -2807,8 +2807,7 @@ mod tests {
     #[case::annotated_int("foo::1 bar::baz::2 quux::quuz::waldo::3")]
     #[case::float("2.5e0 -2.5e0 100.2e0 -100.2e0")]
     #[case::annotated_float("foo::2.5e0 bar::baz::-2.5e0 quux::quuz::waldo::100.2e0")]
-    // `nan` breaks this
-    // #[case::float_special("+inf -inf nan")]
+    #[case::float_special("+inf -inf nan")]
     #[case::decimal("2.5 -2.5 100.2 -100.2")]
     #[case::decimal_zero("0. 0d0 -0d0 -0.0")]
     #[case::annotated_decimal("foo::2.5 bar::baz::-2.5 quux::quuz::waldo::100.2")]
@@ -2832,23 +2831,22 @@ mod tests {
             2024-06-07T10:06:30.333+00:00
         "#
     )]
-    // Offset gets mangled during round-tripping
-    // #[case::timestamp_known_offset(
-    //     r#"
-    //         2024-06-07T10:06+02:00
-    //         2024-06-07T10:06+01:00
-    //         2024-06-07T10:06-05:00
-    //         2024-06-07T10:06-08:00
-    //         2024-06-07T10:06:30+02:00
-    //         2024-06-07T10:06:30+01:00
-    //         2024-06-07T10:06:30-05:00
-    //         2024-06-07T10:06:30-08:00
-    //         2024-06-07T10:06:30.333+02:00
-    //         2024-06-07T10:06:30.333+01:00
-    //         2024-06-07T10:06:30.333-05:00
-    //         2024-06-07T10:06:30.333-08:00
-    //     "#
-    // )]
+    #[case::timestamp_known_offset(
+        r#"
+            2024-06-07T10:06+02:00
+            2024-06-07T10:06+01:00
+            2024-06-07T10:06-05:00
+            2024-06-07T10:06-08:00
+            2024-06-07T10:06:30+02:00
+            2024-06-07T10:06:30+01:00
+            2024-06-07T10:06:30-05:00
+            2024-06-07T10:06:30-08:00
+            2024-06-07T10:06:30.333+02:00
+            2024-06-07T10:06:30.333+01:00
+            2024-06-07T10:06:30.333-05:00
+            2024-06-07T10:06:30.333-08:00
+        "#
+    )]
     #[case::annotated_timestamp(
         r#"
             foo::2024T
@@ -2944,14 +2942,16 @@ mod tests {
         "#
     )]
     fn roundtripping(#[case] ion_data_1_0: &str) -> IonResult<()> {
+        // This test uses application-level readers and writers to do its roundtripping. This means
+        // that tests involving annotations, symbol values, or struct field names will produce a
+        // symbol table.
         let original_sequence = Element::read_all(ion_data_1_0)?;
         let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
         writer.write_all(&original_sequence)?;
         let binary_data_1_1 = writer.close()?;
         let output_sequence = Element::read_all(binary_data_1_1)?;
-        assert_eq!(
-            original_sequence,
-            output_sequence,
+        assert!(
+            original_sequence.ion_eq(&output_sequence),
             "(original, after roundtrip)\n{}",
             original_sequence.iter().zip(output_sequence.iter()).fold(
                 String::new(),

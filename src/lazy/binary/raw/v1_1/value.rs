@@ -320,7 +320,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         Ok(RawValueRef::Decimal(decimal))
     }
 
-    // Helper method callsed by [`Self::read_timestamp_short`]. Reads the time information from a
+    // Helper method called by [`Self::read_timestamp_short`]. Reads the time information from a
     // timestamp with Unknown or UTC offset.
     fn read_timestamp_short_no_offset_after_minute(
         &self,
@@ -332,7 +332,8 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         const MICROSECONDS_MASK_32BIT: u32 = 0x3F_FF_FC_00;
 
         let length_code = self.encoded_value.header.length_code();
-        let is_utc = (value_bytes[3] & 0x08) == 0x08;
+        // An offset bit of `0` indicates UTC while a `1` indicates 'unknown'
+        let is_utc = (value_bytes[3] & 0x08) == 0;
 
         // Hour & Minute (populated from [`Self::read_timestamp_short`]), just need to know if UTC.
         if length_code == 3 {
@@ -422,10 +423,8 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         // Read offset as 15min multiple
         let offset: u16 = u16::from_le_bytes(value_bytes[3..=4].try_into().unwrap())
             .extract_bitmask(OFFSET_MASK_16BIT);
-        // The 7th bit is our sign bit, below we extend it through the rest of the i32, and
-        // multiply by 15 to get the number of minutes.
-        //    https://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
-        let offset: i32 = 15 * (offset as i32 ^ 0x040).wrapping_sub(0x040);
+        const MIN_OFFSET: i32 = -14 * 60; // Western hemisphere, -14:00
+        let offset: i32 = ((offset as i32) * 15) + MIN_OFFSET;
 
         // Hour and Minutes at known offset
         if length_code == 8 {
