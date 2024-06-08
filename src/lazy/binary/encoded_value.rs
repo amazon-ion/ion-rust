@@ -7,7 +7,7 @@ pub(crate) trait EncodedHeader: Copy {
     type TypeCode;
     fn ion_type(&self) -> IonType;
     fn type_code(&self) -> Self::TypeCode;
-    fn length_code(&self) -> u8;
+    fn low_nibble(&self) -> u8;
 
     fn is_null(&self) -> bool;
 }
@@ -23,7 +23,7 @@ impl EncodedHeader for Header {
         self.ion_type_code
     }
 
-    fn length_code(&self) -> u8 {
+    fn low_nibble(&self) -> u8 {
         self.length_code
     }
 

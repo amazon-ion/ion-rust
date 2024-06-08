@@ -185,10 +185,10 @@ impl<'a> ImmutableBuffer<'a> {
         let opcode = self.peek_opcode()?;
 
         // We need to determine the size of the nop..
-        let (size, remaining) = if opcode.length_code == 0xC {
+        let (size, remaining) = if opcode.low_nibble() == 0xC {
             // Size 0; the nop is contained entirely within the OpCode.
             (0, self.consume(1))
-        } else if opcode.length_code == 0xD {
+        } else if opcode.low_nibble() == 0xD {
             // We have a flexuint telling us how long our nop is.
             let after_header = self.consume(1);
             let (len, rest) = after_header.read_flex_uint()?;
@@ -367,7 +367,7 @@ impl<'a> ImmutableBuffer<'a> {
         //       the annotations and remember their encoding; later on, the annotations iterator
         //       can actually do the reading. That optimization would be impactful for FlexSyms
         //       that represent inline text.
-        let (sequence, remaining_input) = match opcode.length_code {
+        let (sequence, remaining_input) = match opcode.low_nibble() {
             7 => {
                 let (flex_sym, remaining_input) = input_after_opcode.read_flex_sym()?;
                 let sequence = EncodedAnnotations {
