@@ -108,6 +108,10 @@ impl Opcode {
         matches!(self.opcode_type, AnnotationSymAddress | AnnotationFlexSym)
     }
 
+    pub fn low_nibble(&self) -> u8 {
+        self.low_nibble
+    }
+
     #[inline]
     pub fn to_header(self) -> Option<Header> {
         let ion_type = self.ion_type?;
