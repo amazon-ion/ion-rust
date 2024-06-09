@@ -158,10 +158,11 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// Returns an `ImmutableBuffer` that contains the bytes comprising this value's encoded
     /// annotations sequence.
     fn annotations_sequence(&self) -> ImmutableBuffer<'top> {
-        let sequence = self.input.slice(
-            self.encoded_value.annotations_header_length as usize,
-            self.encoded_value.annotations_sequence_length as usize,
-        );
+        let annotations_header_length = self.encoded_value.annotations_header_length as usize;
+        let sequence_length = self.encoded_value.annotations_sequence_length as usize;
+        let sequence = self
+            .input
+            .slice(annotations_header_length - sequence_length, sequence_length);
         sequence
     }
 

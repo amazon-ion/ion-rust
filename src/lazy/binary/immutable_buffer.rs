@@ -746,7 +746,7 @@ impl<'a> ImmutableBuffer<'a> {
             );
         }
 
-        lazy_value.encoded_value.annotations_header_length = wrapper.header_length;
+        lazy_value.encoded_value.annotations_header_length = wrapper.header_length as u16;
         lazy_value.encoded_value.annotations_sequence_length = wrapper.sequence_length as u16;
         lazy_value.encoded_value.total_length += wrapper.header_length as usize;
         // Modify the input to include the annotations

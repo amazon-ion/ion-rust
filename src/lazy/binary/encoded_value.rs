@@ -76,7 +76,7 @@ pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
     // value. If `annotations` is empty, `annotations_header_length` will be zero. The annotations
     // wrapper contains several fields: an opcode, a wrapper length, a sequence length, and the
     // sequence itself.
-    pub annotations_header_length: u8,
+    pub annotations_header_length: u16,
     // The number of bytes used to encode the series of symbol IDs inside the annotations wrapper.
     pub annotations_sequence_length: u16,
     // Whether the annotations sequence is encoded as `FlexSym`s or as symbol addresses.

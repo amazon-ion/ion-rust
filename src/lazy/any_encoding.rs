@@ -11,6 +11,7 @@ use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
 use crate::lazy::binary::raw::sequence::{
     LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0, RawBinarySequenceIterator_1_0,
 };
+use crate::lazy::binary::raw::v1_1::e_expression::RawBinaryEExpression_1_1;
 use crate::lazy::binary::raw::v1_1::r#struct::{
     LazyRawBinaryFieldName_1_1, LazyRawBinaryStruct_1_1, RawBinaryStructIterator_1_1,
 };
@@ -33,7 +34,6 @@ use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, TextEncoding_1_0, TextEncoding_1_1,
 };
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
-use crate::lazy::never::Never;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
@@ -174,7 +174,7 @@ pub struct LazyRawAnyEExpression<'top> {
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawAnyEExpressionKind<'top> {
     Text_1_1(RawTextEExpression_1_1<'top>),
-    Binary_1_1(Never), // TODO: RawBinaryEExpression_1_1
+    Binary_1_1(RawBinaryEExpression_1_1<'top>),
 }
 
 impl<'top> LazyRawAnyEExpression<'top> {
@@ -418,7 +418,7 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
             Text_1_0(r) => Ok(r.next(allocator)?.into()),
             Binary_1_0(r) => Ok(r.next()?.into()),
             Text_1_1(r) => Ok(r.next(allocator)?.into()),
-            Binary_1_1(r) => Ok(r.next()?.into()),
+            Binary_1_1(r) => Ok(r.next(allocator)?.into()),
         }
     }
 

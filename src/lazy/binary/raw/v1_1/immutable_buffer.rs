@@ -4,15 +4,19 @@ use crate::lazy::binary::raw::v1_1::value::{
     LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
 };
 use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, OpcodeType, ION_1_1_OPCODES};
+use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
+use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult};
+use crate::{v1_1, IonError, IonResult};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
+
+use bumpalo::Bump as BumpAllocator;
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
@@ -21,7 +25,7 @@ use std::ops::Range;
 /// and a copy of the `ImmutableBuffer` that starts _after_ the bytes that were parsed.
 ///
 /// Methods that `peek` at the input stream do not return a copy of the buffer.
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ImmutableBuffer<'a> {
     // `data` is a slice of remaining data in the larger input stream.
     // `offset` is the position in the overall input stream where that slice begins.
@@ -32,6 +36,7 @@ pub struct ImmutableBuffer<'a> {
     //                          offset: 6
     data: &'a [u8],
     offset: usize,
+    allocator: &'a BumpAllocator,
 }
 
 impl<'a> Debug for ImmutableBuffer<'a> {
@@ -49,12 +54,20 @@ pub(crate) type ParseResult<'a, T> = IonResult<(T, ImmutableBuffer<'a>)>;
 impl<'a> ImmutableBuffer<'a> {
     /// Constructs a new `ImmutableBuffer` that wraps `data`.
     #[inline]
-    pub fn new(data: &[u8]) -> ImmutableBuffer {
-        Self::new_with_offset(data, 0)
+    pub fn new(allocator: &'a BumpAllocator, data: &'a [u8]) -> ImmutableBuffer<'a> {
+        Self::new_with_offset(allocator, data, 0)
     }
 
-    pub fn new_with_offset(data: &[u8], offset: usize) -> ImmutableBuffer {
-        ImmutableBuffer { data, offset }
+    pub fn new_with_offset(
+        allocator: &'a BumpAllocator,
+        data: &'a [u8],
+        offset: usize,
+    ) -> ImmutableBuffer<'a> {
+        ImmutableBuffer {
+            data,
+            offset,
+            allocator,
+        }
     }
 
     /// Returns a slice containing all of the buffer's bytes.
@@ -75,6 +88,7 @@ impl<'a> ImmutableBuffer<'a> {
         ImmutableBuffer {
             data: self.bytes_range(offset, length),
             offset: self.offset + offset,
+            allocator: self.allocator,
         }
     }
 
@@ -119,6 +133,7 @@ impl<'a> ImmutableBuffer<'a> {
         Self {
             data: &self.data[num_bytes_to_consume..],
             offset: self.offset + num_bytes_to_consume,
+            allocator: self.allocator,
         }
     }
 
@@ -143,7 +158,7 @@ impl<'a> ImmutableBuffer<'a> {
 
         match bytes {
             [0xE0, major, minor, 0xEA] => {
-                let matched = ImmutableBuffer::new_with_offset(bytes, self.offset);
+                let matched = ImmutableBuffer::new_with_offset(self.allocator, bytes, self.offset);
                 let marker = LazyRawBinaryVersionMarker_1_1::new(matched, *major, *minor);
                 Ok((marker, self.consume(IVM.len())))
             }
@@ -249,7 +264,9 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
-    pub(crate) fn peek_sequence_value(self) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
+    pub(crate) fn peek_sequence_value_expr(
+        self,
+    ) -> IonResult<Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -266,7 +283,12 @@ impl<'a> ImmutableBuffer<'a> {
             // Otherwise, there's a value.
             type_descriptor = input.peek_opcode()?;
         }
-        Ok(Some(input.read_value(type_descriptor)?))
+        if type_descriptor.is_e_expression() {
+            return self.read_e_expression(type_descriptor);
+        }
+        Ok(Some(RawValueExpr::ValueLiteral(
+            input.read_value(type_descriptor)?,
+        )))
     }
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
@@ -339,11 +361,12 @@ impl<'a> ImmutableBuffer<'a> {
         let (annotations_seq, input_after_annotations) = self.read_annotations_sequence(opcode)?;
         let opcode = input_after_annotations.peek_opcode()?;
         let mut value = input_after_annotations.read_value_without_annotations(opcode)?;
-        value.encoded_value.annotations_header_length = annotations_seq.header_length;
+        let total_annotations_length =
+            annotations_seq.header_length as usize + annotations_seq.sequence_length as usize;
+        value.encoded_value.annotations_header_length = total_annotations_length as u16;
         value.encoded_value.annotations_sequence_length = annotations_seq.sequence_length;
         value.encoded_value.annotations_encoding = annotations_seq.encoding;
-        value.encoded_value.total_length +=
-            annotations_seq.header_length as usize + annotations_seq.sequence_length as usize;
+        value.encoded_value.total_length += total_annotations_length;
         // Rewind the input to include the annotations sequence
         value.input = self;
         Ok(value)
@@ -425,6 +448,17 @@ impl<'a> ImmutableBuffer<'a> {
     ) -> ParseResult<'a, EncodedAnnotations> {
         todo!()
     }
+
+    fn read_e_expression(
+        self,
+        opcode: Opcode,
+    ) -> IonResult<Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
+        if opcode.opcode_type == OpcodeType::EExpressionWithAddress {
+            let _macro_id = MacroIdRef::LocalAddress(opcode.byte as usize);
+            // TODO: Add allocator reference to `ImmutableBuffer` so we can cache the arguments
+        }
+        todo!()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -450,7 +484,8 @@ mod tests {
     use super::*;
 
     fn input_test<A: AsRef<[u8]>>(input: A) {
-        let input = ImmutableBuffer::new(input.as_ref());
+        let allocator = BumpAllocator::new();
+        let input = ImmutableBuffer::new(&allocator, input.as_ref());
         // We can peek at the first byte...
         assert_eq!(input.peek_next_byte(), Some(b'f'));
         // ...without modifying the input. Looking at the next 3 bytes still includes 'f'.
@@ -485,12 +520,12 @@ mod tests {
     fn validate_nop_length() {
         // read_nop_pad reads a single NOP value, this test ensures that we're tracking the right
         // size for these values.
-
-        let buffer = ImmutableBuffer::new(&[0xECu8]);
+        let allocator = BumpAllocator::new();
+        let buffer = ImmutableBuffer::new(&allocator, &[0xECu8]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 1);
 
-        let buffer = ImmutableBuffer::new(&[0xEDu8, 0x05, 0x00, 0x00]);
+        let buffer = ImmutableBuffer::new(&allocator, &[0xEDu8, 0x05, 0x00, 0x00]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 4);
     }

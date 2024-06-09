@@ -34,6 +34,7 @@ use crate::lazy::text::value::{
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
 
+use crate::lazy::binary::raw::v1_1::e_expression::RawBinaryEExpression_1_1;
 use crate::{IonResult, TextFormat, WriteConfig};
 
 /// Marker trait for types that represent an Ion encoding.
@@ -242,11 +243,11 @@ impl Decoder for BinaryEncoding_1_1 {
     type Value<'top> = LazyRawBinaryValue_1_1<'top>;
     type SExp<'top> = LazyRawBinarySExp_1_1<'top>;
     type List<'top> = LazyRawBinaryList_1_1<'top>;
-    type FieldName<'top> = LazyRawBinaryFieldName_1_1<'top>;
     type Struct<'top> = LazyRawBinaryStruct_1_1<'top>;
+    type FieldName<'top> = LazyRawBinaryFieldName_1_1<'top>;
     type AnnotationsIterator<'top> = RawBinaryAnnotationsIterator_1_1<'top>;
     // TODO: implement macros in 1.1
-    type EExp<'top> = Never;
+    type EExp<'top> = RawBinaryEExpression_1_1<'top>;
     type VersionMarker<'top> = LazyRawBinaryVersionMarker_1_1<'top>;
 }
 
