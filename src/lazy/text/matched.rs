@@ -131,7 +131,7 @@ impl<'top> MatchedFieldName<'top> {
     }
 
     pub fn read(&self) -> IonResult<RawSymbolRef<'top>> {
-        self.syntax.read(self.input.context.allocator, self.input)
+        self.syntax.read(self.input.context.allocator(), self.input)
     }
 
     pub fn range(&self) -> Range<usize> {
@@ -1223,7 +1223,7 @@ impl MatchedClob {
 mod tests {
 
     use crate::lazy::bytes_ref::BytesRef;
-    use crate::lazy::expanded::EncodingContextRef;
+    use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
     use crate::lazy::text::buffer::TextBufferView;
     use crate::{Decimal, Int, IonResult, Timestamp};
 
@@ -1231,7 +1231,8 @@ mod tests {
     fn read_ints() -> IonResult<()> {
         fn expect_int(data: &str, expected: impl Into<Int>) {
             let expected: Int = expected.into();
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
             let buffer = TextBufferView::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_int().unwrap();
             let actual = matched.read(buffer).unwrap();
@@ -1265,7 +1266,8 @@ mod tests {
     fn read_timestamps() -> IonResult<()> {
         fn expect_timestamp(data: &str, expected: Timestamp) {
             let data = format!("{data} "); // Append a space
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
             let buffer = TextBufferView::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_timestamp().unwrap();
             let actual = matched.read(buffer).unwrap();
@@ -1367,7 +1369,8 @@ mod tests {
     #[test]
     fn read_decimals() -> IonResult<()> {
         fn expect_decimal(data: &str, expected: Decimal) {
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
             let buffer = TextBufferView::new(context, data.as_bytes());
             let result = buffer.match_decimal();
             assert!(
@@ -1422,10 +1425,11 @@ mod tests {
     fn read_blobs() -> IonResult<()> {
         fn expect_blob(data: &str, expected: &str) {
             let data = format!("{data} "); // Append a space
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
             let buffer = TextBufferView::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_blob().unwrap();
-            let actual = matched.read(context.allocator, buffer).unwrap();
+            let actual = matched.read(context.allocator(), buffer).unwrap();
             assert_eq!(
                 actual,
                 expected.as_ref(),
@@ -1460,11 +1464,12 @@ mod tests {
             // stream so the parser knows that the long-form strings are complete. We then trim
             // our fabricated value off of the input before reading.
             let data = format!("{data}\n0");
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
             let buffer = TextBufferView::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_string().unwrap();
             let matched_input = buffer.slice(0, buffer.len() - 2);
-            let actual = matched.read(context.allocator, matched_input).unwrap();
+            let actual = matched.read(context.allocator(), matched_input).unwrap();
             assert_eq!(
                 actual, expected,
                 "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
@@ -1505,7 +1510,7 @@ mod tests {
             // call to `match_clob()`.
             let (_remaining, matched) = buffer.match_clob().unwrap();
             // The resulting buffer slice may be rejected during reading.
-            matched.read(context.allocator, buffer)
+            matched.read(context.allocator(), buffer)
         }
 
         fn expect_clob_error(context: EncodingContextRef, data: &str) {
@@ -1564,7 +1569,8 @@ mod tests {
             ("{{\"foo\rbar\rbaz\"}}", "foo\rbar\rbaz"),
         ];
 
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         for (input, expected) in tests {
             expect_clob(context, input, expected);
         }

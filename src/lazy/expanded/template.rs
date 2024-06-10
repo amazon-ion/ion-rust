@@ -203,7 +203,7 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
                     // to the top of the loop.
                     let invoked_macro = self
                         .context
-                        .macro_table
+                        .macro_table()
                         .macro_at_address(body_invocation.invoked_macro_address)
                         .unwrap();
                     let invocation = TemplateMacroInvocation::new(
@@ -317,7 +317,7 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
             TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
                 let invoked_macro = self
                     .context
-                    .macro_table
+                    .macro_table()
                     .macro_at_address(body_invocation.invoked_macro_address)
                     .unwrap();
                 let invocation = TemplateMacroInvocation::new(
@@ -636,7 +636,7 @@ impl TemplateBodyMacroInvocation {
         context: EncodingContextRef<'top>,
     ) -> TemplateMacroInvocation<'top> {
         let invoked_macro = context
-            .macro_table
+            .macro_table()
             .macro_at_address(self.invoked_macro_address)
             .unwrap();
 

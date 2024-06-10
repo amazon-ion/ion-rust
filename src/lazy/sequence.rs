@@ -110,7 +110,7 @@ impl<'top, D: Decoder> LazyList<'top, D> {
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {
             expanded_annotations: self.expanded_list.annotations(),
-            symbol_table: self.expanded_list.context.symbol_table,
+            symbol_table: self.expanded_list.context.symbol_table(),
         }
     }
 }
@@ -259,7 +259,7 @@ impl<'top, D: Decoder> LazySExp<'top, D> {
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {
             expanded_annotations: self.expanded_sexp.annotations(),
-            symbol_table: self.expanded_sexp.context.symbol_table,
+            symbol_table: self.expanded_sexp.context.symbol_table(),
         }
     }
 }

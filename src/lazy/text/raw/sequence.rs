@@ -1,4 +1,5 @@
 #![allow(non_camel_case_types)]
+
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
@@ -301,13 +302,13 @@ impl<'a> Debug for LazyRawTextSExp_1_0<'a> {
 mod tests {
     use std::ops::Range;
 
+    use crate::lazy::expanded::EncodingContext;
     use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
     use crate::IonResult;
 
-    use crate::lazy::expanded::EncodingContextRef;
-
     fn expect_sequence_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
         let value = reader.next(context)?.expect_value()?;
         let actual_range = value.data_range();

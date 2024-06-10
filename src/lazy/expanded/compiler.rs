@@ -506,15 +506,15 @@ impl TemplateCompiler {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::lazy::expanded::compiler::TemplateCompiler;
-    use crate::lazy::expanded::macro_table::MacroTable;
     use crate::lazy::expanded::template::{
         ExprRange, TemplateBodyMacroInvocation, TemplateBodyValueExpr,
         TemplateBodyVariableReference, TemplateMacro, TemplateValue,
     };
-    use crate::lazy::expanded::EncodingContext;
-    use crate::{Int, IntoAnnotations, IonResult, Symbol, SymbolTable};
-    use std::collections::HashMap;
+    use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
+    use crate::{Int, IntoAnnotations, IonResult, Symbol};
 
     // This function only looks at the value portion of the TemplateElement. To compare annotations,
     // see the `expect_annotations` method.
@@ -602,26 +602,18 @@ mod tests {
     }
 
     struct TestResources {
-        macro_table: MacroTable,
-        symbol_table: SymbolTable,
-        allocator: bumpalo::Bump,
+        context: EncodingContext,
     }
 
     impl TestResources {
         fn new() -> Self {
             Self {
-                macro_table: MacroTable::new(),
-                symbol_table: SymbolTable::new(),
-                allocator: bumpalo::Bump::new(),
+                context: EncodingContext::empty(),
             }
         }
 
-        fn context(&self) -> EncodingContext {
-            EncodingContext {
-                macro_table: &self.macro_table,
-                symbol_table: &self.symbol_table,
-                allocator: &self.allocator,
-            }
+        fn context(&self) -> EncodingContextRef {
+            self.context.get_ref()
         }
     }
 

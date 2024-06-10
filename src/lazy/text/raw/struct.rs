@@ -158,12 +158,13 @@ mod tests {
     use std::ops::Range;
 
     use crate::lazy::decoder::{HasRange, HasSpan, LazyRawStruct, LazyRawValue};
-    use crate::lazy::expanded::EncodingContextRef;
+    use crate::lazy::expanded::EncodingContext;
     use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
     use crate::IonResult;
 
     fn expect_struct_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
         let value = reader.next(context)?.expect_value()?;
         let actual_range = value.data_range();
@@ -230,7 +231,8 @@ mod tests {
             ),
         ];
         for (input, field_name_ranges) in tests {
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
             let mut reader = LazyRawTextReader_1_0::new(input.as_bytes());
             let struct_ = reader
                 .next(context)?

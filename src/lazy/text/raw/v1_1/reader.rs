@@ -741,6 +741,7 @@ impl<'top> TextStructSpanFinder_1_1<'top> {
 
 #[cfg(test)]
 mod tests {
+    use crate::lazy::expanded::EncodingContext;
     use crate::lazy::raw_value_ref::RawValueRef;
 
     use super::*;
@@ -775,7 +776,8 @@ mod tests {
             false
        "#;
 
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let reader = &mut LazyRawTextReader_1_1::new(data.as_bytes());
 
         // $ion_1_1

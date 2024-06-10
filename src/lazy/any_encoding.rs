@@ -1464,6 +1464,7 @@ mod tests {
     use crate::lazy::any_encoding::LazyRawAnyReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::decoder::{LazyRawReader, LazyRawSequence, LazyRawValue};
+    use crate::lazy::expanded::EncodingContext;
     use crate::lazy::raw_stream_item::LazyRawStreamItem;
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::{IonResult, RawSymbolRef, Timestamp};
@@ -1473,7 +1474,8 @@ mod tests {
     #[test]
     fn any_encoding() -> IonResult<()> {
         fn test_input(data: &[u8]) -> IonResult<()> {
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
 
             let mut reader = LazyRawAnyReader::new(data);
             assert_eq!(reader.next(context)?.expect_ivm()?.version(), (1, 0));

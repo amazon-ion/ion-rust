@@ -476,21 +476,18 @@ impl<'a> ImmutableBuffer<'a> {
             .ok_or_else(|| {
                 IonError::decoding_error(format!("invocation of unknown macro '{macro_id:?}'"))
             })?;
-        // TODO: The macro table should have a Signature on file for each of the system macros too.
-        //       For now, we simply say how many arguments to expect.
         use MacroKind::*;
         let num_parameters = match macro_def.kind() {
-            Void => 0,
-            Values => 1,
-            MakeString => 1,
             Template(t) => t.signature().parameters().len(),
+            // Many system macros like `values`, `make_string`, etc take a variadic number of args.
+            _ => todo!("system macros require support for argument group encoding"),
         };
 
         let mut args_buffer = buffer_after_id;
-        let mut args_cache = self
+        let args_cache = self
             .context
-            .allocator
-            .alloc_with(|| BumpVec::with_capacity_in(num_parameters, self.context.allocator));
+            .allocator()
+            .alloc_with(|| BumpVec::with_capacity_in(num_parameters, self.context.allocator()));
         for _ in 0..num_parameters {
             let value_expr = match buffer_after_id.peek_sequence_value_expr()? {
                 Some(expr) => expr,
@@ -539,9 +536,11 @@ pub struct EncodedAnnotations {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lazy::expanded::EncodingContext;
 
     fn input_test<A: AsRef<[u8]>>(input: A) {
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let input = ImmutableBuffer::new(context, input.as_ref());
         // We can peek at the first byte...
         assert_eq!(input.peek_next_byte(), Some(b'f'));
@@ -577,7 +576,8 @@ mod tests {
     fn validate_nop_length() {
         // read_nop_pad reads a single NOP value, this test ensures that we're tracking the right
         // size for these values.
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let buffer = ImmutableBuffer::new(context, &[0xECu8]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 1);
@@ -585,5 +585,12 @@ mod tests {
         let buffer = ImmutableBuffer::new(context, &[0xEDu8, 0x05, 0x00, 0x00]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 4);
+    }
+
+    #[test]
+    fn read_e_expressions() {
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
+        // let eexp =
     }
 }

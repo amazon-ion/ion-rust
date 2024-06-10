@@ -1,15 +1,14 @@
 #![allow(non_camel_case_types)]
 
+use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::decoder::{Decoder, LazyRawReader, RawValueExpr, RawVersionMarker};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::result::IonFailure;
 use crate::{Encoding, HasRange, IonResult};
-
-use crate::lazy::any_encoding::IonEncoding;
-use crate::lazy::expanded::EncodingContextRef;
 
 pub struct LazyRawBinaryReader_1_1<'data> {
     input: &'data [u8],
@@ -140,11 +139,12 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
 
 #[cfg(test)]
 mod tests {
+    use rstest::*;
+
     use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
-    use crate::lazy::expanded::EncodingContextRef;
+    use crate::lazy::expanded::EncodingContext;
     use crate::raw_symbol_ref::RawSymbolRef;
     use crate::{IonResult, IonType};
-    use rstest::*;
 
     #[test]
     fn nop() -> IonResult<()> {
@@ -157,7 +157,8 @@ mod tests {
             0xEA, // null.null
         ];
 
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next(context)?.expect_ivm()?;
 
@@ -180,7 +181,8 @@ mod tests {
             0x6E, // true
             0x6F, // false
         ];
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next(context)?.expect_ivm()?;
 
@@ -223,7 +225,8 @@ mod tests {
             // Integer: 147573952589676412929
             0xF6, 0x13, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
         ];
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next(context)?.expect_ivm()?;
 
@@ -273,7 +276,8 @@ mod tests {
             0xF9, 0x31, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65, 0x20, 0x6C, 0x65,
             0x6E, 0x67, 0x74, 0x68, 0x20, 0x65, 0x6E, 0x63, 0x6f, 0x64, 0x69, 0x6E, 0x67,
         ];
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next(context)?.expect_ivm()?;
 
@@ -343,7 +347,8 @@ mod tests {
             // Symbol ID: 65,793
             0xE3, 0x01, 0x00, 0x00,
         ];
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next(context)?.expect_ivm()?;
 
@@ -423,7 +428,8 @@ mod tests {
             // 3.141592653589793 (double-precision)
             0x6D, 0x18, 0x2D, 0x44, 0x54, 0xFB, 0x21, 0x09, 0x40,
         ];
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next(context)?.expect_ivm()?;
 
@@ -514,7 +520,8 @@ mod tests {
     fn decimals(#[case] expected_txt: &str, #[case] ion_data: &[u8]) -> IonResult<()> {
         use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
         use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
 
         let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
         let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
@@ -559,7 +566,8 @@ mod tests {
         use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
         use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
 
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
         let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
 
@@ -592,7 +600,8 @@ mod tests {
         use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
         use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
 
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
         let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
 
@@ -624,7 +633,8 @@ mod tests {
         use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
         use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
 
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
         let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
 
@@ -651,7 +661,8 @@ mod tests {
             0x75, 0x72, 0x20, 0x63, 0x75, 0x72, 0x69, 0x6f, 0x73, 0x69, 0x74, 0x79,
         ];
 
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next(context)?.expect_ivm()?;
 
@@ -679,7 +690,8 @@ mod tests {
             0x75, 0x72, 0x20, 0x63, 0x75, 0x72, 0x69, 0x6f, 0x73, 0x69, 0x74, 0x79,
         ];
 
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next(context)?.expect_ivm()?;
 
@@ -752,7 +764,8 @@ mod tests {
         ];
 
         for (ion_data, expected_types) in tests {
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
             let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
             let container = reader
                 .next(context)?
@@ -808,7 +821,8 @@ mod tests {
         ];
 
         for (ion_data, expected_types) in tests {
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
             let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
             let container = reader
                 .next(context)?
@@ -846,7 +860,8 @@ mod tests {
         ];
 
         for (data, expected_type) in data {
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
             let mut reader = LazyRawBinaryReader_1_1::new(&data);
             let actual_type = reader
                 .next(context)?
@@ -962,7 +977,8 @@ mod tests {
         ];
 
         for (ion_data, field_pairs) in tests {
-            let context = EncodingContextRef::unit_test_context();
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
             let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
             let actual_data = reader
                 .next(context)?

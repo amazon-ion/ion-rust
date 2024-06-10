@@ -68,13 +68,13 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
 
     #[cfg(feature = "experimental-tooling-apis")]
     pub fn symbol_table(&self) -> &SymbolTable {
-        self.expanded_value.context.symbol_table
+        self.expanded_value.context.symbol_table()
     }
 
     // When the `experimental-tooling-apis` feature is disabled, this method is `pub(crate)`
     #[cfg(not(feature = "experimental-tooling-apis"))]
     pub(crate) fn symbol_table(&self) -> &SymbolTable {
-        self.expanded_value.context.symbol_table
+        self.expanded_value.context.symbol_table()
     }
 
     /// Returns the [`IonType`] of this value.
@@ -221,7 +221,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {
             expanded_annotations: self.expanded_value.annotations(),
-            symbol_table: self.expanded_value.context.symbol_table,
+            symbol_table: self.expanded_value.context.symbol_table(),
         }
     }
 
@@ -275,7 +275,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
                     RawSymbolRef::SymbolId(sid) => self
                         .expanded_value
                         .context
-                        .symbol_table
+                        .symbol_table()
                         .symbol_for(sid)
                         .ok_or_else(|| {
                             IonError::decoding_error(format!(

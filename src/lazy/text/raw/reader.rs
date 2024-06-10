@@ -126,6 +126,7 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
 #[cfg(test)]
 mod tests {
     use crate::lazy::decoder::{HasRange, HasSpan, LazyRawFieldName, LazyRawStruct, LazyRawValue};
+    use crate::lazy::expanded::EncodingContext;
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{Decimal, IonType, RawSymbolRef, Timestamp};
@@ -473,7 +474,8 @@ mod tests {
 
     #[test]
     fn ranges_and_spans() -> IonResult<()> {
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let data = b"foo 2024T bar::38 [1, 2, 3]";
         let mut reader = LazyRawTextReader_1_0::new(data);
 

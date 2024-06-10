@@ -432,7 +432,7 @@ mod tests {
 
     use crate::lazy::any_encoding::AnyEncoding;
     use crate::lazy::decoder::{Decoder, LazyRawValue};
-    use crate::lazy::expanded::EncodingContextRef;
+    use crate::lazy::expanded::EncodingContext;
     use crate::lazy::raw_stream_item::LazyRawStreamItem;
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
@@ -464,7 +464,8 @@ mod tests {
 
     #[test]
     fn read_empty_slice() -> IonResult<()> {
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let ion = "";
         let mut reader = StreamingRawReader::new(AnyEncoding, ion.as_bytes());
         // We expect `Ok(EndOfStream)`, not `Err(Incomplete)`.
@@ -473,7 +474,8 @@ mod tests {
     }
 
     fn read_example_stream(input: impl IonInput) -> IonResult<()> {
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = StreamingRawReader::new(AnyEncoding, input);
         expect_string(reader.next(context)?, "foo")?;
         expect_string(reader.next(context)?, "bar")?;
@@ -520,7 +522,8 @@ mod tests {
     const INVALID_EXAMPLE_STREAM: &str = "2024-03-12T16:33.000-05:"; // Missing offset minutes
 
     fn read_invalid_example_stream(input: impl IonInput) -> IonResult<()> {
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = StreamingRawReader::new(AnyEncoding, input);
         let result = reader.next(context);
         // Because the input stream is exhausted, the incomplete value is illegal data and raises
@@ -567,7 +570,8 @@ mod tests {
         }
         // This guarantees that there are several intermediate reading states in which the buffer
         // contains incomplete data that could be misinterpreted by a reader.
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let mut reader = StreamingRawReader::new(v1_0::Text, IonStream::new(input));
 
         assert_eq!(reader.next(context)?.expect_ivm()?.version(), (1, 0));

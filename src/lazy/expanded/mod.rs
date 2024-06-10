@@ -90,18 +90,18 @@ pub mod template;
 //  happens to be available in the buffer OR the set that leads up to the next encoding directive.
 //  The value proposition of being able to lazily explore multiple top level values concurrently
 //  would need to be proved out first.
-#[derive(Copy, Clone, Debug)]
-pub struct EncodingContext<'top> {
-    pub(crate) macro_table: &'top MacroTable,
-    pub(crate) symbol_table: &'top SymbolTable,
-    pub(crate) allocator: &'top BumpAllocator,
+#[derive(Debug)]
+pub struct EncodingContext {
+    pub(crate) macro_table: MacroTable,
+    pub(crate) symbol_table: SymbolTable,
+    pub(crate) allocator: BumpAllocator,
 }
 
-impl<'top> EncodingContext<'top> {
+impl EncodingContext {
     pub fn new(
-        macro_table: &'top MacroTable,
-        symbol_table: &'top SymbolTable,
-        allocator: &'top BumpAllocator,
+        macro_table: MacroTable,
+        symbol_table: SymbolTable,
+        allocator: BumpAllocator,
     ) -> Self {
         Self {
             macro_table,
@@ -110,18 +110,22 @@ impl<'top> EncodingContext<'top> {
         }
     }
 
-    pub fn get_ref(&'top self) -> EncodingContextRef<'top> {
+    pub fn empty() -> Self {
+        Self::new(MacroTable::new(), SymbolTable::new(), BumpAllocator::new())
+    }
+
+    pub fn get_ref(&self) -> EncodingContextRef {
         EncodingContextRef { context: self }
     }
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct EncodingContextRef<'top> {
-    context: &'top EncodingContext<'top>,
+    context: &'top EncodingContext,
 }
 
 impl<'top> EncodingContextRef<'top> {
-    pub fn new(context: &'top EncodingContext<'top>) -> Self {
+    pub fn new(context: &'top EncodingContext) -> Self {
         Self { context }
     }
 
@@ -129,19 +133,24 @@ impl<'top> EncodingContextRef<'top> {
     pub fn unit_test_context() -> EncodingContextRef<'static> {
         // For the sake of the unit tests, make a dummy encoding context with no lifetime
         // constraints.
-        let macro_table_ref: &'static MacroTable = Box::leak(Box::new(MacroTable::new()));
-        let symbol_table_ref: &'static SymbolTable = Box::leak(Box::new(SymbolTable::new()));
-        let allocator_ref: &'static BumpAllocator = Box::leak(Box::new(BumpAllocator::new()));
-        let empty_context: EncodingContext<'static> =
-            EncodingContext::new(macro_table_ref, symbol_table_ref, allocator_ref);
-        let context: EncodingContextRef<'static> =
-            EncodingContextRef::new(Box::leak(Box::new(empty_context)));
-        context
+        EncodingContextRef::new(Box::leak(Box::new(EncodingContext::empty())))
+    }
+
+    pub fn allocator(&self) -> &'top BumpAllocator {
+        &self.context.allocator
+    }
+
+    pub fn symbol_table(&self) -> &'top SymbolTable {
+        &self.context.symbol_table
+    }
+
+    pub fn macro_table(&self) -> &'top MacroTable {
+        &self.context.macro_table
     }
 }
 
 impl<'top> Deref for EncodingContextRef<'top> {
-    type Target = EncodingContext<'top>;
+    type Target = EncodingContext;
 
     fn deref(&self) -> &Self::Target {
         self.context
@@ -229,12 +238,7 @@ pub struct ExpandingReader<Encoding: Decoder, Input: IonInput> {
     // Holds information found in symbol tables and encoding directives (TODO) that can be applied
     // to the encoding context the next time the reader is between top-level expressions.
     pending_lst: UnsafeCell<PendingLst>,
-    // A bump allocator that is cleared between top-level expressions.
-    allocator: UnsafeCell<BumpAllocator>,
-    // TODO: Make the symbol and macro tables traits on `Encoding` such that they can be configured
-    //       statically. Then 1.0 types can use `Never` for the macro table.
-    symbol_table: UnsafeCell<SymbolTable>,
-    macro_table: UnsafeCell<MacroTable>,
+    encoding_context: UnsafeCell<EncodingContext>,
     catalog: Box<dyn Catalog>,
 }
 
@@ -246,10 +250,8 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         Self {
             raw_reader: raw_reader.into(),
             evaluator_ptr: None.into(),
-            allocator: BumpAllocator::new().into(),
+            encoding_context: EncodingContext::empty().into(),
             pending_lst: PendingLst::new().into(),
-            symbol_table: SymbolTable::new().into(),
-            macro_table: MacroTable::new().into(),
             catalog,
         }
     }
@@ -257,32 +259,52 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     // TODO: This method is temporary. It will be removed when the ability to read 1.1 encoding
     //       directives from the input stream is available. Until then, template creation is manual.
     pub fn register_template(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
-        let context = self.context();
-        let template_macro: TemplateMacro =
-            { TemplateCompiler::compile_from_text(context.get_ref(), template_definition)? };
+        let template_macro: TemplateMacro = self.compile_template(template_definition)?;
+        self.add_macro(template_macro)
+    }
 
-        let macro_table = self.macro_table.get_mut();
+    fn compile_template(&self, template_definition: &str) -> IonResult<TemplateMacro> {
+        TemplateCompiler::compile_from_text(self.context(), template_definition)
+    }
+
+    fn add_macro(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
+        let macro_table = &mut self.context_mut().macro_table;
         macro_table.add_macro(template_macro)
     }
 
-    pub fn context(&self) -> EncodingContext<'_> {
+    pub fn context(&self) -> EncodingContextRef<'_> {
         // SAFETY: The only time that the macro table, symbol table, and allocator can be modified
         // is in the body of the method `between_top_level_expressions`. As long as nothing holds
         // a reference to the `EncodingContext` we create here when that method is running,
         // this is safe.
-        unsafe {
-            EncodingContext::new(
-                &*self.macro_table.get(),
-                &*self.symbol_table.get(),
-                &*self.allocator.get(),
-            )
-        }
+        unsafe { (*self.encoding_context.get()).get_ref() }
     }
 
-    pub fn pending_symtab_changes(&self) -> &PendingLst {
+    pub fn context_mut(&mut self) -> &mut EncodingContext {
+        // SAFETY: If the caller has a `&mut` reference to `self`, it is the only mutable reference
+        //         that can modify `self.encoding_context`.
+        unsafe { &mut *self.encoding_context.get() }
+    }
+
+    // SAFETY: This method takes an immutable reference to `self` and then modifies the
+    //         EncodingContext's bump allocator via `UnsafeCell`. This should only be called from
+    //         `between_top_level_values`, and the caller must confirm that nothing else holds a
+    //         reference to any structures within `EncodingContext`.
+    unsafe fn reset_bump_allocator(&self) {
+        let context: &mut EncodingContext = &mut *self.encoding_context.get();
+        context.allocator.reset();
+    }
+
+    pub fn pending_lst(&self) -> &PendingLst {
         // If the user is able to call this method, the PendingLst is not being modified and it's
         // safe to immutably reference.
         unsafe { &*self.pending_lst.get() }
+    }
+
+    pub fn pending_lst_mut(&mut self) -> &mut PendingLst {
+        // SAFETY: If the caller has a `&mut` reference to `self`, it is the only mutable reference
+        //         that can modify `self.pending_lst`.
+        unsafe { &mut *self.pending_lst.get() }
     }
 
     fn ptr_to_mut_ref<'a, T>(ptr: *mut ()) -> &'a mut T {
@@ -355,21 +377,24 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     ///
     /// This is the reader's opportunity to make any pending changes to the encoding context.
     fn between_top_level_expressions(&self) {
-        // SAFETY: This is the only place where we modify the encoding context. Take care not to
-        //         alias the allocator, symbol table, or macro table in this scope.
-
         // We're going to clear the bump allocator, so drop our reference to the evaluator that
         // lives there.
         self.evaluator_ptr.set(None);
 
-        // Clear the allocator.
-        let allocator: &mut BumpAllocator = unsafe { &mut *self.allocator.get() };
-        allocator.reset();
+        // Clear the bump allocator.
+        // SAFETY: This is the only place where we modify the encoding context. Take care not to
+        //         alias the allocator, symbol table, or macro table inside this `unsafe` scope.
+        unsafe { self.reset_bump_allocator() };
 
         // If the pending LST has changes to apply, do so.
+        // SAFETY: Nothing else holds a reference to the `PendingLst`'s contents, so we can use the
+        //         `UnsafeCell` to get a mutable reference to it.
         let pending_lst: &mut PendingLst = unsafe { &mut *self.pending_lst.get() };
         if pending_lst.has_changes {
-            let symbol_table: &mut SymbolTable = unsafe { &mut *self.symbol_table.get() };
+            // SAFETY: Nothing else holds a reference to the `EncodingContext`'s contents, so we can use the
+            //         `UnsafeCell` to get a mutable reference to its symbol table.
+            let symbol_table: &mut SymbolTable =
+                &mut unsafe { &mut *self.encoding_context.get() }.symbol_table;
             Self::apply_pending_lst(pending_lst, symbol_table);
         }
     }
@@ -416,7 +441,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // to find an expression that yields no values (for example: `(:void)`), so we perform this
         // step in a loop until we get a value or end-of-stream.
 
-        let allocator: &BumpAllocator = unsafe { &*self.allocator.get() };
+        let allocator: &BumpAllocator = self.context().allocator();
         let context_ref = EncodingContextRef::new(allocator.alloc_with(|| self.context()));
         loop {
             // Pull another top-level expression from the input stream if one is available.

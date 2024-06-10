@@ -4,7 +4,6 @@ use std::ops::{Range, RangeFrom, RangeTo};
 use std::slice::Iter;
 use std::str::FromStr;
 
-use bumpalo::Bump as BumpAllocator;
 use nom::branch::alt;
 use nom::bytes::complete::{
     is_a as complete_is_a, is_not as complete_is_not, tag as complete_tag,
@@ -642,19 +641,19 @@ impl<'top> TextBufferView<'top> {
             map(Self::match_list, |_matched_list| {
                 // TODO: Cache child expressions found in 1.0 list
                 let not_yet_used_in_1_0 =
-                    bumpalo::collections::Vec::new_in(self.context.allocator).into_bump_slice();
+                    bumpalo::collections::Vec::new_in(self.context.allocator()).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::List(not_yet_used_in_1_0))
             }),
             map(Self::match_sexp, |_matched_sexp| {
                 // TODO: Cache child expressions found in 1.0 sexp
                 let not_yet_used_in_1_0 =
-                    bumpalo::collections::Vec::new_in(self.context.allocator).into_bump_slice();
+                    bumpalo::collections::Vec::new_in(self.context.allocator()).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::SExp(not_yet_used_in_1_0))
             }),
             map(Self::match_struct, |_matched_struct| {
                 // TODO: Cache child expressions found in 1.0 struct
                 let not_yet_used_in_1_0 =
-                    bumpalo::collections::Vec::new_in(self.context.allocator).into_bump_slice();
+                    bumpalo::collections::Vec::new_in(self.context.allocator()).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::Struct(not_yet_used_in_1_0))
             }),
         )))
@@ -777,22 +776,26 @@ impl<'top> TextBufferView<'top> {
         // Scan ahead to find the end of this list.
         let list_body = self.slice_to_end(1);
         let sequence_iter = RawTextListIterator_1_1::new(list_body);
-        let (span, child_exprs) =
-            match TextListSpanFinder_1_1::new(self.context.allocator, sequence_iter).find_span() {
-                Ok((span, child_exprs)) => (span, child_exprs),
-                // If the complete container isn't available, return an incomplete.
-                Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
-                // If invalid syntax was encountered, return a failure to prevent nom from trying
-                // other parser kinds.
-                Err(e) => {
-                    return {
-                        let error = InvalidInputError::new(self)
-                            .with_label("matching a v1.1 list")
-                            .with_description(format!("{}", e));
-                        Err(nom::Err::Failure(IonParseError::Invalid(error)))
-                    }
+        let (span, child_exprs) = match TextListSpanFinder_1_1::new(
+            self.context.allocator(),
+            sequence_iter,
+        )
+        .find_span()
+        {
+            Ok((span, child_exprs)) => (span, child_exprs),
+            // If the complete container isn't available, return an incomplete.
+            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            // If invalid syntax was encountered, return a failure to prevent nom from trying
+            // other parser kinds.
+            Err(e) => {
+                return {
+                    let error = InvalidInputError::new(self)
+                        .with_label("matching a v1.1 list")
+                        .with_description(format!("{}", e));
+                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
                 }
-            };
+            }
+        };
 
         // For the matched span, we use `self` again to include the opening `[`
         let matched = self.slice(0, span.len());
@@ -818,7 +821,7 @@ impl<'top> TextBufferView<'top> {
         let sexp_body = self.slice_to_end(1);
         let sexp_iter = RawTextSExpIterator_1_1::new(sexp_body);
         let (span, child_expr_cache) =
-            match TextSExpSpanFinder_1_1::new(self.context.allocator, sexp_iter).find_span(1) {
+            match TextSExpSpanFinder_1_1::new(self.context.allocator(), sexp_iter).find_span(1) {
                 Ok((span, child_expr_cache)) => (span, child_expr_cache),
                 // If the complete container isn't available, return an incomplete.
                 Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
@@ -976,22 +979,26 @@ impl<'top> TextBufferView<'top> {
         // Scan ahead to find the end of this struct.
         let struct_body = self.slice_to_end(1);
         let struct_iter = RawTextStructIterator_1_1::new(struct_body);
-        let (span, fields) =
-            match TextStructSpanFinder_1_1::new(self.context.allocator, struct_iter).find_span() {
-                Ok((span, fields)) => (span, fields),
-                // If the complete container isn't available, return an incomplete.
-                Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
-                // If invalid syntax was encountered, return a failure to prevent nom from trying
-                // other parser kinds.
-                Err(e) => {
-                    return {
-                        let error = InvalidInputError::new(self)
-                            .with_label("matching a v1.1 struct")
-                            .with_description(format!("{}", e));
-                        Err(nom::Err::Failure(IonParseError::Invalid(error)))
-                    }
+        let (span, fields) = match TextStructSpanFinder_1_1::new(
+            self.context.allocator(),
+            struct_iter,
+        )
+        .find_span()
+        {
+            Ok((span, fields)) => (span, fields),
+            // If the complete container isn't available, return an incomplete.
+            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            // If invalid syntax was encountered, return a failure to prevent nom from trying
+            // other parser kinds.
+            Err(e) => {
+                return {
+                    let error = InvalidInputError::new(self)
+                        .with_label("matching a v1.1 struct")
+                        .with_description(format!("{}", e));
+                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
                 }
-            };
+            }
+        };
 
         // For the matched span, we use `self` again to include the opening `{`
         let matched = self.slice(0, span.len());
@@ -1019,7 +1026,7 @@ impl<'top> TextBufferView<'top> {
         // for `(:` plus the length of the macro ID.
         let initial_bytes_skipped = 2 + macro_id_bytes.len();
         let (span, child_expr_cache) =
-            match TextSExpSpanFinder_1_1::new(self.context.allocator, sexp_iter)
+            match TextSExpSpanFinder_1_1::new(self.context.allocator(), sexp_iter)
                 .find_span(initial_bytes_skipped)
             {
                 Ok((span, child_expr_cache)) => (span, child_expr_cache),
@@ -2222,9 +2229,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::expanded::macro_table::MacroTable;
     use crate::lazy::expanded::EncodingContext;
-    use crate::SymbolTable;
     use rstest::rstest;
 
     use super::*;
@@ -2239,18 +2244,9 @@ mod tests {
         /// Takes an `input` string and appends a trailing value to it, guaranteeing that the
         /// contents of the input are considered a complete token.
         fn new(input: &str) -> Self {
-            // For the sake of the unit tests, make a dummy encoding context with no lifetime
-            // constraints.
-            let macro_table_ref: &'static MacroTable = Box::leak(Box::new(MacroTable::new()));
-            let symbol_table_ref: &'static SymbolTable = Box::leak(Box::new(SymbolTable::new()));
-            let allocator_ref: &'static BumpAllocator = Box::leak(Box::new(BumpAllocator::new()));
-            let empty_context: EncodingContext<'static> =
-                EncodingContext::new(macro_table_ref, symbol_table_ref, allocator_ref);
-            let context: EncodingContextRef<'static> =
-                EncodingContextRef::new(Box::leak(Box::new(empty_context)));
             MatchTest {
                 input: input.to_string(),
-                context,
+                context: EncodingContextRef::unit_test_context(),
             }
         }
 
@@ -2904,7 +2900,8 @@ mod tests {
     }
 
     fn test_match_text_until_unescaped_str() {
-        let context = EncodingContextRef::unit_test_context();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let input = TextBufferView::new(context, r" foo bar \''' baz''' quux ".as_bytes());
         let (_remaining, (matched, contains_escapes)) =
             input.match_text_until_unescaped_str(r#"'''"#).unwrap();
