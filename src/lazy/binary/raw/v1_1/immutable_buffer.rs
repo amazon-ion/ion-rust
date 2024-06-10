@@ -467,8 +467,8 @@ impl<'a> ImmutableBuffer<'a> {
         };
 
         // TODO: When we support untagged parameter encodings, we need to use the signature's
-        //       parameter encodings to drive this process. For now (while everything is tagged)
-        //       and cardinality is always required, we just loop `n` times.
+        //       parameter encodings to drive this process. For now--while everything is tagged
+        //       and cardinality is always required--we just loop `num_parameters` times.
         let macro_def = self
             .context
             .macro_table
@@ -476,7 +476,6 @@ impl<'a> ImmutableBuffer<'a> {
             .ok_or_else(|| {
                 IonError::decoding_error(format!("invocation of unknown macro '{macro_id:?}'"))
             })?;
-        println!("{macro_def:?}");
         use MacroKind::*;
         let num_parameters = match macro_def.kind() {
             Template(t) => t.signature().parameters().len(),

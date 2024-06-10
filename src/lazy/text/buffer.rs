@@ -2246,7 +2246,9 @@ mod tests {
         fn new(input: &str) -> Self {
             MatchTest {
                 input: input.to_string(),
-                context: EncodingContextRef::unit_test_context(),
+                // This uses `leak` to get an `EncodingContextRef` with a `static` lifetime
+                // for the sake of unit test simplicity.
+                context: EncodingContextRef::new(Box::leak(Box::new(EncodingContext::empty()))),
             }
         }
 

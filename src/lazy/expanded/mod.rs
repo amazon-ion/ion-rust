@@ -129,13 +129,6 @@ impl<'top> EncodingContextRef<'top> {
         Self { context }
     }
 
-    #[cfg(test)]
-    pub fn unit_test_context() -> EncodingContextRef<'static> {
-        // For the sake of the unit tests, make a dummy encoding context with no lifetime
-        // constraints.
-        EncodingContextRef::new(Box::leak(Box::new(EncodingContext::empty())))
-    }
-
     pub fn allocator(&self) -> &'top BumpAllocator {
         &self.context.allocator
     }

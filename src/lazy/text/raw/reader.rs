@@ -298,9 +298,10 @@ mod tests {
         "#,
         );
 
+        let encoding_context = EncodingContext::empty();
         let reader = &mut TestReader {
             reader: LazyRawTextReader_1_0::new(data.as_bytes()),
-            context: EncodingContextRef::unit_test_context(),
+            context: encoding_context.get_ref(),
         };
 
         assert_eq!(reader.next()?.expect_ivm()?.version(), (1, 0));
