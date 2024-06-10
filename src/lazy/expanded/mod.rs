@@ -124,6 +124,20 @@ impl<'top> EncodingContextRef<'top> {
     pub fn new(context: &'top EncodingContext<'top>) -> Self {
         Self { context }
     }
+
+    #[cfg(test)]
+    pub fn unit_test_context() -> EncodingContextRef<'static> {
+        // For the sake of the unit tests, make a dummy encoding context with no lifetime
+        // constraints.
+        let macro_table_ref: &'static MacroTable = Box::leak(Box::new(MacroTable::new()));
+        let symbol_table_ref: &'static SymbolTable = Box::leak(Box::new(SymbolTable::new()));
+        let allocator_ref: &'static BumpAllocator = Box::leak(Box::new(BumpAllocator::new()));
+        let empty_context: EncodingContext<'static> =
+            EncodingContext::new(macro_table_ref, symbol_table_ref, allocator_ref);
+        let context: EncodingContextRef<'static> =
+            EncodingContextRef::new(Box::leak(Box::new(empty_context)));
+        context
+    }
 }
 
 impl<'top> Deref for EncodingContextRef<'top> {
@@ -408,7 +422,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             // Pull another top-level expression from the input stream if one is available.
             use crate::lazy::raw_stream_item::RawStreamItem::*;
             let raw_reader = unsafe { &mut *self.raw_reader.get() };
-            match raw_reader.next(allocator)? {
+            match raw_reader.next(context_ref)? {
                 VersionMarker(marker) => return Ok(SystemStreamItem::VersionMarker(marker)),
                 // We got our value; return it.
                 Value(raw_value) => {

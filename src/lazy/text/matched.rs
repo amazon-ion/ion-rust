@@ -131,7 +131,7 @@ impl<'top> MatchedFieldName<'top> {
     }
 
     pub fn read(&self) -> IonResult<RawSymbolRef<'top>> {
-        self.syntax.read(self.input.allocator, self.input)
+        self.syntax.read(self.input.context.allocator, self.input)
     }
 
     pub fn range(&self) -> Range<usize> {
@@ -1221,9 +1221,9 @@ impl MatchedClob {
 
 #[cfg(test)]
 mod tests {
-    use bumpalo::Bump as BumpAllocator;
 
     use crate::lazy::bytes_ref::BytesRef;
+    use crate::lazy::expanded::EncodingContextRef;
     use crate::lazy::text::buffer::TextBufferView;
     use crate::{Decimal, Int, IonResult, Timestamp};
 
@@ -1231,8 +1231,8 @@ mod tests {
     fn read_ints() -> IonResult<()> {
         fn expect_int(data: &str, expected: impl Into<Int>) {
             let expected: Int = expected.into();
-            let allocator = BumpAllocator::new();
-            let buffer = TextBufferView::new(&allocator, data.as_bytes());
+            let context = EncodingContextRef::unit_test_context();
+            let buffer = TextBufferView::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_int().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
@@ -1265,8 +1265,8 @@ mod tests {
     fn read_timestamps() -> IonResult<()> {
         fn expect_timestamp(data: &str, expected: Timestamp) {
             let data = format!("{data} "); // Append a space
-            let allocator = BumpAllocator::new();
-            let buffer = TextBufferView::new(&allocator, data.as_bytes());
+            let context = EncodingContextRef::unit_test_context();
+            let buffer = TextBufferView::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_timestamp().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
@@ -1367,8 +1367,8 @@ mod tests {
     #[test]
     fn read_decimals() -> IonResult<()> {
         fn expect_decimal(data: &str, expected: Decimal) {
-            let allocator = BumpAllocator::new();
-            let buffer = TextBufferView::new(&allocator, data.as_bytes());
+            let context = EncodingContextRef::unit_test_context();
+            let buffer = TextBufferView::new(context, data.as_bytes());
             let result = buffer.match_decimal();
             assert!(
                 result.is_ok(),
@@ -1422,10 +1422,10 @@ mod tests {
     fn read_blobs() -> IonResult<()> {
         fn expect_blob(data: &str, expected: &str) {
             let data = format!("{data} "); // Append a space
-            let allocator = BumpAllocator::new();
-            let buffer = TextBufferView::new(&allocator, data.as_bytes());
+            let context = EncodingContextRef::unit_test_context();
+            let buffer = TextBufferView::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_blob().unwrap();
-            let actual = matched.read(&allocator, buffer).unwrap();
+            let actual = matched.read(context.allocator, buffer).unwrap();
             assert_eq!(
                 actual,
                 expected.as_ref(),
@@ -1460,11 +1460,11 @@ mod tests {
             // stream so the parser knows that the long-form strings are complete. We then trim
             // our fabricated value off of the input before reading.
             let data = format!("{data}\n0");
-            let allocator = BumpAllocator::new();
-            let buffer = TextBufferView::new(&allocator, data.as_bytes());
+            let context = EncodingContextRef::unit_test_context();
+            let buffer = TextBufferView::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_string().unwrap();
             let matched_input = buffer.slice(0, buffer.len() - 2);
-            let actual = matched.read(&allocator, matched_input).unwrap();
+            let actual = matched.read(context.allocator, matched_input).unwrap();
             assert_eq!(
                 actual, expected,
                 "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
@@ -1496,25 +1496,28 @@ mod tests {
 
     #[test]
     fn read_clobs() -> IonResult<()> {
-        fn read_clob<'a>(allocator: &'a BumpAllocator, data: &'a str) -> IonResult<BytesRef<'a>> {
-            let buffer = TextBufferView::new(allocator, data.as_bytes());
+        fn read_clob<'a>(
+            context: EncodingContextRef<'a>,
+            data: &'a str,
+        ) -> IonResult<BytesRef<'a>> {
+            let buffer = TextBufferView::new(context, data.as_bytes());
             // All `read_clob` usages should be accepted by the matcher, so we can `unwrap()` the
             // call to `match_clob()`.
             let (_remaining, matched) = buffer.match_clob().unwrap();
             // The resulting buffer slice may be rejected during reading.
-            matched.read(allocator, buffer)
+            matched.read(context.allocator, buffer)
         }
 
-        fn expect_clob_error(allocator: &BumpAllocator, data: &str) {
-            let actual = read_clob(allocator, data);
+        fn expect_clob_error(context: EncodingContextRef, data: &str) {
+            let actual = read_clob(context, data);
             assert!(
                 actual.is_err(),
                 "Successfully read a clob from illegal input."
             );
         }
 
-        fn expect_clob(allocator: &BumpAllocator, data: &str, expected: &str) {
-            let result = read_clob(allocator, data);
+        fn expect_clob(context: EncodingContextRef, data: &str, expected: &str) {
+            let result = read_clob(context, data);
             assert!(
                 result.is_ok(),
                 "Unexpected read failure for input '{data}': {:?}",
@@ -1561,10 +1564,9 @@ mod tests {
             ("{{\"foo\rbar\rbaz\"}}", "foo\rbar\rbaz"),
         ];
 
-        let mut allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         for (input, expected) in tests {
-            expect_clob(&allocator, input, expected);
-            allocator.reset();
+            expect_clob(context, input, expected);
         }
 
         let illegal_inputs = [
@@ -1585,8 +1587,7 @@ mod tests {
         ];
 
         for input in illegal_inputs {
-            expect_clob_error(&allocator, input);
-            allocator.reset();
+            expect_clob_error(context, input);
         }
 
         Ok(())

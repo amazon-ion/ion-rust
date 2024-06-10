@@ -157,16 +157,15 @@ impl<'top> IntoIterator for LazyRawTextStruct_1_0<'top> {
 mod tests {
     use std::ops::Range;
 
-    use bumpalo::Bump as BumpAllocator;
-
     use crate::lazy::decoder::{HasRange, HasSpan, LazyRawStruct, LazyRawValue};
+    use crate::lazy::expanded::EncodingContextRef;
     use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
     use crate::IonResult;
 
     fn expect_struct_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
-        let value = reader.next(&allocator)?.expect_value()?;
+        let value = reader.next(context)?.expect_value()?;
         let actual_range = value.data_range();
         assert_eq!(
             actual_range, expected,
@@ -231,10 +230,10 @@ mod tests {
             ),
         ];
         for (input, field_name_ranges) in tests {
-            let bump = bumpalo::Bump::new();
+            let context = EncodingContextRef::unit_test_context();
             let mut reader = LazyRawTextReader_1_0::new(input.as_bytes());
             let struct_ = reader
-                .next(&bump)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_struct()?;

@@ -304,12 +304,12 @@ mod tests {
     use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
     use crate::IonResult;
 
-    use bumpalo::Bump as BumpAllocator;
+    use crate::lazy::expanded::EncodingContextRef;
 
     fn expect_sequence_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
-        let value = reader.next(&allocator)?.expect_value()?;
+        let value = reader.next(context)?.expect_value()?;
         let actual_range = value.data_range();
         assert_eq!(
             actual_range, expected,

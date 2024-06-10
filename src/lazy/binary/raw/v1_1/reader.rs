@@ -9,7 +9,7 @@ use crate::result::IonFailure;
 use crate::{Encoding, HasRange, IonResult};
 
 use crate::lazy::any_encoding::IonEncoding;
-use bumpalo::Bump as BumpAllocator;
+use crate::lazy::expanded::EncodingContextRef;
 
 pub struct LazyRawBinaryReader_1_1<'data> {
     input: &'data [u8],
@@ -65,7 +65,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     {
         let item = match buffer.peek_sequence_value_expr()? {
             Some(RawValueExpr::ValueLiteral(lazy_value)) => RawStreamItem::Value(lazy_value),
-            Some(RawValueExpr::MacroInvocation(eexpr)) => RawStreamItem::EExpression(eexpr),
+            Some(RawValueExpr::EExp(eexpr)) => RawStreamItem::EExpression(eexpr),
             None => self.end_of_stream(buffer.offset()),
         };
         let item_range = item.range();
@@ -75,13 +75,13 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
 
     pub fn next<'top>(
         &'top mut self,
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_1>>
     where
         'data: 'top,
     {
         let mut buffer = ImmutableBuffer::new_with_offset(
-            allocator,
+            context,
             self.input.get(self.local_offset..).unwrap(),
             self.position(),
         );
@@ -121,12 +121,12 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
 
     fn next<'top>(
         &'top mut self,
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_1>>
     where
         'data: 'top,
     {
-        self.next(allocator)
+        self.next(context)
     }
 
     fn position(&self) -> usize {
@@ -141,9 +141,9 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
 #[cfg(test)]
 mod tests {
     use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
+    use crate::lazy::expanded::EncodingContextRef;
     use crate::raw_symbol_ref::RawSymbolRef;
     use crate::{IonResult, IonType};
-    use bumpalo::Bump as BumpAllocator;
     use rstest::*;
 
     #[test]
@@ -157,13 +157,13 @@ mod tests {
             0xEA, // null.null
         ];
 
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
-        let _ivm = reader.next(&allocator)?.expect_ivm()?;
+        let _ivm = reader.next(context)?.expect_ivm()?;
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_null()?,
@@ -180,19 +180,19 @@ mod tests {
             0x6E, // true
             0x6F, // false
         ];
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
-        let _ivm = reader.next(&allocator)?.expect_ivm()?;
+        let _ivm = reader.next(context)?.expect_ivm()?;
 
         assert!(reader
-            .next(&allocator)?
+            .next(context)?
             .expect_value()?
             .read()?
             .expect_bool()?);
 
         assert!(
             !(reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_bool()?)
@@ -223,50 +223,30 @@ mod tests {
             // Integer: 147573952589676412929
             0xF6, 0x13, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
         ];
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
-        let _ivm = reader.next(&allocator)?.expect_ivm()?;
+        let _ivm = reader.next(context)?.expect_ivm()?;
 
         assert_eq!(
-            reader
-                .next(&allocator)?
-                .expect_value()?
-                .read()?
-                .expect_int()?,
+            reader.next(context)?.expect_value()?.read()?.expect_int()?,
             0.into()
         );
         assert_eq!(
-            reader
-                .next(&allocator)?
-                .expect_value()?
-                .read()?
-                .expect_int()?,
+            reader.next(context)?.expect_value()?.read()?.expect_int()?,
             17.into()
         );
         assert_eq!(
-            reader
-                .next(&allocator)?
-                .expect_value()?
-                .read()?
-                .expect_int()?,
+            reader.next(context)?.expect_value()?.read()?.expect_int()?,
             (-944).into()
         );
 
         assert_eq!(
-            reader
-                .next(&allocator)?
-                .expect_value()?
-                .read()?
-                .expect_int()?,
+            reader.next(context)?.expect_value()?.read()?.expect_int()?,
             1.into()
         );
 
         assert_eq!(
-            reader
-                .next(&allocator)?
-                .expect_value()?
-                .read()?
-                .expect_int()?,
+            reader.next(context)?.expect_value()?.read()?.expect_int()?,
             147573952589676412929i128.into()
         );
         Ok(())
@@ -293,13 +273,13 @@ mod tests {
             0xF9, 0x31, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65, 0x20, 0x6C, 0x65,
             0x6E, 0x67, 0x74, 0x68, 0x20, 0x65, 0x6E, 0x63, 0x6f, 0x64, 0x69, 0x6E, 0x67,
         ];
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
-        let _ivm = reader.next(&allocator)?.expect_ivm()?;
+        let _ivm = reader.next(context)?.expect_ivm()?;
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_string()?,
@@ -308,7 +288,7 @@ mod tests {
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_string()?,
@@ -317,7 +297,7 @@ mod tests {
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_string()?,
@@ -326,7 +306,7 @@ mod tests {
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_string()?,
@@ -363,13 +343,13 @@ mod tests {
             // Symbol ID: 65,793
             0xE3, 0x01, 0x00, 0x00,
         ];
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
-        let _ivm = reader.next(&allocator)?.expect_ivm()?;
+        let _ivm = reader.next(context)?.expect_ivm()?;
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_symbol()?,
@@ -378,7 +358,7 @@ mod tests {
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_symbol()?,
@@ -387,7 +367,7 @@ mod tests {
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_symbol()?,
@@ -396,7 +376,7 @@ mod tests {
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_symbol()?,
@@ -405,7 +385,7 @@ mod tests {
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_symbol()?,
@@ -414,7 +394,7 @@ mod tests {
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_symbol()?,
@@ -443,13 +423,13 @@ mod tests {
             // 3.141592653589793 (double-precision)
             0x6D, 0x18, 0x2D, 0x44, 0x54, 0xFB, 0x21, 0x09, 0x40,
         ];
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
-        let _ivm = reader.next(&allocator)?.expect_ivm()?;
+        let _ivm = reader.next(context)?.expect_ivm()?;
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_float()?,
@@ -457,11 +437,11 @@ mod tests {
         );
 
         // TODO: Implement Half-precision.
-        // assert_eq!(reader.next(&allocator)?.expect_value()?.read()?.expect_float()?, 3.14);
+        // assert_eq!(reader.next(context)?.expect_value()?.read()?.expect_float()?, 3.14);
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_float()? as f32,
@@ -470,7 +450,7 @@ mod tests {
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_float()?,
@@ -534,19 +514,19 @@ mod tests {
     fn decimals(#[case] expected_txt: &str, #[case] ion_data: &[u8]) -> IonResult<()> {
         use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
         use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
 
         let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
         let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
 
         assert_eq!(
             reader_bin
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_decimal()?,
             reader_txt
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_decimal()?,
@@ -578,14 +558,13 @@ mod tests {
         use crate::ion_data::IonEq;
         use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
         use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
-        let bump = bumpalo::Bump::new();
 
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
         let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
 
-        let expected_value = reader_txt.next(&bump)?.expect_value()?.read()?;
-        let actual_value = reader_bin.next(&allocator)?.expect_value()?.read()?;
+        let expected_value = reader_txt.next(context)?.expect_value()?.read()?;
+        let actual_value = reader_bin.next(context)?.expect_value()?.read()?;
 
         assert!(actual_value
             .expect_decimal()?
@@ -613,18 +592,18 @@ mod tests {
         use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
         use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
 
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
         let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
 
         assert_eq!(
             reader_bin
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_timestamp()?,
             reader_txt
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_timestamp()?,
@@ -645,18 +624,18 @@ mod tests {
         use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
         use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
 
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader_txt = LazyRawTextReader_1_1::new(expected_txt.as_bytes());
         let mut reader_bin = LazyRawBinaryReader_1_1::new(ion_data);
 
         assert_eq!(
             reader_bin
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_timestamp()?,
             reader_txt
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_timestamp()?,
@@ -672,9 +651,9 @@ mod tests {
             0x75, 0x72, 0x20, 0x63, 0x75, 0x72, 0x69, 0x6f, 0x73, 0x69, 0x74, 0x79,
         ];
 
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
-        let _ivm = reader.next(&allocator)?.expect_ivm()?;
+        let _ivm = reader.next(context)?.expect_ivm()?;
 
         let bytes: &[u8] = &[
             0x49, 0x20, 0x61, 0x70, 0x70, 0x6c, 0x61, 0x75, 0x64, 0x20, 0x79, 0x6f, 0x75, 0x72,
@@ -682,7 +661,7 @@ mod tests {
         ];
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_blob()?,
@@ -700,9 +679,9 @@ mod tests {
             0x75, 0x72, 0x20, 0x63, 0x75, 0x72, 0x69, 0x6f, 0x73, 0x69, 0x74, 0x79,
         ];
 
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
-        let _ivm = reader.next(&allocator)?.expect_ivm()?;
+        let _ivm = reader.next(context)?.expect_ivm()?;
 
         let bytes: &[u8] = &[
             0x49, 0x20, 0x61, 0x70, 0x70, 0x6c, 0x61, 0x75, 0x64, 0x20, 0x79, 0x6f, 0x75, 0x72,
@@ -711,7 +690,7 @@ mod tests {
 
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_clob()?,
@@ -773,10 +752,10 @@ mod tests {
         ];
 
         for (ion_data, expected_types) in tests {
-            let allocator = BumpAllocator::new();
+            let context = EncodingContextRef::unit_test_context();
             let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
             let container = reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_list()?;
@@ -829,10 +808,10 @@ mod tests {
         ];
 
         for (ion_data, expected_types) in tests {
-            let allocator = BumpAllocator::new();
+            let context = EncodingContextRef::unit_test_context();
             let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
             let container = reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_sexp()?;
@@ -867,10 +846,10 @@ mod tests {
         ];
 
         for (data, expected_type) in data {
-            let allocator = BumpAllocator::new();
+            let context = EncodingContextRef::unit_test_context();
             let mut reader = LazyRawBinaryReader_1_1::new(&data);
             let actual_type = reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_null()?;
@@ -983,10 +962,10 @@ mod tests {
         ];
 
         for (ion_data, field_pairs) in tests {
-            let allocator = BumpAllocator::new();
+            let context = EncodingContextRef::unit_test_context();
             let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
             let actual_data = reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_struct()?;

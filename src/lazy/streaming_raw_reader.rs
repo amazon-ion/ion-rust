@@ -3,10 +3,9 @@ use std::fs::File;
 use std::io;
 use std::io::{BufReader, Read, StdinLock};
 
-use bumpalo::Bump as BumpAllocator;
-
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::{Decoder, LazyRawReader};
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::{AnyEncoding, IonError, IonResult, LazyRawValue};
 
@@ -79,7 +78,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
 
     pub fn next<'top>(
         &'top mut self,
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
         let mut input_source_exhausted = false;
         loop {
@@ -102,7 +101,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             ));
             let slice_reader = unsafe { &mut *unsafe_cell_reader.get() };
             let starting_position = slice_reader.position();
-            let result = slice_reader.next(allocator);
+            let result = slice_reader.next(context);
             // We're done modifying `slice_reader`, but we need to read some of its fields. These
             // fields are _not_ the data to which `result` holds a reference. We have to circumvent
             // the borrow checker's limitation (described in a comment on the StreamingRawReader type)
@@ -431,10 +430,9 @@ mod tests {
     use std::io;
     use std::io::{BufReader, Cursor, Read};
 
-    use bumpalo::Bump as BumpAllocator;
-
     use crate::lazy::any_encoding::AnyEncoding;
     use crate::lazy::decoder::{Decoder, LazyRawValue};
+    use crate::lazy::expanded::EncodingContextRef;
     use crate::lazy::raw_stream_item::LazyRawStreamItem;
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
@@ -466,23 +464,23 @@ mod tests {
 
     #[test]
     fn read_empty_slice() -> IonResult<()> {
-        let bump = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let ion = "";
         let mut reader = StreamingRawReader::new(AnyEncoding, ion.as_bytes());
         // We expect `Ok(EndOfStream)`, not `Err(Incomplete)`.
-        expect_end_of_stream(reader.next(&bump)?)?;
+        expect_end_of_stream(reader.next(context)?)?;
         Ok(())
     }
 
     fn read_example_stream(input: impl IonInput) -> IonResult<()> {
-        let bump = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = StreamingRawReader::new(AnyEncoding, input);
-        expect_string(reader.next(&bump)?, "foo")?;
-        expect_string(reader.next(&bump)?, "bar")?;
-        expect_string(reader.next(&bump)?, "baz")?;
-        expect_string(reader.next(&bump)?, "quux")?;
-        expect_string(reader.next(&bump)?, "quuz")?;
-        expect_end_of_stream(reader.next(&bump)?)
+        expect_string(reader.next(context)?, "foo")?;
+        expect_string(reader.next(context)?, "bar")?;
+        expect_string(reader.next(context)?, "baz")?;
+        expect_string(reader.next(context)?, "quux")?;
+        expect_string(reader.next(context)?, "quuz")?;
+        expect_end_of_stream(reader.next(context)?)
     }
 
     // This stream is 104 bytes long
@@ -522,9 +520,9 @@ mod tests {
     const INVALID_EXAMPLE_STREAM: &str = "2024-03-12T16:33.000-05:"; // Missing offset minutes
 
     fn read_invalid_example_stream(input: impl IonInput) -> IonResult<()> {
-        let bump = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = StreamingRawReader::new(AnyEncoding, input);
-        let result = reader.next(&bump);
+        let result = reader.next(context);
         // Because the input stream is exhausted, the incomplete value is illegal data and raises
         // a decoding error.
         assert!(matches!(result, Err(IonError::Decoding(_))), "{:?}", result);
@@ -569,19 +567,19 @@ mod tests {
         }
         // This guarantees that there are several intermediate reading states in which the buffer
         // contains incomplete data that could be misinterpreted by a reader.
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let mut reader = StreamingRawReader::new(v1_0::Text, IonStream::new(input));
 
-        assert_eq!(reader.next(&allocator)?.expect_ivm()?.version(), (1, 0));
+        assert_eq!(reader.next(context)?.expect_ivm()?.version(), (1, 0));
         assert_eq!(
             reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_decimal()?,
             Decimal::new(87125, -2)
         );
-        let value = reader.next(&allocator)?.expect_value()?;
+        let value = reader.next(context)?.expect_value()?;
         let annotations = value
             .annotations()
             .collect::<IonResult<Vec<RawSymbolRef>>>()?;

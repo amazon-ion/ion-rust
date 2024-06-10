@@ -1,10 +1,9 @@
 #![allow(non_camel_case_types)]
 
-use bumpalo::Bump as BumpAllocator;
-
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::{Decoder, LazyRawReader, RawVersionMarker};
 use crate::lazy::encoding::TextEncoding_1_0;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
@@ -44,13 +43,13 @@ impl<'data> LazyRawTextReader_1_0<'data> {
 
     pub fn next<'top>(
         &'top mut self,
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_0>>
     where
         'data: 'top,
     {
         let input = TextBufferView::new_with_offset(
-            allocator,
+            context,
             &self.input[self.local_offset..],
             self.stream_offset + self.local_offset,
         );
@@ -107,12 +106,12 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
 
     fn next<'top>(
         &'top mut self,
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_0>>
     where
         'data: 'top,
     {
-        self.next(allocator)
+        self.next(context)
     }
 
     fn position(&self) -> usize {
@@ -134,21 +133,21 @@ mod tests {
     use super::*;
 
     struct TestReader<'data> {
-        allocator: BumpAllocator,
+        context: EncodingContextRef<'data>,
         reader: LazyRawTextReader_1_0<'data>,
     }
 
     impl<'data> TestReader<'data> {
         fn next(&mut self) -> IonResult<LazyRawStreamItem<'_, TextEncoding_1_0>> {
-            self.reader.next(&self.allocator)
+            self.reader.next(self.context)
         }
         fn expect_next<'a>(&'a mut self, expected: RawValueRef<'a, TextEncoding_1_0>)
         where
             'data: 'a,
         {
-            let TestReader { allocator, reader } = self;
+            let TestReader { context, reader } = self;
             let lazy_value = reader
-                .next(allocator)
+                .next(*context)
                 .expect("advancing the reader failed")
                 .expect_value()
                 .expect("expected a value");
@@ -300,7 +299,7 @@ mod tests {
 
         let reader = &mut TestReader {
             reader: LazyRawTextReader_1_0::new(data.as_bytes()),
-            allocator: BumpAllocator::new(),
+            context: EncodingContextRef::unit_test_context(),
         };
 
         assert_eq!(reader.next()?.expect_ivm()?.version(), (1, 0));
@@ -474,23 +473,23 @@ mod tests {
 
     #[test]
     fn ranges_and_spans() -> IonResult<()> {
-        let bump = bumpalo::Bump::new();
+        let context = EncodingContextRef::unit_test_context();
         let data = b"foo 2024T bar::38 [1, 2, 3]";
         let mut reader = LazyRawTextReader_1_0::new(data);
 
-        let foo = reader.next(&bump)?.expect_value()?;
+        let foo = reader.next(context)?.expect_value()?;
         assert_eq!(foo.span(), b"foo");
         assert_eq!(foo.range(), 0..3);
 
-        let timestamp = reader.next(&bump)?.expect_value()?;
+        let timestamp = reader.next(context)?.expect_value()?;
         assert_eq!(timestamp.span(), b"2024T");
         assert_eq!(timestamp.range(), 4..9);
 
-        let annotated_int = reader.next(&bump)?.expect_value()?;
+        let annotated_int = reader.next(context)?.expect_value()?;
         assert_eq!(annotated_int.span(), b"bar::38");
         assert_eq!(annotated_int.range(), 10..17);
 
-        let list_value = reader.next(&bump)?.expect_value()?;
+        let list_value = reader.next(context)?.expect_value()?;
         assert_eq!(list_value.span(), b"[1, 2, 3]");
         assert_eq!(list_value.range(), 18..27);
 

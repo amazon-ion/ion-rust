@@ -6,9 +6,10 @@ use std::ops::Range;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::decoder::LazyRawValueExpr;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
-use crate::lazy::text::raw::v1_1::reader::{EncodedTextMacroInvocation, MacroIdRef};
+use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::{v1_1, HasRange, HasSpan, IonResult, Span};
 
+#[derive(Copy, Clone)]
 pub struct EncodedBinaryEExp {
     // The number of bytes that were used to encode the e-expression's header (including its ID)
     header_length: u16,
@@ -22,10 +23,26 @@ impl EncodedBinaryEExp {
 
 #[derive(Copy, Clone)]
 pub struct RawBinaryEExpression_1_1<'top> {
-    pub(crate) encoded_expr: EncodedTextMacroInvocation,
+    pub(crate) encoded_expr: EncodedBinaryEExp,
     pub(crate) input: ImmutableBuffer<'top>,
     pub(crate) id: MacroIdRef<'top>,
     pub(crate) arg_expr_cache: &'top [LazyRawValueExpr<'top, v1_1::Binary>],
+}
+
+impl<'top> RawBinaryEExpression_1_1<'top> {
+    pub fn new(
+        id: MacroIdRef<'top>,
+        encoded_expr: EncodedBinaryEExp,
+        input: ImmutableBuffer<'top>,
+        arg_expr_cache: &'top [LazyRawValueExpr<'top, v1_1::Binary>],
+    ) -> Self {
+        Self {
+            encoded_expr,
+            input,
+            id,
+            arg_expr_cache,
+        }
+    }
 }
 
 impl<'top> HasSpan<'top> for RawBinaryEExpression_1_1<'top> {

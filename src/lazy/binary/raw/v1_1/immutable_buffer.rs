@@ -1,5 +1,11 @@
+use std::fmt::{Debug, Formatter};
+use std::ops::Range;
+
+use bumpalo::collections::Vec as BumpVec;
+
 use crate::binary::constants::v1_1::IVM;
 use crate::lazy::binary::encoded_value::EncodedValue;
+use crate::lazy::binary::raw::v1_1::e_expression::{EncodedBinaryEExp, RawBinaryEExpression_1_1};
 use crate::lazy::binary::raw::v1_1::value::{
     LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
 };
@@ -10,13 +16,11 @@ use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
+use crate::lazy::expanded::macro_table::MacroKind;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{v1_1, IonError, IonResult};
-use std::fmt::{Debug, Formatter};
-use std::ops::Range;
-
-use bumpalo::Bump as BumpAllocator;
+use crate::{v1_1, HasRange, IonError, IonResult};
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
@@ -36,7 +40,7 @@ pub struct ImmutableBuffer<'a> {
     //                          offset: 6
     data: &'a [u8],
     offset: usize,
-    allocator: &'a BumpAllocator,
+    context: EncodingContextRef<'a>,
 }
 
 impl<'a> Debug for ImmutableBuffer<'a> {
@@ -54,19 +58,19 @@ pub(crate) type ParseResult<'a, T> = IonResult<(T, ImmutableBuffer<'a>)>;
 impl<'a> ImmutableBuffer<'a> {
     /// Constructs a new `ImmutableBuffer` that wraps `data`.
     #[inline]
-    pub fn new(allocator: &'a BumpAllocator, data: &'a [u8]) -> ImmutableBuffer<'a> {
-        Self::new_with_offset(allocator, data, 0)
+    pub fn new(context: EncodingContextRef<'a>, data: &'a [u8]) -> ImmutableBuffer<'a> {
+        Self::new_with_offset(context, data, 0)
     }
 
     pub fn new_with_offset(
-        allocator: &'a BumpAllocator,
+        context: EncodingContextRef<'a>,
         data: &'a [u8],
         offset: usize,
     ) -> ImmutableBuffer<'a> {
         ImmutableBuffer {
             data,
             offset,
-            allocator,
+            context,
         }
     }
 
@@ -88,7 +92,7 @@ impl<'a> ImmutableBuffer<'a> {
         ImmutableBuffer {
             data: self.bytes_range(offset, length),
             offset: self.offset + offset,
-            allocator: self.allocator,
+            context: self.context,
         }
     }
 
@@ -133,7 +137,7 @@ impl<'a> ImmutableBuffer<'a> {
         Self {
             data: &self.data[num_bytes_to_consume..],
             offset: self.offset + num_bytes_to_consume,
-            allocator: self.allocator,
+            context: self.context,
         }
     }
 
@@ -158,7 +162,7 @@ impl<'a> ImmutableBuffer<'a> {
 
         match bytes {
             [0xE0, major, minor, 0xEA] => {
-                let matched = ImmutableBuffer::new_with_offset(self.allocator, bytes, self.offset);
+                let matched = ImmutableBuffer::new_with_offset(self.context, bytes, self.offset);
                 let marker = LazyRawBinaryVersionMarker_1_1::new(matched, *major, *minor);
                 Ok((marker, self.consume(IVM.len())))
             }
@@ -284,7 +288,9 @@ impl<'a> ImmutableBuffer<'a> {
             type_descriptor = input.peek_opcode()?;
         }
         if type_descriptor.is_e_expression() {
-            return self.read_e_expression(type_descriptor);
+            return Ok(Some(RawValueExpr::EExp(
+                self.read_e_expression(type_descriptor)?,
+            )));
         }
         Ok(Some(RawValueExpr::ValueLiteral(
             input.read_value(type_descriptor)?,
@@ -449,15 +455,66 @@ impl<'a> ImmutableBuffer<'a> {
         todo!()
     }
 
-    fn read_e_expression(
-        self,
-        opcode: Opcode,
-    ) -> IonResult<Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
-        if opcode.opcode_type == OpcodeType::EExpressionWithAddress {
-            let _macro_id = MacroIdRef::LocalAddress(opcode.byte as usize);
-            // TODO: Add allocator reference to `ImmutableBuffer` so we can cache the arguments
+    fn read_e_expression(self, opcode: Opcode) -> IonResult<RawBinaryEExpression_1_1<'a>> {
+        use OpcodeType::*;
+        let (macro_id, buffer_after_id) = match opcode.opcode_type {
+            EExpressionWithAddress => (
+                MacroIdRef::LocalAddress(opcode.byte as usize),
+                self.consume(1),
+            ),
+            EExpressionAddressFollows => todo!("e-expr with trailing address"),
+            _ => unreachable!("read_e_expression called with invalid opcode"),
+        };
+
+        // TODO: When we support untagged parameter encodings, we need to use the signature's
+        //       parameter encodings to drive this process. For now (while everything is tagged)
+        //       and cardinality is always required, we just loop `n` times.
+        let macro_def = self
+            .context
+            .macro_table
+            .macro_with_id(macro_id)
+            .ok_or_else(|| {
+                IonError::decoding_error(format!("invocation of unknown macro '{macro_id:?}'"))
+            })?;
+        // TODO: The macro table should have a Signature on file for each of the system macros too.
+        //       For now, we simply say how many arguments to expect.
+        use MacroKind::*;
+        let num_parameters = match macro_def.kind() {
+            Void => 0,
+            Values => 1,
+            MakeString => 1,
+            Template(t) => t.signature().parameters().len(),
+        };
+
+        let mut args_buffer = buffer_after_id;
+        let mut args_cache = self
+            .context
+            .allocator
+            .alloc_with(|| BumpVec::with_capacity_in(num_parameters, self.context.allocator));
+        for _ in 0..num_parameters {
+            let value_expr = match buffer_after_id.peek_sequence_value_expr()? {
+                Some(expr) => expr,
+                None => {
+                    return IonResult::incomplete(
+                        "found an incomplete e-expression",
+                        buffer_after_id.offset(),
+                    )
+                }
+            };
+            args_buffer = args_buffer.consume(value_expr.range().len());
+            args_cache.push(value_expr);
         }
-        todo!()
+        let macro_id_encoded_length = buffer_after_id.offset() - self.offset();
+        let args_length = args_buffer.offset() - buffer_after_id.offset();
+        let e_expression_buffer = self.slice(0, macro_id_encoded_length + args_length);
+
+        let e_expression = RawBinaryEExpression_1_1::new(
+            macro_id,
+            EncodedBinaryEExp::new(macro_id_encoded_length as u16),
+            e_expression_buffer,
+            args_cache,
+        );
+        Ok(e_expression)
     }
 }
 
@@ -484,8 +541,8 @@ mod tests {
     use super::*;
 
     fn input_test<A: AsRef<[u8]>>(input: A) {
-        let allocator = BumpAllocator::new();
-        let input = ImmutableBuffer::new(&allocator, input.as_ref());
+        let context = EncodingContextRef::unit_test_context();
+        let input = ImmutableBuffer::new(context, input.as_ref());
         // We can peek at the first byte...
         assert_eq!(input.peek_next_byte(), Some(b'f'));
         // ...without modifying the input. Looking at the next 3 bytes still includes 'f'.
@@ -520,12 +577,12 @@ mod tests {
     fn validate_nop_length() {
         // read_nop_pad reads a single NOP value, this test ensures that we're tracking the right
         // size for these values.
-        let allocator = BumpAllocator::new();
-        let buffer = ImmutableBuffer::new(&allocator, &[0xECu8]);
+        let context = EncodingContextRef::unit_test_context();
+        let buffer = ImmutableBuffer::new(context, &[0xECu8]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 1);
 
-        let buffer = ImmutableBuffer::new(&allocator, &[0xEDu8, 0x05, 0x00, 0x00]);
+        let buffer = ImmutableBuffer::new(context, &[0xEDu8, 0x05, 0x00, 0x00]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 4);
     }

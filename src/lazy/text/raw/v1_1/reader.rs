@@ -5,7 +5,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 
 use bumpalo::collections::Vec as BumpVec;
-use bumpalo::Bump as BumpAllocator;
 use nom::character::streaming::satisfy;
 
 use crate::lazy::any_encoding::IonEncoding;
@@ -17,6 +16,7 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBufferView;
@@ -52,13 +52,13 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
 
     fn next<'top>(
         &'top mut self,
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_1>>
     where
         'data: 'top,
     {
         let input = TextBufferView::new_with_offset(
-            allocator,
+            context,
             &self.input[self.local_offset..],
             self.stream_offset + self.local_offset,
         );
@@ -746,12 +746,12 @@ mod tests {
     use super::*;
 
     fn expect_next<'top, 'data: 'top>(
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
         reader: &'top mut LazyRawTextReader_1_1<'data>,
         expected: RawValueRef<'top, TextEncoding_1_1>,
     ) {
         let lazy_value = reader
-            .next(allocator)
+            .next(context)
             .expect("advancing the reader failed")
             .expect_value()
             .expect("expected a value");
@@ -775,18 +775,18 @@ mod tests {
             false
        "#;
 
-        let allocator = BumpAllocator::new();
+        let context = EncodingContextRef::unit_test_context();
         let reader = &mut LazyRawTextReader_1_1::new(data.as_bytes());
 
         // $ion_1_1
-        assert_eq!(reader.next(&allocator)?.expect_ivm()?.version(), (1, 1));
+        assert_eq!(reader.next(context)?.expect_ivm()?.version(), (1, 1));
         // "foo"
-        expect_next(&allocator, reader, RawValueRef::String("foo".into()));
+        expect_next(context, reader, RawValueRef::String("foo".into()));
         // bar
-        expect_next(&allocator, reader, RawValueRef::Symbol("bar".into()));
+        expect_next(context, reader, RawValueRef::Symbol("bar".into()));
         // (baz null.string)
         let sexp = reader
-            .next(&allocator)?
+            .next(context)?
             .expect_value()?
             .read()?
             .expect_sexp()?;
@@ -801,10 +801,10 @@ mod tests {
         );
         assert!(children.next().is_none());
         // (:quux quuz)
-        let macro_invocation = reader.next(&allocator)?.expect_macro_invocation()?;
+        let macro_invocation = reader.next(context)?.expect_macro_invocation()?;
         assert_eq!(macro_invocation.id, MacroIdRef::LocalName("quux"));
-        expect_next(&allocator, reader, RawValueRef::Int(77.into()));
-        expect_next(&allocator, reader, RawValueRef::Bool(false));
+        expect_next(context, reader, RawValueRef::Int(77.into()));
+        expect_next(context, reader, RawValueRef::Bool(false));
         Ok(())
     }
 }

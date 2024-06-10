@@ -197,7 +197,7 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
     fn read(&self) -> IonResult<RawValueRef<'top, E>> {
         // Get the value's matched input, skipping over any annotations
         let matched_input = self.input.slice_to_end(self.encoded_value.data_offset());
-        let allocator = self.input.allocator;
+        let allocator = self.input.context.allocator;
 
         use crate::lazy::text::matched::MatchedValue::*;
         let value_ref = match self.encoded_value.matched() {
@@ -258,7 +258,7 @@ impl<'top> Iterator for RawTextAnnotationsIterator<'top> {
         let matched_input = self
             .input
             .slice(span.start - self.input.offset(), span.len());
-        let text = match symbol.read(self.input.allocator, matched_input) {
+        let text = match symbol.read(self.input.context.allocator, matched_input) {
             Ok(text) => text,
             Err(e) => {
                 self.has_returned_error = true;
@@ -272,8 +272,7 @@ impl<'top> Iterator for RawTextAnnotationsIterator<'top> {
 
 #[cfg(test)]
 mod tests {
-    use bumpalo::Bump as BumpAllocator;
-
+    use crate::lazy::expanded::EncodingContextRef;
     use crate::lazy::text::buffer::TextBufferView;
     use crate::lazy::text::value::RawTextAnnotationsIterator;
     use crate::{IonResult, RawSymbolRef};
@@ -281,8 +280,8 @@ mod tests {
     #[test]
     fn iterate_annotations() -> IonResult<()> {
         fn test(input: &str) -> IonResult<()> {
-            let allocator = BumpAllocator::new();
-            let input = TextBufferView::new(&allocator, input.as_bytes());
+            let context = EncodingContextRef::unit_test_context();
+            let input = TextBufferView::new(context, input.as_bytes());
             let mut iter = RawTextAnnotationsIterator::new(input);
             assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("foo"));
             assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("bar"));

@@ -336,7 +336,7 @@ fn expand_next_sequence_value<'top, D: Decoder>(
             Some(Ok(RawValueExpr::ValueLiteral(value))) => {
                 return Some(Ok(LazyExpandedValue::from_literal(context, value)))
             }
-            Some(Ok(RawValueExpr::MacroInvocation(invocation))) => {
+            Some(Ok(RawValueExpr::EExp(invocation))) => {
                 let resolved_invocation = match invocation.resolve(context) {
                     Ok(resolved) => resolved,
                     Err(e) => return Some(Err(e)),

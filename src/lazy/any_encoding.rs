@@ -34,6 +34,7 @@ use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, TextEncoding_1_0, TextEncoding_1_1,
 };
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
@@ -54,7 +55,6 @@ use crate::lazy::text::value::{
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
 use crate::{Encoding, IonResult, IonType, RawSymbolRef};
-use bumpalo::Bump as BumpAllocator;
 
 /// An implementation of the `LazyDecoder` trait that can read any encoding of Ion.
 #[derive(Debug, Clone, Copy)]
@@ -262,8 +262,8 @@ impl<'top> Iterator for LazyRawAnyMacroArgsIterator<'top> {
                 Some(Ok(RawValueExpr::ValueLiteral(value))) => {
                     Some(Ok(RawValueExpr::ValueLiteral(LazyRawAnyValue::from(value))))
                 }
-                Some(Ok(RawValueExpr::MacroInvocation(invocation))) => {
-                    Some(Ok(RawValueExpr::MacroInvocation(LazyRawAnyEExpression {
+                Some(Ok(RawValueExpr::EExp(invocation))) => {
+                    Some(Ok(RawValueExpr::EExp(LazyRawAnyEExpression {
                         encoding: LazyRawAnyEExpressionKind::Text_1_1(invocation),
                     })))
                 }
@@ -408,17 +408,17 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
 
     fn next<'top>(
         &'top mut self,
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, AnyEncoding>>
     where
         'data: 'top,
     {
         use RawReaderKind::*;
         match &mut self.encoding {
-            Text_1_0(r) => Ok(r.next(allocator)?.into()),
+            Text_1_0(r) => Ok(r.next(context)?.into()),
             Binary_1_0(r) => Ok(r.next()?.into()),
-            Text_1_1(r) => Ok(r.next(allocator)?.into()),
-            Binary_1_1(r) => Ok(r.next(allocator)?.into()),
+            Text_1_1(r) => Ok(r.next(context)?.into()),
+            Binary_1_1(r) => Ok(r.next(context)?.into()),
         }
     }
 
@@ -517,7 +517,7 @@ impl<'top> From<LazyRawValueExpr<'top, TextEncoding_1_0>> for LazyRawValueExpr<'
     fn from(value: LazyRawValueExpr<'top, TextEncoding_1_0>) -> Self {
         match value {
             RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
-            RawValueExpr::MacroInvocation(_) => unreachable!("macro invocation in text Ion 1.0"),
+            RawValueExpr::EExp(_) => unreachable!("macro invocation in text Ion 1.0"),
         }
     }
 }
@@ -528,7 +528,7 @@ impl<'top> From<LazyRawValueExpr<'top, BinaryEncoding_1_0>>
     fn from(value: LazyRawValueExpr<'top, BinaryEncoding_1_0>) -> Self {
         match value {
             RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
-            RawValueExpr::MacroInvocation(_) => unreachable!("macro invocation in binary Ion 1.0"),
+            RawValueExpr::EExp(_) => unreachable!("macro invocation in binary Ion 1.0"),
         }
     }
 }
@@ -537,11 +537,11 @@ impl<'top> From<LazyRawValueExpr<'top, TextEncoding_1_1>> for LazyRawValueExpr<'
     fn from(value: LazyRawValueExpr<'top, TextEncoding_1_1>) -> Self {
         match value {
             RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
-            RawValueExpr::MacroInvocation(m) => {
+            RawValueExpr::EExp(m) => {
                 let invocation = LazyRawAnyEExpression {
                     encoding: LazyRawAnyEExpressionKind::Text_1_1(m),
                 };
-                RawValueExpr::MacroInvocation(invocation)
+                RawValueExpr::EExp(invocation)
             }
         }
     }
@@ -553,11 +553,11 @@ impl<'top> From<LazyRawValueExpr<'top, BinaryEncoding_1_1>>
     fn from(value: LazyRawValueExpr<'top, BinaryEncoding_1_1>) -> Self {
         match value {
             RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
-            RawValueExpr::MacroInvocation(m) => {
+            RawValueExpr::EExp(m) => {
                 let invocation = LazyRawAnyEExpression {
                     encoding: LazyRawAnyEExpressionKind::Binary_1_1(m),
                 };
-                RawValueExpr::MacroInvocation(invocation)
+                RawValueExpr::EExp(invocation)
             }
         }
     }
@@ -1473,41 +1473,41 @@ mod tests {
     #[test]
     fn any_encoding() -> IonResult<()> {
         fn test_input(data: &[u8]) -> IonResult<()> {
-            let allocator = BumpAllocator::new();
+            let context = EncodingContextRef::unit_test_context();
 
             let mut reader = LazyRawAnyReader::new(data);
-            assert_eq!(reader.next(&allocator)?.expect_ivm()?.version(), (1, 0));
+            assert_eq!(reader.next(context)?.expect_ivm()?.version(), (1, 0));
             let _strukt = reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_struct()?;
-            let name = reader.next(&allocator)?.expect_value()?;
+            let name = reader.next(context)?.expect_value()?;
             assert_eq!(
                 name.annotations().next().unwrap()?,
                 RawSymbolRef::SymbolId(4)
             );
             assert_eq!(name.read()?.expect_string()?.text(), "Gary");
             assert_eq!(
-                reader.next(&allocator)?.expect_value()?.read()?,
+                reader.next(context)?.expect_value()?.read()?,
                 RawValueRef::String("foo".into())
             );
             assert_eq!(
-                reader.next(&allocator)?.expect_value()?.read()?,
+                reader.next(context)?.expect_value()?.read()?,
                 RawValueRef::Int(5.into())
             );
             assert_eq!(
-                reader.next(&allocator)?.expect_value()?.read()?,
+                reader.next(context)?.expect_value()?.read()?,
                 RawValueRef::Timestamp(Timestamp::with_year(2023).with_month(8).build()?)
             );
             assert_eq!(
-                reader.next(&allocator)?.expect_value()?.read()?,
+                reader.next(context)?.expect_value()?.read()?,
                 RawValueRef::Bool(false)
             );
 
             let mut sum = 0;
             for lazy_value_result in reader
-                .next(&allocator)?
+                .next(context)?
                 .expect_value()?
                 .read()?
                 .expect_list()?
@@ -1521,7 +1521,7 @@ mod tests {
             // local symbol table and the raw reader interprets that as a different value.
 
             assert!(matches!(
-                reader.next(&allocator)?,
+                reader.next(context)?,
                 LazyRawStreamItem::<AnyEncoding>::EndOfStream(_)
             ));
             Ok(())
