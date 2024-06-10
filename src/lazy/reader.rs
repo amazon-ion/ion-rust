@@ -1,8 +1,7 @@
 #![allow(non_camel_case_types)]
 
-use crate::{IonError, IonResult};
-use crate::element::Element;
 use crate::element::reader::ElementReader;
+use crate::element::Element;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::streaming_raw_reader::IonInput;
 use crate::lazy::system_reader::SystemReader;
@@ -10,6 +9,7 @@ use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
+use crate::{IonError, IonResult};
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -175,14 +175,14 @@ impl<Encoding: Decoder, Input: IonInput> ElementReader for Reader<Encoding, Inpu
 
 #[cfg(test)]
 mod tests {
-    use crate::{AnyEncoding, Int, ion_list, ion_sexp, ion_struct, IonResult, IonType, v1_0};
-    use crate::element::Element;
     use crate::element::element_writer::ElementWriter;
+    use crate::element::Element;
     use crate::lazy::encoder::writer::Writer;
     use crate::lazy::encoding::BinaryEncoding_1_0;
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;
+    use crate::{ion_list, ion_sexp, ion_struct, v1_0, AnyEncoding, Int, IonResult, IonType};
 
     use super::*;
 
@@ -297,7 +297,10 @@ mod tests {
         let mut reader = Reader::new(AnyEncoding, binary_ion.as_slice())?;
         // Register the template definition, getting the same ID we used earlier.
         let actual_address = reader.register_template(macro_source)?;
-        assert_eq!(macro_address, actual_address, "Assigned macro address did not match expected address.");
+        assert_eq!(
+            macro_address, actual_address,
+            "Assigned macro address did not match expected address."
+        );
         // Use the provided test function to confirm that the data expands to the expected stream.
         test_fn(reader)
     }
@@ -332,7 +335,10 @@ mod tests {
             0x4D, 0x69, 0x63, 0x68, 0x65, 0x6C, 0x6C, 0x65,
         ];
         expand_macro_test(macro_source, encode_macro_fn, |mut reader| {
-            assert_eq!(reader.expect_next()?.read()?.expect_string()?, "Hello, Michelle!");
+            assert_eq!(
+                reader.expect_next()?.read()?.expect_string()?,
+                "Hello, Michelle!"
+            );
             Ok(())
         })
     }
@@ -359,9 +365,18 @@ mod tests {
             0x62, 0x61, 0x6E, 0x61, 0x6E, 0x61
         ];
         expand_macro_test(macro_source, encode_macro_fn, |mut reader| {
-            assert_eq!(reader.expect_next()?.read()?.expect_string()?, "What color is a banana?");
-            assert_eq!(reader.expect_next()?.read()?.expect_string()?, "How much potassium is in a banana?");
-            assert_eq!(reader.expect_next()?.read()?.expect_string()?, "What wine should I pair with a banana?");
+            assert_eq!(
+                reader.expect_next()?.read()?.expect_string()?,
+                "What color is a banana?"
+            );
+            assert_eq!(
+                reader.expect_next()?.read()?.expect_string()?,
+                "How much potassium is in a banana?"
+            );
+            assert_eq!(
+                reader.expect_next()?.read()?.expect_string()?,
+                "What wine should I pair with a banana?"
+            );
             Ok(())
         })
     }
