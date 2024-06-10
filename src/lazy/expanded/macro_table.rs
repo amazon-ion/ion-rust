@@ -85,6 +85,10 @@ impl MacroTable {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.macros_by_address.len()
+    }
+
     pub fn macro_with_id(&'_ self, id: MacroIdRef<'_>) -> Option<MacroRef<'_>> {
         match id {
             MacroIdRef::LocalName(name) => self.macro_with_name(name),

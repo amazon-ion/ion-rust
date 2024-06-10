@@ -1,16 +1,15 @@
 #![allow(non_camel_case_types)]
 
-use crate::element::reader::ElementReader;
+use crate::{IonError, IonResult};
 use crate::element::Element;
+use crate::element::reader::ElementReader;
 use crate::lazy::decoder::Decoder;
-use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::streaming_raw_reader::IonInput;
 use crate::lazy::system_reader::SystemReader;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult};
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -127,8 +126,10 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 }
 
-impl<Input: IonInput> Reader<TextEncoding_1_1, Input> {
-    // Temporary method for defining/testing templates.
+impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
+    // Temporary method for defining/testing templates. This method does not confirm that the
+    // reader's encoding supports macros--that check will happen when encoding directives are
+    // supported.
     // TODO: Remove this when the reader can understand 1.1 encoding directives.
     pub fn register_template(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         self.system_reader
@@ -174,13 +175,14 @@ impl<Encoding: Decoder, Input: IonInput> ElementReader for Reader<Encoding, Inpu
 
 #[cfg(test)]
 mod tests {
-    use crate::element::element_writer::ElementWriter;
+    use crate::{AnyEncoding, Int, ion_list, ion_sexp, ion_struct, IonResult, IonType, v1_0};
     use crate::element::Element;
+    use crate::element::element_writer::ElementWriter;
     use crate::lazy::encoder::writer::Writer;
     use crate::lazy::encoding::BinaryEncoding_1_0;
+    use crate::lazy::expanded::EncodingContext;
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;
-    use crate::{ion_list, ion_sexp, ion_struct, v1_0, Int, IonResult, IonType};
 
     use super::*;
 
@@ -274,5 +276,93 @@ mod tests {
         assert_eq!(reader.read_next_element()?, Some(sexp));
         assert_eq!(reader.read_next_element()?, None);
         Ok(())
+    }
+
+    fn expand_macro_test(
+        macro_source: &str,
+        encode_macro_fn: impl FnOnce(MacroAddress) -> Vec<u8>,
+        test_fn: impl FnOnce(Reader<AnyEncoding, &[u8]>) -> IonResult<()>,
+    ) -> IonResult<()> {
+        // Because readers do not yet understand encoding directives, we'll pre-calculate the
+        // macro ID that will be assigned. Make an empty encoding context...
+        let context = EncodingContext::empty();
+        // ...and see how many macros it contains. This will change as development continues.
+        let macro_address = context.macro_table.len();
+        let opcode_byte = u8::try_from(macro_address).unwrap();
+        // Using that ID, encode a binary stream containing an invocation of the new macro.
+        // This function must add an IVM and the encoded e-expression ID, followed by any number
+        // of arguments that matches the provided signature.
+        let binary_ion = encode_macro_fn(opcode_byte as usize);
+        // Construct a reader for the encoded data.
+        let mut reader = Reader::new(AnyEncoding, binary_ion.as_slice())?;
+        // Register the template definition, getting the same ID we used earlier.
+        let actual_address = reader.register_template(macro_source)?;
+        assert_eq!(macro_address, actual_address, "Assigned macro address did not match expected address.");
+        // Use the provided test function to confirm that the data expands to the expected stream.
+        test_fn(reader)
+    }
+
+    #[test]
+    fn expand_binary_template_macro() -> IonResult<()> {
+        let macro_source = "(macro seventeen () 17)";
+        let encode_macro_fn = |address| vec![0xE0, 0x01, 0x01, 0xEA, address as u8];
+        expand_macro_test(macro_source, encode_macro_fn, |mut reader| {
+            assert_eq!(reader.expect_next()?.read()?.expect_i64()?, 17);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn expand_binary_template_macro_with_one_arg() -> IonResult<()> {
+        let macro_source = r#"
+            (macro greet (name)
+                (make_string "Hello, " name "!")
+            )
+        "#;
+        #[rustfmt::skip]
+        let encode_macro_fn = |address| vec![
+            // === 1.1 IVM ===
+            0xE0, 0x01, 0x01, 0xEA,
+            // === Macro ID ===
+            address as u8,
+            // === Arg 1 ===
+            // 8-byte string
+            0x98,
+            // M     i     c     h     e     l     l     e
+            0x4D, 0x69, 0x63, 0x68, 0x65, 0x6C, 0x6C, 0x65,
+        ];
+        expand_macro_test(macro_source, encode_macro_fn, |mut reader| {
+            assert_eq!(reader.expect_next()?.read()?.expect_string()?, "Hello, Michelle!");
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn expand_binary_template_macro_with_multiple_outputs() -> IonResult<()> {
+        let macro_source = r#"
+            (macro questions (food)
+                (values
+                    (make_string "What color is a " food "?")
+                    (make_string "How much potassium is in a " food "?")
+                    (make_string "What wine should I pair with a " food "?")))
+        "#;
+        #[rustfmt::skip]
+            let encode_macro_fn = |address| vec![
+            // === 1.1 IVM ===
+            0xE0, 0x01, 0x01, 0xEA,
+            // === Macro ID ===
+            address as u8,
+            // === Arg 1 ===
+            // 6-byte string
+            0x96,
+            // b     a     n     a     n     a
+            0x62, 0x61, 0x6E, 0x61, 0x6E, 0x61
+        ];
+        expand_macro_test(macro_source, encode_macro_fn, |mut reader| {
+            assert_eq!(reader.expect_next()?.read()?.expect_string()?, "What color is a banana?");
+            assert_eq!(reader.expect_next()?.read()?.expect_string()?, "How much potassium is in a banana?");
+            assert_eq!(reader.expect_next()?.read()?.expect_string()?, "What wine should I pair with a banana?");
+            Ok(())
+        })
     }
 }

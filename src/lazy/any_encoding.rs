@@ -194,6 +194,13 @@ impl<'top> From<RawTextEExpression_1_1<'top>> for LazyRawAnyEExpression<'top> {
         }
     }
 }
+impl<'top> From<RawBinaryEExpression_1_1<'top>> for LazyRawAnyEExpression<'top> {
+    fn from(binary_invocation: RawBinaryEExpression_1_1<'top>) -> Self {
+        LazyRawAnyEExpression {
+            encoding: LazyRawAnyEExpressionKind::Binary_1_1(binary_invocation),
+        }
+    }
+}
 
 impl<'top> HasSpan<'top> for LazyRawAnyEExpression<'top> {
     fn span(&self) -> Span<'top> {
@@ -222,21 +229,19 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
         use LazyRawAnyEExpressionKind::*;
         match self.encoding {
             Text_1_1(ref m) => m.id(),
-            Binary_1_1(_) => {
-                todo!("macros in binary Ion 1.1 are not implemented")
-            }
+            Binary_1_1(ref m) => m.id(),
         }
     }
 
     fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
         use LazyRawAnyEExpressionKind::*;
         match self.encoding {
-            Text_1_1(m) => LazyRawAnyMacroArgsIterator {
-                encoding: LazyRawAnyMacroArgsIteratorKind::Text_1_1(m.raw_arguments()),
+            Text_1_1(e) => LazyRawAnyMacroArgsIterator {
+                encoding: LazyRawAnyMacroArgsIteratorKind::Text_1_1(e.raw_arguments()),
             },
-            Binary_1_1(_) => {
-                todo!("macros in binary Ion 1.1 are not yet implemented")
-            }
+            Binary_1_1(e) => LazyRawAnyMacroArgsIterator {
+                encoding: LazyRawAnyMacroArgsIteratorKind::Binary_1_1(e.raw_arguments()),
+            },
         }
     }
 }
@@ -248,6 +253,12 @@ pub enum LazyRawAnyMacroArgsIteratorKind<'top> {
                 TextEncoding_1_1,
             >>::RawArgumentsIterator<'top>,
     ),
+    Binary_1_1(
+        <RawBinaryEExpression_1_1<'top> as RawEExpression<
+            'top,
+            BinaryEncoding_1_1,
+        >>::RawArgumentsIterator<'top>,
+    ),
 }
 pub struct LazyRawAnyMacroArgsIterator<'top> {
     encoding: LazyRawAnyMacroArgsIteratorKind<'top>,
@@ -257,14 +268,26 @@ impl<'top> Iterator for LazyRawAnyMacroArgsIterator<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, AnyEncoding>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.encoding {
-            LazyRawAnyMacroArgsIteratorKind::Text_1_1(mut iter) => match iter.next() {
+        match &mut self.encoding {
+            LazyRawAnyMacroArgsIteratorKind::Text_1_1(ref mut iter) => match iter.next() {
                 Some(Ok(RawValueExpr::ValueLiteral(value))) => {
                     Some(Ok(RawValueExpr::ValueLiteral(LazyRawAnyValue::from(value))))
                 }
                 Some(Ok(RawValueExpr::EExp(invocation))) => {
                     Some(Ok(RawValueExpr::EExp(LazyRawAnyEExpression {
                         encoding: LazyRawAnyEExpressionKind::Text_1_1(invocation),
+                    })))
+                }
+                Some(Err(e)) => Some(Err(e)),
+                None => None,
+            },
+            LazyRawAnyMacroArgsIteratorKind::Binary_1_1(ref mut iter) => match iter.next() {
+                Some(Ok(RawValueExpr::ValueLiteral(value))) => {
+                    Some(Ok(RawValueExpr::ValueLiteral(LazyRawAnyValue::from(value))))
+                }
+                Some(Ok(RawValueExpr::EExp(invocation))) => {
+                    Some(Ok(RawValueExpr::EExp(LazyRawAnyEExpression {
+                        encoding: LazyRawAnyEExpressionKind::Binary_1_1(invocation),
                     })))
                 }
                 Some(Err(e)) => Some(Err(e)),
@@ -723,8 +746,8 @@ impl<'top> From<LazyRawStreamItem<'top, BinaryEncoding_1_1>>
             LazyRawStreamItem::<BinaryEncoding_1_1>::Value(value) => {
                 LazyRawStreamItem::<AnyEncoding>::Value(value.into())
             }
-            LazyRawStreamItem::<BinaryEncoding_1_1>::EExpression(_) => {
-                todo!("Macro invocations not yet implemented in binary 1.1")
+            LazyRawStreamItem::<BinaryEncoding_1_1>::EExpression(eexp) => {
+                LazyRawStreamItem::<AnyEncoding>::EExpression(eexp.into())
             }
             LazyRawStreamItem::<BinaryEncoding_1_1>::EndOfStream(end) => {
                 LazyRawStreamItem::<AnyEncoding>::EndOfStream(end)

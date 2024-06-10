@@ -58,6 +58,8 @@ impl Opcode {
         use OpcodeType::*;
 
         let (opcode_type, length_code, ion_type) = match (high_nibble, low_nibble) {
+            (0x0..=0x4, _) => (EExpressionWithAddress, low_nibble, None),
+            (0x5, _) => (EExpressionAddressFollows, low_nibble, None),
             (0x6, 0x0..=0x8) => (Integer, low_nibble, Some(IonType::Int)),
             (0x6, 0xA..=0xD) => (Float, low_nibble, Some(IonType::Float)),
             (0x6, 0xE..=0xF) => (Boolean, low_nibble, Some(IonType::Bool)),

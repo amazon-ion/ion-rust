@@ -308,7 +308,7 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
         let capacity_hint = num_args_hint.1.unwrap_or(num_args_hint.0);
         let mut args = BumpVec::with_capacity_in(capacity_hint, allocator);
 
-        for arg in invocation.arguments(self.environment()) {
+        for arg in args_iter {
             args.push(arg?);
         }
         let environment = Environment::new(args);

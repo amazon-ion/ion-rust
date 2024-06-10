@@ -77,7 +77,7 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for RawBinaryEExpression_1_1<'top>
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct RawBinarySequenceCacheIterator_1_1<'top> {
     child_exprs: &'top [LazyRawValueExpr<'top, v1_1::Binary>],
     index: usize,

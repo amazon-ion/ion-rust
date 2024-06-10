@@ -462,7 +462,7 @@ impl<'a> ImmutableBuffer<'a> {
                 MacroIdRef::LocalAddress(opcode.byte as usize),
                 self.consume(1),
             ),
-            EExpressionAddressFollows => todo!("e-expr with trailing address"),
+            EExpressionAddressFollows => todo!("e-expr with trailing address; {opcode:#0x?}",),
             _ => unreachable!("read_e_expression called with invalid opcode"),
         };
 
@@ -476,6 +476,7 @@ impl<'a> ImmutableBuffer<'a> {
             .ok_or_else(|| {
                 IonError::decoding_error(format!("invocation of unknown macro '{macro_id:?}'"))
             })?;
+        println!("{macro_def:?}");
         use MacroKind::*;
         let num_parameters = match macro_def.kind() {
             Template(t) => t.signature().parameters().len(),
@@ -483,13 +484,14 @@ impl<'a> ImmutableBuffer<'a> {
             _ => todo!("system macros require support for argument group encoding"),
         };
 
-        let mut args_buffer = buffer_after_id;
         let args_cache = self
             .context
             .allocator()
             .alloc_with(|| BumpVec::with_capacity_in(num_parameters, self.context.allocator()));
+        // `args_buffer` will be partially consumed in each iteration of the loop below.
+        let mut args_buffer = buffer_after_id;
         for _ in 0..num_parameters {
-            let value_expr = match buffer_after_id.peek_sequence_value_expr()? {
+            let value_expr = match args_buffer.peek_sequence_value_expr()? {
                 Some(expr) => expr,
                 None => {
                     return IonResult::incomplete(
@@ -502,7 +504,7 @@ impl<'a> ImmutableBuffer<'a> {
             args_cache.push(value_expr);
         }
         let macro_id_encoded_length = buffer_after_id.offset() - self.offset();
-        let args_length = args_buffer.offset() - buffer_after_id.offset();
+        let args_length = args_buffer.offset() + args_buffer.len() - buffer_after_id.offset();
         let e_expression_buffer = self.slice(0, macro_id_encoded_length + args_length);
 
         let e_expression = RawBinaryEExpression_1_1::new(
@@ -536,7 +538,10 @@ pub struct EncodedAnnotations {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lazy::expanded::compiler::TemplateCompiler;
+    use crate::lazy::expanded::macro_evaluator::RawEExpression;
     use crate::lazy::expanded::EncodingContext;
+    use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 
     fn input_test<A: AsRef<[u8]>>(input: A) {
         let empty_context = EncodingContext::empty();
@@ -587,10 +592,116 @@ mod tests {
         assert_eq!(pad_size, 4);
     }
 
+    fn eexp_test(
+        macro_source: &str,
+        encode_macro_fn: impl FnOnce(MacroAddress) -> Vec<u8>,
+        test_fn: impl FnOnce(RawBinaryEExpression_1_1) -> IonResult<()>,
+    ) -> IonResult<()> {
+        let mut context = EncodingContext::empty();
+        let template_macro = TemplateCompiler::compile_from_text(context.get_ref(), macro_source)?;
+        let macro_address = context.macro_table.add_macro(template_macro)?;
+        let opcode_byte = u8::try_from(macro_address).unwrap();
+        let binary_ion = encode_macro_fn(opcode_byte as usize);
+        let buffer = ImmutableBuffer::new(context.get_ref(), &binary_ion);
+        let eexp = buffer.read_e_expression(Opcode::from_byte(opcode_byte))?;
+        assert_eq!(eexp.id(), MacroIdRef::LocalAddress(macro_address));
+        println!("{:?}", eexp);
+        assert_eq!(eexp.id, MacroIdRef::LocalAddress(opcode_byte as usize));
+        test_fn(eexp)
+    }
+
     #[test]
-    fn read_e_expressions() {
-        let empty_context = EncodingContext::empty();
-        let context = empty_context.get_ref();
-        // let eexp =
+    fn read_eexp_without_args() -> IonResult<()> {
+        let macro_source = r#"
+            (macro seventeen () 17)
+        "#;
+        let encode_eexp_fn = |address: MacroAddress| vec![address as u8];
+        eexp_test(
+            macro_source,
+            encode_eexp_fn,
+            |eexp: RawBinaryEExpression_1_1| {
+                let mut args = eexp.raw_arguments();
+                assert!(args.next().is_none());
+                Ok(())
+            },
+        )
+    }
+
+    #[test]
+    fn read_eexp_with_one_arg() -> IonResult<()> {
+        let macro_source = r#"
+            (macro greet (name)
+                (make_string "Hello, " name "!")
+            )
+        "#;
+
+        #[rustfmt::skip]
+            let encode_eexp_fn = |address: MacroAddress| vec![
+            address as u8,
+            // === 8-byte string ====
+            0x98,
+            // M     i     c     h     e     l     l     e
+            0x4D, 0x69, 0x63, 0x68, 0x65, 0x6C, 0x6C, 0x65,
+        ];
+
+        let args_test = |eexp: RawBinaryEExpression_1_1| {
+            let mut args = eexp.raw_arguments();
+            assert_eq!(
+                args.next()
+                    .unwrap()?
+                    .expect_value()?
+                    .read()?
+                    .expect_string()?,
+                "Michelle"
+            );
+            Ok(())
+        };
+
+        eexp_test(macro_source, encode_eexp_fn, args_test)
+    }
+
+    #[test]
+    fn read_eexp_with_two_args() -> IonResult<()> {
+        let macro_source = r#"
+            (macro greet (name day)
+                (make_string "Hello, " name "! Have a pleasant " day ".")
+            )
+        "#;
+
+        #[rustfmt::skip]
+        let encode_eexp_fn = |address: MacroAddress| vec![
+            address as u8,
+            // === 8-byte string ====
+            0x98,
+            // M     i     c     h     e     l     l     e
+            0x4D, 0x69, 0x63, 0x68, 0x65, 0x6C, 0x6C, 0x65,
+            // === 7-byte string ===
+            0x97,
+            // T     u     e     s     d     a     y
+            0x54, 0x75, 0x65, 0x73, 0x64, 0x61, 0x79,
+        ];
+
+        let args_test = |eexp: RawBinaryEExpression_1_1| {
+            let mut args = eexp.raw_arguments();
+            assert_eq!(
+                args.next()
+                    .unwrap()?
+                    .expect_value()?
+                    .read()?
+                    .expect_string()?,
+                "Michelle"
+            );
+            assert_eq!(
+                args.next()
+                    .unwrap()?
+                    .expect_value()?
+                    .read()?
+                    .expect_string()?,
+                "Tuesday"
+            );
+            Ok(())
+        };
+
+        eexp_test(macro_source, encode_eexp_fn, args_test)
     }
 }
