@@ -158,30 +158,19 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// Returns an `ImmutableBuffer` that contains the bytes comprising this value's encoded
     /// annotations sequence.
     fn annotations_sequence(&self) -> ImmutableBuffer<'top> {
-        let offset_and_length = self
-            .encoded_value
-            .annotations_sequence_offset()
-            .map(|offset| {
-                (
-                    offset,
-                    self.encoded_value.annotations_sequence_length().unwrap(),
-                )
-            });
-        let (sequence_offset, sequence_length) = match offset_and_length {
-            None => {
-                // If there are no annotations, return an empty slice starting at the opcode.
-                return self.input.slice(0, 0);
-            }
-            Some(offset_and_length) => offset_and_length,
-        };
-        let local_sequence_offset = sequence_offset - self.input.offset();
-
-        self.input.slice(local_sequence_offset, sequence_length)
+        let sequence = self.input.slice(
+            self.encoded_value.annotations_header_length as usize,
+            self.encoded_value.annotations_sequence_length as usize,
+        );
+        sequence
     }
 
     /// Returns an iterator over this value's unresolved annotation symbols.
     pub fn annotations(&self) -> RawBinaryAnnotationsIterator_1_1<'top> {
-        RawBinaryAnnotationsIterator_1_1::new(self.annotations_sequence())
+        RawBinaryAnnotationsIterator_1_1::new(
+            self.annotations_sequence(),
+            self.encoded_value.annotations_encoding,
+        )
     }
 
     /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,
@@ -217,7 +206,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     }
 
     /// Returns the encoded byte slice representing this value's data.
-    fn value_body(&self) -> IonResult<&'top [u8]> {
+    pub(crate) fn value_body(&self) -> IonResult<&'top [u8]> {
         let value_total_length = self.encoded_value.total_length();
         if self.input.len() < value_total_length {
             return IonResult::incomplete(
@@ -248,7 +237,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Bool);
         let header = &self.encoded_value.header();
         let representation = header.type_code();
-        let value = match (representation, header.length_code) {
+        let value = match (representation, header.low_nibble) {
             (OpcodeType::Boolean, 0xE) => true,
             (OpcodeType::Boolean, 0xF) => false,
             _ => unreachable!("found a boolean value with an illegal length code."),
@@ -262,11 +251,11 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
         let header = &self.encoded_value.header();
         let representation = header.type_code();
-        let value = match (representation, header.length_code as usize) {
+        let value = match (representation, header.low_nibble as usize) {
             (OpcodeType::Integer, 0x0) => 0.into(),
             (OpcodeType::Integer, n) => {
                 // We have n bytes following that make up our integer.
-                self.input.consume(1).read_fixed_int(n)?.0.into()
+                self.available_body().read_fixed_int(n)?.0.into()
             }
             (OpcodeType::LargeInteger, 0x6) => {
                 // We have a FlexUInt size, then big int.
@@ -285,14 +274,14 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         let value = match self.encoded_value.value_body_length {
             8 => {
                 let mut buffer = [0; 8];
-                let val_bytes = self.input.bytes_range(1, 8);
+                let val_bytes = self.available_body().bytes_range(0, 8);
                 buffer[..8].copy_from_slice(val_bytes);
 
                 f64::from_le_bytes(buffer)
             }
             4 => {
                 let mut buffer = [0; 4];
-                let val_bytes = self.input.bytes_range(1, 4);
+                let val_bytes = self.available_body().bytes_range(0, 4);
                 buffer[..4].copy_from_slice(val_bytes);
 
                 f32::from_le_bytes(buffer).into()
@@ -334,7 +323,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         Ok(RawValueRef::Decimal(decimal))
     }
 
-    // Helper method callsed by [`Self::read_timestamp_short`]. Reads the time information from a
+    // Helper method called by [`Self::read_timestamp_short`]. Reads the time information from a
     // timestamp with Unknown or UTC offset.
     fn read_timestamp_short_no_offset_after_minute(
         &self,
@@ -345,7 +334,8 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         const MILLISECONDS_MASK_16BIT: u16 = 0x0F_FC;
         const MICROSECONDS_MASK_32BIT: u32 = 0x3F_FF_FC_00;
 
-        let length_code = self.encoded_value.header.length_code();
+        let length_code = self.encoded_value.header.low_nibble();
+        // An offset bit of `1` indicates UTC while a `0` indicates 'unknown'
         let is_utc = (value_bytes[3] & 0x08) == 0x08;
 
         // Hour & Minute (populated from [`Self::read_timestamp_short`]), just need to know if UTC.
@@ -431,15 +421,13 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         const MICROSECOND_MASK_32BIT: u32 = 0x0F_FF_00;
         const NANOSECOND_MASK_32BIT: u32 = 0x3F_FF_FF_FF;
 
-        let length_code = self.encoded_value.header.length_code();
+        let length_code = self.encoded_value.header.low_nibble();
 
         // Read offset as 15min multiple
         let offset: u16 = u16::from_le_bytes(value_bytes[3..=4].try_into().unwrap())
             .extract_bitmask(OFFSET_MASK_16BIT);
-        // The 7th bit is our sign bit, below we extend it through the rest of the i32, and
-        // multiply by 15 to get the number of minutes.
-        //    https://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
-        let offset: i32 = 15 * (offset as i32 ^ 0x040).wrapping_sub(0x040);
+        const MIN_OFFSET: i32 = -14 * 60; // Western hemisphere, -14:00
+        let offset: i32 = ((offset as i32) * 15) + MIN_OFFSET;
 
         // Hour and Minutes at known offset
         if length_code == 8 {
@@ -493,7 +481,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     fn read_timestamp_short(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
         const MONTH_MASK_16BIT: u16 = 0x07_80;
 
-        let length_code = self.encoded_value.header.length_code();
+        let length_code = self.encoded_value.header.low_nibble();
         let value_bytes = self.value_body()?;
 
         // Year is biased offset by 1970, and is held in the lower 7 bits of the first byte.
@@ -648,9 +636,9 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.
     fn read_symbol_id(&self) -> IonResult<SymbolId> {
         let biases: [usize; 3] = [0, 256, 65792];
-        let length_code = self.encoded_value.header.length_code;
+        let length_code = self.encoded_value.header.low_nibble;
         if (1..=3).contains(&length_code) {
-            let (id, _) = self.input.consume(1).read_fixed_uint(length_code.into())?;
+            let (id, _) = self.available_body().read_fixed_uint(length_code.into())?;
             let id = usize::try_from(id.value())?;
             Ok(id + biases[(length_code - 1) as usize])
         } else {

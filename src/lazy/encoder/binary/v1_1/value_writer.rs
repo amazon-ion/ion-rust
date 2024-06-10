@@ -255,8 +255,8 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     pub fn write_timestamp(mut self, value: &Timestamp) -> IonResult<()> {
         use crate::TimestampPrecision::*;
 
-        const MIN_OFFSET: i32 = -14 * 60; // Western hemisphere, 14:00
-        const MAX_OFFSET: i32 = 14 * 60; // Eastern hemisphere, -14:00
+        const MIN_OFFSET: i32 = -14 * 60; // Western hemisphere, -14:00
+        const MAX_OFFSET: i32 = 14 * 60; // Eastern hemisphere, 14:00
         const SHORT_FORM_OFFSET_RANGE: std::ops::RangeInclusive<i32> = MIN_OFFSET..=MAX_OFFSET;
 
         let precision = value.precision();
@@ -313,8 +313,8 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         // Compute the offset, its width in bits, and how that will affect the opcode and encoded length.
         let (num_offset_bits, offset_value, opcode_adjustment, length_adjustment) =
             match value.offset() {
-                None => (1, 1, 0, 0), // Unknown offset uses a single bit (1); opcode and length stay the same.
-                Some(0) => (1, 0, 0, 0), // UTC uses a single bit (0); opcode and length stay the same.
+                None => (1, 0, 0, 0), // Unknown offset uses a single bit (0); opcode and length stay the same.
+                Some(0) => (1, 1, 0, 0), // UTC uses a single bit (1); opcode and length stay the same.
                 Some(offset_minutes) => {
                     // Bump the opcode to the one the corresponds to the same precision/scale but with a known offset
                     let opcode_adjustment = 5;
@@ -832,6 +832,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ion_data::IonEq;
     use crate::lazy::encoder::annotate::{Annotatable, Annotated};
     use crate::lazy::encoder::annotation_seq::AnnotationSeq;
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
@@ -841,9 +842,11 @@ mod tests {
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::types::float::{FloatRepr, SmallestFloatRepr};
     use crate::{
-        Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
+        v1_1, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
+        Writer,
     };
     use num_traits::FloatConst;
+    use rstest::rstest;
 
     fn encoding_test(
         test: impl FnOnce(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,
@@ -1156,17 +1159,17 @@ mod tests {
             (
                 "2024-06-01T08:00Z",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_0000],
+                &[0x83, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_1000],
             ),
             (
                 "2024-06-15T12:30Z",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_0011],
+                &[0x83, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_1011],
             ),
             (
                 "2024-06-30T16:45Z",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_0101],
+                &[0x83, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_1101],
             ),
             //
             // === Hour & Minute @ Unknown Offset ===
@@ -1174,17 +1177,17 @@ mod tests {
             (
                 "2024-06-01T08:00-00:00",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_1000],
+                &[0x83, 0b0011_0110, 0b0000_1011, 0b0000_1000, 0b0000_0000],
             ),
             (
                 "2024-06-15T12:30-00:00",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_1011],
+                &[0x83, 0b0011_0110, 0b0111_1011, 0b1100_1100, 0b0000_0011],
             ),
             (
                 "2024-06-30T16:45-00:00",
                 //        MYYY_YYYY    DDDD_DMMM    mmmH_HHHH    ...._Ummm
-                &[0x83, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_1101],
+                &[0x83, 0b0011_0110, 0b1111_0011, 0b1011_0000, 0b0000_0101],
             ),
             //
             // === Second @ UTC ===
@@ -1196,7 +1199,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_0000, // ssss_Ummm
+                    0b0000_1000, // ssss_Ummm
                     0b0000_0000, // ...._..ss
                 ],
             ),
@@ -1207,7 +1210,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_0011, // ssss_Ummm
+                    0b1110_1011, // ssss_Ummm
                     0b0000_0001, // ...._..ss
                 ],
             ),
@@ -1218,7 +1221,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_0101, // ssss_Ummm
+                    0b1101_1101, // ssss_Ummm
                     0b0000_0010, // ...._..ss
                 ],
             ),
@@ -1232,7 +1235,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_1000, // ssss_Ummm
+                    0b0000_0000, // ssss_Ummm
                     0b0000_0000, // ...._..ss
                 ],
             ),
@@ -1243,7 +1246,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_1011, // ssss_Ummm
+                    0b1110_0011, // ssss_Ummm
                     0b0000_0001, // ...._..ss
                 ],
             ),
@@ -1254,7 +1257,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_1101, // ssss_Ummm
+                    0b1101_0101, // ssss_Ummm
                     0b0000_0010, // ...._..ss
                 ],
             ),
@@ -1268,7 +1271,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_0000, // ssss_Ummm
+                    0b0000_1000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1280,7 +1283,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_0011, // ssss_Ummm
+                    0b1110_1011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1292,7 +1295,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_0101, // ssss_Ummm
+                    0b1101_1101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1307,7 +1310,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_1000, // ssss_Ummm
+                    0b0000_0000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1319,7 +1322,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_1011, // ssss_Ummm
+                    0b1110_0011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1331,7 +1334,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_1101, // ssss_Ummm
+                    0b1101_0101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ...._ffff
                 ],
@@ -1346,7 +1349,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_0000, // ssss_Ummm
+                    0b0000_1000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1359,7 +1362,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_0011, // ssss_Ummm
+                    0b1110_1011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1372,7 +1375,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_0101, // ssss_Ummm
+                    0b1101_1101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1388,7 +1391,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_1000, // ssss_Ummm
+                    0b0000_0000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1401,7 +1404,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_1011, // ssss_Ummm
+                    0b1110_0011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1414,7 +1417,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_1101, // ssss_Ummm
+                    0b1101_0101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ..ff_ffff
@@ -1430,7 +1433,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_0000, // ssss_Ummm
+                    0b0000_1000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -1444,7 +1447,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_0011, // ssss_Ummm
+                    0b1110_1011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -1458,7 +1461,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_0101, // ssss_Ummm
+                    0b1101_1101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -1475,7 +1478,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0000_1011, // DDDD_DMMM
                     0b0000_1000, // mmmH_HHHH
-                    0b0000_1000, // ssss_Ummm
+                    0b0000_0000, // ssss_Ummm
                     0b0000_0000, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -1489,7 +1492,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b0111_1011, // DDDD_DMMM
                     0b1100_1100, // mmmH_HHHH
-                    0b1110_1011, // ssss_Ummm
+                    0b1110_0011, // ssss_Ummm
                     0b0111_1001, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -1503,7 +1506,7 @@ mod tests {
                     0b0011_0110, // MYYY_YYYY
                     0b1111_0011, // DDDD_DMMM
                     0b1011_0000, // mmmH_HHHH
-                    0b1101_1101, // ssss_Ummm
+                    0b1101_0101, // ssss_Ummm
                     0b1011_0110, // ffff_ffss
                     0b0000_0000, // ffff_ffff
                     0b0000_0000, // ffff_ffff
@@ -2795,6 +2798,172 @@ mod tests {
                 0xA3, 0x62, 0x61, 0x7a, // baz
             ],
         )?;
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::boolean("true false")]
+    #[case::int("1 2 3 4 5")]
+    #[case::annotated_int("foo::1 bar::baz::2 quux::quuz::waldo::3")]
+    #[case::float("2.5e0 -2.5e0 100.2e0 -100.2e0")]
+    #[case::annotated_float("foo::2.5e0 bar::baz::-2.5e0 quux::quuz::waldo::100.2e0")]
+    #[case::float_special("+inf -inf nan")]
+    #[case::decimal("2.5 -2.5 100.2 -100.2")]
+    #[case::decimal_zero("0. 0d0 -0d0 -0.0")]
+    #[case::annotated_decimal("foo::2.5 bar::baz::-2.5 quux::quuz::waldo::100.2")]
+    #[case::timestamp_unknown_offset(
+        r#"
+            2024T
+            2024-06T
+            2024-06-07
+            2024-06-07T10:06-00:00
+            2024-06-07T10:06:30-00:00
+            2024-06-07T10:06:30.333-00:00
+        "#
+    )]
+    #[case::timestamp_utc(
+        r#"
+            2024-06-07T10:06Z
+            2024-06-07T10:06+00:00
+            2024-06-07T10:06:30Z
+            2024-06-07T10:06:30+00:00
+            2024-06-07T10:06:30.333Z
+            2024-06-07T10:06:30.333+00:00
+        "#
+    )]
+    #[case::timestamp_known_offset(
+        r#"
+            2024-06-07T10:06+02:00
+            2024-06-07T10:06+01:00
+            2024-06-07T10:06-05:00
+            2024-06-07T10:06-08:00
+            2024-06-07T10:06:30+02:00
+            2024-06-07T10:06:30+01:00
+            2024-06-07T10:06:30-05:00
+            2024-06-07T10:06:30-08:00
+            2024-06-07T10:06:30.333+02:00
+            2024-06-07T10:06:30.333+01:00
+            2024-06-07T10:06:30.333-05:00
+            2024-06-07T10:06:30.333-08:00
+        "#
+    )]
+    #[case::annotated_timestamp(
+        r#"
+            foo::2024T
+            bar::baz::2024-06T
+            quux::quuz::waldo::2024-06-07T
+        "#
+    )]
+    #[case::string(
+        r#"
+            ""
+            "hello"
+            "안녕하세요"
+            "⚛️"
+        "#
+    )]
+    #[case::annotated_string(
+        r#"
+            foo::""
+            bar::baz::"안녕하세요"
+            quux::quuz::waldo::"⚛️"
+        "#
+    )]
+    #[case::symbol(
+        r#"
+            foo
+            'bar baz'
+        "#
+    )]
+    #[case::annotated_symbol(
+        r#"
+        foo::Earth
+        bar::baz::Mars
+        quux::quuz::waldo::Jupiter
+    "#
+    )]
+    #[case::symbol_unknown_text("$0")]
+    #[case::blob("{{}} {{aGVsbG8=}}")]
+    #[case::annotated_blob(
+        r#"
+            foo::{{}}
+            bar::baz::{{aGVsbG8=}}
+            quux::quuz::waldo::{{aGVsbG8=}}
+        "#
+    )]
+    #[case::clob(r#"{{""}} {{"hello"}}"#)]
+    #[case::annotated_clob(
+        r#"
+            foo::{{""}}
+            bar::baz::{{"hello"}}
+            quux::quuz::waldo::{{"world"}}
+        "#
+    )]
+    #[case::list(
+        r#"
+            []
+            [1, 2, 3]
+            [1, [2, 3], 4]
+        "#
+    )]
+    #[case::annotated_list(
+        r#"
+            foo::[]
+            bar::baz::[1, 2, 3]
+            quux::quuz::waldo::[1, nested::[2, 3], 4]
+        "#
+    )]
+    #[case::sexp(
+        r#"
+            ()
+            (1 2 3)
+            (1 (2 3) 4)
+        "#
+    )]
+    #[case::annotated_sexp(
+        r#"
+            foo::()
+            bar::baz::(1 2 3)
+            quux::quuz::waldo::(1 nested::(2 3) 4)
+        "#
+    )]
+    #[case::struct_(
+        r#"
+            {}
+            {a: 1, b: 2, c: 3}
+            {a: 1, b: {c: 2, d: 3}, e: 4}
+        "#
+    )]
+    #[case::annotated_struct(
+        r#"
+            foo::{}
+            bar::baz::{a: 1, b: 2, c: 3}
+            quux::quuz::waldo::{a: 1, b: nested::{c: 2, d: 3}, e: 4}
+        "#
+    )]
+    fn roundtripping(#[case] ion_data_1_0: &str) -> IonResult<()> {
+        // This test uses application-level readers and writers to do its roundtripping. This means
+        // that tests involving annotations, symbol values, or struct field names will produce a
+        // symbol table.
+        let original_sequence = Element::read_all(ion_data_1_0)?;
+        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+        writer.write_all(&original_sequence)?;
+        let binary_data_1_1 = writer.close()?;
+        let output_sequence = Element::read_all(binary_data_1_1)?;
+        assert!(
+            original_sequence.ion_eq(&output_sequence),
+            "(original, after roundtrip)\n{}",
+            original_sequence.iter().zip(output_sequence.iter()).fold(
+                String::new(),
+                |mut text, (before, after)| {
+                    use std::fmt::Write;
+                    let is_eq = before.ion_eq(after);
+                    let flag = if is_eq { "" } else { "<- not IonEq" };
+                    writeln!(&mut text, "({}, {}) {}", before, after, flag).unwrap();
+                    text
+                }
+            )
+        );
         Ok(())
     }
 }

@@ -8,7 +8,7 @@ use crate::IonType;
 pub struct Opcode {
     pub opcode_type: OpcodeType,
     pub ion_type: Option<IonType>,
-    pub length_code: u8,
+    pub low_nibble: u8,
 }
 
 /// A statically defined array of TypeDescriptor that allows a binary reader to map a given
@@ -34,7 +34,7 @@ static ION_1_1_TIMESTAMP_SHORT_SIZE: [u8; 13] = [1, 2, 2, 4, 5, 6, 7, 8, 5, 5, 7
 const DEFAULT_HEADER: Opcode = Opcode {
     opcode_type: OpcodeType::Nop,
     ion_type: None,
-    length_code: 0,
+    low_nibble: 0,
 };
 
 pub(crate) const fn init_opcode_cache() -> [Opcode; 256] {
@@ -68,6 +68,7 @@ impl Opcode {
             (0xD, _) => (Struct, low_nibble, Some(IonType::Struct)),
             (0xE, 0x0) => (IonVersionMarker, low_nibble, None),
             (0xE, 0x1..=0x3) => (SymbolAddress, low_nibble, Some(IonType::Symbol)),
+            (0xE, 0x7..=0x9) => (AnnotationFlexSym, low_nibble, None),
             (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xB) => (TypedNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xC..=0xD) => (Nop, low_nibble, None),
@@ -86,7 +87,7 @@ impl Opcode {
         Opcode {
             ion_type,
             opcode_type,
-            length_code,
+            low_nibble: length_code,
         }
     }
 
@@ -102,8 +103,13 @@ impl Opcode {
         self.opcode_type == OpcodeType::IonVersionMarker
     }
 
-    pub fn is_annotation_wrapper(&self) -> bool {
-        false
+    pub fn is_annotations_sequence(&self) -> bool {
+        use OpcodeType::*;
+        matches!(self.opcode_type, AnnotationSymAddress | AnnotationFlexSym)
+    }
+
+    pub fn low_nibble(&self) -> u8 {
+        self.low_nibble
     }
 
     #[inline]
@@ -112,7 +118,7 @@ impl Opcode {
         let header = Header {
             ion_type,
             ion_type_code: self.opcode_type,
-            length_code: self.length_code,
+            low_nibble: self.low_nibble,
         };
         Some(header)
     }
@@ -134,27 +140,27 @@ pub struct Header {
     // The only time the `ion_type_code` is required is to distinguish between positive
     // and negative integers.
     pub ion_type_code: OpcodeType,
-    pub length_code: u8,
+    pub low_nibble: u8,
 }
 
 impl Header {
     pub fn length_type(&self) -> LengthType {
         use LengthType::*;
-        match (self.ion_type_code, self.length_code) {
+        match (self.ion_type_code, self.low_nibble) {
             (OpcodeType::Boolean, 0xE..=0xF) => InOpcode(0),
             (OpcodeType::Float, 0xA) => InOpcode(0),
-            (OpcodeType::Float, 0xB..=0xD) => InOpcode(1 << (self.length_code - 0xA)),
+            (OpcodeType::Float, 0xB..=0xD) => InOpcode(1 << (self.low_nibble - 0xA)),
             (OpcodeType::Integer, n) => InOpcode(n),
             (OpcodeType::Nop, 0xC) => InOpcode(0),
             (OpcodeType::NullNull, 0xA) => InOpcode(0),
-            (OpcodeType::String, 0..=15) => InOpcode(self.length_code),
+            (OpcodeType::String, 0..=15) => InOpcode(self.low_nibble),
             (OpcodeType::InlineSymbol, n) if n < 16 => InOpcode(n),
             (OpcodeType::SymbolAddress, n) if n < 4 => InOpcode(n),
-            (OpcodeType::Decimal, 0..=15) => InOpcode(self.length_code),
+            (OpcodeType::Decimal, 0..=15) => InOpcode(self.low_nibble),
             (OpcodeType::List, n) if n < 16 => InOpcode(n),
             (OpcodeType::SExpression, n) if n < 16 => InOpcode(n),
             (OpcodeType::TimestampShort, 0..=12) => {
-                InOpcode(ION_1_1_TIMESTAMP_SHORT_SIZE[self.length_code as usize])
+                InOpcode(ION_1_1_TIMESTAMP_SHORT_SIZE[self.low_nibble as usize])
             }
             (OpcodeType::TypedNull, _) => InOpcode(1),
             (OpcodeType::Struct, n) if n < 16 => InOpcode(n),
@@ -174,8 +180,8 @@ impl EncodedHeader for Header {
         self.ion_type_code
     }
 
-    fn length_code(&self) -> u8 {
-        self.length_code
+    fn low_nibble(&self) -> u8 {
+        self.low_nibble
     }
 
     fn is_null(&self) -> bool {
